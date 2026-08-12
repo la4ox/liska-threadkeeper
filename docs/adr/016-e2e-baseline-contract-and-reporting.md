@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-07-04) — amends the behavior described in DES-015
+Superseded by [ADR-030](030-supported-maintainer-tooling.md) (2026-08-12).
+
+Previously accepted (2026-07-04) and amended DES-015.
 
 ## Context
 

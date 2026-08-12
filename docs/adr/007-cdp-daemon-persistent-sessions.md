@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-03-23)
+Superseded by [ADR-030](030-supported-maintainer-tooling.md) (2026-08-12).
 
 ## Context
 
@@ -28,6 +28,7 @@ Replace the storageState injection approach with a **persistent Chrome CDP daemo
 ### Why CDP connection avoids bot detection
 
 When Chrome is launched as a normal process (not by Playwright):
+
 - `navigator.webdriver` is `false`
 - No `--enable-automation` flag
 - Browser fingerprint matches a regular Chrome installation
@@ -47,19 +48,19 @@ Chrome (24/7, headless)  ←── CDP port 9222
 
 ### Files
 
-| Action | File |
-|--------|------|
-| Create | `e2e/shared/chrome-finder.ts` (extracted from setup-profile.ts) |
-| Create | `e2e/shared/cdp-utils.ts` (extracted from setup-profile.ts) |
-| Create | `e2e/daemon/config.ts` |
-| Create | `e2e/daemon/types.ts` |
-| Create | `e2e/daemon/pid-manager.ts` |
-| Create | `e2e/daemon/chrome-launcher.ts` |
-| Create | `e2e/daemon/keep-alive.ts` |
-| Create | `e2e/daemon/daemon.ts` (CLI entry point) |
+| Action | File                                                             |
+| ------ | ---------------------------------------------------------------- |
+| Create | `e2e/shared/chrome-finder.ts` (extracted from setup-profile.ts)  |
+| Create | `e2e/shared/cdp-utils.ts` (extracted from setup-profile.ts)      |
+| Create | `e2e/daemon/config.ts`                                           |
+| Create | `e2e/daemon/types.ts`                                            |
+| Create | `e2e/daemon/pid-manager.ts`                                      |
+| Create | `e2e/daemon/chrome-launcher.ts`                                  |
+| Create | `e2e/daemon/keep-alive.ts`                                       |
+| Create | `e2e/daemon/daemon.ts` (CLI entry point)                         |
 | Create | `e2e/selectors/browser-provider.ts` (CDP/standalone auto-switch) |
-| Modify | `e2e/auth/setup-profile.ts` (use shared modules, daemon check) |
-| Modify | `e2e/selectors/smoke-test.spec.ts` (use browser-provider) |
+| Modify | `e2e/auth/setup-profile.ts` (use shared modules, daemon check)   |
+| Modify | `e2e/selectors/smoke-test.spec.ts` (use browser-provider)        |
 
 ## Alternatives Considered
 
@@ -77,12 +78,12 @@ Run Gemini/Perplexity automatically, Claude/ChatGPT only after manual auth. Reje
 
 ## Risks
 
-| Risk | Mitigation |
-|------|------------|
-| `--headless=new` detected by Claudeflare | Fallback: headed Chrome with off-screen window position |
-| Chrome crashes overnight | Daemon detects crash via PID check, user notified via Obsidian |
-| Session cookies lost on Chrome restart | Persistent cookies survive in profile; session-only cookies refreshed by SPA on page load |
-| CDP `connectOverCDP` lower fidelity | Acceptable: tests only use `page.evaluate()` for `querySelectorAll`, no complex interaction |
+| Risk                                     | Mitigation                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `--headless=new` detected by Claudeflare | Fallback: headed Chrome with off-screen window position                                     |
+| Chrome crashes overnight                 | Daemon detects crash via PID check, user notified via Obsidian                              |
+| Session cookies lost on Chrome restart   | Persistent cookies survive in profile; session-only cookies refreshed by SPA on page load   |
+| CDP `connectOverCDP` lower fidelity      | Acceptable: tests only use `page.evaluate()` for `querySelectorAll`, no complex interaction |
 
 ## Consequences
 
@@ -103,6 +104,7 @@ Run Gemini/Perplexity automatically, Claude/ChatGPT only after manual auth. Reje
 ### Future: Linux (Debian) Deployment
 
 Document but do not implement yet:
+
 - systemd service for Chrome daemon
 - Xvfb virtual display if headless detection is an issue
 - `CHROME_PATH` for Chromium binary on Linux

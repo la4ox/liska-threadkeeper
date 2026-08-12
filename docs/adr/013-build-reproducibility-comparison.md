@@ -44,8 +44,8 @@ container bytes. (Reproducible Builds project; see References.)
 
 Compare the **extracted file contents**, not the ZIP container.
 
-The tool (`scripts/compare-build.mjs` + `scripts/lib/build-compare.mjs`,
-exposed as `nix run .#compare-build` / `npm run compare-build`):
+The tool (`scripts/compare-build.mjs` + `scripts/lib/build-compare.mjs`, exposed
+as `npm run compare-build`):
 
 1. Builds locally (`npm run build`) into `dist/`.
 2. Obtains the release artifact with `gh release download`, using the pattern
@@ -74,9 +74,8 @@ toolchain and expect equality.
 ## Consequences
 
 - A reliable, scriptable equality gate that ignores ZIP-container noise.
-- `diffoscope` is provided via the Nix `compare-build` app's `runtimeInputs`,
-  so the drill-down works without a separate install. The gate itself
-  (manifest diff) needs no diffoscope.
+- The gate itself needs no `diffoscope`; maintainers may install it separately
+  for human-readable drill-down when a mismatch occurs.
 - GitHub Releases are the supported retrieval path, via `gh release download`.
 - The exclusion list lives in one place (`isExcluded` in
   `scripts/lib/build-compare.mjs`) and must be kept in sync with `build:zip`

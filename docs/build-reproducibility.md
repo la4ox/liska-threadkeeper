@@ -10,16 +10,16 @@ For the design rationale, see
 
 ```bash
 # Compare your local build against the latest release zip
-nix run .#compare-build              # or: npm run compare-build
+npm run compare-build
 
 # Compare against a specific release tag
-nix run .#compare-build -- --tag v1.2.16
+npm run compare-build -- --tag v3.0.0
 
 # Compare against a zip you already downloaded
-nix run .#compare-build -- --ci-zip ./liska-threadkeeper-3.0.0.zip
+npm run compare-build -- --ci-zip ./liska-threadkeeper-3.0.0.zip
 
 # Just check that your own build is deterministic (no network)
-nix run .#compare-build -- --twice
+npm run compare-build -- --twice
 ```
 
 Exit code: `0` = identical, `1` = builds differ, `2` = operational error.
@@ -60,8 +60,8 @@ Investigate with:
 Run with `--keep` first so the extracted CI dir is retained, then run the
 `diffoscope` command to see exactly which bytes differ.
 [diffoscope](https://reproducible-builds.org/tools/) recursively unpacks and
-diffs archives and binaries in human-readable form. It is bundled into the Nix
-`compare-build` app, so it is already on `PATH` when you run via `nix`.
+diffs archives and binaries in human-readable form. It is an optional external
+diagnostic tool, not required for the pass/fail comparison.
 
 ### Common causes of a real mismatch
 

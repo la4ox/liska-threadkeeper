@@ -2,7 +2,9 @@
 
 ## Status
 
-Superseded by [ADR-010](010-nix-only-dev-environment.md) (2026-05-01).
+Superseded by [ADR-010](010-nix-only-dev-environment.md) (2026-05-01), then
+retired with the Nix task surface by [ADR-030](030-supported-maintainer-tooling.md)
+(2026-08-12).
 
 The "nixpkgs Node lags upstream" rationale (cited as the reason to keep mise as the Node manager) was empirically refuted: `pkgs.nodejs_24` in `nixpkgs-25.11-darwin` resolves to **24.15.0** (bit-identical to the upstream LTS and to the mise pin recorded here), with bundled npm 11.12.1, and is in the darwin binary cache. ADR-010 records the migration to a single-tool nix architecture.
 
@@ -37,31 +39,31 @@ Adopt a **layered architecture**:
 
 ### Concrete settings
 
-| Decision | Value | Rationale |
-|---|---|---|
-| Node major | **24** | Match current host; bundles npm 11 — eliminates npm divergence vs host. |
-| Node pin strategy | **`mise.lock`** | mise's own docs recommend it over inline `mise.toml` pins for reproducibility. |
-| npm | **Node-bundled (npm 11.x)** | No separate pin needed once Node 24 is used. |
-| nixpkgs channel | **`nixpkgs-25.11-darwin`** | Per nix.dev FAQ, macOS users should use `nixpkgs-*-darwin` channels (Hydra-tested darwin pre-builds). No `*-stable` alias exists in nixpkgs; `YY.MM` form is canonical. |
-| nix `experimental-features` enable | **`~/.config/nix/nix.conf`** (user scope) | Flakes are not enabled by default on upstream Nix 2.34.6; user-level config avoids `sudo` and is per-developer. |
-| direnv variant | **`nix-direnv`** | Caches flake evaluation (near-instant subsequent entries) and adds gcroots so deps survive `nix-collect-garbage`. Plain `use flake` re-evaluates on every `cd`. |
-| Playwright Chrome | **Host system Chrome** | Daemon explicitly avoids Playwright-bundled Chromium for bot-detection bypass; nixpkgs `google-chrome` is unfree and unavailable on `aarch64-darwin`. |
-| `[tasks.*]` in mise.toml | Deferred | `package.json` scripts already cover the surface area. |
-| CI migration | Deferred (separate PR) | Keep `actions/setup-node@v4` until a focused follow-up. |
+| Decision                           | Value                                     | Rationale                                                                                                                                                               |
+| ---------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node major                         | **24**                                    | Match current host; bundles npm 11 — eliminates npm divergence vs host.                                                                                                 |
+| Node pin strategy                  | **`mise.lock`**                           | mise's own docs recommend it over inline `mise.toml` pins for reproducibility.                                                                                          |
+| npm                                | **Node-bundled (npm 11.x)**               | No separate pin needed once Node 24 is used.                                                                                                                            |
+| nixpkgs channel                    | **`nixpkgs-25.11-darwin`**                | Per nix.dev FAQ, macOS users should use `nixpkgs-*-darwin` channels (Hydra-tested darwin pre-builds). No `*-stable` alias exists in nixpkgs; `YY.MM` form is canonical. |
+| nix `experimental-features` enable | **`~/.config/nix/nix.conf`** (user scope) | Flakes are not enabled by default on upstream Nix 2.34.6; user-level config avoids `sudo` and is per-developer.                                                         |
+| direnv variant                     | **`nix-direnv`**                          | Caches flake evaluation (near-instant subsequent entries) and adds gcroots so deps survive `nix-collect-garbage`. Plain `use flake` re-evaluates on every `cd`.         |
+| Playwright Chrome                  | **Host system Chrome**                    | Daemon explicitly avoids Playwright-bundled Chromium for bot-detection bypass; nixpkgs `google-chrome` is unfree and unavailable on `aarch64-darwin`.                   |
+| `[tasks.*]` in mise.toml           | Deferred                                  | `package.json` scripts already cover the surface area.                                                                                                                  |
+| CI migration                       | Deferred (separate PR)                    | Keep `actions/setup-node@v4` until a focused follow-up.                                                                                                                 |
 
 ### Architecture rejected: nix-only or mise-only
 
-| Alternative | Rejected because |
-|---|---|
-| **mise-only with `nix:` backend** (jbadeau/mise-nix plugin) | Plugin resolves through nixhub.io, not the host's flake registry — no `flake.lock` produced, weaker reproducibility than a real flake. |
-| **nix-flake primary, mise demoted to task-runner** | Wastes mise's primary feature (Node version management). nixpkgs Node updates lag upstream; bumping Node would require a flake input update + `nix flake update`, slower than `mise use --pin node@X`. |
+| Alternative                                                 | Rejected because                                                                                                                                                                                       |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **mise-only with `nix:` backend** (jbadeau/mise-nix plugin) | Plugin resolves through nixhub.io, not the host's flake registry — no `flake.lock` produced, weaker reproducibility than a real flake.                                                                 |
+| **nix-flake primary, mise demoted to task-runner**          | Wastes mise's primary feature (Node version management). nixpkgs Node updates lag upstream; bumping Node would require a flake input update + `nix flake update`, slower than `mise use --pin node@X`. |
 
 ### Implementation-time discoveries
 
-| Issue | Resolution |
-|---|---|
-| `pkgs.mise` (2025.11.7) is not in the `nixpkgs-25.11-darwin` binary cache; local build pulls in a `direnv` test phase that gets `Killed: 9` on aarch64-darwin. | Removed `pkgs.mise` from the flake. mise is now a host-level prerequisite, installed via the official mise installer or any other channel. The flake provides only `pkgs.zip` (and future additions). |
-| `direnv` installed via mise uses macOS system bash 3.2.57 to evaluate `.envrc`, which `nix-direnv` rejects (requires bash ≥ 4.4). Per nix-direnv README: "MacOS ships with bash 3.2 from 2007. As a work-around we suggest that macOS users install `direnv` via Nix or Homebrew." | direnv is installed via `nix profile install nixpkgs#direnv`, which links direnv against a nix-store bash ≥ 4.4. The mise-installed direnv was uninstalled. |
+| Issue                                                                                                                                                                                                                                                                              | Resolution                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pkgs.mise` (2025.11.7) is not in the `nixpkgs-25.11-darwin` binary cache; local build pulls in a `direnv` test phase that gets `Killed: 9` on aarch64-darwin.                                                                                                                     | Removed `pkgs.mise` from the flake. mise is now a host-level prerequisite, installed via the official mise installer or any other channel. The flake provides only `pkgs.zip` (and future additions). |
+| `direnv` installed via mise uses macOS system bash 3.2.57 to evaluate `.envrc`, which `nix-direnv` rejects (requires bash ≥ 4.4). Per nix-direnv README: "MacOS ships with bash 3.2 from 2007. As a work-around we suggest that macOS users install `direnv` via Nix or Homebrew." | direnv is installed via `nix profile install nixpkgs#direnv`, which links direnv against a nix-store bash ≥ 4.4. The mise-installed direnv was uninstalled.                                           |
 
 ## Consequences
 

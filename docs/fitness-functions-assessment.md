@@ -2,24 +2,26 @@
 
 **Question:** Is this codebase adapted to its original design intent, and can that be verified objectively?
 
-**Answer:** Yes. Each documented design principle maps to a fitness function with a machine-checkable pass/fail. Most already existed (implicitly); [ADR-012](adr/012-fitness-functions.md) adds the missing layering, cycle, code-side SSOT, and maintainability checks. This document is the mapping. Terminology follows *Building Evolutionary Architectures* (Neal Ford / Rebecca Parsons).
+**Answer:** Yes. Each documented design principle maps to a fitness function with a machine-checkable pass/fail. Most already existed (implicitly); [ADR-012](adr/012-fitness-functions.md) adds the missing layering, cycle, code-side SSOT, and maintainability checks. This document is the mapping. Terminology follows _Building Evolutionary Architectures_ (Neal Ford / Rebecca Parsons).
 
 ## Design principle → fitness function
 
-| # | Design principle (source) | Fitness function | Classification | Status |
-|---|---|---|---|---|
-| 1 | One-way layering: `Content → Background → Obsidian`; `lib` shared base; `popup`/`offscreen` leaves (CLAUDE.md › Architecture) | `test/arch/layering.test.ts` — `modules().resideInFolder().should().notImportFrom()` for each layer | atomic · triggered · static | **New (ADR-012)** |
-| 2 | No architecture erosion via circular coupling | `test/arch/cycles.test.ts` — `slices('src/*/').beFreeOfCycles()` | atomic · triggered · static | **New (ADR-012)** |
-| 3 | Platform SSOT = `manifest.json` matches; code must agree (CLAUDE.md › Adding New Platforms) | `test/arch/platform-ssot.test.ts` (code side: `AIPlatform` union, `ALLOWED_ORIGINS`, `getExtractor()`, `host_permissions`) + `scripts/lint-platforms.mjs` (docs/locales side) | holistic · triggered · static | **New + existing** |
-| 4 | No untyped escape hatches; clean console usage | ESLint `@typescript-eslint/no-explicit-any`, `no-console` | atomic · triggered · static | Existing |
-| 5 | Type safety (strict mode, no type errors) | `tsc --noEmit` (in `build`) | atomic · triggered · static | Existing |
-| 6 | Maintainability: files ≤ 800 lines, functions < 50, nesting ≤ 4, bounded complexity (CLAUDE.md / coding-style) | ESLint `max-lines`, `max-lines-per-function`, `max-depth`, `complexity` (warn-first) | atomic · triggered · dynamic→static | **New (ADR-012)** |
-| 7 | Test confidence | Vitest coverage thresholds 85/75/85/85 | atomic · triggered · static | Existing |
-| 8 | Consistent commit/release hygiene | commitlint (conventional commits) | atomic · triggered · static | Existing |
-| 9 | Consistent formatting | `prettier --check` | atomic · triggered · static | Existing |
-| 10 | DOM selectors keep working as target sites evolve | Playwright + CDP selector-validation harness (`e2e/selectors`) | holistic · continual/temporal · dynamic | Existing |
+| #   | Design principle (source)                                                                                    | Fitness function                                                                                                                                                              | Classification                         | Status                                    |
+| --- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------- |
+| 1   | One-way layering: `Content → Background → Obsidian`; `lib` shared base; `popup`/`offscreen` leaves (ADR-012) | `test/arch/layering.test.ts` — `modules().resideInFolder().should().notImportFrom()` for each layer                                                                           | atomic · triggered · static            | **New (ADR-012)**                         |
+| 2   | No architecture erosion via circular coupling                                                                | `test/arch/cycles.test.ts` — `slices('src/*/').beFreeOfCycles()`                                                                                                              | atomic · triggered · static            | **New (ADR-012)**                         |
+| 3   | Platform SSOT = `manifest.json` matches; code and maintained docs must agree (ADR-014)                       | `test/arch/platform-ssot.test.ts` (code side: `AIPlatform` union, `ALLOWED_ORIGINS`, `getExtractor()`, `host_permissions`) + `scripts/lint-platforms.mjs` (docs/locales side) | holistic · triggered · static          | **New + existing**                        |
+| 4   | No untyped escape hatches; clean console usage                                                               | ESLint `@typescript-eslint/no-explicit-any`, `no-console`                                                                                                                     | atomic · triggered · static            | Existing                                  |
+| 5   | Type safety (strict mode, no type errors)                                                                    | `tsc --noEmit` (in `build`)                                                                                                                                                   | atomic · triggered · static            | Existing                                  |
+| 6   | Maintainability: files ≤ 800 lines, functions < 50, nesting ≤ 4, bounded complexity (ADR-012)                | ESLint `max-lines`, `max-lines-per-function`, `max-depth`, `complexity` (warn-first)                                                                                          | atomic · triggered · dynamic→static    | **New (ADR-012)**                         |
+| 7   | Test confidence                                                                                              | Vitest coverage thresholds 95/85/95/95 (statements/branches/functions/lines)                                                                                                  | atomic · triggered · static            | Existing                                  |
+| 8   | Explicit, reviewed releases                                                                                  | Protected `main`, required `ci`, and the clean-worktree checklist in `docs/maintaining.md`                                                                                    | holistic · triggered · static + manual | Updated by ADR-029                        |
+| 9   | Consistent formatting                                                                                        | `prettier --check`                                                                                                                                                            | atomic · triggered · static            | Existing                                  |
+| 10  | DOM selectors keep working against captured provider pages                                                   | Offline fixtures and snapshots under `test/extractors/e2e/`                                                                                                                   | holistic · triggered · dynamic         | Existing; live harness retired by ADR-030 |
 
-All triggered functions run in `.github/workflows/ci.yml` on every PR (lint → format → coverage → build); the selector harness runs on demand against live sites.
+All triggered functions run in `.github/workflows/ci.yml` on every PR (lint →
+format → coverage → packaged build). Live provider behavior is checked through
+bounded manual smoke tests when extractor code changes.
 
 ## What "verification (検収)" looks like
 
@@ -39,5 +41,5 @@ Scoped out of ADR-012 to keep the change focused; recorded here so the backlog i
 
 ## References
 
-- *Building Evolutionary Architectures* (Ford, Parsons, Kua) — the fitness-functions concept this operationalizes.
+- _Building Evolutionary Architectures_ (Ford, Parsons, Kua) — the fitness-functions concept this operationalizes.
 - [ADR-012](adr/012-fitness-functions.md) — the decision and concrete settings.

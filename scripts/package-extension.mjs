@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * Build a Chrome-loadable ZIP from dist/ without requiring Unix shell syntax.
  *

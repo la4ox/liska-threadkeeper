@@ -12,7 +12,7 @@
 - Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
-- The product suite passes 1,437 tests across 63 files with 95.08% statement and 85.04% branch coverage when the optional top-level live-E2E harness is excluded. The full inherited command currently adds 137 E2E tests and fails three of them on Windows because that harness assumes POSIX paths and a `which` executable.
+- The maintained suite passes 1,438 tests across 63 files with 95.08% statement and 85.04% branch coverage.
 
 ## Important limits and risks
 
@@ -21,7 +21,7 @@
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
 - Append mode does not upload images into an existing note yet; it appends text and reports the skipped new images.
 - DOM-only auto-scroll is intentionally bounded to five minutes. Provider markup changes can still require extractor maintenance.
-- The optional upstream E2E authentication tooling stores reusable browser state in ignored local files and can expose an authenticated Chrome session on a loopback DevTools port while running. It is not a supported Liska release gate and is scheduled for removal in the next cleanup stage.
+- The inherited live-E2E authentication/daemon harness was removed. It stored reusable AI sessions and exposed authenticated Chrome through a loopback DevTools port, while providing no CI-backed guarantee for Liska on Windows. Offline extractor fixtures and snapshot tests remain.
 - The current visual icon is the inherited purple crystal. A dedicated Liska icon is a separate design task.
 - GitHub Pages is intentionally disabled. The privacy policy remains available from its tracked source file.
 - Release Please is intentionally removed from the active workflow surface; releases are explicit maintainer actions documented in `docs/maintaining.md`.
@@ -36,4 +36,4 @@
 
 ## Next step
 
-Finish the staged repository cleanup, then start the ChatGPT no-scroll history prototype from the cleaned `main` baseline.
+Finish the active documentation/localization cleanup, then start the ChatGPT no-scroll history prototype from the cleaned `main` baseline.

@@ -1,7 +1,7 @@
 /**
  * Fitness function: one-way layering (ADR-012).
  *
- * Enforces the dependency direction documented in CLAUDE.md:
+ * Enforces the dependency direction recorded in ADR-012:
  *
  *     Content Script -> Background -> Obsidian REST API
  *

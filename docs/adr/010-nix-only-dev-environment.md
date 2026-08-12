@@ -2,9 +2,10 @@
 
 ## Status
 
-Accepted (2026-05-01).
+Superseded by [ADR-030](030-supported-maintainer-tooling.md) (2026-08-12).
 
-Supersedes [ADR-009](009-mise-nix-dev-environment.md). Extended by [ADR-011](011-nix-task-surface.md) (2026-05-02).
+Previously superseded [ADR-009](009-mise-nix-dev-environment.md) and was extended
+by [ADR-011](011-nix-task-surface.md) (2026-05-02).
 
 ## Context
 
@@ -36,15 +37,15 @@ Adopt a **nix-only** dev environment:
 
 ### Concrete settings
 
-| Decision | Value | Rationale |
-|---|---|---|
-| Node attribute | `pkgs.nodejs_24` | Tracks 24.x; `flake.lock` pins the exact derivation. nixpkgs idiom (per nix.dev `concepts/flakes.md`). |
-| npm | Node-bundled (npm 11.12.1) | Matches host; no separate package needed. |
-| corepack | **Excluded** | Project is npm-only; no `packageManager` field in `package.json`; YAGNI. |
-| `node_modules/.bin` PATH injection | `shellHook` in `flake.nix` | Fires on both `nix develop` and direnv-loaded entry. `.envrc`'s `PATH_add` would only fire under direnv. |
-| nixpkgs channel | `nixpkgs-25.11-darwin` (unchanged from ADR-009) | macOS Hydra-pre-built channel, per nix.dev FAQ. |
-| `flake.lock` refresh in this PR | No | Current lock already resolves to desired versions; bumping mixes concerns. Future `nix flake update` is a deliberate maintainer action. |
-| CI migration | Deferred | Out of scope; CI continues to use `actions/setup-node@v4`. Track separately. |
+| Decision                           | Value                                           | Rationale                                                                                                                               |
+| ---------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Node attribute                     | `pkgs.nodejs_24`                                | Tracks 24.x; `flake.lock` pins the exact derivation. nixpkgs idiom (per nix.dev `concepts/flakes.md`).                                  |
+| npm                                | Node-bundled (npm 11.12.1)                      | Matches host; no separate package needed.                                                                                               |
+| corepack                           | **Excluded**                                    | Project is npm-only; no `packageManager` field in `package.json`; YAGNI.                                                                |
+| `node_modules/.bin` PATH injection | `shellHook` in `flake.nix`                      | Fires on both `nix develop` and direnv-loaded entry. `.envrc`'s `PATH_add` would only fire under direnv.                                |
+| nixpkgs channel                    | `nixpkgs-25.11-darwin` (unchanged from ADR-009) | macOS Hydra-pre-built channel, per nix.dev FAQ.                                                                                         |
+| `flake.lock` refresh in this PR    | No                                              | Current lock already resolves to desired versions; bumping mixes concerns. Future `nix flake update` is a deliberate maintainer action. |
+| CI migration                       | Deferred                                        | Out of scope; CI continues to use `actions/setup-node@v4`. Track separately.                                                            |
 
 ## Consequences
 

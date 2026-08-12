@@ -1,8 +1,8 @@
 /**
  * Selector type definitions for CSS selector fallback chains
  *
- * Used by platform extractors (via queryWithFallback) and
- * by the live selector validation smoke test (e2e/).
+ * Used by platform extractors (via queryWithFallback) and their offline
+ * fixture/snapshot regression tests.
  *
  * @see docs/adr/005-shared-selector-modules.md
  */
