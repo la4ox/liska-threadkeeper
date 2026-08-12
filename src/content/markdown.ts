@@ -17,6 +17,8 @@ import type {
   NoteFrontmatter,
   TemplateOptions,
   FilenameScheme,
+  ConversationMessage,
+  AIPlatform,
 } from '../lib/types';
 import { formatDateWithTimezone } from '../lib/date-utils';
 import { getDateVariables } from '../lib/path-utils';
@@ -114,7 +116,7 @@ export function conversationToNote(data: ConversationData, options: TemplateOpti
       if (message.toolContent) {
         bodyParts.push(formatToolContent(message.toolContent, options));
       }
-      const formatted = formatMessage(message.content, message.role, options, data.source);
+      const formatted = formatConversationMessage(message, options, data.source);
       bodyParts.push(formatted);
     }
 
@@ -132,4 +134,12 @@ export function conversationToNote(data: ConversationData, options: TemplateOpti
     contentHash,
     images: data.images ?? [],
   };
+}
+
+function formatConversationMessage(
+  message: ConversationMessage,
+  options: TemplateOptions,
+  source: AIPlatform
+): string {
+  return formatMessage(message.content, message.role, options, source, message.contentFormat);
 }

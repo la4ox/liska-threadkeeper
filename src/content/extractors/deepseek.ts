@@ -1,9 +1,9 @@
 /**
  * DeepSeek Extractor
  *
- * Extracts the active, rendered DeepSeek conversation from chat.deepseek.com.
- * DeepSeek virtualizes long threads, so BaseExtractor's accumulation engine
- * harvests visible message windows while scrolling upward when enabled.
+ * Extracts the active DeepSeek conversation from chat.deepseek.com.
+ * Signed-in chats use DeepSeek's same-origin history endpoint first, avoiding
+ * the virtual list entirely. DOM accumulation remains the compatibility path.
  */
 
 import { BaseExtractor, type ScrollConfig } from './base';
@@ -11,17 +11,18 @@ import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
-import type { ConversationMessage, SyncSettings } from '../../lib/types';
+import type { ConversationMessage, ExtractionResult, SyncSettings } from '../../lib/types';
 import { SELECTORS } from './selectors/deepseek';
+import { fetchDeepSeekConversation } from './deepseek-api';
 
 type MessageRole = 'user' | 'assistant';
 
 /**
  * DeepSeek conversation extractor.
  *
- * Only the branch currently rendered by DeepSeek is available to a content
- * script. The page does not expose unselected branch nodes in this DOM, so the
- * extractor intentionally does not infer or traverse them.
+ * The history response can contain alternative descendants. Its
+ * chat_session.current_message_id identifies the leaf selected in DeepSeek;
+ * following parent_id back to the root exports that active branch only.
  */
 export class DeepSeekExtractor extends BaseExtractor {
   readonly platform = 'deepseek';
@@ -33,6 +34,42 @@ export class DeepSeekExtractor extends BaseExtractor {
   applySettings(settings: SyncSettings): void {
     this.enableAutoScroll = settings.enableAutoScroll ?? false;
     this.enableToolContent = settings.enableToolContent ?? false;
+  }
+
+  /**
+   * Prefer the structured same-origin history response for complete signed-in
+   * conversations. It is local to the already-authenticated DeepSeek tab: the
+   * token is read only to call chat.deepseek.com and is never persisted or
+   * included in logs. Any API/schema/auth failure falls back to the existing
+   * DOM path, including user-controlled virtual-list auto-scroll.
+   */
+  async extract(): Promise<ExtractionResult> {
+    if (this.isSignedInConversationRoute()) {
+      try {
+        const conversationId = this.getConversationId();
+        const apiConversation = conversationId
+          ? await fetchDeepSeekConversation(conversationId, this.enableToolContent)
+          : null;
+        if (apiConversation) {
+          if (conversationId) {
+            console.info('[G2O] Extracted DeepSeek conversation from local session history');
+            return this.buildConversationResult(
+              apiConversation.messages,
+              conversationId,
+              apiConversation.title ?? this.getTitle(),
+              this.platform
+            );
+          }
+        }
+      } catch (error) {
+        console.warn(
+          '[G2O] DeepSeek history API unavailable; falling back to rendered conversation:',
+          error instanceof Error ? error.message : 'unknown error'
+        );
+      }
+    }
+
+    return super.extract();
   }
 
   // ========== ID & Title Extraction ==========
@@ -52,6 +89,11 @@ export class DeepSeekExtractor extends BaseExtractor {
    */
   getTitle(): string {
     return this.getPageTitle() ?? this.getFirstUserTitle() ?? 'Untitled DeepSeek Conversation';
+  }
+
+  /** Full history is an authenticated-chat feature, not a public-share API. */
+  private isSignedInConversationRoute(): boolean {
+    return /^\/a\/chat\/s\/[a-z0-9-]+\/?$/i.test(window.location.pathname);
   }
 
   /**

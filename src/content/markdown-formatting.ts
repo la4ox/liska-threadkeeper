@@ -5,7 +5,7 @@
  * or plain text format. Also handles tool-use content rendering.
  */
 
-import { htmlToMarkdown, escapeUserText } from './markdown-rules';
+import { htmlToMarkdown, escapeAngleBrackets, escapeUserText } from './markdown-rules';
 import { PLATFORM_LABELS } from '../lib/constants';
 import type { AIPlatform, TemplateOptions } from '../lib/types';
 
@@ -64,11 +64,17 @@ export function formatMessage(
   content: string,
   role: 'user' | 'assistant',
   options: TemplateOptions,
-  source: AIPlatform
+  source: AIPlatform,
+  contentFormat: 'html' | 'markdown' = 'html'
 ): string {
   // Convert HTML to Markdown for assistant messages; escape angle brackets and
   // `$` (Obsidian math) for user messages, which are plain pasted text.
-  const markdown = role === 'assistant' ? htmlToMarkdown(content) : escapeUserText(content);
+  const markdown =
+    role === 'assistant'
+      ? contentFormat === 'markdown'
+        ? escapeAngleBrackets(content)
+        : htmlToMarkdown(content)
+      : escapeUserText(content);
   const assistantLabel = PLATFORM_LABELS[source];
 
   let formatted: string;
@@ -122,7 +128,12 @@ export function formatMessage(
  * @param options Template options for format selection
  */
 export function formatToolContent(toolContent: string, options: TemplateOptions): string {
-  const lines = toolContent.split('\n').filter(l => l.trim());
+  // Tool content can come from provider APIs as Markdown. Escape raw angle
+  // brackets before emitting it into Obsidian so HTML-like payloads cannot
+  // become active tags; fenced and inline code remain literal.
+  const lines = escapeAngleBrackets(toolContent)
+    .split('\n')
+    .filter(l => l.trim());
 
   // Extract first bold line as callout title (e.g., "**Searched the web**" → "Searched the web")
   let title = 'Tool Activity';
