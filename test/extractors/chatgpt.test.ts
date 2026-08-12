@@ -537,7 +537,7 @@ describe('ChatGPTExtractor', () => {
     });
   });
 
-  // ========== Coverage Gap: extract() canExtract false (DES-005 3.2) ==========
+  // ========== Coverage regression: extract() canExtract false ==========
   describe('extract() error paths', () => {
     it('returns error when called from non-chatgpt domain', async () => {
       // Covers: chatgpt.ts lines 238-243 (canExtract false branch)
@@ -586,7 +586,7 @@ describe('ChatGPTExtractor', () => {
     });
   });
 
-  // ========== Coverage Gap: Fallback selectors (DES-005 3.2) ==========
+  // ========== Coverage regression: fallback selectors ==========
   describe('extractMessages fallback selectors', () => {
     it('returns empty array and warns when no conversation turns found', () => {
       // Covers: chatgpt.ts lines 126-129 (turns.length === 0)

@@ -12,7 +12,7 @@
 - Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
-- The maintained suite passes 1,438 tests across 63 files with 95.08% statement and 85.04% branch coverage.
+- The maintained test suite passes across 66 test files with 95.08% statement and 85.04% branch coverage. Locale and placeholder parity, public-copy parity, and local documentation links are enforced in CI.
 
 ## Important limits and risks
 
@@ -32,8 +32,9 @@
 - DeepSeek history client/parser: `src/content/extractors/deepseek-api.ts`
 - Privacy policy source: `docs/privacy.html`
 - Current product and setup guide: `README.md`
+- Documentation index: `docs/README.md`
 - Maintainer and release guide: `docs/maintaining.md`
 
 ## Next step
 
-Finish the active documentation/localization cleanup, then start the ChatGPT no-scroll history prototype from the cleaned `main` baseline.
+Merge the final documentation/localization cleanup, then start the ChatGPT no-scroll history prototype from the cleaned `main` baseline.

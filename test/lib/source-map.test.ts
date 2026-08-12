@@ -12,7 +12,12 @@ import { DeepResearchSource } from '../../src/lib/types';
 describe('buildSourceMap', () => {
   it('creates 1-based index map from sources array', () => {
     const sources: DeepResearchSource[] = [
-      { index: 0, url: 'https://example.com/page1', title: 'Example Page 1', domain: 'example.com' },
+      {
+        index: 0,
+        url: 'https://example.com/page1',
+        title: 'Example Page 1',
+        domain: 'example.com',
+      },
       { index: 1, url: 'https://test.com/article', title: 'Test Article', domain: 'test.com' },
       { index: 2, url: 'https://docs.org/guide', title: 'Documentation Guide', domain: 'docs.org' },
     ];

@@ -120,7 +120,7 @@ describe('sanitizeHtml', () => {
     });
   });
 
-  describe('standard KaTeX preprocessing integration (REQ-085)', () => {
+  describe('standard KaTeX preprocessing integration', () => {
     it('converts standard KaTeX inline math through full pipeline', () => {
       const html =
         '<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow></mrow><annotation encoding="application/x-tex">x^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">x²</span></span>';

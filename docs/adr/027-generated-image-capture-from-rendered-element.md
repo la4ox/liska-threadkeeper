@@ -1,6 +1,6 @@
 # ADR-027: Capture generated images from the rendered element when the blob URL is gone
 
-- Status: Proposed
+- Status: Accepted — shipped in v2.7.4 (2026-08-07)
 - Date: 2026-08-07
 - Related: [ADR-008](008-image-sync-strategy.md), [ADR-021](021-remote-image-fetch-in-service-worker.md), issue #186, issue #376
 - Extends: the capture half of ADR-008
@@ -23,10 +23,10 @@ and `naturalWidth × naturalHeight = 1024 × 572`. **The image renders correctly
 The `src` takes two forms across page loads, and each has exactly one mechanism
 that can reach its bytes:
 
-| `src` form | page (main world) fetch | isolated-world fetch | canvas on the live element | reload with `crossOrigin="anonymous"` | background fetch |
-| --- | --- | --- | --- | --- | --- |
-| `blob:` | ✗ `Failed to fetch` | ✗ `Failed to fetch` | **✓ `image/png`, 1,190,471 B** | — | rejected by the allow-list, by design |
-| `https:` CDN | ✗ (CORS) | ✗ (CORS) | ✗ `SecurityError` (tainted) | ✗ `LOAD FAILED` (no ACAO) | **✓ 200, `image/jpeg`, 131,692 B** |
+| `src` form   | page (main world) fetch | isolated-world fetch | canvas on the live element     | reload with `crossOrigin="anonymous"` | background fetch                      |
+| ------------ | ----------------------- | -------------------- | ------------------------------ | ------------------------------------- | ------------------------------------- |
+| `blob:`      | ✗ `Failed to fetch`     | ✗ `Failed to fetch`  | **✓ `image/png`, 1,190,471 B** | —                                     | rejected by the allow-list, by design |
+| `https:` CDN | ✗ (CORS)                | ✗ (CORS)             | ✗ `SecurityError` (tainted)    | ✗ `LOAD FAILED` (no ACAO)             | **✓ 200, `image/jpeg`, 131,692 B**    |
 
 ### Why the blob URL is unreadable
 
@@ -62,7 +62,7 @@ stays exactly as it is.
 back empty `prepareNoteImages()` called `stripImagePlaceholders()`, erasing the
 marker. There was no `console.*` anywhere in `image-capture.ts`,
 `image-fetch.ts` or `image-output.ts`, and `imageWarning()` only covers vault
-*write* failures. The result was an empty assistant message — **identical to
+_write_ failures. The result was an empty assistant message — **identical to
 what image export being switched off produces**.
 
 ## Decision

@@ -392,7 +392,7 @@ function parseCalloutLines(raw: string): number {
 }
 
 /**
- * Result of Obsidian settings validation (DES-014 H-4: pure return, no mutation)
+ * Result of Obsidian settings validation (pure return, no mutation)
  */
 interface ObsidianValidationResult {
   error: string | null;
@@ -417,7 +417,7 @@ function tryValidate(
 
 /**
  * Validate Obsidian-specific settings (API key, URL, vault path)
- * Returns normalized values without mutating the input (DES-014 H-4)
+ * Returns normalized values without mutating the input.
  */
 function validateObsidianSettings(settings: ExtensionSettings): ObsidianValidationResult {
   const defaults = {

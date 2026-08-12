@@ -54,7 +54,7 @@ The tool prints a drill-down hint:
 
 ```text
 Investigate with:
-  diffoscope dist /tmp/g2o-extract-XXXX
+  diffoscope dist /tmp/liska-extract-XXXX
 ```
 
 Run with `--keep` first so the extracted CI dir is retained, then run the

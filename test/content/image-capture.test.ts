@@ -219,9 +219,18 @@ describe('captureImage', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     mockCanvas('data:image/png;base64,UE5H');
 
-    const result = await captureImage(loadedImage('blob:https://gemini.google.com/x'), 'img-1', 'a');
+    const result = await captureImage(
+      loadedImage('blob:https://gemini.google.com/x'),
+      'img-1',
+      'a'
+    );
 
-    expect(result.image).toMatchObject({ id: 'img-1', mimeType: 'image/png', data: 'UE5H', alt: 'a' });
+    expect(result.image).toMatchObject({
+      id: 'img-1',
+      mimeType: 'image/png',
+      data: 'UE5H',
+      alt: 'a',
+    });
     expect(result.reason).toBeUndefined();
   });
 
@@ -322,7 +331,11 @@ describe('captureImage', () => {
     const oversized = 'A'.repeat(Math.ceil((MAX_IMAGE_SIZE_BYTES + 1024) / 3) * 4);
     mockCanvas(`data:image/png;base64,${oversized}`);
 
-    const result = await captureImage(loadedImage('blob:https://gemini.google.com/big'), 'img-7', '');
+    const result = await captureImage(
+      loadedImage('blob:https://gemini.google.com/big'),
+      'img-7',
+      ''
+    );
 
     expect(result.image).toBeNull();
     expect(result.reason).toMatch(/size|limit/i);

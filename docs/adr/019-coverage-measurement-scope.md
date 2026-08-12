@@ -2,9 +2,9 @@
 
 ## Status
 
-Superseded in configuration by [ADR-030](030-supported-maintainer-tooling.md)
-(2026-08-12). Coverage remains scoped to `src/`, but the removed live-E2E files
-no longer need an explicit exclusion.
+Accepted (2026-07-25); amended by [ADR-030](030-supported-maintainer-tooling.md)
+(2026-08-12). Coverage remains scoped to `src/`. The removed live-E2E harness
+means no explicit `e2e/**` exclusion is needed in the current configuration.
 
 ## Context
 

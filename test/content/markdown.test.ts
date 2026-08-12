@@ -324,7 +324,7 @@ describe('htmlToMarkdown', () => {
     });
   });
 
-  describe('standard KaTeX math (REQ-085)', () => {
+  describe('standard KaTeX math', () => {
     /** Build standard KaTeX HTML for full-pipeline tests */
     function buildKatexHtml(latex: string, display: boolean = false): string {
       const mathAttrs = display
@@ -369,7 +369,7 @@ describe('htmlToMarkdown', () => {
     });
   });
 
-  describe('angle bracket escaping (REQ-083)', () => {
+  describe('angle bracket escaping', () => {
     it('escapes angle brackets in plain text HTML', () => {
       // Turndown decodes &lt; to < — our escaping must catch it
       const result = htmlToMarkdown('<p>Error in &lt;module&gt;</p>');
@@ -775,7 +775,7 @@ describe('conversationToNote', () => {
     expect(note.frontmatter.modified).toMatch(/\+09:00$/);
   });
 
-  // ========== Angle bracket escaping in conversationToNote (REQ-083) ==========
+  // ========== Angle bracket escaping in conversationToNote ==========
   it('escapes angle brackets in assistant messages', () => {
     const data: ConversationData = {
       ...mockData,
@@ -829,7 +829,7 @@ describe('conversationToNote', () => {
     expect(note.body).toContain('`<span>`');
   });
 
-  // ========== Coverage Gap: empty sources in Deep Research (DES-005 3.6) ==========
+  // ========== Coverage regression: empty sources in Deep Research ==========
   it('omits References section when links.sources is empty', () => {
     // Covers: markdown.ts line 176 branch (sources.length === 0)
     const data: ConversationData = {
@@ -1220,7 +1220,7 @@ describe('conversationToNote with Deep Research links', () => {
 });
 
 // ============================================================
-// Tool Content Callout Rendering Tests (REQ-084 Step 5)
+// Tool Content Callout Rendering Tests
 // ============================================================
 
 describe('conversationToNote with toolContent', () => {

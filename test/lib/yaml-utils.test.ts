@@ -70,4 +70,3 @@ describe('escapeYamlValue', () => {
     expect(escapeYamlValue('important!')).toBe('"important!"');
   });
 });
-

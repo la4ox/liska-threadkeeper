@@ -1,6 +1,6 @@
 # ADR-025: Name the note-identity probe outcomes and report why a save forks
 
-- Status: Proposed
+- Status: Accepted — shipped in v2.7.0 (2026-08-04)
 - Date: 2026-08-04
 - Related: issue #365, issue #327 (the collision safeguard being diagnosed), [ADR-024](024-scroll-progress-includes-movement.md)
 
@@ -19,11 +19,11 @@ names. Recomputing `collisionSuffix()` — `generateHash(note.frontmatter.id)`,
 `src/lib/filename-collision.ts:19` — against those ids matches all three
 observed suffixes exactly:
 
-| Conversation id | Observed suffix | `generateHash('claude_<uuid>')` |
-| --- | --- | --- |
-| `claude_1a07d605-…` | `45fd74fa` | `45fd74fa` |
-| `claude_ad00d6b9-…` | `4ff2dde8` | `4ff2dde8` |
-| `claude_a4c3b5f7-…` | `595294a2` | `595294a2` |
+| Conversation id     | Observed suffix | `generateHash('claude_<uuid>')` |
+| ------------------- | --------------- | ------------------------------- |
+| `claude_1a07d605-…` | `45fd74fa`      | `45fd74fa`                      |
+| `claude_ad00d6b9-…` | `4ff2dde8`      | `4ff2dde8`                      |
+| `claude_a4c3b5f7-…` | `595294a2`      | `595294a2`                      |
 
 (The bare UUIDs hash to `5b9cf0fb` / `3a5361e7` / `43b318a1`, so the input was
 the prefixed id, not the UUID.)
@@ -33,7 +33,7 @@ Two facts follow. First, the extra files were produced by
 generates that name. Second, **the `id` the extension held at that moment was
 correct**, because it is the hash's own input. The failure is therefore on the
 read side: the existing file's `id` did not come back as a match. For the
-`-<hash>-2` files, that happened for *two* candidate files in the same save.
+`-<hash>-2` files, that happened for _two_ candidate files in the same save.
 
 ### Why the cause could not be narrowed further
 
@@ -92,8 +92,8 @@ Make the reasoning observable, and change nothing about the behaviour.
    opposite trade-off from ADR-024's per-iteration scroll log, which is high
    frequency and correctly `debug`.
 
-Expected and found ids are logged **in full**. A truncated id would show *that*
-two ids differ but not *how*, which is the entire question. The ids are already
+Expected and found ids are logged **in full**. A truncated id would show _that_
+two ids differ but not _how_, which is the entire question. The ids are already
 present in the note's own frontmatter and in the conversation URL, and the
 output goes only to the user's own service-worker console.
 

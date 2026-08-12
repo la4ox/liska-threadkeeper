@@ -119,7 +119,7 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
     return false;
   }
 
-  // Path traversal prevention (DES-014 H-1)
+  // Reject path traversal in file names.
   if (containsPathTraversal(note.fileName)) {
     return false;
   }
@@ -129,7 +129,7 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
     return false;
   }
 
-  // Frontmatter validation (DES-014 M-8: fail hard when missing)
+  // Require valid frontmatter; fail hard when it is missing.
   if (!validateFrontmatter(note.frontmatter)) {
     return false;
   }

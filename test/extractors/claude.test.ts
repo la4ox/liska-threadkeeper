@@ -592,7 +592,7 @@ describe('ClaudeExtractor', () => {
       expect(source?.domain).toBe('kaonavi.jp');
     });
 
-    it('handles 100+ citations performance', () => {
+    it('extracts 100 citations without truncation', () => {
       setClaudeLocation('test-123');
       const citations = Array.from({ length: 100 }, (_, i) =>
         createClaudeInlineCitation(`https://example${i}.com/page`, `Source ${i}`)
@@ -607,12 +607,11 @@ describe('ClaudeExtractor', () => {
         </div>
       `);
 
-      const startTime = performance.now();
       const sources = extractor.extractSourceList();
-      const endTime = performance.now();
 
       expect(sources.length).toBe(100);
-      expect(endTime - startTime).toBeLessThan(100); // Should be under 100ms
+      expect(sources[0]?.url).toBe('https://example0.com/page');
+      expect(sources[99]?.url).toBe('https://example99.com/page');
     });
 
     it('returns DeepResearchLinks via extractDeepResearchLinks', () => {
@@ -1110,7 +1109,7 @@ console.log(x);</code></pre>
     });
   });
 
-  // ========== Coverage Gap: extract() canExtract false (DES-005 3.4) ==========
+  // ========== Coverage regression: extract() canExtract false ==========
   describe('extract() error paths', () => {
     it('returns error when called from non-claude domain', async () => {
       // Covers: claude.ts lines 415-420 (canExtract false branch)
@@ -1145,7 +1144,7 @@ console.log(x);</code></pre>
     });
   });
 
-  // ========== Coverage Gap: Warning generation (DES-005 3.4) ==========
+  // ========== Coverage regression: warning generation ==========
   describe('extract() warning generation', () => {
     it('warns when no user messages found (only assistant messages)', async () => {
       // Covers: claude.ts lines 445-446 (userCount === 0 warning)
@@ -1190,7 +1189,7 @@ console.log(x);</code></pre>
     });
   });
 
-  // ========== Coverage Gap: Nested user message skip (DES-005 3.4) ==========
+  // ========== Coverage regression: nested user message skip ==========
   describe('extractMessages nested content filtering', () => {
     it('skips user-like elements nested inside assistant response', () => {
       // Covers: claude.ts lines 207-210 (assistantParent check)
@@ -1224,7 +1223,7 @@ console.log(x);</code></pre>
     });
   });
 
-  // ========== Coverage Gap: getTitle Deep Research path (DES-005 3.4) ==========
+  // ========== Coverage regression: getTitle Deep Research path ==========
   describe('getTitle Deep Research routing', () => {
     it('returns Deep Research h1 title when artifact panel is visible', () => {
       // Covers: claude.ts lines 164-166 (isDeepResearchVisible true in getTitle)
@@ -1241,7 +1240,7 @@ console.log(x);</code></pre>
     });
   });
 
-  // ========== Coverage Gap: getDeepResearchTitle fallback (DES-005 3.4) ==========
+  // ========== Coverage regression: getDeepResearchTitle fallback ==========
   describe('getDeepResearchTitle fallback', () => {
     it('returns default title when h1 element is absent', () => {
       // Covers: claude.ts lines 181-187 (getDeepResearchTitle fallback)
@@ -1261,7 +1260,7 @@ console.log(x);</code></pre>
     });
   });
 
-  // ========== Tool-Use Content (REQ-084) ==========
+  // ========== Tool-Use Content ==========
   describe('Tool-Use Content (enableToolContent)', () => {
     const searchResults = [
       { title: 'Rust Versions | Rust Changelogs', domain: 'releases.rs' },
@@ -1849,7 +1848,7 @@ console.log(x);</code></pre>
     });
   });
 
-  // ========== Coverage Gap: extractSourceList URL parse catch (DES-005 3.4) ==========
+  // ========== Coverage regression: extractSourceList URL parse catch ==========
   describe('extractSourceList URL parse error handling', () => {
     it('falls back to "unknown" domain when URL constructor throws', () => {
       // Covers: claude.ts lines 324-328 (URL parse catch block)

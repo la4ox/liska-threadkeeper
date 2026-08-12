@@ -1,6 +1,6 @@
 # ADR-018: Progress-aware scroll accumulation deadline
 
-- Status: Proposed
+- Status: Accepted — shipped in v2.2.8 (2026-07-22)
 - Date: 2026-07-22
 - Related: [ADR-017](017-autoscroll-virtualized-platforms.md), issue #360
 - Extended by: [ADR-024](024-scroll-progress-includes-movement.md) — the

@@ -316,7 +316,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
 
   /**
    * Sort elements by DOM position (document order).
-   * Returns a new sorted array without mutating the input (DES-014 L-4).
+   * Returns a new sorted array without mutating the input.
    */
   protected sortByDomPosition<T extends { element: Element }>(elements: T[]): T[] {
     return [...elements].sort((a, b) => {

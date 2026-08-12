@@ -32,7 +32,7 @@ Liska は Google Gemini（gemini.google.com）、Claude AI（claude.ai）、Chat
 🔒 プライバシー重視
 • すべての処理はお使いの端末上で実行
 • 解析・テレメトリ・データ収集は一切なし - 会話は処理してあなたの端末に保存するだけ
-• 会話の送信先はあなた自身の Obsidian vault のみ
+• 会話は選択したローカル出力先（Obsidian vault、ダウンロードした Markdown ファイル、クリップボード）にのみ保存
 • 画像エクスポートは Google の画像 CDN から画像を取得 - AI のページが既に使用しているホストと同じ
 • API キーはローカルストレージに安全に保存
 • オープンソース：https://github.com/la4ox/liska-threadkeeper

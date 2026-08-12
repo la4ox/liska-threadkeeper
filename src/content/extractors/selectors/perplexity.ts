@@ -2,7 +2,6 @@
  * CSS Selectors for Perplexity AI (www.perplexity.ai)
  *
  * Selectors are ordered by stability (HIGH → LOW)
- * @see DES-004-perplexity-extractor.md Section 4.1
  * @see docs/adr/005-shared-selector-modules.md
  */
 

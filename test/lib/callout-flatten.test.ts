@@ -43,7 +43,11 @@ describe('flattenLargeCallouts', () => {
   });
 
   it('preserves image wikilinks when flattening (drops only the `> `)', () => {
-    const body = ['> [!NOTE] Gemini', ...Array.from({ length: 8 }, () => '> text'), '> ![[a-img-1.png]]'].join('\n');
+    const body = [
+      '> [!NOTE] Gemini',
+      ...Array.from({ length: 8 }, () => '> text'),
+      '> ![[a-img-1.png]]',
+    ].join('\n');
     const out = flattenLargeCallouts(body, 5);
     expect(out).toContain('![[a-img-1.png]]');
     expect(out).not.toContain('> ![[');

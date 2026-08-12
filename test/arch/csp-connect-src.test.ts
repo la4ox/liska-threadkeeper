@@ -41,7 +41,10 @@ function directive(name: string): string[] | null {
 /** True when `sources` covers `host` (exact, or a `*.` wildcard parent). */
 function covers(sources: string[], host: string): boolean {
   return sources.some(source => {
-    const bare = source.replace(/^https?:\/\//, '').replace(/:\*$/, '').replace(/\/\*$/, '');
+    const bare = source
+      .replace(/^https?:\/\//, '')
+      .replace(/:\*$/, '')
+      .replace(/\/\*$/, '');
     if (bare === host) return true;
     return bare.startsWith('*.') && (host === bare.slice(2) || host.endsWith(bare.slice(1)));
   });

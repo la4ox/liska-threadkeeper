@@ -255,6 +255,12 @@
     "message": "クリップボード"
   },
 
+  "settings_enableAppendMode": {
+    "message": "追記モード"
+  },
+  "settings_appendModeHelp": {
+    "message": "既存のノートに新しいメッセージだけを追加します"
+  },
   "settings_enableToolContent": {
     "message": "ツール/検索結果を含める"
   },
@@ -287,5 +293,18 @@
   },
   "settings_maxCalloutLinesHelp": {
     "message": "この行数を超えるメッセージはプレーンテキストで保存されます（Obsidian のみ）。"
+  },
+
+  "toast_appended": {
+    "message": "新しいメッセージを $COUNT$ 件追加しました",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "toast_noNewMessages": {
+    "message": "追加する新しいメッセージはありません"
   }
 }

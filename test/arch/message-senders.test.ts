@@ -32,9 +32,7 @@ function collectSources(rel: string): string[] {
 
 // Extract the whitelist from constants.ts without importing chrome-flavored code.
 const constantsSource = read('src/lib/constants.ts');
-const whitelistMatch = constantsSource.match(
-  /VALID_MESSAGE_ACTIONS\s*=\s*\[([^\]]+)\]/
-);
+const whitelistMatch = constantsSource.match(/VALID_MESSAGE_ACTIONS\s*=\s*\[([^\]]+)\]/);
 if (!whitelistMatch) {
   throw new Error('VALID_MESSAGE_ACTIONS not found in src/lib/constants.ts');
 }

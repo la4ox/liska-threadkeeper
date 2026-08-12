@@ -1,14 +1,8 @@
 # Chrome Web Store dashboard fields
 
 The Privacy tab of the Chrome Web Store Developer Dashboard holds free text that
-no build step reads. It rots silently, and the damage surfaces only at review
-time. Two instances landed on the same day (2026-07-29):
-
-- the host permission justification still said "Seven host permissions" and
-  named only `notebooklm.google.com`, a full release after the rebrand;
-- the single purpose description had listed four platforms ever since NotebookLM
-  shipped in [#206](https://github.com/sho7650/obsidian-AI-exporter/pull/206)
-  (2026-04-09), while the manifest requested host permissions for five.
+no build step reads. Without a tracked source it can drift away from the
+manifest and privacy policy, then fail only when a release is reviewed.
 
 **This file is the source of truth. The dashboard is synced _from_ it, never the
 other way round.** `test/arch/store-listing-fields.test.ts` proves each field
@@ -33,8 +27,8 @@ permission into an unjustified one.
    mismatch means the paste was truncated.
 5. Update **Last synced** below.
 
-**Liska draft:** These fields have not yet been pasted into a Liska Chrome Web
-Store dashboard listing.
+**Liska draft — last synced: never.** These fields have not yet been pasted into
+a Liska Chrome Web Store dashboard listing.
 
 ---
 
@@ -48,8 +42,7 @@ Dashboard field: 単一用途の説明 / "Single purpose description". Limit 100
 Export and save Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook conversations locally as Markdown notes - to Obsidian, as files, or to clipboard.
 ```
 
-164 characters. Replaced the previous 140-character text, which named only four
-platforms and had been stale since NotebookLM shipped in #206 (2026-04-09).
+164 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ---
 
@@ -69,7 +62,7 @@ The extension uses chrome.storage to save user preferences:
 No conversation content and no personal data are stored here, and none are sent to any third-party service.
 ```
 
-400 characters — matches the live dashboard value.
+400 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ### `downloads`
 
@@ -79,7 +72,7 @@ No conversation content and no personal data are stored here, and none are sent 
 The extension allows users to download conversation exports as local files when Obsidian is not available. This provides a fallback option to save conversations as .md (Markdown) files directly to the user's computer. Downloads are user-initiated only.
 ```
 
-252 characters — matches the live dashboard value.
+252 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ### `offscreen`
 
@@ -89,7 +82,7 @@ The extension allows users to download conversation exports as local files when 
 The extension uses the offscreen API to process clipboard operations in the background when the user chooses to copy conversation content. This is required because clipboard access from service workers requires an offscreen document. Used only for user-initiated copy actions.
 ```
 
-276 characters — matches the live dashboard value.
+276 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ### `clipboardWrite`
 
@@ -99,7 +92,7 @@ The extension uses the offscreen API to process clipboard operations in the back
 The extension allows users to copy exported conversation content to their clipboard as an alternative output option. This is entirely user-initiated via a "Copy to Clipboard" button. No automatic clipboard access occurs.
 ```
 
-220 characters — matches the live dashboard value.
+220 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ---
 
@@ -114,7 +107,7 @@ manifest.
 <!-- field: host_permissions, limit: 1000 -->
 
 ```text
-Nine host permissions are required:
+Nine host groups are required:
 
 1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com (Gemini Notebook), and notebooklm.google.com (legacy redirect) - inject the Bring thread home button and read only the conversation shown on that supported site.
 
@@ -125,7 +118,7 @@ Nine host permissions are required:
 Conversation content goes only to selected local outputs: the user's Obsidian vault, a downloaded Markdown file, or the clipboard. No analytics, telemetry, or developer-operated server.
 ```
 
-801 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
+796 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ---
 
