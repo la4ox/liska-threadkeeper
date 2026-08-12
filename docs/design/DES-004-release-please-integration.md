@@ -1,5 +1,8 @@
 # DES-004: Release Please + Husky + commitlint 統合設計
 
+> **Superseded by ADR-029 (2026-08-12).** This document describes the inherited
+> historical workflow, not Liska's active release process.
+
 ## 1. 概要
 
 ### 1.1 目的
@@ -8,19 +11,19 @@ Chrome Extension プロジェクトに自動リリース管理とコミットメ
 
 ### 1.2 導入するツール
 
-| ツール | 目的 |
-|--------|------|
+| ツール             | 目的                                                    |
+| ------------------ | ------------------------------------------------------- |
 | **Release Please** | 自動バージョニング、CHANGELOG 生成、GitHub Release 作成 |
-| **Husky** | Git hooks 管理 |
-| **commitlint** | コミットメッセージ形式検証 |
+| **Husky**          | Git hooks 管理                                          |
+| **commitlint**     | コミットメッセージ形式検証                              |
 
 ### 1.3 設計決定
 
-| 項目 | 決定 | 理由 |
-|------|------|------|
-| CHANGELOG 管理 | Release Please に移行 | 自動化による一貫性確保 |
-| リリース成果物 | ZIP を GitHub Release に添付 | Chrome Web Store 提出の手動フローを維持 |
-| コミット検証 | Husky (ローカル) + CI (リモート) | 二重検証による確実性 |
+| 項目           | 決定                             | 理由                                    |
+| -------------- | -------------------------------- | --------------------------------------- |
+| CHANGELOG 管理 | Release Please に移行            | 自動化による一貫性確保                  |
+| リリース成果物 | ZIP を GitHub Release に添付     | Chrome Web Store 提出の手動フローを維持 |
+| コミット検証   | Husky (ローカル) + CI (リモート) | 二重検証による確実性                    |
 
 ---
 
@@ -168,12 +171,12 @@ project-root/
 
 **設定説明:**
 
-| キー | 値 | 説明 |
-|------|-----|------|
-| `release-type` | `node` | package.json のバージョンを更新 |
-| `extra-files` | `["src/manifest.json"]` | manifest.json も同時に更新 |
-| `include-v-in-tag` | `true` | タグを `v1.0.0` 形式に |
-| `bump-minor-pre-major` | `true` | v1.0.0 前は BREAKING CHANGE でも minor bump |
+| キー                   | 値                      | 説明                                        |
+| ---------------------- | ----------------------- | ------------------------------------------- |
+| `release-type`         | `node`                  | package.json のバージョンを更新             |
+| `extra-files`          | `["src/manifest.json"]` | manifest.json も同時に更新                  |
+| `include-v-in-tag`     | `true`                  | タグを `v1.0.0` 形式に                      |
+| `bump-minor-pre-major` | `true`                  | v1.0.0 前は BREAKING CHANGE でも minor bump |
 
 ### 4.2 .release-please-manifest.json
 
@@ -370,17 +373,17 @@ jobs:
 
 ### 5.2 対応する絵文字とタイプ
 
-| 絵文字 | Type | 説明 | バージョン影響 |
-|--------|------|------|----------------|
-| ✨ | feat | 新機能 | minor ↑ |
-| 🐛 | fix | バグ修正 | patch ↑ |
-| 📝 | docs | ドキュメント | - |
-| 🎨 | style | コードスタイル | - |
-| ♻️ | refactor | リファクタリング | - |
-| ⚡️ | perf | パフォーマンス改善 | patch ↑ |
-| ✅ | test | テスト | - |
-| 🔧 | chore | メンテナンス | - |
-| 🔒 | security | セキュリティ修正 | patch ↑ |
+| 絵文字 | Type     | 説明               | バージョン影響 |
+| ------ | -------- | ------------------ | -------------- |
+| ✨     | feat     | 新機能             | minor ↑        |
+| 🐛     | fix      | バグ修正           | patch ↑        |
+| 📝     | docs     | ドキュメント       | -              |
+| 🎨     | style    | コードスタイル     | -              |
+| ♻️     | refactor | リファクタリング   | -              |
+| ⚡️     | perf     | パフォーマンス改善 | patch ↑        |
+| ✅     | test     | テスト             | -              |
+| 🔧     | chore    | メンテナンス       | -              |
+| 🔒     | security | セキュリティ修正   | patch ↑        |
 
 ### 5.3 例
 
@@ -461,11 +464,11 @@ echo "✨ feat: add new feature" | npx commitlint
 
 ## 8. リスクと対策
 
-| リスク | 影響 | 対策 |
-|--------|------|------|
-| 絵文字パースエラー | コミット拒否 | Unicode プロパティエスケープ使用 |
-| manifest.json 更新失敗 | バージョン不整合 | extra-files 設定でテスト |
-| Husky スキップ | 不正コミット混入 | CI で二重チェック |
+| リスク                 | 影響             | 対策                             |
+| ---------------------- | ---------------- | -------------------------------- |
+| 絵文字パースエラー     | コミット拒否     | Unicode プロパティエスケープ使用 |
+| manifest.json 更新失敗 | バージョン不整合 | extra-files 設定でテスト         |
+| Husky スキップ         | 不正コミット混入 | CI で二重チェック                |
 
 ---
 

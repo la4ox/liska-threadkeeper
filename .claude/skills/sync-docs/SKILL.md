@@ -13,8 +13,7 @@ skill **only edits documentation** — it never modifies `src/`, tests, or confi
 ## When to use
 
 - Features have landed but the READMEs haven't been updated.
-- Before cutting a release (invoked manually; `/release` suggests it — the two are
-  deliberately decoupled).
+- Before cutting a release with the checklist in `docs/maintaining.md`.
 - After adding a new platform, setting, or output behavior.
 
 ## Absolute rules
@@ -94,8 +93,9 @@ Then update the store descriptions (`docs/store/description_en.md` +
        <(grep -nE '^#{2,3} ' README.ja.md | sed 's/[0-9].*: //')
   ```
 
-  (Heading *text* differs by language, but the *count and structure* must match — inspect,
+  (Heading _text_ differs by language, but the _count and structure_ must match — inspect,
   don't expect byte-equality.)
+
 - Confirm every internal anchor link (`#image-export`, `#画像エクスポート`, ADR links)
   resolves to a heading that exists.
 - Store parity: `docs/store/description_en.md` and `description_ja.md` must have the same
@@ -109,4 +109,4 @@ Then update the store descriptions (`docs/store/description_en.md` +
 
 Summarize: which features were added to the docs, README EN + JA and store EN + JA all
 updated, format-check and store-parity results. Do **not** commit or push — leave that to
-the user or `/release`.
+the maintainer workflow.
