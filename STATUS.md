@@ -37,4 +37,4 @@
 
 ## Next step
 
-Merge the final documentation/localization cleanup, then start the ChatGPT no-scroll history prototype from the cleaned `main` baseline.
+Prototype a no-scroll ChatGPT history path from the cleaned `main` baseline, while keeping the DOM extractor as a compatibility fallback.
