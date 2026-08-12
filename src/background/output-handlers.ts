@@ -36,7 +36,7 @@ function isClipboardWriteResponse(value: unknown): value is { success: boolean; 
 const OFFSCREEN_TIMEOUT_MS = 5000;
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer!: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([
       promise,
@@ -45,7 +45,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
       }),
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    // Promise executors run synchronously, so the timer is always assigned
+    // before Promise.race starts waiting.
+    clearTimeout(timer);
   }
 }
 

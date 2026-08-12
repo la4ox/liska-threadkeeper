@@ -2010,6 +2010,76 @@ describe('background/index', () => {
       expect(response.anySuccessful).toBe(false);
     });
 
+    it('uses a stable fallback when the clipboard worker omits its error', async () => {
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: false });
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({
+        destination: 'clipboard',
+        success: false,
+        error: 'Clipboard write failed',
+      });
+    });
+
+    it('rejects a malformed clipboard worker response', async () => {
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({
+        destination: 'clipboard',
+        success: false,
+        error: 'Clipboard write failed',
+      });
+    });
+
+    it('shares an in-flight offscreen creation between concurrent clipboard writes', async () => {
+      let resolveContexts!: (contexts: chrome.runtime.ExtensionContext[]) => void;
+      const contexts = new Promise<chrome.runtime.ExtensionContext[]>(resolve => {
+        resolveContexts = resolve;
+      });
+      vi.mocked(chrome.runtime.getContexts).mockReturnValue(contexts);
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: true });
+
+      const firstResponse = vi.fn();
+      const secondResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        firstResponse
+      );
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        secondResponse
+      );
+
+      await vi.waitFor(() => expect(chrome.runtime.getContexts).toHaveBeenCalledTimes(1));
+      resolveContexts([]);
+
+      await vi.waitFor(() => {
+        expect(firstResponse).toHaveBeenCalled();
+        expect(secondResponse).toHaveBeenCalled();
+      });
+      expect(chrome.offscreen.createDocument).toHaveBeenCalledTimes(1);
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
     it('fails a stalled clipboard write after the bounded timeout', async () => {
       vi.useFakeTimers();
       vi.mocked(chrome.runtime.sendMessage).mockImplementation(

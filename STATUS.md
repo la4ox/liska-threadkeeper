@@ -12,7 +12,7 @@
 - Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside this branch's changes.
-- 1,553 tests pass across 75 files when the two known upstream Windows-environment E2E files are excluded. The focused first-release suite passes 242/242.
+- 1,556 tests pass across 75 files when the two known upstream Windows-environment E2E files are excluded. The full local coverage run passes its global gates, including 85.04% branch coverage. The focused first-release suite passes 245/245.
 
 ## Important limits and risks
 
