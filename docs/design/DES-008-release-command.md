@@ -1,5 +1,8 @@
 # DES-008: `/release` Custom Slash Command
 
+> **Superseded by ADR-029 (2026-08-12).** This document describes the inherited
+> historical workflow, not Liska's active release process.
+
 > **Revision History**
 > | Rev | Date | Changes |
 > |-----|------|---------|
@@ -14,6 +17,7 @@ A Claude Code custom slash command (`/release`) that automates the full release-
 ### 1.2 Problem Statement
 
 The current release workflow requires developers to manually:
+
 1. Create a properly named branch
 2. Stage files carefully (avoiding secrets)
 3. Write a conventional commit message that passes commitlint
@@ -102,20 +106,20 @@ Step 8: Report
 
 When `$ARGUMENTS` does not start with a recognized `type:` prefix, the command analyzes the changed file paths to determine the dominant type:
 
-| Changed File Patterns | Detected Type |
-|----------------------|---------------|
-| `src/` with new files or substantial new functionality | `feat` |
-| `src/` with bug fix modifications | `fix` |
-| `src/` with structural changes, no new features | `refactor` |
-| Only `docs/`, `README*`, `CLAUDE.md`, `*.html` (doc files) | `docs` |
-| Only test files (`*.test.ts`, `*.spec.ts`, `test/`) | `test` |
-| Only config files (`package.json` scripts, eslint, vite, tsconfig) | `chore` |
-| Only `.github/workflows/` | `ci` |
-| Only CSS/formatting changes | `style` |
-| Performance-focused changes | `perf` |
-| Security-related changes | `security` |
-| UI-only changes (popup, CSS) | `ui` |
-| `scripts/` new tooling + docs updates | Dominant by proportion |
+| Changed File Patterns                                              | Detected Type          |
+| ------------------------------------------------------------------ | ---------------------- |
+| `src/` with new files or substantial new functionality             | `feat`                 |
+| `src/` with bug fix modifications                                  | `fix`                  |
+| `src/` with structural changes, no new features                    | `refactor`             |
+| Only `docs/`, `README*`, `CLAUDE.md`, `*.html` (doc files)         | `docs`                 |
+| Only test files (`*.test.ts`, `*.spec.ts`, `test/`)                | `test`                 |
+| Only config files (`package.json` scripts, eslint, vite, tsconfig) | `chore`                |
+| Only `.github/workflows/`                                          | `ci`                   |
+| Only CSS/formatting changes                                        | `style`                |
+| Performance-focused changes                                        | `perf`                 |
+| Security-related changes                                           | `security`             |
+| UI-only changes (popup, CSS)                                       | `ui`                   |
+| `scripts/` new tooling + docs updates                              | Dominant by proportion |
 
 When changes span multiple categories, the type covering the most impactful changes wins. For truly mixed changes, `feat` is used if new functionality is present, otherwise `chore`.
 
@@ -131,14 +135,15 @@ Header max-length: **100 characters** (commitlint rule).
 
 ### 2.7 Branch Naming
 
-| Property | Rule |
-|----------|------|
-| Pattern | `{type}/{slug}` |
+| Property        | Rule                                                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Pattern         | `{type}/{slug}`                                                                                                                  |
 | Slug derivation | Lowercase description, non-alphanumeric chars replaced with `-`, consecutive hyphens collapsed, leading/trailing hyphens trimmed |
-| Max slug length | 50 characters |
-| Trigger | Only when current branch is `main` |
+| Max slug length | 50 characters                                                                                                                    |
+| Trigger         | Only when current branch is `main`                                                                                               |
 
 Examples:
+
 - `feat: add platform lint script` -> `feat/add-platform-lint-script`
 - `docs: update README with Perplexity` -> `docs/update-readme-with-perplexity`
 - `fix: handle null pointer in gemini extractor` -> `fix/handle-null-pointer-in-gemini-extractor`
@@ -154,6 +159,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ```
 
 Rules:
+
 - Description starts lowercase
 - No trailing period
 - No emoji in the header
@@ -177,6 +183,7 @@ EOF
 **Stage**: All changed/new files relevant to the work, added by explicit path.
 
 **Never stage**:
+
 - `.env`, `.env.local`, `.mcp.json`
 - `node_modules/`, `dist/`, `coverage/`
 - `.DS_Store`, `Thumbs.db`
@@ -211,26 +218,26 @@ The summary and test plan are customized based on the actual changes — not a s
 
 ### 2.11 Safety Rules
 
-| Rule | Rationale |
-|------|-----------|
-| NEVER `git push --force` | Prevents history destruction |
-| NEVER `--no-verify` on commit | Commitlint hook provides safety net |
-| NEVER `--amend` | Prevents modifying previous commits |
-| NEVER `git add -A` or `git add .` | Prevents staging secrets |
-| Abort on divergent remote | Prevents silent overwrites |
-| Check for existing PR before creating | Prevents duplicates |
+| Rule                                  | Rationale                           |
+| ------------------------------------- | ----------------------------------- |
+| NEVER `git push --force`              | Prevents history destruction        |
+| NEVER `--no-verify` on commit         | Commitlint hook provides safety net |
+| NEVER `--amend`                       | Prevents modifying previous commits |
+| NEVER `git add -A` or `git add .`     | Prevents staging secrets            |
+| Abort on divergent remote             | Prevents silent overwrites          |
+| Check for existing PR before creating | Prevents duplicates                 |
 
 ### 2.12 Edge Cases
 
-| Scenario | Behavior |
-|----------|----------|
-| No changes detected | Abort with "Nothing to release — no changes detected." |
-| Already on non-main branch | Use current branch, skip branch creation |
-| Remote branch exists with divergent history | Abort and report, never force push |
-| PR already exists for branch | Report existing PR URL, skip PR creation |
-| Commit fails (commitlint rejects message) | Fix message format and create NEW commit |
-| `gh` CLI not authenticated | Report error and suggest `gh auth login` |
-| Push fails (no remote access) | Report error with the push failure message |
+| Scenario                                    | Behavior                                               |
+| ------------------------------------------- | ------------------------------------------------------ |
+| No changes detected                         | Abort with "Nothing to release — no changes detected." |
+| Already on non-main branch                  | Use current branch, skip branch creation               |
+| Remote branch exists with divergent history | Abort and report, never force push                     |
+| PR already exists for branch                | Report existing PR URL, skip PR creation               |
+| Commit fails (commitlint rejects message)   | Fix message format and create NEW commit               |
+| `gh` CLI not authenticated                  | Report error and suggest `gh auth login`               |
+| Push fails (no remote access)               | Report error with the push failure message             |
 
 ---
 
@@ -248,10 +255,10 @@ Only the `description` field is needed. The command is user-invocable by default
 
 ## 4. Files Modified
 
-| File | Type | Change |
-|------|------|--------|
-| `.claude/commands/release.md` | **New** | Custom slash command |
-| `.gitignore` | Modified | Add `!.claude/commands/` negation rule |
+| File                          | Type     | Change                                 |
+| ----------------------------- | -------- | -------------------------------------- |
+| `.claude/commands/release.md` | **New**  | Custom slash command                   |
+| `.gitignore`                  | Modified | Add `!.claude/commands/` negation rule |
 
 **Total: 2 files (1 new, 1 modified)**
 

@@ -2,19 +2,17 @@
 
 ## Status
 
-Accepted (2026-06-20).
+Accepted (2026-06-20). Release mechanics updated by ADR-029 (2026-08-12).
 
 ## Context
 
-The released Chrome extension ZIP is produced by GitHub Actions
-(`.github/workflows/release-please.yml` → `build-and-upload` job, `npm run
-build:zip`) and attached to the GitHub Release. Maintainers need a way to
-verify that an artifact built **locally** matches the artifact GitHub Actions
-built and shipped — both to catch supply-chain tampering and to detect
-toolchain drift between local and CI.
+The released Chrome extension ZIP is built explicitly with `npm run build:zip`
+and attached to a GitHub Release. Maintainers need a way to verify that a local
+artifact matches the published artifact — both to catch supply-chain tampering
+and to detect toolchain drift between local and CI.
 
-The naive approach — `sha256(local.zip) == sha256(ci.zip)` — does **not**
-work. `build:zip` uses `zip -r .`, and a ZIP archive is non-deterministic
+The naive approach — `sha256(local.zip) == sha256(release.zip)` — does **not**
+work. A ZIP archive is non-deterministic
 across machines for reasons unrelated to the actual build output:
 
 - **Entry order** follows filesystem `readdir` order, which differs between
@@ -25,12 +23,12 @@ across machines for reasons unrelated to the actual build output:
 So two ZIPs of byte-identical `dist/` trees will almost always differ in their
 container bytes. (Reproducible Builds project; see References.)
 
-### Verified facts (2026-06-20)
+### Verified facts (updated 2026-08-12)
 
-- `build:zip` (both `package.json` and the `flake.nix` `build-zip` app) runs
-  `cd dist && zip -r ../gemini2obsidian-<version>.zip . -x '*.DS_Store' -x '.vite/*'`.
-  The archive root is the **contents of `dist/`**, so an extracted ZIP is
-  directly comparable to a local `dist/` tree.
+- `build:zip` stages a filtered copy of `dist/` and writes
+  `liska-threadkeeper-<version>.zip` with the platform archive tool. The archive
+  root is the **contents of `dist/`**, so an extracted ZIP is directly comparable
+  to a local `dist/` tree.
 - `vite.config.ts` sets no `entryFileNames`/`chunkFileNames` overrides, so
   Rollup emits **content-hashed** chunk filenames. Identical content ⇒
   identical hash in the filename; a content difference surfaces as both a
@@ -50,9 +48,9 @@ The tool (`scripts/compare-build.mjs` + `scripts/lib/build-compare.mjs`,
 exposed as `nix run .#compare-build` / `npm run compare-build`):
 
 1. Builds locally (`npm run build`) into `dist/`.
-2. Obtains the CI artifact via `gh release download <tag> --pattern
-'gemini2obsidian-*.zip'` (or an explicit `--ci-zip <path>`), and extracts
-   it with `unzip`.
+2. Obtains the release artifact with `gh release download`, using the pattern
+   `liska-threadkeeper-*.zip` (or an explicit `--ci-zip <path>`), and extracts it
+   with the platform archive tool.
 3. Builds a `posix-path → sha256` manifest of each tree, applying the **same
    exclusions as `build:zip`** (`.vite/`, `*.DS_Store`) to both sides.
 4. Diffs the manifests, classifying every difference as `only-local`,
@@ -61,17 +59,17 @@ exposed as `nix run .#compare-build` / `npm run compare-build`):
 
 ### Rejected alternatives
 
-| Alternative                                                                                     | Why rejected                                                                                                                                                                                        |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sha256` of the whole ZIP                                                                       | Container metadata (order/mtime/perms) differs across OSes; guaranteed false mismatches.                                                                                                            |
-| diffoscope only                                                                                 | Excellent for humans, but not a scriptable pass/fail gate; kept as the drill-down step instead.                                                                                                     |
-| Make `build:zip` byte-reproducible (`SOURCE_DATE_EPOCH` + `zip -X -D` / `strip-nondeterminism`) | Stronger guarantee, but modifies the release-critical path (duplicated in `package.json` **and** `flake.nix`). Deferred as a separate, optional future change; not required for content comparison. |
+| Alternative                                                                    | Why rejected                                                                                                                          |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `sha256` of the whole ZIP                                                      | Container metadata (order/mtime/perms) differs across OSes; guaranteed false mismatches.                                              |
+| diffoscope only                                                                | Excellent for humans, but not a scriptable pass/fail gate; kept as the drill-down step instead.                                       |
+| Make `build:zip` byte-reproducible (`SOURCE_DATE_EPOCH` + normalized metadata) | Stronger guarantee, but adds release complexity. Deferred as a separate, optional future change; not required for content comparison. |
 
 ### Prerequisite
 
-Align the release build to Node 24 (PR: `ci: align release build to Node
-24`). Without matching Node majors, comparison is apples-to-oranges. Do not
-compare against releases built before that change.
+Use Node 24 locally and in CI. Without matching Node majors, comparison is
+apples-to-oranges. Do not compare against releases built with a different
+toolchain and expect equality.
 
 ## Consequences
 
@@ -79,12 +77,10 @@ compare against releases built before that change.
 - `diffoscope` is provided via the Nix `compare-build` app's `runtimeInputs`,
   so the drill-down works without a separate install. The gate itself
   (manifest diff) needs no diffoscope.
-- `gh run download` is **not** used: the release job uploads via
-  `softprops/action-gh-release` (a Release asset), not `actions/upload-artifact`.
-  The supported retrieval path is `gh release download`.
+- GitHub Releases are the supported retrieval path, via `gh release download`.
 - The exclusion list lives in one place (`isExcluded` in
   `scripts/lib/build-compare.mjs`) and must be kept in sync with `build:zip`
-  if the latter's `-x` patterns change.
+  if the packaging rules change.
 
 ## References
 

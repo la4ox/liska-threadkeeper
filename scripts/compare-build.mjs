@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * compare-build — verify a local build matches the GitHub Actions release ZIP.
+ * compare-build — verify a local build matches a published release ZIP.
  *
  * Compares *file contents* (sorted per-file SHA-256), NOT the ZIP container,
  * because `zip -r` records entry order / timestamps / perms that differ across
@@ -80,6 +80,17 @@ function headSha() {
 /** Build the extension into dist/ exactly as the release pipeline does. */
 function buildLocal() {
   console.log('▶ building locally (npm run build)…');
+  if (process.platform === 'win32') {
+    // A .cmd shim cannot be launched through execFileSync on Windows. Prefer
+    // npm's current JS entry point when this script is reached through
+    // `npm run`; retain a direct-invocation fallback for maintainers.
+    if (process.env.npm_execpath) {
+      run(process.execPath, [process.env.npm_execpath, 'run', 'build']);
+    } else {
+      run(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', 'npm run build']);
+    }
+    return;
+  }
   run('npm', ['run', 'build']);
 }
 
@@ -141,7 +152,11 @@ function downloadReleaseZip(tag) {
  */
 function extractZip(zipPath) {
   const dir = makeTemp('g2o-extract-');
-  run('unzip', ['-q', '-o', zipPath, '-d', dir]);
+  if (process.platform === 'win32') {
+    run('tar.exe', ['-xf', zipPath, '-C', dir]);
+  } else {
+    run('unzip', ['-q', '-o', zipPath, '-d', dir]);
+  }
   return dir;
 }
 
@@ -188,7 +203,7 @@ function runCompare(opts) {
 function printHelp() {
   console.log(
     [
-      'compare-build — verify a local build matches the GitHub Actions release ZIP',
+      'compare-build — verify a local build matches a published release ZIP',
       '',
       'Usage:',
       '  compare-build                 compare local build vs release v<package.json version>',

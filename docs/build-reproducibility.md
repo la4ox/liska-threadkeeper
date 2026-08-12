@@ -1,8 +1,7 @@
 # Build Reproducibility — Comparing Local vs CI Builds
 
 This guide explains how to verify that the extension ZIP you build locally has
-the same file contents as the ZIP that GitHub Actions builds and attaches to a
-release.
+the same file contents as a ZIP attached to a GitHub release.
 
 For the design rationale, see
 [ADR-013](adr/013-build-reproducibility-comparison.md).
@@ -27,8 +26,8 @@ Exit code: `0` = identical, `1` = builds differ, `2` = operational error.
 
 ## Why we compare contents, not the ZIP file
 
-You cannot simply compare `sha256` of the two `.zip` files. `build:zip` uses
-`zip -r .`, and a ZIP archive stores, per entry: the filesystem **order**
+You cannot simply compare `sha256` of the two `.zip` files. ZIP archives store,
+per entry, the filesystem **order**
 (differs macOS vs Linux), **timestamps**, and **file mode / uid / gid**. Two
 zips of byte-identical `dist/` trees will therefore differ in their container
 bytes for reasons that have nothing to do with the build output.
@@ -40,12 +39,10 @@ manifest**, applying the same exclusions as `build:zip` (`.vite/`,
 ## How it works
 
 1. **Build locally** — runs `npm run build` (`tsc --noEmit && vite build`) into
-   `dist/`, exactly as the release pipeline does.
-2. **Fetch the CI artifact** — `gh release download <tag> --pattern
-'liska-threadkeeper-*.zip'`, then `unzip` into a temp dir. (The release job
-   uploads a Release **asset** via `softprops/action-gh-release`, so
-   `gh release download` is the correct command — `gh run download` will not
-   find it.)
+   `dist/`, exactly as the release checklist does.
+2. **Fetch the release asset** — `gh release download <tag> --pattern
+'liska-threadkeeper-*.zip'`, then extract it with the platform's built-in
+   archive tool.
 3. **Manifest + diff** — both trees become `posix-path → sha256` maps; the
    diff classifies every difference as `only-local`, `only-ci`, or
    `content-mismatch`.
@@ -87,6 +84,5 @@ diffs archives and binaries in human-readable form. It is bundled into the Nix
   container itself reproducible (`SOURCE_DATE_EPOCH` + `zip -X -D` or
   `strip-nondeterminism`) is a possible future enhancement; see ADR-013's
   rejected-alternatives table.
-- The exclusion list (`.vite/`, `*.DS_Store`) is defined in `isExcluded` in
-  `scripts/lib/build-compare.mjs` and must stay in sync with the `-x` patterns
-  in `build:zip` (both `package.json` and the `flake.nix` `build-zip` app).
+- The exclusion list (`.vite/`, `*.DS_Store`) is defined once in `isExcluded`
+  in `scripts/lib/build-compare.mjs` and is reused by the packaging script.

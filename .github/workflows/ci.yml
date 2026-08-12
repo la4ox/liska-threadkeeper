@@ -10,13 +10,11 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     permissions:
-      contents: read  # Principle of least privilege (CodeQL: actions/missing-workflow-permissions)
+      contents: read # Principle of least privilege (CodeQL: actions/missing-workflow-permissions)
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Required for commitlint to access commit history
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,12 +27,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate commit messages
-        # Skip for Dependabot PRs: commit messages use "Bump" (sentence-case) which
-        # violates subject-case rule. Final message is controlled via squash merge.
-        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
-        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
-
       - name: Run linter
         run: npm run lint
 
@@ -44,5 +36,5 @@ jobs:
       - name: Run tests with coverage
         run: npm run test:coverage
 
-      - name: Build
-        run: npm run build
+      - name: Build and package extension
+        run: npm run build:zip

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:zip": "npm run build && cd dist && zip -r ../liska-threadkeeper-$(node -p \"require('../package.json').version\").zip . -x '*.DS_Store' -x '.vite/*' && cd ..",
+    "build:zip": "npm run build && node scripts/package-extension.mjs",
     "lint": "eslint src/ && node scripts/lint-platforms.mjs",
     "lint:platforms": "node scripts/lint-platforms.mjs",
     "compare-build": "node scripts/compare-build.mjs",
@@ -16,7 +16,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "prepare": "husky",
     "e2e:auth": "npx tsx e2e/auth/setup-profile.ts",
     "e2e:selectors": "npx playwright test --config e2e/playwright.config.ts",
     "e2e:baseline:update": "UPDATE_BASELINE=1 npx playwright test --config e2e/playwright.config.ts",
@@ -32,8 +31,6 @@
     "turndown": "^7.1.2"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.3.1",
-    "@commitlint/config-conventional": "^20.3.1",
     "@crxjs/vite-plugin": "^2.0.0-beta.23",
     "@eslint/js": "^10.0.1",
     "@nielspeter/ts-archunit": "^0.10.0",
@@ -45,7 +42,6 @@
     "dotenv": "^17.3.1",
     "eslint": "^10.1.0",
     "globals": "^17.4.0",
-    "husky": "^9.1.7",
     "jsdom": "^27.4.0",
     "prettier": "^3.2.0",
     "tsx": "^4.22.0",

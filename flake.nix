@@ -65,15 +65,14 @@
           build-zip = app "build-zip" ''
             tsc --noEmit
             vite build
-            version=$(node -p "require('./package.json').version")
-            ( cd dist && zip -r "../liska-threadkeeper-$version.zip" . -x '*.DS_Store' -x '.vite/*' )
+            node scripts/package-extension.mjs
           '';
           lint = app "lint" ''
             eslint src/
             node scripts/lint-platforms.mjs
           '';
           lint-platforms = app "lint-platforms" ''node scripts/lint-platforms.mjs "$@"'';
-          # Compare a local build against the GitHub Actions release ZIP.
+          # Compare a local build against a published GitHub release ZIP.
           # Needs gh (download release artifact), unzip (extract it), and
           # diffoscope (human-readable drill-down on mismatch). See ADR.
           compare-build =
