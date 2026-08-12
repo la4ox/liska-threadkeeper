@@ -25,12 +25,15 @@ function blobLike(bytes: Uint8Array, type: string): Blob {
 }
 
 function mockFetchBlob(blob: Blob): ReturnType<typeof vi.fn> {
-  const spy = vi.fn().mockResolvedValue({ ok: true, status: 200, blob: () => Promise.resolve(blob) });
+  const spy = vi
+    .fn()
+    .mockResolvedValue({ ok: true, status: 200, blob: () => Promise.resolve(blob) });
   vi.stubGlobal('fetch', spy);
   return spy;
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -51,7 +54,10 @@ describe('handleFetchImage', () => {
 
     await handleFetchImage(IMAGE_URL);
 
-    expect(spy).toHaveBeenCalledWith(IMAGE_URL, expect.objectContaining({ credentials: 'include' }));
+    expect(spy).toHaveBeenCalledWith(
+      IMAGE_URL,
+      expect.objectContaining({ credentials: 'include' })
+    );
   });
 
   it('defaults to image/png when the response carries no type', async () => {
@@ -94,6 +100,28 @@ describe('handleFetchImage', () => {
     expect(result.success).toBe(false);
   });
 
+  it('aborts a stalled image request after the bounded timeout', async () => {
+    vi.useFakeTimers();
+    const spy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError'))
+          );
+        })
+    );
+    vi.stubGlobal('fetch', spy);
+
+    const pending = handleFetchImage(IMAGE_URL);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await expect(pending).resolves.toEqual({ success: false, error: 'Image fetch timed out' });
+    expect(spy).toHaveBeenCalledWith(
+      IMAGE_URL,
+      expect.objectContaining({ credentials: 'include', signal: expect.any(AbortSignal) })
+    );
+  });
+
   it('rejects an image above the size cap', async () => {
     mockFetchBlob(blobLike(new Uint8Array(1), 'image/png'));
     vi.stubGlobal(
@@ -127,9 +155,9 @@ describe('handleFetchImage', () => {
 describe('manifest', () => {
   it('grants host permission for the image CDN the handler fetches', () => {
     const root = path.resolve(import.meta.dirname, '../..');
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(root, 'src/manifest.json'), 'utf-8')
-    ) as { host_permissions: string[] };
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'src/manifest.json'), 'utf-8')) as {
+      host_permissions: string[];
+    };
 
     // Without this, the background fetch is blocked too and the move is pointless.
     expect(manifest.host_permissions).toContain('https://*.googleusercontent.com/*');

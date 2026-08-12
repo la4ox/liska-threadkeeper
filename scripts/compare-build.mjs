@@ -118,7 +118,7 @@ function downloadReleaseZip(tag) {
   const dir = makeTemp('g2o-ci-');
   console.log(`▶ downloading release ZIP for ${tag} via gh…`);
   try {
-    run('gh', ['release', 'download', tag, '--pattern', 'gemini2obsidian-*.zip', '--dir', dir]);
+    run('gh', ['release', 'download', tag, '--pattern', 'liska-threadkeeper-*.zip', '--dir', dir]);
   } catch {
     // Throw (not die) so main()'s catch cleans up temp dirs and exits 2.
     throw new Error(

@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   injectSyncButton,
+  handleTrustedSyncClick,
   setButtonLoading,
   showToast,
   showSuccessToast,
@@ -38,9 +39,7 @@ describe('ui', () => {
     it('injects styles into document head', async () => {
       // Reset the module to clear the styleInjected flag
       vi.resetModules();
-      const { injectSyncButton: freshInjectSyncButton } = await import(
-        '../../src/content/ui'
-      );
+      const { injectSyncButton: freshInjectSyncButton } = await import('../../src/content/ui');
 
       document.body.innerHTML = '';
       document.head.innerHTML = '';
@@ -60,12 +59,20 @@ describe('ui', () => {
       expect(document.body.querySelector('#g2o-sync-button')).not.toBeNull();
     });
 
-    it('calls onClick when button is clicked', () => {
+    it('ignores programmatic button clicks', () => {
       const onClick = vi.fn();
       injectSyncButton(onClick);
 
       const button = document.getElementById('g2o-sync-button');
       button?.click();
+
+      expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it('calls onClick for a trusted user gesture', () => {
+      const onClick = vi.fn();
+
+      handleTrustedSyncClick({ isTrusted: true } as Event, onClick);
 
       expect(onClick).toHaveBeenCalledTimes(1);
     });
@@ -81,9 +88,9 @@ describe('ui', () => {
       const buttons = document.querySelectorAll('#g2o-sync-button');
       expect(buttons.length).toBe(1);
 
-      // New button should have the new handler
-      const button = document.getElementById('g2o-sync-button');
-      button?.click();
+      // New button should have the new handler. jsdom cannot create a trusted
+      // click, so verify replacement independently from the authorization seam.
+      handleTrustedSyncClick({ isTrusted: true } as Event, onClick2);
       expect(onClick1).not.toHaveBeenCalled();
       expect(onClick2).toHaveBeenCalledTimes(1);
     });
@@ -103,9 +110,7 @@ describe('ui', () => {
     it('only injects styles once', async () => {
       // Reset the module to clear the styleInjected flag
       vi.resetModules();
-      const { injectSyncButton: freshInjectSyncButton } = await import(
-        '../../src/content/ui'
-      );
+      const { injectSyncButton: freshInjectSyncButton } = await import('../../src/content/ui');
 
       document.body.innerHTML = '';
       document.head.innerHTML = '';
@@ -338,9 +343,7 @@ describe('ui', () => {
 
       const toast = document.querySelector('.g2o-toast');
       expect(toast?.classList.contains('warning')).toBe(true);
-      expect(document.querySelector('.g2o-toast .message')?.textContent).toBe(
-        'This is a warning'
-      );
+      expect(document.querySelector('.g2o-toast .message')?.textContent).toBe('This is a warning');
     });
   });
 

@@ -1,13 +1,13 @@
 {
   "extName": {
-    "message": "Obsidian AI Exporter"
+    "message": "Liska — AI Threadkeeper"
   },
   "extDescription": {
-    "message": "Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook の会話を Obsidian・ファイル・クリップボードへ保存"
+    "message": "Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook のスレッドをローカル Markdown として保存"
   },
 
   "ui_syncButton": {
-    "message": "Obsidian に同期"
+    "message": "スレッドを書き出す"
   },
   "ui_syncing": {
     "message": "同期中..."
@@ -41,7 +41,7 @@
     "message": "詳細設定"
   },
   "settings_vaultPathHelp": {
-    "message": "{platform} はプラットフォーム名（gemini, claude, chatgpt, perplexity, notebooklm）、{YYYY} {YY} {MM} {DD} は保存時のローカル日付に置換されます。例: AI/{platform}/{YYYY}/{MM}"
+    "message": "{platform} はプラットフォーム名（gemini, claude, chatgpt, perplexity, deepseek, notebooklm）、{YYYY} {YY} {MM} {DD} は保存時のローカル日付に置換されます。例: AI/{platform}/{YYYY}/{MM}"
   },
   "settings_filenameScheme": {
     "message": "ファイル名スキーム"

@@ -21,6 +21,7 @@ import { flattenLargeCallouts } from '../lib/callout-flatten';
 import { base64ToBytes } from '../lib/image-utils';
 import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
+import { extractTailMessages } from '../lib/message-counter';
 import type { ExtensionSettings, ObsidianNote, SaveResponse } from '../lib/types';
 
 /**
@@ -32,12 +33,13 @@ function createObsidianClient(settings: ExtensionSettings): ObsidianApiClient | 
     return { error: 'API key not configured' };
   }
   // Defence-in-depth: re-validate URL from storage before sending Bearer token
+  let validatedUrl: string;
   try {
-    validateObsidianUrl(settings.obsidianUrl);
+    validatedUrl = validateObsidianUrl(settings.obsidianUrl);
   } catch (error) {
     return { error: `Invalid Obsidian URL: ${getErrorMessage(error)}` };
   }
-  return new ObsidianApiClient(settings.obsidianUrl, settings.obsidianApiKey);
+  return new ObsidianApiClient(validatedUrl, settings.obsidianApiKey);
 }
 
 /**
@@ -130,6 +132,30 @@ async function tryAppendMode(
   }
 }
 
+function withAppendImageWarning(
+  settings: ExtensionSettings,
+  note: ObsidianNote,
+  appendResult: SaveResponse
+): SaveResponse {
+  if (
+    !settings.enableImageExport ||
+    appendResult.messagesAppended === undefined ||
+    appendResult.messagesAppended === 0
+  ) {
+    return appendResult;
+  }
+
+  const existingCount = Math.max(0, note.frontmatter.message_count - appendResult.messagesAppended);
+  const appendedTail = extractTailMessages(note.body, existingCount);
+  if (!appendedTail.includes('g2o-image://')) return appendResult;
+
+  return {
+    ...appendResult,
+    warning:
+      'Images in newly appended messages were skipped because append mode does not export images yet',
+  };
+}
+
 /**
  * Save note to Obsidian vault
  *
@@ -172,7 +198,7 @@ export async function handleSave(
       resolvedPath,
       searchBasePath
     );
-    if (appendResult) return appendResult;
+    if (appendResult) return withAppendImageWarning(settings, note, appendResult);
 
     return await saveFreshNote(client, settings, note, resolvedPath, templateVariables);
   } catch (error) {

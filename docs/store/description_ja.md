@@ -1,7 +1,7 @@
-Gemini、Claude、ChatGPT、Perplexity、Gemini Notebook の AI 会話をワンクリックで Obsidian に保存。
+Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook の AI スレッドをローカル Markdown として保存。
 
 🎯 できること
-Google Gemini（gemini.google.com）、Claude AI（claude.ai）、ChatGPT（chatgpt.com）、Perplexity（www.perplexity.ai）、Gemini Notebook／旧 NotebookLM（notebook.google.com）から会話を抽出し、美しく整形された Markdown ノートとしてエクスポートします。
+Liska は Google Gemini（gemini.google.com）、Claude AI（claude.ai）、ChatGPT（chatgpt.com）、Perplexity（www.perplexity.ai）、DeepSeek（chat.deepseek.com）、Gemini Notebook／旧 NotebookLM（notebook.google.com）から会話を抽出し、整形された Markdown ノートとしてエクスポートします。
 
 ☕ 3つのエクスポート方法
 • Obsidian：Local REST API プラグイン経由で vault に直接保存
@@ -9,7 +9,7 @@ Google Gemini（gemini.google.com）、Claude AI（claude.ai）、ChatGPT（chat
 • クリップボード：整形済み Markdown をコピーしてどこにでも貼り付け
 
 ✨ 主な機能
-• Gemini、Claude、ChatGPT、Perplexity、Gemini Notebook の会話をワンクリックでエクスポート
+• Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook の会話をワンクリックでエクスポート
 • YAML フロントマター付きの整形された Markdown
 • Q&A ブロックに Obsidian コールアウト構文（正しい AI 名を表示）
 • Deep Research（Gemini、Perplexity）と Extended Thinking / Artifacts（Claude）に対応
@@ -35,7 +35,7 @@ Google Gemini（gemini.google.com）、Claude AI（claude.ai）、ChatGPT（chat
 • 会話の送信先はあなた自身の Obsidian vault のみ
 • 画像エクスポートは Google の画像 CDN から画像を取得 - AI のページが既に使用しているホストと同じ
 • API キーはローカルストレージに安全に保存
-• オープンソース：https://github.com/sho7650/obsidian-AI-exporter
+• オープンソース：https://github.com/la4ox/liska-threadkeeper
 
 💻 必要なもの
 Obsidian 連携の場合：
@@ -46,8 +46,8 @@ Obsidian 連携の場合：
 
 🚀 使い方
 
-1. gemini.google.com、claude.ai、chatgpt.com、www.perplexity.ai、notebook.google.com で会話を開く
-2. ページに表示される紫色の「Sync」ボタンをクリック
+1. gemini.google.com、claude.ai、chatgpt.com、www.perplexity.ai、chat.deepseek.com、notebook.google.com で会話を開く
+2. ページに表示される紫色の「スレッドを書き出す」ボタンをクリック
 3. エクスポート方法を選択：Obsidian、ファイル、またはクリップボード
 4. 完了！会話が Markdown として保存されます
 

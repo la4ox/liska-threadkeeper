@@ -159,6 +159,15 @@ function injectStyles(): void {
 /**
  * Create and inject the sync button
  */
+export function handleTrustedSyncClick(event: Event, onClick: () => void): void {
+  if (!event.isTrusted) {
+    console.warn('[G2O] Ignored a programmatic export click');
+    return;
+  }
+
+  onClick();
+}
+
 export function injectSyncButton(onClick: () => void): HTMLButtonElement {
   injectStyles();
 
@@ -182,7 +191,7 @@ export function injectSyncButton(onClick: () => void): HTMLButtonElement {
   button.appendChild(icon);
   button.appendChild(text);
 
-  button.addEventListener('click', onClick);
+  button.addEventListener('click', event => handleTrustedSyncClick(event, onClick));
   document.body.appendChild(button);
 
   return button;

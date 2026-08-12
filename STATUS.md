@@ -2,31 +2,35 @@
 
 ## Confirmed working
 
-- Branch: `codex/deepseek-export` in the `la4ox/obsidian-AI-exporter` fork.
-- DeepSeek is registered for `https://chat.deepseek.com/*`.
-- Signed-in `/a/chat/s/{id}` exports use DeepSeek's same-origin `history_messages` response first, without scrolling. The page-local bearer is used only for that request and is not logged, persisted, or sent to the background worker.
-- The fast path reconstructs only the selected branch from `chat_session.current_message_id` through `parent_id`, rejects incomplete cache deltas and broken graphs, preserves API Markdown, and optionally includes Thinking content.
-- `/share/{id}`, missing/expired auth, schema drift, HTTP failure, and incomplete responses fall back to the existing rendered-DOM extractor. User-controlled auto-scroll remains available for that fallback.
-- Text notes up to 32 MiB of UTF-8 are accepted, with a separate 60 MiB serialized-message guard below Chrome's 64 MiB boundary. The former 1 MiB character cap was too brittle for very large multilingual chats. Malformed worker responses can no longer expose a secondary `results.map` UI error, and unexpected failures now name the stage that failed.
-- `npm run build` succeeds.
-- 1,546 tests pass when the two upstream Windows-environment E2E test files are excluded. The focused content/background/DeepSeek/Markdown suite passes 177/177, including a synthetic 600-message active branch, fail-closed malformed-parent cases, raw-tag escaping for API reasoning, a 1.2-million-character note, UTF-8 byte accounting, and malformed background responses.
-- Platform lint and ESLint complete with no errors (three pre-existing warnings outside the DeepSeek code).
+- Repository: `la4ox/liska-threadkeeper`; upstream remains `sho7650/obsidian-AI-exporter`.
+- Current branch: `codex/liska-first-release`, based on merged DeepSeek support at `0f215fa`.
+- Product identity is `Liska — AI Threadkeeper`, version `3.0.0`; the major version preserves monotonic browser updates from upstream 2.7.13 and marks the independent product/privacy boundary. Release artifacts use `liska-threadkeeper-<version>.zip`. Original MIT attribution is preserved in `LICENSE` and `NOTICE.md`.
+- File and clipboard exports work without Obsidian. Obsidian remains an optional output through Local REST API 4.1.3+ on exact loopback host `127.0.0.1`.
+- DeepSeek signed-in exports use the same-origin history response, reconstruct the selected active branch, preserve Markdown, and optionally include Thinking. DOM/scroll fallback remains available.
+- Live DeepSeek export was verified on a 2,803,334-byte conversation: 1,382 messages (691 user + 691 assistant), 690 reasoning blocks, correct first/last roles, and no alternation breaks. It completed in seconds without scrolling.
+- Exports require a trusted user click. Programmatic page clicks cannot trigger file, clipboard, or authenticated Obsidian operations.
+- Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
+- Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
+- `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside this branch's changes.
+- 1,553 tests pass across 75 files when the two known upstream Windows-environment E2E files are excluded. The focused first-release suite passes 242/242.
 
-## Important limits
+## Important limits and risks
 
-- The original live Comet export was confirmed incomplete: it contained 161 messages and began with an assistant response whose parent user message was missing after the five-minute DOM-scroll timeout.
-- The rebuilt fast path is covered by deterministic API/DOM tests but still needs one live retry against that same signed-in DeepSeek chat in Comet.
-- DeepSeek text/Markdown export is implemented, but provider images are not yet captured into local attachment files. The existing image-capture pipeline is Gemini-specific and remains bounded to 20 images, 10 MiB per image, and 48 MiB combined base64 data per note.
-- Export intentionally contains the currently selected branch, not every alternative branch. Automatic periodic backups remain a separate feature.
-- The separate upstream security review found hardening work worth addressing, but those unrelated changes are intentionally not mixed into the DeepSeek feature branch.
+- Liska exports the currently selected branch, not every alternative branch in the full conversation graph.
+- Automatic scheduled backups are not implemented; every export starts from a real user click.
+- DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
+- Append mode does not upload images into an existing note yet; it appends text and reports the skipped new images.
+- DOM-only auto-scroll is intentionally bounded to five minutes. Provider markup changes can still require extractor maintenance.
+- The optional upstream E2E authentication tooling stores reusable browser state in ignored local files and can expose an authenticated Chrome session on a loopback DevTools port while running. Do not use it casually or leave its daemon running.
+- The current visual icon is the inherited purple crystal. A dedicated Liska icon is a separate design task.
 
 ## Artifacts
 
 - Loadable unpacked extension: `dist/`
 - DeepSeek history client/parser: `src/content/extractors/deepseek-api.ts`
-- DeepSeek implementation: `src/content/extractors/deepseek.ts`
-- DeepSeek selector contract: `src/content/extractors/selectors/deepseek.ts`
+- Privacy policy source: `docs/privacy.html`
+- Current product and setup guide: `README.md`
 
 ## Next step
 
-Reload the freshly rebuilt `dist/` extension in Comet and retry the same long DeepSeek conversation. Confirm that it exports 619 messages without scrolling or a `results.map` error and begins with a user message.
+Review the first-release diff in its draft pull request, then load the rebuilt `dist/` in Comet and smoke-test one file export, one clipboard export, and (if desired) one Obsidian export before merging.

@@ -14,6 +14,7 @@ node_modules/
 dist/
 gemini2obsidian-*.zip
 obsidian-ai-exporter-*.zip
+liska-threadkeeper-*.zip
 
 # IDE
 .vscode/

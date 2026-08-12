@@ -1,111 +1,228 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Privacy Policy - Obsidian AI Exporter</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
-    h1 { border-bottom: 2px solid #7c3aed; padding-bottom: 10px; }
-    h2 { color: #5b21b6; margin-top: 30px; }
-    .update-date { color: #666; font-size: 0.9em; }
-    table { border-collapse: collapse; width: 100%; margin: 15px 0; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    th { background-color: #f5f3ff; }
-  </style>
-</head>
-<body>
-  <h1>Privacy Policy</h1>
-  <p class="update-date">Last updated: July 2026</p>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy - Liska — AI Threadkeeper</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+      h1 { border-bottom: 2px solid #7c3aed; padding-bottom: 10px; }
+      h2 { color: #5b21b6; margin-top: 30px; }
+      .update-date { color: #666; font-size: 0.9em; }
+      table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+      th { background-color: #f5f3ff; }
+    </style>
+  </head>
+  <body>
+    <h1>Privacy Policy</h1>
+    <p class="update-date">Last updated: August 2026</p>
 
-  <h2>Overview</h2>
-  <p>Obsidian AI Exporter is a Chrome extension that exports AI conversations to Obsidian. This policy explains how we handle your data.</p>
+    <h2>Overview</h2>
+    <p>
+      Liska — AI Threadkeeper is a Chromium extension that exports AI conversations to local
+      Markdown files, the clipboard, or an optional Obsidian vault. This policy explains how we
+      handle your data.
+    </p>
 
-  <h2>Data Collection</h2>
-  <h3>Data We Collect</h3>
-  <ul>
-    <li><strong>Obsidian API Key</strong>: Stored locally on your device only (not synced)</li>
-    <li><strong>Extension Settings</strong>: Vault path, template preferences (synced across your Chrome browsers)</li>
-    <li><strong>Conversation Content</strong>: Temporarily processed in memory, not stored by the extension</li>
-  </ul>
+    <h2>Data Collection</h2>
+    <h3>Data We Collect</h3>
+    <ul>
+      <li><strong>Obsidian API Key</strong>: Stored locally on your device only (not synced)</li>
+      <li>
+        <strong>Extension Settings</strong>: Vault path, template preferences (synced across your
+        Chrome browsers)
+      </li>
+      <li>
+        <strong>Conversation Content</strong>: Temporarily processed in memory, not stored by the
+        extension
+      </li>
+    </ul>
 
-  <h3>Data We Do NOT Collect</h3>
-  <ul>
-    <li>Personal information</li>
-    <li>Browsing history</li>
-    <li>Analytics or telemetry</li>
-    <li>Anything uploaded to servers we operate — we operate none</li>
-  </ul>
+    <h3>Data We Do NOT Collect</h3>
+    <ul>
+      <li>Personal information</li>
+      <li>Browsing history</li>
+      <li>Analytics or telemetry</li>
+      <li>Anything uploaded to servers we operate — we operate none</li>
+    </ul>
 
-  <h2>Data Storage</h2>
-  <table>
-    <tr><th>Data</th><th>Storage Location</th><th>Synced?</th></tr>
-    <tr><td>API Key</td><td>chrome.storage.local</td><td>No</td></tr>
-    <tr><td>Settings (API URL, vault path, etc.)</td><td>chrome.storage.sync</td><td>Yes</td></tr>
-    <tr><td>Conversations</td><td>Your Obsidian vault only</td><td>N/A</td></tr>
-  </table>
+    <h2>Data Storage</h2>
+    <table>
+      <tr>
+        <th>Data</th>
+        <th>Storage Location</th>
+        <th>Synced?</th>
+      </tr>
+      <tr>
+        <td>API Key</td>
+        <td>chrome.storage.local</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td>Settings (API URL, vault path, etc.)</td>
+        <td>chrome.storage.sync</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td>Conversations</td>
+        <td>Your selected local output only</td>
+        <td>N/A</td>
+      </tr>
+    </table>
 
-  <h2>Data Transmission</h2>
-  <p>This extension only communicates with:</p>
-  <ul>
-    <li><strong>gemini.google.com</strong>: To extract Gemini conversation content (read-only)</li>
-    <li><strong>claude.ai</strong>: To extract Claude conversation content (read-only)</li>
-    <li><strong>chatgpt.com</strong>: To extract ChatGPT conversation content (read-only)</li>
-    <li><strong>www.perplexity.ai</strong>: To extract Perplexity conversation content (read-only)</li>
-    <li><strong>chat.deepseek.com</strong>: To extract DeepSeek conversation content (read-only)</li>
-    <li><strong>notebook.google.com</strong>: To extract Gemini Notebook conversation content (read-only)</li>
-    <li><strong>notebooklm.google.com</strong>: Legacy NotebookLM host, redirected by Google to notebook.google.com (read-only)</li>
-    <li><strong>Your Obsidian instance</strong>: To save files to your Obsidian vault via Local REST API (when Obsidian output is enabled). By default this is <code>127.0.0.1</code> (localhost) over HTTP. Users can optionally configure HTTPS or a LAN host address.</li>
-    <li><strong>googleusercontent.com</strong>: To download AI-generated images so they can be saved with the conversation (only when image export is enabled, and only for images contained in the conversation you are exporting). This is Google's image CDN — the same host the AI page already loads those images from. The request downloads an image; no conversation content or personal data is sent.</li>
-  </ul>
-  <p>Your conversation content is never sent to any third party. It goes only to the Obsidian instance you configure, on your local machine or local network. We collect no analytics or telemetry, and we operate no servers of our own.</p>
+    <h2>Data Transmission</h2>
+    <p>This extension only communicates with:</p>
+    <ul>
+      <li>
+        <strong>gemini.google.com</strong>: To extract Gemini conversation content (read-only)
+      </li>
+      <li><strong>claude.ai</strong>: To extract Claude conversation content (read-only)</li>
+      <li><strong>chatgpt.com</strong>: To extract ChatGPT conversation content (read-only)</li>
+      <li>
+        <strong>www.perplexity.ai</strong>: To extract Perplexity conversation content (read-only)
+      </li>
+      <li>
+        <strong>chat.deepseek.com</strong>: To extract DeepSeek conversation content (read-only)
+      </li>
+      <li>
+        <strong>notebook.google.com</strong>: To extract Gemini Notebook conversation content
+        (read-only)
+      </li>
+      <li>
+        <strong>notebooklm.google.com</strong>: Legacy NotebookLM host, redirected by Google to
+        notebook.google.com (read-only)
+      </li>
+      <li>
+        <strong>Your Obsidian instance</strong>: To save files to your Obsidian vault via Local REST
+        API (when Obsidian output is enabled). Liska accepts only the exact loopback host
+        <code>127.0.0.1</code>, over HTTP or HTTPS.
+      </li>
+      <li>
+        <strong>googleusercontent.com</strong>: To download AI-generated images so they can be saved
+        with the conversation (only when image export is enabled, and only for images contained in
+        the conversation you are exporting). This is Google's image CDN — the same host the AI page
+        already loads those images from. The request downloads an image; no conversation content or
+        personal data is sent.
+      </li>
+    </ul>
+    <p>
+      Your conversation content is never sent to a server operated by Liska. It is processed on the
+      AI page that already displays it and goes only to the local output you select. We collect no
+      analytics or telemetry, and we operate no servers of our own.
+    </p>
 
-  <h2>Output Options</h2>
-  <p>Conversations can be exported to three destinations:</p>
-  <ul>
-    <li><strong>Obsidian (API)</strong>: Saved directly to your local Obsidian vault via Local REST API</li>
-    <li><strong>Download File</strong>: Downloaded as a Markdown file to your local downloads folder</li>
-    <li><strong>Clipboard</strong>: Copied to your system clipboard for pasting elsewhere</li>
-  </ul>
-  <p>All output operations occur locally on your device. No conversation data leaves your computer.</p>
+    <h2>Output Options</h2>
+    <p>Conversations can be exported to three destinations:</p>
+    <ul>
+      <li>
+        <strong>Obsidian (API)</strong>: Saved directly to your local Obsidian vault via Local REST
+        API
+      </li>
+      <li>
+        <strong>Download File</strong>: Downloaded as a Markdown file to your local downloads folder
+      </li>
+      <li><strong>Clipboard</strong>: Copied to your system clipboard for pasting elsewhere</li>
+    </ul>
+    <p>
+      All output operations occur locally on your device. No conversation data leaves your computer.
+    </p>
 
-  <h2>Permissions Explained</h2>
-  <table>
-    <tr><th>Permission</th><th>Purpose</th></tr>
-    <tr><td>storage</td><td>Save your settings locally</td></tr>
-    <tr><td>downloads</td><td>Save conversations as downloaded files</td></tr>
-    <tr><td>offscreen</td><td>Enable clipboard operations in background</td></tr>
-    <tr><td>clipboardWrite</td><td>Copy conversation content to clipboard</td></tr>
-    <tr><td>Host: gemini.google.com</td><td>Inject the sync button on Gemini pages</td></tr>
-    <tr><td>Host: claude.ai</td><td>Inject the sync button on Claude pages</td></tr>
-    <tr><td>Host: chatgpt.com</td><td>Inject the sync button on ChatGPT pages</td></tr>
-    <tr><td>Host: www.perplexity.ai</td><td>Inject the sync button on Perplexity pages</td></tr>
-    <tr><td>Host: chat.deepseek.com</td><td>Inject the sync button on DeepSeek pages</td></tr>
-    <tr><td>Host: notebook.google.com</td><td>Inject the sync button on Gemini Notebook pages</td></tr>
-    <tr><td>Host: notebooklm.google.com</td><td>Inject the sync button on legacy NotebookLM URLs</td></tr>
-    <tr><td>Host: *.googleusercontent.com</td><td>Download AI-generated images for export (image export only). The browser blocks the page itself from fetching these, so the extension downloads them.</td></tr>
-    <tr><td>Host: 127.0.0.1 (HTTP &amp; HTTPS)</td><td>Communicate with Obsidian's local API on localhost</td></tr>
-    <tr><td>Optional: other hosts</td><td>Requested at runtime if you configure a non-localhost API URL (e.g., LAN access). You will see a Chrome permission prompt before any connection is made.</td></tr>
-  </table>
+    <h2>Permissions Explained</h2>
+    <table>
+      <tr>
+        <th>Permission</th>
+        <th>Purpose</th>
+      </tr>
+      <tr>
+        <td>storage</td>
+        <td>Save your settings locally</td>
+      </tr>
+      <tr>
+        <td>downloads</td>
+        <td>Save conversations as downloaded files</td>
+      </tr>
+      <tr>
+        <td>offscreen</td>
+        <td>Enable clipboard operations in background</td>
+      </tr>
+      <tr>
+        <td>clipboardWrite</td>
+        <td>Copy conversation content to clipboard</td>
+      </tr>
+      <tr>
+        <td>Host: gemini.google.com</td>
+        <td>Inject the sync button on Gemini pages</td>
+      </tr>
+      <tr>
+        <td>Host: claude.ai</td>
+        <td>Inject the sync button on Claude pages</td>
+      </tr>
+      <tr>
+        <td>Host: chatgpt.com</td>
+        <td>Inject the sync button on ChatGPT pages</td>
+      </tr>
+      <tr>
+        <td>Host: www.perplexity.ai</td>
+        <td>Inject the sync button on Perplexity pages</td>
+      </tr>
+      <tr>
+        <td>Host: chat.deepseek.com</td>
+        <td>Inject the sync button on DeepSeek pages</td>
+      </tr>
+      <tr>
+        <td>Host: notebook.google.com</td>
+        <td>Inject the sync button on Gemini Notebook pages</td>
+      </tr>
+      <tr>
+        <td>Host: notebooklm.google.com</td>
+        <td>Inject the sync button on legacy NotebookLM URLs</td>
+      </tr>
+      <tr>
+        <td>Host: *.googleusercontent.com</td>
+        <td>
+          Download AI-generated images for export (image export only). The browser blocks the page
+          itself from fetching these, so the extension downloads them.
+        </td>
+      </tr>
+      <tr>
+        <td>Host: 127.0.0.1 (HTTP &amp; HTTPS)</td>
+        <td>Communicate with Obsidian's local API on localhost</td>
+      </tr>
+    </table>
 
-  <h2>Your Rights</h2>
-  <p>You can:</p>
-  <ul>
-    <li>Clear all stored data by uninstalling the extension</li>
-    <li>View stored data in Chrome DevTools (Application > Storage)</li>
-    <li>Use the extension without any external account</li>
-  </ul>
+    <h2>Your Rights</h2>
+    <p>You can:</p>
+    <ul>
+      <li>Clear all stored data by uninstalling the extension</li>
+      <li>View stored data in Chrome DevTools (Application > Storage)</li>
+      <li>Use the extension without any external account</li>
+    </ul>
 
-  <h2>Changes to This Policy</h2>
-  <p>We will update this page if our data practices change. The "Last updated" date at the top indicates when the policy was last revised.</p>
+    <h2>Changes to This Policy</h2>
+    <p>
+      We will update this page if our data practices change. The "Last updated" date at the top
+      indicates when the policy was last revised.
+    </p>
 
-  <h2>Remote Code</h2>
-  <p>This extension does not execute remotely hosted code. All functionality is contained within the extension package. In compliance with Manifest V3 requirements, no external scripts are loaded or executed.</p>
+    <h2>Remote Code</h2>
+    <p>
+      This extension does not execute remotely hosted code. All functionality is contained within
+      the extension package. In compliance with Manifest V3 requirements, no external scripts are
+      loaded or executed.
+    </p>
 
-  <h2>Children's Privacy</h2>
-  <p>This extension is not directed at children under 13. We do not knowingly collect personal information from children under 13. If you are a parent or guardian and believe your child has provided us with personal information, please contact us through GitHub.</p>
+    <h2>Children's Privacy</h2>
+    <p>
+      This extension is not directed at children under 13. We do not knowingly collect personal
+      information from children under 13. If you are a parent or guardian and believe your child has
+      provided us with personal information, please contact us through GitHub.
+    </p>
 
-  <h2>Contact</h2>
-  <p>For questions about this privacy policy, please open an issue on our <a href="https://github.com/sho7650/obsidian-AI-exporter">GitHub repository</a>.</p>
-</body>
+    <h2>Contact</h2>
+    <p>
+      For questions about this privacy policy, please open an issue on our
+      <a href="https://github.com/la4ox/liska-threadkeeper">GitHub repository</a>.
+    </p>
+  </body>
 </html>

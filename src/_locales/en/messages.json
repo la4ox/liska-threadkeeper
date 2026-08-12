@@ -1,15 +1,15 @@
 {
   "extName": {
-    "message": "Obsidian AI Exporter",
+    "message": "Liska — AI Threadkeeper",
     "description": "Extension name shown in browser"
   },
   "extDescription": {
-    "message": "Export Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook chats to Obsidian, files, or clipboard",
+    "message": "Bring Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook threads home as local Markdown",
     "description": "Extension description shown in browser and store"
   },
 
   "ui_syncButton": {
-    "message": "Sync to Obsidian",
+    "message": "Bring thread home",
     "description": "Text on the floating sync button"
   },
   "ui_syncing": {
@@ -54,7 +54,7 @@
     "description": "Collapsible section title for advanced settings"
   },
   "settings_vaultPathHelp": {
-    "message": "Use {platform} for source (gemini, claude, chatgpt, perplexity, notebooklm) and {YYYY} {YY} {MM} {DD} for the save date (local time). Example: AI/{platform}/{YYYY}/{MM}",
+    "message": "Use {platform} for source (gemini, claude, chatgpt, perplexity, deepseek, notebooklm) and {YYYY} {YY} {MM} {DD} for the save date (local time). Example: AI/{platform}/{YYYY}/{MM}",
     "description": "Help text explaining template variables for vault path"
   },
   "settings_filenameScheme": {
