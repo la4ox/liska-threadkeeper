@@ -2,7 +2,6 @@
  * CSS Selectors for ChatGPT (chatgpt.com)
  *
  * Selectors are ordered by stability (HIGH → LOW)
- * @see DES-003-chatgpt-extractor.md Section 5.3.2
  * @see docs/adr/005-shared-selector-modules.md
  */
 

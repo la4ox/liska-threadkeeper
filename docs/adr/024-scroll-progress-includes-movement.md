@@ -1,6 +1,6 @@
 # ADR-024: Upward scroll movement counts as accumulation progress
 
-- Status: Proposed
+- Status: Accepted — shipped in v2.6.1 (2026-08-02)
 - Date: 2026-08-02
 - Related: [ADR-017](017-autoscroll-virtualized-platforms.md), [ADR-018](018-progress-aware-scroll-deadline.md), issue #365
 - Extends: the progress-aware deadline introduced by ADR-018
@@ -15,7 +15,7 @@ advances ~1 turn per iteration" — i.e. that turn heights are roughly uniform.
 
 A single turn taller than the viewport breaks the assumption. The virtualized
 engine keys turns by the platform's own row identity (Claude's `data-index`,
-ChatGPT's `conversation-turn-N`), so while the engine crawls upward *through*
+ChatGPT's `conversation-turn-N`), so while the engine crawls upward _through_
 one tall turn, every harvest returns the same key. By construction such a turn
 surfaces no progress, and the idle deadline mis-classifies "traversing a tall
 turn" as "the scroller is stuck".
@@ -31,14 +31,14 @@ max traversable without a new turn = iterations × step
 Measured against live Claude through the CDP daemon (2026-08-02, 1440×900
 viewport, `.overflow-y-auto.overflow-x-hidden.flex-1`):
 
-| Quantity | Measured |
-| --- | --- |
-| `clientHeight` | 852px |
-| `step` | 511px |
-| Idle window | 15000 / 400 = 37 iterations |
-| **Max traversal without a new turn** | **18,907px** |
-| Code block rendering | 14px font, 22.75px line-height, **22.16px per line** measured |
-| **Single-turn limit** | **≈ 853 lines of code** |
+| Quantity                             | Measured                                                      |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `clientHeight`                       | 852px                                                         |
+| `step`                               | 511px                                                         |
+| Idle window                          | 15000 / 400 = 37 iterations                                   |
+| **Max traversal without a new turn** | **18,907px**                                                  |
+| Code block rendering                 | 14px font, 22.75px line-height, **22.16px per line** measured |
+| **Single-turn limit**                | **≈ 853 lines of code**                                       |
 
 A ~1000-line code block therefore renders ~22,160px tall and exceeds the limit
 by ~3,250px, aborting the pass deterministically at the same place on every
@@ -103,7 +103,7 @@ the next. The change is therefore scoped to the virtualized engine only.
   turn", which is what ADR-018 intended; a stuck scroller is still detected
   within ~15s of motion stopping.
 - One test changed meaning: `stops via the idle deadline ... when stuck below
-  the top` models a scroller that travels 10,900 → 3,000 before pinning. Those
+the top` models a scroller that travels 10,900 → 3,000 before pinning. Those
   ~15 iterations of real movement are now progress, so the pass runs ~53
   iterations instead of ~38. The bound was raised from `< 50` to `< 80`; the
   assertion's purpose (idle path, not the absolute ~750-iteration cap) is

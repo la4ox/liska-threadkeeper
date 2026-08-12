@@ -2,7 +2,7 @@
  * Note Generator Tests
  *
  * Tests the generateNoteContent function's templateOptions conditional branches.
- * DES-005 Section 3.1 — covers branch 57.14% → 100%
+ * Coverage regression tests for generateNoteContent templateOptions branches.
  */
 import { describe, it, expect } from 'vitest';
 import { generateNoteContent } from '../../src/lib/note-generator';

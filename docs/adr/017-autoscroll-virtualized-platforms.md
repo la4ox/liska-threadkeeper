@@ -1,8 +1,7 @@
 # ADR-017: Auto-scroll for virtualized platforms (Claude & ChatGPT)
 
-- Status: Proposed
+- Status: Accepted — shipped in v2.1.0 (2026-07-07)
 - Date: 2026-07-06
-- Related: [ADR-016](016-e2e-baseline-contract-and-reporting.md), issue TBD
 - Supersedes/extends: Gemini auto-scroll (`src/lib/scroll-manager.ts`)
 
 ## Context

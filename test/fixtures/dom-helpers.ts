@@ -373,7 +373,6 @@ interface ClaudeConversationMessage {
  * Create Extended Thinking assistant response DOM
  *
  * Generates the grid layout with .row-start-1 (thinking) and .row-start-2 (response)
- * @see docs/investigation/claude-extended-thinking-dom.md
  */
 function createClaudeExtendedThinkingResponse(
   content: string,
@@ -417,7 +416,6 @@ function createClaudeExtendedThinkingResponse(
  * Create Claude conversation DOM structure
  *
  * Replicates the structure used by Claude AI
- * @see docs/design/DES-002-claude-extractor.md Section 5.7.1
  */
 export function createClaudeConversationDOM(messages: ClaudeConversationMessage[]): string {
   const blocks: string[] = [];
@@ -460,7 +458,6 @@ export function createClaudeConversationDOM(messages: ClaudeConversationMessage[
 /**
  * Create Claude Deep Research DOM structure
  *
- * @see docs/design/DES-002-claude-extractor.md Section 5.7.2
  */
 export function createClaudeDeepResearchDOM(
   title: string,
@@ -635,7 +632,6 @@ interface ToolUseGridOptions {
  * .row-start-1 = tool activity (summary button, search query, search results, intermediate text)
  * .row-start-2 = summary/response text
  *
- * @see docs/design/DES-006-tool-use-content.md
  */
 function createClaudeToolUseBlock(options: ToolUseGridOptions): string {
   const toolStepsHtml = (options.toolSteps ?? [])
@@ -1068,7 +1064,6 @@ interface ChatGPTConversationMessage {
  * Create ChatGPT conversation DOM structure
  *
  * Replicates the structure used by ChatGPT
- * @see docs/design/DES-003-chatgpt-extractor.md Section 5.8.1
  */
 export function createChatGPTConversationDOM(messages: ChatGPTConversationMessage[]): string {
   const turns: string[] = [];
@@ -1232,7 +1227,6 @@ interface PerplexityConversationMessage {
  * Create Perplexity conversation DOM structure
  *
  * Replicates the structure used by Perplexity AI
- * @see docs/design/DES-004-perplexity-extractor.md Section 4.2
  */
 export function createPerplexityConversationDOM(messages: PerplexityConversationMessage[]): string {
   const blocks: string[] = [];

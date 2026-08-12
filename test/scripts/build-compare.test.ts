@@ -27,7 +27,7 @@ import {
 const tmpDirs: string[] = [];
 
 function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'g2o-cmp-'));
+  const dir = mkdtempSync(join(tmpdir(), 'liska-compare-'));
   tmpDirs.push(dir);
   return dir;
 }

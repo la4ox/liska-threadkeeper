@@ -77,7 +77,8 @@ describe('normalizeSyncSettings', () => {
 
   it('preserves a valid optional timezone but drops a non-string one', () => {
     expect(
-      normalizeSyncSettings({ templateOptions: { timezone: 'Asia/Tokyo' } }).templateOptions.timezone
+      normalizeSyncSettings({ templateOptions: { timezone: 'Asia/Tokyo' } }).templateOptions
+        .timezone
     ).toBe('Asia/Tokyo');
     expect(
       normalizeSyncSettings({ templateOptions: { timezone: 123 } }).templateOptions.timezone

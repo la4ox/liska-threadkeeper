@@ -479,7 +479,7 @@ describe('background/index', () => {
         });
       });
 
-      it('rejects fileName with path traversal (DES-014 H-1)', () => {
+      it('rejects fileName with path traversal', () => {
         const sendResponse = vi.fn();
         capturedListener(
           {
@@ -497,7 +497,7 @@ describe('background/index', () => {
         });
       });
 
-      it('rejects fileName with encoded path traversal (DES-014 H-1)', () => {
+      it('rejects fileName with encoded path traversal', () => {
         const sendResponse = vi.fn();
         capturedListener(
           {
@@ -515,7 +515,7 @@ describe('background/index', () => {
         });
       });
 
-      it('rejects note with missing frontmatter (DES-014 M-8)', () => {
+      it('rejects note with missing frontmatter', () => {
         const sendResponse = vi.fn();
         capturedListener(
           {
@@ -2159,7 +2159,7 @@ describe('background/index', () => {
     });
   });
 
-  // ========== Coverage Gap: scheduleOffscreenClose (DES-005 3.5) ==========
+  // ========== Coverage regression: scheduleOffscreenClose ==========
   describe('scheduleOffscreenClose', () => {
     const validSender = { url: `chrome-extension://${chrome.runtime.id}/popup.html` };
     const validNote: ObsidianNote = {
@@ -2204,7 +2204,7 @@ describe('background/index', () => {
     });
   });
 
-  // ========== Coverage Gap: handleSaveToObsidian catch block (DES-005 3.5) ==========
+  // ========== Coverage regression: handleSaveToObsidian catch block ==========
   describe('handleSaveToObsidian error handling', () => {
     const validSender = { url: `chrome-extension://${chrome.runtime.id}/popup.html` };
     const validNote: ObsidianNote = {
@@ -2245,7 +2245,7 @@ describe('background/index', () => {
     });
   });
 
-  // ========== Coverage Gap: handleDownloadToFile catch block (DES-005 3.5) ==========
+  // ========== Coverage regression: handleDownloadToFile catch block ==========
   describe('handleDownloadToFile error handling', () => {
     const validSender = { url: `chrome-extension://${chrome.runtime.id}/popup.html` };
     const validNote: ObsidianNote = {
@@ -2286,7 +2286,7 @@ describe('background/index', () => {
     });
   });
 
-  // ========== Coverage Gap: handleMultiOutput rejected promise (DES-005 3.5) ==========
+  // ========== Coverage regression: handleMultiOutput rejected promise ==========
   describe('handleMultiOutput Promise.allSettled rejected branch', () => {
     const validSender = { url: `chrome-extension://${chrome.runtime.id}/popup.html` };
     const validNote: ObsidianNote = {

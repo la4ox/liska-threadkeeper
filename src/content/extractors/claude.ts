@@ -4,7 +4,6 @@
  * Extracts conversations from Claude AI (claude.ai)
  * Supports both normal chat and Deep Research (Extended Thinking) modes
  *
- * @see docs/design/DES-002-claude-extractor.md
  */
 
 import { BaseExtractor, type ScrollConfig } from './base';
@@ -135,7 +134,7 @@ export class ClaudeExtractor extends BaseExtractor {
       el => this.extractAssistantContent(el)
     );
 
-    // Attach tool content to corresponding assistant messages (DES-014 H-5: immutable)
+    // Attach tool content to corresponding assistant messages without mutating existing messages.
     if (toolContentById.size === 0) return messages;
 
     return messages.map(msg => {

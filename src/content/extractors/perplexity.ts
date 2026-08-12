@@ -4,7 +4,6 @@
  * Extracts conversations from Perplexity AI (www.perplexity.ai)
  * Supports normal chat mode and Deep Research reports
  *
- * @see docs/design/DES-004-perplexity-extractor.md
  */
 
 import { BaseExtractor } from './base';
@@ -218,8 +217,6 @@ export class PerplexityExtractor extends BaseExtractor {
    * Strategy: Collect all content elements (user queries, responses, Deep Research
    * reports), sort them by DOM position, and build messages in document order.
    * This ensures multi-turn conversations with Deep Research maintain correct ordering.
-   *
-   * @see DES-004 Section 4.2
    */
   extractMessages(): ConversationMessage[] {
     const tagged = this.collectTaggedElements();

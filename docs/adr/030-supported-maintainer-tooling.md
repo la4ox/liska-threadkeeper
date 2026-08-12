@@ -41,5 +41,5 @@ reviewable extractor regression coverage.
 - Live provider validation remains a deliberate manual smoke test using the
   installed extension; a future automated browser harness must have an explicit
   security model, cross-platform owner, and CI or documented maintainer value.
-- Historical design records may still mention removed tooling until the
-  documentation-pruning stage; they are not active operating instructions.
+- The removal is complete: retained documentation describes the supported
+  offline suite and manual smoke-test boundary, not the removed live harness.

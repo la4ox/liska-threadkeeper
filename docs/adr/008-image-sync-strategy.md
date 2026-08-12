@@ -2,15 +2,19 @@
 
 ## Status
 
-Accepted (v2.0.0) — implemented for Gemini generated images. See
-"Implementation Notes (v2.0.0)" below for where the shipped design deviates
-from the original proposal.
+Accepted (v2.0.0), amended by [ADR-021](021-remote-image-fetch-in-service-worker.md)
+and [ADR-027](027-generated-image-capture-from-rendered-element.md). The
+implementation is for Gemini generated images; the notes below record where the
+shipped behaviour differs from the original proposal.
 
 ## Context
 
 Issue #186 requests image sync support: when exporting AI conversations to Obsidian, images (user-uploaded, AI-generated, inline) should be saved alongside the text.
 
-Currently, images are **completely stripped** during HTML sanitization (DOMPurify `USE_PROFILES: { html: true }` removes `<img>` tags). No image-related types, extraction logic, or storage methods exist.
+At the time of this decision, images were **completely stripped** during HTML
+sanitization and no image-related types, extraction logic, or storage methods
+existed. The status above records the subsequently shipped implementation and
+amendments.
 
 ### Constraints
 
@@ -28,11 +32,11 @@ Images are fetched as binary data in the background service worker, uploaded to 
 
 ### Alternatives Considered
 
-| Method | Approach | Rejected Because |
-|--------|----------|-----------------|
-| B - External URL reference | `![alt](https://platform.com/image/xxx)` | URLs are auth-gated and expire; notes become broken after session ends |
-| C - Base64 Data URI | `![alt](data:image/png;base64,...)` | Bloats markdown files (100KB+ per image); poor Git/sync performance; Obsidian preview issues |
-| D - External object storage | Upload to S3/GCS, reference public URL | Requires user to configure cloud credentials; adds external dependency; complex UX |
+| Method                      | Approach                                 | Rejected Because                                                                             |
+| --------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| B - External URL reference  | `![alt](https://platform.com/image/xxx)` | URLs are auth-gated and expire; notes become broken after session ends                       |
+| C - Base64 Data URI         | `![alt](data:image/png;base64,...)`      | Bloats markdown files (100KB+ per image); poor Git/sync performance; Obsidian preview issues |
+| D - External object storage | Upload to S3/GCS, reference public URL   | Requires user to configure cloud credentials; adds external dependency; complex UX           |
 
 ### Key Design Decisions
 
@@ -69,12 +73,11 @@ Images are fetched as binary data in the background service worker, uploaded to 
 
 ## Implementation Notes (v2.0.0)
 
-The investigation in `docs/investigation/gemini-image-dom-structure.md` found
-that Gemini's generated images use **blob: URLs** that are origin- and
-context-scoped: the background service worker cannot fetch them (Method A's
-"background SW fetches images" step is impossible for blob URLs). The shipped
-implementation therefore adopts **Option 4** from that investigation and
-deviates from this ADR's original proposal as follows:
+Implementation evidence established that Gemini generated images can use
+**blob: URLs** that are origin- and context-scoped: the background service
+worker cannot fetch them. Later work in ADR-027 also covers a revoked blob URL
+whose rendered element still has recoverable pixels. The shipped implementation
+therefore deviates from this ADR's original proposal as follows:
 
 1. **Capture location** — images are fetched as base64 **in the content script**
    (same origin as the page), before DOMPurify strips the blob `src`. The bytes
@@ -102,7 +105,5 @@ rather than `application/octet-stream`.
 ## References
 
 - GitHub Issue: #186
-- Investigation: `docs/investigation/gemini-image-dom-structure.md`
-- Design: `docs/design/DES-017-image-sync.md`
 - Obsidian Local REST API: [coddingtonbear/obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api)
 - Obsidian attachment docs: [help.obsidian.md/attachments](https://help.obsidian.md/attachments)

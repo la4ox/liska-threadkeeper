@@ -451,7 +451,7 @@ describe('BaseExtractor', () => {
 
       const sorted = extractor.testSortByDomPosition(elements);
 
-      // Original array should not be mutated (DES-014 L-4)
+      // Original array should not be mutated.
       expect(elements[0].element).toBe(third);
 
       // Sorted result should be in DOM order

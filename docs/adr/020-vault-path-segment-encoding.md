@@ -43,17 +43,17 @@ if (resolved !== syntheticRoot && !resolved.startsWith(syntheticRoot + "/")) {
 ```
 
 A `%2F` therefore no longer separates directories. `AI%2Fgemini%2Fnote.md` is
-one segment that decodes to a single file *named* `AI/gemini/note.md`, which
+one segment that decodes to a single file _named_ `AI/gemini/note.md`, which
 cannot exist — every request 404s. The behaviour is unchanged through 5.0.2.
 
 Observed impact (issues #377, #376):
 
-| Operation | Result before this change |
-| --- | --- |
-| Save with any sub-folder vault path (default `AI/{platform}`) | 404, surfaced as "File not found in vault." |
-| Save with an empty vault path | worked — no `/` in the path, so nothing to mis-encode |
-| Image export (`AI/{platform}/images`) | always failed, and silently |
-| Append-mode ID scan (`listFiles` / `listEntries`) | 404 → treated as "no such directory" → duplicate notes |
+| Operation                                                     | Result before this change                              |
+| ------------------------------------------------------------- | ------------------------------------------------------ |
+| Save with any sub-folder vault path (default `AI/{platform}`) | 404, surfaced as "File not found in vault."            |
+| Save with an empty vault path                                 | worked — no `/` in the path, so nothing to mis-encode  |
+| Image export (`AI/{platform}/images`)                         | always failed, and silently                            |
+| Append-mode ID scan (`listFiles` / `listEntries`)             | 404 → treated as "no such directory" → duplicate notes |
 
 The OpenAPI specification is unambiguous that this is our bug, not upstream's:
 `filename` is documented as "Path to the relevant file (relative to your vault

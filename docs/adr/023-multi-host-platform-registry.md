@@ -11,11 +11,11 @@ Google rebranded **NotebookLM** to **Gemini Notebook** and moved it from
 
 Verified against the live product on 2026-07-29:
 
-| Observation | Result |
-| --- | --- |
-| `https://notebooklm.google.com/notebook/{uuid}` | redirects to `https://notebook.google.com/notebook/{uuid}` — path shape unchanged |
-| `document.title` | `"{notebook title} - Gemini Notebook"` (was `… - NotebookLM`) |
-| DOM selectors (`.chat-message-pair`, `.from-user-container .message-text-content`, `.to-user-container .message-text-content`, `element-list-renderer`, `button.citation-marker`, `.cover-title`) | all still match |
+| Observation                                                                                                                                                                                       | Result                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `https://notebooklm.google.com/notebook/{uuid}`                                                                                                                                                   | redirects to `https://notebook.google.com/notebook/{uuid}` — path shape unchanged |
+| `document.title`                                                                                                                                                                                  | `"{notebook title} - Gemini Notebook"` (was `… - NotebookLM`)                     |
+| DOM selectors (`.chat-message-pair`, `.from-user-container .message-text-content`, `.to-user-container .message-text-content`, `element-list-renderer`, `button.citation-marker`, `.cover-title`) | all still match                                                                   |
 
 Chrome injects content scripts based on the document's **final** URL, so once
 the redirect lands on `notebook.google.com` — a host absent from
@@ -28,8 +28,8 @@ Two structural assumptions in the codebase broke at once:
    platform, so there was nowhere to express "new host plus legacy host".
 2. **Display labels were assumed immortal.** `PLATFORM_LABELS` fed both
    `document.title` suffix stripping (`BaseExtractor`) and append-mode message
-   counting (`message-counter.ts`). The latter parses notes written by *earlier
-   versions of this extension*, where the assistant callout reads
+   counting (`message-counter.ts`). The latter parses notes written by _earlier
+   versions of this extension_, where the assistant callout reads
    `> [!NOTE] NotebookLM`.
 
 ## Decision

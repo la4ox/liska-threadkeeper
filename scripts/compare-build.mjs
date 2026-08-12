@@ -126,7 +126,7 @@ function cleanup(keep) {
  * @returns {string} path to the downloaded .zip
  */
 function downloadReleaseZip(tag) {
-  const dir = makeTemp('g2o-ci-');
+  const dir = makeTemp('liska-release-');
   console.log(`▶ downloading release ZIP for ${tag} via gh…`);
   try {
     run('gh', ['release', 'download', tag, '--pattern', 'liska-threadkeeper-*.zip', '--dir', dir]);
@@ -151,7 +151,7 @@ function downloadReleaseZip(tag) {
  * @returns {string}
  */
 function extractZip(zipPath) {
-  const dir = makeTemp('g2o-extract-');
+  const dir = makeTemp('liska-extract-');
   if (process.platform === 'win32') {
     run('tar.exe', ['-xf', zipPath, '-C', dir]);
   } else {

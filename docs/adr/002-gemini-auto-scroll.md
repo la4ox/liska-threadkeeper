@@ -1,14 +1,13 @@
 # ADR-002: Auto-Scroll for Gemini Long Conversation Extraction
 
-| Field | Value |
-|-------|-------|
-| **Document ID** | ADR-002 |
-| **Date** | 2026-02-20 |
-| **Status** | Accepted |
-| **Branch** | `feature/gemini-auto-scroll` |
-| **Issue** | [#49](https://github.com/sho7650/obsidian-AI-exporter/issues/49) |
-| **Related** | [#44](https://github.com/sho7650/obsidian-AI-exporter/issues/44), PR #45 (closed) |
-| **Design Spec** | [DES-002](../design/002-gemini-auto-scroll.md) |
+| Field           | Value                                                                             |
+| --------------- | --------------------------------------------------------------------------------- |
+| **Document ID** | ADR-002                                                                           |
+| **Date**        | 2026-02-20                                                                        |
+| **Status**      | Accepted                                                                          |
+| **Branch**      | `feature/gemini-auto-scroll`                                                      |
+| **Issue**       | [#49](https://github.com/sho7650/obsidian-AI-exporter/issues/49)                  |
+| **Related**     | [#44](https://github.com/sho7650/obsidian-AI-exporter/issues/44), PR #45 (closed) |
 
 ---
 
@@ -36,13 +35,13 @@ Implementation is confined to `GeminiExtractor` (private methods). No changes to
 
 ## Alternatives Rejected
 
-| Alternative | Reason |
-|-------------|--------|
-| **MutationObserver** | Harder to test in jsdom, still needs timeout, no clear benefit over 1s polling |
-| **Incremental scrollBy()** | Unnecessary — single `scrollTo(0)` triggers full backfill |
-| **Network interception (batchexecute API)** | Fragile auth tokens, API instability, excessive complexity |
-| **User notification only** | Pushes work to user; auto-scroll is automatic with graceful fallback |
-| **Modify buildConversationResult()** | Shared interface change for Gemini-specific concern; warning can be appended after return |
+| Alternative                                 | Reason                                                                                    |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **MutationObserver**                        | Harder to test in jsdom, still needs timeout, no clear benefit over 1s polling            |
+| **Incremental scrollBy()**                  | Unnecessary — single `scrollTo(0)` triggers full backfill                                 |
+| **Network interception (batchexecute API)** | Fragile auth tokens, API instability, excessive complexity                                |
+| **User notification only**                  | Pushes work to user; auto-scroll is automatic with graceful fallback                      |
+| **Modify buildConversationResult()**        | Shared interface change for Gemini-specific concern; warning can be appended after return |
 
 ---
 
@@ -56,6 +55,5 @@ Implementation is confined to `GeminiExtractor` (private methods). No changes to
 
 ## References
 
-- Design specification: [DES-002](../design/002-gemini-auto-scroll.md)
 - [gemini-chat-exporter](https://github.com/Louisjo/gemini-chat-exporter) — scroll-to-top approach reference
 - Gemini scroll bug reports: [thread 1](https://support.google.com/gemini/thread/388320766), [thread 2](https://support.google.com/gemini/thread/349679299)

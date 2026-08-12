@@ -2,7 +2,6 @@
  * CSS Selectors for Claude AI (claude.ai)
  *
  * Selectors are ordered by stability (HIGH → LOW)
- * @see DES-002-claude-extractor.md Section 5.2.2
  * @see docs/adr/005-shared-selector-modules.md
  */
 
@@ -76,7 +75,6 @@ export const SELECTORS = {
 /**
  * CSS Selectors for Deep Research extraction
  *
- * @see DES-002-claude-extractor.md Section 5.2.3
  */
 export const DEEP_RESEARCH_SELECTORS = {
   // Artifact container (existence check)

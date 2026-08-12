@@ -83,6 +83,8 @@ npm run build
 
 The generated unpacked extension lives in `dist/`. Compatibility identifiers such as `g2o-*` remain internal so existing settings and note placeholders keep working across the fork.
 
+Maintainers: see the [documentation index](docs/README.md), [maintenance and release guide](docs/maintaining.md), and [build comparison guide](docs/build-reproducibility.md).
+
 ## Origin and license
 
 Liska is an independent MIT-licensed fork of [sho7650/obsidian-AI-exporter](https://github.com/sho7650/obsidian-AI-exporter). The original copyright and MIT license are preserved; see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md). The Liska project is not endorsed by the original author.

@@ -8,7 +8,6 @@
  * read (issue #283). They are detected and reported rather than silently
  * dropped — see {@link ChatGPTExtractor.buildConversationResult}.
  *
- * @see docs/design/DES-003-chatgpt-extractor.md
  */
 
 import { BaseExtractor, type ScrollConfig } from './base';
@@ -421,7 +420,6 @@ export class ChatGPTExtractor extends BaseExtractor {
    *
    * ChatGPT adds ?utm_source=chatgpt.com to citation URLs.
    * Uses DOM-level manipulation instead of regex for safety.
-   * @see DES-003-chatgpt-extractor.md Section 8.2
    */
   private cleanCitationUrls(html: string): string {
     const doc = new DOMParser().parseFromString(html, 'text/html');

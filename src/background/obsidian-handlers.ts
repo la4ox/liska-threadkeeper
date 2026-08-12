@@ -274,7 +274,7 @@ function imageWarning(failedImages: readonly string[]): string | undefined {
  * a note whose body embeds them via `![[filename]]` wikilinks. When image
  * export is disabled or there are no images, image placeholders are stripped.
  *
- * Image-write failures never block the note (DES-017 principle), but they are
+ * Image-write failures never block the note (ADR-008, ADR-021, ADR-027), but they are
  * no longer silent: the failed file names are returned so the caller can
  * surface them to the user (issue #376).
  */

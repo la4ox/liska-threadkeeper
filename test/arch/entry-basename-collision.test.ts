@@ -35,8 +35,8 @@ const manifest = JSON.parse(read('src/manifest.json')) as Manifest;
 // worker plus each content-script file.
 const scriptEntries: string[] = [
   ...(manifest.background?.service_worker ? [manifest.background.service_worker] : []),
-  ...(manifest.content_scripts ?? []).flatMap((cs) => cs.js ?? []),
-].filter((p) => /\.(t|j)sx?$/.test(p));
+  ...(manifest.content_scripts ?? []).flatMap(cs => cs.js ?? []),
+].filter(p => /\.(t|j)sx?$/.test(p));
 
 describe('architecture: CRXJS entry basename uniqueness', () => {
   it('declares at least the background + content script entries', () => {
@@ -52,12 +52,12 @@ describe('architecture: CRXJS entry basename uniqueness', () => {
   });
 
   it('script entries have pairwise-distinct output basenames', () => {
-    const basenames = scriptEntries.map((p) => path.basename(p));
+    const basenames = scriptEntries.map(p => path.basename(p));
     const duplicates = basenames.filter((b, i) => basenames.indexOf(b) !== i);
     expect(
       duplicates,
       `colliding entry basenames ${JSON.stringify(duplicates)} cause CRXJS to ` +
-        `resolve service-worker-loader.js to the wrong chunk; give each entry a unique filename`,
+        `resolve service-worker-loader.js to the wrong chunk; give each entry a unique filename`
     ).toEqual([]);
   });
 });

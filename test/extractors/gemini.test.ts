@@ -931,7 +931,7 @@ describe('GeminiExtractor', () => {
     });
   });
 
-  // ========== Coverage Gap: extract() canExtract false (DES-005 3.3) ==========
+  // ========== Coverage regression: extract() canExtract false ==========
   describe('extract() canExtract false', () => {
     it('returns error when called from non-gemini domain', async () => {
       // Covers: gemini.ts lines 444-449 (canExtract false branch)
@@ -943,7 +943,7 @@ describe('GeminiExtractor', () => {
     });
   });
 
-  // ========== Coverage Gap: extractMessagesFromRoot fallback (DES-005 3.3) ==========
+  // ========== Coverage regression: extractMessagesFromRoot fallback ==========
   describe('extractMessagesFromRoot', () => {
     it('falls back to root extraction when no conversation-container found', () => {
       // Covers: gemini.ts lines 280-322 (extractMessagesFromRoot)
@@ -975,7 +975,7 @@ describe('GeminiExtractor', () => {
     });
   });
 
-  // ========== Coverage Gap: extractUserQueryContent fallback selectors (DES-005 3.3) ==========
+  // ========== Coverage regression: extractUserQueryContent fallback selectors ==========
   describe('extractUserQueryContent fallback paths', () => {
     it('falls back when all .query-text-line elements are whitespace-only', () => {
       // Covers: gemini.ts lines 340-342 (textParts.length === 0 after filter)
@@ -1046,7 +1046,7 @@ describe('GeminiExtractor', () => {
     });
   });
 
-  // ========== Auto-Scroll Tests (DES-002) ==========
+  // ========== Auto-Scroll Tests (ADR-002) ==========
   describe('ensureAllMessagesLoaded (auto-scroll)', () => {
     beforeEach(() => {
       vi.useFakeTimers();
