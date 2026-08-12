@@ -11,6 +11,7 @@ import { ClaudeExtractor } from './extractors/claude';
 import { ChatGPTExtractor } from './extractors/chatgpt';
 import { PerplexityExtractor } from './extractors/perplexity';
 import { NotebookLMExtractor } from './extractors/notebooklm';
+import { DeepSeekExtractor } from './extractors/deepseek';
 import { extractErrorMessage } from '../lib/error-utils';
 import type { IConversationExtractor } from '../lib/types';
 import { conversationToNote } from './markdown';
@@ -27,8 +28,11 @@ import {
   AUTO_SAVE_CHECK_INTERVAL,
   EVENT_THROTTLE_DELAY,
   INFO_TOAST_DURATION,
+  MAX_CONTENT_SIZE,
+  MAX_EXTENSION_MESSAGE_SIZE,
   MUTATION_DEBOUNCE_DELAY,
 } from '../lib/constants';
+import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 import type {
   AIPlatform,
   ContentScriptSettings,
@@ -57,6 +61,7 @@ const PLATFORM_ROOT_SELECTORS: Record<AIPlatform, string[]> = {
   chatgpt: ['main'],
   perplexity: ['main'],
   notebooklm: ['main'],
+  deepseek: ['main', '[role="main"]'],
 };
 
 /**
@@ -69,11 +74,12 @@ const EXTRACTOR_CONSTRUCTORS: Record<AIPlatform, new () => IConversationExtracto
   chatgpt: ChatGPTExtractor,
   perplexity: PerplexityExtractor,
   notebooklm: NotebookLMExtractor,
+  deepseek: DeepSeekExtractor,
 };
 
 /** Conversation container selectors to detect when content is ready */
 const CONVERSATION_CONTAINER_SELECTOR =
-  '.conversation-container, [class*="conversation"], section[data-turn-id], article[data-turn-id], div[class*="threadContentWidth"]';
+  '.conversation-container, [class*="conversation"], section[data-turn-id], article[data-turn-id], div[class*="threadContentWidth"], .ds-message';
 
 /**
  * Get the optimal observation root for the current platform
@@ -305,12 +311,80 @@ function displaySaveResults(
   }
 }
 
+/** Runtime guard: the worker can return a generic error envelope on rejection. */
+function isMultiOutputResponse(value: unknown): value is MultiOutputResponse {
+  if (!value || typeof value !== 'object') return false;
+  const response = value as Record<string, unknown>;
+  if (!Array.isArray(response.results) || response.results.length === 0) return false;
+  if (!response.results.every(isOutputResult)) return false;
+  const allSuccessful = response.results.every(result => result.success);
+  const anySuccessful = response.results.some(result => result.success);
+  return response.allSuccessful === allSuccessful && response.anySuccessful === anySuccessful;
+}
+
+function isOutputResult(value: unknown): value is OutputResult {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Record<string, unknown>;
+  if (!['obsidian', 'file', 'clipboard'].includes(String(result.destination))) return false;
+  if (typeof result.success !== 'boolean') return false;
+  if (result.error !== undefined && typeof result.error !== 'string') return false;
+  if (result.savedAs !== undefined && typeof result.savedAs !== 'string') return false;
+  if (result.warning !== undefined && typeof result.warning !== 'string') return false;
+  return (
+    result.messagesAppended === undefined ||
+    (typeof result.messagesAppended === 'number' &&
+      Number.isSafeInteger(result.messagesAppended) &&
+      result.messagesAppended >= 0)
+  );
+}
+
+function backgroundResponseError(value: unknown): string {
+  if (value && typeof value === 'object') {
+    const error = (value as Record<string, unknown>).error;
+    if (typeof error === 'string' && error.trim()) return error;
+  }
+  return 'Invalid response from extension background';
+}
+
+async function persistNote(
+  note: ObsidianNote,
+  outputs: OutputDestination[],
+  messageCount: number,
+  extractionWarnings?: string[]
+): Promise<void> {
+  if (utf8ByteLength(note.body) > MAX_CONTENT_SIZE) {
+    showErrorToast('Conversation is too large to export safely (32 MiB limit)');
+    return;
+  }
+
+  const saveMessage = { action: 'saveToOutputs' as const, data: note, outputs };
+  if (jsonUtf8ByteLength(saveMessage) > MAX_EXTENSION_MESSAGE_SIZE) {
+    showErrorToast('Conversation and images are too large to export safely (60 MiB limit)');
+    return;
+  }
+
+  console.info('[G2O] Generated note:', {
+    fileName: note.fileName,
+    messageCount,
+    outputs,
+  });
+
+  showToast('Saving...', 'info', INFO_TOAST_DURATION);
+  const saveResponse: unknown = await sendMessage(saveMessage);
+  if (!isMultiOutputResponse(saveResponse)) {
+    showErrorToast(backgroundResponseError(saveResponse));
+    return;
+  }
+  displaySaveResults(saveResponse, note.fileName, extractionWarnings);
+}
+
 /**
  * Handle sync button click
  */
 export async function handleSync(): Promise<void> {
   console.info('[G2O] Sync initiated');
   setButtonLoading(true);
+  let stage = 'loading extension settings';
 
   try {
     // Get settings first (L-01: use type-safe messaging)
@@ -318,6 +392,7 @@ export async function handleSync(): Promise<void> {
     const enabledOutputs = getEnabledOutputs(settings);
 
     // Validate output configuration
+    stage = 'checking output configuration';
     const configError = await validateOutputConfig(settings, enabledOutputs);
     if (configError) {
       showErrorToast(configError);
@@ -333,6 +408,7 @@ export async function handleSync(): Promise<void> {
 
     showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
     extractor.applySettings(settings);
+    stage = 'extracting the conversation';
     const result = await extractor.extract();
 
     // Validate extraction
@@ -354,22 +430,13 @@ export async function handleSync(): Promise<void> {
     }
 
     // Convert to Obsidian note
+    stage = 'formatting the conversation';
     const note = conversationToNote(result.data, settings.templateOptions);
-
-    console.info('[G2O] Generated note:', {
-      fileName: note.fileName,
-      messageCount: result.data.messages.length,
-      outputs: enabledOutputs,
-    });
-
-    // Save to enabled outputs
-    showToast('Saving...', 'info', INFO_TOAST_DURATION);
-    const saveResult = await saveToOutputs(note, enabledOutputs);
-
-    displaySaveResults(saveResult, note.fileName, result.warnings);
+    stage = 'saving the note';
+    await persistNote(note, enabledOutputs, result.data.messages.length, result.warnings);
   } catch (error) {
-    console.error('[G2O] Sync error:', error);
-    showErrorToast(extractErrorMessage(error));
+    console.error(`[G2O] Sync error while ${stage}:`, error);
+    showErrorToast(`Failed while ${stage}: ${extractErrorMessage(error)}`);
   } finally {
     setButtonLoading(false);
   }
@@ -389,15 +456,4 @@ function getSettings(): Promise<ContentScriptSettings> {
  */
 function testConnection(): Promise<{ success: boolean; error?: string }> {
   return sendMessage({ action: 'testConnection' });
-}
-
-/**
- * Save note to multiple outputs via background script
- * Uses type-safe messaging utility
- */
-function saveToOutputs(
-  note: ObsidianNote,
-  outputs: OutputDestination[]
-): Promise<MultiOutputResponse> {
-  return sendMessage({ action: 'saveToOutputs', data: note, outputs });
 }

@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { MultiOutputResponse, ObsidianNote } from '../../src/lib/types';
 import { generateHash } from '../../src/lib/hash';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
+import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
 
 // Mock client instance - defined at module level
 const mockClient = {
@@ -524,13 +525,51 @@ describe('background/index', () => {
         });
       });
 
-      it('rejects body over 1MB', () => {
+      it('accepts a text-only body larger than the legacy 1 MiB cap', async () => {
+        mockClient.getFile.mockResolvedValue(null);
+        mockClient.putFile.mockResolvedValue(undefined);
         const sendResponse = vi.fn();
         capturedListener(
           {
             action: 'saveToOutputs',
             outputs: ['obsidian'],
-            data: { ...validNote, body: 'a'.repeat(1024 * 1024 + 1) },
+            data: { ...validNote, body: 'a'.repeat(1_200_000) },
+          },
+          validSender as chrome.runtime.MessageSender,
+          sendResponse
+        );
+
+        await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+        expect(sendResponse).toHaveBeenCalledWith(
+          expect.objectContaining({ results: expect.any(Array) })
+        );
+      });
+
+      it('rejects body over the bounded text limit', () => {
+        const sendResponse = vi.fn();
+        capturedListener(
+          {
+            action: 'saveToOutputs',
+            outputs: ['obsidian'],
+            data: { ...validNote, body: 'a'.repeat(MAX_CONTENT_SIZE + 1) },
+          },
+          validSender as chrome.runtime.MessageSender,
+          sendResponse
+        );
+
+        expect(sendResponse).toHaveBeenCalledWith({
+          success: false,
+          error: 'Invalid message content',
+        });
+      });
+
+      it('measures the text limit in UTF-8 bytes rather than UTF-16 units', () => {
+        const sendResponse = vi.fn();
+        capturedListener(
+          {
+            action: 'saveToOutputs',
+            outputs: ['obsidian'],
+            data: { ...validNote, body: '😀'.repeat(MAX_CONTENT_SIZE / 4 + 1) },
           },
           validSender as chrome.runtime.MessageSender,
           sendResponse

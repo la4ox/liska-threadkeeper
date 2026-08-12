@@ -3,7 +3,7 @@
     "message": "Obsidian AI Exporter"
   },
   "extDescription": {
-    "message": "Gemini、Claude、ChatGPT、Perplexity、Gemini Notebook（旧 NotebookLM）の AI 会話を Obsidian へエクスポート（Local REST API 経由）"
+    "message": "Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook の会話を Obsidian・ファイル・クリップボードへ保存"
   },
 
   "ui_syncButton": {

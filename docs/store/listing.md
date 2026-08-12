@@ -33,8 +33,8 @@ permission into an unjustified one.
    mismatch means the paste was truncated.
 5. Update **Last synced** below.
 
-**Last synced:** 2026-08-02, extension v2.5.0. Every field below matches the
-dashboard, each verified against its character counter after pasting.
+**Fork draft:** DeepSeek support is documented below but has not been pasted to
+the upstream Chrome Web Store dashboard.
 
 ---
 
@@ -45,10 +45,10 @@ Dashboard field: 単一用途の説明 / "Single purpose description". Limit 100
 <!-- field: single_purpose, limit: 1000 -->
 
 ```text
-Export and save Gemini, Claude, ChatGPT, Perplexity AI, and Gemini Notebook conversations locally as Markdown notes - to Obsidian, as files, or to clipboard.
+Export and save Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook conversations locally as Markdown notes - to Obsidian, as files, or to clipboard.
 ```
 
-157 characters. Replaced the previous 140-character text, which named only four
+164 characters. Replaced the previous 140-character text, which named only four
 platforms and had been stale since NotebookLM shipped in #206 (2026-04-09).
 
 ---
@@ -114,21 +114,18 @@ manifest.
 <!-- field: host_permissions, limit: 1000 -->
 
 ```text
-Eight host permissions are required:
+Nine host permissions are required:
 
-1. gemini.google.com - inject the "Sync to Obsidian" button and read conversation content from Gemini pages. Read-only.
-2-6. claude.ai, chatgpt.com, www.perplexity.ai, notebook.google.com (Gemini Notebook) and notebooklm.google.com (its former host, still redirected there) - the same button and read-only access, on those sites.
+1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com (Gemini Notebook), and notebooklm.google.com (legacy redirect) - inject the Sync button and read only the conversation shown on that supported site.
 
-7. *.googleusercontent.com - download AI-generated images so they can be saved with the conversation, when the user turns on image export. This is the same Google image CDN the AI page already loads them from; Chrome blocks the page from fetching them, so the extension does it. Images only: no conversation content or user data is sent.
+8. *.googleusercontent.com - download only AI-generated images already present in the exported conversation, and only when image export is enabled. No conversation text is sent there.
 
-8. 127.0.0.1 (localhost, HTTP and HTTPS) - communicate with Obsidian's Local REST API plugin on the user's own machine, saving conversations to their vault.
+9. 127.0.0.1 (HTTP and HTTPS) - connect to Obsidian Local REST API on the user's own machine and save the requested export.
 
-Conversation content is never sent to a third party; it goes only to the user's own Obsidian instance. No analytics or telemetry.
+Conversation content goes only to selected local outputs: the user's Obsidian vault, a downloaded Markdown file, or the clipboard. No analytics, telemetry, or developer-operated server.
 ```
 
-995 characters — matches the live dashboard value. Only 5 characters of headroom
-remain: adding a host will require compressing this text, not just appending to
-it.
+788 characters. Fork draft; not yet pasted to the Chrome Web Store dashboard.
 
 ---
 

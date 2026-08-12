@@ -16,6 +16,7 @@ import { ClaudeExtractor } from '../../src/content/extractors/claude';
 import { ChatGPTExtractor } from '../../src/content/extractors/chatgpt';
 import { PerplexityExtractor } from '../../src/content/extractors/perplexity';
 import { NotebookLMExtractor } from '../../src/content/extractors/notebooklm';
+import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
 import { PLATFORM_REGISTRY, ALL_PLATFORMS } from '../../src/lib/platform-registry';
 import type { AIPlatform, IConversationExtractor } from '../../src/lib/types';
 import { resetLocation } from '../fixtures/dom-helpers';
@@ -30,6 +31,7 @@ const EXTRACTOR_FACTORIES: Record<AIPlatform, () => IConversationExtractor> = {
   chatgpt: () => new ChatGPTExtractor(),
   perplexity: () => new PerplexityExtractor(),
   notebooklm: () => new NotebookLMExtractor(),
+  deepseek: () => new DeepSeekExtractor(),
 };
 
 function setHostname(hostname: string): void {

@@ -659,6 +659,58 @@ describe('conversationToNote', () => {
     expect(note.body).not.toContain('<p>');
   });
 
+  it('preserves assistant content that already came from a Markdown API', () => {
+    const markdown = '**Bold answer** with <unsafe-tag>\n\n```ts\nconst value: Array<T> = [];\n```';
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'deepseek',
+        messages: [
+          { id: 'msg1', role: 'user', content: 'Question', index: 0 },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: markdown,
+            contentFormat: 'markdown',
+            index: 1,
+          },
+        ],
+      },
+      defaultOptions
+    );
+
+    expect(note.body).toContain('**Bold answer**');
+    expect(note.body).toContain('\\<unsafe-tag\\>');
+    expect(note.body).toContain('```ts\n> const value: Array<T> = [];\n> ```');
+    expect(note.body).not.toContain('\\*\\*Bold answer\\*\\*');
+  });
+
+  it('escapes raw HTML-like tags in API tool content while preserving fenced code', () => {
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'deepseek',
+        messages: [
+          { id: 'msg1', role: 'user', content: 'Question', index: 0 },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: 'Final answer',
+            contentFormat: 'markdown',
+            toolContent:
+              '**DeepSeek reasoning**\n<img src="https://tracker.example/p">\n```ts\nconst x: Array<T> = [];\n```',
+            index: 1,
+          },
+        ],
+      },
+      defaultOptions
+    );
+
+    expect(note.body).toContain('\\<img src="https://tracker.example/p"\\>');
+    expect(note.body).not.toContain('\n> <img ');
+    expect(note.body).toContain('const x: Array<T> = [];');
+  });
+
   it('generates content hash', () => {
     const note = conversationToNote(mockData, defaultOptions);
     expect(note.contentHash).toMatch(/^[0-9a-f]{8}$/);
