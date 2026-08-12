@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-07-25)
+Superseded in configuration by [ADR-030](030-supported-maintainer-tooling.md)
+(2026-08-12). Coverage remains scoped to `src/`, but the removed live-E2E files
+no longer need an explicit exclusion.
 
 ## Context
 
@@ -17,12 +19,12 @@ set: the E2E selector-validation tooling under `e2e/` — imported by its own un
 tests, which `test.include` picks up via `e2e/**/*.test.ts` — appeared in every
 report. Verified three ways, all of which still reported the `e2e/` directories:
 
-| Attempt | Result |
-| --- | --- |
-| `include: ['src/**/*.ts']` in the config file | `e2e/` present |
-| `--coverage.include='src/**/*.ts'` on the CLI | `e2e/` present |
-| `--coverage.include='**/src/**/*.ts'` (globstar-anchored, cf. ADR-012) | `e2e/` present |
-| `--coverage.exclude='e2e/**'` | `e2e/` **absent** |
+| Attempt                                                                | Result            |
+| ---------------------------------------------------------------------- | ----------------- |
+| `include: ['src/**/*.ts']` in the config file                          | `e2e/` present    |
+| `--coverage.include='src/**/*.ts'` on the CLI                          | `e2e/` present    |
+| `--coverage.include='**/src/**/*.ts'` (globstar-anchored, cf. ADR-012) | `e2e/` present    |
+| `--coverage.exclude='e2e/**'`                                          | `e2e/` **absent** |
 
 Only `exclude` filters.
 
@@ -30,10 +32,10 @@ The consequence was that the thresholds gated the wrong population. E2E tooling
 sits far below product code (`e2e/tools/gemini-pick-url.ts` at 12.9%,
 `e2e/daemon/chrome-launcher.ts` at 26.0%), so it dragged the aggregate down:
 
-| Population | Stmts | Branch | Funcs | Lines |
-| --- | --- | --- | --- | --- |
+| Population           | Stmts  | Branch | Funcs  | Lines  |
+| -------------------- | ------ | ------ | ------ | ------ |
 | Reported (src + e2e) | 90.85% | 84.76% | 94.45% | 91.66% |
-| src only | 96.28% | 87.20% | 98.64% | 97.40% |
+| src only             | 96.28% | 87.20% | 98.64% | 97.40% |
 
 Against thresholds of 85/75/85/85, `src/` could have regressed by roughly eight
 points and still passed. The gate was also coupled the wrong way round: growth

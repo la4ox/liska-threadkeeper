@@ -19,8 +19,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # Node 24 to match flake.nix (nodejs_24) and the arch-test dependency
-          # @nielspeter/ts-archunit, which requires Node >=24 (see ADR-012).
+          # Node 24 is the supported engine and is required by the architecture
+          # test dependency @nielspeter/ts-archunit (see ADR-012).
           node-version: '24'
           cache: 'npm'
 

@@ -12,8 +12,6 @@ node_modules/
 
 # Build output
 dist/
-gemini2obsidian-*.zip
-obsidian-ai-exporter-*.zip
 liska-threadkeeper-*.zip
 
 # IDE
@@ -38,17 +36,18 @@ test-results/
 # Environment
 .env
 .env.local
-.improvement-state/
 
-# E2E selector validation
+# Retired maintainer-tool residue may still contain session credentials or
+# generated state in existing clones. Keep it untrackable after the tooling is
+# removed (ADR-030).
+.improvement-state/
 e2e/auth/profiles/
 e2e/auth/state.json
-e2e/.env.local
 e2e/results/
 e2e/baselines/
 e2e/daemon/chrome.pid
 
-# nix + direnv
+# Local development environment caches
 .direnv/
 result
 result-*

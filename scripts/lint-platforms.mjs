@@ -47,7 +47,6 @@ const CHECK_TARGETS = [
   { file: 'docs/store/listing.md', type: 'hostname' },
   { file: 'README.md', type: 'hostname' },
   { file: 'README.ja.md', type: 'hostname' },
-  { file: 'CLAUDE.md', type: 'hostname' },
   { file: 'package.json', type: 'displayName', jsonField: 'description' },
   {
     file: 'src/_locales/en/messages.json',
@@ -63,9 +62,7 @@ const CHECK_TARGETS = [
 
 // --- Main ---
 
-const manifest = JSON.parse(
-  readFileSync(resolve(ROOT, 'src/manifest.json'), 'utf-8'),
-);
+const manifest = JSON.parse(readFileSync(resolve(ROOT, 'src/manifest.json'), 'utf-8'));
 const matches = manifest.content_scripts[0].matches;
 
 // Extract platforms (skip infrastructure hosts like 127.0.0.1)
@@ -77,7 +74,7 @@ for (const pattern of matches) {
   const displayName = HOST_DISPLAY_NAMES[hostname];
   if (!displayName) {
     console.error(
-      `ERROR: Unknown platform hostname: ${hostname}. Add it to HOST_DISPLAY_NAMES in scripts/lint-platforms.mjs`,
+      `ERROR: Unknown platform hostname: ${hostname}. Add it to HOST_DISPLAY_NAMES in scripts/lint-platforms.mjs`
     );
     process.exit(1);
   }
@@ -87,12 +84,8 @@ for (const pattern of matches) {
 // Header
 console.log('Platform lint check');
 console.log('===================');
-console.log(
-  `Source: src/manifest.json content_scripts[0].matches`,
-);
-console.log(
-  `Platforms: ${platforms.map((p) => `${p.displayName} (${p.hostname})`).join(', ')}`,
-);
+console.log(`Source: src/manifest.json content_scripts[0].matches`);
+console.log(`Platforms: ${platforms.map(p => `${p.displayName} (${p.hostname})`).join(', ')}`);
 console.log();
 
 // Run checks
@@ -105,9 +98,7 @@ for (const target of CHECK_TARGETS) {
   for (const platform of platforms) {
     if (target.type === 'hostname') {
       if (!raw.includes(platform.hostname)) {
-        errors.push(
-          `ERROR: ${target.file} is missing platform hostname: ${platform.hostname}`,
-        );
+        errors.push(`ERROR: ${target.file} is missing platform hostname: ${platform.hostname}`);
       }
     } else if (target.type === 'displayName') {
       let searchText = raw;
@@ -123,7 +114,7 @@ for (const target of CHECK_TARGETS) {
       }
       if (!searchText.toLowerCase().includes(platform.displayName.toLowerCase())) {
         errors.push(
-          `ERROR: ${target.file} is missing platform display name: ${platform.displayName}`,
+          `ERROR: ${target.file} is missing platform display name: ${platform.displayName}`
         );
       }
     }
@@ -136,13 +127,9 @@ if (errors.length > 0) {
     console.log(err);
   }
   console.log();
-  console.log(
-    `${errors.length} error(s) found. Update the files above to include all platforms.`,
-  );
+  console.log(`${errors.length} error(s) found. Update the files above to include all platforms.`);
   process.exit(1);
 } else {
-  console.log(
-    `All ${CHECK_TARGETS.length} files are consistent with manifest.json. \u2713`,
-  );
+  console.log(`All ${CHECK_TARGETS.length} files are consistent with manifest.json. \u2713`);
   process.exit(0);
 }

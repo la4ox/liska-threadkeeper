@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-03-22)
+Superseded by [ADR-030](030-supported-maintainer-tooling.md) (2026-08-12).
 
 ## Context
 
@@ -45,14 +45,14 @@ ObsidianReporter.onEnd()
 
 ### Files
 
-| Action | File |
-|--------|------|
+| Action | File                                                  |
+| ------ | ----------------------------------------------------- |
 | Create | `e2e/selectors/obsidian-reporter.ts` (Reporter class) |
-| Create | `e2e/selectors/report-builder.ts` (pure functions) |
-| Create | `e2e/selectors/__tests__/report-builder.test.ts` |
-| Delete | `e2e/selectors/global-teardown.ts` |
-| Modify | `e2e/playwright.config.ts` |
-| Modify | `e2e/selectors/notifier.ts` (log prefix only) |
+| Create | `e2e/selectors/report-builder.ts` (pure functions)    |
+| Create | `e2e/selectors/__tests__/report-builder.test.ts`      |
+| Delete | `e2e/selectors/global-teardown.ts`                    |
+| Modify | `e2e/playwright.config.ts`                            |
+| Modify | `e2e/selectors/notifier.ts` (log prefix only)         |
 
 ## Alternatives Considered
 

@@ -2,7 +2,7 @@
  * Fitness function: platform Single Source of Truth (ADR-012).
  *
  * `src/manifest.json` content_scripts[0].matches is the SSOT for supported
- * platforms (per CLAUDE.md "Adding New Platforms"). This holistic check proves
+ * platforms (per ADR-014). This holistic check proves
  * the CODE side stays in sync with it — complementing scripts/lint-platforms.mjs,
  * which covers the DOCS side (README, privacy.html, locales).
  *

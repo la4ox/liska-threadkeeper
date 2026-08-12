@@ -26,13 +26,11 @@ messages remain a readable convention, not a local hook or merge gate.
    if (git status --porcelain) { throw "Release worktree is not clean" }
    ```
 
-3. Until the inherited live-E2E harness is removed, its three known
-   Windows-incompatible tests are not part of the release gate. Run the product
-   coverage suite explicitly, then build:
+3. Run the complete maintained test and coverage suite, then build:
 
    ```powershell
    npm ci
-   npm exec -- vitest run --coverage --exclude "e2e/**"
+   npm run test:coverage
    npm run build:zip
    ```
 

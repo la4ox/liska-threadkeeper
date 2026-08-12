@@ -79,11 +79,9 @@ export const DEEP_RESEARCH_LINK_SELECTORS = {
     'sup.superscript[data-turn-source-index]',
   ],
   // Source list container.
-  // 2026-08: the `#used-sources-list` fallback was dropped — measured at zero on
-  // the live Deep Research page while `deep-research-source-lists` still matches.
-  // A zero-match entry is per-entry fatal to `npm run e2e:baseline:update`
-  // (baseline.ts refuses to record a selector that cannot be found, ADR-016), so
-  // a dead fallback blocks the whole platform's baseline (issue #402).
+  // 2026-08: the `#used-sources-list` fallback was dropped after it stopped
+  // matching Deep Research pages while `deep-research-source-lists` remained
+  // present. Keeping dead fallbacks masks provider DOM drift (upstream #402).
   sourceListContainer: ['deep-research-source-lists'],
   // Source list items
   sourceListItem: ['a[data-test-id="browse-web-item-link"]', 'a[data-test-id="browse-chip-link"]'],

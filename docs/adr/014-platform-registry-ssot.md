@@ -57,7 +57,7 @@ Key properties:
 
 - Adding a platform: extend the `AIPlatform` union, add one registry entry,
   add the extractor + its constructor/selector map entries (compile-enforced),
-  update the manifest. `CLAUDE.md` "Adding New Platforms" is updated
+  update the manifest. The maintained README/platform checks are updated
   accordingly.
 - `VALID_SOURCES` changes type from a literal tuple to `readonly AIPlatform[]`;
   `(typeof VALID_SOURCES)[number]` now resolves to `AIPlatform` (semantically

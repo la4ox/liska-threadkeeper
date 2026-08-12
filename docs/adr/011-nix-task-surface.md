@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-05-02).
+Superseded by [ADR-030](030-supported-maintainer-tooling.md) (2026-08-12).
 
 Extends [ADR-010](010-nix-only-dev-environment.md).
 
@@ -31,16 +31,16 @@ Adopt **Option A**. The `flake.nix` `apps` outputs become the **canonical task s
 
 ### Concrete settings
 
-| Decision | Value | Rationale |
-|---|---|---|
-| Task surface | `nix run .#<name>` for every npm script | Single canonical entry point; works from any directory containing the flake. |
-| Wrapper primitive | `pkgs.writeShellApplication` | Stdlib idiom in nixpkgs; gives `set -euo pipefail` and PATH composition for free. |
-| Script name mapping | `:` → `-` (`e2e:auth` → `e2e-auth`) | Nix attribute-name syntax requirement. Documented in README. |
-| `node_modules/` missing behaviour | Fail with a clear error pointing at `npm ci` | Project rule: "package.json / node_modules に触る操作は必ずユーザー承認を得る". Auto-install rejected for the same reason. |
-| `npm run …` retention | Keep all `package.json` scripts unchanged | Backwards compatibility for muscle memory, IDE integrations, and `husky`/`release-please`. |
-| Tool binary source | `./node_modules/.bin/` (npm-installed) | Plugin-coupled tools (Vite + `@crxjs/vite-plugin` + `vite-plugin-static-copy`, Vitest + `@vitest/coverage-v8`, ESLint + `typescript-eslint`) require Node module resolution from the project root; Nix-store binaries would either lose plugin discovery or require Option B's sandbox-aware setup. |
-| Argument forwarding | `"$@"` in every wrapper | Allows `nix run .#e2e-daemon -- start` and equivalent forms. |
-| CI migration | Deferred (unchanged from ADR-010) | Out of scope. |
+| Decision                          | Value                                        | Rationale                                                                                                                                                                                                                                                                                           |
+| --------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task surface                      | `nix run .#<name>` for every npm script      | Single canonical entry point; works from any directory containing the flake.                                                                                                                                                                                                                        |
+| Wrapper primitive                 | `pkgs.writeShellApplication`                 | Stdlib idiom in nixpkgs; gives `set -euo pipefail` and PATH composition for free.                                                                                                                                                                                                                   |
+| Script name mapping               | `:` → `-` (`e2e:auth` → `e2e-auth`)          | Nix attribute-name syntax requirement. Documented in README.                                                                                                                                                                                                                                        |
+| `node_modules/` missing behaviour | Fail with a clear error pointing at `npm ci` | Project rule: "package.json / node_modules に触る操作は必ずユーザー承認を得る". Auto-install rejected for the same reason.                                                                                                                                                                          |
+| `npm run …` retention             | Keep all `package.json` scripts unchanged    | Backwards compatibility for muscle memory, IDE integrations, and `husky`/`release-please`.                                                                                                                                                                                                          |
+| Tool binary source                | `./node_modules/.bin/` (npm-installed)       | Plugin-coupled tools (Vite + `@crxjs/vite-plugin` + `vite-plugin-static-copy`, Vitest + `@vitest/coverage-v8`, ESLint + `typescript-eslint`) require Node module resolution from the project root; Nix-store binaries would either lose plugin discovery or require Option B's sandbox-aware setup. |
+| Argument forwarding               | `"$@"` in every wrapper                      | Allows `nix run .#e2e-daemon -- start` and equivalent forms.                                                                                                                                                                                                                                        |
+| CI migration                      | Deferred (unchanged from ADR-010)            | Out of scope.                                                                                                                                                                                                                                                                                       |
 
 ## Consequences
 

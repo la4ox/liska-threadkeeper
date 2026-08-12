@@ -5,8 +5,9 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./test/setup.ts'],
-    include: ['test/**/*.test.ts', 'e2e/**/*.test.ts'],
-    // E2E test timeout extension
+    include: ['test/**/*.test.ts'],
+    // Auto-scroll timeout tests advance virtual clocks through long bounded
+    // provider waits and need more than Vitest's five-second default on CI.
     testTimeout: 30000,
     coverage: {
       provider: 'v8',
@@ -23,13 +24,9 @@ export default defineConfig({
         'src/popup/index.ts',
         'src/content/index.ts',
         'test/**/*.ts', // Test infrastructure should not count toward coverage
-        // E2E selector-validation tooling. It has its own unit tests, but it is
-        // developer tooling rather than shipped extension code; leaving it in
-        // diluted the thresholds below (ADR-019).
-        'e2e/**',
       ],
-      // Calibrated against the measured src-only figures (96.13 / 87.17 /
-      // 98.67 / 97.43 at the time of ADR-019), leaving a small margin.
+      // Calibrated against the measured src-only figures (95.08 / 85.04 /
+      // 97.82 / 96.87 on 2026-08-12), leaving a small margin.
       thresholds: {
         statements: 95,
         branches: 85,
