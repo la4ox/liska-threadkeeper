@@ -7,6 +7,7 @@
 
 import {
   MAX_CONTENT_SIZE,
+  MAX_EXTENSION_MESSAGE_SIZE,
   MAX_FILENAME_LENGTH,
   MAX_FRONTMATTER_TITLE_LENGTH,
   MAX_TAGS_COUNT,
@@ -23,6 +24,7 @@ import type { ExtensionMessage, ExtractedImage, ObsidianNote } from '../lib/type
 import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
+import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 
 /**
  * Validate message sender (M-02)
@@ -59,6 +61,12 @@ export function validateSender(sender: chrome.runtime.MessageSender): boolean {
 export function validateMessageContent(message: ExtensionMessage): boolean {
   // Validate action against whitelist (using centralized constants)
   if (!VALID_MESSAGE_ACTIONS.includes(message.action as (typeof VALID_MESSAGE_ACTIONS)[number])) {
+    return false;
+  }
+
+  // Chrome serializes extension messages as UTF-8 JSON and rejects messages at
+  // 64 MiB. Keep the worker boundary below that even for semi-trusted senders.
+  if (jsonUtf8ByteLength(message) > MAX_EXTENSION_MESSAGE_SIZE) {
     return false;
   }
 
@@ -117,7 +125,7 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
   }
 
   // Content size limit (DoS prevention)
-  if (note.body.length > MAX_CONTENT_SIZE) {
+  if (utf8ByteLength(note.body) > MAX_CONTENT_SIZE) {
     return false;
   }
 

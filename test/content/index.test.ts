@@ -77,7 +77,10 @@ const okSave: MultiOutputResponse = {
 function mockMessaging(overrides: {
   settings?: Partial<ContentScriptSettings>;
   connection?: { success: boolean; error?: string };
-  save?: MultiOutputResponse;
+  save?:
+    | MultiOutputResponse
+    | { success: false; error: string }
+    | { results: unknown[]; allSuccessful: boolean; anySuccessful: boolean };
 }): void {
   vi.mocked(sendMessage).mockImplementation(message => {
     switch ((message as { action: string }).action) {
@@ -448,6 +451,28 @@ describe('content/bootstrap', () => {
       expect(showErrorToast).toHaveBeenCalledWith('Failed to save');
     });
 
+    it('surfaces a background rejection instead of reading results.map', async () => {
+      loadGeminiConversation();
+      mockMessaging({
+        save: { success: false, error: 'Invalid message content' },
+      });
+
+      await handleSync();
+
+      expect(showErrorToast).toHaveBeenCalledWith('Invalid message content');
+    });
+
+    it('rejects malformed result entries instead of passing them to results.map', async () => {
+      loadGeminiConversation();
+      mockMessaging({
+        save: { results: [null], allSuccessful: true, anySuccessful: true },
+      });
+
+      await handleSync();
+
+      expect(showErrorToast).toHaveBeenCalledWith('Invalid response from extension background');
+    });
+
     it('catches messaging errors and resets the button state', async () => {
       loadGeminiConversation();
       vi.mocked(sendMessage).mockRejectedValue(new Error('Extension context invalidated.'));
@@ -455,7 +480,9 @@ describe('content/bootstrap', () => {
 
       await handleSync();
 
-      expect(showErrorToast).toHaveBeenCalledWith('Extension context invalidated.');
+      expect(showErrorToast).toHaveBeenCalledWith(
+        'Failed while loading extension settings: Extension context invalidated.'
+      );
       expect(setButtonLoading).toHaveBeenLastCalledWith(false);
       errorSpy.mockRestore();
     });

@@ -97,8 +97,21 @@ export const MAX_PORT = 65535;
 /** Default timeout for API requests (milliseconds) */
 export const DEFAULT_API_TIMEOUT = 5000;
 
-/** Maximum content size for API requests (1MB) */
-export const MAX_CONTENT_SIZE = 1024 * 1024;
+/**
+ * Maximum text body accepted from a content script (32 MiB).
+ *
+ * Long provider histories can legitimately exceed 1 MiB before images: a
+ * 619-message DeepSeek export measured 1.2 MB. This remains a hard worker-memory
+ * bound; image payloads are governed by the separate limits below.
+ */
+export const MAX_CONTENT_SIZE = 32 * 1024 * 1024;
+
+/**
+ * Maximum serialized content-script message size.
+ * Chrome caps extension messages at 64 MiB; keep 4 MiB for serialization and
+ * implementation overhead so oversized notes fail locally with a useful error.
+ */
+export const MAX_EXTENSION_MESSAGE_SIZE = 60 * 1024 * 1024;
 
 /** Maximum number of images accepted per note (DoS guard). */
 export const MAX_IMAGES_PER_NOTE = 20;
