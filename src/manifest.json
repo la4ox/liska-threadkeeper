@@ -25,6 +25,7 @@
     "https://www.perplexity.ai/*",
     "https://notebook.google.com/*",
     "https://notebooklm.google.com/*",
+    "https://chat.deepseek.com/*",
     "https://*.googleusercontent.com/*",
     "http://127.0.0.1/*",
     "https://127.0.0.1/*"
@@ -44,7 +45,8 @@
         "https://chatgpt.com/*",
         "https://www.perplexity.ai/*",
         "https://notebook.google.com/*",
-        "https://notebooklm.google.com/*"
+        "https://notebooklm.google.com/*",
+        "https://chat.deepseek.com/*"
       ],
       "js": [
         "src/content/index.ts"

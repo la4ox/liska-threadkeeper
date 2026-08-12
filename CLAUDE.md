@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Chrome Extension that extracts AI conversations from Google Gemini, Claude AI, ChatGPT, and Perplexity and saves them to Obsidian via the Local REST API. Built with CRXJS + Vite + TypeScript.
+Chrome Extension that extracts AI conversations from Google Gemini, Claude AI, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook and saves them to Obsidian via the Local REST API. Built with CRXJS + Vite + TypeScript.
 
 ## ⚠️ Absolute Rules
 
@@ -122,7 +122,7 @@ Load the extension in Chrome: `chrome://extensions` → Load unpacked → select
 ## Architecture
 
 ```
-Content Script (gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, notebook.google.com + legacy notebooklm.google.com)
+Content Script (gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com + legacy notebooklm.google.com)
     ↓ extracts conversation / Deep Research / Artifacts
 Background Service Worker
     ↓ sends to Obsidian
@@ -212,6 +212,7 @@ source: gemini
 - **Claude** (`claude.ai`): Conversations, Extended Thinking, and Artifacts with inline citations
 - **ChatGPT** (`chatgpt.com`): Conversations (including custom GPTs via `/g/` URLs)
 - **Perplexity** (`www.perplexity.ai`): Conversations
+- **DeepSeek** (`chat.deepseek.com`): The currently selected/rendered conversation branch; virtualized long threads use auto-scroll
 - **Gemini Notebook** (`notebook.google.com`, formerly NotebookLM on `notebooklm.google.com`): Chat conversations with source citations. Both hosts are matched while the legacy one redirects ([ADR-023](docs/adr/023-multi-host-platform-registry.md)); the platform id stays `notebooklm`
 
 ## Image Export
@@ -231,7 +232,7 @@ When adding a new platform extractor (see [ADR-014](docs/adr/014-platform-regist
 1. Add the platform to the `AIPlatform` union in `src/lib/types.ts`
 2. Add its entry (`host`, `label`) to `PLATFORM_REGISTRY` in `src/lib/platform-registry.ts` — `VALID_SOURCES`, `ALLOWED_ORIGINS`, and `PLATFORM_LABELS` derive from it automatically
 3. Create the extractor class extending `BaseExtractor`
-4. Add its constructor to `EXTRACTOR_CONSTRUCTORS` and root selectors to `PLATFORM_ROOT_SELECTORS` in `src/content/index.ts` (the compiler enforces both once the union grows)
+4. Add its constructor to `EXTRACTOR_CONSTRUCTORS` and root selectors to `PLATFORM_ROOT_SELECTORS` in `src/content/bootstrap.ts` (the compiler enforces both once the union grows)
 5. Update `waitForConversationContainer()` selectors if needed
 6. Update `src/manifest.json`:
    - `host_permissions`

@@ -1,6 +1,6 @@
 # Obsidian AI Exporter
 
-Google Gemini、Claude AI、ChatGPT、Perplexity、Gemini Notebook（旧 NotebookLM）の会話を Obsidian に保存する Chrome 拡張機能です。Local REST API を使用してローカル環境で動作します。
+Google Gemini、Claude AI、ChatGPT、Perplexity、DeepSeek、Gemini Notebook（旧 NotebookLM）の会話を Obsidian に保存する Chrome 拡張機能です。Local REST API を使用してローカル環境で動作します。
 
 [English version](README.md)
 
@@ -9,7 +9,7 @@ Google Gemini、Claude AI、ChatGPT、Perplexity、Gemini Notebook（旧 Noteboo
 
 ## 機能
 
-- **マルチプラットフォーム対応**: Google Gemini、Claude AI、ChatGPT、Perplexity、Gemini Notebook（旧 NotebookLM）からエクスポート
+- **マルチプラットフォーム対応**: Google Gemini、Claude AI、ChatGPT、Perplexity、DeepSeek、Gemini Notebook（旧 NotebookLM）からエクスポート
 - **ワンクリック保存**: 対応 AI ページに表示される「Sync」ボタンで即座に保存
 - **複数の出力オプション**: Obsidian への保存、ファイルダウンロード、クリップボードへコピー
 - **Deep Research 対応**: Gemini Deep Research、Claude Extended Thinking、Perplexity Deep Research レポートを保存
@@ -115,6 +115,14 @@ Gemini が生成した画像は自動的に捕捉・エクスポートされま�
 1. [www.perplexity.ai](https://www.perplexity.ai) で会話を開く
 2. 右下に表示される紫色の「Sync」ボタンをクリック
 3. Gemini と同じ出力オプションで会話がエクスポートされます
+
+### DeepSeek
+
+1. [chat.deepseek.com](https://chat.deepseek.com) で会話を開く
+2. 右下に表示される紫色の「Sync」ボタンをクリック
+3. 現在選択されている分岐をエクスポートします。画面に描画されていない別分岐は含まれません。
+
+> **長い会話では自動スクロールを有効にしてください。** DeepSeek は長いスレッドを仮想化するため、自動スクロールが無効だと DOM にあるターンだけが対象です。
 
 ### Gemini Notebook（旧 NotebookLM）
 
@@ -297,7 +305,7 @@ Gemini は生成画像を、ページ側でしか読めない `blob:` URL か、
 ## アーキテクチャ
 
 ```
-Content Script (gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, notebook.google.com + legacy notebooklm.google.com)
+Content Script (gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com + legacy notebooklm.google.com)
     ↓ 会話 / Deep Research / Artifacts を抽出
 Background Service Worker
     ↓ Obsidian に送信

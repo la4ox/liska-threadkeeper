@@ -1,6 +1,6 @@
 # Obsidian AI Exporter
 
-Chrome Extension that exports AI conversations from Google Gemini, Claude AI, ChatGPT, Perplexity, and Gemini Notebook (formerly NotebookLM) to Obsidian via the Local REST API.
+Chrome Extension that exports AI conversations from Google Gemini, Claude AI, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook (formerly NotebookLM) to Obsidian via the Local REST API.
 
 [日本語版はこちら](README.ja.md)
 
@@ -9,7 +9,7 @@ Chrome Extension that exports AI conversations from Google Gemini, Claude AI, Ch
 
 ## Features
 
-- **Multi-platform support**: Export from Google Gemini, Claude AI, ChatGPT, Perplexity, and Gemini Notebook (formerly NotebookLM)
+- **Multi-platform support**: Export from Google Gemini, Claude AI, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook (formerly NotebookLM)
 - **One-click export**: Floating "Sync" button on supported AI pages
 - **Multiple output options**: Save to Obsidian, download as file, or copy to clipboard
 - **Deep Research support**: Export Gemini Deep Research, Claude Extended Thinking, and Perplexity Deep Research reports
@@ -115,6 +115,14 @@ Gemini-generated images are captured and exported automatically (see [Image Expo
 1. Open a conversation on [www.perplexity.ai](https://www.perplexity.ai)
 2. Click the purple "Sync" button in the bottom-right corner
 3. The conversation will be exported with the same output options as Gemini
+
+### DeepSeek
+
+1. Open a conversation on [chat.deepseek.com](https://chat.deepseek.com)
+2. Click the purple "Sync" button in the bottom-right corner
+3. The currently selected branch is exported. Alternative branches that are not rendered on the page are not included.
+
+> **Keep Auto-scroll enabled for long conversations.** DeepSeek virtualizes long threads, so only mounted turns can be exported when Auto-scroll is off.
 
 ### Gemini Notebook (formerly NotebookLM)
 
@@ -297,7 +305,7 @@ If `node_modules/` is missing, the Nix wrapper exits with an instruction to run 
 ## Architecture
 
 ```
-Content Script (gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, notebook.google.com + legacy notebooklm.google.com)
+Content Script (gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com + legacy notebooklm.google.com)
     ↓ extracts conversation / Deep Research / Artifacts
 Background Service Worker
     ↓ sends to Obsidian

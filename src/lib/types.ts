@@ -5,7 +5,7 @@
 /**
  * Supported AI platform identifiers
  */
-export type AIPlatform = 'gemini' | 'claude' | 'perplexity' | 'chatgpt' | 'notebooklm';
+export type AIPlatform = 'gemini' | 'claude' | 'perplexity' | 'chatgpt' | 'notebooklm' | 'deepseek';
 
 /**
  * An image captured from a conversation (e.g. a Gemini-generated image).

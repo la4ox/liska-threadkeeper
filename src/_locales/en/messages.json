@@ -4,7 +4,7 @@
     "description": "Extension name shown in browser"
   },
   "extDescription": {
-    "message": "Export AI conversations from Gemini, Claude, ChatGPT, Perplexity, and Gemini Notebook to Obsidian via Local REST API",
+    "message": "Export Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook chats to Obsidian, files, or clipboard",
     "description": "Extension description shown in browser and store"
   },
 
