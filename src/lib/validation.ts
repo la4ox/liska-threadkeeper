@@ -81,7 +81,7 @@ export function validateVaultPath(path: string): string {
 
 /**
  * Validate Obsidian API URL
- * Accepts http/https URLs with optional port (1024-65535).
+ * Accepts loopback-only http/https URLs with optional port (1024-65535).
  * Returns normalized URL (origin only, no path or trailing slash).
  */
 export function validateObsidianUrl(url: string): string {
@@ -100,6 +100,17 @@ export function validateObsidianUrl(url: string): string {
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('URL must use http or https scheme');
+  }
+
+  // The API key is a bearer credential. Keep it bound to the exact loopback
+  // host already declared by the extension manifest instead of trusting a
+  // synced setting that could point at another CSP-admitted origin.
+  if (parsed.hostname !== '127.0.0.1') {
+    throw new Error('URL must use the local 127.0.0.1 host');
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('URL must not include credentials');
   }
 
   // Validate port range if explicitly specified

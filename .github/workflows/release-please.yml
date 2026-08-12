@@ -55,4 +55,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
-          files: gemini2obsidian-${{ needs.release-please.outputs.version }}.zip
+          files: liska-threadkeeper-${{ needs.release-please.outputs.version }}.zip

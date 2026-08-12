@@ -3,12 +3,10 @@
   "release-type": "node",
   "packages": {
     ".": {
-      "component": "gemini2obsidian",
+      "component": "liska-threadkeeper",
       "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,
-      "extra-files": [
-        "src/manifest.json"
-      ]
+      "extra-files": ["src/manifest.json"]
     }
   },
   "changelog-sections": [

@@ -15,6 +15,7 @@ import {
   isAllowedImageMime,
   isAllowedImageSourceUrl,
 } from '../lib/image-utils';
+import { DEFAULT_API_TIMEOUT } from '../lib/constants';
 import { extractErrorMessage } from '../lib/error-utils';
 import type { ImageFetchResponse } from '../lib/types';
 
@@ -39,10 +40,17 @@ export async function handleFetchImage(url: string): Promise<ImageFetchResponse>
     return failure('Image URL is not allowed');
   }
 
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, DEFAULT_API_TIMEOUT);
+
   try {
     // credentials: 'include' — the page's <img> loads these URLs with cookies;
     // without them the CDN answers 403. Host permissions make this legal.
-    const response = await fetch(url, { credentials: 'include' });
+    const response = await fetch(url, { credentials: 'include', signal: controller.signal });
     if (!response.ok) {
       return failure(`Image fetch failed: HTTP ${response.status}`);
     }
@@ -60,6 +68,9 @@ export async function handleFetchImage(url: string): Promise<ImageFetchResponse>
     const bytes = new Uint8Array(await blob.arrayBuffer());
     return { success: true, data: bytesToBase64(bytes), mimeType };
   } catch (error) {
+    if (timedOut) return failure('Image fetch timed out');
     return failure(extractErrorMessage(error));
+  } finally {
+    clearTimeout(timeout);
   }
 }

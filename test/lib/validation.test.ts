@@ -135,12 +135,17 @@ describe('validateObsidianUrl', () => {
     expect(validateObsidianUrl('https://127.0.0.1:27123')).toBe('https://127.0.0.1:27123');
   });
 
-  it('accepts localhost hostname', () => {
-    expect(validateObsidianUrl('http://localhost:27123')).toBe('http://localhost:27123');
+  it('rejects localhost hostname so the bearer stays on the manifest-bound origin', () => {
+    expect(() => validateObsidianUrl('http://localhost:27123')).toThrow('127.0.0.1');
   });
 
-  it('accepts LAN IP address', () => {
-    expect(validateObsidianUrl('http://192.168.1.100:27123')).toBe('http://192.168.1.100:27123');
+  it('rejects LAN and remote hosts', () => {
+    expect(() => validateObsidianUrl('http://192.168.1.100:27123')).toThrow('127.0.0.1');
+    expect(() => validateObsidianUrl('https://images.googleusercontent.com')).toThrow('127.0.0.1');
+  });
+
+  it('rejects embedded credentials', () => {
+    expect(() => validateObsidianUrl('http://user:secret@127.0.0.1:27123')).toThrow('credentials');
   });
 
   it('accepts URL without explicit port', () => {

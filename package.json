@@ -1,12 +1,12 @@
 {
-  "name": "obsidian-ai-exporter",
-  "version": "2.7.13",
-  "description": "Chrome Extension to export AI conversations from Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook to Obsidian, file download, or clipboard",
+  "name": "liska-threadkeeper",
+  "version": "3.0.0",
+  "description": "Local-first Chrome extension to bring Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook threads home as Markdown",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:zip": "npm run build && cd dist && zip -r ../gemini2obsidian-$(node -p \"require('../package.json').version\").zip . -x '*.DS_Store' -x '.vite/*' && cd ..",
+    "build:zip": "npm run build && cd dist && zip -r ../liska-threadkeeper-$(node -p \"require('../package.json').version\").zip . -x '*.DS_Store' -x '.vite/*' && cd ..",
     "lint": "eslint src/ && node scripts/lint-platforms.mjs",
     "lint:platforms": "node scripts/lint-platforms.mjs",
     "compare-build": "node scripts/compare-build.mjs",
@@ -61,6 +61,11 @@
     },
     "undici": "^7.29.0"
   },
-  "author": "",
+  "author": "la4ox",
+  "homepage": "https://github.com/la4ox/liska-threadkeeper",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/la4ox/liska-threadkeeper.git"
+  },
   "license": "MIT"
 }

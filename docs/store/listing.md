@@ -33,8 +33,8 @@ permission into an unjustified one.
    mismatch means the paste was truncated.
 5. Update **Last synced** below.
 
-**Fork draft:** DeepSeek support is documented below but has not been pasted to
-the upstream Chrome Web Store dashboard.
+**Liska draft:** These fields have not yet been pasted into a Liska Chrome Web
+Store dashboard listing.
 
 ---
 
@@ -116,7 +116,7 @@ manifest.
 ```text
 Nine host permissions are required:
 
-1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com (Gemini Notebook), and notebooklm.google.com (legacy redirect) - inject the Sync button and read only the conversation shown on that supported site.
+1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com (Gemini Notebook), and notebooklm.google.com (legacy redirect) - inject the Bring thread home button and read only the conversation shown on that supported site.
 
 8. *.googleusercontent.com - download only AI-generated images already present in the exported conversation, and only when image export is enabled. No conversation text is sent there.
 
@@ -125,7 +125,7 @@ Nine host permissions are required:
 Conversation content goes only to selected local outputs: the user's Obsidian vault, a downloaded Markdown file, or the clipboard. No analytics, telemetry, or developer-operated server.
 ```
 
-788 characters. Fork draft; not yet pasted to the Chrome Web Store dashboard.
+801 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ---
 
@@ -205,11 +205,12 @@ or lending.
 
 ## Privacy policy
 
-<!-- declaration: privacy_policy_url, value: https://sho7650.github.io/obsidian-AI-exporter/privacy.html -->
+<!-- declaration: privacy_policy_url, value: https://github.com/la4ox/liska-threadkeeper/blob/main/docs/privacy.html -->
 
-<https://sho7650.github.io/obsidian-AI-exporter/privacy.html> — published from
-[`docs/privacy.html`](../privacy.html) and cross-checked against the link in
-README.md.
+<https://github.com/la4ox/liska-threadkeeper/blob/main/docs/privacy.html> — the
+public source page for [`docs/privacy.html`](../privacy.html), cross-checked
+against the link in README.md. A dedicated Pages URL is intentionally deferred
+until GitHub Pages is enabled for Liska.
 
 The dashboard states that publishing the item asserts these disclosures reflect
 the current privacy policy, so `docs/privacy.html` and this file have to move

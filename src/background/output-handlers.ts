@@ -35,6 +35,22 @@ function isClipboardWriteResponse(value: unknown): value is { success: boolean; 
 /** Offscreen document close timeout (milliseconds) */
 const OFFSCREEN_TIMEOUT_MS = 5000;
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer!: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    // Promise executors run synchronously, so the timer is always assigned
+    // before Promise.race starts waiting.
+    clearTimeout(timer);
+  }
+}
+
 /** Timer for auto-closing offscreen document */
 let offscreenCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -211,6 +227,7 @@ async function handleCopyToClipboard(
   note: ObsidianNote,
   settings: ExtensionSettings
 ): Promise<OutputResult> {
+  let offscreenReady = false;
   try {
     // Clipboard output never references images: strip any placeholders so the
     // copied markdown stays clean (issue #186).
@@ -218,15 +235,18 @@ async function handleCopyToClipboard(
     const content = generateNoteContent(clipboardNote, settings);
 
     await ensureOffscreenDocument();
+    offscreenReady = true;
 
     const clipboardMessage: OffscreenClipboardMessage = {
       action: 'clipboardWrite',
       target: 'offscreen',
       content,
     };
-    const response: unknown = await chrome.runtime.sendMessage(clipboardMessage);
-
-    scheduleOffscreenClose();
+    const response: unknown = await withTimeout(
+      chrome.runtime.sendMessage(clipboardMessage),
+      OFFSCREEN_TIMEOUT_MS,
+      'Clipboard write timed out'
+    );
 
     if (isClipboardWriteResponse(response) && response.success) {
       return { destination: 'clipboard', success: true };
@@ -242,6 +262,8 @@ async function handleCopyToClipboard(
       success: false,
       error: extractErrorMessage(error),
     };
+  } finally {
+    if (offscreenReady) scheduleOffscreenClose();
   }
 }
 

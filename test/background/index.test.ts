@@ -17,6 +17,7 @@ const mockClient = {
   putBinaryFile: vi.fn(),
   listFiles: vi.fn(),
 };
+const mockClientConstructor = vi.fn();
 
 // Default settings
 const defaultSettings = {
@@ -52,6 +53,9 @@ let capturedListener: (
 // Setup mocks before any imports
 vi.mock('../../src/lib/obsidian-api', () => ({
   ObsidianApiClient: class MockObsidianApiClient {
+    constructor(url: string, apiKey: string) {
+      mockClientConstructor(url, apiKey);
+    }
     testConnection = mockClient.testConnection;
     getFile = mockClient.getFile;
     putFile = mockClient.putFile;
@@ -78,6 +82,7 @@ describe('background/index', () => {
     mockClient.putFile.mockReset();
     mockClient.putBinaryFile.mockReset();
     mockClient.listFiles.mockReset();
+    mockClientConstructor.mockReset();
     mockGetSettings = vi.fn(() => Promise.resolve(defaultSettings));
 
     // Capture message listener when addListener is called
@@ -91,6 +96,9 @@ describe('background/index', () => {
     // Re-register mocks after resetModules
     vi.doMock('../../src/lib/obsidian-api', () => ({
       ObsidianApiClient: class MockObsidianApiClient {
+        constructor(url: string, apiKey: string) {
+          mockClientConstructor(url, apiKey);
+        }
         testConnection = mockClient.testConnection;
         getFile = mockClient.getFile;
         putFile = mockClient.putFile;
@@ -854,6 +862,46 @@ describe('background/index', () => {
       const response = sendResponse.mock.calls[0][0];
       expect(response.success).toBe(false);
       expect(response.error).toContain('URL');
+    });
+
+    it('rejects a non-loopback URL before constructing the authenticated client', async () => {
+      mockGetSettings = vi.fn(() =>
+        Promise.resolve({
+          ...defaultSettings,
+          obsidianUrl: 'https://images.googleusercontent.com',
+        })
+      );
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'testConnection' },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ success: false });
+      expect(mockClientConstructor).not.toHaveBeenCalled();
+    });
+
+    it('constructs the authenticated client with the normalized loopback origin', async () => {
+      mockGetSettings = vi.fn(() =>
+        Promise.resolve({
+          ...defaultSettings,
+          obsidianUrl: 'http://127.0.0.1:27123/untrusted/path?query=1',
+        })
+      );
+      mockClient.testConnection.mockResolvedValue({ reachable: true, authenticated: true });
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'testConnection' },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(mockClientConstructor).toHaveBeenCalledWith('http://127.0.0.1:27123', 'test-api-key');
     });
   });
 
@@ -1962,6 +2010,100 @@ describe('background/index', () => {
       expect(response.anySuccessful).toBe(false);
     });
 
+    it('uses a stable fallback when the clipboard worker omits its error', async () => {
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: false });
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({
+        destination: 'clipboard',
+        success: false,
+        error: 'Clipboard write failed',
+      });
+    });
+
+    it('rejects a malformed clipboard worker response', async () => {
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({
+        destination: 'clipboard',
+        success: false,
+        error: 'Clipboard write failed',
+      });
+    });
+
+    it('shares an in-flight offscreen creation between concurrent clipboard writes', async () => {
+      let resolveContexts!: (contexts: chrome.runtime.ExtensionContext[]) => void;
+      const contexts = new Promise<chrome.runtime.ExtensionContext[]>(resolve => {
+        resolveContexts = resolve;
+      });
+      vi.mocked(chrome.runtime.getContexts).mockReturnValue(contexts);
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: true });
+
+      const firstResponse = vi.fn();
+      const secondResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        firstResponse
+      );
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        secondResponse
+      );
+
+      await vi.waitFor(() => expect(chrome.runtime.getContexts).toHaveBeenCalledTimes(1));
+      resolveContexts([]);
+
+      await vi.waitFor(() => {
+        expect(firstResponse).toHaveBeenCalled();
+        expect(secondResponse).toHaveBeenCalled();
+      });
+      expect(chrome.offscreen.createDocument).toHaveBeenCalledTimes(1);
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails a stalled clipboard write after the bounded timeout', async () => {
+      vi.useFakeTimers();
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+        () => new Promise(() => {}) as ReturnType<typeof chrome.runtime.sendMessage>
+      );
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data: validNote, outputs: ['clipboard'] },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      const clipboardResult = response.results.find(r => r.destination === 'clipboard');
+      expect(clipboardResult).toMatchObject({
+        success: false,
+        error: 'Clipboard write timed out',
+      });
+      vi.useRealTimers();
+    });
+
     it('creates offscreen document when needed', async () => {
       vi.mocked(chrome.runtime.getContexts).mockResolvedValue([]);
       vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: true });
@@ -2253,6 +2395,38 @@ describe('background/index', () => {
       const response = sendResponse.mock.calls[0][0];
       expect(response.allSuccessful).toBe(true);
       expect(response.messagesAppended).toBe(2);
+    });
+
+    it('warns when images in newly appended messages are skipped', async () => {
+      const noteWithNewImage: ObsidianNote = {
+        ...appendNote,
+        body: appendNote.body.replace(
+          '> New answer',
+          '> New answer\n> ![result](g2o-image://new-image)'
+        ),
+        images: [{ id: 'new-image', mimeType: 'image/png', data: 'UE5H', alt: 'result' }],
+      };
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      mockClient.getFile.mockResolvedValueOnce(existingContent);
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: noteWithNewImage },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      const obsidian = response.results.find(r => r.destination === 'obsidian');
+      expect(obsidian).toMatchObject({
+        success: true,
+        messagesAppended: 2,
+        warning: expect.stringContaining('Images in newly appended messages'),
+      });
+      expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+      expect(mockClient.putFile.mock.calls[0][1]).not.toContain('g2o-image://');
     });
 
     it('reports why append mode found no existing note (issue #365)', async () => {

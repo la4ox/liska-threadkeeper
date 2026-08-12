@@ -1,7 +1,7 @@
-Save your AI conversations from Gemini, Claude, ChatGPT, Perplexity, and Gemini Notebook to Obsidian with one click.
+Bring your AI threads home from Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook as local Markdown.
 
 🎯 WHAT IT DOES
-This extension extracts conversations from Google Gemini (gemini.google.com), Claude AI (claude.ai), ChatGPT (chatgpt.com), Perplexity (www.perplexity.ai), and Gemini Notebook / formerly NotebookLM (notebook.google.com) and exports them as beautifully formatted Markdown notes.
+Liska extracts conversations from Google Gemini (gemini.google.com), Claude AI (claude.ai), ChatGPT (chatgpt.com), Perplexity (www.perplexity.ai), DeepSeek (chat.deepseek.com), and Gemini Notebook / formerly NotebookLM (notebook.google.com), then exports them as clean Markdown notes.
 
 ☕ THREE EXPORT OPTIONS
 • Obsidian: Send directly to your vault via Local REST API plugin
@@ -9,7 +9,7 @@ This extension extracts conversations from Google Gemini (gemini.google.com), Cl
 • Clipboard: Copy formatted Markdown to paste anywhere
 
 ✨ KEY FEATURES
-• One-click export from Gemini, Claude, ChatGPT, Perplexity, and Gemini Notebook conversations
+• One-click export from Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook conversations
 • Clean Markdown formatting with YAML frontmatter
 • Obsidian callout syntax for Q&A blocks (shows correct AI name)
 • Deep Research support (Gemini, Perplexity) and Extended Thinking/Artifacts (Claude)
@@ -35,7 +35,7 @@ This extension extracts conversations from Google Gemini (gemini.google.com), Cl
 • Your conversations go only to your own Obsidian vault
 • Image export downloads pictures from Google's image CDN - the same host the AI page already uses
 • API key stored securely in local storage only
-• Open source: https://github.com/sho7650/obsidian-AI-exporter
+• Open source: https://github.com/la4ox/liska-threadkeeper
 
 💻 REQUIREMENTS
 For Obsidian integration:
@@ -46,8 +46,8 @@ File download and clipboard options work without any setup.
 
 🚀 HOW TO USE
 
-1. Open any conversation on gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, or notebook.google.com
-2. Click the purple "Sync" button (appears on the page)
+1. Open any conversation on gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, or notebook.google.com
+2. Click the purple "Bring thread home" button (appears on the page)
 3. Choose your export method: Obsidian, File, or Clipboard
 4. Done! Your conversation is saved as Markdown
 

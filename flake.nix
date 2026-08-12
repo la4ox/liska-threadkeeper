@@ -1,5 +1,5 @@
 {
-  description = "gemini2obsidian dev environment + task surface (Node toolchain + system deps)";
+  description = "Liska Threadkeeper dev environment + task surface (Node toolchain + system deps)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-25.11-darwin";
@@ -66,7 +66,7 @@
             tsc --noEmit
             vite build
             version=$(node -p "require('./package.json').version")
-            ( cd dist && zip -r "../gemini2obsidian-$version.zip" . -x '*.DS_Store' -x '.vite/*' )
+            ( cd dist && zip -r "../liska-threadkeeper-$version.zip" . -x '*.DS_Store' -x '.vite/*' )
           '';
           lint = app "lint" ''
             eslint src/

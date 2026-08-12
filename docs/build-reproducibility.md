@@ -17,7 +17,7 @@ nix run .#compare-build              # or: npm run compare-build
 nix run .#compare-build -- --tag v1.2.16
 
 # Compare against a zip you already downloaded
-nix run .#compare-build -- --ci-zip ./gemini2obsidian-1.2.16.zip
+nix run .#compare-build -- --ci-zip ./liska-threadkeeper-3.0.0.zip
 
 # Just check that your own build is deterministic (no network)
 nix run .#compare-build -- --twice
@@ -42,7 +42,7 @@ manifest**, applying the same exclusions as `build:zip` (`.vite/`,
 1. **Build locally** — runs `npm run build` (`tsc --noEmit && vite build`) into
    `dist/`, exactly as the release pipeline does.
 2. **Fetch the CI artifact** — `gh release download <tag> --pattern
-'gemini2obsidian-*.zip'`, then `unzip` into a temp dir. (The release job
+'liska-threadkeeper-*.zip'`, then `unzip` into a temp dir. (The release job
    uploads a Release **asset** via `softprops/action-gh-release`, so
    `gh release download` is the correct command — `gh run download` will not
    find it.)
