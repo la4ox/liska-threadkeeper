@@ -310,7 +310,8 @@ export type ExtensionMessage =
   | { action: 'saveToOutputs'; data: ObsidianNote; outputs: OutputDestination[] }
   | { action: 'getSettings' }
   | { action: 'testConnection' }
-  | { action: 'fetchImage'; url: string };
+  | { action: 'fetchImage'; url: string }
+  | { action: 'captureChatGptConversation'; conversationId: string };
 
 /**
  * Response to a `fetchImage` message. The background worker fetches remote

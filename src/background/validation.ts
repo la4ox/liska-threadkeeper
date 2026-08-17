@@ -21,6 +21,7 @@ import {
   VALID_SOURCES,
 } from '../lib/constants';
 import type { ExtensionMessage, ExtractedImage, ObsidianNote } from '../lib/types';
+import { isChatGptConversationId } from '../lib/chatgpt-capture-contract';
 import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
@@ -53,34 +54,126 @@ export function validateSender(sender: chrome.runtime.MessageSender): boolean {
 }
 
 /**
+ * Restrict capture to the exact ChatGPT conversation currently hosting the
+ * content script. Generic sender validation intentionally remains broader for
+ * the extension's established actions.
+ */
+export function validateChatGptCaptureSender(
+  sender: chrome.runtime.MessageSender,
+  conversationId: string
+): boolean {
+  if (!isChatGptConversationId(conversationId) || !sender.tab?.url) return false;
+
+  const tabUrl = parseChatGptCaptureTabUrl(sender.tab.url, conversationId);
+  if (tabUrl === undefined) return false;
+
+  return sender.url === undefined || isSamePageUrl(sender.url, tabUrl);
+}
+
+function parseChatGptCaptureTabUrl(rawUrl: string, conversationId: string): URL | undefined {
+  try {
+    const url = new URL(rawUrl);
+    if (!isExactChatGptConversationUrl(url)) return undefined;
+
+    const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
+    const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(url.pathname);
+    const routedConversationId = standard?.[1] ?? custom?.[1];
+    return routedConversationId === conversationId && isChatGptConversationId(routedConversationId)
+      ? url
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isExactChatGptConversationUrl(url: URL): boolean {
+  return (
+    url.origin === 'https://chatgpt.com' &&
+    url.username === '' &&
+    url.password === '' &&
+    url.search === '' &&
+    url.hash === ''
+  );
+}
+
+function isSamePageUrl(rawUrl: string, tabUrl: URL): boolean {
+  try {
+    const senderUrl = new URL(rawUrl);
+    return (
+      senderUrl.origin === tabUrl.origin &&
+      senderUrl.pathname === tabUrl.pathname &&
+      senderUrl.search === tabUrl.search &&
+      senderUrl.hash === tabUrl.hash &&
+      senderUrl.username === tabUrl.username &&
+      senderUrl.password === tabUrl.password
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
+  const keys = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    keys.length === sortedExpected.length &&
+    keys.every((key, index) => key === sortedExpected[index])
+  );
+}
+
+function validateChatGptCaptureMessage(
+  message: Extract<ExtensionMessage, { action: 'captureChatGptConversation' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, ['action', 'conversationId']) &&
+    isChatGptConversationId(message.conversationId)
+  );
+}
+
+function validateFetchImageMessage(
+  message: Extract<ExtensionMessage, { action: 'fetchImage' }>
+): boolean {
+  return typeof message.url === 'string' && isAllowedImageSourceUrl(message.url);
+}
+
+/**
  * Validate message content (M-02)
  *
  * Security: Content scripts are less trustworthy.
  * Validate and sanitize all input per Chrome extension best practices.
  */
-export function validateMessageContent(message: ExtensionMessage): boolean {
+export function validateMessageContent(message: unknown): message is ExtensionMessage {
+  if (typeof message !== 'object' || message === null || Array.isArray(message)) {
+    return false;
+  }
+
+  const extensionMessage = message as ExtensionMessage;
   // Validate action against whitelist (using centralized constants)
-  if (!VALID_MESSAGE_ACTIONS.includes(message.action as (typeof VALID_MESSAGE_ACTIONS)[number])) {
+  if (
+    !VALID_MESSAGE_ACTIONS.includes(
+      extensionMessage.action as (typeof VALID_MESSAGE_ACTIONS)[number]
+    )
+  ) {
     return false;
   }
 
   // Chrome serializes extension messages as UTF-8 JSON and rejects messages at
   // 64 MiB. Keep the worker boundary below that even for semi-trusted senders.
-  if (jsonUtf8ByteLength(message) > MAX_EXTENSION_MESSAGE_SIZE) {
+  if (jsonUtf8ByteLength(extensionMessage) > MAX_EXTENSION_MESSAGE_SIZE) {
     return false;
   }
 
   // Detailed validation for saveToOutputs action
-  if (message.action === 'saveToOutputs') {
-    if (!validateNoteData(message.data)) {
+  if (extensionMessage.action === 'saveToOutputs') {
+    if (!validateNoteData(extensionMessage.data)) {
       return false;
     }
     // Validate outputs array (using centralized constants)
-    if (!Array.isArray(message.outputs) || message.outputs.length === 0) {
+    if (!Array.isArray(extensionMessage.outputs) || extensionMessage.outputs.length === 0) {
       return false;
     }
     if (
-      !message.outputs.every(o =>
+      !extensionMessage.outputs.every(o =>
         VALID_OUTPUT_DESTINATIONS.includes(o as (typeof VALID_OUTPUT_DESTINATIONS)[number])
       )
     ) {
@@ -91,10 +184,12 @@ export function validateMessageContent(message: ExtensionMessage): boolean {
   // The worker can reach hosts the page cannot, so a fetchImage URL is only
   // accepted for the image CDN allow-list (issue #376). Re-checked in the
   // handler; rejecting here keeps a bad URL from ever reaching it.
-  if (message.action === 'fetchImage') {
-    if (typeof message.url !== 'string' || !isAllowedImageSourceUrl(message.url)) {
-      return false;
-    }
+  if (extensionMessage.action === 'fetchImage') {
+    return validateFetchImageMessage(extensionMessage);
+  }
+
+  if (extensionMessage.action === 'captureChatGptConversation') {
+    return validateChatGptCaptureMessage(extensionMessage);
   }
 
   return true;

@@ -183,6 +183,7 @@ export const VALID_MESSAGE_ACTIONS = [
   'testConnection',
   'saveToOutputs',
   'fetchImage',
+  'captureChatGptConversation',
 ] as const;
 
 /**

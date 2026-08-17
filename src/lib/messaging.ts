@@ -3,6 +3,7 @@
  * Promise-based wrapper for chrome.runtime.sendMessage
  */
 
+import type { ChatGptCaptureResponse } from './chatgpt-capture-contract';
 import type { ExtensionMessage, ContentScriptSettings, MultiOutputResponse } from './types';
 
 /** User-friendly message for extension context invalidation */
@@ -15,6 +16,7 @@ interface MessageResponseMap {
   getSettings: ContentScriptSettings;
   testConnection: { success: boolean; error?: string };
   saveToOutputs: MultiOutputResponse;
+  captureChatGptConversation: ChatGptCaptureResponse;
 }
 
 /**

@@ -10,12 +10,27 @@
  * headers, cookies, account data, or unrelated responses.
  */
 
-export const CHATGPT_CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
+import {
+  CHATGPT_CAPTURE_ENDPOINT,
+  CHATGPT_CAPTURE_ERROR_MESSAGES,
+  CHATGPT_CAPTURE_MAX_BYTES,
+  isChatGptConversationId,
+} from '../lib/chatgpt-capture-contract';
+import type {
+  ChatGptCaptureArtifact,
+  ChatGptCaptureErrorCode,
+} from '../lib/chatgpt-capture-contract';
+
+export {
+  CHATGPT_CAPTURE_ENDPOINT,
+  CHATGPT_CAPTURE_MAX_BYTES,
+} from '../lib/chatgpt-capture-contract';
+export type {
+  ChatGptCaptureArtifact as ChatGptTemporaryCaptureResult,
+  ChatGptCaptureErrorCode as ChatGptTemporaryCaptureErrorCode,
+} from '../lib/chatgpt-capture-contract';
+
 export const CHATGPT_CAPTURE_TIMEOUT_MS = 25_000;
-export const CHATGPT_CAPTURE_ENDPOINT = {
-  method: 'GET' as const,
-  pathPattern: '/backend-api/conversation/{conversationId}' as const,
-};
 
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
 const CHATGPT_TEMPORARY_TAB_URL = `${CHATGPT_ORIGIN}/`;
@@ -25,46 +40,15 @@ const MAX_TIMEOUT_MS = 28_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
 
-export type ChatGptTemporaryCaptureErrorCode =
-  | 'invalid-conversation-id'
-  | 'temporary-tab-create-failed'
-  | 'temporary-tab-missing-id'
-  | 'unexpected-origin'
-  | 'hook-install-failed'
-  | 'timed-out'
-  | 'payload-too-large'
-  | 'capture-failed'
-  | 'unexpected-capture-result';
-
-const ERROR_MESSAGES: Record<ChatGptTemporaryCaptureErrorCode, string> = {
-  'invalid-conversation-id': 'ChatGPT conversation ID is invalid.',
-  'temporary-tab-create-failed': 'Could not create the temporary ChatGPT tab.',
-  'temporary-tab-missing-id': 'The temporary ChatGPT tab has no usable ID.',
-  'unexpected-origin': 'The temporary tab is not on the ChatGPT origin.',
-  'hook-install-failed': 'Could not install the temporary ChatGPT capture hook.',
-  'timed-out': 'Timed out waiting for the ChatGPT conversation response.',
-  'payload-too-large': 'The ChatGPT conversation response exceeds the safety limit.',
-  'capture-failed': 'Could not capture the ChatGPT conversation response.',
-  'unexpected-capture-result': 'The temporary ChatGPT capture returned an invalid result.',
-};
-
 /** A stable, intentionally non-diagnostic error safe to show at the UI boundary. */
 export class ChatGptTemporaryCaptureError extends Error {
-  readonly code: ChatGptTemporaryCaptureErrorCode;
+  readonly code: ChatGptCaptureErrorCode;
 
-  constructor(code: ChatGptTemporaryCaptureErrorCode) {
-    super(ERROR_MESSAGES[code]);
+  constructor(code: ChatGptCaptureErrorCode) {
+    super(CHATGPT_CAPTURE_ERROR_MESSAGES[code]);
     this.name = 'ChatGptTemporaryCaptureError';
     this.code = code;
   }
-}
-
-export interface ChatGptTemporaryCaptureResult {
-  bodyBase64: string;
-  byteLength: number;
-  sha256: string;
-  mediaType: string;
-  endpoint: typeof CHATGPT_CAPTURE_ENDPOINT;
 }
 
 interface ChatGptCaptureScriptInjection {
@@ -100,17 +84,13 @@ type HookErrorCode = 'timed-out' | 'payload-too-large' | 'capture-failed';
 
 type HookResult =
   | { kind: 'ready' }
-  | { kind: 'captured'; capture: Omit<ChatGptTemporaryCaptureResult, 'endpoint'> }
+  | { kind: 'captured'; capture: Omit<ChatGptCaptureArtifact, 'endpoint'> }
   | { kind: 'error'; code: HookErrorCode }
   | { kind: 'origin-rejected' }
   | { kind: 'cleaned' }
   | { kind: 'missing' };
 
 type ReadinessResult = { kind: 'ready' } | { kind: 'waiting' } | { kind: 'origin-rejected' };
-
-function isChatGptConversationId(value: string): boolean {
-  return /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
-}
 
 function normalizeTimeout(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return CHATGPT_CAPTURE_TIMEOUT_MS;
@@ -133,7 +113,7 @@ function remainingTimeout(deadline: number, now: () => number): number {
 function withinTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
-  errorCode: ChatGptTemporaryCaptureErrorCode
+  errorCode: ChatGptCaptureErrorCode
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new ChatGptTemporaryCaptureError(errorCode)), timeoutMs);
@@ -206,18 +186,6 @@ function strictBase64Bytes(value: string): Uint8Array | undefined {
   }
 }
 
-async function defaultDigestSha256(bytes: Uint8Array): Promise<string> {
-  if (typeof globalThis.crypto?.subtle?.digest !== 'function') {
-    throw new ChatGptTemporaryCaptureError('capture-failed');
-  }
-  const buffer = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
-  ) as ArrayBuffer;
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
 function isJsonMediaType(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   if (
@@ -231,7 +199,19 @@ function isJsonMediaType(value: unknown): value is string {
   return essence === 'application/json' || essence?.endsWith('+json') === true;
 }
 
-function mapHookError(code: unknown): ChatGptTemporaryCaptureErrorCode {
+async function defaultDigestSha256(bytes: Uint8Array): Promise<string> {
+  if (typeof globalThis.crypto?.subtle?.digest !== 'function') {
+    throw new ChatGptTemporaryCaptureError('capture-failed');
+  }
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function mapHookError(code: unknown): ChatGptCaptureErrorCode {
   if (code === 'timed-out' || code === 'payload-too-large' || code === 'capture-failed') {
     return code;
   }
@@ -258,7 +238,7 @@ function isCapturedResult(value: unknown): value is Extract<HookResult, { kind: 
 async function validateCapturedResult(
   value: unknown,
   digestSha256: (bytes: Uint8Array) => Promise<string>
-): Promise<Omit<ChatGptTemporaryCaptureResult, 'endpoint'> | undefined> {
+): Promise<Omit<ChatGptCaptureArtifact, 'endpoint'> | undefined> {
   if (!isCapturedResult(value)) return undefined;
 
   const capture = value.capture;
@@ -438,7 +418,7 @@ async function cleanupTemporaryTab(
 export async function captureChatGptInTemporaryTab(
   conversationId: string,
   overrides: ChatGptTemporaryCaptureDependencies = {}
-): Promise<ChatGptTemporaryCaptureResult> {
+): Promise<ChatGptCaptureArtifact> {
   if (!isChatGptConversationId(conversationId)) {
     throw new ChatGptTemporaryCaptureError('invalid-conversation-id');
   }

@@ -5,10 +5,16 @@
 
 import { getErrorMessage } from '../lib/error-utils';
 import { getSettings, migrateSettings } from '../lib/storage';
-import { validateSender, validateMessageContent } from './validation';
+import { validateChatGptCaptureSender, validateSender, validateMessageContent } from './validation';
 import { handleTestConnection } from './obsidian-handlers';
 import { handleMultiOutput } from './output-handlers';
 import { handleFetchImage } from './image-fetch';
+import {
+  CHATGPT_CAPTURE_ENDPOINT,
+  createChatGptCaptureFailure,
+  isChatGptCaptureResponse,
+} from '../lib/chatgpt-capture-contract';
+import { captureChatGptInTemporaryTab, ChatGptTemporaryCaptureError } from './chatgpt-capture';
 import type { ExtensionMessage, ContentScriptSettings, ExtensionSettings } from '../lib/types';
 
 // Run settings migration on service worker startup (C-01)
@@ -22,25 +28,20 @@ migrateSettings().catch(error => {
  */
 chrome.runtime.onMessage.addListener(
   (
-    message: ExtensionMessage,
+    message: unknown,
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: unknown) => void
   ) => {
     // Ignore messages targeted at offscreen document
     // These are handled by the offscreen document's own listener
-    if (
-      message &&
-      typeof message === 'object' &&
-      'target' in message &&
-      message.target === 'offscreen'
-    ) {
+    if (!isChatGptCaptureMessage(message) && hasOwnDataProperty(message, 'target', 'offscreen')) {
       return false;
     }
 
     // Sender validation (M-02)
     if (!validateSender(sender)) {
       console.warn('[G2O Background] Rejected message from unauthorized sender');
-      sendResponse({ success: false, error: 'Unauthorized' });
+      sendResponse(captureFailureOr(message, { success: false, error: 'Unauthorized' }));
       return false;
     }
 
@@ -50,12 +51,19 @@ chrome.runtime.onMessage.addListener(
     try {
       if (!validateMessageContent(message)) {
         console.warn('[G2O Background] Invalid message content');
-        sendResponse({ success: false, error: 'Invalid message content' });
+        sendResponse(
+          captureFailureOr(message, { success: false, error: 'Invalid message content' })
+        );
         return false;
       }
     } catch (error) {
       console.warn('[G2O Background] Message validation threw:', getErrorMessage(error));
-      sendResponse({ success: false, error: 'Invalid message content' });
+      sendResponse(captureFailureOr(message, { success: false, error: 'Invalid message content' }));
+      return false;
+    }
+
+    if (!isAuthorizedChatGptCaptureRequest(message, sender)) {
+      sendResponse(createChatGptCaptureFailure('capture-failed'));
       return false;
     }
 
@@ -86,6 +94,103 @@ function isContentScriptSender(sender: chrome.runtime.MessageSender): boolean {
   return sender.tab !== undefined;
 }
 
+function hasOwnDataProperty(message: unknown, property: string, expectedValue: string): boolean {
+  if (typeof message !== 'object' || message === null) return false;
+  try {
+    return Object.getOwnPropertyDescriptor(message, property)?.value === expectedValue;
+  } catch {
+    return false;
+  }
+}
+
+function isChatGptCaptureMessage(message: unknown): boolean {
+  return hasOwnDataProperty(message, 'action', 'captureChatGptConversation');
+}
+
+function captureFailureOr<T>(
+  message: unknown,
+  genericResponse: T
+): T | ReturnType<typeof createChatGptCaptureFailure> {
+  return isChatGptCaptureMessage(message)
+    ? createChatGptCaptureFailure('capture-failed')
+    : genericResponse;
+}
+
+function isAuthorizedChatGptCaptureRequest(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  return (
+    message.action !== 'captureChatGptConversation' ||
+    validateChatGptCaptureSender(sender, message.conversationId)
+  );
+}
+
+/** Chrome 96 exposes permissions.contains as a callback API; reject unavailable APIs as absent. */
+function hasScriptingPermission(): Promise<boolean> {
+  return new Promise(resolve => {
+    try {
+      const permissionsApi = chrome.permissions;
+      if (!permissionsApi || typeof permissionsApi.contains !== 'function') {
+        resolve(false);
+        return;
+      }
+
+      let settled = false;
+      const settle = (granted: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolve(granted);
+      };
+      const contains = permissionsApi.contains as unknown as (
+        permissions: { permissions: string[] },
+        callback: (granted: boolean) => void
+      ) => unknown;
+      const result = contains.call(permissionsApi, { permissions: ['scripting'] }, granted => {
+        settle(!chrome.runtime.lastError && granted === true);
+      });
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        void (result as Promise<unknown>).then(
+          granted => settle(granted === true),
+          () => settle(false)
+        );
+      }
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function handleChatGptCapture(conversationId: string) {
+  if (!(await hasScriptingPermission())) {
+    return createChatGptCaptureFailure('permission-unavailable');
+  }
+
+  try {
+    const capture = await captureChatGptInTemporaryTab(conversationId);
+    const response = {
+      success: true as const,
+      data: {
+        bodyBase64: capture.bodyBase64,
+        byteLength: capture.byteLength,
+        sha256: capture.sha256,
+        mediaType: capture.mediaType,
+        endpoint: {
+          method: CHATGPT_CAPTURE_ENDPOINT.method,
+          pathPattern: CHATGPT_CAPTURE_ENDPOINT.pathPattern,
+        },
+      },
+    };
+    return isChatGptCaptureResponse(response)
+      ? response
+      : createChatGptCaptureFailure('unexpected-capture-result');
+  } catch (error) {
+    return createChatGptCaptureFailure(
+      error instanceof ChatGptTemporaryCaptureError ? error.code : 'capture-failed'
+    );
+  }
+}
+
 /**
  * Redact sensitive settings for content scripts.
  * Content scripts only need to know IF an API key is configured, not the key itself.
@@ -105,6 +210,10 @@ async function handleMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
+  if (message.action === 'captureChatGptConversation') {
+    return handleChatGptCapture(message.conversationId);
+  }
+
   const settings = await getSettings();
 
   switch (message.action) {
