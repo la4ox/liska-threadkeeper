@@ -60,6 +60,12 @@ function setScriptingPermission(granted: boolean): ReturnType<typeof vi.fn> {
   return contains;
 }
 
+function setPromiseScriptingPermission(result: Promise<boolean>): ReturnType<typeof vi.fn> {
+  const contains = vi.fn(() => result);
+  Object.defineProperty(chrome, 'permissions', { configurable: true, value: { contains } });
+  return contains;
+}
+
 describe('ChatGPT capture service-worker route', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -129,6 +135,41 @@ describe('ChatGPT capture service-worker route', () => {
     );
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.getSettings).not.toHaveBeenCalled();
+  });
+
+  it('supports the promise form of the scripting permission check', async () => {
+    const contains = setPromiseScriptingPermission(Promise.resolve(true));
+    const sendResponse = invokeCapture();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(contains).toHaveBeenCalledWith({ permissions: ['scripting'] }, expect.any(Function));
+    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
+  });
+
+  it('fails closed when a promise-form permission check rejects', async () => {
+    setPromiseScriptingPermission(Promise.reject(new Error('permission diagnostic')));
+    const sendResponse = invokeCapture();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptCaptureFailure('permission-unavailable')
+    );
+    expect(mocks.capture).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the permissions API throws synchronously', async () => {
+    const contains = vi.fn(() => {
+      throw new Error('permission diagnostic');
+    });
+    Object.defineProperty(chrome, 'permissions', { configurable: true, value: { contains } });
+    const sendResponse = invokeCapture();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptCaptureFailure('permission-unavailable')
+    );
+    expect(mocks.capture).not.toHaveBeenCalled();
   });
 
   it('rejects a popup sender before permission checks or capture handling', () => {

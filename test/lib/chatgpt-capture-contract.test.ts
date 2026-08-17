@@ -45,6 +45,7 @@ describe('ChatGPT capture runtime contract', () => {
   });
 
   it('rejects extra or malformed capture response fields', () => {
+    expect(isChatGptCaptureResponse(null)).toBe(false);
     expect(
       isChatGptCaptureResponse({
         ...captureResponse(),
@@ -69,6 +70,25 @@ describe('ChatGPT capture runtime contract', () => {
         data: { ...captureResponse().data, bodyBase64: 'not base64!', byteLength: 11 },
       })
     ).toBe(false);
+    expect(
+      isChatGptCaptureResponse({
+        success: true,
+        data: { ...captureResponse().data, mediaType: 'application/json\u0000' },
+      })
+    ).toBe(false);
+    expect(
+      isChatGptCaptureResponse({
+        success: true,
+        data: { ...captureResponse().data, mediaType: null },
+      })
+    ).toBe(false);
+    expect(
+      isChatGptCaptureResponse({
+        success: true,
+        data: { ...captureResponse().data, mediaType: 'x'.repeat(256) },
+      })
+    ).toBe(false);
+    expect(isChatGptCaptureResponse({ success: 'unknown' })).toBe(false);
   });
 
   it('serializes failures from the stable error allowlist only', () => {

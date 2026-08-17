@@ -16,8 +16,21 @@ const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const CAPTURE_TIME = '2026-08-17T12:00:00.000Z';
 
 const originalManifestDescriptor = Object.getOwnPropertyDescriptor(chrome.runtime, 'getManifest');
+const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+const originalAtobDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'atob');
+
+function restoreGlobal(name: 'crypto' | 'atob', descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor) {
+    Object.defineProperty(globalThis, name, descriptor);
+  } else {
+    delete (globalThis as unknown as Record<string, unknown>)[name];
+  }
+}
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  restoreGlobal('crypto', originalCryptoDescriptor);
+  restoreGlobal('atob', originalAtobDescriptor);
   if (originalManifestDescriptor) {
     Object.defineProperty(chrome.runtime, 'getManifest', originalManifestDescriptor);
   } else {
@@ -121,6 +134,149 @@ describe('ChatGPT current-branch capture composition', () => {
     });
 
     expect(projection.data.messages[1]?.toolContent).toBeUndefined();
+  });
+
+  it('rejects an invalid conversation ID before requesting private data', async () => {
+    const requestCapture = vi.fn();
+
+    const error = await captureChatGptCurrentBranch('../not-a-conversation', false, {
+      requestCapture,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('invalid-conversation-id');
+    expect(requestCapture).not.toHaveBeenCalled();
+  });
+
+  it('maps a rejected runtime request to a stable capture failure', async () => {
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: () => Promise.reject(new Error('private runtime diagnostic')),
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-failed');
+    expect(String((error as Error).message)).not.toContain('private runtime diagnostic');
+  });
+
+  it('fails closed when capture time cannot be serialized', async () => {
+    const response = await successfulResponse();
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: () => new Date(Number.NaN),
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-integrity-failed');
+  });
+
+  it('uses Web Crypto randomUUID for production capture provenance', async () => {
+    const cryptoApi = globalThis.crypto;
+    const randomUUID = vi.fn(() => '11111111-2222-4333-8444-555555555555' as const);
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: cryptoApi.subtle, randomUUID },
+    });
+
+    await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: () => successfulResponse(),
+      now: fixedNow,
+    });
+
+    expect(randomUUID).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed when Web Crypto cannot create a unique capture ID', async () => {
+    const response = await successfulResponse();
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { subtle: globalThis.crypto.subtle },
+    });
+
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: async () => response,
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-id-unavailable');
+  });
+
+  it('fails closed when manifest hashing is unavailable', async () => {
+    const response = await successfulResponse();
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} });
+
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-integrity-failed');
+  });
+
+  it.each([
+    ['missing base64 decoder', undefined],
+    [
+      'throwing base64 decoder',
+      () => {
+        throw new Error('decoder failed');
+      },
+    ],
+  ])(
+    'rejects a verified response when the %s prevents a local byte check',
+    async (_label, atob) => {
+      const response = await successfulResponse();
+      Object.defineProperty(globalThis, 'atob', { configurable: true, value: atob });
+
+      const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+        requestCapture: async () => response,
+        createCaptureId: fixedCaptureId,
+        now: fixedNow,
+      }).catch(reason => reason);
+
+      expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+      expect((error as ChatGptCurrentBranchError).code).toBe('capture-payload-invalid');
+    }
+  );
+
+  it('rejects a non-canonical uppercase artifact digest at the local trust boundary', async () => {
+    const response = await successfulResponse();
+    if (response.success) response.data.sha256 = response.data.sha256.toUpperCase();
+
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-payload-invalid');
+  });
+
+  it('fails safely when the verified current branch has no legacy-renderable messages', async () => {
+    const response = await successfulResponse(payload => {
+      const mapping = payload.mapping as Record<
+        string,
+        { message?: { author?: { role?: string } } }
+      >;
+      if (mapping['node/user']?.message?.author) {
+        mapping['node/user'].message.author.role = 'system';
+      }
+      if (mapping['node/current']?.message?.author) {
+        mapping['node/current'].message.author.role = 'system';
+      }
+    });
+
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('projection-failed');
   });
 
   it.each([
