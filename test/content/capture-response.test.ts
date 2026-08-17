@@ -74,6 +74,19 @@ describe('capture response primitives', () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it('validates the byte limit and bounds responses without a readable stream', async () => {
+    const small = new Uint8Array([0, 1, 2]);
+    const bodyless = {
+      headers: new Headers(),
+      body: null,
+      arrayBuffer: vi.fn().mockResolvedValue(small.buffer),
+    } as unknown as Response;
+
+    await expect(readBoundedResponseBytes(bodyless, 3)).resolves.toEqual(small);
+    await expect(readBoundedResponseBytes(bodyless, 2)).rejects.toThrow(/exceeds/);
+    await expect(readBoundedResponseBytes(bodyless, 0)).rejects.toThrow(/positive safe integer/);
+  });
+
   it('rejects malformed UTF-8 rather than changing raw evidence', () => {
     expect(() => parseJsonArtifact(new Uint8Array([0xff]))).toThrow();
   });

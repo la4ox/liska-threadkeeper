@@ -326,6 +326,37 @@ describe('captureChatGptInTemporaryTab', () => {
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });
 
+  it('fails closed when extension-side digesting or page media metadata is invalid', async () => {
+    const digestFailure = fakeChrome([capturedResult()]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        chromeApi: digestFailure,
+        createNonce: () => NONCE,
+        digestSha256: () => Promise.reject(new Error('synthetic digest failure')),
+      })
+    ).rejects.toMatchObject({ code: 'capture-failed' });
+
+    const unsafeMediaType = capturedResult();
+    if (unsafeMediaType.kind !== 'captured') throw new Error('Synthetic capture must be captured.');
+    unsafeMediaType.capture.mediaType = 'application/json\u0000';
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        chromeApi: fakeChrome([unsafeMediaType]),
+        createNonce: () => NONCE,
+      })
+    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
+  });
+
+  it('fails safely when the extension runtime cannot create a random nonce', async () => {
+    vi.stubGlobal('crypto', { subtle: webcrypto.subtle });
+    const chromeApi = fakeChrome([capturedResult()]);
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi })
+    ).rejects.toMatchObject({ code: 'capture-failed' });
+    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+  });
+
   it('strictly decodes and bounds page data before hashing', async () => {
     const digestSha256 = vi.fn(async () => capturedResult().capture.sha256);
     const nonCanonicalChrome = fakeChrome([

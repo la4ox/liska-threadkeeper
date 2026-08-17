@@ -128,16 +128,8 @@ function mappedContentFields(type: string): Set<string> {
     ['thoughts', 'text', 'content', 'summary'].forEach(field => fields.add(field));
   } else if (TOOL_CALL_TYPES.has(type)) {
     ['tool_calls', 'calls', 'parts'].forEach(field => fields.add(field));
-    if (type === 'tool_call') {
-      ['name', 'tool_name', 'recipient', 'arguments', 'args', 'input'].forEach(field =>
-        fields.add(field)
-      );
-    }
   } else if (TOOL_RESULT_TYPES.has(type)) {
     ['tool_results', 'results', 'parts'].forEach(field => fields.add(field));
-    if (type === 'tool_result') {
-      ['name', 'tool_name', 'result', 'output', 'content'].forEach(field => fields.add(field));
-    }
   } else if (EXECUTION_TYPES.has(type)) {
     ['output', 'result', 'text', 'content'].forEach(field => fields.add(field));
   }
