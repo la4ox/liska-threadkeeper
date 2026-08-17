@@ -1,0 +1,35 @@
+{
+  "schema": "liska-thread/1",
+  "archiveId": "chatgpt:synthetic-missing-link",
+  "inputs": [],
+  "conversation": {
+    "id": "synthetic-missing-link",
+    "title": "Synthetic broken link",
+    "provider": "chatgpt",
+    "url": "https://chatgpt.com/c/synthetic-missing-link",
+    "currentNodeId": "node-root",
+    "createdAt": null,
+    "updatedAt": null,
+    "metadata": {},
+    "sourceRefs": [],
+    "extensions": {}
+  },
+  "graph": {
+    "rootIds": ["node-root"],
+    "nodes": {
+      "node-root": {
+        "id": "node-root",
+        "parentId": null,
+        "childIds": ["missing-node"],
+        "sourceRefs": [],
+        "extensions": {}
+      }
+    }
+  },
+  "assets": {},
+  "diagnostics": {
+    "entries": [],
+    "extensions": {}
+  },
+  "extensions": {}
+}

@@ -1,0 +1,42 @@
+{
+  "schema": "liska-thread/1",
+  "archiveId": "chatgpt:synthetic-cycle",
+  "inputs": [],
+  "conversation": {
+    "id": "synthetic-cycle",
+    "title": "Synthetic cycle",
+    "provider": "chatgpt",
+    "url": "https://chatgpt.com/c/synthetic-cycle",
+    "currentNodeId": "node-child",
+    "createdAt": null,
+    "updatedAt": null,
+    "metadata": {},
+    "sourceRefs": [],
+    "extensions": {}
+  },
+  "graph": {
+    "rootIds": ["node-root"],
+    "nodes": {
+      "node-root": {
+        "id": "node-root",
+        "parentId": "node-child",
+        "childIds": ["node-child"],
+        "sourceRefs": [],
+        "extensions": {}
+      },
+      "node-child": {
+        "id": "node-child",
+        "parentId": "node-root",
+        "childIds": ["node-root"],
+        "sourceRefs": [],
+        "extensions": {}
+      }
+    }
+  },
+  "assets": {},
+  "diagnostics": {
+    "entries": [],
+    "extensions": {}
+  },
+  "extensions": {}
+}
