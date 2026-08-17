@@ -20,6 +20,12 @@ import type {
   ExtractionResult,
   SyncSettings,
 } from '../../lib/types';
+import { isChatGptConversationId } from '../../lib/chatgpt-capture-contract';
+import {
+  captureChatGptCurrentBranch,
+  manifestAllowsChatGptStructuredCapture,
+} from '../capture/chatgpt-current-branch';
+import type { ArchiveProjectionResult } from '../archive-projection';
 
 import { SELECTORS } from './selectors/chatgpt';
 
@@ -47,6 +53,18 @@ const DEEP_RESEARCH_FRAME_SELECTORS = [
   'iframe[src*="deep_research"][src*="oaiusercontent.com"]',
 ] as const;
 
+/** Stable compatibility warning for a failed complete-graph capture fallback. */
+export const CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING =
+  'ChatGPT complete graph capture failed; the rendered current branch was exported instead.';
+
+export interface ChatGPTExtractorDependencies {
+  captureCurrentBranch?: (
+    conversationId: string,
+    includeToolContent: boolean
+  ) => Promise<ArchiveProjectionResult>;
+  manifestAllowsStructuredCapture?: () => boolean;
+}
+
 /**
  * ChatGPT conversation extractor
  *
@@ -56,11 +74,66 @@ const DEEP_RESEARCH_FRAME_SELECTORS = [
 export class ChatGPTExtractor extends BaseExtractor {
   readonly platform = 'chatgpt';
 
+  /** Include projected reasoning and tool blocks from the verified archive. */
+  enableToolContent = false;
+
+  private readonly captureCurrentBranch: NonNullable<
+    ChatGPTExtractorDependencies['captureCurrentBranch']
+  >;
+  private readonly manifestAllowsStructuredCapture: NonNullable<
+    ChatGPTExtractorDependencies['manifestAllowsStructuredCapture']
+  >;
+
+  constructor(dependencies: ChatGPTExtractorDependencies = {}) {
+    super();
+    this.captureCurrentBranch = dependencies.captureCurrentBranch ?? captureChatGptCurrentBranch;
+    this.manifestAllowsStructuredCapture =
+      dependencies.manifestAllowsStructuredCapture ?? manifestAllowsChatGptStructuredCapture;
+  }
+
   /**
-   * Apply user settings: enable/disable auto-scroll for virtualized history.
+   * Apply user settings for virtualized history and canonical tool-content projection.
    */
   applySettings(settings: SyncSettings): void {
     this.enableAutoScroll = settings.enableAutoScroll ?? false;
+    this.enableToolContent = settings.enableToolContent ?? false;
+  }
+
+  /**
+   * Use the verified full graph where the manifest permits the background
+   * bridge, otherwise retain the established rendered-DOM behavior. A failed
+   * graph path is deliberately non-diagnostic: no provider response, error,
+   * or conversation identifier is written to the console.
+   */
+  async extract(): Promise<ExtractionResult> {
+    const conversationId = this.exactStructuredCaptureConversationId();
+    if (!conversationId || !this.allowsStructuredCapture()) {
+      return super.extract();
+    }
+
+    try {
+      const projection = await this.captureCurrentBranch(conversationId, this.enableToolContent);
+      const guarded = this.buildConversationResult(
+        projection.data.messages,
+        projection.data.id,
+        projection.data.title,
+        projection.data.source
+      );
+      if (!guarded.success) return guarded;
+      const warnings = [...new Set([...projection.warnings, ...(guarded.warnings ?? [])])];
+      return {
+        success: true,
+        data: projection.data,
+        ...(warnings.length > 0 ? { warnings } : {}),
+      };
+    } catch {
+      const fallback = await super.extract();
+      if (!fallback.success) return fallback;
+      return {
+        ...fallback,
+        warnings: [...(fallback.warnings ?? []), CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING],
+      };
+    }
   }
 
   // ========== ID & Title Extraction ==========
@@ -77,6 +150,32 @@ export class ChatGPTExtractor extends BaseExtractor {
     // Match /c/{uuid} pattern (works for both regular and custom GPT URLs)
     const match = window.location.pathname.match(/\/c\/([a-f0-9-]+)/i);
     return match ? match[1] : null;
+  }
+
+  /** Match the same exact ChatGPT route grammar accepted by the background bridge. */
+  private exactStructuredCaptureConversationId(): string | null {
+    if (
+      window.location.origin !== 'https://chatgpt.com' ||
+      window.location.search !== '' ||
+      window.location.hash !== ''
+    ) {
+      return null;
+    }
+
+    const standard = /^\/c\/([^/]+)\/?$/.exec(window.location.pathname);
+    const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(
+      window.location.pathname
+    );
+    const conversationId = standard?.[1] ?? custom?.[1];
+    return isChatGptConversationId(conversationId) ? conversationId : null;
+  }
+
+  private allowsStructuredCapture(): boolean {
+    try {
+      return this.manifestAllowsStructuredCapture();
+    } catch {
+      return false;
+    }
   }
 
   /**
