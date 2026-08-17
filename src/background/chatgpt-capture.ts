@@ -1,13 +1,11 @@
-/* eslint-disable max-lines-per-function -- The injected MAIN-world function must stay self-contained. */
 /**
  * Safe capture of ChatGPT's own conversation request in a disposable tab.
  *
- * The background worker must never recreate the browser's authenticated
- * request: doing so would require handling cookies or short-lived page
- * protocol headers. Instead, an isolated inactive ChatGPT tab performs its
- * normal client-side navigation and a short-lived MAIN-world hook observes the
- * matching response. The hook has no access to, and never serializes, request
- * headers, cookies, account data, or unrelated responses.
+ * The extension never recreates ChatGPT's authenticated request. A manifest-
+ * declared MAIN-world script is armed by a nonce marker before page JavaScript
+ * starts, then observes the page's own exact conversation fetch. Background
+ * code only opens the temporary route, reads a tiny nonce-scoped result, and
+ * closes the tab it created.
  */
 
 import {
@@ -33,9 +31,9 @@ export type {
 export const CHATGPT_CAPTURE_TIMEOUT_MS = 25_000;
 
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
-const CHATGPT_TEMPORARY_TAB_URL = `${CHATGPT_ORIGIN}/`;
+const CAPTURE_FRAGMENT_PREFIX = '#liska-capture=';
 const MIN_TIMEOUT_MS = 1_000;
-// Reserve one second for serial hook/tab cleanup plus scheduler tolerance.
+// Reserve one second for serial state/tab cleanup plus scheduler tolerance.
 const MAX_TIMEOUT_MS = 28_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
@@ -61,6 +59,7 @@ interface ChatGptCaptureScriptInjection {
 interface ChatGptCaptureChromeApi {
   tabs: {
     create: (createProperties: { url: string; active: boolean }) => Promise<{ id?: number }>;
+    get: (tabId: number) => Promise<{ status?: string; url?: string }>;
     remove: (tabId: number) => Promise<void>;
   };
   scripting: {
@@ -80,17 +79,27 @@ export interface ChatGptTemporaryCaptureDependencies {
   digestSha256?: (bytes: Uint8Array) => Promise<string>;
 }
 
-type HookErrorCode = 'timed-out' | 'payload-too-large' | 'capture-failed';
+type HookErrorCode =
+  | 'hook-state-failed'
+  | 'request-failed'
+  | 'response-http-error'
+  | 'response-media-type-invalid'
+  | 'response-processing-failed'
+  | 'timed-out'
+  | 'payload-too-large'
+  | 'capture-failed';
 
 type HookResult =
   | { kind: 'ready' }
   | { kind: 'captured'; capture: Omit<ChatGptCaptureArtifact, 'endpoint'> }
   | { kind: 'error'; code: HookErrorCode }
-  | { kind: 'origin-rejected' }
-  | { kind: 'cleaned' }
   | { kind: 'missing' };
 
-type ReadinessResult = { kind: 'ready' } | { kind: 'waiting' } | { kind: 'origin-rejected' };
+type ReadinessResult =
+  | { kind: 'ready' }
+  | { kind: 'waiting' }
+  | { kind: 'origin-rejected' }
+  | { kind: 'path-rejected' };
 
 function normalizeTimeout(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return CHATGPT_CAPTURE_TIMEOUT_MS;
@@ -143,6 +152,14 @@ function defaultNonce(): string {
 
 function isSafeNonce(value: string): boolean {
   return /^[a-z0-9-]{16,128}$/i.test(value);
+}
+
+function temporaryTargetUrl(conversationId: string, nonce: string): string {
+  return `${CHATGPT_ORIGIN}/c/${encodeURIComponent(conversationId)}${CAPTURE_FRAGMENT_PREFIX}${nonce}`;
+}
+
+function temporaryTargetPath(conversationId: string): string {
+  return `/c/${encodeURIComponent(conversationId)}`;
 }
 
 function firstScriptResult(results: Array<{ result?: unknown }>): unknown {
@@ -212,7 +229,16 @@ async function defaultDigestSha256(bytes: Uint8Array): Promise<string> {
 }
 
 function mapHookError(code: unknown): ChatGptCaptureErrorCode {
-  if (code === 'timed-out' || code === 'payload-too-large' || code === 'capture-failed') {
+  if (
+    code === 'hook-state-failed' ||
+    code === 'request-failed' ||
+    code === 'response-http-error' ||
+    code === 'response-media-type-invalid' ||
+    code === 'response-processing-failed' ||
+    code === 'timed-out' ||
+    code === 'payload-too-large' ||
+    code === 'capture-failed'
+  ) {
     return code;
   }
   return 'unexpected-capture-result';
@@ -288,26 +314,117 @@ function makeDependencies(overrides: ChatGptTemporaryCaptureDependencies) {
   };
 }
 
-async function readPageReadiness(
+type ResolvedCaptureDependencies = ReturnType<typeof makeDependencies>;
+
+function createSafeNonce(createNonce: () => string): string {
+  let nonce: string;
+  try {
+    nonce = createNonce();
+  } catch {
+    throw new ChatGptTemporaryCaptureError('capture-failed');
+  }
+  if (!isSafeNonce(nonce)) {
+    throw new ChatGptTemporaryCaptureError('capture-failed');
+  }
+  return nonce;
+}
+
+async function removeTemporaryTab(
   chromeApi: ChatGptCaptureChromeApi,
   tabId: number
+): Promise<void> {
+  await withinTimeout(
+    chromeApi.tabs.remove(tabId),
+    CLEANUP_STEP_TIMEOUT_MS,
+    'capture-failed'
+  ).catch(() => undefined);
+}
+
+async function createTemporaryTab(
+  chromeApi: ChatGptCaptureChromeApi,
+  conversationId: string,
+  nonce: string,
+  deadline: number,
+  now: () => number
+): Promise<number> {
+  let creation: Promise<{ id?: number }>;
+  try {
+    creation = chromeApi.tabs.create({
+      url: temporaryTargetUrl(conversationId, nonce),
+      active: false,
+    });
+  } catch {
+    throw new ChatGptTemporaryCaptureError('temporary-tab-create-failed');
+  }
+
+  let creationTimedOut = false;
+  let lateRemovalScheduled = false;
+  void creation.then(
+    temporaryTab => {
+      if (
+        creationTimedOut &&
+        !lateRemovalScheduled &&
+        Number.isSafeInteger(temporaryTab.id) &&
+        temporaryTab.id !== undefined
+      ) {
+        lateRemovalScheduled = true;
+        void removeTemporaryTab(chromeApi, temporaryTab.id);
+      }
+    },
+    () => undefined
+  );
+
+  let temporaryTab: { id?: number };
+  try {
+    temporaryTab = await withinTimeout(
+      creation,
+      remainingTimeout(deadline, now),
+      'temporary-tab-create-failed'
+    );
+  } catch {
+    creationTimedOut = true;
+    throw new ChatGptTemporaryCaptureError('temporary-tab-create-failed');
+  }
+
+  if (!Number.isSafeInteger(temporaryTab.id) || temporaryTab.id === undefined) {
+    throw new ChatGptTemporaryCaptureError('temporary-tab-missing-id');
+  }
+  return temporaryTab.id;
+}
+
+async function readTemporaryTabReadiness(
+  chromeApi: ChatGptCaptureChromeApi,
+  tabId: number,
+  conversationId: string
 ): Promise<ReadinessResult> {
   try {
-    const results = await chromeApi.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: probeChatGptTemporaryCaptureReadiness,
-      args: [],
-    });
-    return firstScriptResult(results) as ReadinessResult;
+    const tab = await chromeApi.tabs.get(tabId);
+    if (tab.status !== 'complete' || typeof tab.url !== 'string' || tab.url === 'about:blank') {
+      return { kind: 'waiting' };
+    }
+
+    try {
+      const url = new URL(tab.url);
+      if (url.origin !== CHATGPT_ORIGIN || url.username !== '' || url.password !== '') {
+        return { kind: 'origin-rejected' };
+      }
+      return url.pathname === temporaryTargetPath(conversationId) && url.search === ''
+        ? { kind: 'ready' }
+        : { kind: 'path-rejected' };
+    } catch {
+      return { kind: 'waiting' };
+    }
   } catch {
-    throw new ChatGptTemporaryCaptureError('hook-install-failed');
+    // A just-created tab may be unavailable briefly. Treat it as unready; the
+    // caller keeps retrying under the existing bounded capture deadline.
+    return { kind: 'waiting' };
   }
 }
 
-async function waitForPageReadiness(
+async function waitForTemporaryTarget(
   chromeApi: ChatGptCaptureChromeApi,
   tabId: number,
+  conversationId: string,
   deadline: number,
   now: () => number,
   sleep: (milliseconds: number) => Promise<void>,
@@ -315,16 +432,19 @@ async function waitForPageReadiness(
 ): Promise<void> {
   while (now() <= deadline) {
     const readiness = await withinTimeout(
-      readPageReadiness(chromeApi, tabId),
+      readTemporaryTabReadiness(chromeApi, tabId, conversationId),
       remainingTimeout(deadline, now),
-      'hook-install-failed'
+      'timed-out'
     );
     if (isReadinessResult(readiness, 'ready')) return;
     if (isReadinessResult(readiness, 'origin-rejected')) {
       throw new ChatGptTemporaryCaptureError('unexpected-origin');
     }
+    if (isReadinessResult(readiness, 'path-rejected')) {
+      throw new ChatGptTemporaryCaptureError('capture-failed');
+    }
     if (!isReadinessResult(readiness, 'waiting')) {
-      throw new ChatGptTemporaryCaptureError('hook-install-failed');
+      throw new ChatGptTemporaryCaptureError('capture-failed');
     }
 
     const remaining = deadline - now();
@@ -333,35 +453,6 @@ async function waitForPageReadiness(
   }
 
   throw new ChatGptTemporaryCaptureError('timed-out');
-}
-
-async function installHook(
-  chromeApi: ChatGptCaptureChromeApi,
-  tabId: number,
-  conversationId: string,
-  nonce: string,
-  timeoutMs: number
-): Promise<HookResult> {
-  try {
-    const results = await chromeApi.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: installChatGptTemporaryCaptureHook,
-      args: [conversationId, nonce, { maxBytes: CHATGPT_CAPTURE_MAX_BYTES, timeoutMs }],
-    });
-    return firstScriptResult(results) as HookResult;
-  } catch {
-    throw new ChatGptTemporaryCaptureError('hook-install-failed');
-  }
-}
-
-function assertHookInstalled(installation: HookResult): void {
-  if (isHookResult(installation, 'origin-rejected')) {
-    throw new ChatGptTemporaryCaptureError('unexpected-origin');
-  }
-  if (!isHookResult(installation, 'ready')) {
-    throw new ChatGptTemporaryCaptureError('hook-install-failed');
-  }
 }
 
 async function readHookState(
@@ -376,44 +467,60 @@ async function readHookState(
       func: readChatGptTemporaryCaptureState,
       args: [nonce],
     });
-    return firstScriptResult(results) as HookResult;
+    const result = firstScriptResult(results);
+    return result === undefined ? { kind: 'missing' } : (result as HookResult);
   } catch {
-    throw new ChatGptTemporaryCaptureError('capture-failed');
+    // A browser that lacks the static MAIN-world entry (or a document that is
+    // still starting) looks exactly like a missing state until the deadline.
+    return { kind: 'missing' };
   }
+}
+
+async function waitForCapturedResult(
+  dependencies: ResolvedCaptureDependencies,
+  tabId: number,
+  nonce: string,
+  deadline: number
+): Promise<ChatGptCaptureArtifact> {
+  while (dependencies.now() <= deadline) {
+    const state = await withinTimeout(
+      readHookState(dependencies.chromeApi, tabId, nonce),
+      remainingTimeout(deadline, dependencies.now),
+      'timed-out'
+    );
+    const capture = await validateCapturedResult(state, dependencies.digestSha256);
+    if (capture !== undefined) {
+      return { ...capture, endpoint: CHATGPT_CAPTURE_ENDPOINT };
+    }
+    if (isHookErrorResult(state)) {
+      throw new ChatGptTemporaryCaptureError(mapHookError(state.code));
+    }
+    if (!isHookResult(state, 'ready') && !isHookResult(state, 'missing')) {
+      throw new ChatGptTemporaryCaptureError('unexpected-capture-result');
+    }
+
+    // The static document-start entry may not have run yet, may be blocked on
+    // an older browser, or may have been removed by an external redirect.
+    // Missing state is therefore a bounded wait, not a retry or injection.
+    const remaining = deadline - dependencies.now();
+    if (remaining <= 0) break;
+    await dependencies.sleep(Math.min(dependencies.pollIntervalMs, remaining));
+  }
+  throw new ChatGptTemporaryCaptureError('timed-out');
 }
 
 async function cleanupTemporaryTab(
   chromeApi: ChatGptCaptureChromeApi,
-  tabId: number | undefined,
-  nonce: string | undefined
+  tabId: number | undefined
 ): Promise<void> {
   if (tabId === undefined) return;
-
-  if (nonce !== undefined) {
-    await withinTimeout(
-      chromeApi.scripting
-        .executeScript({
-          target: { tabId },
-          world: 'MAIN',
-          func: cleanupChatGptTemporaryCaptureHook,
-          args: [nonce],
-        })
-        .catch(() => undefined),
-      CLEANUP_STEP_TIMEOUT_MS,
-      'capture-failed'
-    ).catch(() => undefined);
-  }
-
-  await withinTimeout(
-    chromeApi.tabs.remove(tabId),
-    CLEANUP_STEP_TIMEOUT_MS,
-    'capture-failed'
-  ).catch(() => undefined);
+  await removeTemporaryTab(chromeApi, tabId);
 }
 
 /**
- * Capture the response created by ChatGPT's own client navigation in a fresh,
- * inactive tab. The tab is always closed; no existing user tab is touched.
+ * Capture the response from ChatGPT's own page-native conversation request in
+ * a fresh inactive tab. The tab is always closed; no existing user tab is
+ * touched, and background code never issues a provider request.
  */
 export async function captureChatGptInTemporaryTab(
   conversationId: string,
@@ -429,376 +536,84 @@ export async function captureChatGptInTemporaryTab(
   let nonce: string | undefined;
 
   try {
-    let temporaryTab: { id?: number };
-    try {
-      temporaryTab = await withinTimeout(
-        dependencies.chromeApi.tabs.create({
-          url: CHATGPT_TEMPORARY_TAB_URL,
-          active: false,
-        }),
-        remainingTimeout(deadline, dependencies.now),
-        'temporary-tab-create-failed'
-      );
-    } catch {
-      throw new ChatGptTemporaryCaptureError('temporary-tab-create-failed');
-    }
+    nonce = createSafeNonce(dependencies.createNonce);
+    temporaryTabId = await createTemporaryTab(
+      dependencies.chromeApi,
+      conversationId,
+      nonce,
+      deadline,
+      dependencies.now
+    );
 
-    if (!Number.isSafeInteger(temporaryTab.id) || temporaryTab.id === undefined) {
-      throw new ChatGptTemporaryCaptureError('temporary-tab-missing-id');
-    }
-    temporaryTabId = temporaryTab.id;
-
-    await waitForPageReadiness(
+    await waitForTemporaryTarget(
       dependencies.chromeApi,
       temporaryTabId,
+      conversationId,
       deadline,
       dependencies.now,
       dependencies.sleep,
       dependencies.pollIntervalMs
     );
-
-    try {
-      nonce = dependencies.createNonce();
-    } catch {
-      throw new ChatGptTemporaryCaptureError('capture-failed');
-    }
-    if (!isSafeNonce(nonce)) {
-      nonce = undefined;
-      throw new ChatGptTemporaryCaptureError('capture-failed');
-    }
-
-    const installation = await withinTimeout(
-      installHook(
-        dependencies.chromeApi,
-        temporaryTabId,
-        conversationId,
-        nonce,
-        remainingTimeout(deadline, dependencies.now)
-      ),
-      remainingTimeout(deadline, dependencies.now),
-      'hook-install-failed'
-    );
-    assertHookInstalled(installation);
-
-    while (dependencies.now() <= deadline) {
-      const state = await withinTimeout(
-        readHookState(dependencies.chromeApi, temporaryTabId, nonce),
-        remainingTimeout(deadline, dependencies.now),
-        'timed-out'
-      );
-      const capture = await validateCapturedResult(state, dependencies.digestSha256);
-      if (capture !== undefined) {
-        return {
-          ...capture,
-          endpoint: CHATGPT_CAPTURE_ENDPOINT,
-        };
-      }
-      if (isHookErrorResult(state)) {
-        throw new ChatGptTemporaryCaptureError(mapHookError(state.code));
-      }
-      if (isHookResult(state, 'missing')) {
-        // A full document navigation drops the MAIN-world hook. Do not retry in
-        // a new document, because it could issue a different request.
-        throw new ChatGptTemporaryCaptureError('capture-failed');
-      }
-      if (!isHookResult(state, 'ready')) {
-        throw new ChatGptTemporaryCaptureError('unexpected-capture-result');
-      }
-
-      const remaining = deadline - dependencies.now();
-      if (remaining <= 0) break;
-      await dependencies.sleep(Math.min(dependencies.pollIntervalMs, remaining));
-    }
-
-    throw new ChatGptTemporaryCaptureError('timed-out');
+    return await waitForCapturedResult(dependencies, temporaryTabId, nonce, deadline);
   } finally {
-    await cleanupTemporaryTab(dependencies.chromeApi, temporaryTabId, nonce);
+    await cleanupTemporaryTab(dependencies.chromeApi, temporaryTabId);
   }
 }
 
 /**
- * MAIN-world readiness probe. A tab creation acknowledges only tab allocation,
- * not the document that will issue the navigation request. Wait for a complete
- * ChatGPT shell before injecting the one-document fetch observer.
+ * Read the document-start getter through ordinary property access. This is
+ * serialized into MAIN world, where Object/Function/Number built-ins are page
+ * mutable; the extension-world validator checks all non-primitive invariants.
  */
-export function probeChatGptTemporaryCaptureReadiness(): ReadinessResult {
-  const expectedOrigin = 'https://chatgpt.com';
-  const href = window.location.href;
-
-  if (href === 'about:blank' || document.readyState === 'loading') {
-    return { kind: 'waiting' };
-  }
-  if (window.location.origin !== expectedOrigin) {
-    return { kind: 'origin-rejected' };
-  }
-
-  // An interactive document can still be replacing its shell. Requiring the
-  // public app landmark/root makes the hidden-anchor navigation conservative
-  // without coupling to ChatGPT's private JavaScript globals.
-  if (
-    document.readyState !== 'complete' ||
-    document.body === null ||
-    document.querySelector('main, [role="main"], #root, #__next') === null
-  ) {
-    return { kind: 'waiting' };
-  }
-  return { kind: 'ready' };
-}
-
-/**
- * MAIN-world-only code. Keep this function self-contained: Chrome serializes
- * it into the ChatGPT page, so it must not reference module variables or
- * imported helpers.
- */
-export function installChatGptTemporaryCaptureHook(
-  expectedConversationId: string,
-  nonce: string,
-  options: { maxBytes: number; timeoutMs: number }
-): HookResult {
-  const origin = 'https://chatgpt.com';
-  const stateKey = `__liskaChatGptCapture_${nonce}`;
-  const windowRecord = window as unknown as Record<string, unknown>;
-
-  if (window.location.origin !== origin) return { kind: 'origin-rejected' };
-  if (windowRecord[stateKey] !== undefined) return { kind: 'ready' };
-
-  type PageState = {
-    originalFetch: typeof window.fetch;
-    wrappedFetch: typeof window.fetch | undefined;
-    timeoutId: ReturnType<typeof window.setTimeout> | undefined;
-    settled: boolean;
-    result: HookResult;
-  };
-
-  const endpointPath = `/backend-api/conversation/${encodeURIComponent(expectedConversationId)}`;
-  const originalFetch = window.fetch;
-  const state: PageState = {
-    originalFetch,
-    wrappedFetch: undefined,
-    timeoutId: undefined,
-    settled: false,
-    result: { kind: 'ready' },
-  };
-
-  const restore = (): void => {
-    if (state.timeoutId !== undefined) {
-      window.clearTimeout(state.timeoutId);
-      state.timeoutId = undefined;
-    }
-    if (state.wrappedFetch !== undefined && window.fetch === state.wrappedFetch) {
-      window.fetch = state.originalFetch;
-    }
-  };
-
-  const finish = (result: HookResult): void => {
-    if (state.settled) return;
-    state.settled = true;
-    state.result = result;
-    restore();
-  };
-
-  const jsonMime = (contentType: string): boolean => {
-    const essence = contentType.split(';', 1)[0]?.trim().toLowerCase();
-    return essence === 'application/json' || essence?.endsWith('+json') === true;
-  };
-
-  const isTargetRequest = (input: unknown, init: unknown): boolean => {
-    try {
-      const requestLike = input as { url?: unknown; method?: unknown } | null;
-      const initLike = init as { method?: unknown } | null;
-      const rawUrl =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.href
-            : typeof requestLike?.url === 'string'
-              ? requestLike.url
-              : '';
-      const method =
-        typeof initLike?.method === 'string'
-          ? initLike.method
-          : typeof requestLike?.method === 'string'
-            ? requestLike.method
-            : 'GET';
-      const url = new URL(rawUrl, window.location.href);
-      return (
-        method.toUpperCase() === 'GET' &&
-        url.origin === origin &&
-        url.pathname === endpointPath &&
-        url.search === '' &&
-        url.hash === ''
-      );
-    } catch {
-      return false;
-    }
-  };
-
-  const toBase64 = (bytes: Uint8Array): string => {
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
-      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-    }
-    return window.btoa(binary);
-  };
-
-  const readBoundedBytes = async (response: Response): Promise<Uint8Array> => {
-    const declared = Number(response.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > options.maxBytes) {
-      try {
-        await response.body?.cancel();
-      } catch {
-        // The stable size error remains valid even if the transport cannot cancel.
-      }
-      throw new Error('payload-too-large');
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.byteLength > options.maxBytes) throw new Error('payload-too-large');
-      return bytes;
-    }
-
-    const chunks: Uint8Array[] = [];
-    let byteLength = 0;
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      byteLength += next.value.byteLength;
-      if (byteLength > options.maxBytes) {
-        try {
-          await reader.cancel();
-        } catch {
-          // Preserve the stable size error if cancellation itself fails.
-        }
-        throw new Error('payload-too-large');
-      }
-      chunks.push(next.value);
-    }
-
-    const bytes = new Uint8Array(byteLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return bytes;
-  };
-
-  const captureResponse = async (response: Response, mediaType: string): Promise<void> => {
-    try {
-      const bytes = await readBoundedBytes(response.clone());
-      const exactBuffer = bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength
-      ) as ArrayBuffer;
-      const digest = await window.crypto.subtle.digest('SHA-256', exactBuffer);
-      const sha256 = Array.from(new Uint8Array(digest), byte =>
-        byte.toString(16).padStart(2, '0')
-      ).join('');
-      finish({
-        kind: 'captured',
-        capture: {
-          bodyBase64: toBase64(bytes),
-          byteLength: bytes.byteLength,
-          sha256,
-          mediaType,
-        },
-      });
-    } catch (error) {
-      finish({
-        kind: 'error',
-        code:
-          error instanceof Error && error.message === 'payload-too-large'
-            ? 'payload-too-large'
-            : 'capture-failed',
-      });
-    }
-  };
-
-  const wrappedFetch = function (
-    this: typeof window,
-    ...args: Parameters<typeof window.fetch>
-  ): ReturnType<typeof window.fetch> {
-    const responsePromise = originalFetch.apply(this, args);
-    if (!state.settled && isTargetRequest(args[0], args[1])) {
-      void responsePromise
-        .then(response => {
-          const mediaType = response.headers.get('content-type')?.trim() ?? '';
-          if (response.status === 200 && jsonMime(mediaType)) {
-            return captureResponse(response, mediaType);
-          }
-          return undefined;
-        })
-        .catch(() => undefined);
-    }
-    return responsePromise;
-  };
-
-  Object.defineProperty(windowRecord, stateKey, {
-    value: state,
-    configurable: true,
-    enumerable: false,
-    writable: false,
-  });
-  window.fetch = wrappedFetch;
-  state.wrappedFetch = wrappedFetch;
-  state.timeoutId = window.setTimeout(
-    () => finish({ kind: 'error', code: 'timed-out' }),
-    options.timeoutMs
-  );
-
-  try {
-    const anchor = document.createElement('a');
-    anchor.href = `${origin}/c/${encodeURIComponent(expectedConversationId)}`;
-    anchor.hidden = true;
-    anchor.tabIndex = -1;
-    anchor.setAttribute('aria-hidden', 'true');
-    const parent = document.body ?? document.documentElement;
-    parent.append(anchor);
-    anchor.click();
-    anchor.remove();
-  } catch {
-    finish({ kind: 'error', code: 'capture-failed' });
-  }
-
-  return { kind: 'ready' };
-}
-
-/** Read a result without exposing any page state except the captured artifact. */
+// eslint-disable-next-line complexity -- Chrome serializes this allowlist reader into MAIN world, so its primitive-only validation must stay self-contained.
 export function readChatGptTemporaryCaptureState(nonce: string): HookResult {
   const stateKey = `__liskaChatGptCapture_${nonce}`;
-  const state = (window as unknown as Record<string, unknown>)[stateKey] as
-    | { result?: unknown }
-    | undefined;
-  if (!state || typeof state.result !== 'object' || state.result === null) {
+  try {
+    const pageWindow = window as unknown as Record<string, unknown>;
+    const snapshot = pageWindow[stateKey];
+    if (typeof snapshot !== 'object' || snapshot === null) return { kind: 'missing' };
+    const result = snapshot as Record<string, unknown>;
+    if (result.kind === 'ready') return { kind: 'ready' };
+
+    if (result.kind === 'error') {
+      const code = result.code;
+      if (
+        code === 'hook-state-failed' ||
+        code === 'request-failed' ||
+        code === 'response-http-error' ||
+        code === 'response-media-type-invalid' ||
+        code === 'response-processing-failed' ||
+        code === 'timed-out' ||
+        code === 'payload-too-large' ||
+        code === 'capture-failed'
+      ) {
+        return { kind: 'error', code };
+      }
+      return { kind: 'missing' };
+    }
+
+    if (result.kind !== 'captured') return { kind: 'missing' };
+    const capture = result.capture;
+    if (typeof capture !== 'object' || capture === null) return { kind: 'missing' };
+    const record = capture as Record<string, unknown>;
+    if (
+      typeof record.bodyBase64 !== 'string' ||
+      typeof record.byteLength !== 'number' ||
+      typeof record.sha256 !== 'string' ||
+      typeof record.mediaType !== 'string'
+    ) {
+      return { kind: 'missing' };
+    }
+    return {
+      kind: 'captured',
+      capture: {
+        bodyBase64: record.bodyBase64,
+        byteLength: record.byteLength,
+        sha256: record.sha256,
+        mediaType: record.mediaType,
+      },
+    };
+  } catch {
     return { kind: 'missing' };
   }
-  return state.result as HookResult;
-}
-
-/** Restore page primitives and delete the nonce-scoped readiness state. */
-export function cleanupChatGptTemporaryCaptureHook(nonce: string): HookResult {
-  const stateKey = `__liskaChatGptCapture_${nonce}`;
-  const windowRecord = window as unknown as Record<string, unknown>;
-  const state = windowRecord[stateKey] as
-    | {
-        originalFetch?: typeof window.fetch;
-        wrappedFetch?: typeof window.fetch;
-        timeoutId?: ReturnType<typeof window.setTimeout>;
-      }
-    | undefined;
-  if (!state) return { kind: 'missing' };
-
-  if (state.timeoutId !== undefined) window.clearTimeout(state.timeoutId);
-  if (
-    typeof state.originalFetch === 'function' &&
-    state.wrappedFetch !== undefined &&
-    window.fetch === state.wrappedFetch
-  ) {
-    window.fetch = state.originalFetch;
-  }
-  delete windowRecord[stateKey];
-  return { kind: 'cleaned' };
 }

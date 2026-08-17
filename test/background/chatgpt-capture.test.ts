@@ -1,97 +1,64 @@
 import { webcrypto } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  CHATGPT_CAPTURE_MAX_BYTES,
   CHATGPT_CAPTURE_ENDPOINT,
+  CHATGPT_CAPTURE_MAX_BYTES,
   ChatGptTemporaryCaptureError,
   captureChatGptInTemporaryTab,
-  cleanupChatGptTemporaryCaptureHook,
-  installChatGptTemporaryCaptureHook,
-  probeChatGptTemporaryCaptureReadiness,
   readChatGptTemporaryCaptureState,
 } from '../../src/background/chatgpt-capture';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
-const OTHER_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555';
 const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
+const STATE_KEY = `__liskaChatGptCapture_${NONCE}`;
+const CAPTURE_HASH = 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3';
 
-type HookResult = ReturnType<typeof installChatGptTemporaryCaptureHook>;
+type FakeTab = { status?: string; url?: string };
+type ScriptResult = { result?: unknown };
 
-function capturedResult(): HookResult {
+const READY_TARGET_TAB: FakeTab = {
+  status: 'complete',
+  url: `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${NONCE}`,
+};
+
+function capturedResult() {
   return {
-    kind: 'captured',
+    kind: 'captured' as const,
     capture: {
       bodyBase64: 'AP8BgCo=',
       byteLength: 5,
-      sha256: 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3',
+      sha256: CAPTURE_HASH,
       mediaType: 'application/json; charset=utf-8',
     },
   };
 }
 
 function fakeChrome(
-  results: HookResult[],
-  readinessResults: ReturnType<typeof probeChatGptTemporaryCaptureReadiness>[] = [{ kind: 'ready' }]
+  states: unknown[] = [capturedResult()],
+  readiness: FakeTab[] = [READY_TARGET_TAB]
 ) {
+  const pendingStates = [...states];
+  const pendingReadiness = [...readiness];
   const tabs = {
     create: vi.fn().mockResolvedValue({ id: 73 }),
+    get: vi.fn().mockImplementation(async () => pendingReadiness.shift() ?? READY_TARGET_TAB),
     remove: vi.fn().mockResolvedValue(undefined),
   };
-  const reads = [...results];
-  const readiness = [...readinessResults];
   const executeScript = vi.fn().mockImplementation(async injection => {
-    if (injection.func === probeChatGptTemporaryCaptureReadiness) {
-      return [{ result: readiness.shift() ?? { kind: 'ready' } }];
-    }
-    if (injection.func === installChatGptTemporaryCaptureHook)
-      return [{ result: { kind: 'ready' } }];
     if (injection.func === readChatGptTemporaryCaptureState) {
-      return [{ result: reads.shift() ?? { kind: 'ready' } }];
+      return [{ result: pendingStates.shift() ?? { kind: 'missing' } }] satisfies ScriptResult[];
     }
-    if (injection.func === cleanupChatGptTemporaryCaptureHook) {
-      return [{ result: { kind: 'cleaned' } }];
-    }
-    return [];
+    return [] satisfies ScriptResult[];
   });
   return { tabs, scripting: { executeScript } };
 }
 
-function installFakeMainWorld(options: {
-  onAnchorClick?: () => void;
-  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-}) {
-  const originalFetch = vi.fn(
-    options.fetch ?? (() => Promise.resolve(new Response('{}', { status: 200 })))
-  );
-  const anchor = {
-    href: '',
-    hidden: false,
-    tabIndex: 0,
-    setAttribute: vi.fn(),
-    click: vi.fn(() => options.onAnchorClick?.()),
-    remove: vi.fn(),
+function captureDependencies(chromeApi: ReturnType<typeof fakeChrome>) {
+  return {
+    chromeApi,
+    createNonce: () => NONCE,
+    digestSha256: async () => CAPTURE_HASH,
   };
-  const parent = { append: vi.fn() };
-  const fakeDocument = {
-    body: parent,
-    documentElement: parent,
-    readyState: 'complete',
-    createElement: vi.fn(() => anchor),
-    querySelector: vi.fn(() => parent),
-  };
-
-  const fakeWindow = {
-    location: { origin: 'https://chatgpt.com', href: 'https://chatgpt.com/' },
-    fetch: originalFetch,
-    setTimeout: globalThis.setTimeout,
-    clearTimeout: globalThis.clearTimeout,
-    crypto: webcrypto,
-    btoa: globalThis.btoa,
-  } as unknown as Window & typeof globalThis;
-
-  vi.stubGlobal('window', fakeWindow);
-  vi.stubGlobal('document', fakeDocument);
-  return { anchor, fakeWindow, originalFetch, fakeDocument };
 }
 
 afterEach(() => {
@@ -101,34 +68,33 @@ afterEach(() => {
 });
 
 describe('captureChatGptInTemporaryTab', () => {
-  it('creates an inactive root tab, installs the MAIN-world hook, and returns only the raw artifact', async () => {
-    const pageResult = capturedResult();
-    if (pageResult.kind !== 'captured') throw new Error('Synthetic capture must be captured.');
-    Object.assign(pageResult.capture, { accountId: 'must-not-cross-the-boundary' });
-    const chromeApi = fakeChrome([pageResult]);
+  it('creates a nonce-marked exact conversation tab and polls only the predeclared state', async () => {
+    const chromeApi = fakeChrome();
+    const extensionFetch = vi.fn();
+    vi.stubGlobal('fetch', extensionFetch);
 
-    const result = await captureChatGptInTemporaryTab(CONVERSATION_ID, {
-      chromeApi,
-      now: () => 0,
-      createNonce: () => NONCE,
-    });
+    const result = await captureChatGptInTemporaryTab(
+      CONVERSATION_ID,
+      captureDependencies(chromeApi)
+    );
 
     expect(chromeApi.tabs.create).toHaveBeenCalledWith({
-      url: 'https://chatgpt.com/',
+      url: `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${NONCE}`,
       active: false,
     });
+    expect(chromeApi.tabs.get).toHaveBeenCalledWith(73);
+    expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
+      readChatGptTemporaryCaptureState,
+    ]);
     expect(chromeApi.scripting.executeScript.mock.calls[0][0]).toMatchObject({
       target: { tabId: 73 },
       world: 'MAIN',
-      func: probeChatGptTemporaryCaptureReadiness,
+      func: readChatGptTemporaryCaptureState,
+      args: [NONCE],
     });
-    expect(chromeApi.scripting.executeScript.mock.calls[1][0]).toMatchObject({
-      target: { tabId: 73 },
-      world: 'MAIN',
-      func: installChatGptTemporaryCaptureHook,
-      args: [CONVERSATION_ID, NONCE, expect.objectContaining({ maxBytes: 16 * 1024 * 1024 })],
-    });
+    expect(chromeApi.tabs.remove).toHaveBeenCalledOnce();
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    expect(extensionFetch).not.toHaveBeenCalled();
     expect(result).toEqual({ ...capturedResult().capture, endpoint: CHATGPT_CAPTURE_ENDPOINT });
     expect(Object.keys(result)).toEqual([
       'bodyBase64',
@@ -139,146 +105,223 @@ describe('captureChatGptInTemporaryTab', () => {
     ]);
   });
 
-  it('waits for the hydrated ChatGPT document before installing or navigating', async () => {
+  it('creates the nonce before creating a temporary tab', async () => {
+    const chromeApi = fakeChrome();
+    const order: string[] = [];
+    chromeApi.tabs.create.mockImplementation(async properties => {
+      order.push(properties.url);
+      return { id: 73 };
+    });
+
+    await captureChatGptInTemporaryTab(CONVERSATION_ID, {
+      ...captureDependencies(chromeApi),
+      createNonce: () => {
+        order.push('nonce');
+        return NONCE;
+      },
+    });
+
+    expect(order).toEqual([
+      'nonce',
+      `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${NONCE}`,
+    ]);
+  });
+
+  it('waits for a complete exact target route before reading capture state', async () => {
     const chromeApi = fakeChrome(
       [capturedResult()],
-      [{ kind: 'waiting' }, { kind: 'waiting' }, { kind: 'ready' }]
+      [
+        { status: 'loading', url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+        { status: 'complete', url: 'about:blank' },
+        READY_TARGET_TAB,
+      ]
     );
     let now = 0;
 
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi,
+        ...captureDependencies(chromeApi),
         now: () => now,
         sleep: async milliseconds => {
           now += milliseconds;
         },
         timeoutMs: 1_000,
         pollIntervalMs: 100,
-        createNonce: () => NONCE,
       })
     ).resolves.toMatchObject({ bodyBase64: 'AP8BgCo=' });
 
-    expect(
-      chromeApi.scripting.executeScript.mock.calls.slice(0, 4).map(([call]) => call.func)
-    ).toEqual([
-      probeChatGptTemporaryCaptureReadiness,
-      probeChatGptTemporaryCaptureReadiness,
-      probeChatGptTemporaryCaptureReadiness,
-      installChatGptTemporaryCaptureHook,
+    expect(chromeApi.tabs.get).toHaveBeenCalledTimes(3);
+    expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
+      readChatGptTemporaryCaptureState,
     ]);
   });
 
-  it('rejects a completed foreign origin before installing the hook', async () => {
-    const chromeApi = fakeChrome([], [{ kind: 'origin-rejected' }]);
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).rejects.toMatchObject({ code: 'unexpected-origin' });
-    expect(chromeApi.scripting.executeScript).toHaveBeenCalledTimes(1);
-    expect(chromeApi.scripting.executeScript.mock.calls[0][0].func).toBe(
-      probeChatGptTemporaryCaptureReadiness
-    );
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
-  });
-
-  it('closes its created tab on a rejected redirect/login origin', async () => {
-    const chromeApi = fakeChrome([]);
-    chromeApi.scripting.executeScript.mockImplementation(async injection => {
-      if (injection.func === probeChatGptTemporaryCaptureReadiness) {
-        return [{ result: { kind: 'ready' } }];
-      }
-      if (injection.func === installChatGptTemporaryCaptureHook) {
-        return [{ result: { kind: 'origin-rejected' } }];
-      }
-      return [{ result: { kind: 'cleaned' } }];
-    });
+  it('treats missing state as startup waiting and later accepts the captured result', async () => {
+    const chromeApi = fakeChrome([{ kind: 'missing' }, { kind: 'ready' }, capturedResult()]);
+    let now = 0;
 
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi,
-        createNonce: () => NONCE,
+        ...captureDependencies(chromeApi),
+        now: () => now,
+        sleep: async milliseconds => {
+          now += milliseconds;
+        },
+        timeoutMs: 1_000,
+        pollIntervalMs: 100,
       })
-    ).rejects.toMatchObject({ code: 'unexpected-origin' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    ).resolves.toMatchObject({ byteLength: 5 });
+
+    expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+    ]);
   });
 
-  it('closes its created tab after a bounded timeout and removes the hook', async () => {
+  it('times out and closes only its created tab when the document-start script is missing', async () => {
     const chromeApi = fakeChrome([]);
     let now = 0;
 
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi,
+        ...captureDependencies(chromeApi),
+        now: () => now,
+        sleep: async milliseconds => {
+          now += milliseconds;
+        },
+        timeoutMs: 1_000,
+        pollIntervalMs: 250,
+      })
+    ).rejects.toMatchObject({ code: 'timed-out' });
+
+    expect(chromeApi.tabs.create).toHaveBeenCalledOnce();
+    expect(chromeApi.tabs.remove).toHaveBeenCalledOnce();
+    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+    ]);
+  });
+
+  it('treats an unsupported state-read injection as missing until timeout, then closes the tab', async () => {
+    const chromeApi = fakeChrome([]);
+    chromeApi.scripting.executeScript.mockImplementation(async injection => {
+      if (injection.func === readChatGptTemporaryCaptureState) {
+        throw new Error('unsupported world');
+      }
+      return [];
+    });
+    let now = 0;
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(chromeApi),
         now: () => now,
         sleep: async milliseconds => {
           now += milliseconds;
         },
         timeoutMs: 1_000,
         pollIntervalMs: 500,
-        createNonce: () => NONCE,
       })
     ).rejects.toMatchObject({ code: 'timed-out' });
 
-    expect(chromeApi.scripting.executeScript.mock.calls.at(-1)?.[0].func).toBe(
-      cleanupChatGptTemporaryCaptureHook
-    );
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+    ]);
   });
 
-  it('rejects invalid IDs before opening a tab and keeps the error free of the supplied value', async () => {
-    const chromeApi = fakeChrome([]);
-    const invalid = '../not-a-conversation-id';
-
-    await expect(captureChatGptInTemporaryTab(invalid, { chromeApi })).rejects.toEqual(
-      new ChatGptTemporaryCaptureError('invalid-conversation-id')
-    );
-    await expect(captureChatGptInTemporaryTab(invalid, { chromeApi })).rejects.not.toThrow(invalid);
-    expect(chromeApi.tabs.create).not.toHaveBeenCalled();
-    expect(chromeApi.tabs.remove).not.toHaveBeenCalled();
-  });
-
-  it('closes a created tab when the hook cannot be installed', async () => {
+  it('treats an empty state-read result as missing until timeout, then closes the tab', async () => {
     const chromeApi = fakeChrome([]);
     chromeApi.scripting.executeScript.mockImplementation(async injection => {
-      if (injection.func === probeChatGptTemporaryCaptureReadiness) {
-        return [{ result: { kind: 'ready' } }];
-      }
-      throw new Error('browser failure');
+      if (injection.func === readChatGptTemporaryCaptureState) return [];
+      return [];
     });
+    let now = 0;
 
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi,
-        createNonce: () => NONCE,
+        ...captureDependencies(chromeApi),
+        now: () => now,
+        sleep: async milliseconds => {
+          now += milliseconds;
+        },
+        timeoutMs: 1_000,
+        pollIntervalMs: 1_000,
       })
-    ).rejects.toMatchObject({ code: 'hook-install-failed' });
+    ).rejects.toMatchObject({ code: 'timed-out' });
+
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
+      readChatGptTemporaryCaptureState,
+      readChatGptTemporaryCaptureState,
+    ]);
   });
 
-  it('uses the native Chrome and random-nonce dependencies without exposing the nonce', async () => {
-    const chromeApi = fakeChrome([capturedResult()]);
-    vi.stubGlobal('chrome', chromeApi);
-    vi.stubGlobal('crypto', webcrypto);
-
-    await expect(captureChatGptInTemporaryTab(CONVERSATION_ID)).resolves.toMatchObject({
-      bodyBase64: 'AP8BgCo=',
-      endpoint: CHATGPT_CAPTURE_ENDPOINT,
-    });
-    expect(chromeApi.scripting.executeScript.mock.calls[1][0].args[1]).not.toBe(NONCE);
-  });
-
-  it('maps a hook size failure to a stable error and still closes the tab', async () => {
-    const chromeApi = fakeChrome([{ kind: 'error', code: 'payload-too-large' }]);
+  it('rejects a completed foreign redirect before reading page state and closes its tab', async () => {
+    const chromeApi = fakeChrome(
+      [],
+      [{ status: 'complete', url: 'https://auth.openai.com/login' }]
+    );
 
     await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).rejects.toMatchObject({ code: 'payload-too-large' });
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+    ).rejects.toMatchObject({ code: 'unexpected-origin' });
+
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });
 
-  it('sanitizes a nonce-generation failure and closes the already-created tab', async () => {
-    const chromeApi = fakeChrome([]);
+  it('rejects a same-origin route change before reading state', async () => {
+    const chromeApi = fakeChrome([], [{ status: 'complete', url: 'https://chatgpt.com/' }]);
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+    ).rejects.toMatchObject({ code: 'capture-failed' });
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+  });
+
+  it('maps a stable page error, re-verifies capture bytes, and strips extra page fields', async () => {
+    const pageError = fakeChrome([{ kind: 'error', code: 'response-http-error' }]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(pageError))
+    ).rejects.toMatchObject({ code: 'response-http-error' });
+
+    const pageResult = capturedResult();
+    Object.assign(pageResult.capture, { accountId: 'must-not-cross-the-boundary' });
+    const captureChrome = fakeChrome([pageResult]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(captureChrome))
+    ).resolves.toEqual({ ...capturedResult().capture, endpoint: CHATGPT_CAPTURE_ENDPOINT });
+
+    const mismatchedHash = fakeChrome([
+      { kind: 'captured', capture: { ...capturedResult().capture, sha256: '0'.repeat(64) } },
+    ]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(mismatchedHash))
+    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
+  });
+
+  it('rejects an invalid ID before nonce generation or tab creation', async () => {
+    const chromeApi = fakeChrome();
+    const createNonce = vi.fn(() => NONCE);
+
+    await expect(
+      captureChatGptInTemporaryTab('../not-a-conversation-id', { chromeApi, createNonce })
+    ).rejects.toEqual(new ChatGptTemporaryCaptureError('invalid-conversation-id'));
+    expect(createNonce).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it('fails safely if nonce generation fails before a tab exists', async () => {
+    const chromeApi = fakeChrome();
 
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, {
@@ -288,94 +331,43 @@ describe('captureChatGptInTemporaryTab', () => {
         },
       })
     ).rejects.toMatchObject({ code: 'capture-failed' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    expect(chromeApi.tabs.create).not.toHaveBeenCalled();
+    expect(chromeApi.tabs.remove).not.toHaveBeenCalled();
   });
 
-  it('rejects malformed capture data rather than forwarding an unbounded message payload', async () => {
-    const chromeApi = fakeChrome([
-      {
-        kind: 'captured',
-        capture: {
-          ...capturedResult().capture,
-          bodyBase64: 'not base64!',
-        },
-      },
-    ]);
+  it('removes an eventual safe tab ID after tab creation loses the timeout race', async () => {
+    vi.useFakeTimers();
+    const chromeApi = fakeChrome([]);
+    let resolveCreation: ((tab: { id?: number }) => void) | undefined;
+    const delayedCreation = new Promise<{ id?: number }>(resolve => {
+      resolveCreation = resolve;
+    });
+    chromeApi.tabs.create.mockReturnValueOnce(delayedCreation);
 
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    const capture = captureChatGptInTemporaryTab(CONVERSATION_ID, {
+      ...captureDependencies(chromeApi),
+      now: () => 0,
+      timeoutMs: 1_000,
+    });
+    const captureExpectation = expect(capture).rejects.toMatchObject({
+      code: 'temporary-tab-create-failed',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await captureExpectation;
+    expect(chromeApi.tabs.remove).not.toHaveBeenCalled();
+
+    resolveCreation?.({ id: 97 });
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+
+    expect(chromeApi.tabs.remove).toHaveBeenCalledTimes(1);
+    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(97);
   });
 
-  it('recomputes the base64 payload hash instead of trusting the page claim', async () => {
-    const chromeApi = fakeChrome([
-      {
-        kind: 'captured',
-        capture: { ...capturedResult().capture, sha256: '0'.repeat(64) },
-      },
-    ]);
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi,
-        createNonce: () => NONCE,
-        digestSha256: async () => capturedResult().capture.sha256,
-      })
-    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
-  });
-
-  it('fails closed when extension-side digesting or page media metadata is invalid', async () => {
-    const digestFailure = fakeChrome([capturedResult()]);
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi: digestFailure,
-        createNonce: () => NONCE,
-        digestSha256: () => Promise.reject(new Error('synthetic digest failure')),
-      })
-    ).rejects.toMatchObject({ code: 'capture-failed' });
-
-    const unsafeMediaType = capturedResult();
-    if (unsafeMediaType.kind !== 'captured') throw new Error('Synthetic capture must be captured.');
-    unsafeMediaType.capture.mediaType = 'application/json\u0000';
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi: fakeChrome([unsafeMediaType]),
-        createNonce: () => NONCE,
-      })
-    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
-  });
-
-  it('fails safely when the extension runtime cannot create a random nonce', async () => {
-    vi.stubGlobal('crypto', { subtle: webcrypto.subtle });
-    const chromeApi = fakeChrome([capturedResult()]);
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi })
-    ).rejects.toMatchObject({ code: 'capture-failed' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
-  });
-
-  it('strictly decodes and bounds page data before hashing', async () => {
-    const digestSha256 = vi.fn(async () => capturedResult().capture.sha256);
-    const nonCanonicalChrome = fakeChrome([
-      {
-        kind: 'captured',
-        capture: { ...capturedResult().capture, bodyBase64: 'AB==', byteLength: 1 },
-      },
-    ]);
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi: nonCanonicalChrome,
-        createNonce: () => NONCE,
-        digestSha256,
-      })
-    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
-    expect(digestSha256).not.toHaveBeenCalled();
-
-    const oversizedChrome = fakeChrome([
+  it('bounds page-provided artifacts before hashing them', async () => {
+    const digestSha256 = vi.fn(async () => CAPTURE_HASH);
+    const oversized = fakeChrome([
       {
         kind: 'captured',
         capture: {
@@ -384,397 +376,250 @@ describe('captureChatGptInTemporaryTab', () => {
         },
       },
     ]);
+
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi: oversizedChrome,
-        createNonce: () => NONCE,
+        ...captureDependencies(oversized),
         digestSha256,
       })
     ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
     expect(digestSha256).not.toHaveBeenCalled();
   });
 
-  it('fails safely if client navigation replaces the hooked document before capture', async () => {
-    const chromeApi = fakeChrome([{ kind: 'missing' }]);
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).rejects.toMatchObject({ code: 'capture-failed' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
-  });
-
-  it('normalizes a browser tab-creation rejection before any tab can be removed', async () => {
-    const chromeApi = fakeChrome([]);
-    chromeApi.tabs.create.mockRejectedValueOnce(new Error('browser failure'));
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).rejects.toMatchObject({ code: 'temporary-tab-create-failed' });
-    expect(chromeApi.tabs.remove).not.toHaveBeenCalled();
-  });
-
-  it('rejects an unexpected hook-install result and removes the tab', async () => {
-    const chromeApi = fakeChrome([]);
-    chromeApi.scripting.executeScript.mockImplementation(async injection => {
-      if (injection.func === probeChatGptTemporaryCaptureReadiness) {
-        return [{ result: { kind: 'ready' } }];
-      }
-      if (injection.func === installChatGptTemporaryCaptureHook)
-        return [{ result: { kind: 'missing' } }];
-      return [{ result: { kind: 'cleaned' } }];
-    });
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).rejects.toMatchObject({ code: 'hook-install-failed' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
-  });
-
-  it('rejects an unsafe readiness nonce without installing a hook and closes the tab', async () => {
-    const chromeApi = fakeChrome([]);
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, {
-        chromeApi,
-        createNonce: () => 'unsafe nonce',
-      })
-    ).rejects.toMatchObject({ code: 'capture-failed' });
-    expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).not.toContain(
-      installChatGptTemporaryCaptureHook
+  it('uses native nonce, sleep, and SHA dependencies when overrides are omitted', async () => {
+    const chromeApi = fakeChrome(
+      [capturedResult()],
+      [{ status: 'loading', url: 'about:blank' }, READY_TARGET_TAB]
     );
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
-  });
+    vi.stubGlobal('chrome', chromeApi);
+    vi.stubGlobal('crypto', webcrypto);
 
-  it('rejects a created tab with no usable ID before any scripting call', async () => {
-    const chromeApi = fakeChrome([]);
-    chromeApi.tabs.create.mockResolvedValueOnce({});
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).rejects.toMatchObject({ code: 'temporary-tab-missing-id' });
-    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
-    expect(chromeApi.tabs.remove).not.toHaveBeenCalled();
-  });
-
-  it('preserves a completed capture when cleanup calls fail', async () => {
-    const chromeApi = fakeChrome([capturedResult()]);
-    chromeApi.scripting.executeScript.mockImplementation(async injection => {
-      if (injection.func === probeChatGptTemporaryCaptureReadiness) {
-        return [{ result: { kind: 'ready' } }];
-      }
-      if (injection.func === cleanupChatGptTemporaryCaptureHook) {
-        throw new Error('tab already closing');
-      }
-      if (injection.func === installChatGptTemporaryCaptureHook)
-        return [{ result: { kind: 'ready' } }];
-      return [{ result: capturedResult() }];
+    await expect(captureChatGptInTemporaryTab(CONVERSATION_ID)).resolves.toMatchObject({
+      bodyBase64: capturedResult().capture.bodyBase64,
+      sha256: CAPTURE_HASH,
     });
-    chromeApi.tabs.remove.mockRejectedValueOnce(new Error('tab already closed'));
-
-    await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
-    ).resolves.toMatchObject({ bodyBase64: 'AP8BgCo=' });
-    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+    expect(chromeApi.tabs.get).toHaveBeenCalledTimes(2);
   });
 
-  it('sanitizes an invalid hook error code instead of forwarding it', async () => {
-    const chromeApi = fakeChrome([{ kind: 'error', code: 'unexpected-page-detail' } as HookResult]);
+  it('fails closed when native capture identity or hashing is unavailable', async () => {
+    const noIdentity = fakeChrome();
+    vi.stubGlobal('chrome', noIdentity);
+    vi.stubGlobal('crypto', { subtle: webcrypto.subtle });
+    await expect(captureChatGptInTemporaryTab(CONVERSATION_ID)).rejects.toMatchObject({
+      code: 'capture-failed',
+    });
+    expect(noIdentity.tabs.create).not.toHaveBeenCalled();
+
+    const noDigest = fakeChrome();
+    vi.stubGlobal('chrome', noDigest);
+    vi.stubGlobal('crypto', { randomUUID: () => NONCE });
+    await expect(captureChatGptInTemporaryTab(CONVERSATION_ID)).rejects.toMatchObject({
+      code: 'capture-failed',
+    });
+    expect(noDigest.tabs.remove).toHaveBeenCalledWith(73);
+  });
+
+  it.each([
+    ['missing decoder', undefined, globalThis.btoa],
+    [
+      'throwing decoder',
+      () => {
+        throw new Error('decoder failed');
+      },
+      globalThis.btoa,
+    ],
+    ['non-canonical encoder', globalThis.atob, () => 'different'],
+  ])('rejects captured bytes with a %s', async (_label, atob, btoa) => {
+    const chromeApi = fakeChrome();
+    vi.stubGlobal('atob', atob);
+    vi.stubGlobal('btoa', btoa);
 
     await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
     ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });
 
-  it('returns a stable capture failure when polling the page state throws', async () => {
-    const chromeApi = fakeChrome([]);
-    chromeApi.scripting.executeScript.mockImplementation(async injection => {
-      if (injection.func === probeChatGptTemporaryCaptureReadiness) {
-        return [{ result: { kind: 'ready' } }];
-      }
-      if (injection.func === installChatGptTemporaryCaptureHook)
-        return [{ result: { kind: 'ready' } }];
-      if (injection.func === readChatGptTemporaryCaptureState) throw new Error('page detail');
-      return [{ result: { kind: 'cleaned' } }];
-    });
+  it('rejects malformed base64, unsafe media type, and digest failures', async () => {
+    const malformed = fakeChrome([
+      {
+        kind: 'captured',
+        capture: { ...capturedResult().capture, bodyBase64: 'not base64!', byteLength: 11 },
+      },
+    ]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(malformed))
+    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
+
+    const unsafeMedia = fakeChrome([
+      {
+        kind: 'captured',
+        capture: { ...capturedResult().capture, mediaType: 'application/json\u0000' },
+      },
+    ]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(unsafeMedia))
+    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
+
+    const digestFailure = fakeChrome();
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(digestFailure),
+        digestSha256: async () => {
+          throw new Error('digest failed');
+        },
+      })
+    ).rejects.toMatchObject({ code: 'capture-failed' });
+  });
+
+  it('sanitizes an unknown page error code', async () => {
+    const chromeApi = fakeChrome([{ kind: 'error', code: 'provider-secret' }]);
 
     await expect(
-      captureChatGptInTemporaryTab(CONVERSATION_ID, { chromeApi, createNonce: () => NONCE })
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
+  });
+
+  it('rejects unsafe nonce values and unusable tab creation results', async () => {
+    const unsafeNonce = fakeChrome();
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(unsafeNonce),
+        createNonce: () => 'unsafe nonce',
+      })
     ).rejects.toMatchObject({ code: 'capture-failed' });
+    expect(unsafeNonce.tabs.create).not.toHaveBeenCalled();
+
+    const synchronousCreateFailure = fakeChrome();
+    synchronousCreateFailure.tabs.create.mockImplementation(() => {
+      throw new Error('create failed');
+    });
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(synchronousCreateFailure))
+    ).rejects.toMatchObject({ code: 'temporary-tab-create-failed' });
+
+    const rejectedCreate = fakeChrome();
+    rejectedCreate.tabs.create.mockRejectedValueOnce(new Error('create rejected'));
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(rejectedCreate))
+    ).rejects.toMatchObject({ code: 'temporary-tab-create-failed' });
+
+    const missingId = fakeChrome();
+    missingId.tabs.create.mockResolvedValueOnce({});
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(missingId))
+    ).rejects.toMatchObject({ code: 'temporary-tab-missing-id' });
+  });
+
+  it('preserves success when cleanup removal rejects', async () => {
+    const chromeApi = fakeChrome();
+    chromeApi.tabs.remove.mockRejectedValueOnce(new Error('tab already closed'));
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+    ).resolves.toMatchObject({ bodyBase64: capturedResult().capture.bodyBase64 });
+  });
+
+  it('waits through malformed and temporarily unavailable tab metadata', async () => {
+    const chromeApi = fakeChrome(
+      [capturedResult()],
+      [{ status: 'complete', url: 'not a valid URL' }, READY_TARGET_TAB]
+    );
+    chromeApi.tabs.get.mockRejectedValueOnce(new Error('tab not ready'));
+    let now = 0;
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(chromeApi),
+        now: () => now,
+        sleep: async milliseconds => {
+          now += milliseconds;
+        },
+        pollIntervalMs: 100,
+      })
+    ).resolves.toMatchObject({ sha256: CAPTURE_HASH });
+    expect(chromeApi.tabs.get).toHaveBeenCalledTimes(3);
+  });
+
+  it('times out before page-state reads when the temporary tab never becomes ready', async () => {
+    const chromeApi = fakeChrome([]);
+    chromeApi.tabs.get.mockResolvedValue({ status: 'loading', url: 'about:blank' });
+    let now = 0;
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(chromeApi),
+        now: () => now,
+        sleep: async milliseconds => {
+          now += milliseconds;
+        },
+        timeoutMs: 1_000,
+        pollIntervalMs: 250,
+      })
+    ).rejects.toMatchObject({ code: 'timed-out' });
+    expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });
 });
 
-describe('installChatGptTemporaryCaptureHook', () => {
-  it('captures the exact binary response produced by client-side anchor navigation', async () => {
-    const bytes = new Uint8Array([0, 255, 1, 128, 42]);
-    const page = installFakeMainWorld({
-      onAnchorClick: () => {
-        void page.fakeWindow.fetch(
-          `https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`
-        );
-      },
-      fetch: async () =>
-        new Response(bytes, {
-          status: 200,
-          headers: { 'content-type': 'application/json; charset=utf-8' },
-        }),
+describe('temporary capture snapshot reader', () => {
+  it('consumes only a non-enumerable, non-configurable own getter snapshot', () => {
+    const fakeWindow = {} as Window & typeof globalThis;
+    const snapshot = capturedResult();
+    const getter = vi.fn(() => ({
+      kind: snapshot.kind,
+      capture: { ...snapshot.capture },
+    }));
+    Object.defineProperty(fakeWindow, STATE_KEY, {
+      configurable: false,
+      enumerable: false,
+      get: getter,
     });
+    vi.stubGlobal('window', fakeWindow);
 
-    expect(
-      installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 })
-    ).toEqual({
-      kind: 'ready',
-    });
-    await vi.waitFor(() =>
-      expect(readChatGptTemporaryCaptureState(NONCE)).toEqual(capturedResult())
-    );
+    const first = readChatGptTemporaryCaptureState(NONCE);
+    if (first.kind !== 'captured') throw new Error('Synthetic snapshot must be captured.');
+    first.capture.bodyBase64 = 'forged';
 
-    expect(page.anchor.href).toBe(`https://chatgpt.com/c/${CONVERSATION_ID}`);
-    expect(page.anchor.hidden).toBe(true);
-    expect(page.anchor.remove).toHaveBeenCalledOnce();
-    expect(page.originalFetch).toHaveBeenCalledWith(
-      `https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`
-    );
-    expect(page.fakeWindow.fetch).toBe(page.originalFetch);
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual(capturedResult());
+    expect(getter).toHaveBeenCalledTimes(2);
   });
 
-  it('ignores unrelated requests, non-JSON responses, and non-200 responses until timeout', async () => {
-    vi.useFakeTimers();
-    const targetResponses = [
-      new Response('{}', {
-        status: 500,
-        headers: { 'content-type': 'application/json' },
-      }),
-      new Response('{}', {
-        status: 200,
-        headers: { 'content-type': 'text/plain' },
-      }),
+  it('rejects malformed snapshot values and throwing getters', () => {
+    const cases: unknown[] = [
+      { kind: 'error', code: 'unknown-error' },
+      { kind: 'captured', capture: null },
+      {
+        kind: 'captured',
+        capture: { bodyBase64: 42, byteLength: '5', sha256: null, mediaType: [] },
+      },
     ];
-    const page = installFakeMainWorld({
-      fetch: async (input, init) => {
-        if (String(input).endsWith(CONVERSATION_ID) && init?.method !== 'POST') {
-          return targetResponses.shift()!;
-        }
-        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+
+    for (const value of cases) {
+      const fakeWindow = { [STATE_KEY]: value } as unknown as Window & typeof globalThis;
+      vi.stubGlobal('window', fakeWindow);
+      expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
+    }
+
+    const throwingWindow = {} as Window & typeof globalThis;
+    Object.defineProperty(throwingWindow, STATE_KEY, {
+      get() {
+        throw new Error('getter failed');
       },
     });
+    vi.stubGlobal('window', throwingWindow);
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
+  });
 
-    installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 10 });
-    await page.fakeWindow.fetch(
-      `https://chatgpt.com/backend-api/conversation/${OTHER_CONVERSATION_ID}`
-    );
-    await page.fakeWindow.fetch(`https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`, {
-      method: 'POST',
-    });
-    await page.fakeWindow.fetch(`https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`);
-    await page.fakeWindow.fetch(`https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`);
+  it('reconstructs an allowlisted primitive error snapshot', () => {
+    const fakeWindow = {
+      [STATE_KEY]: { kind: 'error', code: 'timed-out' },
+    } as unknown as Window & typeof globalThis;
+    vi.stubGlobal('window', fakeWindow);
 
-    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'ready' });
-    await vi.advanceTimersByTimeAsync(10);
     expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({
       kind: 'error',
       code: 'timed-out',
     });
-    expect(page.fakeWindow.fetch).toBe(page.originalFetch);
-  });
-
-  it('cancels a clone stream that exceeds the byte cap', async () => {
-    const cancel = vi.fn().mockResolvedValue(undefined);
-    const clone = {
-      headers: new Headers({ 'content-type': 'application/json' }),
-      body: {
-        getReader: () => ({
-          read: vi.fn().mockResolvedValue({ done: false, value: new Uint8Array(33) }),
-          cancel,
-        }),
-      },
-    } as unknown as Response;
-    const response = {
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      clone: () => clone,
-    } as unknown as Response;
-    const page = installFakeMainWorld({
-      onAnchorClick: () => {
-        void page.fakeWindow.fetch(
-          `https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`
-        );
-      },
-      fetch: async () => response,
-    });
-
-    installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 });
-    await vi.waitFor(() =>
-      expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({
-        kind: 'error',
-        code: 'payload-too-large',
-      })
-    );
-    expect(cancel).toHaveBeenCalledOnce();
-  });
-
-  it('rejects a declared oversized response before reading its body', async () => {
-    const cancel = vi.fn().mockResolvedValue(undefined);
-    const clone = {
-      headers: new Headers({ 'content-type': 'application/json', 'content-length': '33' }),
-      body: { cancel },
-      arrayBuffer: vi.fn(),
-    } as unknown as Response;
-    const response = {
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      clone: () => clone,
-    } as unknown as Response;
-    const page = installFakeMainWorld({
-      onAnchorClick: () => {
-        void page.fakeWindow.fetch(
-          `https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`
-        );
-      },
-      fetch: async () => response,
-    });
-
-    installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 });
-    await vi.waitFor(() =>
-      expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({
-        kind: 'error',
-        code: 'payload-too-large',
-      })
-    );
-    expect(cancel).toHaveBeenCalledOnce();
-    expect(clone.arrayBuffer).not.toHaveBeenCalled();
-  });
-
-  it('supports a JSON-suffix MIME type and a response without a readable stream', async () => {
-    const clone = {
-      headers: new Headers({ 'content-type': 'application/ld+json' }),
-      body: null,
-      arrayBuffer: async () => new Uint8Array([1, 2]).buffer,
-    } as unknown as Response;
-    const response = {
-      status: 200,
-      headers: new Headers({ 'content-type': 'application/ld+json' }),
-      clone: () => clone,
-    } as unknown as Response;
-    const page = installFakeMainWorld({
-      onAnchorClick: () => {
-        void page.fakeWindow.fetch(
-          `https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`
-        );
-      },
-      fetch: async () => response,
-    });
-
-    installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 });
-    await vi.waitFor(() =>
-      expect(readChatGptTemporaryCaptureState(NONCE)).toMatchObject({
-        kind: 'captured',
-        capture: { bodyBase64: 'AQI=', byteLength: 2, mediaType: 'application/ld+json' },
-      })
-    );
-  });
-
-  it('restores fetch, clears its timeout, and deletes nonce-scoped page state', () => {
-    const page = installFakeMainWorld({});
-    const clearTimeout = vi.spyOn(page.fakeWindow, 'clearTimeout');
-
-    installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 });
-    expect(page.fakeWindow.fetch).not.toBe(page.originalFetch);
-
-    expect(cleanupChatGptTemporaryCaptureHook(NONCE)).toEqual({ kind: 'cleaned' });
-    expect(page.fakeWindow.fetch).toBe(page.originalFetch);
-    expect(clearTimeout).toHaveBeenCalledOnce();
-    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
-    expect(cleanupChatGptTemporaryCaptureHook(NONCE)).toEqual({ kind: 'missing' });
-  });
-
-  it('does not clobber a page wrapper installed after the capture hook', () => {
-    const page = installFakeMainWorld({});
-    installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 });
-    const laterWrapper = vi.fn();
-    page.fakeWindow.fetch = laterWrapper as unknown as typeof window.fetch;
-
-    expect(cleanupChatGptTemporaryCaptureHook(NONCE)).toEqual({ kind: 'cleaned' });
-    expect(page.fakeWindow.fetch).toBe(laterWrapper);
-    expect(cleanupChatGptTemporaryCaptureHook(NONCE)).toEqual({ kind: 'missing' });
-  });
-
-  it('fails safely if an ephemeral anchor cannot be created', () => {
-    const page = installFakeMainWorld({});
-    page.fakeDocument.createElement.mockImplementation(() => {
-      throw new Error('document failure');
-    });
-
-    expect(
-      installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 })
-    ).toEqual({ kind: 'ready' });
-    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({
-      kind: 'error',
-      code: 'capture-failed',
-    });
-  });
-
-  it('ignores malformed request-like values and swallows only its observer rejection', async () => {
-    const page = installFakeMainWorld({
-      fetch: async () => {
-        throw new Error('network failure');
-      },
-    });
-    installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 });
-    const poisonedRequest = {
-      get url() {
-        throw new Error('poisoned URL getter');
-      },
-    };
-
-    await expect(page.fakeWindow.fetch(poisonedRequest as unknown as RequestInfo)).rejects.toThrow(
-      'network failure'
-    );
-    await expect(
-      page.fakeWindow.fetch(`https://chatgpt.com/backend-api/conversation/${CONVERSATION_ID}`)
-    ).rejects.toThrow('network failure');
-    await Promise.resolve();
-    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'ready' });
-  });
-
-  it('rejects a directly injected hook when the temporary page is not ChatGPT', () => {
-    const page = installFakeMainWorld({});
-    Object.assign(page.fakeWindow.location, { origin: 'https://auth.openai.com' });
-
-    expect(
-      installChatGptTemporaryCaptureHook(CONVERSATION_ID, NONCE, { maxBytes: 32, timeoutMs: 500 })
-    ).toEqual({
-      kind: 'origin-rejected',
-    });
-    expect(page.fakeWindow.fetch).toBe(page.originalFetch);
-  });
-});
-
-describe('probeChatGptTemporaryCaptureReadiness', () => {
-  it('waits for about:blank/loading and rejects a completed foreign document', () => {
-    const page = installFakeMainWorld({});
-    Object.assign(page.fakeWindow.location, { href: 'about:blank', origin: 'null' });
-    expect(probeChatGptTemporaryCaptureReadiness()).toEqual({ kind: 'waiting' });
-
-    Object.assign(page.fakeWindow.location, {
-      href: 'https://auth.openai.com/login',
-      origin: 'https://auth.openai.com',
-    });
-    expect(probeChatGptTemporaryCaptureReadiness()).toEqual({ kind: 'origin-rejected' });
-
-    Object.assign(page.fakeWindow.location, {
-      href: 'https://chatgpt.com/',
-      origin: 'https://chatgpt.com',
-    });
-    Object.assign(page.fakeDocument, { readyState: 'loading' });
-    expect(probeChatGptTemporaryCaptureReadiness()).toEqual({ kind: 'waiting' });
-  });
-
-  it('requires a complete public app shell before readiness', () => {
-    const page = installFakeMainWorld({});
-    page.fakeDocument.querySelector.mockReturnValueOnce(null);
-    expect(probeChatGptTemporaryCaptureReadiness()).toEqual({ kind: 'waiting' });
-    expect(probeChatGptTemporaryCaptureReadiness()).toEqual({ kind: 'ready' });
   });
 });

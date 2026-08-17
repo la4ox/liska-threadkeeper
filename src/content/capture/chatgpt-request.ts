@@ -13,7 +13,11 @@ export async function requestChatGptConversationCapture(
     action: 'captureChatGptConversation',
     conversationId,
   });
-  return isChatGptCaptureResponse(response)
+  const validated = isChatGptCaptureResponse(response)
     ? response
     : createChatGptCaptureFailure('unexpected-capture-result');
+  if (!validated.success) {
+    console.warn('[G2O] ChatGPT structured capture unavailable:', validated.code);
+  }
+  return validated;
 }

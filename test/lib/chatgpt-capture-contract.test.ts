@@ -93,6 +93,9 @@ describe('ChatGPT capture runtime contract', () => {
 
   it('serializes failures from the stable error allowlist only', () => {
     const failure = createChatGptCaptureFailure('permission-unavailable');
+    const injectionFailure = createChatGptCaptureFailure('hook-injection-rejected');
+    const resultFailure = createChatGptCaptureFailure('hook-result-invalid');
+    const providerFailure = createChatGptCaptureFailure('response-media-type-invalid');
 
     expect(failure).toEqual({
       success: false,
@@ -100,6 +103,24 @@ describe('ChatGPT capture runtime contract', () => {
       error: 'ChatGPT capture is unavailable because the required extension permission is missing.',
     });
     expect(isChatGptCaptureResponse(failure)).toBe(true);
+    expect(injectionFailure).toEqual({
+      success: false,
+      code: 'hook-injection-rejected',
+      error: 'The browser rejected the temporary ChatGPT capture script.',
+    });
+    expect(isChatGptCaptureResponse(injectionFailure)).toBe(true);
+    expect(resultFailure).toEqual({
+      success: false,
+      code: 'hook-result-invalid',
+      error: 'The temporary ChatGPT capture script returned an invalid result.',
+    });
+    expect(isChatGptCaptureResponse(resultFailure)).toBe(true);
+    expect(providerFailure).toEqual({
+      success: false,
+      code: 'response-media-type-invalid',
+      error: 'The temporary ChatGPT conversation response was not JSON.',
+    });
+    expect(isChatGptCaptureResponse(providerFailure)).toBe(true);
     expect(
       isChatGptCaptureResponse({
         ...failure,
