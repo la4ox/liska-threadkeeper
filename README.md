@@ -9,6 +9,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 ## Why Liska
 
 - **Fast DeepSeek export:** signed-in conversations use DeepSeek's same-origin history response and reconstruct the active branch without scrolling through the page.
+- **Fast ChatGPT export:** after a trusted click, an inactive disposable tab observes ChatGPT's page-native conversation response at document start and reconstructs the complete current branch without scrolling. A marked DOM fallback remains available.
 - **Local outputs:** download Markdown, copy it, or write to Obsidian. Liska has no analytics, telemetry, account, or operated server.
 - **Long-thread support:** the text pipeline accepts large notes up to 32 MiB of UTF-8; other supported sites can accumulate virtualized conversations with bounded auto-scroll.
 - **Readable archives:** YAML frontmatter, citations, math, configurable callouts, thinking/tool content, question headings, and collision-safe filenames.
@@ -22,7 +23,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 | DeepSeek        | Yes                 | Active branch; same-origin API first, DOM fallback; optional Thinking |
 | Gemini          | Yes                 | Deep Research and generated images                                    |
 | Claude          | Yes                 | Extended Thinking, artifacts, tool and search content                 |
-| ChatGPT         | Yes                 | Regular and custom GPT conversations                                  |
+| ChatGPT         | Yes                 | Regular/custom GPT; current branch without scrolling; marked fallback |
 | Perplexity      | Yes                 | Regular threads and Deep Research                                     |
 | Gemini Notebook | Yes                 | Chat citations as footnotes; legacy NotebookLM URLs supported         |
 
@@ -31,6 +32,8 @@ Supported page origins: `gemini.google.com`, `claude.ai`, `chatgpt.com`, `www.pe
 ## Install from source
 
 Liska is not published in the Chrome Web Store yet.
+
+Building and loading the current source requires Chromium 111 or later.
 
 ```bash
 git clone https://github.com/la4ox/liska-threadkeeper.git

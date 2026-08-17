@@ -9,6 +9,7 @@ Liska は、AI との会話を読みやすい Markdown としてローカルに�
 ## 主な特徴
 
 - **高速な DeepSeek 書き出し:** ログイン中の会話では同一オリジンの履歴レスポンスから現在の分岐を復元し、ページ全体のスクロールを避けます。
+- **高速な ChatGPT 書き出し:** 実際のクリック後、非アクティブな一時タブが document start から ChatGPT 自身の会話レスポンスを監視し、ページをスクロールせずに現在の分岐全体を復元します。明示的な DOM フォールバックも残ります。
 - **ローカル出力:** Markdown ダウンロード、クリップボード、Obsidian に対応。解析、テレメトリ、Liska 独自のサーバーはありません。
 - **長い会話:** 最大 32 MiB（UTF-8）のテキストノートを処理し、他の対応サイトでは仮想化された会話を制限付き自動スクロールで収集します。
 - **整理された記録:** YAML フロントマター、引用、数式、コールアウト、Thinking／ツール内容、質問見出し、衝突しないファイル名。
@@ -17,13 +18,15 @@ Liska は、AI との会話を読みやすい Markdown としてローカルに�
 
 ## 対応サービス
 
-Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook（旧 NotebookLM URL を含む）に対応します。DeepSeek は現在選択中の分岐、Markdown、オプションの Thinking を保存します。
+Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook（旧 NotebookLM URL を含む）に対応します。DeepSeek は現在選択中の分岐、Markdown、オプションの Thinking を保存します。ChatGPT は通常／カスタム GPT の現在の分岐全体をスクロールなしで取得し、失敗時には警告付き DOM フォールバックを使用します。
 
 対応ページ: `gemini.google.com`、`claude.ai`、`chatgpt.com`、`www.perplexity.ai`、`chat.deepseek.com`、`notebook.google.com`、旧リダイレクトの `notebooklm.google.com`。
 
 ## ソースからインストール
 
 Liska はまだ Chrome ウェブストアでは公開されていません。
+
+現在のソースをビルドして読み込むには Chromium 111 以降が必要です。
 
 ```bash
 git clone https://github.com/la4ox/liska-threadkeeper.git
