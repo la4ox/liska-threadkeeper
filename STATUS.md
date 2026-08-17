@@ -13,14 +13,16 @@
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
 - The experimental `liska-capture/1` and `liska-thread/1` archive layers now preserve exact raw artifact bytes separately from a credential-free manifest, verify artifact and manifest SHA-256 provenance, validate/traverse complete branch graphs, and project either `currentNodeId` or an explicit leaf into the existing flat Markdown contract while reporting legacy omissions.
 - ChatGPT's live web-history route was confirmed as `GET /backend-api/conversation/{conversationId}`. A local structural probe observed a direct `mapping` graph with a structural root, a current node, and sibling branches; no personal response body, title, conversation ID, cookie, header, or credential remains in the worktree or was committed. The pure normalizer consumes only hash-verified exact bytes, retains all graph nodes and ordered typed blocks, scrubs signed URLs and account/correlation identifiers from the canonical layer with diagnostics, and uses synthetic fixtures only.
-- A reviewed temporary-tab capture primitive exists but is intentionally inert: it is not routed from the UI/service worker and the manifest does not yet request `scripting`. It creates only an inactive disposable ChatGPT tab, observes one exact same-origin JSON response without reading cookies or request headers, re-verifies base64 and SHA-256 in extension context, restores `fetch`, and closes only that tab.
+- A reviewed temporary-tab capture primitive now has a strict content-to-service-worker route and a ChatGPT extractor bridge. It creates only an inactive disposable ChatGPT tab, observes one exact same-origin JSON response without reading cookies or request headers, re-verifies base64 and SHA-256 in extension context, restores `fetch`, and closes only that tab. The bridge normalizes the complete graph transiently, projects the selected current branch through the existing safety guard, and falls back to marked DOM/scroll extraction on any capture, integrity, normalization, or projection failure.
+- Structured ChatGPT capture remains intentionally disabled in the installed build because the manifest does not request `scripting`. Both the content script and service worker fail closed before opening a temporary tab when that permission is absent. No personal raw response is persisted by this bridge.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
-- The maintained test suite passes across 74 test files (1,611 tests) with 95.05% statement, 87.28% branch, 97.86% function, and 96.99% line coverage. Locale and placeholder parity, public-copy parity, local documentation links, archive layering, subsystem cycles, raw-byte provenance, ChatGPT graph normalization, and current-branch projection are enforced.
+- The maintained test suite passes across 80 test files (1,663 tests) with 95.02% statement, 87.70% branch, 97.76% function, and 96.99% line coverage. Locale and placeholder parity, public-copy parity, local documentation links, archive layering, subsystem cycles, raw-byte provenance, strict ChatGPT runtime routing, graph normalization, and current-branch projection are enforced.
 
 ## Important limits and risks
 
 - Obsidian browser sync currently sends the bearer over unencrypted HTTP on the local loopback interface because the extension service worker cannot use Comet's tab-scoped certificate exception. The Local REST API binding and Liska's privileged URL validation both restrict this route to exact host `127.0.0.1`; never expose or rebind it to a LAN or Internet interface. HTTPS remains enabled for clients that can explicitly trust the plugin certificate.
-- The installed runtime still exports the currently selected DOM branch. The verified ChatGPT capture and normalizer modules are not connected to runtime messaging yet; no new browser permission has been added. Runtime integration requires an explicit decision to add Chrome's narrow `scripting` permission, followed by a safe live MV3 smoke test. DOM/scroll extraction remains the fallback.
+- The installed runtime still exports ChatGPT through the currently selected DOM branch because no new browser permission has been added. The verified capture, normalizer, runtime route, and extractor bridge are connected in source but statically gated off until an explicit decision adds Chrome's narrow `scripting` permission. A safe live MV3 smoke test is still required after rebuilding and reloading the extension. DOM/scroll extraction remains the marked fallback.
+- The complete ChatGPT branch graph currently exists only in the transient canonical archive during a click-triggered export; the user-facing Markdown/Obsidian output still projects one selected current branch. Separate raw and canonical JSON downloads, branch selection, and all-branches presentation are not implemented yet.
 - The first temporary-tab implementation bounds a single ChatGPT conversation response to 16 MiB and holds a base64 transfer transiently in memory. This is suitable for the first smoke test but is not the final large-archive storage design; larger captures need staged local persistence instead of silently raising or hiding the limit.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
@@ -43,16 +45,15 @@
 - Canonical archive core and schema: `src/archive/` and `src/archive/schema/liska-thread-1.schema.json`
 - Credential-free raw capture primitives: `src/archive/capture.ts` and `src/content/capture/response.ts`
 - ChatGPT verified-byte normalizer: `src/archive/normalizers/chatgpt.ts` and `src/archive/normalizers/chatgpt/`
-- Inert disposable-tab capture primitive: `src/background/chatgpt-capture.ts`
+- Disposable-tab capture primitive and strict runtime contract: `src/background/chatgpt-capture.ts` and `src/lib/chatgpt-capture-contract.ts`
+- ChatGPT content bridge and current-branch composition: `src/content/capture/chatgpt-current-branch.ts` and `src/content/extractors/chatgpt.ts`
 - Synthetic ChatGPT raw fixture and end-to-end projection test: `test/fixtures/archive/chatgpt-raw/branching-mixed-content.json` and `test/content/chatgpt-archive-pipeline.test.ts`
 - Canonical-to-legacy branch adapter: `src/content/archive-projection.ts`
 
 ## Next step
 
-After explicit approval for the Chrome `scripting` permission, route the inert
-temporary-tab primitive through strictly validated runtime messaging, construct
-the `liska-capture/1` bundle, normalize it, and feed the current-node projection
-into the existing Markdown/Obsidian pipeline with DOM extraction as a marked
-partial fallback. Then perform one consented live MV3 smoke test without
-persisting the response body, and add separate local raw/canonical JSON download
+After explicit approval for the Chrome `scripting` permission, add it to the
+manifest, rebuild and reload the extension, then perform one consented live MV3
+smoke test without persisting the response body. If that succeeds, add separate
+local raw/canonical JSON downloads and explicit branch/all-branches presentation
 before treating the path as a backup feature.
