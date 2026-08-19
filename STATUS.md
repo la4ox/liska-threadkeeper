@@ -17,12 +17,15 @@
 - The ChatGPT bridge normalizes the complete captured graph transiently, projects the selected current branch through the existing Deep Research safety guard, and falls back to marked DOM/scroll extraction on any capture, integrity, normalization, or projection failure. No personal raw response is persisted. A live Comet smoke exported 28 current-branch messages (5 user + 23 assistant role markers) while only 5 turn elements were rendered in the DOM, wrote a 31,187-byte Obsidian note, emitted no fallback warning or capture failure code, and left zero marker tabs open.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
 - The maintained test suite passes across 82 test files (1,694 tests) with 95.01% statement, 87.47% branch, 98.09% function, and 97.10% line coverage. Locale and placeholder parity, public-copy parity, local documentation links, archive layering, subsystem cycles, raw-byte provenance, strict ChatGPT runtime routing, document-start marker gating, page-primordial poisoning, late-tab cleanup, graph normalization, and current-branch projection are enforced.
+- Draft PR [#7](https://github.com/la4ox/liska-threadkeeper/pull/7) publishes the ChatGPT archive checkpoint. Its CI passes with `actions/checkout@v7` and `actions/setup-node@v7`, both running on Node 24; the earlier Node 20 deprecation annotation is gone.
 
 ## Important limits and risks
 
 - Obsidian browser sync currently sends the bearer over unencrypted HTTP on the local loopback interface because the extension service worker cannot use Comet's tab-scoped certificate exception. The Local REST API binding and Liska's privileged URL validation both restrict this route to exact host `127.0.0.1`; never expose or rebind it to a LAN or Internet interface. HTTPS remains enabled for clients that can explicitly trust the plugin certificate.
 - ChatGPT no-scroll current-branch export is live-verified in Comet. DOM/scroll extraction remains a marked fallback for unsupported browsers, provider drift, unavailable document-start state, oversized payloads, and any failed integrity/normalization/projection check.
+- A private real-chat corpus confirmed both strong structured successes and repeated fallbacks on heavier legacy, Canvas, and mixed-content conversations. When structured capture fails while auto-scroll is disabled, the downloaded Markdown contains only the currently rendered DOM subset and must be treated as partial. The current generic warning hides the stable failure code, so the exact failing stage is not yet known.
 - The complete ChatGPT branch graph currently exists only in the transient canonical archive during a click-triggered export; the user-facing Markdown/Obsidian output still projects one selected current branch. Separate raw and canonical JSON downloads, branch selection, and all-branches presentation are not implemented yet.
+- Legacy-projection warnings accurately count attachments and non-user/assistant messages that were present in the transient canonical graph, but the phrase “the canonical archive retains them” is not yet a durable-backup guarantee: that graph is discarded after the operation until canonical JSON download or local persistence is implemented.
 - The first temporary-tab implementation bounds a single ChatGPT conversation response to 16 MiB and holds a base64 transfer transiently in memory. This is suitable for the first smoke test but is not the final large-archive storage design; larger captures need staged local persistence instead of silently raising or hiding the limit.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
@@ -53,9 +56,8 @@
 
 ## Next step
 
-Start a fresh, compact task for the private ChatGPT validation corpus. Run the
-small text baseline first, then isolate attachment deduplication, branch-graph
-fidelity, linear scale, Canvas/legacy loss accounting, and finally the largest
-sub-16-MiB positive case. Persist only local metric/hash cards; add separate
-raw/canonical JSON downloads and explicit branch/all-branches presentation
-before treating this path as a backup feature.
+Keep PR #7 in draft. Surface the safe structured-capture failure code and an
+explicit partial-DOM marker in user-visible diagnostics, then add separate
+raw/canonical JSON downloads so projection omissions are durably recoverable.
+Re-run the known successful and fallback corpus classes before merging or
+treating this path as a backup feature.
