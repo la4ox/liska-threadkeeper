@@ -22,7 +22,13 @@ import { base64ToBytes } from '../lib/image-utils';
 import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
 import { extractTailMessages } from '../lib/message-counter';
-import type { ExtensionSettings, ObsidianNote, SaveResponse } from '../lib/types';
+import type {
+  AIPlatform,
+  ArchiveCompanionArtifact,
+  ExtensionSettings,
+  ObsidianNote,
+  SaveResponse,
+} from '../lib/types';
 
 /**
  * Create an ObsidianApiClient if API key is configured.
@@ -47,6 +53,79 @@ function createObsidianClient(settings: ExtensionSettings): ObsidianApiClient | 
  */
 function isClientError(client: ObsidianApiClient | { error: string }): client is { error: string } {
   return 'error' in client;
+}
+
+export interface ArchiveCompanionWriteRequest {
+  source: AIPlatform;
+  captureId: string;
+  conversationKey: string;
+  artifact: ArchiveCompanionArtifact;
+  bytes: Uint8Array;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const exact = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', exact);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function archiveCompanionVaultPath(
+  settings: ExtensionSettings,
+  request: ArchiveCompanionWriteRequest
+): string | undefined {
+  const variables = {
+    platform: request.source,
+    ...getDateVariables(new Date()),
+  };
+  const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
+  const path = [
+    ...(resolvedFolder ? [resolvedFolder] : []),
+    '_liska-archive',
+    request.conversationKey,
+    request.captureId,
+    ...request.artifact.relativePath.split('/'),
+  ].join('/');
+  return containsPathTraversal(path) ? undefined : path;
+}
+
+/**
+ * Persist one immutable structured-archive companion beside the note's
+ * resolved vault folder. Existing snapshots are never overwritten, and a
+ * binary readback/hash check prevents a successful request from being reported
+ * as a verified archive write when the vault did not retain the exact bytes.
+ */
+export async function handleSaveArchiveCompanion(
+  settings: ExtensionSettings,
+  request: ArchiveCompanionWriteRequest
+): Promise<SaveResponse> {
+  const client = createObsidianClient(settings);
+  if (isClientError(client)) {
+    return { success: false, error: 'Archive companion write failed' };
+  }
+
+  const path = archiveCompanionVaultPath(settings, request);
+  if (!path) return { success: false, error: 'Archive companion write failed' };
+
+  try {
+    if ((await client.getFile(path)) !== null) {
+      return { success: false, error: 'Archive companion already exists' };
+    }
+    await client.putBinaryFile(path, request.bytes, request.artifact.mediaType);
+    const readBack = await client.getBinaryFile(path);
+    if (
+      !readBack ||
+      readBack.byteLength !== request.bytes.byteLength ||
+      (await sha256Hex(readBack)) !== request.artifact.sha256
+    ) {
+      return { success: false, error: 'Archive companion verification failed' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Archive companion write failed' };
+  }
 }
 
 /**
@@ -105,10 +184,8 @@ async function tryAppendMode(
       // A miss is what sends the save down the fork path, so name the negative
       // rather than letting it vanish (issue #365).
       console.info('[G2O Background] Append lookup found no existing note', {
-        id: note.frontmatter.id,
         missReason: lookup.missReason,
-        directProbe: lookup.directProbe,
-        searched: { direct: fullPath, base: searchBasePath },
+        directProbeState: lookup.directProbe?.state ?? 'unknown',
       });
       return null;
     }
@@ -227,13 +304,11 @@ async function saveFreshNote(
     // This is the moment a duplicate note is born, so say exactly what each
     // rejected candidate held (issue #365).
     console.warn('[G2O Background] Filename collision: saved under an alternative name', {
-      expectedId: note.frontmatter.id,
-      savedAs: target.fileName,
-      probes: target.probes,
+      probes: target.probes.map(({ attempt, state }) => ({ attempt, state })),
     });
   }
 
-  const { note: saveNote, failedImages } = await prepareNoteImages(
+  const { note: saveNote, failedImageCount } = await prepareNoteImages(
     client,
     settings,
     note,
@@ -243,7 +318,7 @@ async function saveFreshNote(
   const content = generateNoteContent({ ...saveNote, body: flattenedBody }, settings);
   await client.putFile(target.path, content);
 
-  const warning = imageWarning(failedImages);
+  const warning = imageWarning(failedImageCount);
   return {
     success: true,
     isNewFile: target.isNewFile,
@@ -255,18 +330,18 @@ async function saveFreshNote(
 /** Outcome of the image-writing pass: the note to save, plus any images lost. */
 interface PreparedNote {
   note: ObsidianNote;
-  /** File names of images that could not be written (issue #376) */
-  failedImages: readonly string[];
+  /** Count of image writes that could not be completed (issue #376). */
+  failedImageCount: number;
 }
 
 /**
  * Build the user-facing warning for images that could not be written, or
  * undefined when every image succeeded.
  */
-function imageWarning(failedImages: readonly string[]): string | undefined {
-  if (failedImages.length === 0) return undefined;
-  const noun = failedImages.length === 1 ? 'image' : 'images';
-  return `${failedImages.length} ${noun} could not be saved: ${failedImages.join(', ')}`;
+function imageWarning(failedImageCount: number): string | undefined {
+  if (failedImageCount === 0) return undefined;
+  const noun = failedImageCount === 1 ? 'image' : 'images';
+  return `${failedImageCount} ${noun} could not be saved`;
 }
 
 /**
@@ -275,8 +350,8 @@ function imageWarning(failedImages: readonly string[]): string | undefined {
  * export is disabled or there are no images, image placeholders are stripped.
  *
  * Image-write failures never block the note (ADR-008, ADR-021, ADR-027), but they are
- * no longer silent: the failed file names are returned so the caller can
- * surface them to the user (issue #376).
+ * no longer silent: only a count is returned so title-derived attachment
+ * names never enter console logs or user-facing toasts (issue #376).
  */
 async function prepareNoteImages(
   client: ObsidianApiClient,
@@ -289,29 +364,29 @@ async function prepareNoteImages(
     const stripped = note.body.includes('g2o-image://')
       ? { ...note, body: stripImagePlaceholders(note.body) }
       : note;
-    return { note: stripped, failedImages: [] };
+    return { note: stripped, failedImageCount: 0 };
   }
 
   const baseName = note.fileName.replace(/\.md$/i, '');
   const { body, files } = resolveImagesForObsidian(note.body, images, baseName);
 
   const imageDir = resolvePathTemplate(settings.imageVaultPath, templateVariables);
-  const failedImages: string[] = [];
+  let failedImageCount = 0;
   for (const file of files) {
     const path = imageDir ? `${imageDir}/${file.fileName}` : file.fileName;
     if (containsPathTraversal(path)) {
-      failedImages.push(file.fileName);
+      failedImageCount += 1;
       continue;
     }
     try {
       await client.putBinaryFile(path, base64ToBytes(file.data), file.mimeType);
-    } catch (error) {
-      console.warn('[G2O Background] Image write failed:', file.fileName, error);
-      failedImages.push(file.fileName);
+    } catch {
+      console.warn('[G2O Background] Image write failed');
+      failedImageCount += 1;
     }
   }
 
-  return { note: { ...note, body }, failedImages };
+  return { note: { ...note, body }, failedImageCount };
 }
 
 /** Probe attempts: original + hash suffix + a few counters for hash collisions */
@@ -375,15 +450,12 @@ async function resolveCollisionFreePath(
     // duplicate reported from the field can be traced back to its cause.
   }
 
-  console.warn('[G2O Background] Filename collision: no free name found', {
-    expectedId: note.frontmatter.id,
-    fileName: note.fileName,
-    probes,
-  });
+  console.warn(
+    '[G2O Background] Filename collision: no free name found',
+    probes.map(({ attempt, state }) => ({ attempt, state }))
+  );
   return {
-    error:
-      `filename collision: could not find a free name for '${note.fileName}' ` +
-      `after ${MAX_COLLISION_ATTEMPTS} attempts`,
+    error: `filename collision: could not find a free name after ${MAX_COLLISION_ATTEMPTS} attempts`,
   };
 }
 

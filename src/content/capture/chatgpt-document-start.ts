@@ -10,7 +10,7 @@ const CHATGPT_ORIGIN = 'https://chatgpt.com';
 const CAPTURE_FRAGMENT_PATTERN = /^#liska-capture=([a-z0-9-]{16,128})$/i;
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 25_000;
+const DEFAULT_TIMEOUT_MS = 180_000;
 const PAYLOAD_TOO_LARGE = {};
 const PRIMORDIAL_UNAVAILABLE = {};
 const HEX_DIGITS = '0123456789abcdef';
@@ -21,7 +21,8 @@ type HookErrorCode =
   | 'response-http-error'
   | 'response-media-type-invalid'
   | 'response-processing-failed'
-  | 'timed-out'
+  | 'conversation-request-timeout'
+  | 'conversation-response-timeout'
   | 'payload-too-large';
 
 type HookResult =
@@ -732,7 +733,11 @@ function armNativeFetchObserver(
       state.primordials.setTimeout,
       pageWindow,
       [
-        () => finishCapture(pageWindow, state, { kind: 'error', code: 'timed-out' }),
+        () =>
+          finishCapture(pageWindow, state, {
+            kind: 'error',
+            code: state.claimed ? 'conversation-response-timeout' : 'conversation-request-timeout',
+          }),
         DEFAULT_TIMEOUT_MS,
       ]
     );

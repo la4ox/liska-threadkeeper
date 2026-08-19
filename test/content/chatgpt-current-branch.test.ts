@@ -126,6 +126,42 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(projection.data.messages[1]?.toolContent).toContain('Synthetic recap.');
   });
 
+  it('returns exactly three deterministic archive companions and preserves raw base64 verbatim', async () => {
+    const response = await successfulResponse();
+    const first = await captureChatGptCurrentBranch(CONVERSATION_ID, true, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const second = await captureChatGptCurrentBranch(CONVERSATION_ID, true, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+
+    const companions = first.archiveCompanion;
+    expect(companions?.artifacts.map(artifact => [artifact.kind, artifact.relativePath])).toEqual([
+      ['raw', 'responses/conversation.json'],
+      ['manifest', 'manifest.json'],
+      ['canonical', 'canonical/liska-thread-1.json'],
+    ]);
+    expect(companions?.artifacts).toHaveLength(3);
+    expect(companions?.artifacts[0]?.bodyBase64).toBe(
+      response.success ? response.data.bodyBase64 : undefined
+    );
+    expect(companions?.artifacts).toEqual(second.archiveCompanion?.artifacts);
+    for (const artifact of companions?.artifacts ?? []) {
+      const bytes = new Uint8Array(
+        atob(artifact.bodyBase64)
+          .split('')
+          .map(character => character.charCodeAt(0))
+      );
+      expect(bytes.byteLength).toBe(artifact.byteLength);
+      expect(await sha256Hex(bytes)).toBe(artifact.sha256);
+      expect(artifact.mediaType).toBe('application/json');
+    }
+  });
+
   it('projects the same verified branch without tool content when disabled', async () => {
     const projection = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
       requestCapture: () => successfulResponse(),
@@ -148,13 +184,13 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(requestCapture).not.toHaveBeenCalled();
   });
 
-  it('maps a rejected runtime request to a stable capture failure', async () => {
+  it('maps a rejected runtime request to a stable messaging failure', async () => {
     const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
       requestCapture: () => Promise.reject(new Error('private runtime diagnostic')),
     }).catch(reason => reason);
 
     expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
-    expect((error as ChatGptCurrentBranchError).code).toBe('capture-failed');
+    expect((error as ChatGptCurrentBranchError).code).toBe('runtime-message-failed');
     expect(String((error as Error).message)).not.toContain('private runtime diagnostic');
   });
 
@@ -277,6 +313,28 @@ describe('ChatGPT current-branch capture composition', () => {
 
     expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
     expect((error as ChatGptCurrentBranchError).code).toBe('projection-failed');
+    expect((error as ChatGptCurrentBranchError).archiveCompanion?.artifacts).toHaveLength(3);
+  });
+
+  it('preserves raw and manifest when provider normalization fails', async () => {
+    const response = await successfulResponse(payload => {
+      delete payload.mapping;
+    });
+
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('normalization-failed');
+    expect((error as ChatGptCurrentBranchError).detailCode).toBe('missing-graph');
+    expect(
+      (error as ChatGptCurrentBranchError).archiveCompanion?.artifacts.map(
+        artifact => artifact.kind
+      )
+    ).toEqual(['raw', 'manifest']);
   });
 
   it.each([
@@ -292,7 +350,7 @@ describe('ChatGPT current-branch capture composition', () => {
         if (response.success) response.data.sha256 = '0'.repeat(64);
         return response;
       },
-      'normalization-failed',
+      'capture-integrity-failed',
     ],
     [
       'a safe background failure',
@@ -308,6 +366,16 @@ describe('ChatGPT current-branch capture composition', () => {
 
     expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
     expect((error as ChatGptCurrentBranchError).code).toBe(expectedCode);
+    expect(String((error as Error).message)).not.toContain(CONVERSATION_ID);
+  });
+
+  it('retains a safe structured-capture failure code without provider diagnostics', async () => {
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: async () => createChatGptCaptureFailure('timed-out'),
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('timed-out');
     expect(String((error as Error).message)).not.toContain(CONVERSATION_ID);
   });
 
@@ -349,6 +417,17 @@ describe('ChatGPT current-branch capture composition', () => {
     const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
       requestCapture: () => successfulResponse(),
       createCaptureId: () => 'capture-chatgpt-../unsafe',
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-id-invalid');
+  });
+
+  it('rejects capture IDs with Windows-unsafe path punctuation', async () => {
+    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: () => 'capture-chatgpt-2026:08:19',
       now: fixedNow,
     }).catch(reason => reason);
 

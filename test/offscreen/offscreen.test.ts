@@ -125,6 +125,165 @@ describe('offscreen/offscreen', () => {
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
   });
 
+  it('creates and revokes an exact archive Blob URL without a data URL', async () => {
+    const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/archive');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    const createResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'AP8=',
+        mediaType: 'application/json',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      createResponse
+    );
+
+    expect(createResponse).toHaveBeenCalledWith({
+      success: true,
+      url: 'blob:chrome-extension://test/archive',
+    });
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(blob.type).toBe('application/json');
+    expect(blob.size).toBe(2);
+
+    const revokeResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobRevoke',
+        target: 'offscreen',
+        url: 'blob:chrome-extension://test/archive',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      revokeResponse
+    );
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:chrome-extension://test/archive');
+    expect(revokeResponse).toHaveBeenCalledWith({ success: true });
+  });
+
+  it('rejects non-canonical archive bytes before creating a Blob URL', () => {
+    const sendResponse = vi.fn();
+
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'not-base64',
+        mediaType: 'application/json',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      error: 'Could not prepare archive download',
+    });
+  });
+
+  it('rejects an archive whose base64 decoder does not round-trip canonically', () => {
+    const btoa = vi.spyOn(globalThis, 'btoa').mockReturnValue('AAAA');
+    const sendResponse = vi.fn();
+
+    try {
+      capturedListener(
+        {
+          action: 'archiveBlobCreate',
+          target: 'offscreen',
+          bodyBase64: 'AP8=',
+          mediaType: 'application/json',
+        },
+        { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Could not prepare archive download',
+      });
+    } finally {
+      btoa.mockRestore();
+    }
+  });
+
+  it('rejects archive Blob creation for non-JSON media types', () => {
+    const sendResponse = vi.fn();
+
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'e30=',
+        mediaType: 'text/plain',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      error: 'Could not prepare archive download',
+    });
+  });
+
+  it('does not report a revoked archive URL when URL release throws', () => {
+    const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/release-error');
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    const createResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'e30=',
+        mediaType: 'application/json',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      createResponse
+    );
+    expect(createResponse).toHaveBeenCalledWith({
+      success: true,
+      url: 'blob:chrome-extension://test/release-error',
+    });
+
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {
+      throw new Error('release denied');
+    });
+    const revokeResponse = vi.fn();
+    try {
+      capturedListener(
+        {
+          action: 'archiveBlobRevoke',
+          target: 'offscreen',
+          url: 'blob:chrome-extension://test/release-error',
+        },
+        { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+        revokeResponse
+      );
+
+      expect(revokeResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Could not release archive download',
+      });
+    } finally {
+      revokeObjectURL.mockRestore();
+    }
+  });
+
   it('responds with error when execCommand copy fails', () => {
     Object.defineProperty(document, 'execCommand', {
       value: vi.fn(() => false),

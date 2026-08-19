@@ -20,10 +20,21 @@ import {
   VALID_OUTPUT_DESTINATIONS,
   VALID_SOURCES,
 } from '../lib/constants';
-import type { ExtensionMessage, ExtractedImage, ObsidianNote } from '../lib/types';
-import { isChatGptConversationId } from '../lib/chatgpt-capture-contract';
+import type {
+  ArchiveCompanionArtifact,
+  ExtensionMessage,
+  ExtractedImage,
+  ObsidianNote,
+  OutputOptions,
+} from '../lib/types';
+import { ARCHIVE_COMPANION_KINDS, ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
+import {
+  CHATGPT_CAPTURE_MAX_BYTES,
+  isChatGptConversationId,
+} from '../lib/chatgpt-capture-contract';
 import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
+import { canonicalBase64ByteLength } from '../lib/base64';
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 
@@ -136,12 +147,109 @@ function validateFetchImageMessage(
   return typeof message.url === 'string' && isAllowedImageSourceUrl(message.url);
 }
 
+function validateOutputOptions(value: unknown): value is OutputOptions {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    hasExactOwnKeys(value, ['obsidian', 'file', 'clipboard']) &&
+    typeof (value as Record<string, unknown>).obsidian === 'boolean' &&
+    typeof (value as Record<string, unknown>).file === 'boolean' &&
+    typeof (value as Record<string, unknown>).clipboard === 'boolean'
+  );
+}
+
+const SAFE_CAPTURE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/;
+const OPAQUE_CONVERSATION_KEY_PATTERN = /^[a-f0-9]{64}$/;
+
+function isSafeNoteFileName(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 3 &&
+    value.length <= MAX_FILENAME_LENGTH &&
+    value.endsWith('.md') &&
+    !value.includes('/') &&
+    !value.includes('\\') &&
+    !containsPathTraversal(value)
+  );
+}
+
+function isArchiveCompanionKind(value: unknown): value is ArchiveCompanionArtifact['kind'] {
+  return (
+    typeof value === 'string' && (ARCHIVE_COMPANION_KINDS as readonly string[]).includes(value)
+  );
+}
+
+function hasValidArchiveCompanionMetadata(artifact: Record<string, unknown>): boolean {
+  const kind = artifact.kind;
+  return (
+    isArchiveCompanionKind(kind) &&
+    artifact.relativePath === ARCHIVE_COMPANION_RELATIVE_PATHS[kind] &&
+    artifact.mediaType === 'application/json' &&
+    typeof artifact.bodyBase64 === 'string' &&
+    typeof artifact.sha256 === 'string' &&
+    /^[a-f0-9]{64}$/.test(artifact.sha256) &&
+    Number.isSafeInteger(artifact.byteLength) &&
+    (artifact.byteLength as number) >= 0
+  );
+}
+
+function validateArchiveCompanionArtifact(value: unknown): value is ArchiveCompanionArtifact {
+  if (typeof value !== 'object' || value === null) return false;
+  if (
+    !hasExactOwnKeys(value, [
+      'kind',
+      'relativePath',
+      'mediaType',
+      'byteLength',
+      'sha256',
+      'bodyBase64',
+    ])
+  ) {
+    return false;
+  }
+
+  const artifact = value as Record<string, unknown>;
+  if (!hasValidArchiveCompanionMetadata(artifact)) return false;
+
+  const bodyBase64 = artifact.bodyBase64 as string;
+  const byteLength = canonicalBase64ByteLength(bodyBase64);
+  const maxBytes = artifact.kind === 'raw' ? CHATGPT_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
+  return byteLength === artifact.byteLength && byteLength !== undefined && byteLength <= maxBytes;
+}
+
+function validatePersistArchiveCompanionMessage(
+  message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, [
+      'action',
+      'noteFileName',
+      'source',
+      'captureId',
+      'conversationKey',
+      'artifact',
+      'outputs',
+    ]) &&
+    isSafeNoteFileName(message.noteFileName) &&
+    message.source === 'chatgpt' &&
+    SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
+    OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
+    validateArchiveCompanionArtifact(message.artifact) &&
+    Array.isArray(message.outputs) &&
+    message.outputs.length > 0 &&
+    message.outputs.length <= 2 &&
+    new Set(message.outputs).size === message.outputs.length &&
+    message.outputs.every(output => output === 'file' || output === 'obsidian')
+  );
+}
+
 /**
  * Validate message content (M-02)
  *
  * Security: Content scripts are less trustworthy.
  * Validate and sanitize all input per Chrome extension best practices.
  */
+// eslint-disable-next-line complexity -- Keep every untrusted message action in one auditable fail-closed router.
 export function validateMessageContent(message: unknown): message is ExtensionMessage {
   if (typeof message !== 'object' || message === null || Array.isArray(message)) {
     return false;
@@ -150,6 +258,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   const extensionMessage = message as ExtensionMessage;
   // Validate action against whitelist (using centralized constants)
   if (
+    extensionMessage.action !== 'persistArchiveCompanion' &&
     !VALID_MESSAGE_ACTIONS.includes(
       extensionMessage.action as (typeof VALID_MESSAGE_ACTIONS)[number]
     )
@@ -179,6 +288,17 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     ) {
       return false;
     }
+  }
+
+  if (extensionMessage.action === 'persistArchiveCompanion') {
+    return validatePersistArchiveCompanionMessage(extensionMessage);
+  }
+
+  if (extensionMessage.action === 'updateOutputOptions') {
+    return (
+      hasExactOwnKeys(extensionMessage, ['action', 'outputOptions']) &&
+      validateOutputOptions(extensionMessage.outputOptions)
+    );
   }
 
   // The worker can reach hosts the page cannot, so a fetchImage URL is only

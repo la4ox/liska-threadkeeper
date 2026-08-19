@@ -23,10 +23,12 @@
 
 - Obsidian browser sync currently sends the bearer over unencrypted HTTP on the local loopback interface because the extension service worker cannot use Comet's tab-scoped certificate exception. The Local REST API binding and Liska's privileged URL validation both restrict this route to exact host `127.0.0.1`; never expose or rebind it to a LAN or Internet interface. HTTPS remains enabled for clients that can explicitly trust the plugin certificate.
 - ChatGPT no-scroll current-branch export is live-verified in Comet. DOM/scroll extraction remains a marked fallback for unsupported browsers, provider drift, unavailable document-start state, oversized payloads, and any failed integrity/normalization/projection check.
-- A private real-chat corpus confirmed both strong structured successes and repeated fallbacks on heavier legacy, Canvas, and mixed-content conversations. When structured capture fails while auto-scroll is disabled, the downloaded Markdown contains only the currently rendered DOM subset and must be treated as partial. The current generic warning hides the stable failure code, so the exact failing stage is not yet known.
-- The complete ChatGPT branch graph currently exists only in the transient canonical archive during a click-triggered export; the user-facing Markdown/Obsidian output still projects one selected current branch. Separate raw and canonical JSON downloads, branch selection, and all-branches presentation are not implemented yet.
-- Legacy-projection warnings accurately count attachments and non-user/assistant messages that were present in the transient canonical graph, but the phrase “the canonical archive retains them” is not yet a durable-backup guarantee: that graph is discarded after the operation until canonical JSON download or local persistence is implemented.
+- A private real-chat corpus confirmed both strong structured successes and repeated fallbacks on heavier legacy, Canvas, and mixed-content conversations. When structured capture fails while auto-scroll is disabled, the downloaded Markdown contains only the currently rendered DOM subset and is marked `dom-fallback / partial`; user-visible warnings expose only stable stage/error codes and never provider diagnostics.
+- Successful ChatGPT structured capture now writes immutable raw JSON, its credential-free manifest, and canonical `liska-thread/1` as separate companion files under `_liska-archive/<opaque-conversation-key>/<capture-id>/` for each selected durable output. Downloads use private Blob URLs rather than data URLs; Obsidian writes are binary-read-back and SHA-256 verified; Clipboard never receives archive bytes.
+- A live sub-16-MiB capture with several thousand graph nodes produced all three Downloads companions, matched the raw SHA-256 to its manifest, validated one root/current node, and generated a complete canonical archive. The Markdown frontmatter records `capture_mode: structured-api` and `capture_completeness: complete` while explicit warnings enumerate content that the legacy renderer omits.
+- Raw and manifest persistence precede normalization. If provider normalization fails, those two companions remain downloadable for deterministic offline repair; canonical is appended only after normalization succeeds. Deep graph validation is iterative, so long linear conversations no longer overflow the JavaScript call stack.
 - The first temporary-tab implementation bounds a single ChatGPT conversation response to 16 MiB and holds a base64 transfer transiently in memory. This is suitable for the first smoke test but is not the final large-archive storage design; larger captures need staged local persistence instead of silently raising or hiding the limit.
+- One live settings run attempted an Obsidian archive write after the user had visually disabled that output without a confirmed persisted update. Destination toggles now send an acknowledged popup-only background update, apply an in-memory override before `chrome.storage.sync` completes, and serialize rapid changes; a live toggle/readback smoke remains before merge.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
 - Append mode does not upload images into an existing note yet; it appends text and reports the skipped new images.
@@ -56,8 +58,7 @@
 
 ## Next step
 
-Keep PR #7 in draft. Surface the safe structured-capture failure code and an
-explicit partial-DOM marker in user-visible diagnostics, then add separate
-raw/canonical JSON downloads so projection omissions are durably recoverable.
-Re-run the known successful and fallback corpus classes before merging or
-treating this path as a backup feature.
+Keep PR #7 in draft. Run one live popup-toggle readback, then one Obsidian-only
+and one File+Obsidian archive smoke. After that, commit/publish this checkpoint
+and continue with explicit branch/all-branches presentation plus
+provider-specific attachment acquisition.

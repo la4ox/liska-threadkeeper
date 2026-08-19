@@ -217,6 +217,27 @@ export class ObsidianApiClient {
   }
 
   /**
+   * Read exact binary bytes from a vault file. Archive companions use this
+   * after a PUT so success means the vault returned the expected byte hash,
+   * not merely that it accepted the request.
+   */
+  async getBinaryFile(path: string): Promise<Uint8Array | null> {
+    const encodedPath = encodeVaultPath(path);
+    const response = await this.fetchWithTimeout(`${this.baseUrl}/vault/${encodedPath}`, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    });
+
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw this.createError(response.status, `Failed to get file: ${response.statusText}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  /**
    * Create or update file in vault
    * @param path - Path relative to vault root
    * @param content - File content (markdown)

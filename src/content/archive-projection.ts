@@ -14,7 +14,12 @@ import {
   type LiskaThreadArchive,
 } from '../archive';
 import { ALL_PLATFORMS, platformOrigin } from '../lib/platform-registry';
-import type { AIPlatform, ConversationData, ConversationMessage } from '../lib/types';
+import type {
+  AIPlatform,
+  ArchiveCompanionBundle,
+  ConversationData,
+  ConversationMessage,
+} from '../lib/types';
 import { htmlToMarkdownRaw } from './markdown-rules';
 import { sanitizeHtml } from '../lib/sanitize';
 
@@ -47,6 +52,8 @@ export interface ArchiveProjectionResult {
   selectedNodeIds: string[];
   /** Explicit losses at the compatibility boundary; canonical data is intact. */
   warnings: string[];
+  /** Immutable raw/manifest/canonical evidence available only after structured capture. */
+  archiveCompanion?: ArchiveCompanionBundle;
 }
 
 type OmissionKind =
@@ -215,7 +222,9 @@ function omissionWarnings(omissions: Map<OmissionKind, number>): string[] {
   return (Object.keys(labels) as OmissionKind[]).flatMap(kind => {
     const count = omissions.get(kind) ?? 0;
     return count > 0
-      ? [`Legacy Markdown omitted ${count} ${labels[kind]}; the canonical archive retains them.`]
+      ? [
+          `Legacy Markdown omitted ${count} ${labels[kind]}; the canonical archive companion preserves them only when its selected output write succeeds.`,
+        ]
       : [];
   });
 }

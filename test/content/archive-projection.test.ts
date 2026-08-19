@@ -37,9 +37,9 @@ describe('canonical archive to legacy ConversationData projection', () => {
     });
     expect(result.data.messages[1].toolContent).toBeUndefined();
     expect(result.warnings).toEqual([
-      'Legacy Markdown omitted 1 attachment block(s); the canonical archive retains them.',
-      'Legacy Markdown omitted 1 unknown provider block(s); the canonical archive retains them.',
-      'Legacy Markdown omitted 3 reasoning/tool/error block(s) because tool content is disabled; the canonical archive retains them.',
+      'Legacy Markdown omitted 1 attachment block(s); the canonical archive companion preserves them only when its selected output write succeeds.',
+      'Legacy Markdown omitted 1 unknown provider block(s); the canonical archive companion preserves them only when its selected output write succeeds.',
+      'Legacy Markdown omitted 3 reasoning/tool/error block(s) because tool content is disabled; the canonical archive companion preserves them only when its selected output write succeeds.',
     ]);
   });
 
@@ -103,7 +103,7 @@ describe('canonical archive to legacy ConversationData projection', () => {
     expect(content).not.toContain('alert(1)');
     expect(result.data.metadata.hasCodeBlocks).toBe(true);
     expect(result.warnings).toContain(
-      'Legacy Markdown omitted 1 remote/embedded HTML image(s); the canonical archive retains them.'
+      'Legacy Markdown omitted 1 remote/embedded HTML image(s); the canonical archive companion preserves them only when its selected output write succeeds.'
     );
   });
 

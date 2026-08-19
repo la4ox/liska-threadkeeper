@@ -604,6 +604,37 @@ describe('conversationToNote', () => {
     expect(note.images).toEqual([]);
   });
 
+  it('persists ChatGPT capture metadata only for ChatGPT', () => {
+    const chatgpt = {
+      ...mockData,
+      id: '01234567-89ab-4cde-8f01-23456789abcd',
+      source: 'chatgpt' as const,
+      capture: { mode: 'structured-api' as const, completeness: 'complete' as const },
+    };
+
+    const note = conversationToNote(chatgpt, defaultOptions);
+
+    expect(note.frontmatter).toMatchObject({
+      capture_mode: 'structured-api',
+      capture_completeness: 'complete',
+    });
+    expect(conversationToNote(mockData, defaultOptions).frontmatter).not.toHaveProperty(
+      'capture_mode'
+    );
+
+    const fallback = conversationToNote(
+      {
+        ...chatgpt,
+        capture: { mode: 'dom-fallback', completeness: 'partial' },
+      },
+      defaultOptions
+    );
+    expect(fallback.frontmatter).toMatchObject({
+      capture_mode: 'dom-fallback',
+      capture_completeness: 'partial',
+    });
+  });
+
   it('uses the title-id filename scheme by default (#328)', () => {
     const note = conversationToNote(mockData, defaultOptions);
     expect(note.fileName).toBe('test-conversation-conv123.md');

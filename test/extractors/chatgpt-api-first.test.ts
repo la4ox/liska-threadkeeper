@@ -3,7 +3,9 @@ import {
   CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING,
   ChatGPTExtractor,
 } from '../../src/content/extractors/chatgpt';
+import { ChatGptCurrentBranchError } from '../../src/content/capture/chatgpt-current-branch';
 import type { ArchiveProjectionResult } from '../../src/content/archive-projection';
+import type { ArchiveCompanionBundle } from '../../src/lib/types';
 import {
   clearFixture,
   createChatGPTPage,
@@ -52,6 +54,23 @@ function renderedConversation(): void {
   ]);
 }
 
+function setUnsupportedChatGptPath(pathname: string): void {
+  Object.defineProperty(window, 'location', {
+    value: {
+      hostname: 'chatgpt.com',
+      pathname,
+      href: `https://chatgpt.com${pathname}`,
+      origin: 'https://chatgpt.com',
+      protocol: 'https:',
+      host: 'chatgpt.com',
+      search: '',
+      hash: '',
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
 describe('ChatGPTExtractor API-first bridge', () => {
   beforeEach(() => {
     clearFixture();
@@ -83,11 +102,58 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.data?.messages[1]?.content).toBe('API answer');
     expect(result.data?.messages[1]?.toolContent).toContain('API tool data');
     expect(result.warnings).toEqual(['A canonical projection warning.']);
+    expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
+  });
+
+  it('carries the complete archive companion only after a structured capture', async () => {
+    renderedConversation();
+    const structured = projection();
+    structured.archiveCompanion = {
+      captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+      conversationKey: 'a'.repeat(64),
+      artifacts: [
+        {
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'b'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+        {
+          kind: 'manifest',
+          relativePath: 'manifest.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'c'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+        {
+          kind: 'canonical',
+          relativePath: 'canonical/liska-thread-1.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'd'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+      ],
+    };
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch: vi.fn().mockResolvedValue(structured),
+      manifestAllowsStructuredCapture: () => true,
+    });
+
+    const result = await extractor.extract();
+
+    expect(result.archiveCompanion?.artifacts).toHaveLength(3);
+    expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
   });
 
   it('falls back to the rendered current branch and adds one stable warning after a capture error', async () => {
     renderedConversation();
-    const captureCurrentBranch = vi.fn().mockRejectedValue(new Error('raw provider diagnostic'));
+    const captureCurrentBranch = vi
+      .fn()
+      .mockRejectedValue(new ChatGptCurrentBranchError('timed-out'));
     const extractor = new ChatGPTExtractor({
       captureCurrentBranch,
       manifestAllowsStructuredCapture: () => true,
@@ -100,8 +166,103 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.data?.messages.map(message => message.content).join('\n')).toContain(
       'Rendered answer'
     );
-    expect(result.warnings).toContain(CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING);
-    expect(result.warnings?.join(' ')).not.toContain('raw provider diagnostic');
+    expect(result.warnings?.[0]).toBe(
+      `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (timed-out); partial rendered current branch exported; raw/canonical archive was not saved.`
+    );
+    expect(result.warnings?.join(' ')).not.toContain('provider diagnostic');
+    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+  });
+
+  it('carries raw and manifest through a normalization fallback', async () => {
+    renderedConversation();
+    const partialCompanion: ArchiveCompanionBundle = {
+      captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+      conversationKey: 'a'.repeat(64),
+      artifacts: [
+        {
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'b'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+        {
+          kind: 'manifest',
+          relativePath: 'manifest.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'c'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+      ],
+    };
+    const captureCurrentBranch = vi.fn().mockRejectedValue(
+      new ChatGptCurrentBranchError('normalization-failed', {
+        archiveCompanion: partialCompanion,
+        detailCode: 'missing-graph',
+      })
+    );
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+
+    const result = await extractor.extract();
+
+    expect(result.success).toBe(true);
+    expect(result.archiveCompanion).toBe(partialCompanion);
+    expect(result.archiveCompanion?.artifacts.map(artifact => artifact.kind)).toEqual([
+      'raw',
+      'manifest',
+    ]);
+    expect(result.warnings).toContain(
+      `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (normalization-failed:missing-graph); partial rendered current branch exported; raw capture and manifest were preserved for local saving; canonical archive was not created.`
+    );
+  });
+
+  it('keeps raw and manifest when the rendered fallback has no usable messages', async () => {
+    setChatGPTLocation(CONVERSATION_ID);
+    loadFixture('<main></main>');
+    const partialCompanion: ArchiveCompanionBundle = {
+      captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+      conversationKey: 'a'.repeat(64),
+      artifacts: [
+        {
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'b'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+        {
+          kind: 'manifest',
+          relativePath: 'manifest.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'c'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+      ],
+    };
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch: vi.fn().mockRejectedValue(
+        new ChatGptCurrentBranchError('normalization-failed', {
+          archiveCompanion: partialCompanion,
+          detailCode: 'missing-graph',
+        })
+      ),
+      manifestAllowsStructuredCapture: () => true,
+    });
+
+    const result = await extractor.extract();
+
+    expect(result.success).toBe(false);
+    expect(result.archiveCompanion).toBe(partialCompanion);
+    expect(result.warnings).toContain(
+      `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (normalization-failed:missing-graph); partial rendered current branch exported; raw capture and manifest were preserved for local saving; canonical archive was not created.`
+    );
   });
 
   it('refuses a user-only canonical projection when a Deep Research iframe is detected', async () => {
@@ -125,7 +286,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.data).toBeUndefined();
   });
 
-  it('does not request a structured capture when permission is absent', async () => {
+  it('uses an explicit partial fallback when a valid route lacks structured permission', async () => {
     renderedConversation();
     const captureCurrentBranch = vi.fn().mockResolvedValue(projection());
     const extractor = new ChatGPTExtractor({
@@ -137,10 +298,14 @@ describe('ChatGPTExtractor API-first bridge', () => {
 
     expect(captureCurrentBranch).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
-    expect(result.warnings ?? []).not.toContain(CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING);
+    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+    expect(result.archiveCompanion).toBeUndefined();
+    expect(result.warnings).toEqual([
+      `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (permission-unavailable); partial rendered current branch exported; raw/canonical archive was not saved.`,
+    ]);
   });
 
-  it('does not request a structured capture on a non-UUID ChatGPT route', async () => {
+  it('marks a malformed supported ChatGPT route as a partial DOM fallback', async () => {
     setChatGPTLocation('not-a-uuid');
     createChatGPTPage('not-a-uuid', [
       { role: 'user', content: 'Rendered question' },
@@ -156,6 +321,49 @@ describe('ChatGPTExtractor API-first bridge', () => {
 
     expect(captureCurrentBranch).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
+    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+    expect(result.archiveCompanion).toBeUndefined();
+    expect(result.warnings).toEqual([
+      `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (invalid-conversation-id); partial rendered current branch exported; raw/canonical archive was not saved.`,
+    ]);
+  });
+
+  it('treats the custom-GPT conversation route shape the same way when its UUID is malformed', async () => {
+    createChatGPTPage(
+      'not-a-uuid',
+      [
+        { role: 'user', content: 'Rendered question' },
+        { role: 'assistant', content: '<p>Rendered answer</p>' },
+      ],
+      'g'
+    );
+    const captureCurrentBranch = vi.fn().mockResolvedValue(projection());
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+
+    const result = await extractor.extract();
+
+    expect(captureCurrentBranch).not.toHaveBeenCalled();
+    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+    expect(result.warnings?.[0]).toContain('(invalid-conversation-id)');
+  });
+
+  it('keeps unrelated ChatGPT paths on the ordinary DOM route', async () => {
+    renderedConversation();
+    setUnsupportedChatGptPath('/share/not-a-conversation');
+    const captureCurrentBranch = vi.fn().mockResolvedValue(projection());
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+
+    const result = await extractor.extract();
+
+    expect(captureCurrentBranch).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data?.capture).toBeUndefined();
     expect(result.warnings ?? []).not.toContain(CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING);
   });
 

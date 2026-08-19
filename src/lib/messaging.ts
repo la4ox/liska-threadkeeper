@@ -4,7 +4,12 @@
  */
 
 import type { ChatGptCaptureResponse } from './chatgpt-capture-contract';
-import type { ExtensionMessage, ContentScriptSettings, MultiOutputResponse } from './types';
+import type {
+  ExtensionMessage,
+  ContentScriptSettings,
+  MultiOutputResponse,
+  OutputOptionsUpdateResponse,
+} from './types';
 
 /** User-friendly message for extension context invalidation */
 const CONTEXT_INVALIDATED_MESSAGE = 'Extension context invalidated. Please reload the page.';
@@ -16,6 +21,8 @@ interface MessageResponseMap {
   getSettings: ContentScriptSettings;
   testConnection: { success: boolean; error?: string };
   saveToOutputs: MultiOutputResponse;
+  persistArchiveCompanion: MultiOutputResponse;
+  updateOutputOptions: OutputOptionsUpdateResponse;
   captureChatGptConversation: ChatGptCaptureResponse;
 }
 

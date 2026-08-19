@@ -5,6 +5,8 @@
  * capture primitive and content-to-background bridge share one exact shape.
  */
 
+import { canonicalBase64ByteLength } from './base64';
+
 /** Hard byte ceiling for the exact response captured from ChatGPT. */
 export const CHATGPT_CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
 
@@ -20,6 +22,18 @@ export const CHATGPT_CAPTURE_ERROR_CODES = [
   'temporary-tab-create-failed',
   'temporary-tab-missing-id',
   'unexpected-origin',
+  'unexpected-path',
+  'unexpected-readiness',
+  'nonce-unavailable',
+  'nonce-invalid',
+  'hash-unavailable',
+  'response-integrity-invalid',
+  'background-capture-exception',
+  'capture-response-validation-exception',
+  'temporary-tab-ready-timeout',
+  'conversation-request-timeout',
+  'conversation-response-timeout',
+  'capture-result-timeout',
   'hook-injection-rejected',
   'hook-result-invalid',
   'hook-install-failed',
@@ -44,6 +58,21 @@ export const CHATGPT_CAPTURE_ERROR_MESSAGES: Readonly<Record<ChatGptCaptureError
   'temporary-tab-create-failed': 'Could not create the temporary ChatGPT tab.',
   'temporary-tab-missing-id': 'The temporary ChatGPT tab has no usable ID.',
   'unexpected-origin': 'The temporary tab is not on the ChatGPT origin.',
+  'unexpected-path': 'The temporary tab did not remain on the requested ChatGPT conversation.',
+  'unexpected-readiness': 'The temporary ChatGPT tab returned an invalid readiness state.',
+  'nonce-unavailable': 'A safe temporary ChatGPT capture identifier could not be created.',
+  'nonce-invalid': 'The temporary ChatGPT capture identifier was invalid.',
+  'hash-unavailable': 'SHA-256 verification was unavailable for the ChatGPT capture.',
+  'response-integrity-invalid': 'The captured ChatGPT response failed integrity verification.',
+  'background-capture-exception': 'The ChatGPT background capture failed unexpectedly.',
+  'capture-response-validation-exception':
+    'The ChatGPT capture response could not be validated by the extension background.',
+  'temporary-tab-ready-timeout': 'Timed out waiting for the temporary ChatGPT tab to load.',
+  'conversation-request-timeout':
+    'Timed out waiting for ChatGPT to request the conversation graph.',
+  'conversation-response-timeout':
+    'Timed out while ChatGPT was returning or processing the conversation graph.',
+  'capture-result-timeout': 'Timed out waiting for the verified ChatGPT capture result.',
   'hook-injection-rejected': 'The browser rejected the temporary ChatGPT capture script.',
   'hook-result-invalid': 'The temporary ChatGPT capture script returned an invalid result.',
   'hook-install-failed': 'Could not install the temporary ChatGPT capture hook.',
@@ -85,14 +114,6 @@ function hasExactKeys(value: object, expected: readonly string[]): boolean {
   );
 }
 
-function base64ByteLength(value: string): number | undefined {
-  if (!/^(?:[a-z0-9+/]{4})*(?:[a-z0-9+/]{2}==|[a-z0-9+/]{3}=)?$/i.test(value)) {
-    return undefined;
-  }
-  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
-  return (value.length / 4) * 3 - padding;
-}
-
 function isJsonMediaType(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   if (
@@ -129,7 +150,7 @@ export function isChatGptCaptureArtifact(value: unknown): value is ChatGptCaptur
     Number.isSafeInteger(record.byteLength) &&
     (record.byteLength as number) >= 0 &&
     (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
-    base64ByteLength(record.bodyBase64) === record.byteLength &&
+    canonicalBase64ByteLength(record.bodyBase64) === record.byteLength &&
     typeof record.sha256 === 'string' &&
     /^[a-f0-9]{64}$/i.test(record.sha256) &&
     isJsonMediaType(record.mediaType) &&

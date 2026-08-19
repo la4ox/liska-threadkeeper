@@ -107,9 +107,29 @@ describe('ChatGPT capture service-worker route', () => {
     const unknownResponse = invokeCapture();
 
     await vi.waitFor(() => expect(unknownResponse).toHaveBeenCalledOnce());
-    expect(unknownResponse).toHaveBeenCalledWith(createChatGptCaptureFailure('capture-failed'));
+    expect(unknownResponse).toHaveBeenCalledWith(
+      createChatGptCaptureFailure('background-capture-exception')
+    );
     expect(JSON.stringify(unknownResponse.mock.calls[0][0])).not.toContain(CONVERSATION_ID);
     expect(mocks.getSettings).not.toHaveBeenCalled();
+  });
+
+  it('separates a response-envelope exception from the capture operation', async () => {
+    const poisoned = captureArtifact() as Record<string, unknown>;
+    Object.defineProperty(poisoned, 'bodyBase64', {
+      enumerable: true,
+      get() {
+        throw new Error('private response getter');
+      },
+    });
+    mocks.capture.mockResolvedValueOnce(poisoned as never);
+
+    const sendResponse = invokeCapture();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptCaptureFailure('capture-response-validation-exception')
+    );
   });
 
   it('fails closed without scripting permission before capture or settings access', async () => {

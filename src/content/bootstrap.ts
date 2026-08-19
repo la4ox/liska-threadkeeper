@@ -13,12 +13,16 @@ import { PerplexityExtractor } from './extractors/perplexity';
 import { NotebookLMExtractor } from './extractors/notebooklm';
 import { DeepSeekExtractor } from './extractors/deepseek';
 import { extractErrorMessage } from '../lib/error-utils';
-import type { IConversationExtractor } from '../lib/types';
+import type {
+  ArchiveCompanionBundle,
+  ConversationData,
+  ExtractionResult,
+  IConversationExtractor,
+} from '../lib/types';
 import { conversationToNote } from './markdown';
 import {
   injectSyncButton,
   setButtonLoading,
-  showSuccessToast,
   showErrorToast,
   showWarningToast,
   showToast,
@@ -259,11 +263,7 @@ async function validateOutputConfig(
 /**
  * Display save results to the user via toasts
  */
-function displaySaveResults(
-  saveResult: MultiOutputResponse,
-  fileName: string,
-  extractionWarnings?: string[]
-): void {
+function displaySaveResults(saveResult: MultiOutputResponse, extractionWarnings?: string[]): void {
   // Show append-specific messages when applicable
   if (saveResult.allSuccessful && saveResult.messagesAppended !== undefined) {
     if (saveResult.messagesAppended > 0) {
@@ -272,12 +272,7 @@ function displaySaveResults(
       showToast('No new messages to append', 'info', INFO_TOAST_DURATION);
     }
   } else if (saveResult.allSuccessful) {
-    // A filename collision may have forced an alternative name (issue #327):
-    // show the name the note was actually saved under.
-    const savedAs = saveResult.results.find(
-      (r: OutputResult) => r.destination === 'obsidian'
-    )?.savedAs;
-    showSuccessToast(savedAs ?? fileName, true);
+    showToast('Saved locally', 'success');
   } else if (saveResult.anySuccessful) {
     const successList = saveResult.results
       .filter((r: OutputResult) => r.success)
@@ -304,19 +299,170 @@ function displaySaveResults(
     .filter((w): w is string => Boolean(w));
   const warnings = [...saveWarnings, ...(extractionWarnings ?? [])];
 
-  if (warnings.length > 0 && saveResult.anySuccessful) {
+  if (warnings.length > 0) {
     setTimeout(() => {
       showWarningToast(warnings.join('. '));
     }, INFO_TOAST_DURATION);
   }
 }
 
+function archiveArtifactLabel(kind: ArchiveCompanionBundle['artifacts'][number]['kind']): string {
+  switch (kind) {
+    case 'raw':
+      return 'raw archive companion';
+    case 'manifest':
+      return 'archive manifest companion';
+    case 'canonical':
+      return 'canonical archive companion';
+  }
+}
+
+function archiveDestinationWarnings(
+  label: string,
+  destinations: readonly ('file' | 'obsidian')[],
+  reason: string
+): string[] {
+  return destinations.map(
+    destination => `${label} was not saved to ${destination} because ${reason}`
+  );
+}
+
+function archiveWriteOutcome(
+  response: unknown,
+  label: string,
+  requestedOutputs: readonly ('file' | 'obsidian')[]
+): { activeOutputs: ('file' | 'obsidian')[]; warnings: string[] } {
+  if (!isMultiOutputResponse(response, requestedOutputs)) {
+    return {
+      activeOutputs: [],
+      warnings: archiveDestinationWarnings(
+        label,
+        requestedOutputs,
+        'the extension response was invalid'
+      ),
+    };
+  }
+  return {
+    activeOutputs: response.results
+      .filter(result => result.success)
+      .map(result => result.destination) as ('file' | 'obsidian')[],
+    warnings: response.results
+      .filter(result => !result.success)
+      .map(result => `${label} was not saved to ${result.destination}`),
+  };
+}
+
+/**
+ * Save the three immutable structured artifacts one at a time. Archive writes
+ * never join the Markdown message, and a failed companion stays non-fatal so
+ * the readable note is still saved with an explicit warning.
+ */
+export async function persistArchiveCompanions(
+  companion: ArchiveCompanionBundle | undefined,
+  noteFileName: string,
+  source: AIPlatform,
+  outputs: OutputDestination[]
+): Promise<string[]> {
+  if (!companion) return [];
+  let activeOutputs = outputs.filter(
+    (output): output is 'file' | 'obsidian' => output === 'file' || output === 'obsidian'
+  );
+  if (activeOutputs.length === 0) {
+    return ['ChatGPT raw/canonical archive was not saved because only Clipboard is enabled'];
+  }
+
+  const warnings: string[] = [];
+  for (const artifact of companion.artifacts) {
+    if (activeOutputs.length === 0) break;
+    const message = {
+      action: 'persistArchiveCompanion' as const,
+      noteFileName,
+      source,
+      captureId: companion.captureId,
+      conversationKey: companion.conversationKey,
+      artifact,
+      outputs: activeOutputs,
+    };
+    const label = archiveArtifactLabel(artifact.kind);
+    if (jsonUtf8ByteLength(message) > MAX_EXTENSION_MESSAGE_SIZE) {
+      warnings.push(
+        ...archiveDestinationWarnings(label, activeOutputs, 'it exceeds the 60 MiB message limit')
+      );
+      activeOutputs = [];
+      continue;
+    }
+
+    try {
+      const response: unknown = await sendMessage(message);
+      const outcome = archiveWriteOutcome(response, label, activeOutputs);
+      warnings.push(...outcome.warnings);
+      // A destination commits its snapshot in raw -> manifest -> canonical order.
+      activeOutputs = outcome.activeOutputs;
+    } catch {
+      warnings.push(
+        ...archiveDestinationWarnings(label, activeOutputs, 'the extension write failed')
+      );
+      activeOutputs = [];
+    }
+  }
+  return warnings;
+}
+
+/** Preserve verified source evidence even when no readable Markdown can be built. */
+export async function persistFailedExtractionArchive(
+  result: ExtractionResult,
+  outputs: OutputDestination[]
+): Promise<string | undefined> {
+  if (result.success || !result.archiveCompanion) return undefined;
+  const warnings = await persistArchiveCompanions(
+    result.archiveCompanion,
+    'chatgpt-capture.md',
+    'chatgpt',
+    outputs
+  );
+  return warnings.length === 0
+    ? 'Verified raw capture evidence was saved locally'
+    : `Verified raw capture evidence was only partially saved: ${warnings.join('. ')}`;
+}
+
+async function persistExtractedNote(
+  data: ConversationData,
+  archiveCompanion: ArchiveCompanionBundle | undefined,
+  settings: ContentScriptSettings,
+  outputs: OutputDestination[],
+  extractionWarnings: string[] | undefined
+): Promise<void> {
+  const note = conversationToNote(data, settings.templateOptions);
+  const archiveWarnings = await persistArchiveCompanions(
+    archiveCompanion,
+    note.fileName,
+    data.source,
+    outputs
+  );
+  await persistNote(note, outputs, data.messages.length, [
+    ...(extractionWarnings ?? []),
+    ...archiveWarnings,
+  ]);
+}
+
 /** Runtime guard: the worker can return a generic error envelope on rejection. */
-function isMultiOutputResponse(value: unknown): value is MultiOutputResponse {
+function isMultiOutputResponse(
+  value: unknown,
+  requestedOutputs: readonly OutputDestination[]
+): value is MultiOutputResponse {
   if (!value || typeof value !== 'object') return false;
   const response = value as Record<string, unknown>;
-  if (!Array.isArray(response.results) || response.results.length === 0) return false;
+  if (!Array.isArray(response.results) || response.results.length !== requestedOutputs.length)
+    return false;
   if (!response.results.every(isOutputResult)) return false;
+  const destinations = response.results.map(result => result.destination);
+  if (
+    new Set(destinations).size !== destinations.length ||
+    new Set(requestedOutputs).size !== requestedOutputs.length ||
+    destinations.some(destination => !requestedOutputs.includes(destination))
+  ) {
+    return false;
+  }
   const allSuccessful = response.results.every(result => result.success);
   const anySuccessful = response.results.some(result => result.success);
   return response.allSuccessful === allSuccessful && response.anySuccessful === anySuccessful;
@@ -364,76 +510,70 @@ async function persistNote(
   }
 
   console.info('[G2O] Generated note:', {
-    fileName: note.fileName,
     messageCount,
     outputs,
   });
 
   showToast('Saving...', 'info', INFO_TOAST_DURATION);
   const saveResponse: unknown = await sendMessage(saveMessage);
-  if (!isMultiOutputResponse(saveResponse)) {
+  if (!isMultiOutputResponse(saveResponse, outputs)) {
     showErrorToast(backgroundResponseError(saveResponse));
     return;
   }
-  displaySaveResults(saveResponse, note.fileName, extractionWarnings);
+  displaySaveResults(saveResponse, extractionWarnings);
 }
 
 /**
  * Handle sync button click
  */
+// eslint-disable-next-line max-lines-per-function -- The staged user-visible pipeline stays linear so evidence persistence always precedes Markdown validation.
 export async function handleSync(): Promise<void> {
   console.info('[G2O] Sync initiated');
   setButtonLoading(true);
   let stage = 'loading extension settings';
 
   try {
-    // Get settings first (L-01: use type-safe messaging)
     const settings = await getSettings();
     const enabledOutputs = getEnabledOutputs(settings);
-
-    // Validate output configuration
     stage = 'checking output configuration';
     const configError = await validateOutputConfig(settings, enabledOutputs);
     if (configError) {
       showErrorToast(configError);
       return;
     }
-
-    // Extract conversation using appropriate extractor
     const extractor = getExtractor();
     if (!extractor || !extractor.canExtract()) {
       showErrorToast('Not on a valid conversation page');
       return;
     }
-
     showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
     extractor.applySettings(settings);
     stage = 'extracting the conversation';
     const result = await extractor.extract();
-
-    // Validate extraction
+    stage = 'preserving failed extraction evidence';
+    const failedArchiveStatus = await persistFailedExtractionArchive(result, enabledOutputs);
+    stage = 'validating the extracted conversation';
     const validation = extractor.validate(result);
     if (!validation.isValid) {
-      showErrorToast(validation.errors.join(', ') || 'Extraction failed');
+      const error = validation.errors.join(', ') || 'Extraction failed';
+      showErrorToast(failedArchiveStatus ? `${error}. ${failedArchiveStatus}.` : error);
       return;
     }
-
     if (validation.warnings.length > 0) {
-      validation.warnings.forEach(warning => {
-        console.warn('[G2O] Warning:', warning);
-      });
+      validation.warnings.forEach(warning => console.warn('[G2O] Warning:', warning));
     }
-
     if (!result.data) {
       showErrorToast('No conversation data extracted');
       return;
     }
-
-    // Convert to Obsidian note
-    stage = 'formatting the conversation';
-    const note = conversationToNote(result.data, settings.templateOptions);
-    stage = 'saving the note';
-    await persistNote(note, enabledOutputs, result.data.messages.length, result.warnings);
+    stage = 'formatting and saving the ChatGPT archive companions and note';
+    await persistExtractedNote(
+      result.data,
+      result.archiveCompanion,
+      settings,
+      enabledOutputs,
+      result.warnings
+    );
   } catch (error) {
     console.error(`[G2O] Sync error while ${stage}:`, error);
     showErrorToast(`Failed while ${stage}: ${extractErrorMessage(error)}`);

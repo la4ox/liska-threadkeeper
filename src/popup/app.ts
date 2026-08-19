@@ -114,6 +114,7 @@ type PopupElements = ReturnType<typeof queryElements>;
 
 // Assigned by initPopup() before any UI handler can run
 let elements: PopupElements;
+let outputSaveChain: Promise<void> = Promise.resolve();
 
 /**
  * Initialize popup — queries the DOM and wires the UI.
@@ -206,7 +207,12 @@ function setupEventListeners(): void {
   elements.testBtn.addEventListener('click', handleTest);
 
   // Output destination checkbox listeners
-  elements.outputObsidian.addEventListener('change', updateObsidianSettingsVisibility);
+  elements.outputObsidian.addEventListener('change', () => {
+    updateObsidianSettingsVisibility();
+    queueOutputOptionsSave();
+  });
+  elements.outputFile.addEventListener('change', queueOutputOptionsSave);
+  elements.outputClipboard.addEventListener('change', queueOutputOptionsSave);
 
   // Show/hide timezone when includeDates changes
   elements.includeDates.addEventListener('change', updateTimezoneVisibility);
@@ -216,6 +222,21 @@ function setupEventListeners(): void {
 
   // Setup API key visibility toggle
   setupApiKeyToggle();
+}
+
+/** Persist destination switches immediately and serialize rapid changes. */
+function queueOutputOptionsSave(): void {
+  const outputOptions = collectOutputOptions();
+  outputSaveChain = outputSaveChain
+    .then(async () => {
+      const response = await sendMessage({ action: 'updateOutputOptions', outputOptions });
+      if (!response.success) throw new Error(response.error ?? 'Output settings save failed');
+    })
+    .then(() => showStatus(getMessage('status_settingsSaved'), 'success'))
+    .catch(error => {
+      showStatus(getMessage('toast_error_saveFailed', 'Unknown error'), 'error');
+      console.error('[G2O Popup] Output settings save error:', error);
+    });
 }
 
 /**
@@ -481,6 +502,7 @@ async function handleSave(): Promise<void> {
   clearStatus();
 
   try {
+    await outputSaveChain;
     const settings = collectSettings();
 
     // Validate output options - at least one must be selected
@@ -519,6 +541,7 @@ async function handleTest(): Promise<void> {
   showStatus(getMessage('status_testing'), 'info');
 
   try {
+    await outputSaveChain;
     // First save current settings
     const settings = collectSettings();
 

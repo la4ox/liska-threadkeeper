@@ -22,6 +22,7 @@ import type {
 } from '../../lib/types';
 import { isChatGptConversationId } from '../../lib/chatgpt-capture-contract';
 import {
+  ChatGptCurrentBranchError,
   captureChatGptCurrentBranch,
   manifestAllowsChatGptStructuredCapture,
 } from '../capture/chatgpt-current-branch';
@@ -54,8 +55,22 @@ const DEEP_RESEARCH_FRAME_SELECTORS = [
 ] as const;
 
 /** Stable compatibility warning for a failed complete-graph capture fallback. */
-export const CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING =
-  'ChatGPT complete graph capture failed; the rendered current branch was exported instead.';
+export const CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING = 'ChatGPT complete graph capture failed';
+
+function structuredFallbackWarning(error: unknown): string {
+  const code = error instanceof ChatGptCurrentBranchError ? error.code : 'capture-failed';
+  const detail =
+    error instanceof ChatGptCurrentBranchError && error.detailCode ? `:${error.detailCode}` : '';
+  const artifacts =
+    error instanceof ChatGptCurrentBranchError ? error.archiveCompanion?.artifacts : undefined;
+  const hasCanonical = artifacts?.some(artifact => artifact.kind === 'canonical') === true;
+  const archiveStatus = hasCanonical
+    ? 'raw/manifest/canonical companions were preserved for local saving.'
+    : artifacts
+      ? 'raw capture and manifest were preserved for local saving; canonical archive was not created.'
+      : 'raw/canonical archive was not saved.';
+  return `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (${code}${detail}); partial rendered current branch exported; ${archiveStatus}`;
+}
 
 export interface ChatGPTExtractorDependencies {
   captureCurrentBranch?: (
@@ -64,6 +79,11 @@ export interface ChatGPTExtractorDependencies {
   ) => Promise<ArchiveProjectionResult>;
   manifestAllowsStructuredCapture?: () => boolean;
 }
+
+type ChatGptStructuredRoute =
+  | { kind: 'valid'; conversationId: string }
+  | { kind: 'invalid-conversation-id' }
+  | { kind: 'unsupported' };
 
 /**
  * ChatGPT conversation extractor
@@ -106,9 +126,18 @@ export class ChatGPTExtractor extends BaseExtractor {
    * or conversation identifier is written to the console.
    */
   async extract(): Promise<ExtractionResult> {
-    const conversationId = this.exactStructuredCaptureConversationId();
-    if (!conversationId || !this.allowsStructuredCapture()) {
+    const route = this.structuredCaptureRoute();
+    if (route.kind === 'unsupported') {
       return super.extract();
+    }
+
+    if (route.kind === 'invalid-conversation-id') {
+      return this.extractRenderedFallback(new ChatGptCurrentBranchError('invalid-conversation-id'));
+    }
+    const { conversationId } = route;
+
+    if (!this.allowsStructuredCapture()) {
+      return this.extractRenderedFallback(new ChatGptCurrentBranchError('permission-unavailable'));
     }
 
     try {
@@ -123,17 +152,41 @@ export class ChatGPTExtractor extends BaseExtractor {
       const warnings = [...new Set([...projection.warnings, ...(guarded.warnings ?? [])])];
       return {
         success: true,
-        data: projection.data,
+        data: {
+          ...projection.data,
+          capture: { mode: 'structured-api', completeness: 'complete' },
+        },
+        ...(projection.archiveCompanion && { archiveCompanion: projection.archiveCompanion }),
         ...(warnings.length > 0 ? { warnings } : {}),
       };
-    } catch {
-      const fallback = await super.extract();
-      if (!fallback.success) return fallback;
+    } catch (error) {
+      return this.extractRenderedFallback(error);
+    }
+  }
+
+  private async extractRenderedFallback(error: unknown): Promise<ExtractionResult> {
+    const fallback = await super.extract();
+    const archiveCompanion =
+      error instanceof ChatGptCurrentBranchError ? error.archiveCompanion : undefined;
+    const warnings = [...(fallback.warnings ?? []), structuredFallbackWarning(error)];
+    if (!fallback.success) {
       return {
         ...fallback,
-        warnings: [...(fallback.warnings ?? []), CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING],
+        ...(archiveCompanion ? { archiveCompanion } : {}),
+        warnings,
       };
     }
+    return {
+      ...fallback,
+      ...(archiveCompanion ? { archiveCompanion } : {}),
+      data: fallback.data
+        ? {
+            ...fallback.data,
+            capture: { mode: 'dom-fallback', completeness: 'partial' },
+          }
+        : undefined,
+      warnings,
+    };
   }
 
   // ========== ID & Title Extraction ==========
@@ -152,22 +205,19 @@ export class ChatGPTExtractor extends BaseExtractor {
     return match ? match[1] : null;
   }
 
-  /** Match the same exact ChatGPT route grammar accepted by the background bridge. */
-  private exactStructuredCaptureConversationId(): string | null {
-    if (
-      window.location.origin !== 'https://chatgpt.com' ||
-      window.location.search !== '' ||
-      window.location.hash !== ''
-    ) {
-      return null;
-    }
+  /** Match supported ChatGPT conversation routes and distinguish malformed IDs. */
+  private structuredCaptureRoute(): ChatGptStructuredRoute {
+    if (window.location.origin !== 'https://chatgpt.com') return { kind: 'unsupported' };
 
     const standard = /^\/c\/([^/]+)\/?$/.exec(window.location.pathname);
     const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(
       window.location.pathname
     );
     const conversationId = standard?.[1] ?? custom?.[1];
-    return isChatGptConversationId(conversationId) ? conversationId : null;
+    if (conversationId === undefined) return { kind: 'unsupported' };
+    return isChatGptConversationId(conversationId)
+      ? { kind: 'valid', conversationId }
+      : { kind: 'invalid-conversation-id' };
   }
 
   private allowsStructuredCapture(): boolean {

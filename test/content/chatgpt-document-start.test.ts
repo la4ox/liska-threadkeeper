@@ -471,11 +471,22 @@ describe('startChatGptDocumentStartCapture', () => {
     const laterWrapper = vi.fn();
     page.pageWindow.fetch = laterWrapper as unknown as typeof page.pageWindow.fetch;
 
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(180_000);
 
-    expect(snapshotOf(page)).toEqual({ kind: 'error', code: 'timed-out' });
+    expect(snapshotOf(page)).toEqual({ kind: 'error', code: 'conversation-request-timeout' });
     expect(page.pageWindow.fetch).toBe(laterWrapper);
     expect(captureWrapper).not.toBe(laterWrapper);
+  });
+
+  it('distinguishes a claimed request whose response never settles', async () => {
+    vi.useFakeTimers();
+    const page = fakePage(markedUrl(), () => new Promise<Response>(() => undefined));
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    void page.pageWindow.fetch(ENDPOINT);
+    await vi.advanceTimersByTimeAsync(180_000);
+
+    expect(snapshotOf(page)).toEqual({ kind: 'error', code: 'conversation-response-timeout' });
   });
 
   it('reports state initialization failure without issuing a request', () => {

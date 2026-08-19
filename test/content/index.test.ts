@@ -282,6 +282,11 @@ describe('content/bootstrap', () => {
       loadGeminiConversation();
       mockMessaging({
         settings: { outputOptions: { obsidian: false, file: true, clipboard: false } },
+        save: {
+          results: [{ destination: 'file', success: true }],
+          allSuccessful: true,
+          anySuccessful: true,
+        },
       });
 
       await handleSync();
@@ -290,7 +295,7 @@ describe('content/bootstrap', () => {
         .mocked(sendMessage)
         .mock.calls.map(call => (call[0] as { action: string }).action);
       expect(actions).not.toContain('testConnection');
-      expect(showSuccessToast).toHaveBeenCalled();
+      expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
     });
 
     it('shows an error on unsupported pages', async () => {
@@ -328,12 +333,12 @@ describe('content/bootstrap', () => {
           data: expect.objectContaining({ fileName: expect.stringMatching(/\.md$/) }),
         })
       );
-      expect(showSuccessToast).toHaveBeenCalledWith(expect.stringMatching(/\.md$/), true);
+      expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
       expect(setButtonLoading).toHaveBeenNthCalledWith(1, true);
       expect(setButtonLoading).toHaveBeenLastCalledWith(false);
     });
 
-    it('shows the ACTUAL file name when a collision forced a rename (issue #327)', async () => {
+    it('keeps a collision-resolved filename out of the generic success toast', async () => {
       loadGeminiConversation();
       mockMessaging({
         save: {
@@ -345,7 +350,8 @@ describe('content/bootstrap', () => {
 
       await handleSync();
 
-      expect(showSuccessToast).toHaveBeenCalledWith('hello-a1b2c3d4.md', true);
+      expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
+      expect(showSuccessToast).not.toHaveBeenCalled();
     });
 
     it('shows the appended-message toast when messages were appended', async () => {
@@ -373,6 +379,7 @@ describe('content/bootstrap', () => {
     it('shows a warning when only some outputs succeed', async () => {
       loadGeminiConversation();
       mockMessaging({
+        settings: { outputOptions: { obsidian: true, file: false, clipboard: true } },
         save: {
           results: [
             { destination: 'obsidian', success: true },
@@ -400,7 +407,7 @@ describe('content/bootstrap', () => {
               {
                 destination: 'obsidian',
                 success: true,
-                warning: '1 image could not be saved: img-note-img-1.png',
+                warning: '1 image could not be saved',
               },
             ],
             allSuccessful: true,
@@ -412,10 +419,8 @@ describe('content/bootstrap', () => {
         await vi.advanceTimersByTimeAsync(10_000);
         await pending;
 
-        expect(showSuccessToast).toHaveBeenCalled();
-        expect(showWarningToast).toHaveBeenCalledWith(
-          '1 image could not be saved: img-note-img-1.png'
-        );
+        expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
+        expect(showWarningToast).toHaveBeenCalledWith('1 image could not be saved');
       } finally {
         vi.useRealTimers();
       }

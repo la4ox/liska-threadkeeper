@@ -127,4 +127,28 @@ describe('generateNoteContent', () => {
       expect(content).not.toMatch(/^message_count:/m);
     });
   });
+
+  it('writes YAML-safe ChatGPT capture evidence even when optional template fields are disabled', () => {
+    const settings = createTestSettings({
+      includeId: false,
+      includeTitle: false,
+      includeSource: false,
+      includeDates: false,
+      includeTags: false,
+      includeMessageCount: false,
+    });
+    const chatgptNote = createTestNote({
+      frontmatter: {
+        ...note.frontmatter,
+        source: 'chatgpt',
+        capture_mode: 'structured-api',
+        capture_completeness: 'complete',
+      },
+    });
+
+    const content = generateNoteContent(chatgptNote, settings);
+
+    expect(content).toContain('capture_mode: structured-api');
+    expect(content).toContain('capture_completeness: complete');
+  });
 });

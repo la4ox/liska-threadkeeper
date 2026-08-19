@@ -9,6 +9,7 @@
 
 import {
   buildCaptureManifest,
+  ChatGptNormalizationError,
   normalizeChatGptCapture,
   type RawCaptureArtifact,
   type RawCaptureArtifactRecord,
@@ -17,11 +18,20 @@ import {
 import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
+  CHATGPT_CAPTURE_ERROR_CODES,
+  CHATGPT_CAPTURE_ERROR_MESSAGES,
   CHATGPT_CAPTURE_MAX_BYTES,
   isChatGptCaptureResponse,
   isChatGptConversationId,
   type ChatGptCaptureResponse,
 } from '../../lib/chatgpt-capture-contract';
+import { bytesToBase64 } from '../../lib/image-utils';
+import { canonicalBase64ByteLength } from '../../lib/base64';
+import {
+  ARCHIVE_COMPANION_RELATIVE_PATHS,
+  type ArchiveCompanionArtifact,
+  type ArchiveCompanionBundle,
+} from '../../lib/types';
 import { hashCaptureManifest, sha256Hex } from './response';
 import { requestChatGptConversationCapture } from './chatgpt-request';
 
@@ -36,23 +46,28 @@ export const CHATGPT_CURRENT_BRANCH_ERROR_CODES = [
   'capture-payload-invalid',
   'capture-id-unavailable',
   'capture-id-invalid',
+  'runtime-message-failed',
   'capture-integrity-failed',
   'normalization-failed',
   'projection-failed',
 ] as const;
 
-export type ChatGptCurrentBranchErrorCode = (typeof CHATGPT_CURRENT_BRANCH_ERROR_CODES)[number];
+export type ChatGptCurrentBranchErrorCode =
+  | (typeof CHATGPT_CURRENT_BRANCH_ERROR_CODES)[number]
+  | (typeof CHATGPT_CAPTURE_ERROR_CODES)[number];
 
 /** Stable, credential-free messages for failures local to this composition. */
 export const CHATGPT_CURRENT_BRANCH_ERROR_MESSAGES: Readonly<
   Record<ChatGptCurrentBranchErrorCode, string>
 > = {
+  ...CHATGPT_CAPTURE_ERROR_MESSAGES,
   'invalid-conversation-id': 'ChatGPT conversation ID is invalid.',
   'capture-failed': 'Could not capture the complete ChatGPT conversation.',
   'capture-response-invalid': 'The ChatGPT capture response could not be verified.',
   'capture-payload-invalid': 'The ChatGPT capture payload could not be verified.',
   'capture-id-unavailable': 'Could not create a unique ChatGPT capture identifier.',
   'capture-id-invalid': 'Could not create a safe ChatGPT capture identifier.',
+  'runtime-message-failed': 'The ChatGPT capture request could not reach the extension background.',
   'capture-integrity-failed': 'The ChatGPT capture integrity could not be verified.',
   'normalization-failed': 'The captured ChatGPT conversation could not be normalized.',
   'projection-failed': 'The captured ChatGPT conversation could not be projected.',
@@ -61,11 +76,18 @@ export const CHATGPT_CURRENT_BRANCH_ERROR_MESSAGES: Readonly<
 /** A bounded local error that never carries raw provider data or diagnostics. */
 export class ChatGptCurrentBranchError extends Error {
   readonly code: ChatGptCurrentBranchErrorCode;
+  readonly archiveCompanion?: ArchiveCompanionBundle;
+  readonly detailCode?: string;
 
-  constructor(code: ChatGptCurrentBranchErrorCode) {
+  constructor(
+    code: ChatGptCurrentBranchErrorCode,
+    options: { archiveCompanion?: ArchiveCompanionBundle; detailCode?: string } = {}
+  ) {
     super(CHATGPT_CURRENT_BRANCH_ERROR_MESSAGES[code]);
     this.name = 'ChatGptCurrentBranchError';
     this.code = code;
+    this.archiveCompanion = options.archiveCompanion;
+    this.detailCode = options.detailCode;
   }
 }
 
@@ -78,21 +100,13 @@ export interface ChatGptCurrentBranchDependencies {
   now?: () => Date;
 }
 
-function base64ByteLength(value: string): number | undefined {
-  if (!/^(?:[a-z0-9+/]{4})*(?:[a-z0-9+/]{2}==|[a-z0-9+/]{3}=)?$/i.test(value)) {
-    return undefined;
-  }
-  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
-  return (value.length / 4) * 3 - padding;
-}
-
 /**
  * Decode only canonical standard base64 without Node Buffer or an argument
  * spread. The btoa round-trip rejects decoder normalization such as missing
  * padding or alternate alphabets.
  */
 function strictCanonicalBase64Bytes(value: string): Uint8Array | undefined {
-  const expectedLength = base64ByteLength(value);
+  const expectedLength = canonicalBase64ByteLength(value);
   if (
     expectedLength === undefined ||
     expectedLength > CHATGPT_CAPTURE_MAX_BYTES ||
@@ -145,18 +159,24 @@ function captureId(createCaptureId: (() => string) | undefined): string {
 
   if (
     typeof value !== 'string' ||
-    !/^capture-chatgpt-[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/.test(value)
+    !/^capture-chatgpt-[A-Za-z0-9][A-Za-z0-9_-]{0,239}$/.test(value)
   ) {
     throw new ChatGptCurrentBranchError('capture-id-invalid');
   }
   return value;
 }
 
-function captureArtifact(response: ChatGptCaptureResponse): RawCaptureArtifact {
+interface CapturedArtifact {
+  artifact: RawCaptureArtifact;
+  /** The raw provider string is retained verbatim for eventual archive persistence. */
+  bodyBase64: string;
+}
+
+function captureArtifact(response: ChatGptCaptureResponse): CapturedArtifact {
   if (!isChatGptCaptureResponse(response)) {
     throw new ChatGptCurrentBranchError('capture-response-invalid');
   }
-  if (!response.success) throw new ChatGptCurrentBranchError('capture-failed');
+  if (!response.success) throw new ChatGptCurrentBranchError(response.code);
 
   const data = response.data;
   const bytes = strictCanonicalBase64Bytes(data.bodyBase64);
@@ -179,7 +199,17 @@ function captureArtifact(response: ChatGptCaptureResponse): RawCaptureArtifact {
     sha256: data.sha256,
     endpoint: CHATGPT_CAPTURE_ENDPOINT,
   };
-  return { record, bytes };
+  return { artifact: { record, bytes }, bodyBase64: data.bodyBase64 };
+}
+
+async function verifyCapturedArtifactIntegrity(artifact: RawCaptureArtifact): Promise<void> {
+  try {
+    if ((await sha256Hex(artifact.bytes)) !== artifact.record.sha256.toLowerCase()) {
+      throw new Error('hash mismatch');
+    }
+  } catch {
+    throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  }
 }
 
 function isScriptingPermission(value: unknown): boolean {
@@ -206,7 +236,7 @@ async function requestCaptureResponse(
   try {
     return await (requestCapture ?? requestChatGptConversationCapture)(conversationId);
   } catch {
-    throw new ChatGptCurrentBranchError('capture-failed');
+    throw new ChatGptCurrentBranchError('runtime-message-failed');
   }
 }
 
@@ -237,24 +267,81 @@ function buildCaptureBundle(
   };
 }
 
-async function normalizeVerifiedBundle(bundle: RawCaptureBundle) {
-  let manifestSha256: string;
+async function captureManifestSha256(bundle: RawCaptureBundle): Promise<string> {
   try {
-    manifestSha256 = await hashCaptureManifest(bundle.manifest);
+    return await hashCaptureManifest(bundle.manifest);
   } catch {
     throw new ChatGptCurrentBranchError('capture-integrity-failed');
   }
+}
 
-  try {
-    return await normalizeChatGptCapture({
-      bundle,
-      artifactId: ARTIFACT_ID,
-      manifestSha256,
-      sha256: sha256Hex,
-    });
-  } catch {
-    throw new ChatGptCurrentBranchError('normalization-failed');
-  }
+function serializeJsonBytes(value: unknown): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(value, null, 2));
+}
+
+async function archiveCompanionArtifact(
+  kind: ArchiveCompanionArtifact['kind'],
+  relativePath: string,
+  bytes: Uint8Array,
+  bodyBase64?: string
+): Promise<ArchiveCompanionArtifact> {
+  const base64 = bodyBase64 ?? bytesToBase64(bytes);
+  return {
+    kind,
+    relativePath,
+    mediaType: 'application/json',
+    byteLength: bytes.byteLength,
+    sha256: await sha256Hex(bytes),
+    bodyBase64: base64,
+  };
+}
+
+/**
+ * Assemble the durable evidence available before provider normalization.
+ * The raw provider base64 is passed through unchanged, so a failed normalizer
+ * never destroys the source snapshot needed for an offline repair.
+ */
+async function buildRawManifestCompanionBundle(
+  bundle: RawCaptureBundle,
+  rawBodyBase64: string
+): Promise<ArchiveCompanionBundle> {
+  const [raw] = bundle.artifacts;
+  if (!raw) throw new ChatGptCurrentBranchError('capture-integrity-failed');
+
+  const manifestBytes = serializeJsonBytes(bundle.manifest);
+  const conversationKey = await sha256Hex(new TextEncoder().encode(bundle.manifest.conversationId));
+  const artifacts = await Promise.all([
+    archiveCompanionArtifact('raw', ARCHIVE_COMPANION_RELATIVE_PATHS.raw, raw.bytes, rawBodyBase64),
+    archiveCompanionArtifact('manifest', ARCHIVE_COMPANION_RELATIVE_PATHS.manifest, manifestBytes),
+  ]);
+
+  return {
+    captureId: bundle.manifest.captureId,
+    conversationKey,
+    artifacts: artifacts as readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact],
+  };
+}
+
+async function appendCanonicalCompanion(
+  companion: ArchiveCompanionBundle,
+  archive: Awaited<ReturnType<typeof normalizeChatGptCapture>>['archive']
+): Promise<ArchiveCompanionBundle> {
+  const canonical = await archiveCompanionArtifact(
+    'canonical',
+    ARCHIVE_COMPANION_RELATIVE_PATHS.canonical,
+    serializeJsonBytes(archive)
+  );
+  const [raw, manifest] = companion.artifacts;
+  return {
+    ...companion,
+    artifacts: [raw, manifest, canonical],
+  };
+}
+
+function safeNormalizerCode(error: unknown): string | undefined {
+  return error instanceof ChatGptNormalizationError && /^[a-z0-9-]{1,64}$/.test(error.code)
+    ? error.code
+    : undefined;
 }
 
 /**
@@ -262,6 +349,7 @@ async function normalizeVerifiedBundle(bundle: RawCaptureBundle) {
  * graph branch. The complete graph remains in the ephemeral canonical archive;
  * callers receive only the established legacy projection contract.
  */
+// eslint-disable-next-line max-lines-per-function -- Keeping raw persistence before normalization visible in one linear pipeline prevents evidence-loss regressions.
 export async function captureChatGptCurrentBranch(
   conversationId: string,
   includeToolContent: boolean,
@@ -272,18 +360,49 @@ export async function captureChatGptCurrentBranch(
   }
 
   const response = await requestCaptureResponse(conversationId, dependencies.requestCapture);
-  const artifact = captureArtifact(response);
+  const captured = captureArtifact(response);
+  await verifyCapturedArtifactIntegrity(captured.artifact);
   const bundle = buildCaptureBundle(
     conversationId,
-    artifact,
+    captured.artifact,
     dependencies.createCaptureId,
     dependencies.now
   );
-  const archive = await normalizeVerifiedBundle(bundle);
+  const manifestSha256 = await captureManifestSha256(bundle);
+  let archiveCompanion: ArchiveCompanionBundle;
+  try {
+    archiveCompanion = await buildRawManifestCompanionBundle(bundle, captured.bodyBase64);
+  } catch {
+    throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  }
+
+  let normalized: Awaited<ReturnType<typeof normalizeChatGptCapture>>;
+  try {
+    normalized = await normalizeChatGptCapture({
+      bundle,
+      artifactId: ARTIFACT_ID,
+      manifestSha256,
+      sha256: sha256Hex,
+    });
+  } catch (error) {
+    throw new ChatGptCurrentBranchError('normalization-failed', {
+      archiveCompanion,
+      detailCode: safeNormalizerCode(error),
+    });
+  }
 
   try {
-    return projectArchiveBranch(archive.archive, { includeToolContent });
+    archiveCompanion = await appendCanonicalCompanion(archiveCompanion, normalized.archive);
   } catch {
-    throw new ChatGptCurrentBranchError('projection-failed');
+    throw new ChatGptCurrentBranchError('capture-integrity-failed', { archiveCompanion });
+  }
+
+  try {
+    return {
+      ...projectArchiveBranch(normalized.archive, { includeToolContent }),
+      archiveCompanion,
+    };
+  } catch {
+    throw new ChatGptCurrentBranchError('projection-failed', { archiveCompanion });
   }
 }

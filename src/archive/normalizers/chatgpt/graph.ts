@@ -163,15 +163,33 @@ function validateNodeSymmetry(
 
 function validateCycles(links: Map<string, { parentId: string | null; childIds: string[] }>): void {
   const states = new Map<string, 'visiting' | 'visited'>();
-  const visit = (nodeId: string): void => {
-    if (states.get(nodeId) === 'visiting')
-      fail('graph-cycle', `ChatGPT graph contains a cycle at ${nodeId}.`);
-    if (states.get(nodeId) === 'visited') return;
-    states.set(nodeId, 'visiting');
-    links.get(nodeId)?.childIds.forEach(visit);
-    states.set(nodeId, 'visited');
-  };
-  links.forEach((_link, nodeId) => visit(nodeId));
+  for (const startId of links.keys()) {
+    if (states.get(startId) === 'visited') continue;
+    const stack: Array<{ nodeId: string; exiting: boolean }> = [
+      { nodeId: startId, exiting: false },
+    ];
+    while (stack.length > 0) {
+      const frame = stack.pop();
+      if (!frame) break;
+      if (frame.exiting) {
+        states.set(frame.nodeId, 'visited');
+        continue;
+      }
+
+      const state = states.get(frame.nodeId);
+      if (state === 'visiting') {
+        fail('graph-cycle', `ChatGPT graph contains a cycle at ${frame.nodeId}.`);
+      }
+      if (state === 'visited') continue;
+
+      states.set(frame.nodeId, 'visiting');
+      stack.push({ nodeId: frame.nodeId, exiting: true });
+      const children = links.get(frame.nodeId)?.childIds ?? [];
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        stack.push({ nodeId: children[index], exiting: false });
+      }
+    }
+  }
 }
 
 function normalizeNodes(

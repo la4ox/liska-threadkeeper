@@ -193,7 +193,7 @@ describe('captureChatGptInTemporaryTab', () => {
         timeoutMs: 1_000,
         pollIntervalMs: 250,
       })
-    ).rejects.toMatchObject({ code: 'timed-out' });
+    ).rejects.toMatchObject({ code: 'capture-result-timeout' });
 
     expect(chromeApi.tabs.create).toHaveBeenCalledOnce();
     expect(chromeApi.tabs.remove).toHaveBeenCalledOnce();
@@ -227,7 +227,7 @@ describe('captureChatGptInTemporaryTab', () => {
         timeoutMs: 1_000,
         pollIntervalMs: 500,
       })
-    ).rejects.toMatchObject({ code: 'timed-out' });
+    ).rejects.toMatchObject({ code: 'capture-result-timeout' });
 
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
     expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
@@ -255,7 +255,7 @@ describe('captureChatGptInTemporaryTab', () => {
         timeoutMs: 1_000,
         pollIntervalMs: 1_000,
       })
-    ).rejects.toMatchObject({ code: 'timed-out' });
+    ).rejects.toMatchObject({ code: 'capture-result-timeout' });
 
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
     expect(chromeApi.scripting.executeScript.mock.calls.map(([call]) => call.func)).toEqual([
@@ -283,7 +283,7 @@ describe('captureChatGptInTemporaryTab', () => {
 
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
-    ).rejects.toMatchObject({ code: 'capture-failed' });
+    ).rejects.toMatchObject({ code: 'unexpected-path' });
     expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });
@@ -306,7 +306,7 @@ describe('captureChatGptInTemporaryTab', () => {
     ]);
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(mismatchedHash))
-    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
+    ).rejects.toMatchObject({ code: 'response-integrity-invalid' });
   });
 
   it('rejects an invalid ID before nonce generation or tab creation', async () => {
@@ -330,7 +330,7 @@ describe('captureChatGptInTemporaryTab', () => {
           throw new Error(`sensitive ${CONVERSATION_ID}`);
         },
       })
-    ).rejects.toMatchObject({ code: 'capture-failed' });
+    ).rejects.toMatchObject({ code: 'nonce-unavailable' });
     expect(chromeApi.tabs.create).not.toHaveBeenCalled();
     expect(chromeApi.tabs.remove).not.toHaveBeenCalled();
   });
@@ -406,7 +406,7 @@ describe('captureChatGptInTemporaryTab', () => {
     vi.stubGlobal('chrome', noIdentity);
     vi.stubGlobal('crypto', { subtle: webcrypto.subtle });
     await expect(captureChatGptInTemporaryTab(CONVERSATION_ID)).rejects.toMatchObject({
-      code: 'capture-failed',
+      code: 'nonce-unavailable',
     });
     expect(noIdentity.tabs.create).not.toHaveBeenCalled();
 
@@ -414,7 +414,7 @@ describe('captureChatGptInTemporaryTab', () => {
     vi.stubGlobal('chrome', noDigest);
     vi.stubGlobal('crypto', { randomUUID: () => NONCE });
     await expect(captureChatGptInTemporaryTab(CONVERSATION_ID)).rejects.toMatchObject({
-      code: 'capture-failed',
+      code: 'hash-unavailable',
     });
     expect(noDigest.tabs.remove).toHaveBeenCalledWith(73);
   });
@@ -469,7 +469,7 @@ describe('captureChatGptInTemporaryTab', () => {
           throw new Error('digest failed');
         },
       })
-    ).rejects.toMatchObject({ code: 'capture-failed' });
+    ).rejects.toMatchObject({ code: 'hash-unavailable' });
   });
 
   it('sanitizes an unknown page error code', async () => {
@@ -487,7 +487,7 @@ describe('captureChatGptInTemporaryTab', () => {
         ...captureDependencies(unsafeNonce),
         createNonce: () => 'unsafe nonce',
       })
-    ).rejects.toMatchObject({ code: 'capture-failed' });
+    ).rejects.toMatchObject({ code: 'nonce-invalid' });
     expect(unsafeNonce.tabs.create).not.toHaveBeenCalled();
 
     const synchronousCreateFailure = fakeChrome();
@@ -518,6 +518,16 @@ describe('captureChatGptInTemporaryTab', () => {
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
     ).resolves.toMatchObject({ bodyBase64: capturedResult().capture.bodyBase64 });
+  });
+
+  it('preserves success when a Chromium fork exposes callback-style void cleanup', async () => {
+    const chromeApi = fakeChrome();
+    chromeApi.tabs.remove.mockReturnValueOnce(undefined as never);
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+    ).resolves.toMatchObject({ bodyBase64: capturedResult().capture.bodyBase64 });
+    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });
 
   it('waits through malformed and temporarily unavailable tab metadata', async () => {
@@ -556,7 +566,7 @@ describe('captureChatGptInTemporaryTab', () => {
         timeoutMs: 1_000,
         pollIntervalMs: 250,
       })
-    ).rejects.toMatchObject({ code: 'timed-out' });
+    ).rejects.toMatchObject({ code: 'temporary-tab-ready-timeout' });
     expect(chromeApi.scripting.executeScript).not.toHaveBeenCalled();
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });

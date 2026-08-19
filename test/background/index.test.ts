@@ -1111,7 +1111,7 @@ describe('background/index', () => {
           sendResponse
         );
 
-      it('warns with every probe outcome when it forks an alternative name', async () => {
+      it('warns with privacy-safe probe states when it forks an alternative name', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         mockClient.getFile.mockImplementation((path: string) =>
           Promise.resolve(
@@ -1126,20 +1126,11 @@ describe('background/index', () => {
 
         const call = warn.mock.calls.find(c => String(c[0]).includes('Filename collision'));
         expect(call).toBeDefined();
-        const detail = call?.[1] as {
-          expectedId: string;
-          savedAs: string;
-          probes: Array<{ attempt: number; fileName: string; state: string; foundId?: string }>;
-        };
-        expect(detail.expectedId).toBe('test-id');
-        expect(detail.savedAs).toBe(`test-${suffix}.md`);
-        expect(detail.probes[0]).toEqual({
-          attempt: 0,
-          fileName: 'test.md',
-          state: 'different-id',
-          foundId: 'other_id',
-        });
-        expect(detail.probes[1]).toMatchObject({ attempt: 1, state: 'absent' });
+        const detail = call?.[1] as { probes: Array<{ attempt: number; state: string }> };
+        expect(detail.probes).toEqual([
+          { attempt: 0, state: 'different-id' },
+          { attempt: 1, state: 'absent' },
+        ]);
         warn.mockRestore();
       });
 
@@ -1158,7 +1149,7 @@ describe('background/index', () => {
 
         const call = warn.mock.calls.find(c => String(c[0]).includes('Filename collision'));
         const detail = call?.[1] as { probes: Array<{ attempt: number; state: string }> };
-        expect(detail.probes[0]).toEqual({ attempt: 0, fileName: 'test.md', state: 'empty' });
+        expect(detail.probes[0]).toEqual({ attempt: 0, state: 'empty' });
         // Unchanged behaviour: the fork still happens.
         expect(mockClient.putFile).toHaveBeenCalledWith(
           `AI/Gemini/test-${suffix}.md`,
@@ -1816,6 +1807,7 @@ describe('background/index', () => {
       mockClient.getFile.mockResolvedValue(null); // fresh file
       mockClient.putFile.mockResolvedValue(undefined);
       mockClient.putBinaryFile.mockRejectedValue(new Error('boom'));
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
       const sendResponse = save(['obsidian']);
       await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
@@ -1825,8 +1817,10 @@ describe('background/index', () => {
       // The note itself must still be written (image failures are non-blocking).
       expect(obsidian?.success).toBe(true);
       expect(mockClient.putFile).toHaveBeenCalled();
-      // ...but the failure must no longer be silent.
-      expect(obsidian?.warning).toContain('img-note-img-1.png');
+      // ...but the failure must no longer be silent or leak the title-derived attachment name.
+      expect(obsidian?.warning).toBe('1 image could not be saved');
+      expect(obsidian?.warning).not.toContain('img-note-img-1.png');
+      expect(consoleWarn).toHaveBeenCalledWith('[G2O Background] Image write failed');
     });
 
     it('obsidian: reports no warning when every image write succeeds', async () => {
@@ -1841,6 +1835,31 @@ describe('background/index', () => {
       const obsidian = response.results.find(r => r.destination === 'obsidian');
       expect(obsidian?.success).toBe(true);
       expect(obsidian?.warning).toBeUndefined();
+    });
+
+    it('file: reports an image failure without exposing the title-derived image filename', async () => {
+      let downloads = 0;
+      vi.mocked(chrome.downloads.download).mockImplementation((_options, callback) => {
+        downloads += 1;
+        if (downloads === 2) {
+          (chrome.runtime as { lastError: chrome.runtime.LastError | null }).lastError = {
+            message: 'Download blocked',
+          };
+          callback?.(undefined);
+          (chrome.runtime as { lastError: chrome.runtime.LastError | null }).lastError = null;
+        } else {
+          callback?.(1);
+        }
+        return 1 as unknown as ReturnType<typeof chrome.downloads.download>;
+      });
+
+      const sendResponse = save(['file']);
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      const file = response.results.find(result => result.destination === 'file');
+      expect(file).toMatchObject({ success: false, error: 'Image download failed (1 image)' });
+      expect(file?.error).not.toContain('img-note-img-1.png');
     });
 
     it('obsidian: image export disabled strips placeholders and writes no binary', async () => {
@@ -2448,9 +2467,8 @@ describe('background/index', () => {
       const call = info.mock.calls.find(c => String(c[0]).includes('Append lookup'));
       expect(call).toBeDefined();
       expect(call?.[1]).toMatchObject({
-        id: 'claude_abc-def',
         missReason: 'empty-directory',
-        directProbe: { state: 'absent' },
+        directProbeState: 'absent',
       });
       info.mockRestore();
     });

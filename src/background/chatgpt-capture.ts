@@ -18,6 +18,7 @@ import type {
   ChatGptCaptureArtifact,
   ChatGptCaptureErrorCode,
 } from '../lib/chatgpt-capture-contract';
+import { canonicalBase64ByteLength } from '../lib/base64';
 
 export {
   CHATGPT_CAPTURE_ENDPOINT,
@@ -28,13 +29,13 @@ export type {
   ChatGptCaptureErrorCode as ChatGptTemporaryCaptureErrorCode,
 } from '../lib/chatgpt-capture-contract';
 
-export const CHATGPT_CAPTURE_TIMEOUT_MS = 25_000;
+export const CHATGPT_CAPTURE_TIMEOUT_MS = 190_000;
 
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
 const CAPTURE_FRAGMENT_PREFIX = '#liska-capture=';
 const MIN_TIMEOUT_MS = 1_000;
-// Reserve one second for serial state/tab cleanup plus scheduler tolerance.
-const MAX_TIMEOUT_MS = 28_000;
+// Let the page-owned 180-second timeout win before background cleanup.
+const MAX_TIMEOUT_MS = 195_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
 
@@ -85,6 +86,8 @@ type HookErrorCode =
   | 'response-http-error'
   | 'response-media-type-invalid'
   | 'response-processing-failed'
+  | 'conversation-request-timeout'
+  | 'conversation-response-timeout'
   | 'timed-out'
   | 'payload-too-large'
   | 'capture-failed';
@@ -145,7 +148,7 @@ function withinTimeout<T>(
 
 function defaultNonce(): string {
   if (typeof globalThis.crypto?.randomUUID !== 'function') {
-    throw new ChatGptTemporaryCaptureError('capture-failed');
+    throw new ChatGptTemporaryCaptureError('nonce-unavailable');
   }
   return globalThis.crypto.randomUUID();
 }
@@ -178,17 +181,9 @@ function isHookErrorResult(value: unknown): value is Extract<HookResult, { kind:
   return isHookResult(value, 'error') && typeof (value as { code?: unknown }).code === 'string';
 }
 
-function base64ByteLength(value: string): number | undefined {
-  if (!/^(?:[a-z0-9+/]{4})*(?:[a-z0-9+/]{2}==|[a-z0-9+/]{3}=)?$/i.test(value)) {
-    return undefined;
-  }
-  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
-  return (value.length / 4) * 3 - padding;
-}
-
 /** Decode only canonical standard base64, so page data cannot be lossy-normalized by a decoder. */
 function strictBase64Bytes(value: string): Uint8Array | undefined {
-  if (base64ByteLength(value) === undefined || typeof globalThis.atob !== 'function') {
+  if (canonicalBase64ByteLength(value) === undefined || typeof globalThis.atob !== 'function') {
     return undefined;
   }
 
@@ -218,7 +213,7 @@ function isJsonMediaType(value: unknown): value is string {
 
 async function defaultDigestSha256(bytes: Uint8Array): Promise<string> {
   if (typeof globalThis.crypto?.subtle?.digest !== 'function') {
-    throw new ChatGptTemporaryCaptureError('capture-failed');
+    throw new ChatGptTemporaryCaptureError('hash-unavailable');
   }
   const buffer = bytes.buffer.slice(
     bytes.byteOffset,
@@ -235,6 +230,8 @@ function mapHookError(code: unknown): ChatGptCaptureErrorCode {
     code === 'response-http-error' ||
     code === 'response-media-type-invalid' ||
     code === 'response-processing-failed' ||
+    code === 'conversation-request-timeout' ||
+    code === 'conversation-response-timeout' ||
     code === 'timed-out' ||
     code === 'payload-too-large' ||
     code === 'capture-failed'
@@ -254,7 +251,7 @@ function isCapturedResult(value: unknown): value is Extract<HookResult, { kind: 
     Number.isSafeInteger(record.byteLength) &&
     (record.byteLength as number) >= 0 &&
     (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
-    base64ByteLength(record.bodyBase64) === record.byteLength &&
+    canonicalBase64ByteLength(record.bodyBase64) === record.byteLength &&
     typeof record.sha256 === 'string' &&
     /^[a-f0-9]{64}$/i.test(record.sha256) &&
     isJsonMediaType(record.mediaType)
@@ -281,14 +278,14 @@ async function validateCapturedResult(
   try {
     actualSha256 = await digestSha256(bytes);
   } catch {
-    throw new ChatGptTemporaryCaptureError('capture-failed');
+    throw new ChatGptTemporaryCaptureError('hash-unavailable');
   }
   const normalizedSha256 = actualSha256.toLowerCase();
   if (
     !/^[a-f0-9]{64}$/.test(normalizedSha256) ||
     normalizedSha256 !== capture.sha256.toLowerCase()
   ) {
-    return undefined;
+    throw new ChatGptTemporaryCaptureError('response-integrity-invalid');
   }
 
   return {
@@ -320,11 +317,13 @@ function createSafeNonce(createNonce: () => string): string {
   let nonce: string;
   try {
     nonce = createNonce();
-  } catch {
-    throw new ChatGptTemporaryCaptureError('capture-failed');
+  } catch (error) {
+    throw error instanceof ChatGptTemporaryCaptureError
+      ? error
+      : new ChatGptTemporaryCaptureError('nonce-unavailable');
   }
   if (!isSafeNonce(nonce)) {
-    throw new ChatGptTemporaryCaptureError('capture-failed');
+    throw new ChatGptTemporaryCaptureError('nonce-invalid');
   }
   return nonce;
 }
@@ -333,8 +332,23 @@ async function removeTemporaryTab(
   chromeApi: ChatGptCaptureChromeApi,
   tabId: number
 ): Promise<void> {
+  let removal: unknown;
+  try {
+    // Chromium forks may expose only the legacy callback/void form. The
+    // callback is optional, so a void return still means removal was started.
+    removal = chromeApi.tabs.remove(tabId);
+  } catch {
+    return;
+  }
+  if (
+    typeof removal !== 'object' ||
+    removal === null ||
+    typeof (removal as PromiseLike<void>).then !== 'function'
+  ) {
+    return;
+  }
   await withinTimeout(
-    chromeApi.tabs.remove(tabId),
+    Promise.resolve(removal as PromiseLike<void>),
     CLEANUP_STEP_TIMEOUT_MS,
     'capture-failed'
   ).catch(() => undefined);
@@ -434,17 +448,17 @@ async function waitForTemporaryTarget(
     const readiness = await withinTimeout(
       readTemporaryTabReadiness(chromeApi, tabId, conversationId),
       remainingTimeout(deadline, now),
-      'timed-out'
+      'temporary-tab-ready-timeout'
     );
     if (isReadinessResult(readiness, 'ready')) return;
     if (isReadinessResult(readiness, 'origin-rejected')) {
       throw new ChatGptTemporaryCaptureError('unexpected-origin');
     }
     if (isReadinessResult(readiness, 'path-rejected')) {
-      throw new ChatGptTemporaryCaptureError('capture-failed');
+      throw new ChatGptTemporaryCaptureError('unexpected-path');
     }
     if (!isReadinessResult(readiness, 'waiting')) {
-      throw new ChatGptTemporaryCaptureError('capture-failed');
+      throw new ChatGptTemporaryCaptureError('unexpected-readiness');
     }
 
     const remaining = deadline - now();
@@ -452,7 +466,7 @@ async function waitForTemporaryTarget(
     await sleep(Math.min(pollIntervalMs, remaining));
   }
 
-  throw new ChatGptTemporaryCaptureError('timed-out');
+  throw new ChatGptTemporaryCaptureError('temporary-tab-ready-timeout');
 }
 
 async function readHookState(
@@ -486,7 +500,7 @@ async function waitForCapturedResult(
     const state = await withinTimeout(
       readHookState(dependencies.chromeApi, tabId, nonce),
       remainingTimeout(deadline, dependencies.now),
-      'timed-out'
+      'capture-result-timeout'
     );
     const capture = await validateCapturedResult(state, dependencies.digestSha256);
     if (capture !== undefined) {
@@ -506,7 +520,7 @@ async function waitForCapturedResult(
     if (remaining <= 0) break;
     await dependencies.sleep(Math.min(dependencies.pollIntervalMs, remaining));
   }
-  throw new ChatGptTemporaryCaptureError('timed-out');
+  throw new ChatGptTemporaryCaptureError('capture-result-timeout');
 }
 
 async function cleanupTemporaryTab(
@@ -565,7 +579,7 @@ export async function captureChatGptInTemporaryTab(
  * serialized into MAIN world, where Object/Function/Number built-ins are page
  * mutable; the extension-world validator checks all non-primitive invariants.
  */
-// eslint-disable-next-line complexity -- Chrome serializes this allowlist reader into MAIN world, so its primitive-only validation must stay self-contained.
+// eslint-disable-next-line complexity, max-lines-per-function -- Chrome serializes this allowlist reader into MAIN world, so its primitive-only validation must stay self-contained.
 export function readChatGptTemporaryCaptureState(nonce: string): HookResult {
   const stateKey = `__liskaChatGptCapture_${nonce}`;
   try {
@@ -583,6 +597,8 @@ export function readChatGptTemporaryCaptureState(nonce: string): HookResult {
         code === 'response-http-error' ||
         code === 'response-media-type-invalid' ||
         code === 'response-processing-failed' ||
+        code === 'conversation-request-timeout' ||
+        code === 'conversation-response-timeout' ||
         code === 'timed-out' ||
         code === 'payload-too-large' ||
         code === 'capture-failed'

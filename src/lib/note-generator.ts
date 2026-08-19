@@ -48,6 +48,14 @@ export function generateNoteContent(note: ObsidianNote, settings: ExtensionSetti
     lines.push(`message_count: ${note.frontmatter.message_count}`);
   }
 
+  // ChatGPT capture evidence is intentionally independent from user template
+  // toggles: a partial DOM fallback must not look like a complete archive.
+  if (note.frontmatter.capture_mode) {
+    lines.push(`capture_mode: ${escapeYamlValue(note.frontmatter.capture_mode)}`);
+  }
+  if (note.frontmatter.capture_completeness) {
+    lines.push(`capture_completeness: ${escapeYamlValue(note.frontmatter.capture_completeness)}`);
+  }
   lines.push('---');
   lines.push('');
 

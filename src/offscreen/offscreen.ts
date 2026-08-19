@@ -10,8 +10,15 @@
  * See: https://github.com/GoogleChrome/developer.chrome.com/issues/4660
  */
 
+import { MAX_CONTENT_SIZE } from '../lib/constants';
+import { canonicalBase64ByteLength } from '../lib/base64';
 import { extractErrorMessage } from '../lib/error-utils';
-import type { ClipboardWriteResponse, OffscreenClipboardMessage } from '../lib/types';
+import type {
+  ArchiveBlobCreateResponse,
+  ArchiveBlobRevokeResponse,
+  ClipboardWriteResponse,
+  OffscreenMessage,
+} from '../lib/types';
 
 /**
  * Handle clipboard write request using document.execCommand
@@ -39,14 +46,53 @@ function handleClipboardWrite(content: string): boolean {
   return success;
 }
 
+const archiveBlobUrls = new Set<string>();
+
+function decodeArchiveBytes(base64: string): Uint8Array {
+  const expectedLength = canonicalBase64ByteLength(base64);
+  if (expectedLength === undefined) throw new Error('invalid archive bytes');
+  if (expectedLength > MAX_CONTENT_SIZE) {
+    throw new Error('archive bytes exceed the safety limit');
+  }
+  const binary = atob(base64);
+  if (binary.length !== expectedLength || btoa(binary) !== base64) {
+    throw new Error('invalid archive bytes');
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function createArchiveBlobUrl(bodyBase64: string, mediaType: string): string {
+  if (mediaType !== 'application/json') throw new Error('invalid archive media type');
+  const bytes = decodeArchiveBytes(bodyBase64);
+  const exact = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+  const url = URL.createObjectURL(new Blob([exact], { type: mediaType }));
+  archiveBlobUrls.add(url);
+  return url;
+}
+
+function revokeArchiveBlobUrl(url: string): boolean {
+  if (!archiveBlobUrls.delete(url)) return false;
+  URL.revokeObjectURL(url);
+  return true;
+}
+
 /**
  * Message listener for clipboard operations
  */
 chrome.runtime.onMessage.addListener(
   (
-    message: OffscreenClipboardMessage,
+    message: OffscreenMessage,
     sender: chrome.runtime.MessageSender,
-    sendResponse: (response: ClipboardWriteResponse) => void
+    sendResponse: (
+      response: ClipboardWriteResponse | ArchiveBlobCreateResponse | ArchiveBlobRevokeResponse
+    ) => void
   ) => {
     // Security: only accept messages from this extension's own non-content-script
     // contexts (service worker or popup). `sender.tab` is undefined for those and
@@ -73,6 +119,30 @@ chrome.runtime.onMessage.addListener(
         });
       }
       return true; // Indicates async response
+    }
+
+    if (message.action === 'archiveBlobCreate' && message.target === 'offscreen') {
+      try {
+        sendResponse({
+          success: true,
+          url: createArchiveBlobUrl(message.bodyBase64, message.mediaType),
+        });
+      } catch {
+        sendResponse({ success: false, error: 'Could not prepare archive download' });
+      }
+      return true;
+    }
+
+    if (message.action === 'archiveBlobRevoke' && message.target === 'offscreen') {
+      try {
+        const revoked = revokeArchiveBlobUrl(message.url);
+        sendResponse(
+          revoked ? { success: true } : { success: false, error: 'Unknown archive Blob URL' }
+        );
+      } catch {
+        sendResponse({ success: false, error: 'Could not release archive download' });
+      }
+      return true;
     }
     return false;
   }

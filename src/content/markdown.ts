@@ -74,6 +74,16 @@ export function generateContentHash(content: string): string {
   return generateHash(content);
 }
 
+function captureEvidenceFrontmatter(
+  data: ConversationData
+): Pick<NoteFrontmatter, 'capture_mode' | 'capture_completeness'> {
+  if (data.source !== 'chatgpt' || !data.capture) return {};
+  return {
+    capture_mode: data.capture.mode,
+    capture_completeness: data.capture.completeness,
+  };
+}
+
 /**
  * Convert conversation data to Obsidian note
  */
@@ -95,6 +105,7 @@ export function conversationToNote(data: ConversationData, options: TemplateOpti
         ? ['ai-research', 'deep-research', data.source]
         : ['ai-conversation', data.source],
     message_count: data.messages.length,
+    ...captureEvidenceFrontmatter(data),
   };
 
   // Generate body - different format for Deep Research vs normal conversation

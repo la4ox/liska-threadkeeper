@@ -4,10 +4,10 @@
  */
 
 import { getErrorMessage } from '../lib/error-utils';
-import { getSettings, migrateSettings } from '../lib/storage';
+import { getSettings, migrateSettings, saveSettings } from '../lib/storage';
 import { validateChatGptCaptureSender, validateSender, validateMessageContent } from './validation';
 import { handleTestConnection } from './obsidian-handlers';
-import { handleMultiOutput } from './output-handlers';
+import { handleMultiOutput, handlePersistArchiveCompanion } from './output-handlers';
 import { handleFetchImage } from './image-fetch';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
@@ -15,7 +15,15 @@ import {
   isChatGptCaptureResponse,
 } from '../lib/chatgpt-capture-contract';
 import { captureChatGptInTemporaryTab, ChatGptTemporaryCaptureError } from './chatgpt-capture';
-import type { ExtensionMessage, ContentScriptSettings, ExtensionSettings } from '../lib/types';
+import type {
+  ExtensionMessage,
+  ContentScriptSettings,
+  ExtensionSettings,
+  OutputOptions,
+} from '../lib/types';
+
+/** Latest acknowledged popup intent while chrome.storage.sync is committing. */
+let outputOptionsOverride: OutputOptions | undefined;
 
 // Run settings migration on service worker startup (C-01)
 // Note: top-level await not available in service workers, use .catch() for error handling
@@ -64,6 +72,11 @@ chrome.runtime.onMessage.addListener(
 
     if (!isAuthorizedChatGptCaptureRequest(message, sender)) {
       sendResponse(createChatGptCaptureFailure('capture-failed'));
+      return false;
+    }
+
+    if (!isAuthorizedOutputOptionsUpdate(message, sender)) {
+      sendResponse({ success: false, error: 'Unauthorized' });
       return false;
     }
 
@@ -126,6 +139,18 @@ function isAuthorizedChatGptCaptureRequest(
   );
 }
 
+function isAuthorizedOutputOptionsUpdate(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (message.action !== 'updateOutputOptions') return true;
+  return (
+    sender.tab === undefined &&
+    sender.id === chrome.runtime.id &&
+    sender.url === chrome.runtime.getURL('src/popup/index.html')
+  );
+}
+
 /** Chrome 96 exposes permissions.contains as a callback API; reject unavailable APIs as absent. */
 function hasScriptingPermission(): Promise<boolean> {
   return new Promise(resolve => {
@@ -166,8 +191,16 @@ async function handleChatGptCapture(conversationId: string) {
     return createChatGptCaptureFailure('permission-unavailable');
   }
 
+  let capture: Awaited<ReturnType<typeof captureChatGptInTemporaryTab>>;
   try {
-    const capture = await captureChatGptInTemporaryTab(conversationId);
+    capture = await captureChatGptInTemporaryTab(conversationId);
+  } catch (error) {
+    return createChatGptCaptureFailure(
+      error instanceof ChatGptTemporaryCaptureError ? error.code : 'background-capture-exception'
+    );
+  }
+
+  try {
     const response = {
       success: true as const,
       data: {
@@ -184,10 +217,8 @@ async function handleChatGptCapture(conversationId: string) {
     return isChatGptCaptureResponse(response)
       ? response
       : createChatGptCaptureFailure('unexpected-capture-result');
-  } catch (error) {
-    return createChatGptCaptureFailure(
-      error instanceof ChatGptTemporaryCaptureError ? error.code : 'capture-failed'
-    );
+  } catch {
+    return createChatGptCaptureFailure('capture-response-validation-exception');
   }
 }
 
@@ -214,11 +245,27 @@ async function handleMessage(
     return handleChatGptCapture(message.conversationId);
   }
 
-  const settings = await getSettings();
+  if (message.action === 'updateOutputOptions') {
+    outputOptionsOverride = { ...message.outputOptions };
+    try {
+      await saveSettings({ outputOptions: message.outputOptions });
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Could not save output settings' };
+    }
+  }
+
+  const storedSettings = await getSettings();
+  const settings = outputOptionsOverride
+    ? { ...storedSettings, outputOptions: { ...outputOptionsOverride } }
+    : storedSettings;
 
   switch (message.action) {
     case 'saveToOutputs':
       return handleMultiOutput(message.data, message.outputs, settings);
+
+    case 'persistArchiveCompanion':
+      return handlePersistArchiveCompanion(message, settings);
 
     case 'testConnection':
       return handleTestConnection(settings);

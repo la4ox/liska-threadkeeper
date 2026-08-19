@@ -240,6 +240,29 @@ describe('ObsidianApiClient', () => {
     });
   });
 
+  describe('getBinaryFile', () => {
+    it('returns exact response bytes for archive write verification', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: () => Promise.resolve(new Uint8Array([0, 255, 1]).buffer),
+      });
+
+      const bytes = await client.getBinaryFile('AI/chatgpt/archive.json');
+
+      expect(Array.from(bytes ?? [])).toEqual([0, 255, 1]);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:27123/vault/AI/chatgpt/archive.json',
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    it('returns null for a missing binary archive companion', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 404 });
+      await expect(client.getBinaryFile('missing.json')).resolves.toBeNull();
+    });
+  });
+
   describe('putFile', () => {
     it('creates or updates file successfully', async () => {
       mockFetch.mockResolvedValue({ ok: true, status: 200 });

@@ -123,6 +123,7 @@ async function initWithDefaults(): Promise<void> {
 describe('popup/app', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(sendMessage).mockResolvedValue({ success: true } as never);
   });
 
   describe('initPopup', () => {
@@ -316,6 +317,49 @@ describe('popup/app', () => {
   });
 
   describe('save flow', () => {
+    it('persists output destination switches immediately', async () => {
+      await initWithDefaults();
+
+      const obsidian = el<HTMLInputElement>('outputObsidian');
+      obsidian.checked = false;
+      obsidian.dispatchEvent(new Event('change'));
+
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'updateOutputOptions',
+          outputOptions: { obsidian: false, file: false, clipboard: true },
+        })
+      );
+      expect(statusEl().textContent).toBe('status_settingsSaved');
+    });
+
+    it('serializes rapid output changes so the final selection wins', async () => {
+      await initWithDefaults();
+
+      const obsidian = el<HTMLInputElement>('outputObsidian');
+      const file = el<HTMLInputElement>('outputFile');
+      obsidian.checked = false;
+      obsidian.dispatchEvent(new Event('change'));
+      file.checked = true;
+      file.dispatchEvent(new Event('change'));
+
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(sendMessage).mock.calls).toEqual([
+        [
+          {
+            action: 'updateOutputOptions',
+            outputOptions: { obsidian: false, file: false, clipboard: true },
+          },
+        ],
+        [
+          {
+            action: 'updateOutputOptions',
+            outputOptions: { obsidian: false, file: true, clipboard: true },
+          },
+        ],
+      ]);
+    });
+
     it('saves collected settings and shows a success status', async () => {
       await initWithDefaults();
       vi.mocked(saveSettings).mockResolvedValue(undefined);

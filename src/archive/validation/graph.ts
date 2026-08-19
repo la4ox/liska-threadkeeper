@@ -316,48 +316,39 @@ function validateChildLink(
 
 function validateCycles(nodes: Map<string, NodeSnapshot>, issues: ArchiveValidationIssue[]): void {
   const state = new Map<string, 'visiting' | 'visited'>();
-  nodes.forEach((_node, nodeId) => visitForCycle(nodeId, nodes, state, issues));
-}
+  for (const startId of nodes.keys()) {
+    if (state.get(startId) === 'visited') continue;
+    state.set(startId, 'visiting');
+    const stack: Array<{ nodeId: string; nextChild: number }> = [{ nodeId: startId, nextChild: 0 }];
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      const node = nodes.get(frame.nodeId);
+      if (!node || frame.nextChild >= node.childIds.length) {
+        state.set(frame.nodeId, 'visited');
+        stack.pop();
+        continue;
+      }
 
-function visitForCycle(
-  nodeId: string,
-  nodes: Map<string, NodeSnapshot>,
-  state: Map<string, 'visiting' | 'visited'>,
-  issues: ArchiveValidationIssue[]
-): void {
-  const node = nodes.get(nodeId);
-  if (!node || state.get(nodeId) === 'visited') {
-    return;
+      const childIndex = frame.nextChild;
+      const childId = node.childIds[childIndex];
+      frame.nextChild += 1;
+      if (!nodes.has(childId)) continue;
+      const childState = state.get(childId);
+      if (childState === 'visiting') {
+        addIssue(
+          issues,
+          'error',
+          'graph-cycle',
+          `/graph/nodes/${pointerSegment(node.key)}/childIds/${childIndex}`,
+          `Child ${childId} closes a graph cycle.`
+        );
+        continue;
+      }
+      if (childState === 'visited') continue;
+      state.set(childId, 'visiting');
+      stack.push({ nodeId: childId, nextChild: 0 });
+    }
   }
-  state.set(nodeId, 'visiting');
-  node.childIds.forEach((childId, index) =>
-    visitCycleChild(node, childId, index, nodes, state, issues)
-  );
-  state.set(nodeId, 'visited');
-}
-
-function visitCycleChild(
-  node: NodeSnapshot,
-  childId: string,
-  index: number,
-  nodes: Map<string, NodeSnapshot>,
-  state: Map<string, 'visiting' | 'visited'>,
-  issues: ArchiveValidationIssue[]
-): void {
-  if (!nodes.has(childId)) {
-    return;
-  }
-  if (state.get(childId) === 'visiting') {
-    addIssue(
-      issues,
-      'error',
-      'graph-cycle',
-      `/graph/nodes/${pointerSegment(node.key)}/childIds/${index}`,
-      `Child ${childId} closes a graph cycle.`
-    );
-    return;
-  }
-  visitForCycle(childId, nodes, state, issues);
 }
 
 function validateReachability(
@@ -366,7 +357,17 @@ function validateReachability(
   issues: ArchiveValidationIssue[]
 ): void {
   const reachable = new Set<string>();
-  roots.forEach(root => collectReachable(root, nodes, reachable));
+  const stack = [...roots];
+  while (stack.length > 0) {
+    const nodeId = stack.pop();
+    if (!nodeId || reachable.has(nodeId)) continue;
+    const node = nodes.get(nodeId);
+    if (!node) continue;
+    reachable.add(nodeId);
+    for (let index = node.childIds.length - 1; index >= 0; index -= 1) {
+      stack.push(node.childIds[index]);
+    }
+  }
   nodes.forEach((_node, nodeId) => {
     if (!reachable.has(nodeId)) {
       addIssue(
@@ -378,18 +379,6 @@ function validateReachability(
       );
     }
   });
-}
-
-function collectReachable(
-  nodeId: string,
-  nodes: Map<string, NodeSnapshot>,
-  reachable: Set<string>
-): void {
-  if (reachable.has(nodeId) || !nodes.has(nodeId)) {
-    return;
-  }
-  reachable.add(nodeId);
-  nodes.get(nodeId)?.childIds.forEach(child => collectReachable(child, nodes, reachable));
 }
 
 function validateCurrentNode(

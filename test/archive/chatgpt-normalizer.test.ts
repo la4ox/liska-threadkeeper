@@ -159,6 +159,31 @@ describe('ChatGPT raw-byte normalizer', () => {
     );
   });
 
+  it('validates a deeply linear graph without consuming the JavaScript call stack', async () => {
+    const nodeCount = 6_000;
+    const mapping: Record<string, MutableNode> = {};
+    for (let index = 0; index < nodeCount; index += 1) {
+      const id = `deep-node-${index}`;
+      mapping[id] = {
+        id,
+        parent: index === 0 ? null : `deep-node-${index - 1}`,
+        children: index + 1 === nodeCount ? [] : [`deep-node-${index + 1}`],
+        message: null,
+      };
+    }
+    const raw = {
+      conversation_id: 'synthetic-chatgpt-branch',
+      current_node: `deep-node-${nodeCount - 1}`,
+      mapping,
+    } as MutableRaw;
+
+    const { archive } = await normalize(raw);
+
+    expect(Object.keys(archive.graph.nodes)).toHaveLength(nodeCount);
+    expect(archive.graph.rootIds).toEqual(['deep-node-0']);
+    expect(archive.conversation.currentNodeId).toBe(`deep-node-${nodeCount - 1}`);
+  });
+
   it('keeps known payloads exactly once and retains only top-level envelope residual metadata', async () => {
     const { archive, observedUnknownContentTypes } = await normalize();
     const message = archive.graph.nodes['node/current'].message!;
