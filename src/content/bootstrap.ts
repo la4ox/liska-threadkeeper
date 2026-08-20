@@ -586,7 +586,7 @@ export function displayAllBranchesSummary(summary: AllBranchesPersistenceSummary
   const caveats = [
     ...(summary.omissionBranchCount > 0
       ? [
-          `${summary.omissionBranchCount} branch Markdown file(s) omit content preserved in canonical`,
+          `${summary.omissionBranchCount} branch Markdown file(s) omit records retained in the canonical archive`,
         ]
       : []),
     ...(summary.canonicalOnlyCount > 0

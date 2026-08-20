@@ -42,11 +42,19 @@ export interface RawEnvelope {
 export interface ProviderAssetRecord {
   id: string;
   state: ArchiveAsset['acquisition']['state'];
+  attemptedAt: string | null;
   relativePath: string | null;
   mediaType: string | null;
   byteLength: number | null;
   sha256: string | null;
   detail: string | null;
+  sourceRefs: Array<{ artifactId: string; rawPointer: string }>;
+}
+
+export interface ProviderAssetIndex {
+  byId: Map<string, ProviderAssetRecord>;
+  bySourceRef: Map<string, ProviderAssetRecord>;
+  records: ProviderAssetRecord[];
 }
 
 export interface PrivacyTracker {
@@ -62,7 +70,7 @@ export interface PrivacyRedaction {
 export interface AssetContext {
   assets: Record<string, ArchiveAsset>;
   assetIdsByIdentity: Map<string, string>;
-  manifestAssets: Map<string, ProviderAssetRecord>;
+  manifestAssets: ProviderAssetIndex;
   artifactId: string;
   format: string;
   privacy: PrivacyTracker;

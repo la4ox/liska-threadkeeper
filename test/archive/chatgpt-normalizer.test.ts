@@ -13,6 +13,8 @@ import {
 } from '../../src/archive/normalizers/chatgpt';
 
 const encoder = new TextEncoder();
+const fetchedAssetBytes = encoder.encode('synthetic-12');
+const fetchedAssetSha256 = createHash('sha256').update(fetchedAssetBytes).digest('hex');
 const fixtureBytes = new Uint8Array(
   readFileSync('test/fixtures/archive/chatgpt-raw/branching-mixed-content.json')
 );
@@ -71,20 +73,34 @@ function captureManifest(
       {
         id: 'synthetic-image-1',
         state: 'unavailable',
+        attemptedAt: null,
         relativePath: null,
         mediaType: 'image/png',
         byteLength: null,
         sha256: null,
         detail: 'Images deliberately not fetched in this synthetic fixture.',
+        sourceRefs: [
+          {
+            artifactId: 'conversation',
+            rawPointer: '/mapping/node~1current/message/content/parts/8',
+          },
+        ],
       },
       {
         id: 'synthetic-file-2',
         state: 'fetched',
+        attemptedAt: '2026-08-17T12:00:01.000Z',
         relativePath: 'assets/synthetic-notes.txt',
         mediaType: 'text/plain',
-        byteLength: 12,
-        sha256: 'b'.repeat(64),
+        byteLength: fetchedAssetBytes.byteLength,
+        sha256: fetchedAssetSha256,
         detail: null,
+        sourceRefs: [
+          {
+            artifactId: 'conversation',
+            rawPointer: '/mapping/node~1current/message/metadata/attachments/0',
+          },
+        ],
       },
     ],
     completeness: options.completeness ?? {
@@ -105,7 +121,13 @@ function bytesFor(raw: MutableRaw): Uint8Array {
 }
 
 function bundleFor(bytes: Uint8Array, manifest = captureManifest(bytes)): RawCaptureBundle {
-  return { manifest, artifacts: [{ record: manifest.artifacts[0], bytes }] };
+  return {
+    manifest,
+    artifacts: [{ record: manifest.artifacts[0], bytes }],
+    assets: manifest.assets
+      .filter(asset => asset.state === 'fetched')
+      .map(asset => ({ record: asset, bytes: fetchedAssetBytes })),
+  };
 }
 
 async function normalize(
@@ -453,11 +475,18 @@ describe('ChatGPT raw-byte normalizer', () => {
       {
         id: 'manifest-only-asset',
         state: 'declined' as const,
+        attemptedAt: null,
         relativePath: null,
         mediaType: 'application/pdf',
         byteLength: null,
         sha256: null,
         detail: 'Not fetched by policy.',
+        sourceRefs: [
+          {
+            artifactId: 'conversation',
+            rawPointer: '/mapping/node~1current/message/content/parts/0',
+          },
+        ],
       },
     ];
     const manifest = captureManifest(bytes, { assets });
@@ -480,11 +509,73 @@ describe('ChatGPT raw-byte normalizer', () => {
       extensions: { openai: { manifestOnly: true } },
     });
     expect(manifestOnly?.sourceRefs[0]).toMatchObject({
-      kind: 'manifest-asset',
-      id: 'manifest-only-asset',
-      artifactId: null,
-      rawPointer: null,
+      kind: 'attachment',
+      id: null,
+      artifactId: 'conversation',
+      rawPointer: '/mapping/node~1current/message/content/parts/0',
     });
+  });
+
+  it('preserves a manifest-only asset source reference to another verified raw artifact', async () => {
+    const raw = rawClone();
+    const bytes = bytesFor(raw);
+    const secondaryBytes = encoder.encode('{"asset":true}');
+    const base = captureManifest(bytes, { assets: [] });
+    const secondary = {
+      id: 'asset-index',
+      relativePath: 'responses/assets.json',
+      mediaType: 'application/json',
+      byteLength: secondaryBytes.byteLength,
+      sha256: createHash('sha256').update(secondaryBytes).digest('hex'),
+      endpoint: { method: 'GET' as const, pathPattern: '/backend-api/assets/{conversationId}' },
+    };
+    const manifest = buildCaptureManifest({
+      captureId: base.captureId,
+      provider: base.provider,
+      conversationId: base.conversationId,
+      capturedAt: base.capturedAt,
+      method: base.method,
+      artifacts: [base.artifacts[0], secondary],
+      assets: [
+        {
+          id: 'cross-artifact-asset',
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          mediaType: 'application/pdf',
+          byteLength: null,
+          sha256: null,
+          detail: 'raw-inventory-not-attempted',
+          sourceRefs: [{ artifactId: secondary.id, rawPointer: '/asset' }],
+        },
+      ],
+      completeness: base.completeness,
+    });
+    const manifestSha256 = await sha256(encoder.encode(JSON.stringify(manifest, null, 2)));
+
+    const { archive } = await normalizeChatGptCapture({
+      bundle: {
+        manifest,
+        artifacts: [
+          {
+            record: manifest.artifacts.find(artifact => artifact.id === 'conversation')!,
+            bytes,
+          },
+          {
+            record: manifest.artifacts.find(artifact => artifact.id === secondary.id)!,
+            bytes: secondaryBytes,
+          },
+        ],
+        assets: [],
+      },
+      artifactId: 'conversation',
+      manifestSha256,
+      sha256,
+    });
+
+    expect(archive.assets['cross-artifact-asset']?.sourceRefs).toEqual([
+      expect.objectContaining({ artifactId: 'asset-index', rawPointer: '/asset' }),
+    ]);
   });
 
   it('fails closed when raw asset metadata conflicts with the manifest', async () => {

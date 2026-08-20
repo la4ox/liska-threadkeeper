@@ -221,11 +221,20 @@ function omissionWarnings(omissions: Map<OmissionKind, number>): string[] {
   };
   return (Object.keys(labels) as OmissionKind[]).flatMap(kind => {
     const count = omissions.get(kind) ?? 0;
-    return count > 0
-      ? [
-          `Legacy Markdown omitted ${count} ${labels[kind]}; the canonical archive companion preserves them only when its selected output write succeeds.`,
-        ]
-      : [];
+    if (count === 0) return [];
+    if (kind === 'attachment') {
+      return [
+        `Legacy Markdown omitted ${count} ${labels[kind]}; the canonical archive retains their references and metadata. Binary files are preserved only for assets marked fetched when their selected output write succeeds.`,
+      ];
+    }
+    if (kind === 'embedded_image') {
+      return [
+        `Legacy Markdown omitted ${count} ${labels[kind]}; the canonical archive retains the source HTML after privacy redaction, not the remote image bytes.`,
+      ];
+    }
+    return [
+      `Legacy Markdown omitted ${count} ${labels[kind]}; the canonical archive companion preserves them only when its selected output write succeeds.`,
+    ];
   });
 }
 

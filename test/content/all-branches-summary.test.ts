@@ -69,7 +69,9 @@ describe('all-branches user summary', () => {
     );
 
     expect(showWarningToast).toHaveBeenCalledWith(
-      expect.stringContaining('2 branch Markdown file(s) omit content preserved in canonical')
+      expect.stringContaining(
+        '2 branch Markdown file(s) omit records retained in the canonical archive'
+      )
     );
     expect(showWarningToast).toHaveBeenCalledWith(
       expect.stringContaining('1 canonical-only stub(s) were created')

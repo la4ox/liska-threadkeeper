@@ -45,6 +45,7 @@ describe('verified ChatGPT archive pipeline', () => {
     const bundle: RawCaptureBundle = {
       manifest,
       artifacts: [{ record: manifest.artifacts[0], bytes }],
+      assets: [],
     };
     const manifestSha256 = await sha256(encoder.encode(JSON.stringify(manifest, null, 2)));
 

@@ -7,11 +7,16 @@ import {
 } from '../../src/lib/chatgpt-capture-contract';
 import {
   ChatGptCurrentBranchError,
+  assertJsonOnlyArchiveCompanionSafe,
   captureChatGptArchive,
   captureChatGptCurrentBranch,
   manifestAllowsChatGptStructuredCapture,
 } from '../../src/content/capture/chatgpt-current-branch';
-import { normalizeChatGptCapture } from '../../src/archive';
+import {
+  buildCaptureManifest,
+  normalizeChatGptCapture,
+  type RawCaptureBundle,
+} from '../../src/archive';
 import { sha256Hex } from '../../src/content/capture/response';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
@@ -84,6 +89,13 @@ function fixedCaptureId(): string {
   return 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd';
 }
 
+function parseBase64Json(value: string): Record<string, unknown> {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+}
+
 describe('ChatGPT current-branch capture composition', () => {
   it('enables the structured bridge only when the static manifest declares scripting', () => {
     setManifestReader(() => ({ permissions: ['storage', 'scripting'] }));
@@ -122,6 +134,87 @@ describe('ChatGPT current-branch capture composition', () => {
       'manifest',
       'canonical',
     ]);
+  });
+
+  it('builds a not-attempted attachment ledger without upgrading asset acquisition completeness', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const manifestArtifact = capture.archiveCompanion.artifacts.find(
+      artifact => artifact.kind === 'manifest'
+    );
+    const manifest = parseBase64Json(manifestArtifact?.bodyBase64 ?? '');
+
+    expect(manifest.completeness).toMatchObject({ assets: 'not-attempted' });
+    expect(manifest.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          state: 'not-attempted',
+          attemptedAt: null,
+          byteLength: null,
+          sha256: null,
+          detail: 'raw-inventory-not-attempted',
+        }),
+      ])
+    );
+    expect(JSON.stringify(manifest)).not.toContain('synthetic-image-1');
+    expect(JSON.stringify(capture.archive.assets)).toContain('synthetic-image-1');
+    expect(JSON.stringify(capture.archive.assets)).not.toContain('signature=not-retained');
+  });
+
+  it('rejects a fetched manifest claim before the JSON-only companion can be assembled', async () => {
+    const rawBytes = new TextEncoder().encode('{}');
+    const assetBytes = new Uint8Array([1]);
+    const manifest = buildCaptureManifest({
+      captureId: fixedCaptureId(),
+      provider: 'chatgpt',
+      conversationId: CONVERSATION_ID,
+      capturedAt: CAPTURE_TIME,
+      method: 'same-origin-api',
+      artifacts: [
+        {
+          id: 'conversation',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: rawBytes.byteLength,
+          sha256: await sha256Hex(rawBytes),
+          endpoint: {
+            method: 'GET',
+            pathPattern: '/backend-api/conversation/{conversationId}',
+          },
+        },
+      ],
+      assets: [
+        {
+          id: 'asset-one',
+          state: 'fetched',
+          attemptedAt: '2026-08-17T12:00:01.000Z',
+          relativePath: 'assets/asset-one.bin',
+          mediaType: 'application/octet-stream',
+          byteLength: assetBytes.byteLength,
+          sha256: await sha256Hex(assetBytes),
+          detail: null,
+          sourceRefs: [{ artifactId: 'conversation', rawPointer: '/asset' }],
+        },
+      ],
+      completeness: {
+        graph: 'complete',
+        messages: 'complete',
+        branches: 'complete',
+        assets: 'complete',
+      },
+    });
+    const bundle: RawCaptureBundle = {
+      manifest,
+      artifacts: [{ record: manifest.artifacts[0], bytes: rawBytes }],
+      assets: [],
+    };
+
+    expect(() => assertJsonOnlyArchiveCompanionSafe(bundle)).toThrow(
+      expect.objectContaining({ code: 'capture-integrity-failed' })
+    );
   });
 
   it('verifies the synthetic graph, retaining its current branch projection and tool content', async () => {
@@ -358,6 +451,11 @@ describe('ChatGPT current-branch capture composition', () => {
         artifact => artifact.kind
       )
     ).toEqual(['raw', 'manifest']);
+    const manifest = parseBase64Json(
+      (error as ChatGptCurrentBranchError).archiveCompanion?.artifacts[1]?.bodyBase64 ?? ''
+    );
+    expect(manifest.completeness).toMatchObject({ assets: 'unknown' });
+    expect(manifest.warnings).toEqual(['chatgpt-asset-inventory-unavailable']);
   });
 
   it.each([

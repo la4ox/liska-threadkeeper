@@ -28,6 +28,8 @@ import {
 type RawRecord = Record<string, unknown>;
 
 const encoder = new TextEncoder();
+const fetchedAssetBytes = encoder.encode('test');
+const fetchedAssetSha256 = createHash('sha256').update(fetchedAssetBytes).digest('hex');
 
 function sha256(bytes: Uint8Array): Promise<string> {
   return Promise.resolve(createHash('sha256').update(bytes).digest('hex'));
@@ -109,7 +111,13 @@ function manifestFor(
 }
 
 function bundleFor(bytes: Uint8Array, manifest: RawCaptureManifest): RawCaptureBundle {
-  return { manifest, artifacts: [{ record: manifest.artifacts[0], bytes }] };
+  return {
+    manifest,
+    artifacts: [{ record: manifest.artifacts[0], bytes }],
+    assets: manifest.assets
+      .filter(asset => asset.state === 'fetched')
+      .map(asset => ({ record: asset, bytes: fetchedAssetBytes })),
+  };
 }
 
 async function normalizeRaw(
@@ -695,11 +703,18 @@ describe('ChatGPT normalizer coverage contracts', () => {
           {
             id: 'asset-evidence',
             state: 'fetched',
+            attemptedAt: '2026-08-17T12:00:01.000Z',
             relativePath: 'assets/evidence.bin',
             mediaType: 'text/plain',
-            byteLength: 4,
-            sha256: 'b'.repeat(64),
+            byteLength: fetchedAssetBytes.byteLength,
+            sha256: fetchedAssetSha256,
             detail: null,
+            sourceRefs: [
+              {
+                artifactId: 'conversation',
+                rawPointer: '/mapping/node~1root/message/content/parts/0',
+              },
+            ],
           },
         ],
       });
@@ -769,7 +784,7 @@ describe('ChatGPT normalizer coverage contracts', () => {
     expect(pointerAsset).toMatchObject({
       filename: 'pointer.txt',
       dimensions: { width: 2, height: 2 },
-      acquisition: { state: 'unavailable' },
+      acquisition: { state: 'not-attempted' },
       extensions: { openai: { purpose: 'synthetic' } },
     });
     expect(pointerAsset?.sourceRefs).toHaveLength(2);
@@ -779,56 +794,122 @@ describe('ChatGPT normalizer coverage contracts', () => {
     );
   });
 
-  it('validates manifest asset records before accepting them as authoritative evidence', () => {
-    expect(() =>
-      manifestAssetsById([
+  it('keeps sediment transport values raw-only even when they appear in an ID alias', async () => {
+    const transport = 'sediment://synthetic-sensitive-transport';
+    const { archive } = await normalizeRaw(
+      rawWithParts([
         {
-          id: 'duplicate',
-          state: 'unavailable',
-          relativePath: null,
-          mediaType: null,
-          byteLength: null,
-          sha256: null,
-          detail: null,
-        },
-        {
-          id: 'duplicate',
-          state: 'unavailable',
-          relativePath: null,
-          mediaType: null,
-          byteLength: null,
-          sha256: null,
-          detail: null,
+          content_type: 'file',
+          id: transport,
+          filename: 'synthetic.bin',
         },
       ])
-    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
-    expect(() => manifestAssetsById([{ id: 'broken', state: 'invented' }])).toThrow(
-      expect.objectContaining({ code: 'invalid-manifest' })
     );
+    const asset = Object.values(archive.assets).find(
+      candidate => candidate.filename === 'synthetic.bin'
+    );
+
+    expect(asset?.sourceRefs[0]?.id).toBeNull();
+    expect(JSON.stringify(archive)).not.toContain(transport);
+    expect(archive.diagnostics.entries).toContainEqual(
+      expect.objectContaining({ code: 'privacy-redacted-sensitive-asset-transport' })
+    );
+  });
+
+  it('validates manifest asset records before accepting them as authoritative evidence', () => {
+    const validAsset = (id: string, rawPointer: string) => ({
+      id,
+      state: 'unavailable',
+      attemptedAt: null,
+      relativePath: null,
+      mediaType: null,
+      byteLength: null,
+      sha256: null,
+      detail: null,
+      sourceRefs: [{ artifactId: 'conversation', rawPointer }],
+    });
+
+    expect(() =>
+      manifestAssetsById([
+        validAsset('duplicate', '/attachments/0'),
+        validAsset('duplicate', '/attachments/1'),
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([{ ...validAsset('broken', '/attachments/0'), state: 'invented' }])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
     expect(() =>
       manifestAssetsById([
         {
-          id: 'negative-length',
-          state: 'unavailable',
-          relativePath: null,
-          mediaType: null,
+          ...validAsset('negative-length', '/attachments/0'),
           byteLength: -1,
-          sha256: null,
-          detail: null,
         },
       ])
     ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
     expect(() =>
       manifestAssetsById([
         {
-          id: 'bad-hash',
-          state: 'unavailable',
-          relativePath: null,
-          mediaType: null,
-          byteLength: null,
+          ...validAsset('bad-hash', '/attachments/0'),
           sha256: 'not-a-hash',
-          detail: null,
         },
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([
+        {
+          ...validAsset('expired-without-attempt', '/attachments/0'),
+          state: 'expired',
+        },
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([
+        {
+          ...validAsset('declined-with-attempt', '/attachments/0'),
+          state: 'declined',
+          attemptedAt: '2026-08-17T12:00:01.000Z',
+        },
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([{ ...validAsset('no-refs', '/attachments/0'), sourceRefs: [] }])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([
+        { ...validAsset('non-record-ref', '/attachments/0'), sourceRefs: [null] },
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([
+        {
+          ...validAsset('wrong-ref-types', '/attachments/0'),
+          sourceRefs: [{ artifactId: 1, rawPointer: '/attachments/0' }],
+        },
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([
+        {
+          ...validAsset('bad-pointer', '/attachments/0'),
+          sourceRefs: [{ artifactId: 'conversation', rawPointer: 'not-a-pointer' }],
+        },
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([
+        {
+          ...validAsset('duplicate-ref', '/attachments/0'),
+          sourceRefs: [
+            { artifactId: 'conversation', rawPointer: '/attachments/0' },
+            { artifactId: 'conversation', rawPointer: '/attachments/0' },
+          ],
+        },
+      ])
+    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    expect(() =>
+      manifestAssetsById([
+        validAsset('first', '/attachments/0'),
+        validAsset('second', '/attachments/0'),
       ])
     ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
   });
@@ -851,7 +932,7 @@ describe('ChatGPT normalizer coverage contracts', () => {
       expect.objectContaining({ code: 'asset-conflict' })
     );
     context.assets[assetId].acquisition.detail =
-      'Not attempted by the ChatGPT response normalizer.';
+      'No acquisition attempt is recorded for this asset.';
     context.assets[assetId].extensions.openai = null;
     expect(() => upsertAsset(attachment, '/attachments/2', context)).toThrow(
       expect.objectContaining({ code: 'asset-conflict' })

@@ -442,11 +442,27 @@
       "required": ["state", "attemptedAt", "detail"],
       "properties": {
         "state": {
-          "enum": ["fetched", "unavailable", "declined", "expired", "failed"]
+          "enum": ["not-attempted", "fetched", "unavailable", "declined", "expired", "failed"]
         },
         "attemptedAt": { "$ref": "#/$defs/timestamp" },
         "detail": { "type": ["string", "null"] }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "state": { "enum": ["fetched", "expired", "failed"] } },
+            "required": ["state"]
+          },
+          "then": { "properties": { "attemptedAt": { "type": "string" } } }
+        },
+        {
+          "if": {
+            "properties": { "state": { "enum": ["not-attempted", "declined"] } },
+            "required": ["state"]
+          },
+          "then": { "properties": { "attemptedAt": { "type": "null" } } }
+        }
+      ],
       "additionalProperties": false
     },
     "dimensions": {
@@ -487,6 +503,26 @@
         "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
         "extensions": { "$ref": "#/$defs/extensions" }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "acquisition": {
+                "properties": { "state": { "const": "fetched" } },
+                "required": ["state"]
+              }
+            },
+            "required": ["acquisition"]
+          },
+          "then": {
+            "properties": {
+              "localArtifactRef": { "type": "string", "minLength": 1 },
+              "byteLength": { "type": "number", "minimum": 0 },
+              "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "diagnostic": {

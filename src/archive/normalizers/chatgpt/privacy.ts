@@ -14,8 +14,9 @@ const MAX_STRING_LENGTH = 32_768;
 const UNSAFE_MAP_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const SENSITIVE_QUERY_KEY =
   /^(?:access[_-]?token|token|session[_-]?token|api[_-]?key|auth|authorization|jwt|credential|credentials|sig|signature|x-goog-(?:signature|credential|algorithm|date|expires|signedheaders)|x-amz-(?:signature|credential|security-token|expires)|expires|se|sp)$/i;
-const SENSITIVE_URI_PREFIX = /^(?:data:|blob:|file:|file-service:|attachment:)/i;
-const URI_CANDIDATE = /(?:https?:\/\/|data:|blob:|file:|file-service:|attachment:)[^\s<>"']+/gi;
+const SENSITIVE_URI_PREFIX = /^(?:data:|blob:|file:|file-service:|sediment:|attachment:)/i;
+const URI_CANDIDATE =
+  /(?:https?:\/\/|data:|blob:|file:|file-service:|sediment:|attachment:)[^\s<>"']+/gi;
 
 interface CloneState {
   entries: number;
@@ -223,7 +224,7 @@ export function redactSensitiveUrls(value: string, privacy?: PrivacyTracker, poi
 }
 
 export function looksLikeUrl(value: string): boolean {
-  return /^(?:https?:|data:|blob:|file:|file-service:|attachment:)/i.test(value);
+  return /^(?:https?:|data:|blob:|file:|file-service:|sediment:|attachment:)/i.test(value);
 }
 
 export function recordPrivacyRedaction(

@@ -28,6 +28,14 @@ IDs, model fields, and some timestamps. The JSON contained no parent, child,
 current-node, or branch fields. This confirms that a third-party "JSON export"
 is not necessarily raw or lossless.
 
+A later field-name-only probe of locally saved ChatGPT raw captures found three
+coexisting attachment families: `sediment:` pointers, older `file-service:`
+pointers, and metadata-only records that retain an opaque provider ID but no
+ready download URL. Message text, attachment names, identifiers, and transport
+values were not emitted by the probe. This rules out a single guessed URL
+template and makes acquisition state part of the evidence rather than an
+implementation detail.
+
 The long-term product may grow beyond a browser export button into a modular
 local archive, renderer, synchronization tool, bridge, and scheduler. Those
 roles need explicit boundaries before the ChatGPT no-scroll path is added.
@@ -66,13 +74,51 @@ The capture manifest records:
 
 - provider, conversation ID, capture ID, timestamp, and capture method;
 - artifact media type, byte length, SHA-256 digest, and source endpoint name;
-- attempted asset fetches and their explicit states: fetched, unavailable,
-  declined, expired, or failed;
+- discovered asset references, exact raw pointers, attempt timestamps, and
+  explicit states: not-attempted, fetched, unavailable, declined, expired, or
+  failed;
 - completeness claims, warnings, and observed unknown content types.
 
 When possible, response bodies are retained byte-for-byte and hashed before
 parsing. Raw snapshots are never overwritten; a later capture creates a new
 capture ID.
+
+Asset states are intentionally not interchangeable:
+
+- **not-attempted** means Liska discovered the reference but made no network
+  request;
+- **declined** means an explicit user or bounded policy choice skipped it;
+- **unavailable** means no safe acquisition route is known or the provider
+  explicitly reports the object unavailable;
+- **expired** is used only when provider evidence identifies an expired
+  temporary transport, not as a guess for every 403/404 response;
+- **failed** records an attempted acquisition whose result is not known to be
+  permanent;
+- **fetched** requires exact local bytes, media type, length, and SHA-256.
+
+The runtime capture bundle must carry the exact bytes for every asset marked
+`fetched`; shape validation compares the full manifest record and byte length,
+then integrity validation recomputes SHA-256 before normalization. The current
+JSON-only ChatGPT companion writer rejects any such runtime asset until the
+separate binary persistence route is implemented, so a fetched claim cannot be
+published with a dangling local path.
+
+Discovering every reference does not make `completeness.assets` complete. Until
+all selected binary acquisitions reach an evidenced terminal state, a
+metadata-only inventory remains `not-attempted` (or `partial` after a mixed
+attempt); `complete` is reserved for a capture that actually satisfied its
+declared asset-acquisition policy.
+
+The manifest maps an asset to one or more exact raw pointers. Signed URLs and
+provider transport pointers may be used transiently to derive an opaque digest,
+but are never persisted as canonical identifiers. Filename/size similarity is
+not sufficient to merge two records automatically.
+
+Retrying an old or partially available attachment never mutates the earlier
+manifest. A later trusted attempt creates a new capture (or a future explicit
+enrichment artifact) that links back to the earlier evidence by hash. This
+keeps “missing then, available now” and “available then, missing now” as
+observable history instead of whichever state happened to be written last.
 
 The raw boundary is deliberately narrow:
 

@@ -111,6 +111,14 @@
       AI page that already displays it and goes only to the local output you select. We collect no
       analytics or telemetry, and we operate no servers of our own.
     </p>
+    <p>
+      A ChatGPT raw archive may contain temporary attachment transport references already present in
+      ChatGPT's conversation response. Raw archives are written only to the durable local output you
+      selected; they are never copied to the clipboard. The canonical archive removes those
+      transport values and currently records discovered attachment references as
+      <code>not-attempted</code>. This release does not make additional ChatGPT attachment download
+      requests.
+    </p>
 
     <h2>Output Options</h2>
     <p>Conversations can be exported to three destinations:</p>

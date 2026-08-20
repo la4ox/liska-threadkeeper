@@ -198,7 +198,13 @@ export type ArchiveBlock =
   | ErrorBlock
   | UnknownBlock;
 
-export type AssetAcquisitionState = 'fetched' | 'unavailable' | 'declined' | 'expired' | 'failed';
+export type AssetAcquisitionState =
+  | 'not-attempted'
+  | 'fetched'
+  | 'unavailable'
+  | 'declined'
+  | 'expired'
+  | 'failed';
 
 export interface AssetAcquisition {
   state: AssetAcquisitionState;

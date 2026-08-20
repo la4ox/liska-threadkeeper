@@ -94,6 +94,44 @@ describe('liska-thread/1 archive core', () => {
     });
   });
 
+  it('distinguishes an unattempted asset from an unavailable one', () => {
+    const candidate = cloneFixture(archive);
+    candidate.assets['asset-synthetic-image'].acquisition = {
+      state: 'not-attempted',
+      attemptedAt: null,
+      detail: 'No acquisition attempt is recorded for this asset.',
+    };
+    candidate.assets['asset-synthetic-image'].localArtifactRef = null;
+    candidate.assets['asset-synthetic-image'].byteLength = null;
+    candidate.assets['asset-synthetic-image'].sha256 = null;
+
+    expect(validateLiskaThreadArchive(candidate)).toEqual({ valid: true, issues: [] });
+    expect(schema.$defs.acquisition.properties.state.enum).toContain('not-attempted');
+  });
+
+  it('requires acquisition-time evidence only for states that claim an attempt', () => {
+    const missingAttempt = cloneFixture(archive);
+    missingAttempt.assets['asset-synthetic-image'].acquisition.attemptedAt = null;
+    expect(issueCodes(missingAttempt)).toContain('asset-acquisition-attempt-required');
+
+    const unexpectedAttempt = cloneFixture(archive);
+    unexpectedAttempt.assets['asset-synthetic-image'].acquisition = {
+      state: 'declined',
+      attemptedAt: '2026-08-17T10:00:01.000Z',
+      detail: 'Declined by explicit local policy.',
+    };
+    expect(issueCodes(unexpectedAttempt)).toContain('asset-acquisition-attempt-unexpected');
+  });
+
+  it('rejects fetched canonical assets without exact local byte evidence', () => {
+    const candidate = cloneFixture(archive);
+    candidate.assets['asset-synthetic-image'].localArtifactRef = null;
+    candidate.assets['asset-synthetic-image'].byteLength = null;
+    candidate.assets['asset-synthetic-image'].sha256 = null;
+
+    expect(issueCodes(candidate)).toContain('asset-fetched-evidence-missing');
+  });
+
   it('traverses current and alternate branches in declared root and child order', () => {
     expect(getCurrentNodePath(archive)).toEqual(['node-root', 'node-user', 'node-current']);
     expect(getNodePath(archive, 'node-alternate')).toEqual([

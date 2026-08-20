@@ -11,11 +11,13 @@ import {
   buildCaptureManifest,
   ChatGptNormalizationError,
   normalizeChatGptCapture,
+  validateCaptureBundleShape,
   type RawCaptureArtifact,
   type RawCaptureArtifactRecord,
   type RawCaptureBundle,
   type LiskaThreadArchive,
 } from '../../archive';
+import { inventoryChatGptRawAssets } from '../../archive/normalizers/chatgpt/inventory';
 import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
@@ -249,12 +251,25 @@ async function requestCaptureResponse(
   }
 }
 
-function buildCaptureBundle(
+function parseRawForInventory(bytes: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+async function buildCaptureBundle(
   conversationId: string,
   artifact: RawCaptureArtifact,
   createCaptureId: (() => string) | undefined,
   now: (() => Date) | undefined
-): RawCaptureBundle {
+): Promise<RawCaptureBundle> {
+  const inventory = await inventoryChatGptRawAssets({
+    raw: parseRawForInventory(artifact.bytes),
+    artifactId: ARTIFACT_ID,
+    sha256: sha256Hex,
+  });
   const manifest = buildCaptureManifest({
     captureId: captureId(createCaptureId),
     provider: 'chatgpt',
@@ -262,17 +277,19 @@ function buildCaptureBundle(
     capturedAt: captureTimestamp(now),
     method: 'same-origin-api',
     artifacts: [artifact.record],
-    assets: [],
+    assets: inventory.assets,
     completeness: {
       graph: 'complete',
       messages: 'complete',
       branches: 'complete',
-      assets: 'not-attempted',
+      assets: inventory.completeness,
     },
+    warnings: inventory.warnings,
   });
   return {
     manifest,
     artifacts: [{ record: manifest.artifacts[0], bytes: artifact.bytes }],
+    assets: [],
   };
 }
 
@@ -316,6 +333,7 @@ async function buildRawManifestCompanionBundle(
 ): Promise<ArchiveCompanionBundle> {
   const [raw] = bundle.artifacts;
   if (!raw) throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  assertJsonOnlyArchiveCompanionSafe(bundle);
 
   const manifestBytes = serializeJsonBytes(bundle.manifest);
   const conversationKey = await sha256Hex(new TextEncoder().encode(bundle.manifest.conversationId));
@@ -329,6 +347,22 @@ async function buildRawManifestCompanionBundle(
     conversationKey,
     artifacts: artifacts as readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact],
   };
+}
+
+/** @internal Safety seam for the current JSON-only durable companion route. */
+export function assertJsonOnlyArchiveCompanionSafe(bundle: RawCaptureBundle): void {
+  try {
+    validateCaptureBundleShape(bundle);
+  } catch {
+    throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  }
+  // The current durable companion route writes JSON only. Fail closed if a
+  // future acquisition path supplies verified asset bytes before binary
+  // companion persistence is wired, rather than publishing dangling fetched
+  // claims in manifest/canonical output.
+  if (bundle.assets.length > 0 || bundle.manifest.assets.some(asset => asset.state === 'fetched')) {
+    throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  }
 }
 
 async function appendCanonicalCompanion(
@@ -368,7 +402,7 @@ export async function captureChatGptArchive(
   const response = await requestCaptureResponse(conversationId, dependencies.requestCapture);
   const captured = captureArtifact(response);
   await verifyCapturedArtifactIntegrity(captured.artifact);
-  const bundle = buildCaptureBundle(
+  const bundle = await buildCaptureBundle(
     conversationId,
     captured.artifact,
     dependencies.createCaptureId,

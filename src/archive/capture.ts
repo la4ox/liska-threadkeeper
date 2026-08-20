@@ -10,7 +10,13 @@ export const LISKA_CAPTURE_SCHEMA = 'liska-capture/1' as const;
 
 export type CaptureMethod = 'same-origin-api' | 'dom-derived' | 'official-export';
 export type CaptureCompletenessState = 'complete' | 'partial' | 'unknown' | 'not-attempted';
-export type CaptureAssetState = 'fetched' | 'unavailable' | 'declined' | 'expired' | 'failed';
+export type CaptureAssetState =
+  | 'not-attempted'
+  | 'fetched'
+  | 'unavailable'
+  | 'declined'
+  | 'expired'
+  | 'failed';
 
 export interface CaptureEndpoint {
   /** HTTP method, retained without request headers or body. */
@@ -28,14 +34,24 @@ export interface RawCaptureArtifactRecord {
   endpoint: CaptureEndpoint;
 }
 
+/** Exact raw locations that support a discovered asset without retaining its transport value. */
+export interface RawCaptureAssetSourceRef {
+  artifactId: string;
+  rawPointer: string;
+}
+
 export interface RawCaptureAssetRecord {
   id: string;
   state: CaptureAssetState;
+  /** Null means the local archive deliberately made no acquisition attempt. */
+  attemptedAt: string | null;
   relativePath: string | null;
   mediaType: string | null;
   byteLength: number | null;
   sha256: string | null;
   detail: string | null;
+  /** At least one exact raw JSON location is required for every asset record. */
+  sourceRefs: RawCaptureAssetSourceRef[];
 }
 
 export interface CaptureCompleteness {
@@ -65,10 +81,18 @@ export interface RawCaptureArtifact {
   bytes: Uint8Array;
 }
 
+/** Runtime-only pairing of a fetched asset record with its exact local bytes. */
+export interface RawCaptureAsset {
+  record: RawCaptureAssetRecord;
+  bytes: Uint8Array;
+}
+
 /** Runtime-only bundle. Its byte payloads are never embedded into manifest JSON. */
 export interface RawCaptureBundle {
   manifest: RawCaptureManifest;
   artifacts: RawCaptureArtifact[];
+  /** Exactly the assets whose manifest state is fetched; all other states carry no bytes. */
+  assets: RawCaptureAsset[];
 }
 
 export interface BuildCaptureManifestInput {
@@ -88,6 +112,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const SAFE_RELATIVE_PATH_PATTERN = /^(?![A-Za-z]:)(?![\\/])(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))[^\0]+$/;
 const PATH_PATTERN = /^\/(?!\/)(?!.*\\)[^\s?#]{0,1023}$/;
+const RAW_POINTER_PATTERN = /^(?:\/(?:[^~/]|~[01])*)+$/;
 const CREDENTIAL_TEXT_PATTERN =
   /(?:authorization\s*:|cookie\s*:|\bbearer\s+[A-Za-z0-9._~+/=-]+|access[_-]?token|session[_-]?token|api[_-]?key)/i;
 
@@ -98,14 +123,14 @@ function requireSafeId(value: string, label: string): string {
   return value;
 }
 
-function requireTimestamp(value: string): string {
+function requireTimestamp(value: string, label = 'capturedAt'): string {
   const parsed = Date.parse(value);
   if (
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
     !Number.isFinite(parsed) ||
     new Date(parsed).toISOString() !== value
   ) {
-    throw new Error('capturedAt must be an ISO 8601 timestamp.');
+    throw new Error(`${label} must be an ISO 8601 timestamp.`);
   }
   return value;
 }
@@ -176,7 +201,9 @@ export function normalizeCaptureArtifactRecord(
 }
 
 function requireAssetState(state: CaptureAssetState): void {
-  if (!['fetched', 'unavailable', 'declined', 'expired', 'failed'].includes(state)) {
+  if (
+    !['not-attempted', 'fetched', 'unavailable', 'declined', 'expired', 'failed'].includes(state)
+  ) {
     throw new Error('Capture asset state is invalid.');
   }
 }
@@ -209,7 +236,61 @@ function requireAssetAcquisitionClaim(asset: RawCaptureAssetRecord): void {
   }
 }
 
-function normalizeAsset(asset: RawCaptureAssetRecord): RawCaptureAssetRecord {
+function requireAssetAttemptedAt(asset: RawCaptureAssetRecord): string | null {
+  if (asset.attemptedAt === null) {
+    if (['fetched', 'expired', 'failed'].includes(asset.state)) {
+      throw new Error(`${asset.state} capture assets require attemptedAt evidence.`);
+    }
+    return null;
+  }
+  if (typeof asset.attemptedAt !== 'string') {
+    throw new Error('Capture asset attemptedAt must be an ISO 8601 timestamp or null.');
+  }
+  const attemptedAt = requireTimestamp(asset.attemptedAt, 'Capture asset attemptedAt');
+  if (['not-attempted', 'declined'].includes(asset.state)) {
+    throw new Error(`${asset.state} capture assets must not claim attemptedAt evidence.`);
+  }
+  return attemptedAt;
+}
+
+function normalizeAssetSourceRefs(
+  sourceRefs: RawCaptureAssetSourceRef[],
+  artifactIds: ReadonlySet<string>
+): RawCaptureAssetSourceRef[] {
+  if (!Array.isArray(sourceRefs) || sourceRefs.length === 0) {
+    throw new Error('Capture assets require at least one exact raw source reference.');
+  }
+  const normalized = sourceRefs.map(sourceRef => {
+    if (!sourceRef || typeof sourceRef !== 'object' || Array.isArray(sourceRef)) {
+      throw new Error('Capture asset source references must be plain objects.');
+    }
+    const { artifactId, rawPointer } = sourceRef;
+    if (typeof artifactId !== 'string' || !artifactIds.has(artifactId)) {
+      throw new Error('Capture asset source references must name a capture artifact.');
+    }
+    if (
+      typeof rawPointer !== 'string' ||
+      !RAW_POINTER_PATTERN.test(rawPointer) ||
+      hasControlCharacters(rawPointer)
+    ) {
+      throw new Error('Capture asset source references require an exact non-empty JSON Pointer.');
+    }
+    return { artifactId, rawPointer };
+  });
+  assertUnique(
+    normalized.map(sourceRef => `${sourceRef.artifactId}\u0000${sourceRef.rawPointer}`),
+    'Capture asset source references'
+  );
+  return normalized.sort((left, right) => {
+    const byArtifact = compareStrings(left.artifactId, right.artifactId);
+    return byArtifact === 0 ? compareStrings(left.rawPointer, right.rawPointer) : byArtifact;
+  });
+}
+
+function normalizeAsset(
+  asset: RawCaptureAssetRecord,
+  artifactIds: ReadonlySet<string>
+): RawCaptureAssetRecord {
   requireSafeId(asset.id, 'asset id');
   requireAssetState(asset.state);
   if (asset.relativePath !== null) requireRelativePath(asset.relativePath);
@@ -218,6 +299,7 @@ function normalizeAsset(asset: RawCaptureAssetRecord): RawCaptureAssetRecord {
   return {
     id: asset.id,
     state: asset.state,
+    attemptedAt: requireAssetAttemptedAt(asset),
     relativePath: asset.relativePath === null ? null : requireRelativePath(asset.relativePath),
     mediaType:
       asset.mediaType === null
@@ -229,6 +311,7 @@ function normalizeAsset(asset: RawCaptureAssetRecord): RawCaptureAssetRecord {
       asset.detail === null
         ? null
         : requireCredentialFreeText(asset.detail, 'Capture asset detail', 2_000),
+    sourceRefs: normalizeAssetSourceRefs(asset.sourceRefs, artifactIds),
   };
 }
 
@@ -280,13 +363,22 @@ function validateCaptureBundleUniqueness(
     ],
     'Capture bundle paths'
   );
+  assertUnique(
+    assets.flatMap(asset =>
+      asset.sourceRefs.map(sourceRef => `${sourceRef.artifactId}\u0000${sourceRef.rawPointer}`)
+    ),
+    'Capture asset raw source references'
+  );
 }
 
 /** Build a deterministic, credential-free capture manifest. */
 export function buildCaptureManifest(input: BuildCaptureManifestInput): RawCaptureManifest {
   validateCaptureManifestIdentity(input);
-  const artifacts = input.artifacts.map(normalizeCaptureArtifactRecord);
-  const assets = (input.assets ?? []).map(normalizeAsset);
+  const artifacts = input.artifacts.map(normalizeCaptureArtifactRecord).sort(compareIds);
+  const artifactIds = new Set(artifacts.map(artifact => artifact.id));
+  const assets = (input.assets ?? [])
+    .map(asset => normalizeAsset(asset, artifactIds))
+    .sort(compareIds);
   validateCaptureBundleUniqueness(artifacts, assets);
 
   return {
@@ -312,6 +404,14 @@ export function buildCaptureManifest(input: BuildCaptureManifestInput): RawCaptu
   };
 }
 
+function compareIds<T extends { id: string }>(left: T, right: T): number {
+  return compareStrings(left.id, right.id);
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 /** Verify runtime artifact record identity and byte lengths without hashing. */
 export function validateCaptureBundleShape(bundle: RawCaptureBundle): void {
   const records = new Map(bundle.manifest.artifacts.map(record => [record.id, record]));
@@ -331,6 +431,28 @@ export function validateCaptureBundleShape(bundle: RawCaptureBundle): void {
       throw new Error(`Runtime capture artifact ${artifact.record.id} has the wrong byte length.`);
     }
   }
+
+  const fetchedAssets = new Map(
+    bundle.manifest.assets
+      .filter(asset => asset.state === 'fetched')
+      .map(asset => [asset.id, asset])
+  );
+  assertUnique(
+    bundle.assets.map(asset => asset.record.id),
+    'Runtime capture asset ids'
+  );
+  if (bundle.assets.length !== fetchedAssets.size) {
+    throw new Error('Runtime capture assets do not match the fetched manifest assets.');
+  }
+  for (const asset of bundle.assets) {
+    const record = fetchedAssets.get(asset.record.id);
+    if (!record || JSON.stringify(record) !== JSON.stringify(asset.record)) {
+      throw new Error(`Runtime capture asset ${asset.record.id} is not the manifest record.`);
+    }
+    if (record.byteLength === null || asset.bytes.byteLength !== record.byteLength) {
+      throw new Error(`Runtime capture asset ${asset.record.id} has the wrong byte length.`);
+    }
+  }
 }
 
 /**
@@ -348,6 +470,12 @@ export async function verifyCaptureBundleIntegrity(
       throw new Error(
         `Runtime capture artifact ${artifact.record.id} failed SHA-256 verification.`
       );
+    }
+  }
+  for (const asset of bundle.assets) {
+    const actual = await sha256(asset.bytes);
+    if (asset.record.sha256 === null || actual !== asset.record.sha256) {
+      throw new Error(`Runtime capture asset ${asset.record.id} failed SHA-256 verification.`);
     }
   }
 }

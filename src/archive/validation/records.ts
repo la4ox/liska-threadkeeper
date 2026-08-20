@@ -15,7 +15,14 @@ import {
   validateTimestamp,
 } from './shared';
 
-const ASSET_STATES = new Set(['fetched', 'unavailable', 'declined', 'expired', 'failed']);
+const ASSET_STATES = new Set([
+  'not-attempted',
+  'fetched',
+  'unavailable',
+  'declined',
+  'expired',
+  'failed',
+]);
 
 const INPUT_FIELDS = [
   'captureId',
@@ -231,8 +238,30 @@ function validateAsset(
   validateAssetDimensions(asset.dimensions, path, issues);
   validateHash(asset.sha256, `${path}/sha256`, issues, true);
   validateAcquisition(asset.acquisition, path, issues);
+  validateFetchedEvidence(asset, path, issues);
   validateSourceReferences(asset.sourceRefs, `${path}/sourceRefs`, issues);
   validateExtensions(asset.extensions, `${path}/extensions`, issues);
+}
+
+function validateFetchedEvidence(
+  asset: UnknownRecord,
+  path: string,
+  issues: ArchiveValidationIssue[]
+): void {
+  if (!isPlainObject(asset.acquisition) || asset.acquisition.state !== 'fetched') return;
+  if (
+    !isNonEmptyString(asset.localArtifactRef) ||
+    asset.byteLength === null ||
+    asset.sha256 === null
+  ) {
+    addIssue(
+      issues,
+      'error',
+      'asset-fetched-evidence-missing',
+      path,
+      'Fetched assets require a local artifact path, byte length, and SHA-256.'
+    );
+  }
 }
 
 function validateAssetIdentity(
@@ -329,7 +358,8 @@ function validateAcquisition(value: unknown, path: string, issues: ArchiveValida
   if (!acquisition) {
     return;
   }
-  if (typeof acquisition.state !== 'string' || !ASSET_STATES.has(acquisition.state)) {
+  const state = acquisition.state;
+  if (typeof state !== 'string' || !ASSET_STATES.has(state)) {
     addIssue(
       issues,
       'error',
@@ -339,6 +369,27 @@ function validateAcquisition(value: unknown, path: string, issues: ArchiveValida
     );
   }
   validateTimestamp(acquisition.attemptedAt, `${path}/acquisition/attemptedAt`, issues);
+  if (
+    ['fetched', 'expired', 'failed'].includes(String(state)) &&
+    acquisition.attemptedAt === null
+  ) {
+    addIssue(
+      issues,
+      'error',
+      'asset-acquisition-attempt-required',
+      `${path}/acquisition/attemptedAt`,
+      'Fetched, expired, and failed assets require an acquisition attempt timestamp.'
+    );
+  }
+  if (['not-attempted', 'declined'].includes(String(state)) && acquisition.attemptedAt !== null) {
+    addIssue(
+      issues,
+      'error',
+      'asset-acquisition-attempt-unexpected',
+      `${path}/acquisition/attemptedAt`,
+      'Not-attempted and declined assets must not claim an acquisition attempt timestamp.'
+    );
+  }
   validateNullableString(acquisition.detail, `${path}/acquisition/detail`, issues);
 }
 
