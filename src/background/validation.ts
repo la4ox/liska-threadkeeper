@@ -78,7 +78,13 @@ export function validateChatGptCaptureSender(
   const tabUrl = parseChatGptCaptureTabUrl(sender.tab.url, conversationId);
   if (tabUrl === undefined) return false;
 
-  return sender.url === undefined || isSamePageUrl(sender.url, tabUrl);
+  // ChatGPT changes conversations with history.pushState. Chrome keeps
+  // MessageSender.url bound to the document URL where the content script was
+  // injected, while sender.tab.url follows the current SPA route. Requiring
+  // both paths to match rejects a trusted click after an ordinary sidebar
+  // navigation. The current tab route above remains exact and UUID-bound; the
+  // document URL only needs to prove that the sender is still a ChatGPT page.
+  return sender.url === undefined || isExactChatGptDocumentUrl(sender.url);
 }
 
 function parseChatGptCaptureTabUrl(rawUrl: string, conversationId: string): URL | undefined {
@@ -107,16 +113,13 @@ function isExactChatGptConversationUrl(url: URL): boolean {
   );
 }
 
-function isSamePageUrl(rawUrl: string, tabUrl: URL): boolean {
+function isExactChatGptDocumentUrl(rawUrl: string): boolean {
   try {
     const senderUrl = new URL(rawUrl);
     return (
-      senderUrl.origin === tabUrl.origin &&
-      senderUrl.pathname === tabUrl.pathname &&
-      senderUrl.search === tabUrl.search &&
-      senderUrl.hash === tabUrl.hash &&
-      senderUrl.username === tabUrl.username &&
-      senderUrl.password === tabUrl.password
+      senderUrl.origin === 'https://chatgpt.com' &&
+      senderUrl.username === '' &&
+      senderUrl.password === ''
     );
   } catch {
     return false;

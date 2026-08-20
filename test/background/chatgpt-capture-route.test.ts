@@ -95,6 +95,23 @@ describe('ChatGPT capture service-worker route', () => {
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
   });
 
+  it('authorizes the current conversation after same-origin SPA navigation', async () => {
+    const sendResponse = vi.fn();
+    const returned = capturedListener(
+      { action: 'captureChatGptConversation', conversationId: CONVERSATION_ID },
+      {
+        tab: { url: `https://chatgpt.com/g/my-custom-gpt/c/${CONVERSATION_ID}` },
+        url: 'https://chatgpt.com/c/11111111-2222-3333-4444-555555555555',
+      } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(returned).toBe(true);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
+  });
+
   it('serializes known and unknown capture failures without exception detail or settings reads', async () => {
     const { ChatGptTemporaryCaptureError } = await import('../../src/background/chatgpt-capture');
     mocks.capture.mockRejectedValueOnce(new ChatGptTemporaryCaptureError('timed-out'));

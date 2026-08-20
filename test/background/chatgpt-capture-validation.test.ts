@@ -67,16 +67,25 @@ describe('ChatGPT capture message validation', () => {
     ).toBe(false);
   });
 
-  it('rejects a sender URL that does not match the validated tab route', () => {
+  it('accepts a stale same-origin sender URL after ChatGPT SPA navigation', () => {
     expect(
       validateChatGptCaptureSender(
         contentSender(
-          `https://chatgpt.com/c/${CONVERSATION_ID}`,
+          `https://chatgpt.com/g/my-custom-gpt/c/${CONVERSATION_ID}`,
           `https://chatgpt.com/c/${OTHER_CONVERSATION_ID}`
         ),
         CONVERSATION_ID
       )
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      validateChatGptCaptureSender(
+        contentSender(
+          `https://chatgpt.com/c/${CONVERSATION_ID}`,
+          'https://chatgpt.com/?model=legacy#old-document-route'
+        ),
+        CONVERSATION_ID
+      )
+    ).toBe(true);
   });
 
   it('rejects query/hash route variants and extension popup senders', () => {
@@ -112,6 +121,24 @@ describe('ChatGPT capture message validation', () => {
     expect(
       validateChatGptCaptureSender(
         contentSender(`https://chatgpt.com/g/${'a'.repeat(129)}/c/${CONVERSATION_ID}`),
+        CONVERSATION_ID
+      )
+    ).toBe(false);
+    expect(
+      validateChatGptCaptureSender(
+        contentSender(
+          `https://chatgpt.com/c/${CONVERSATION_ID}`,
+          `https://evil.example/c/${CONVERSATION_ID}`
+        ),
+        CONVERSATION_ID
+      )
+    ).toBe(false);
+    expect(
+      validateChatGptCaptureSender(
+        contentSender(
+          `https://chatgpt.com/c/${CONVERSATION_ID}`,
+          `https://attacker@chatgpt.com/c/${OTHER_CONVERSATION_ID}`
+        ),
         CONVERSATION_ID
       )
     ).toBe(false);
