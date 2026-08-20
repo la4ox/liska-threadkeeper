@@ -184,6 +184,35 @@ Renderers consume only validated canonical archives. Initial graph views are:
 - a graph index that links branches and their generated files;
 - later, a single branching document if it remains readable.
 
+The branch-view sequence keeps the existing current-branch export as the
+one-click default. Its first working slice adds a local chooser whose selected
+view targets exactly one declared leaf. Its second working slice writes one
+all-branches index plus one complete root-to-leaf Markdown document per
+declared leaf. Raw, manifest, and canonical artifacts remain once per capture
+and durable destination rather than being copied into every presentation. A
+missing `currentNodeId` does not prevent deterministic all-leaf enumeration.
+The branch catalog stores only each leaf's target, counts, and unique suffix;
+the shared root path is reconstructed lazily while one leaf is rendered and
+written. This keeps a long common prefix from being multiplied in memory for
+wide voice-chat trees.
+
+Branch selection remains local and happens only after the trusted capture has
+produced a validated canonical graph. Provider node identifiers are internal
+selection capabilities; all-branch filenames, links, and frontmatter use an
+opaque capture identity and the platform origin instead of provider
+conversation identifiers. Capture-scoped names prevent selected/all-branch
+views from silently overwriting another snapshot. The multi-document mode is
+available only to durable File and Obsidian destinations. Clipboard remains a
+single-document destination and reports that it skipped an all-branches bundle
+instead of flattening or silently truncating it. An index is written to a
+destination only after every intended leaf file was confirmed there; otherwise
+the user gets a partial-bundle warning and the complete canonical archive stays
+the recovery source.
+
+Append, merge, automatic deduplication, and a monolithic branching Markdown
+document remain separate later decisions. The initial implementation favors
+complete, inspectable snapshots over implicit mutation.
+
 Markdown, HTML, and future PDF are presentation formats, not backup sources.
 PDF should normally be produced from the HTML presentation layer. Obsidian,
 download, and clipboard are destinations; they do not own extraction logic.

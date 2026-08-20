@@ -108,6 +108,30 @@ describe('liska-thread/1 archive core', () => {
     ]);
   });
 
+  it('enumerates a very deep leaf path without overflowing the call stack', () => {
+    const nodeCount = 12_000;
+    const nodes: Record<string, { id: string; parentId: string | null; childIds: string[] }> = {};
+
+    for (let index = 0; index < nodeCount; index += 1) {
+      const id = `deep-node-${index}`;
+      nodes[id] = {
+        id,
+        parentId: index === 0 ? null : `deep-node-${index - 1}`,
+        childIds: index === nodeCount - 1 ? [] : [`deep-node-${index + 1}`],
+      };
+    }
+
+    const deepArchive = {
+      graph: { rootIds: ['deep-node-0'], nodes },
+    } as unknown as LiskaThreadArchive;
+
+    const paths = getLeafNodePaths(deepArchive);
+    expect(paths).toHaveLength(1);
+    expect(paths[0]).toHaveLength(nodeCount);
+    expect(paths[0][0]).toBe('deep-node-0');
+    expect(paths[0][nodeCount - 1]).toBe(`deep-node-${nodeCount - 1}`);
+  });
+
   it('reports deterministic diagnostics for cycles and broken links', () => {
     const cycleCodes = issueCodes(malformedCycleFixture);
     const linkCodes = issueCodes(malformedLinkFixture);

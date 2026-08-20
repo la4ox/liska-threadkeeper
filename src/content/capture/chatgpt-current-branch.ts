@@ -14,6 +14,7 @@ import {
   type RawCaptureArtifact,
   type RawCaptureArtifactRecord,
   type RawCaptureBundle,
+  type LiskaThreadArchive,
 } from '../../archive';
 import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
 import {
@@ -98,6 +99,14 @@ export interface ChatGptCurrentBranchDependencies {
   createCaptureId?: () => string;
   /** Injectable clock keeps evidence metadata reproducible in focused tests. */
   now?: () => Date;
+  /** Injectable only for focused tests; production uses the ChatGPT normalizer. */
+  normalizeCapture?: typeof normalizeChatGptCapture;
+}
+
+/** A verified complete canonical archive plus its durable raw companions. */
+export interface ChatGptArchiveCapture {
+  archive: LiskaThreadArchive;
+  archiveCompanion: ArchiveCompanionBundle;
 }
 
 /**
@@ -345,16 +354,13 @@ function safeNormalizerCode(error: unknown): string | undefined {
 }
 
 /**
- * Capture, integrity-check, normalize, and project exactly one active ChatGPT
- * graph branch. The complete graph remains in the ephemeral canonical archive;
- * callers receive only the established legacy projection contract.
+ * Capture and integrity-check the complete ChatGPT graph, retaining raw,
+ * manifest, and canonical companions before any presentation is selected.
  */
-// eslint-disable-next-line max-lines-per-function -- Keeping raw persistence before normalization visible in one linear pipeline prevents evidence-loss regressions.
-export async function captureChatGptCurrentBranch(
+export async function captureChatGptArchive(
   conversationId: string,
-  includeToolContent: boolean,
   dependencies: ChatGptCurrentBranchDependencies = {}
-): Promise<ArchiveProjectionResult> {
+): Promise<ChatGptArchiveCapture> {
   if (!isChatGptConversationId(conversationId)) {
     throw new ChatGptCurrentBranchError('invalid-conversation-id');
   }
@@ -378,7 +384,7 @@ export async function captureChatGptCurrentBranch(
 
   let normalized: Awaited<ReturnType<typeof normalizeChatGptCapture>>;
   try {
-    normalized = await normalizeChatGptCapture({
+    normalized = await (dependencies.normalizeCapture ?? normalizeChatGptCapture)({
       bundle,
       artifactId: ARTIFACT_ID,
       manifestSha256,
@@ -397,9 +403,24 @@ export async function captureChatGptCurrentBranch(
     throw new ChatGptCurrentBranchError('capture-integrity-failed', { archiveCompanion });
   }
 
+  return { archive: normalized.archive, archiveCompanion };
+}
+
+/**
+ * Project one active ChatGPT graph branch through the established legacy
+ * renderer contract. Complete canonical capture remains available to callers
+ * of captureChatGptArchive.
+ */
+export async function captureChatGptCurrentBranch(
+  conversationId: string,
+  includeToolContent: boolean,
+  dependencies: ChatGptCurrentBranchDependencies = {}
+): Promise<ArchiveProjectionResult> {
+  const { archive, archiveCompanion } = await captureChatGptArchive(conversationId, dependencies);
+
   try {
     return {
-      ...projectArchiveBranch(normalized.archive, { includeToolContent }),
+      ...projectArchiveBranch(archive, { includeToolContent }),
       archiveCompanion,
     };
   } catch {

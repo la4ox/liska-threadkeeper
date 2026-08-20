@@ -7,9 +7,11 @@ import {
 } from '../../src/lib/chatgpt-capture-contract';
 import {
   ChatGptCurrentBranchError,
+  captureChatGptArchive,
   captureChatGptCurrentBranch,
   manifestAllowsChatGptStructuredCapture,
 } from '../../src/content/capture/chatgpt-current-branch';
+import { normalizeChatGptCapture } from '../../src/archive';
 import { sha256Hex } from '../../src/content/capture/response';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
@@ -99,6 +101,27 @@ describe('ChatGPT current-branch capture composition', () => {
       throw new Error('browser diagnostic must not cross the capture boundary');
     });
     expect(manifestAllowsChatGptStructuredCapture()).toBe(false);
+  });
+
+  it('captures the complete canonical graph and all companions exactly once', async () => {
+    const requestCapture = vi.fn().mockResolvedValue(await successfulResponse());
+    const normalizeCapture = vi.fn(normalizeChatGptCapture);
+
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture,
+      normalizeCapture,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+
+    expect(requestCapture).toHaveBeenCalledOnce();
+    expect(normalizeCapture).toHaveBeenCalledOnce();
+    expect(capture.archive.graph.nodes['node/alternate']?.message?.id).toBe('message/alternate');
+    expect(capture.archiveCompanion.artifacts.map(artifact => artifact.kind)).toEqual([
+      'raw',
+      'manifest',
+      'canonical',
+    ]);
   });
 
   it('verifies the synthetic graph, retaining its current branch projection and tool content', async () => {
@@ -316,12 +339,12 @@ describe('ChatGPT current-branch capture composition', () => {
     expect((error as ChatGptCurrentBranchError).archiveCompanion?.artifacts).toHaveLength(3);
   });
 
-  it('preserves raw and manifest when provider normalization fails', async () => {
+  it('preserves raw and manifest when archive normalization fails', async () => {
     const response = await successfulResponse(payload => {
       delete payload.mapping;
     });
 
-    const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
+    const error = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: async () => response,
       createCaptureId: fixedCaptureId,
       now: fixedNow,

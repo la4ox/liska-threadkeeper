@@ -306,5 +306,56 @@
   },
   "toast_noNewMessages": {
     "message": "追加する新しいメッセージはありません"
+  },
+  "ui_branchButton": {
+    "message": "分岐を選ぶ"
+  },
+  "ui_branchButtonTitle": {
+    "message": "持ち帰る会話の分岐を選択"
+  },
+  "ui_branchPickerHeading": {
+    "message": "会話の分岐を選択"
+  },
+  "ui_branchPickerHelp": {
+    "message": "完全なグラフはローカルアーカイブに残ります。閲覧用に分岐を1つ選ぶか、すべての分岐を書き出してください。"
+  },
+  "ui_branchPickerBranch": {
+    "message": "分岐 $ORDINAL$",
+    "placeholders": {
+      "ordinal": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "ui_branchPickerCurrent": {
+    "message": "現在"
+  },
+  "ui_branchPickerMessageCount": {
+    "message": "$COUNT$ 件のメッセージ",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "42"
+      }
+    }
+  },
+  "ui_branchPickerUniqueMessageCount": {
+    "message": "固有 $COUNT$ 件",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "17"
+      }
+    }
+  },
+  "ui_branchPickerCancel": {
+    "message": "キャンセル"
+  },
+  "ui_branchPickerExportAll": {
+    "message": "すべての分岐を書き出す"
+  },
+  "ui_branchPickerExportAllHelp": {
+    "message": "すべての分岐を書き出すと、複数のローカル Markdown ファイルが作成されます。完全なグラフは1つの正規アーカイブに残ります。"
   }
 }

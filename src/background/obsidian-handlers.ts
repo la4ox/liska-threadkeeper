@@ -237,7 +237,11 @@ async function tryAppendMode(
   resolvedPath: string,
   searchBasePath: string
 ): Promise<SaveResponse | null> {
-  if (!settings.enableAppendMode || note.frontmatter.type === 'deep-research') {
+  if (
+    !settings.enableAppendMode ||
+    note.frontmatter.type === 'deep-research' ||
+    note.frontmatter.presentation_mode !== undefined
+  ) {
     return null;
   }
 

@@ -55,6 +55,27 @@ describe('canonical archive to legacy ConversationData projection', () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it('keeps a branch readable when its leaf has only non-renderable canonical blocks', () => {
+    const archive = cloneArchive();
+    const alternate = archive.graph.nodes['node-alternate'].message!;
+    alternate.blocks = [
+      {
+        id: 'attachment-only',
+        type: 'attachment',
+        assetId: 'asset-synthetic-image',
+        sourceRefs: alternate.sourceRefs,
+        extensions: {},
+      },
+    ];
+
+    const result = projectArchiveBranch(archive, { targetNodeId: 'node-alternate' });
+
+    expect(result.data.messages).toHaveLength(1);
+    expect(result.warnings).toContain(
+      'Legacy Markdown omitted 1 message(s) without legacy-renderable visible content; the canonical archive companion preserves them only when its selected output write succeeds.'
+    );
+  });
+
   it('keeps reasoning and tool blocks ordered behind the explicit tool-content option', () => {
     const result = projectArchiveBranch(cloneArchive(), { includeToolContent: true });
     const toolContent = result.data.messages[1].toolContent ?? '';

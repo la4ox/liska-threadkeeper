@@ -14,13 +14,19 @@ import { NotebookLMExtractor } from './extractors/notebooklm';
 import { DeepSeekExtractor } from './extractors/deepseek';
 import { extractErrorMessage } from '../lib/error-utils';
 import type {
+  AllBranchesPresentationPlan,
   ArchiveCompanionBundle,
   ConversationData,
   ExtractionResult,
   IConversationExtractor,
 } from '../lib/types';
+import {
+  persistAllBranchesPresentation,
+  type AllBranchesPersistenceSummary,
+} from './archive-branch-persistence';
 import { conversationToNote } from './markdown';
 import {
+  injectBranchExportButton,
   injectSyncButton,
   setButtonLoading,
   showErrorToast,
@@ -215,8 +221,12 @@ export async function initialize(): Promise<void> {
   await waitForConversationContainer();
 
   // Apply throttle to sync handler (NEW-06)
-  const throttledHandleSync = throttle(handleSync, EVENT_THROTTLE_DELAY);
+  const throttledHandleSync = throttle(() => handleSync('current'), EVENT_THROTTLE_DELAY);
   injectSyncButton(throttledHandleSync);
+  if (extractor.platform === 'chatgpt') {
+    const throttledBranchSync = throttle(() => handleSync('selected'), EVENT_THROTTLE_DELAY);
+    injectBranchExportButton(throttledBranchSync);
+  }
   console.info('[G2O] Sync button injected');
 }
 
@@ -520,21 +530,25 @@ function backgroundResponseError(value: unknown): string {
   return 'Invalid response from extension background';
 }
 
-async function persistNote(
+type NoteWriteAttempt =
+  | { success: true; response: MultiOutputResponse }
+  | { success: false; error: string };
+
+async function writeNoteToOutputs(
   note: ObsidianNote,
   outputs: OutputDestination[],
-  messageCount: number,
-  extractionWarnings?: string[]
-): Promise<void> {
+  messageCount: number
+): Promise<NoteWriteAttempt> {
   if (utf8ByteLength(note.body) > MAX_CONTENT_SIZE) {
-    showErrorToast('Conversation is too large to export safely (32 MiB limit)');
-    return;
+    return { success: false, error: 'Conversation is too large to export safely (32 MiB limit)' };
   }
 
   const saveMessage = { action: 'saveToOutputs' as const, data: note, outputs };
   if (jsonUtf8ByteLength(saveMessage) > MAX_EXTENSION_MESSAGE_SIZE) {
-    showErrorToast('Conversation and images are too large to export safely (60 MiB limit)');
-    return;
+    return {
+      success: false,
+      error: 'Conversation and images are too large to export safely (60 MiB limit)',
+    };
   }
 
   console.info('[G2O] Generated note:', {
@@ -542,20 +556,116 @@ async function persistNote(
     outputs,
   });
 
-  showToast('Saving...', 'info', INFO_TOAST_DURATION);
   const saveResponse: unknown = await sendMessage(saveMessage);
   if (!isMultiOutputResponse(saveResponse, outputs)) {
-    showErrorToast(backgroundResponseError(saveResponse));
+    return { success: false, error: backgroundResponseError(saveResponse) };
+  }
+  return { success: true, response: saveResponse };
+}
+
+function allBranchesDestinationNames(summary: AllBranchesPersistenceSummary): string {
+  return summary.destinations.map(destination => destination.destination).join(', ');
+}
+
+export function displayAllBranchesSummary(summary: AllBranchesPersistenceSummary): void {
+  if (summary.destinations.length === 0) {
+    showErrorToast('Exporting all branches requires File or Obsidian output');
     return;
   }
-  displaySaveResults(saveResponse, extractionWarnings);
+
+  const destinationCount = summary.destinations.length;
+  const expectedBranchWrites = summary.branchCount * destinationCount;
+  const savedBranchWrites = summary.destinations.reduce(
+    (count, destination) => count + destination.branchFilesSaved,
+    0
+  );
+  const savedIndexes = summary.destinations.filter(destination => destination.indexSaved).length;
+  const archiveDestinations = summary.destinations.filter(
+    destination => destination.archiveSaved
+  ).length;
+  const caveats = [
+    ...(summary.omissionBranchCount > 0
+      ? [
+          `${summary.omissionBranchCount} branch Markdown file(s) omit content preserved in canonical`,
+        ]
+      : []),
+    ...(summary.canonicalOnlyCount > 0
+      ? [`${summary.canonicalOnlyCount} canonical-only stub(s) were created`]
+      : []),
+    ...(summary.clipboardSkipped ? ['Clipboard was skipped for the multi-file bundle'] : []),
+  ];
+
+  if (summary.allSuccessful && caveats.length === 0) {
+    showToast(
+      `Saved ${summary.branchCount} branches and an index to ${allBranchesDestinationNames(summary)}`,
+      'success'
+    );
+    return;
+  }
+
+  const writeStatus = summary.allSuccessful
+    ? `Saved ${summary.branchCount} branches and an index to ${allBranchesDestinationNames(summary)}`
+    : `All-branches export was partial: ${savedBranchWrites}/${expectedBranchWrites} branch writes, ${savedIndexes}/${destinationCount} indexes, and ${archiveDestinations}/${destinationCount} complete archive bundles succeeded`;
+  showWarningToast(`${writeStatus}${caveats.length > 0 ? `. ${caveats.join('. ')}` : ''}`);
+}
+
+export async function persistAllBranchesBundle(
+  plan: AllBranchesPresentationPlan,
+  companion: ArchiveCompanionBundle,
+  settings: ContentScriptSettings,
+  outputs: OutputDestination[]
+): Promise<void> {
+  showToast('Saving all branches...', 'info', 0);
+  let lastReported = 0;
+  const summary = await persistAllBranchesPresentation(
+    plan,
+    companion,
+    settings.templateOptions,
+    settings.enableToolContent,
+    outputs,
+    {
+      persistCompanions: persistArchiveCompanions,
+      writeNote: async (note, destination, messageCount) => {
+        const attempt = await writeNoteToOutputs(note, [destination], messageCount);
+        return (
+          attempt.success &&
+          attempt.response.allSuccessful &&
+          attempt.response.results.every(
+            result => result.savedAs === undefined || result.savedAs === note.fileName
+          )
+        );
+      },
+      onProgress: (completed, total) => {
+        if (completed === total || completed - lastReported >= 10) {
+          lastReported = completed;
+          showToast(`Saving all branches... ${completed}/${total}`, 'info', 0);
+        }
+      },
+    }
+  );
+  displayAllBranchesSummary(summary);
+}
+
+async function persistNote(
+  note: ObsidianNote,
+  outputs: OutputDestination[],
+  messageCount: number,
+  extractionWarnings?: string[]
+): Promise<void> {
+  showToast('Saving...', 'info', INFO_TOAST_DURATION);
+  const attempt = await writeNoteToOutputs(note, outputs, messageCount);
+  if (!attempt.success) {
+    showErrorToast(attempt.error);
+    return;
+  }
+  displaySaveResults(attempt.response, extractionWarnings);
 }
 
 /**
  * Handle sync button click
  */
 // eslint-disable-next-line max-lines-per-function -- The staged user-visible pipeline stays linear so evidence persistence always precedes Markdown validation.
-export async function handleSync(): Promise<void> {
+export async function handleSync(branchMode: 'current' | 'selected' = 'current'): Promise<void> {
   console.info('[G2O] Sync initiated');
   setButtonLoading(true);
   let stage = 'loading extension settings';
@@ -574,10 +684,26 @@ export async function handleSync(): Promise<void> {
       showErrorToast('Not on a valid conversation page');
       return;
     }
+    if (extractor instanceof ChatGPTExtractor) extractor.setBranchExportMode(branchMode);
     showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
     extractor.applySettings(settings);
     stage = 'extracting the conversation';
     const result = await extractor.extract();
+    if (result.cancelled) return;
+    if (result.allBranches) {
+      if (!result.archiveCompanion) {
+        showErrorToast('All-branches export requires a complete canonical archive');
+        return;
+      }
+      stage = 'saving the all-branches archive and Markdown bundle';
+      await persistAllBranchesBundle(
+        result.allBranches,
+        result.archiveCompanion,
+        settings,
+        enabledOutputs
+      );
+      return;
+    }
     stage = 'preserving failed extraction evidence';
     const failedArchiveStatus = await persistFailedExtractionArchive(result, enabledOutputs);
     stage = 'validating the extracted conversation';

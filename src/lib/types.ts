@@ -2,6 +2,9 @@
  * Shared TypeScript types for Gemini to Obsidian extension
  */
 
+import type { ArchiveBranchCatalog } from '../archive/branches';
+import type { LiskaThreadArchive } from '../archive/types';
+
 /**
  * Supported AI platform identifiers
  */
@@ -65,7 +68,25 @@ export interface ConversationData {
   metadata: ConversationMetadata;
   /** Presence describes whether this export came from a complete archive capture. */
   capture?: ConversationCaptureMetadata;
+  /** Optional derived view identity; the canonical archive remains unchanged. */
+  presentation?: ConversationPresentationMetadata;
 }
+
+/** A capture-scoped Markdown view derived from one validated archive graph. */
+export type ConversationPresentationMetadata =
+  | {
+      mode: 'selected-branch' | 'all-branches-leaf';
+      captureId: string;
+      branchOrdinal: number;
+      branchCount: number;
+      branchPointCount: number;
+    }
+  | {
+      mode: 'all-branches-index';
+      captureId: string;
+      branchCount: number;
+      branchPointCount: number;
+    };
 
 /**
  * Deep Research source information
@@ -145,6 +166,16 @@ export interface NoteFrontmatter {
   capture_mode?: ConversationCaptureMetadata['mode'];
   /** Capture evidence completeness for ChatGPT exports only. */
   capture_completeness?: ConversationCaptureMetadata['completeness'];
+  /** Derived view kind; absent means the established current-branch note. */
+  presentation_mode?: ConversationPresentationMetadata['mode'];
+  /** One-based deterministic leaf position within this capture. */
+  branch_ordinal?: number;
+  /** Number of declared root-to-leaf branches in this capture. */
+  branch_count?: number;
+  /** Number of graph nodes with more than one child. */
+  branch_point_count?: number;
+  /** Opaque extension-generated snapshot identity, never a provider node ID. */
+  archive_capture_id?: string;
 }
 
 /**
@@ -193,6 +224,12 @@ export interface ArchiveCompanionBundle {
   artifacts:
     | readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact]
     | readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact, ArchiveCompanionArtifact];
+}
+
+/** Runtime-only plan consumed sequentially by the content orchestrator. */
+export interface AllBranchesPresentationPlan {
+  archive: LiskaThreadArchive;
+  catalog: ArchiveBranchCatalog;
 }
 
 /** Evidence mode attached to a projected conversation, not to rendered text. */
@@ -451,11 +488,15 @@ export interface SaveResponse {
  */
 export interface ExtractionResult {
   success: boolean;
+  /** A trusted local picker was dismissed before any output was requested. */
+  cancelled?: boolean;
   data?: ConversationData;
   error?: string;
   warnings?: string[];
   /** Present only when a structured capture produced all immutable companions. */
   archiveCompanion?: ArchiveCompanionBundle;
+  /** Complete graph retained for sequential per-leaf presentation writes. */
+  allBranches?: AllBranchesPresentationPlan;
 }
 
 /**

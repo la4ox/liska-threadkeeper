@@ -135,45 +135,78 @@ export function getCurrentNodePath(archive: LiskaThreadArchive): string[] {
   return getNodePath(archive, typeof currentNodeId === 'string' ? currentNodeId : null);
 }
 
-function visitLeaves(
+interface LeafTraversalFrame {
+  nodeId: string;
+  node?: TraversalNode;
+  nextChildIndex: number;
+}
+
+function leaveLeafFrame(stack: LeafTraversalFrame[], path: string[], active: Set<string>): void {
+  const frame = stack.pop();
+  if (!frame) return;
+  active.delete(frame.nodeId);
+  path.pop();
+}
+
+/**
+ * Visit one declared root without recursive calls. Real ChatGPT threads can
+ * contain thousands of nodes, so call-stack depth must not be a graph-size
+ * limit for branch enumeration.
+ */
+function visitRootLeaves(
   graph: TraversalGraph,
-  nodeId: string,
-  path: string[],
+  rootId: string,
   active: Set<string>,
   visited: Set<string>,
   leaves: string[][]
 ): void {
-  if (active.has(nodeId)) {
-    throw new ArchiveTraversalError('graph-cycle', `Child links cycle at node ${nodeId}.`);
-  }
-  if (visited.has(nodeId)) {
-    throw new ArchiveTraversalError(
-      'duplicate-reachable-node',
-      `Node ${nodeId} is reached more than once from declared roots.`
-    );
-  }
+  const path: string[] = [];
+  const stack: LeafTraversalFrame[] = [{ nodeId: rootId, nextChildIndex: 0 }];
 
-  const node = requireNode(graph, nodeId);
-  active.add(nodeId);
-  visited.add(nodeId);
-  const nextPath = [...path, nodeId];
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
 
-  if (node.childIds.length === 0) {
-    leaves.push(nextPath);
-  } else {
-    node.childIds.forEach(childId => {
-      const child = requireNode(graph, childId);
-      if (child.parentId !== nodeId) {
+    if (!frame.node) {
+      if (active.has(frame.nodeId)) {
         throw new ArchiveTraversalError(
-          'child-parent-asymmetry',
-          `Child ${childId} does not identify ${nodeId} as its parent.`
+          'graph-cycle',
+          `Child links cycle at node ${frame.nodeId}.`
         );
       }
-      visitLeaves(graph, childId, nextPath, active, visited, leaves);
-    });
-  }
+      if (visited.has(frame.nodeId)) {
+        throw new ArchiveTraversalError(
+          'duplicate-reachable-node',
+          `Node ${frame.nodeId} is reached more than once from declared roots.`
+        );
+      }
 
-  active.delete(nodeId);
+      frame.node = requireNode(graph, frame.nodeId);
+      active.add(frame.nodeId);
+      visited.add(frame.nodeId);
+      path.push(frame.nodeId);
+
+      if (frame.node.childIds.length === 0) {
+        leaves.push([...path]);
+        leaveLeafFrame(stack, path, active);
+      }
+      continue;
+    }
+
+    if (frame.nextChildIndex < frame.node.childIds.length) {
+      const childId = frame.node.childIds[frame.nextChildIndex++];
+      const child = requireNode(graph, childId);
+      if (child.parentId !== frame.nodeId) {
+        throw new ArchiveTraversalError(
+          'child-parent-asymmetry',
+          `Child ${childId} does not identify ${frame.nodeId} as its parent.`
+        );
+      }
+      stack.push({ nodeId: childId, nextChildIndex: 0 });
+      continue;
+    }
+
+    leaveLeafFrame(stack, path, active);
+  }
 }
 
 /**
@@ -194,7 +227,7 @@ export function getLeafNodePaths(archive: LiskaThreadArchive): string[][] {
         `Declared root ${rootId} has a non-null parent.`
       );
     }
-    visitLeaves(graph, rootId, [], active, visited, leaves);
+    visitRootLeaves(graph, rootId, active, visited, leaves);
   });
 
   return leaves;

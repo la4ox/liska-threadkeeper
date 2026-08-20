@@ -6,7 +6,32 @@
  */
 
 import { escapeYamlValue } from './yaml-utils';
-import type { ObsidianNote, ExtensionSettings } from './types';
+import type { ObsidianNote, ExtensionSettings, NoteFrontmatter } from './types';
+
+/** Evidence fields are always emitted, independent from optional note fields. */
+function appendArchiveEvidence(lines: string[], frontmatter: NoteFrontmatter): void {
+  if (frontmatter.capture_mode) {
+    lines.push(`capture_mode: ${escapeYamlValue(frontmatter.capture_mode)}`);
+  }
+  if (frontmatter.capture_completeness) {
+    lines.push(`capture_completeness: ${escapeYamlValue(frontmatter.capture_completeness)}`);
+  }
+  if (frontmatter.presentation_mode) {
+    lines.push(`presentation_mode: ${escapeYamlValue(frontmatter.presentation_mode)}`);
+  }
+  if (frontmatter.branch_ordinal !== undefined) {
+    lines.push(`branch_ordinal: ${frontmatter.branch_ordinal}`);
+  }
+  if (frontmatter.branch_count !== undefined) {
+    lines.push(`branch_count: ${frontmatter.branch_count}`);
+  }
+  if (frontmatter.branch_point_count !== undefined) {
+    lines.push(`branch_point_count: ${frontmatter.branch_point_count}`);
+  }
+  if (frontmatter.archive_capture_id) {
+    lines.push(`archive_capture_id: ${escapeYamlValue(frontmatter.archive_capture_id)}`);
+  }
+}
 
 /**
  * Generate full note content with frontmatter and body
@@ -48,14 +73,9 @@ export function generateNoteContent(note: ObsidianNote, settings: ExtensionSetti
     lines.push(`message_count: ${note.frontmatter.message_count}`);
   }
 
-  // ChatGPT capture evidence is intentionally independent from user template
-  // toggles: a partial DOM fallback must not look like a complete archive.
-  if (note.frontmatter.capture_mode) {
-    lines.push(`capture_mode: ${escapeYamlValue(note.frontmatter.capture_mode)}`);
-  }
-  if (note.frontmatter.capture_completeness) {
-    lines.push(`capture_completeness: ${escapeYamlValue(note.frontmatter.capture_completeness)}`);
-  }
+  // A partial DOM fallback and a derived branch must never look like an
+  // unqualified complete source note.
+  appendArchiveEvidence(lines, note.frontmatter);
   lines.push('---');
   lines.push('');
 

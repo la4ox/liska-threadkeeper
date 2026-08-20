@@ -151,4 +151,33 @@ describe('generateNoteContent', () => {
     expect(content).toContain('capture_mode: structured-api');
     expect(content).toContain('capture_completeness: complete');
   });
+
+  it('writes branch presentation provenance independently from optional template fields', () => {
+    const settings = createTestSettings({
+      includeId: false,
+      includeTitle: false,
+      includeSource: false,
+      includeDates: false,
+      includeTags: false,
+      includeMessageCount: false,
+    });
+    const branchNote = createTestNote({
+      frontmatter: {
+        ...note.frontmatter,
+        presentation_mode: 'selected-branch',
+        branch_ordinal: 4,
+        branch_count: 12,
+        branch_point_count: 7,
+        archive_capture_id: 'capture-chatgpt-safe_123',
+      },
+    });
+
+    const content = generateNoteContent(branchNote, settings);
+
+    expect(content).toContain('presentation_mode: selected-branch');
+    expect(content).toContain('branch_ordinal: 4');
+    expect(content).toContain('branch_count: 12');
+    expect(content).toContain('branch_point_count: 7');
+    expect(content).toContain('archive_capture_id: capture-chatgpt-safe_123');
+  });
 });

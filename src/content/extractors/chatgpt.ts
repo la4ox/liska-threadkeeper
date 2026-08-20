@@ -16,17 +16,27 @@ import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
 import type {
   AIPlatform,
+  ArchiveCompanionBundle,
   ConversationMessage,
   ExtractionResult,
   SyncSettings,
 } from '../../lib/types';
+import { getArchiveBranchCatalog, type ArchiveBranchCatalog } from '../../archive';
 import { isChatGptConversationId } from '../../lib/chatgpt-capture-contract';
 import {
   ChatGptCurrentBranchError,
+  captureChatGptArchive,
   captureChatGptCurrentBranch,
   manifestAllowsChatGptStructuredCapture,
+  type ChatGptArchiveCapture,
 } from '../capture/chatgpt-current-branch';
-import type { ArchiveProjectionResult } from '../archive-projection';
+import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
+import { buildArchiveBranchPickerOptions } from '../archive-branch-options';
+import {
+  showArchiveBranchPicker,
+  type ArchiveBranchPickerOption,
+  type ArchiveBranchPickerSelection,
+} from '../ui';
 
 import { SELECTORS } from './selectors/chatgpt';
 
@@ -72,13 +82,40 @@ function structuredFallbackWarning(error: unknown): string {
   return `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (${code}${detail}); partial rendered current branch exported; ${archiveStatus}`;
 }
 
+function selectedBranchFailure(error: unknown, fallbackCode: string): ExtractionResult {
+  const code = error instanceof ChatGptCurrentBranchError ? error.code : fallbackCode;
+  const detail =
+    error instanceof ChatGptCurrentBranchError && error.detailCode ? `:${error.detailCode}` : '';
+  const archiveCompanion =
+    error instanceof ChatGptCurrentBranchError ? error.archiveCompanion : undefined;
+  return {
+    success: false,
+    error: `ChatGPT complete graph is unavailable for branch selection (${code}${detail}).`,
+    ...(archiveCompanion ? { archiveCompanion } : {}),
+  };
+}
+
 export interface ChatGPTExtractorDependencies {
   captureCurrentBranch?: (
     conversationId: string,
     includeToolContent: boolean
   ) => Promise<ArchiveProjectionResult>;
+  captureArchive?: (conversationId: string) => Promise<ChatGptArchiveCapture>;
+  selectBranch?: (options: ArchiveBranchPickerOption[]) => Promise<ArchiveBranchPickerSelection>;
   manifestAllowsStructuredCapture?: () => boolean;
 }
+
+export type ChatGptBranchExportMode = 'current' | 'selected';
+
+type ProjectionSelection =
+  | { kind: 'projection'; projection: ArchiveProjectionResult }
+  | { kind: 'cancelled' }
+  | { kind: 'selection-failed'; archiveCompanion: ArchiveCompanionBundle }
+  | {
+      kind: 'all-branches';
+      capture: ChatGptArchiveCapture;
+      catalog: ArchiveBranchCatalog;
+    };
 
 type ChatGptStructuredRoute =
   | { kind: 'valid'; conversationId: string }
@@ -96,6 +133,7 @@ export class ChatGPTExtractor extends BaseExtractor {
 
   /** Include projected reasoning and tool blocks from the verified archive. */
   enableToolContent = false;
+  private branchExportMode: ChatGptBranchExportMode = 'current';
 
   private readonly captureCurrentBranch: NonNullable<
     ChatGPTExtractorDependencies['captureCurrentBranch']
@@ -103,12 +141,21 @@ export class ChatGPTExtractor extends BaseExtractor {
   private readonly manifestAllowsStructuredCapture: NonNullable<
     ChatGPTExtractorDependencies['manifestAllowsStructuredCapture']
   >;
+  private readonly captureArchive: NonNullable<ChatGPTExtractorDependencies['captureArchive']>;
+  private readonly selectBranch: NonNullable<ChatGPTExtractorDependencies['selectBranch']>;
 
   constructor(dependencies: ChatGPTExtractorDependencies = {}) {
     super();
     this.captureCurrentBranch = dependencies.captureCurrentBranch ?? captureChatGptCurrentBranch;
+    this.captureArchive = dependencies.captureArchive ?? captureChatGptArchive;
+    this.selectBranch = dependencies.selectBranch ?? showArchiveBranchPicker;
     this.manifestAllowsStructuredCapture =
       dependencies.manifestAllowsStructuredCapture ?? manifestAllowsChatGptStructuredCapture;
+  }
+
+  /** Select a transient presentation without changing persisted extraction settings. */
+  setBranchExportMode(mode: ChatGptBranchExportMode): void {
+    this.branchExportMode = mode;
   }
 
   /**
@@ -128,39 +175,133 @@ export class ChatGPTExtractor extends BaseExtractor {
   async extract(): Promise<ExtractionResult> {
     const route = this.structuredCaptureRoute();
     if (route.kind === 'unsupported') {
-      return super.extract();
+      return this.branchExportMode === 'selected'
+        ? selectedBranchFailure(undefined, 'route-unavailable')
+        : super.extract();
     }
 
     if (route.kind === 'invalid-conversation-id') {
-      return this.extractRenderedFallback(new ChatGptCurrentBranchError('invalid-conversation-id'));
+      return this.handlePreSelectionFailure(
+        new ChatGptCurrentBranchError('invalid-conversation-id'),
+        'invalid-conversation-id'
+      );
     }
     const { conversationId } = route;
 
     if (!this.allowsStructuredCapture()) {
-      return this.extractRenderedFallback(new ChatGptCurrentBranchError('permission-unavailable'));
+      return this.handlePreSelectionFailure(
+        new ChatGptCurrentBranchError('permission-unavailable'),
+        'permission-unavailable'
+      );
     }
 
     try {
-      const projection = await this.captureCurrentBranch(conversationId, this.enableToolContent);
-      const guarded = this.buildConversationResult(
-        projection.data.messages,
-        projection.data.id,
-        projection.data.title,
-        projection.data.source
+      return this.finalizeProjectionSelection(
+        await this.captureRequestedProjection(conversationId)
       );
-      if (!guarded.success) return guarded;
-      const warnings = [...new Set([...projection.warnings, ...(guarded.warnings ?? [])])];
+    } catch (error) {
+      return this.handlePreSelectionFailure(error, 'capture-failed');
+    }
+  }
+
+  private handlePreSelectionFailure(
+    error: unknown,
+    fallbackCode: string
+  ): Promise<ExtractionResult> | ExtractionResult {
+    return this.branchExportMode === 'selected'
+      ? selectedBranchFailure(error, fallbackCode)
+      : this.extractRenderedFallback(error);
+  }
+
+  private finalizeProjectionSelection(selection: ProjectionSelection): ExtractionResult {
+    if (selection.kind === 'cancelled') return { success: false, cancelled: true };
+    if (selection.kind === 'all-branches') {
       return {
         success: true,
-        data: {
-          ...projection.data,
-          capture: { mode: 'structured-api', completeness: 'complete' },
+        archiveCompanion: selection.capture.archiveCompanion,
+        allBranches: {
+          archive: selection.capture.archive,
+          catalog: selection.catalog,
         },
-        ...(projection.archiveCompanion && { archiveCompanion: projection.archiveCompanion }),
-        ...(warnings.length > 0 ? { warnings } : {}),
       };
-    } catch (error) {
-      return this.extractRenderedFallback(error);
+    }
+    if (selection.kind === 'selection-failed') {
+      return {
+        success: false,
+        error: 'Selected ChatGPT branch could not be projected from the complete archive.',
+        archiveCompanion: selection.archiveCompanion,
+      };
+    }
+    return this.finalizeStructuredProjection(selection.projection);
+  }
+
+  private finalizeStructuredProjection(projection: ArchiveProjectionResult): ExtractionResult {
+    const { data } = projection;
+    const guarded =
+      this.branchExportMode === 'selected'
+        ? super.buildConversationResult(data.messages, data.id, data.title, data.source)
+        : this.buildConversationResult(data.messages, data.id, data.title, data.source);
+    if (!guarded.success) {
+      return {
+        ...guarded,
+        ...(projection.archiveCompanion ? { archiveCompanion: projection.archiveCompanion } : {}),
+      };
+    }
+
+    const warnings = [...new Set([...projection.warnings, ...(guarded.warnings ?? [])])];
+    return {
+      success: true,
+      data: { ...data, capture: { mode: 'structured-api', completeness: 'complete' } },
+      ...(projection.archiveCompanion && { archiveCompanion: projection.archiveCompanion }),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
+  }
+
+  private captureRequestedProjection(conversationId: string): Promise<ProjectionSelection> {
+    if (this.branchExportMode === 'current') {
+      return this.captureCurrentBranch(conversationId, this.enableToolContent).then(projection => ({
+        kind: 'projection',
+        projection,
+      }));
+    }
+    return this.captureSelectedBranch(conversationId);
+  }
+
+  private async captureSelectedBranch(conversationId: string): Promise<ProjectionSelection> {
+    const capture = await this.captureArchive(conversationId);
+    try {
+      const catalog = getArchiveBranchCatalog(capture.archive);
+      const selection = await this.selectBranch(
+        buildArchiveBranchPickerOptions(capture.archive, catalog)
+      );
+      if (selection === null) return { kind: 'cancelled' };
+      if (selection === 'all') return { kind: 'all-branches', capture, catalog };
+
+      const branch = catalog.branches.find(candidate => candidate.ordinal === selection);
+      if (!branch) throw new Error('invalid local branch selection');
+      const projection = projectArchiveBranch(capture.archive, {
+        targetNodeId: branch.targetNodeId,
+        includeToolContent: this.enableToolContent,
+      });
+      return {
+        kind: 'projection',
+        projection: {
+          ...projection,
+          data: {
+            ...projection.data,
+            presentation: {
+              mode: 'selected-branch',
+              captureId: capture.archiveCompanion.captureId,
+              branchOrdinal: branch.ordinal,
+              branchCount: catalog.branches.length,
+              branchPointCount: catalog.branchPointCount,
+            },
+          },
+          archiveCompanion: capture.archiveCompanion,
+        },
+      };
+    } catch {
+      return { kind: 'selection-failed', archiveCompanion: capture.archiveCompanion };
     }
   }
 

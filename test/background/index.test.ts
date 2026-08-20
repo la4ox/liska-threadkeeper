@@ -2668,6 +2668,42 @@ describe('background/index', () => {
       expect(response.messagesAppended).toBeUndefined();
     });
 
+    it('never appends a capture-scoped branch presentation into the ordinary conversation note', async () => {
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      const branchNote: ObsidianNote = {
+        ...appendNote,
+        fileName: 'test--branch-002--555555555555.md',
+        frontmatter: {
+          ...appendNote.frontmatter,
+          presentation_mode: 'selected-branch',
+          branch_ordinal: 2,
+          branch_count: 4,
+          branch_point_count: 2,
+          archive_capture_id: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+        },
+      };
+      mockClient.getFile.mockResolvedValue(null);
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: branchNote },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0];
+      expect(response.allSuccessful).toBe(true);
+      expect(response.messagesAppended).toBeUndefined();
+      expect(mockClient.listFiles).not.toHaveBeenCalled();
+      expect(mockClient.getFile).toHaveBeenCalledTimes(1);
+      expect(mockClient.putFile).toHaveBeenCalledWith(
+        'AI/claude/test--branch-002--555555555555.md',
+        expect.any(String)
+      );
+    });
+
     it('falls back to overwrite when append throws error', async () => {
       mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
       // First getFile call (append lookup) throws, but catch block falls through

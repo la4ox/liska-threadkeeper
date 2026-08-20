@@ -11,13 +11,17 @@ import {
   loadFixture,
   clearFixture,
   createGeminiConversationDOM,
+  createChatGPTPage,
+  setChatGPTLocation,
   setGeminiLocation,
   setNonGeminiLocation,
   resetLocation,
 } from '../fixtures/dom-helpers';
 
 vi.mock('../../src/content/ui', () => ({
+  injectBranchExportButton: vi.fn(),
   injectSyncButton: vi.fn(),
+  showArchiveBranchPicker: vi.fn(),
   setButtonLoading: vi.fn(),
   showSuccessToast: vi.fn(),
   showErrorToast: vi.fn(),
@@ -30,6 +34,7 @@ vi.mock('../../src/lib/messaging', () => ({
 }));
 
 import {
+  injectBranchExportButton,
   injectSyncButton,
   setButtonLoading,
   showSuccessToast,
@@ -145,6 +150,19 @@ describe('content/bootstrap', () => {
       await initialize();
       expect(injectSyncButton).toHaveBeenCalledTimes(1);
       expect(injectSyncButton).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('adds the explicit branch entry point only on ChatGPT', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      createChatGPTPage('01234567-89ab-4cde-8f01-23456789abcd', [
+        { role: 'user', content: 'Question' },
+        { role: 'assistant', content: '<p>Answer</p>' },
+      ]);
+
+      await initialize();
+
+      expect(injectSyncButton).toHaveBeenCalledWith(expect.any(Function));
+      expect(injectBranchExportButton).toHaveBeenCalledWith(expect.any(Function));
     });
   });
 

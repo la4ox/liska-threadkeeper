@@ -3,9 +3,14 @@ import {
   CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING,
   ChatGPTExtractor,
 } from '../../src/content/extractors/chatgpt';
-import { ChatGptCurrentBranchError } from '../../src/content/capture/chatgpt-current-branch';
+import {
+  ChatGptCurrentBranchError,
+  type ChatGptArchiveCapture,
+} from '../../src/content/capture/chatgpt-current-branch';
 import type { ArchiveProjectionResult } from '../../src/content/archive-projection';
 import type { ArchiveCompanionBundle } from '../../src/lib/types';
+import type { LiskaThreadArchive } from '../../src/archive';
+import branchingFixture from '../fixtures/archive/branching-chatgpt-thread.json';
 import {
   clearFixture,
   createChatGPTPage,
@@ -52,6 +57,46 @@ function renderedConversation(): void {
     { role: 'user', content: 'Rendered question' },
     { role: 'assistant', content: '<p>Rendered answer</p>' },
   ]);
+}
+
+function completeCompanion(): ArchiveCompanionBundle {
+  return {
+    captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+    conversationKey: 'a'.repeat(64),
+    artifacts: [
+      {
+        kind: 'raw',
+        relativePath: 'responses/conversation.json',
+        mediaType: 'application/json',
+        byteLength: 2,
+        sha256: 'b'.repeat(64),
+        bodyBase64: 'e30=',
+      },
+      {
+        kind: 'manifest',
+        relativePath: 'manifest.json',
+        mediaType: 'application/json',
+        byteLength: 2,
+        sha256: 'c'.repeat(64),
+        bodyBase64: 'e30=',
+      },
+      {
+        kind: 'canonical',
+        relativePath: 'canonical/liska-thread-1.json',
+        mediaType: 'application/json',
+        byteLength: 2,
+        sha256: 'd'.repeat(64),
+        bodyBase64: 'e30=',
+      },
+    ],
+  };
+}
+
+function branchCapture(): ChatGptArchiveCapture {
+  const archive = JSON.parse(JSON.stringify(branchingFixture)) as LiskaThreadArchive;
+  archive.conversation.id = CONVERSATION_ID;
+  archive.conversation.url = `https://chatgpt.com/c/${CONVERSATION_ID}`;
+  return { archive, archiveCompanion: completeCompanion() };
 }
 
 function setUnsupportedChatGptPath(pathname: string): void {
@@ -147,6 +192,176 @@ describe('ChatGPTExtractor API-first bridge', () => {
 
     expect(result.archiveCompanion?.artifacts).toHaveLength(3);
     expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
+  });
+
+  it('captures once, asks locally, and projects one explicitly selected leaf', async () => {
+    renderedConversation();
+    const captureCurrentBranch = vi.fn();
+    const captureArchive = vi.fn().mockResolvedValue(branchCapture());
+    const selectBranch = vi.fn().mockResolvedValue(2);
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      captureArchive,
+      selectBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+
+    const result = await extractor.extract();
+
+    expect(captureArchive).toHaveBeenCalledOnce();
+    expect(captureCurrentBranch).not.toHaveBeenCalled();
+    expect(selectBranch).toHaveBeenCalledWith([
+      expect.objectContaining({ ordinal: 1, isCurrent: true }),
+      expect.objectContaining({ ordinal: 2, isCurrent: false }),
+    ]);
+    expect(result.success).toBe(true);
+    const messages = result.data?.messages ?? [];
+    expect(messages[messages.length - 1]?.content).toContain('Alternate **answer**');
+    expect(result.data?.presentation).toEqual({
+      mode: 'selected-branch',
+      captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+      branchOrdinal: 2,
+      branchCount: 2,
+      branchPointCount: 1,
+    });
+    expect(result.archiveCompanion?.artifacts).toHaveLength(3);
+  });
+
+  it('returns one complete graph plan when the local picker chooses all branches', async () => {
+    renderedConversation();
+    const capture = branchCapture();
+    const captureArchive = vi.fn().mockResolvedValue(capture);
+    const extractor = new ChatGPTExtractor({
+      captureArchive,
+      selectBranch: vi.fn().mockResolvedValue('all'),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+
+    const result = await extractor.extract();
+
+    expect(captureArchive).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      success: true,
+      archiveCompanion: capture.archiveCompanion,
+      allBranches: {
+        archive: capture.archive,
+        catalog: { branchPointCount: 1 },
+      },
+    });
+    expect(result.data).toBeUndefined();
+    expect(result.allBranches?.catalog.branches).toHaveLength(2);
+  });
+
+  it('cancels a branch choice without saving evidence or falling back to rendered DOM', async () => {
+    renderedConversation();
+    const extractor = new ChatGPTExtractor({
+      captureArchive: vi.fn().mockResolvedValue(branchCapture()),
+      selectBranch: vi.fn().mockResolvedValue(null),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('cancel must not trigger rendered fallback');
+    });
+
+    const result = await extractor.extract();
+
+    expect(result).toEqual({ success: false, cancelled: true });
+  });
+
+  it('fails closed in selected mode when complete capture fails', async () => {
+    renderedConversation();
+    const partialCompanion = completeCompanion();
+    partialCompanion.artifacts = partialCompanion.artifacts.filter(
+      artifact => artifact.kind !== 'canonical'
+    );
+    const extractor = new ChatGPTExtractor({
+      captureArchive: vi.fn().mockRejectedValue(
+        new ChatGptCurrentBranchError('normalization-failed', {
+          archiveCompanion: partialCompanion,
+          detailCode: 'missing-graph',
+        })
+      ),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('selected capture failure must not trigger rendered fallback');
+    });
+
+    const result = await extractor.extract();
+
+    expect(result).toMatchObject({
+      success: false,
+      error:
+        'ChatGPT complete graph is unavailable for branch selection (normalization-failed:missing-graph).',
+      archiveCompanion: partialCompanion,
+    });
+    expect(result.data).toBeUndefined();
+  });
+
+  it('fails closed in selected mode when structured permission is unavailable', async () => {
+    renderedConversation();
+    const captureArchive = vi.fn();
+    const extractor = new ChatGPTExtractor({
+      captureArchive,
+      manifestAllowsStructuredCapture: () => false,
+    });
+    extractor.setBranchExportMode('selected');
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('permission failure must not trigger rendered fallback');
+    });
+
+    const result = await extractor.extract();
+
+    expect(captureArchive).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      success: false,
+      error: 'ChatGPT complete graph is unavailable for branch selection (permission-unavailable).',
+    });
+  });
+
+  it('fails closed in selected mode on an unsupported ChatGPT route', async () => {
+    renderedConversation();
+    setUnsupportedChatGptPath('/share/not-a-conversation');
+    const extractor = new ChatGPTExtractor({ manifestAllowsStructuredCapture: () => true });
+    extractor.setBranchExportMode('selected');
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('unsupported route must not trigger rendered fallback');
+    });
+
+    const result = await extractor.extract();
+
+    expect(result).toEqual({
+      success: false,
+      error: 'ChatGPT complete graph is unavailable for branch selection (route-unavailable).',
+    });
+  });
+
+  it('refuses an invalid local branch ordinal without exporting the rendered current branch', async () => {
+    renderedConversation();
+    const capture = branchCapture();
+    const extractor = new ChatGPTExtractor({
+      captureArchive: vi.fn().mockResolvedValue(capture),
+      selectBranch: vi.fn().mockResolvedValue(999),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('selection failure must not trigger rendered fallback');
+    });
+
+    const result = await extractor.extract();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe(
+      'Selected ChatGPT branch could not be projected from the complete archive.'
+    );
+    expect(result.data).toBeUndefined();
+    expect(result.archiveCompanion).toBe(capture.archiveCompanion);
+    expect(result.warnings).toBeUndefined();
   });
 
   it('falls back to the rendered current branch and adds one stable warning after a capture error', async () => {
@@ -272,6 +487,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
     );
     const userOnlyProjection = projection();
     userOnlyProjection.data.messages = [userOnlyProjection.data.messages[0]];
+    userOnlyProjection.archiveCompanion = completeCompanion();
     const captureCurrentBranch = vi.fn().mockResolvedValue(userOnlyProjection);
     const extractor = new ChatGPTExtractor({
       captureCurrentBranch,
@@ -284,6 +500,29 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/deep research/i);
     expect(result.data).toBeUndefined();
+    expect(result.archiveCompanion).toBe(userOnlyProjection.archiveCompanion);
+  });
+
+  it('does not apply the currently rendered Deep Research iframe to another selected leaf', async () => {
+    setChatGPTLocation(CONVERSATION_ID);
+    loadFixture(
+      '<iframe title="internal://deep-research" src="https://example.invalid/deep-research"></iframe>'
+    );
+    const extractor = new ChatGPTExtractor({
+      captureArchive: vi.fn().mockResolvedValue(branchCapture()),
+      selectBranch: vi.fn().mockResolvedValue(2),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+
+    const result = await extractor.extract();
+
+    expect(result.success).toBe(true);
+    expect(result.data?.presentation).toMatchObject({
+      mode: 'selected-branch',
+      branchOrdinal: 2,
+    });
+    expect(result.warnings?.join(' ') ?? '').not.toMatch(/Deep Research frame/i);
   });
 
   it('uses an explicit partial fallback when a valid route lacks structured permission', async () => {

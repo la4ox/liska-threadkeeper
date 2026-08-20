@@ -414,5 +414,67 @@
   "toast_noNewMessages": {
     "message": "No new messages to append",
     "description": "Toast when no new messages found"
+  },
+  "ui_branchButton": {
+    "message": "Choose branch",
+    "description": "Text on the optional branch export button"
+  },
+  "ui_branchButtonTitle": {
+    "message": "Choose which conversation branch to bring home",
+    "description": "Accessible label for the branch export button"
+  },
+  "ui_branchPickerHeading": {
+    "message": "Choose a conversation branch",
+    "description": "Heading for the local branch picker dialog"
+  },
+  "ui_branchPickerHelp": {
+    "message": "The full graph remains in the local archive. Select one branch for a reading export, or export all branches.",
+    "description": "Explanation below the branch picker heading"
+  },
+  "ui_branchPickerBranch": {
+    "message": "Branch $ORDINAL$",
+    "description": "Label for an exportable branch",
+    "placeholders": {
+      "ordinal": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "ui_branchPickerCurrent": {
+    "message": "Current",
+    "description": "Badge for the branch currently displayed by the provider"
+  },
+  "ui_branchPickerMessageCount": {
+    "message": "$COUNT$ messages",
+    "description": "Total messages in a branch",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "42"
+      }
+    }
+  },
+  "ui_branchPickerUniqueMessageCount": {
+    "message": "$COUNT$ unique",
+    "description": "Messages unique to a branch",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "17"
+      }
+    }
+  },
+  "ui_branchPickerCancel": {
+    "message": "Cancel",
+    "description": "Dismisses the branch picker without selecting a branch"
+  },
+  "ui_branchPickerExportAll": {
+    "message": "Export all branches",
+    "description": "Exports a local Markdown file for every exportable branch"
+  },
+  "ui_branchPickerExportAllHelp": {
+    "message": "Exporting all branches creates multiple local Markdown files. The full graph remains in one canonical archive.",
+    "description": "Clarifies the local outputs created by the export-all branch picker action"
   }
 }
