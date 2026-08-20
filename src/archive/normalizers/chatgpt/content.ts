@@ -42,6 +42,7 @@ const CITATION_TYPES = new Set([
 ]);
 const CANVAS_TYPES = new Set(['canvas', 'canvas_event', 'canvas_update', 'canvas_document']);
 const ERROR_TYPES = new Set(['error', 'provider_error', 'model_error']);
+const CANMORE_IDENTIFIER = /^canmore(?:\.([a-z][a-z0-9_]{0,127}))?$/;
 const KNOWN_CONTENT_TYPES = new Set([
   'text',
   'multimodal_text',
@@ -57,6 +58,54 @@ const KNOWN_CONTENT_TYPES = new Set([
   ...CANVAS_TYPES,
   ...ERROR_TYPES,
 ]);
+
+export interface CanmoreMessageEvent {
+  phase: 'call' | 'result';
+  operation: string | null;
+}
+
+export function canmoreMessageEvent(
+  role: string,
+  authorName: string | null,
+  recipient: string | null
+): CanmoreMessageEvent | null {
+  if (role === 'assistant') return canmoreEventFor('call', recipient);
+  if (role === 'tool') return canmoreEventFor('result', authorName);
+  return null;
+}
+
+export function normalizeCanmoreMessageContent(
+  raw: unknown,
+  messagePointer: string,
+  contentPointer: string,
+  messageId: string,
+  event: CanmoreMessageEvent,
+  context: BlockContext
+): ArchiveBlock {
+  const payload =
+    raw === null
+      ? { value: null, pointer: contentPointer }
+      : canmorePayloadFromRecord(
+          requireRecord(raw, contentPointer, 'malformed-content'),
+          contentPointer,
+          context
+        );
+  return {
+    id: blockId(messageId, 0),
+    type: 'canvas_event',
+    event: {
+      provider: 'openai.canmore',
+      phase: event.phase,
+      operation: event.operation,
+      payload: payload.value,
+    },
+    sourceRefs: [
+      sourceRef(context, 'canvas-event', messageId, messagePointer),
+      sourceRef(context, 'canvas-event-payload', messageId, payload.pointer),
+    ],
+    extensions: {},
+  };
+}
 
 export function normalizeContent(
   raw: unknown,
@@ -96,10 +145,12 @@ export function appendMetadataBlocks(
 export function contentProviderFields(
   content: JsonRecord,
   context: BlockContext,
-  pointer: string
+  pointer: string,
+  isMessageLevelCanmoreEvent = false
 ): JsonValue {
   const type = contentType(content, pointer);
   if (
+    isMessageLevelCanmoreEvent ||
     ASSET_TYPES.has(type) ||
     CANVAS_TYPES.has(type) ||
     type.startsWith('canvas_') ||
@@ -112,6 +163,48 @@ export function contentProviderFields(
     return {};
   }
   return providerFields(content, mappedContentFields(type), context.privacy, pointer);
+}
+
+function canmoreEventFor(
+  phase: CanmoreMessageEvent['phase'],
+  candidate: string | null
+): CanmoreMessageEvent | null {
+  const match = candidate?.match(CANMORE_IDENTIFIER);
+  if (!match) return null;
+  return { phase, operation: match[1] ?? null };
+}
+
+function canmorePayloadFromRecord(
+  content: JsonRecord,
+  pointer: string,
+  context: BlockContext
+): { value: JsonValue; pointer: string } {
+  const type = contentType(content, pointer);
+  if (type !== 'text' || !Array.isArray(content.parts)) {
+    return { value: sanitizeJson(content, context.privacy, pointer).value, pointer };
+  }
+  if (content.parts.length !== 1) {
+    const partsPointer = pointerAt(pointer, 'parts');
+    return {
+      value: sanitizeJson(content.parts, context.privacy, partsPointer).value,
+      pointer: partsPointer,
+    };
+  }
+  const value = content.parts[0];
+  const valuePointer = pointerAt(pointer, 'parts', '0');
+  return {
+    value: sanitizeJson(parseJsonString(value), context.privacy, valuePointer).value,
+    pointer: valuePointer,
+  };
+}
+
+function parseJsonString(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
 }
 
 function mappedContentFields(type: string): Set<string> {

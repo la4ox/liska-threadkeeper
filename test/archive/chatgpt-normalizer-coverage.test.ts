@@ -10,6 +10,7 @@ import {
   normalizeChatGptCapture,
   type ChatGptNormalizationInput,
 } from '../../src/archive/normalizers/chatgpt';
+import { validateLiskaThreadArchive } from '../../src/archive/validate';
 import { manifestAssetsById, upsertAsset } from '../../src/archive/normalizers/chatgpt/assets';
 import type { AssetContext } from '../../src/archive/normalizers/chatgpt/contracts';
 import {
@@ -209,6 +210,148 @@ describe('ChatGPT normalizer coverage contracts', () => {
       url: 'https://example.invalid/source',
     });
   });
+
+  it('represents paired Canmore calls and results as privacy-scrubbed Canvas events', async () => {
+    const raw = rawWithParts();
+    const callMessage = rootMessage(raw);
+    callMessage.author = { role: 'assistant', name: null };
+    callMessage.recipient = 'canmore.create_textdoc';
+    callMessage.content = {
+      content_type: 'text',
+      parts: [
+        JSON.stringify({
+          name: 'Synthetic Canvas',
+          request_id: 'synthetic-request-secret',
+          signed_url: 'https://cdn.example.invalid/canvas?signature=synthetic-signature-secret',
+        }),
+      ],
+    };
+    const callNode = rootNode(raw);
+    callNode.children = ['node/result'];
+    (raw.mapping as Record<string, RawRecord>)['node/result'] = {
+      id: 'node/result',
+      parent: 'node/root',
+      children: [],
+      message: {
+        id: 'message/result',
+        author: { role: 'tool', name: 'canmore.update_textdoc' },
+        recipient: null,
+        channel: null,
+        create_time: 1_786_963_221,
+        content: { content_type: 'text', parts: ['Synthetic Canvas updated.'] },
+        metadata: {},
+      },
+    };
+    raw.current_node = 'node/result';
+    const exactRawBytes = rawBytes(raw);
+    const { archive } = await normalizeRaw(raw);
+    const call = archive.graph.nodes['node/root'].message!;
+    const result = archive.graph.nodes['node/result'].message!;
+    const callEvent = call.blocks[0];
+    const resultEvent = result.blocks[0];
+    const serialized = JSON.stringify(archive);
+
+    expect(validateLiskaThreadArchive(archive)).toEqual({ valid: true, issues: [] });
+    expect(call.blocks.map(block => block.type)).toEqual(['canvas_event']);
+    expect(result.blocks.map(block => block.type)).toEqual(['canvas_event']);
+    expect(callEvent).toMatchObject({
+      type: 'canvas_event',
+      event: {
+        provider: 'openai.canmore',
+        phase: 'call',
+        operation: 'create_textdoc',
+        payload: { name: 'Synthetic Canvas' },
+      },
+    });
+    expect(resultEvent).toMatchObject({
+      type: 'canvas_event',
+      event: {
+        provider: 'openai.canmore',
+        phase: 'result',
+        operation: 'update_textdoc',
+        payload: 'Synthetic Canvas updated.',
+      },
+    });
+    expect(callEvent.sourceRefs.map(source => source.rawPointer)).toEqual([
+      '/mapping/node~1root/message',
+      '/mapping/node~1root/message/content/parts/0',
+    ]);
+    expect(resultEvent.sourceRefs.map(source => source.rawPointer)).toEqual([
+      '/mapping/node~1result/message',
+      '/mapping/node~1result/message/content/parts/0',
+    ]);
+    expect(call.extensions).toMatchObject({ openai: { contentMetadata: {} } });
+    expect(result.extensions).toMatchObject({ openai: { contentMetadata: {} } });
+    expect(serialized).not.toMatch(/synthetic-request-secret|synthetic-signature-secret/);
+    expect(new TextDecoder().decode(exactRawBytes)).toMatch(
+      /synthetic-request-secret|synthetic-signature-secret/
+    );
+  });
+
+  it('keeps non-Canmore text messages on the existing content path', async () => {
+    const raw = rawWithParts(['Synthetic ordinary text.']);
+    const message = rootMessage(raw);
+    message.author = { role: 'assistant', name: 'canmore.create_textdoc' };
+    message.recipient = 'other.create_textdoc';
+    const { archive } = await normalizeRaw(raw);
+
+    expect(archive.graph.nodes['node/root'].message?.blocks).toMatchObject([
+      { type: 'text', text: 'Synthetic ordinary text.' },
+    ]);
+  });
+
+  it('keeps ordered multi-part Canmore payloads when no operation suffix is available', async () => {
+    const raw = rawWithParts(['First Canvas fragment.', { revision: 2 }]);
+    const message = rootMessage(raw);
+    message.author = { role: 'assistant', name: null };
+    message.recipient = 'canmore';
+    const { archive } = await normalizeRaw(raw);
+    const event = archive.graph.nodes['node/root'].message?.blocks[0];
+
+    expect(event).toMatchObject({
+      type: 'canvas_event',
+      event: {
+        provider: 'openai.canmore',
+        phase: 'call',
+        operation: null,
+        payload: ['First Canvas fragment.', { revision: 2 }],
+      },
+    });
+    expect(event?.sourceRefs.map(source => source.rawPointer)).toEqual([
+      '/mapping/node~1root/message',
+      '/mapping/node~1root/message/content/parts',
+    ]);
+  });
+
+  it.each([
+    ['call', { role: 'assistant', name: null }, 'canmore.create_textdoc', 'create_textdoc'],
+    ['result', { role: 'tool', name: 'canmore.update_textdoc' }, null, 'update_textdoc'],
+  ] as const)(
+    'retains a recognized Canmore %s event when its provider content is null',
+    async (phase, author, recipient, operation) => {
+      const raw = rawWithParts();
+      const message = rootMessage(raw);
+      message.author = author;
+      message.recipient = recipient;
+      message.content = null as never;
+      const { archive } = await normalizeRaw(raw);
+      const event = archive.graph.nodes['node/root'].message?.blocks[0];
+
+      expect(event).toMatchObject({
+        type: 'canvas_event',
+        event: {
+          provider: 'openai.canmore',
+          phase,
+          operation,
+          payload: null,
+        },
+      });
+      expect(event?.sourceRefs.map(source => source.rawPointer)).toEqual([
+        '/mapping/node~1root/message',
+        '/mapping/node~1root/message/content',
+      ]);
+    }
+  );
 
   it('fails closed for malformed graph envelopes and conversation identifiers', async () => {
     const cases: Array<[string, (raw: RawRecord) => void, string]> = [

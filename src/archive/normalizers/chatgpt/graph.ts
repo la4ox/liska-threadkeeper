@@ -1,6 +1,12 @@
-import type { ArchiveMessage, ArchiveNode, JsonValue } from '../../types';
+import type { ArchiveBlock, ArchiveMessage, ArchiveNode, JsonValue } from '../../types';
 import type { BlockContext, JsonRecord, NormalizedGraph, RawEnvelope } from './contracts';
-import { appendMetadataBlocks, contentProviderFields, normalizeContent } from './content';
+import {
+  appendMetadataBlocks,
+  canmoreMessageEvent,
+  contentProviderFields,
+  normalizeCanmoreMessageContent,
+  normalizeContent,
+} from './content';
 import {
   assertSafeIdentifier,
   fail,
@@ -254,13 +260,17 @@ function normalizeMessage(
     : {};
   if (!hasOwn(message, 'content'))
     fail('missing-content', `Message ${message.id} is missing content.`);
+  const role = requireBoundedString(author.role, pointerAt(pointer, 'author', 'role'));
+  const authorName = nullableString(author, 'name', pointerAt(pointer, 'author', 'name'));
+  const recipient = nullableString(message, 'recipient', pointerAt(pointer, 'recipient'));
+  const canmoreEvent = canmoreMessageEvent(role, authorName, recipient);
   const normalized: ArchiveMessage = {
     id: message.id,
     author: {
-      role: requireBoundedString(author.role, pointerAt(pointer, 'author', 'role')),
-      name: nullableString(author, 'name', pointerAt(pointer, 'author', 'name')),
+      role,
+      name: authorName,
     },
-    recipient: nullableString(message, 'recipient', pointerAt(pointer, 'recipient')),
+    recipient,
     channel: nullableString(message, 'channel', pointerAt(pointer, 'channel')),
     createdAt: optionalTimestamp(message, ['create_time', 'created_at', 'createdAt'], pointer),
     updatedAt: optionalTimestamp(message, ['update_time', 'updated_at', 'updatedAt'], pointer),
@@ -269,12 +279,13 @@ function normalizeMessage(
     visibility: messageVisibility(message, metadata, pointer),
     blocks: [],
     sourceRefs: [sourceRef(context, 'message', message.id, pointer)],
-    extensions: { openai: messageExtensions(message, author, metadata, pointer, context) },
+    extensions: {
+      openai: messageExtensions(message, author, metadata, pointer, context, canmoreEvent !== null),
+    },
   };
-  if (message.content !== null)
-    normalized.blocks.push(
-      ...normalizeContent(message.content, pointerAt(pointer, 'content'), message.id, context)
-    );
+  normalized.blocks.push(
+    ...normalizeMessageContent(message, pointer, message.id, canmoreEvent, context)
+  );
   appendMetadataBlocks(
     normalized.blocks,
     metadata,
@@ -285,12 +296,35 @@ function normalizeMessage(
   return normalized;
 }
 
+function normalizeMessageContent(
+  message: JsonRecord,
+  messagePointer: string,
+  messageId: string,
+  canmoreEvent: ReturnType<typeof canmoreMessageEvent>,
+  context: BlockContext
+): ArchiveBlock[] {
+  const contentPointer = pointerAt(messagePointer, 'content');
+  if (message.content === null && !canmoreEvent) return [];
+  if (!canmoreEvent) return normalizeContent(message.content, contentPointer, messageId, context);
+  return [
+    normalizeCanmoreMessageContent(
+      message.content,
+      messagePointer,
+      contentPointer,
+      messageId,
+      canmoreEvent,
+      context
+    ),
+  ];
+}
+
 function messageExtensions(
   message: JsonRecord,
   author: JsonRecord,
   metadata: JsonRecord,
   pointer: string,
-  context: BlockContext
+  context: BlockContext,
+  isMessageLevelCanmoreEvent: boolean
 ): Record<string, JsonValue> {
   return {
     author: providerFields(
@@ -311,7 +345,8 @@ function messageExtensions(
         : contentProviderFields(
             requireRecord(message.content, pointerAt(pointer, 'content'), 'malformed-content'),
             context,
-            pointerAt(pointer, 'content')
+            pointerAt(pointer, 'content'),
+            isMessageLevelCanmoreEvent
           ),
     providerFields: providerFields(message, mappedMessageFields(), context.privacy, pointer),
   };
