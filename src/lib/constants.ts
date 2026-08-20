@@ -98,6 +98,13 @@ export const MAX_PORT = 65535;
 export const DEFAULT_API_TIMEOUT = 5000;
 
 /**
+ * Archive companions can legitimately be tens of MiB and require a binary
+ * readback before their write is acknowledged. Keep their longer local API
+ * budget isolated from ordinary note and image requests.
+ */
+export const ARCHIVE_COMPANION_API_TIMEOUT_MS = 60_000;
+
+/**
  * Maximum text body accepted from a content script (32 MiB).
  *
  * Long provider histories can legitimately exceed 1 MiB before images: a

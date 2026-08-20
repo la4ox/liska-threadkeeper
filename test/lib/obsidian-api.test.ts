@@ -6,6 +6,7 @@ import {
   classifyNetworkError,
   encodeVaultPath,
 } from '../../src/lib/obsidian-api';
+import { ARCHIVE_COMPANION_API_TIMEOUT_MS, DEFAULT_API_TIMEOUT } from '../../src/lib/constants';
 import { getErrorMessage } from '../../src/lib/error-utils';
 
 /**
@@ -257,6 +258,61 @@ describe('ObsidianApiClient', () => {
       );
     });
 
+    it('uses the five-second default timeout unless an archive budget is supplied', async () => {
+      const timeout = vi
+        .spyOn(AbortSignal, 'timeout')
+        .mockImplementation(() => new AbortController().signal);
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: () => Promise.resolve(new Uint8Array([1]).buffer),
+      });
+
+      await client.getBinaryFile('AI/chatgpt/default-timeout.json');
+
+      expect(timeout).toHaveBeenCalledWith(DEFAULT_API_TIMEOUT);
+      timeout.mockRestore();
+    });
+
+    it('allows an archive readback that completes after five seconds but before its archive timeout', async () => {
+      vi.useFakeTimers();
+      const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(timeoutMs => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), timeoutMs);
+        return controller.signal;
+      });
+      mockFetch.mockImplementation(
+        (_url: string, options: RequestInit) =>
+          new Promise((resolve, reject) => {
+            const signal = options.signal;
+            const complete = setTimeout(() => {
+              signal?.removeEventListener('abort', abort);
+              resolve({
+                ok: true,
+                status: 200,
+                arrayBuffer: () => Promise.resolve(new Uint8Array([1]).buffer),
+              });
+            }, DEFAULT_API_TIMEOUT + 1);
+            const abort = () => {
+              clearTimeout(complete);
+              reject(new DOMException('The operation timed out', 'TimeoutError'));
+            };
+            signal?.addEventListener('abort', abort, { once: true });
+          })
+      );
+
+      const readBack = client.getBinaryFile(
+        'AI/chatgpt/archive-readback.json',
+        ARCHIVE_COMPANION_API_TIMEOUT_MS
+      );
+      await vi.advanceTimersByTimeAsync(DEFAULT_API_TIMEOUT + 1);
+
+      await expect(readBack).resolves.toEqual(new Uint8Array([1]));
+      expect(timeout).toHaveBeenCalledWith(ARCHIVE_COMPANION_API_TIMEOUT_MS);
+      timeout.mockRestore();
+      vi.useRealTimers();
+    });
+
     it('returns null for a missing binary archive companion', async () => {
       mockFetch.mockResolvedValue({ ok: false, status: 404 });
       await expect(client.getBinaryFile('missing.json')).resolves.toBeNull();
@@ -333,6 +389,22 @@ describe('ObsidianApiClient', () => {
           body: bytes,
         })
       );
+    });
+
+    it('uses the five-second default timeout when a binary write has no override', async () => {
+      const timeout = vi
+        .spyOn(AbortSignal, 'timeout')
+        .mockImplementation(() => new AbortController().signal);
+      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+      await client.putBinaryFile(
+        'AI/gemini/images/default-timeout.png',
+        new Uint8Array([1]),
+        'image/png'
+      );
+
+      expect(timeout).toHaveBeenCalledWith(DEFAULT_API_TIMEOUT);
+      timeout.mockRestore();
     });
 
     it('throws error for failed response', async () => {

@@ -317,6 +317,29 @@ function archiveArtifactLabel(kind: ArchiveCompanionBundle['artifacts'][number][
   }
 }
 
+const ARCHIVE_OBSIDIAN_DIAGNOSTIC_CODES = new Set([
+  'archive-obsidian-preflight-failed',
+  'archive-obsidian-preflight-timeout',
+  'archive-obsidian-preflight-existing',
+  'archive-obsidian-put-failed',
+  'archive-obsidian-put-timeout',
+  'archive-obsidian-readback-failed',
+  'archive-obsidian-readback-timeout',
+  'archive-obsidian-readback-missing',
+  'archive-obsidian-readback-size-mismatch',
+  'archive-obsidian-readback-hash-mismatch',
+  'archive-obsidian-readback-hash-failed',
+]);
+
+/** Background error strings are untrusted at this UI boundary. */
+function safeArchiveObsidianDiagnostic(result: OutputResult): string | undefined {
+  return result.destination === 'obsidian' &&
+    typeof result.error === 'string' &&
+    ARCHIVE_OBSIDIAN_DIAGNOSTIC_CODES.has(result.error)
+    ? result.error
+    : undefined;
+}
+
 function archiveDestinationWarnings(
   label: string,
   destinations: readonly ('file' | 'obsidian')[],
@@ -348,7 +371,12 @@ function archiveWriteOutcome(
       .map(result => result.destination) as ('file' | 'obsidian')[],
     warnings: response.results
       .filter(result => !result.success)
-      .map(result => `${label} was not saved to ${result.destination}`),
+      .map(result => {
+        const diagnostic = safeArchiveObsidianDiagnostic(result);
+        return `${label} was not saved to ${result.destination}${
+          diagnostic ? ` (${diagnostic})` : ''
+        }`;
+      }),
   };
 }
 

@@ -22,6 +22,7 @@ import { base64ToBytes } from '../lib/image-utils';
 import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
 import { extractTailMessages } from '../lib/message-counter';
+import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../lib/constants';
 import type {
   AIPlatform,
   ArchiveCompanionArtifact,
@@ -61,6 +62,47 @@ export interface ArchiveCompanionWriteRequest {
   conversationKey: string;
   artifact: ArchiveCompanionArtifact;
   bytes: Uint8Array;
+}
+
+type ArchiveObsidianFailureCode =
+  | 'archive-obsidian-preflight-failed'
+  | 'archive-obsidian-preflight-timeout'
+  | 'archive-obsidian-preflight-existing'
+  | 'archive-obsidian-put-failed'
+  | 'archive-obsidian-put-timeout'
+  | 'archive-obsidian-readback-failed'
+  | 'archive-obsidian-readback-timeout'
+  | 'archive-obsidian-readback-missing'
+  | 'archive-obsidian-readback-size-mismatch'
+  | 'archive-obsidian-readback-hash-mismatch'
+  | 'archive-obsidian-readback-hash-failed';
+
+const OBSIDIAN_TIMEOUT_MESSAGE = 'Request timed out. Please check your connection.';
+/**
+ * Local REST API parses `application/json` request bodies and serializes them
+ * again before writing. Archive companions require byte-for-byte preservation,
+ * so transport the JSON bytes as opaque binary while retaining their `.json`
+ * filenames and manifest media type.
+ */
+const ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE = 'application/octet-stream';
+
+/** Return only a fixed local diagnostic code; never surface API details. */
+function archiveObsidianFailureCode(
+  stage: 'preflight' | 'put' | 'readback',
+  error?: unknown
+): ArchiveObsidianFailureCode {
+  const timedOut =
+    (error instanceof DOMException && error.name === 'TimeoutError') ||
+    (error instanceof Error &&
+      error.name === 'ObsidianApiError' &&
+      error.message === OBSIDIAN_TIMEOUT_MESSAGE);
+  if (stage === 'preflight') {
+    return timedOut ? 'archive-obsidian-preflight-timeout' : 'archive-obsidian-preflight-failed';
+  }
+  if (stage === 'put') {
+    return timedOut ? 'archive-obsidian-put-timeout' : 'archive-obsidian-put-failed';
+  }
+  return timedOut ? 'archive-obsidian-readback-timeout' : 'archive-obsidian-readback-failed';
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -103,29 +145,54 @@ export async function handleSaveArchiveCompanion(
 ): Promise<SaveResponse> {
   const client = createObsidianClient(settings);
   if (isClientError(client)) {
-    return { success: false, error: 'Archive companion write failed' };
+    return { success: false, error: 'archive-obsidian-preflight-failed' };
   }
 
   const path = archiveCompanionVaultPath(settings, request);
-  if (!path) return { success: false, error: 'Archive companion write failed' };
+  if (!path) return { success: false, error: 'archive-obsidian-preflight-failed' };
+
+  let existing: string | null;
+  try {
+    existing = await client.getFile(path);
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('preflight', error) };
+  }
+  if (existing !== null) {
+    return { success: false, error: 'archive-obsidian-preflight-existing' };
+  }
 
   try {
-    if ((await client.getFile(path)) !== null) {
-      return { success: false, error: 'Archive companion already exists' };
-    }
-    await client.putBinaryFile(path, request.bytes, request.artifact.mediaType);
-    const readBack = await client.getBinaryFile(path);
-    if (
-      !readBack ||
-      readBack.byteLength !== request.bytes.byteLength ||
-      (await sha256Hex(readBack)) !== request.artifact.sha256
-    ) {
-      return { success: false, error: 'Archive companion verification failed' };
-    }
-    return { success: true };
-  } catch {
-    return { success: false, error: 'Archive companion write failed' };
+    await client.putBinaryFile(
+      path,
+      request.bytes,
+      ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('put', error) };
   }
+
+  let readBack: Uint8Array | null;
+  try {
+    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('readback', error) };
+  }
+  if (!readBack) return { success: false, error: 'archive-obsidian-readback-missing' };
+  if (readBack.byteLength !== request.bytes.byteLength) {
+    return { success: false, error: 'archive-obsidian-readback-size-mismatch' };
+  }
+
+  let readBackSha256: string;
+  try {
+    readBackSha256 = await sha256Hex(readBack);
+  } catch {
+    return { success: false, error: 'archive-obsidian-readback-hash-failed' };
+  }
+  if (readBackSha256 !== request.artifact.sha256) {
+    return { success: false, error: 'archive-obsidian-readback-hash-mismatch' };
+  }
+  return { success: true };
 }
 
 /**

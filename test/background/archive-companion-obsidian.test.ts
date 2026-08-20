@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../../src/lib/image-utils';
+import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../../src/lib/constants';
 import type { ArchiveCompanionArtifact, ExtensionSettings } from '../../src/lib/types';
 
 const mocks = vi.hoisted(() => ({
@@ -67,8 +68,13 @@ describe('Obsidian archive companion persistence', () => {
     const result = await handleSaveArchiveCompanion(settings, value);
 
     const path = `AI/chatgpt/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/canonical/liska-thread-1.json`;
-    expect(mocks.putBinaryFile).toHaveBeenCalledWith(path, value.bytes, 'application/json');
-    expect(mocks.getBinaryFile).toHaveBeenCalledWith(path);
+    expect(mocks.putBinaryFile).toHaveBeenCalledWith(
+      path,
+      value.bytes,
+      'application/octet-stream',
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+    expect(mocks.getBinaryFile).toHaveBeenCalledWith(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
     expect(result).toEqual({ success: true });
   });
 
@@ -76,17 +82,107 @@ describe('Obsidian archive companion persistence', () => {
     mocks.getFile.mockResolvedValueOnce('existing private archive');
     const result = await handleSaveArchiveCompanion(settings, await request());
 
-    expect(result).toEqual({ success: false, error: 'Archive companion already exists' });
+    expect(result).toEqual({ success: false, error: 'archive-obsidian-preflight-existing' });
     expect(mocks.putBinaryFile).not.toHaveBeenCalled();
   });
 
-  it('does not claim success when the vault readback does not match', async () => {
+  it('reports a fixed preflight code when the existence check fails', async () => {
+    mocks.getFile.mockRejectedValueOnce(new Error('private vault path must not escape'));
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-preflight-failed',
+    });
+    expect(mocks.putBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it('reports a fixed preflight timeout code', async () => {
+    mocks.getFile.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-preflight-timeout',
+    });
+  });
+
+  it('reports a fixed put code when the vault write fails', async () => {
+    mocks.putBinaryFile.mockRejectedValueOnce(new Error('private vault path must not escape'));
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-put-failed',
+    });
+    expect(mocks.getBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it('reports a fixed put timeout code', async () => {
+    mocks.putBinaryFile.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-put-timeout',
+    });
+  });
+
+  it('reports when archive readback is missing', async () => {
+    mocks.getBinaryFile.mockResolvedValueOnce(null);
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-readback-missing',
+    });
+  });
+
+  it('reports when archive readback has a different byte length', async () => {
+    mocks.getBinaryFile.mockResolvedValueOnce(new Uint8Array([0]));
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-readback-size-mismatch',
+    });
+  });
+
+  it('does not claim success when the vault readback hash does not match', async () => {
     const value = await request();
-    mocks.getBinaryFile.mockResolvedValue(new TextEncoder().encode('{"wrong":true}'));
+    const mismatched = new Uint8Array(value.bytes);
+    mismatched[0] ^= 1;
+    mocks.getBinaryFile.mockResolvedValue(mismatched);
 
     const result = await handleSaveArchiveCompanion(settings, value);
 
-    expect(result).toEqual({ success: false, error: 'Archive companion verification failed' });
+    expect(result).toEqual({ success: false, error: 'archive-obsidian-readback-hash-mismatch' });
+  });
+
+  it('reports when archive readback hashing itself fails', async () => {
+    const value = await request();
+    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    const digest = vi
+      .spyOn(globalThis.crypto.subtle, 'digest')
+      .mockRejectedValueOnce(new Error('nope'));
+
+    await expect(handleSaveArchiveCompanion(settings, value)).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-readback-hash-failed',
+    });
+    digest.mockRestore();
+  });
+
+  it('reports a fixed readback code when the vault readback fails', async () => {
+    mocks.getBinaryFile.mockRejectedValueOnce(new Error('private vault path must not escape'));
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-readback-failed',
+    });
+  });
+
+  it('reports a fixed readback timeout code', async () => {
+    mocks.getBinaryFile.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
+
+    await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-readback-timeout',
+    });
   });
 
   it('fails closed when the Obsidian API key is missing', async () => {
@@ -95,16 +191,7 @@ describe('Obsidian archive companion persistence', () => {
       await request()
     );
 
-    expect(result).toEqual({ success: false, error: 'Archive companion write failed' });
+    expect(result).toEqual({ success: false, error: 'archive-obsidian-preflight-failed' });
     expect(mocks.putBinaryFile).not.toHaveBeenCalled();
-  });
-
-  it('does not report success when the vault write throws', async () => {
-    mocks.putBinaryFile.mockRejectedValueOnce(new Error('vault write failed'));
-
-    const result = await handleSaveArchiveCompanion(settings, await request());
-
-    expect(result).toEqual({ success: false, error: 'Archive companion write failed' });
-    expect(mocks.getBinaryFile).not.toHaveBeenCalled();
   });
 });

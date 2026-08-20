@@ -133,6 +133,52 @@ describe('content archive companion persistence', () => {
     expect(warnings).toEqual(['archive manifest companion was not saved to file']);
   });
 
+  it('propagates an allowlisted Obsidian archive diagnostic without arbitrary error text', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [
+            {
+              destination: 'obsidian',
+              success: false,
+              error: 'archive-obsidian-readback-timeout',
+            },
+          ],
+          allSuccessful: false,
+          anySuccessful: false,
+        });
+      }
+    );
+
+    const warnings = await persistArchiveCompanions(companion, 'note.md', 'chatgpt', ['obsidian']);
+
+    expect(warnings).toEqual([
+      'raw archive companion was not saved to obsidian (archive-obsidian-readback-timeout)',
+    ]);
+  });
+
+  it('suppresses arbitrary archive error strings from content warnings', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [
+            {
+              destination: 'obsidian',
+              success: false,
+              error: 'server said C:/private/vault/secret.json',
+            },
+          ],
+          allSuccessful: false,
+          anySuccessful: false,
+        });
+      }
+    );
+
+    const warnings = await persistArchiveCompanions(companion, 'note.md', 'chatgpt', ['obsidian']);
+
+    expect(warnings).toEqual(['raw archive companion was not saved to obsidian']);
+  });
+
   it('continues File independently when Obsidian fails the raw companion', async () => {
     let calls = 0;
     vi.mocked(chrome.runtime.sendMessage).mockImplementation(
