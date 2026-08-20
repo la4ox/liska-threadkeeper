@@ -294,3 +294,15 @@ separate fixtures because one conversation may not contain every format.
 - The implementation initially becomes more explicit and produces more than one
   artifact, but format changes and partial captures become observable instead of
   silently destructive.
+
+## Deferred TODO: explicit snapshot deduplication
+
+- [ ] Add a separate, user-invoked archive analysis/deduplication action. The
+      default capture path remains append-only: it never overwrites or silently
+      deletes an earlier raw, manifest, canonical, or partial snapshot.
+- [ ] Show an exact preview before cleanup: snapshots considered equivalent,
+      evidence that would remain, estimated space recovered, and every path selected
+      for removal. Any deletion requires a distinct confirmation.
+- [ ] Preserve at minimum the first capture, latest verified capture, meaningful
+      graph-change checkpoints, and partial/failure evidence useful for diagnosing
+      provider drift or normalizer regressions.
