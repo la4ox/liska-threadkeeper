@@ -23,7 +23,7 @@
 - Obsidian archive companions are transported to Local REST API as `application/octet-stream` while retaining `.json` filenames and manifest media types. This avoids the plugin's `application/json` parser/re-serializer and preserves exact bytes for binary readback. Obsidian-only and immediate File+Obsidian live smokes produced Markdown plus raw/manifest/canonical companions; each raw matched its manifest byte length and SHA-256, and all three archive files were byte-identical across Downloads and Obsidian. Fixed allowlisted stage codes report preflight/PUT/readback failures without exposing paths, identifiers, API responses, or exception text.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
 - The maintained test suite passes across 93 test files (1,863 tests) with 95.02% statement, 87.77% branch, 97.85% function, and 97.20% line coverage. Locale and placeholder parity, public-copy parity, local documentation links, archive layering, subsystem cycles, raw-byte provenance, strict ChatGPT runtime routing, document-start marker gating, page-primordial poisoning, late-tab cleanup, graph/Canmore normalization, iterative deep/wide branch catalogs, current/selected/all-branch projection, trusted picker behavior, sequential bundle persistence, branch append isolation, exact Obsidian binary transport, and safe archive diagnostics are enforced.
-- Draft PR [#7](https://github.com/la4ox/liska-threadkeeper/pull/7) publishes the ChatGPT archive checkpoint. Its CI passes with `actions/checkout@v7` and `actions/setup-node@v7`, both running on Node 24; the earlier Node 20 deprecation annotation is gone.
+- Draft PR [#7](https://github.com/la4ox/liska-threadkeeper/pull/7) publishes the ChatGPT archive checkpoint through selected/all-branches implementation commit `1179b5d`; required CI passed for that implementation head. Actions use `actions/checkout@v7` and `actions/setup-node@v7`, both running on Node 24; the earlier Node 20 deprecation annotation is gone.
 
 ## Important limits and risks
 
@@ -65,6 +65,5 @@
 
 ## Next step
 
-Keep PR #7 in draft. Commit and publish the current selected/all-branches
-checkpoint only with maintainer approval. Then continue with provider-specific
-attachment acquisition and staged storage beyond the current 16 MiB boundary.
+Keep PR #7 in draft. Continue next with provider-specific attachment
+acquisition and staged storage beyond the current 16 MiB boundary.
