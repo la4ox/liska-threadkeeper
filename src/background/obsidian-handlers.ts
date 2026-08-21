@@ -23,12 +23,14 @@ import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
 import { extractTailMessages } from '../lib/message-counter';
 import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../lib/constants';
+import { isStagedBinaryAssetDescriptor } from '../lib/binary-asset-contract';
 import type {
   AIPlatform,
   ArchiveCompanionArtifact,
   ExtensionSettings,
   ObsidianNote,
   SaveResponse,
+  StagedBinaryAssetDescriptor,
 } from '../lib/types';
 
 /**
@@ -64,6 +66,15 @@ export interface ArchiveCompanionWriteRequest {
   bytes: Uint8Array;
 }
 
+/** A finalized extension Blob URL, consumed exactly once for one asset write. */
+export interface StagedBinaryAssetWriteRequest {
+  source: AIPlatform;
+  captureId: string;
+  conversationKey: string;
+  descriptor: StagedBinaryAssetDescriptor;
+  blobUrl: string;
+}
+
 type ArchiveObsidianFailureCode =
   | 'archive-obsidian-preflight-failed'
   | 'archive-obsidian-preflight-timeout'
@@ -76,6 +87,21 @@ type ArchiveObsidianFailureCode =
   | 'archive-obsidian-readback-size-mismatch'
   | 'archive-obsidian-readback-hash-mismatch'
   | 'archive-obsidian-readback-hash-failed';
+
+type StagedBinaryObsidianFailureCode =
+  | 'binary-obsidian-preflight-failed'
+  | 'binary-obsidian-preflight-timeout'
+  | 'binary-obsidian-preflight-existing'
+  | 'binary-obsidian-blob-read-failed'
+  | 'binary-obsidian-blob-integrity-failed'
+  | 'binary-obsidian-put-failed'
+  | 'binary-obsidian-put-timeout'
+  | 'binary-obsidian-readback-failed'
+  | 'binary-obsidian-readback-timeout'
+  | 'binary-obsidian-readback-missing'
+  | 'binary-obsidian-readback-size-mismatch'
+  | 'binary-obsidian-readback-hash-mismatch'
+  | 'binary-obsidian-readback-hash-failed';
 
 const OBSIDIAN_TIMEOUT_MESSAGE = 'Request timed out. Please check your connection.';
 /**
@@ -129,6 +155,26 @@ function archiveCompanionVaultPath(
     request.conversationKey,
     request.captureId,
     ...request.artifact.relativePath.split('/'),
+  ].join('/');
+  return containsPathTraversal(path) ? undefined : path;
+}
+
+function stagedBinaryAssetVaultPath(
+  settings: ExtensionSettings,
+  request: StagedBinaryAssetWriteRequest
+): string | undefined {
+  if (!isStagedBinaryAssetDescriptor(request.descriptor)) return undefined;
+  const variables = {
+    platform: request.source,
+    ...getDateVariables(new Date()),
+  };
+  const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
+  const path = [
+    ...(resolvedFolder ? [resolvedFolder] : []),
+    '_liska-archive',
+    request.conversationKey,
+    request.captureId,
+    request.descriptor.relativePath,
   ].join('/');
   return containsPathTraversal(path) ? undefined : path;
 }
@@ -193,6 +239,107 @@ export async function handleSaveArchiveCompanion(
     return { success: false, error: 'archive-obsidian-readback-hash-mismatch' };
   }
   return { success: true };
+}
+
+function stagedBinaryFailureCode(
+  stage: 'preflight' | 'put' | 'readback',
+  error?: unknown
+): StagedBinaryObsidianFailureCode {
+  const timedOut =
+    (error instanceof DOMException && error.name === 'TimeoutError') ||
+    (error instanceof Error &&
+      error.name === 'ObsidianApiError' &&
+      error.message === OBSIDIAN_TIMEOUT_MESSAGE);
+  if (stage === 'preflight') {
+    return timedOut ? 'binary-obsidian-preflight-timeout' : 'binary-obsidian-preflight-failed';
+  }
+  if (stage === 'put')
+    return timedOut ? 'binary-obsidian-put-timeout' : 'binary-obsidian-put-failed';
+  return timedOut ? 'binary-obsidian-readback-timeout' : 'binary-obsidian-readback-failed';
+}
+
+async function readVerifiedStagedBlob(
+  request: StagedBinaryAssetWriteRequest
+): Promise<{ bytes?: Uint8Array; error?: string }> {
+  try {
+    const response = await fetch(request.blobUrl);
+    if (!response.ok) return { error: 'binary-obsidian-blob-read-failed' };
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (
+      bytes.byteLength !== request.descriptor.byteLength ||
+      (await sha256Hex(bytes)) !== request.descriptor.sha256
+    ) {
+      return { error: 'binary-obsidian-blob-integrity-failed' };
+    }
+    return { bytes };
+  } catch {
+    return { error: 'binary-obsidian-blob-read-failed' };
+  }
+}
+
+async function writeAndVerifyStagedBinary(
+  client: ObsidianApiClient,
+  path: string,
+  bytes: Uint8Array,
+  descriptor: StagedBinaryAssetDescriptor
+): Promise<SaveResponse> {
+  try {
+    await client.putBinaryFile(
+      path,
+      bytes,
+      ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+  } catch (error) {
+    return { success: false, error: stagedBinaryFailureCode('put', error) };
+  }
+
+  let readBack: Uint8Array | null;
+  try {
+    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+  } catch (error) {
+    return { success: false, error: stagedBinaryFailureCode('readback', error) };
+  }
+  if (!readBack) return { success: false, error: 'binary-obsidian-readback-missing' };
+  if (readBack.byteLength !== descriptor.byteLength) {
+    return { success: false, error: 'binary-obsidian-readback-size-mismatch' };
+  }
+  try {
+    return (await sha256Hex(readBack)) === descriptor.sha256
+      ? { success: true }
+      : { success: false, error: 'binary-obsidian-readback-hash-mismatch' };
+  } catch {
+    return { success: false, error: 'binary-obsidian-readback-hash-failed' };
+  }
+}
+
+/**
+ * Persist one OPFS-verified staged asset without ever putting its bytes in an
+ * extension message. Blob URL fetch is one asset at a time; the request and
+ * readback use opaque binary transport and never overwrite an existing path.
+ */
+export async function handleSaveStagedBinaryAsset(
+  settings: ExtensionSettings,
+  request: StagedBinaryAssetWriteRequest
+): Promise<SaveResponse> {
+  const client = createObsidianClient(settings);
+  if (isClientError(client)) return { success: false, error: 'binary-obsidian-preflight-failed' };
+  const path = stagedBinaryAssetVaultPath(settings, request);
+  if (!path || !request.blobUrl.startsWith('blob:')) {
+    return { success: false, error: 'binary-obsidian-preflight-failed' };
+  }
+
+  try {
+    if ((await client.getFile(path)) !== null) {
+      return { success: false, error: 'binary-obsidian-preflight-existing' };
+    }
+  } catch (error) {
+    return { success: false, error: stagedBinaryFailureCode('preflight', error) };
+  }
+
+  const staged = await readVerifiedStagedBlob(request);
+  if (!staged.bytes) return { success: false, error: staged.error };
+  return writeAndVerifyStagedBinary(client, path, staged.bytes, request.descriptor);
 }
 
 /**

@@ -5,11 +5,13 @@ import type { ArchiveCompanionArtifact, ExtensionSettings } from '../../src/lib/
 const mocks = vi.hoisted(() => ({
   saveNote: vi.fn(),
   saveArchive: vi.fn(),
+  saveStagedBinary: vi.fn(),
 }));
 
 vi.mock('../../src/background/obsidian-handlers', () => ({
   handleSave: (...args: unknown[]) => mocks.saveNote(...args),
   handleSaveArchiveCompanion: (...args: unknown[]) => mocks.saveArchive(...args),
+  handleSaveStagedBinaryAsset: (...args: unknown[]) => mocks.saveStagedBinary(...args),
 }));
 
 import {
@@ -17,6 +19,7 @@ import {
   handlePersistArchiveCompanion,
   resetOffscreenStateForTesting,
 } from '../../src/background/output-handlers';
+import { handleStagedBinaryAssetMessage } from '../../src/background/binary-asset-handlers';
 
 const CAPTURE_ID = 'capture-chatgpt-11111111-2222-4333-8444-555555555555';
 const CONVERSATION_KEY = 'a'.repeat(64);
@@ -97,6 +100,7 @@ describe('archive companion durable outputs', () => {
     onChanged = undefined;
     mocks.saveNote.mockResolvedValue({ success: true });
     mocks.saveArchive.mockResolvedValue({ success: true });
+    mocks.saveStagedBinary.mockResolvedValue({ success: true });
     vi.mocked(chrome.runtime.getContexts).mockResolvedValue([]);
     vi.mocked(chrome.offscreen.createDocument).mockResolvedValue();
     vi.mocked(chrome.runtime.sendMessage).mockImplementation((request: unknown) => {
@@ -155,6 +159,284 @@ describe('archive companion durable outputs', () => {
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiveBlobRevoke', url: expect.stringMatching(/^blob:/) })
     );
+  });
+
+  it('uses a terminal uniquified download only when Chrome confirms the canonical staged relative path', async () => {
+    const descriptor = {
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      byteLength: 2,
+      sha256: 'b'.repeat(64),
+      mediaType: 'application/octet-stream',
+      relativePath: `assets/${'b'.repeat(64)}.bin`,
+    };
+    const expected = `_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/${descriptor.relativePath}`;
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((request: unknown) => {
+      const action = (request as { action?: string }).action;
+      if (action === 'binaryStageFinalize') {
+        return Promise.resolve({ success: true, url: 'blob:chrome-extension://test/staged' });
+      }
+      if (action === 'binaryStageRelease') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      {
+        id: 17,
+        state: 'complete',
+        filename: `C:\\Downloads\\${expected.replace(/\//g, '\\')}`,
+      } as chrome.downloads.DownloadItem,
+    ]);
+
+    const result = await handleStagedBinaryAssetMessage(
+      {
+        action: 'commitStagedBinaryAsset',
+        source: 'chatgpt',
+        stageId: `stage-${'A'.repeat(32)}`,
+        captureId: CAPTURE_ID,
+        conversationKey: CONVERSATION_KEY,
+        descriptor,
+        outputs: ['file'],
+      },
+      settings
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        results: [{ destination: 'file', success: true }],
+        allSuccessful: true,
+      })
+    );
+    expect(chrome.downloads.download).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: expected, conflictAction: 'uniquify' }),
+      expect.any(Function)
+    );
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'binaryStageRelease', stageId: `stage-${'A'.repeat(32)}` })
+    );
+  });
+
+  it('reports a stable partial download failure when Chrome changed the canonical staged path', async () => {
+    const descriptor = {
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      byteLength: 2,
+      sha256: 'b'.repeat(64),
+      mediaType: 'application/octet-stream',
+      relativePath: `assets/${'b'.repeat(64)}.bin`,
+    };
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((request: unknown) => {
+      const action = (request as { action?: string }).action;
+      if (action === 'binaryStageFinalize') {
+        return Promise.resolve({ success: true, url: 'blob:chrome-extension://test/staged' });
+      }
+      if (action === 'binaryStageRelease') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      {
+        id: 17,
+        state: 'complete',
+        filename: 'C:\\Downloads\\renamed.bin',
+      } as chrome.downloads.DownloadItem,
+    ]);
+
+    const result = await handleStagedBinaryAssetMessage(
+      {
+        action: 'commitStagedBinaryAsset',
+        source: 'chatgpt',
+        stageId: `stage-${'B'.repeat(32)}`,
+        captureId: CAPTURE_ID,
+        conversationKey: CONVERSATION_KEY,
+        descriptor,
+        outputs: ['file'],
+      },
+      settings
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        results: [
+          { destination: 'file', success: false, error: 'binary-download-path-unconfirmed' },
+        ],
+        allSuccessful: false,
+      })
+    );
+  });
+
+  it('falls back to an exact abort when staged Blob release is not confirmed', async () => {
+    const descriptor = {
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      byteLength: 2,
+      sha256: 'b'.repeat(64),
+      mediaType: 'application/octet-stream',
+      relativePath: `assets/${'b'.repeat(64)}.bin`,
+    };
+    const expected = `_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/${descriptor.relativePath}`;
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((request: unknown) => {
+      const action = (request as { action?: string }).action;
+      if (action === 'binaryStageFinalize') {
+        return Promise.resolve({ success: true, url: 'blob:chrome-extension://test/retry-stage' });
+      }
+      if (action === 'binaryStageRelease') return Promise.resolve({ success: false });
+      if (action === 'binaryStageAbort') return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      {
+        id: 17,
+        state: 'complete',
+        filename: `C:\\Downloads\\${expected.replace(/\//g, '\\')}`,
+      } as chrome.downloads.DownloadItem,
+    ]);
+
+    const result = await handleStagedBinaryAssetMessage(
+      {
+        action: 'commitStagedBinaryAsset',
+        source: 'chatgpt',
+        stageId: `stage-${'C'.repeat(32)}`,
+        captureId: CAPTURE_ID,
+        conversationKey: CONVERSATION_KEY,
+        descriptor,
+        outputs: ['file'],
+      },
+      settings
+    );
+
+    expect(result).toEqual({
+      results: [{ destination: 'file', success: true }],
+      allSuccessful: true,
+      anySuccessful: true,
+    });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'binaryStageAbort', stageId: `stage-${'C'.repeat(32)}` })
+    );
+  });
+
+  it('reports deferred cleanup when both staged release and exact abort fail', async () => {
+    const descriptor = {
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      byteLength: 2,
+      sha256: 'b'.repeat(64),
+      mediaType: 'application/octet-stream',
+      relativePath: `assets/${'b'.repeat(64)}.bin`,
+    };
+    const expected = `_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/${descriptor.relativePath}`;
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((request: unknown) => {
+      const action = (request as { action?: string }).action;
+      if (action === 'binaryStageFinalize') {
+        return Promise.resolve({
+          success: true,
+          url: 'blob:chrome-extension://test/deferred-stage',
+        });
+      }
+      if (action === 'binaryStageRelease' || action === 'binaryStageAbort') {
+        return Promise.resolve({ success: false });
+      }
+      return Promise.resolve(undefined);
+    });
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      {
+        id: 17,
+        state: 'complete',
+        filename: `C:\\Downloads\\${expected.replace(/\//g, '\\')}`,
+      } as chrome.downloads.DownloadItem,
+    ]);
+
+    const result = await handleStagedBinaryAssetMessage(
+      {
+        action: 'commitStagedBinaryAsset',
+        source: 'chatgpt',
+        stageId: `stage-${'D'.repeat(32)}`,
+        captureId: CAPTURE_ID,
+        conversationKey: CONVERSATION_KEY,
+        descriptor,
+        outputs: ['file'],
+      },
+      settings
+    );
+
+    expect(result).toEqual({
+      results: [
+        {
+          destination: 'file',
+          success: true,
+          warning: 'binary-stage-cleanup-deferred',
+        },
+      ],
+      allSuccessful: true,
+      anySuccessful: true,
+    });
+  });
+
+  it('does not report a content-side abort as successful when OPFS cleanup is unconfirmed', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: false });
+
+    await expect(
+      handleStagedBinaryAssetMessage(
+        {
+          action: 'abortStagedBinaryAsset',
+          source: 'chatgpt',
+          stageId: `stage-${'E'.repeat(32)}`,
+        },
+        settings
+      )
+    ).resolves.toEqual({ success: false, error: 'binary-stage-cleanup-deferred' });
+  });
+
+  it('retains staged ownership until a late Downloads terminal event releases it', async () => {
+    vi.useFakeTimers();
+    const descriptor = {
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      byteLength: 2,
+      sha256: 'b'.repeat(64),
+      mediaType: 'application/octet-stream',
+      relativePath: `assets/${'b'.repeat(64)}.bin`,
+    };
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((request: unknown) => {
+      const action = (request as { action?: string }).action;
+      if (action === 'binaryStageFinalize') {
+        return Promise.resolve({ success: true, url: 'blob:chrome-extension://test/late-stage' });
+      }
+      if (action === 'binaryStageRelease' || action === 'binaryStageAbort') {
+        return Promise.resolve({ success: true });
+      }
+      return Promise.resolve(undefined);
+    });
+    vi.mocked(chrome.downloads.download).mockImplementation((_options, callback) => {
+      callback?.(71);
+      return 71 as unknown as ReturnType<typeof chrome.downloads.download>;
+    });
+    vi.mocked(chrome.downloads.search).mockResolvedValue([]);
+
+    const pending = handleStagedBinaryAssetMessage(
+      {
+        action: 'commitStagedBinaryAsset',
+        source: 'chatgpt',
+        stageId: `stage-${'F'.repeat(32)}`,
+        captureId: CAPTURE_ID,
+        conversationKey: CONVERSATION_KEY,
+        descriptor,
+        outputs: ['file'],
+      },
+      settings
+    );
+    await waitForDownloadStart();
+    await vi.advanceTimersByTimeAsync(30_000);
+    const result = await pending;
+
+    expect(result).toEqual({
+      results: [{ destination: 'file', success: false, error: 'binary-download-failed' }],
+      allSuccessful: false,
+      anySuccessful: false,
+    });
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'binaryStageRelease' })
+    );
+
+    onChanged?.({ id: 71, state: { current: 'complete' } } as chrome.downloads.DownloadDelta);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'binaryStageRelease', stageId: `stage-${'F'.repeat(32)}` })
+    );
+    vi.useRealTimers();
   });
 
   it('writes the same verified companion to both selected durable outputs', async () => {

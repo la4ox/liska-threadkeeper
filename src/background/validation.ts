@@ -7,6 +7,7 @@
 
 import {
   MAX_CONTENT_SIZE,
+  BINARY_STAGE_CHUNK_BYTES,
   MAX_EXTENSION_MESSAGE_SIZE,
   MAX_FILENAME_LENGTH,
   MAX_FRONTMATTER_TITLE_LENGTH,
@@ -35,8 +36,10 @@ import {
 import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
 import { canonicalBase64ByteLength } from '../lib/base64';
+import { isSafeBinaryStageId, isStagedBinaryAssetDescriptor } from '../lib/binary-asset-contract';
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
+import { platformOrigins } from '../lib/platform-registry';
 
 /**
  * Validate message sender (M-02)
@@ -85,6 +88,29 @@ export function validateChatGptCaptureSender(
   // navigation. The current tab route above remains exact and UUID-bound; the
   // document URL only needs to prove that the sender is still a ChatGPT page.
   return sender.url === undefined || isExactChatGptDocumentUrl(sender.url);
+}
+
+/**
+ * A staged binary asset carries no provider transport data, but its source
+ * still selects the user-configured Obsidian folder. Bind that source to the
+ * exact platform origin so one content script cannot claim another platform.
+ */
+export function validateStagedBinaryAssetSender(
+  sender: chrome.runtime.MessageSender,
+  source: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>['source']
+): boolean {
+  if (!sender.tab?.url || !VALID_SOURCES.includes(source)) return false;
+  try {
+    const url = new URL(sender.tab.url);
+    return (
+      url.protocol === 'https:' &&
+      url.username === '' &&
+      url.password === '' &&
+      platformOrigins(source).includes(url.origin)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function parseChatGptCaptureTabUrl(rawUrl: string, conversationId: string): URL | undefined {
@@ -246,6 +272,93 @@ function validatePersistArchiveCompanionMessage(
   );
 }
 
+function validatePersistentOutputs(value: unknown): value is ('file' | 'obsidian')[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 2 &&
+    new Set(value).size === value.length &&
+    value.every(output => output === 'file' || output === 'obsidian')
+  );
+}
+
+function validateBeginStagedBinaryAssetMessage(
+  message: Extract<ExtensionMessage, { action: 'beginStagedBinaryAsset' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, ['action', 'source', 'stageId', 'descriptor']) &&
+    VALID_SOURCES.includes(message.source) &&
+    isSafeBinaryStageId(message.stageId) &&
+    isStagedBinaryAssetDescriptor(message.descriptor)
+  );
+}
+
+function validateAppendStagedBinaryAssetMessage(
+  message: Extract<ExtensionMessage, { action: 'appendStagedBinaryAsset' }>
+): boolean {
+  const chunkLength =
+    typeof message.chunkBase64 === 'string'
+      ? canonicalBase64ByteLength(message.chunkBase64)
+      : undefined;
+  return (
+    hasExactOwnKeys(message, ['action', 'source', 'stageId', 'offset', 'chunkBase64']) &&
+    VALID_SOURCES.includes(message.source) &&
+    isSafeBinaryStageId(message.stageId) &&
+    Number.isSafeInteger(message.offset) &&
+    message.offset >= 0 &&
+    typeof message.chunkBase64 === 'string' &&
+    chunkLength !== undefined &&
+    chunkLength <= BINARY_STAGE_CHUNK_BYTES
+  );
+}
+
+function validateCommitStagedBinaryAssetMessage(
+  message: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, [
+      'action',
+      'stageId',
+      'captureId',
+      'conversationKey',
+      'source',
+      'descriptor',
+      'outputs',
+    ]) &&
+    isSafeBinaryStageId(message.stageId) &&
+    SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
+    OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
+    VALID_SOURCES.includes(message.source) &&
+    isStagedBinaryAssetDescriptor(message.descriptor) &&
+    validatePersistentOutputs(message.outputs)
+  );
+}
+
+function validateAbortStagedBinaryAssetMessage(
+  message: Extract<ExtensionMessage, { action: 'abortStagedBinaryAsset' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, ['action', 'source', 'stageId']) &&
+    VALID_SOURCES.includes(message.source) &&
+    isSafeBinaryStageId(message.stageId)
+  );
+}
+
+function validateStagedBinaryAssetMessage(message: ExtensionMessage): boolean | undefined {
+  switch (message.action) {
+    case 'beginStagedBinaryAsset':
+      return validateBeginStagedBinaryAssetMessage(message);
+    case 'appendStagedBinaryAsset':
+      return validateAppendStagedBinaryAssetMessage(message);
+    case 'commitStagedBinaryAsset':
+      return validateCommitStagedBinaryAssetMessage(message);
+    case 'abortStagedBinaryAsset':
+      return validateAbortStagedBinaryAssetMessage(message);
+    default:
+      return undefined;
+  }
+}
+
 /**
  * Validate message content (M-02)
  *
@@ -261,7 +374,6 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   const extensionMessage = message as ExtensionMessage;
   // Validate action against whitelist (using centralized constants)
   if (
-    extensionMessage.action !== 'persistArchiveCompanion' &&
     !VALID_MESSAGE_ACTIONS.includes(
       extensionMessage.action as (typeof VALID_MESSAGE_ACTIONS)[number]
     )
@@ -296,6 +408,9 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   if (extensionMessage.action === 'persistArchiveCompanion') {
     return validatePersistArchiveCompanionMessage(extensionMessage);
   }
+
+  const stagedBinaryValidation = validateStagedBinaryAssetMessage(extensionMessage);
+  if (stagedBinaryValidation !== undefined) return stagedBinaryValidation;
 
   if (extensionMessage.action === 'updateOutputOptions') {
     return (

@@ -98,10 +98,42 @@ Asset states are intentionally not interchangeable:
 
 The runtime capture bundle must carry the exact bytes for every asset marked
 `fetched`; shape validation compares the full manifest record and byte length,
-then integrity validation recomputes SHA-256 before normalization. The current
-JSON-only ChatGPT companion writer rejects any such runtime asset until the
-separate binary persistence route is implemented, so a fetched claim cannot be
-published with a dangling local path.
+then integrity validation recomputes SHA-256 before normalization.
+
+A separate provider-neutral binary persistence route is now implemented as a
+dormant destination primitive. Content sends independently canonical 512 KiB
+base64 chunks, the extension-owned offscreen document stages them in OPFS,
+and finalization rechecks exact length and SHA-256 before one content-addressed
+file is offered independently to Downloads and Obsidian. Clipboard is excluded;
+active/macro-capable media types are rejected; existing destination paths are
+never overwritten; and cleanup targets only the exact random stage ID. The
+first slice intentionally bounds one asset to 64 MiB because Obsidian upload
+and readback still materialize one file at a time. A later fully streaming path
+may raise that bound without changing the archive contract.
+
+Downloads cleanup cannot depend on one service-worker closure. Before starting
+a binary File download, Liska persists a bounded provisional ownership record
+containing only the random stage ID, extension-owned Blob URL, timestamp, and a
+temporarily null Downloads ID. Chrome's callback atomically fills that ID. A
+top-level Downloads listener and browser-startup reconciliation can therefore
+exact-release or exact-abort the stage after MV3 suspension/restart. The live
+worker retains an in-memory ownership marker across File and Obsidian siblings
+so a fast File terminal event cannot revoke the Blob while Obsidian still reads
+it; a restarted worker naturally has no such marker and recovers the durable
+record. No archive content or provider identifier enters this registry.
+
+A Comet live smoke confirmed the destination primitive with a fixed six-byte
+synthetic asset. Downloads retained the exact bytes and content hash while
+Obsidian was offline and reported a separate fixed preflight failure; a fresh
+capture after Local REST API resumed wrote byte-identical content-addressed
+files to both durable destinations. The smoke made no provider request and did
+not read conversation content. Deliberate worker-suspension recovery remains a
+synthetic lifecycle test until acquisition is wired.
+
+The ChatGPT JSON companion writer still rejects runtime asset bytes. Acquisition
+is not wired to the staged route yet, so removing that guard now would again
+permit a fetched manifest/canonical claim before destination sequencing and
+partial-output reporting are exercised in the real browser.
 
 Discovering every reference does not make `completeness.assets` complete. Until
 all selected binary acquisitions reach an evidenced terminal state, a
@@ -310,7 +342,10 @@ destination edges.
 Large conversations must not require simultaneous in-memory copies of raw JSON,
 canonical JSON, Markdown, and base64 assets. The storage boundary must allow
 chunked or staged persistence before archive bundles grow beyond the current
-extension-message limits.
+extension-message limits. OPFS is a transient private staging boundary, not a
+fourth archive destination: verified bytes leave it only for a user-selected
+durable output, and stale exact stages are eligible for bounded cleanup on a
+later staged begin.
 
 ## ChatGPT-first implementation plan
 

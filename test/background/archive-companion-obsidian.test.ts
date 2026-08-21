@@ -14,7 +14,10 @@ vi.mock('../../src/lib/obsidian-api', () => ({
   ObsidianApiClient: mocks.client,
 }));
 
-import { handleSaveArchiveCompanion } from '../../src/background/obsidian-handlers';
+import {
+  handleSaveArchiveCompanion,
+  handleSaveStagedBinaryAsset,
+} from '../../src/background/obsidian-handlers';
 
 const CAPTURE_ID = 'capture-chatgpt-11111111-2222-4333-8444-555555555555';
 const CONVERSATION_KEY = 'a'.repeat(64);
@@ -47,6 +50,26 @@ async function request() {
   };
 }
 
+async function stagedRequest() {
+  const value = await request();
+  return {
+    value,
+    request: {
+      source: 'chatgpt' as const,
+      captureId: CAPTURE_ID,
+      conversationKey: CONVERSATION_KEY,
+      descriptor: {
+        assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+        byteLength: value.bytes.byteLength,
+        sha256: value.artifact.sha256,
+        mediaType: 'application/octet-stream',
+        relativePath: `assets/${value.artifact.sha256}.bin`,
+      },
+      blobUrl: 'blob:chrome-extension://test/stage',
+    },
+  };
+}
+
 describe('Obsidian archive companion persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -68,12 +91,12 @@ describe('Obsidian archive companion persistence', () => {
     const result = await handleSaveArchiveCompanion(settings, value);
 
     const path = `AI/chatgpt/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/canonical/liska-thread-1.json`;
-    expect(mocks.putBinaryFile).toHaveBeenCalledWith(
-      path,
-      value.bytes,
-      'application/octet-stream',
-      ARCHIVE_COMPANION_API_TIMEOUT_MS
-    );
+    expect(mocks.putBinaryFile).toHaveBeenCalledOnce();
+    const putArgs = mocks.putBinaryFile.mock.calls[0];
+    expect(putArgs?.[0]).toBe(path);
+    expect(Array.from(putArgs?.[1] as Uint8Array)).toEqual(Array.from(value.bytes));
+    expect(putArgs?.[2]).toBe('application/octet-stream');
+    expect(putArgs?.[3]).toBe(ARCHIVE_COMPANION_API_TIMEOUT_MS);
     expect(mocks.getBinaryFile).toHaveBeenCalledWith(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
     expect(result).toEqual({ success: true });
   });
@@ -193,5 +216,117 @@ describe('Obsidian archive companion persistence', () => {
 
     expect(result).toEqual({ success: false, error: 'archive-obsidian-preflight-failed' });
     expect(mocks.putBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it('preflights and readback-verifies one staged Blob asset without an overwrite', async () => {
+    const value = await request();
+    const descriptor = {
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      byteLength: value.bytes.byteLength,
+      sha256: value.artifact.sha256,
+      mediaType: 'application/octet-stream',
+      relativePath: `assets/${value.artifact.sha256}.bin`,
+    };
+    const fetchBlob = vi.fn().mockResolvedValue(new Response(value.bytes));
+    vi.stubGlobal('fetch', fetchBlob);
+    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+
+    const result = await handleSaveStagedBinaryAsset(settings, {
+      source: 'chatgpt',
+      captureId: CAPTURE_ID,
+      conversationKey: CONVERSATION_KEY,
+      descriptor,
+      blobUrl: 'blob:chrome-extension://test/stage',
+    });
+
+    const path = `AI/chatgpt/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/assets/${value.artifact.sha256}.bin`;
+    expect(fetchBlob).toHaveBeenCalledWith('blob:chrome-extension://test/stage');
+    expect(mocks.putBinaryFile).toHaveBeenCalledOnce();
+    const putArgs = mocks.putBinaryFile.mock.calls[0];
+    expect(putArgs?.[0]).toBe(path);
+    expect(Array.from(putArgs?.[1] as Uint8Array)).toEqual(Array.from(value.bytes));
+    expect(putArgs?.[2]).toBe('application/octet-stream');
+    expect(putArgs?.[3]).toBe(ARCHIVE_COMPANION_API_TIMEOUT_MS);
+    expect(result).toEqual({ success: true });
+  });
+
+  it('does not fetch or overwrite an existing staged asset path', async () => {
+    const value = await request();
+    const fetchBlob = vi.fn();
+    vi.stubGlobal('fetch', fetchBlob);
+    mocks.getFile.mockResolvedValueOnce('existing');
+
+    await expect(
+      handleSaveStagedBinaryAsset(settings, {
+        source: 'chatgpt',
+        captureId: CAPTURE_ID,
+        conversationKey: CONVERSATION_KEY,
+        descriptor: {
+          assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+          byteLength: value.bytes.byteLength,
+          sha256: value.artifact.sha256,
+          mediaType: 'application/octet-stream',
+          relativePath: `assets/${value.artifact.sha256}.bin`,
+        },
+        blobUrl: 'blob:chrome-extension://test/stage',
+      })
+    ).resolves.toEqual({ success: false, error: 'binary-obsidian-preflight-existing' });
+    expect(fetchBlob).not.toHaveBeenCalled();
+    expect(mocks.putBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when staged Blob bytes do not match their descriptor', async () => {
+    const staged = await stagedRequest();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new Uint8Array([9]))));
+
+    await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
+      success: false,
+      error: 'binary-obsidian-blob-integrity-failed',
+    });
+    expect(mocks.putBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it('maps staged Blob fetch and PUT failures to fixed diagnostics', async () => {
+    const staged = await stagedRequest();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
+      success: false,
+      error: 'binary-obsidian-blob-read-failed',
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(staged.value.bytes)));
+    mocks.putBinaryFile.mockRejectedValueOnce(new Error('put rejected'));
+    await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
+      success: false,
+      error: 'binary-obsidian-put-failed',
+    });
+  });
+
+  it('distinguishes missing, wrong-sized, and wrong-hash staged readback', async () => {
+    const staged = await stagedRequest();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve(new Response(staged.value.bytes)))
+    );
+
+    mocks.getBinaryFile.mockResolvedValueOnce(null);
+    await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
+      success: false,
+      error: 'binary-obsidian-readback-missing',
+    });
+
+    mocks.getBinaryFile.mockResolvedValueOnce(new Uint8Array([1]));
+    await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
+      success: false,
+      error: 'binary-obsidian-readback-size-mismatch',
+    });
+
+    mocks.getBinaryFile.mockResolvedValueOnce(
+      new Uint8Array(staged.request.descriptor.byteLength).fill(8)
+    );
+    await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
+      success: false,
+      error: 'binary-obsidian-readback-hash-mismatch',
+    });
   });
 });

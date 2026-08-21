@@ -226,6 +226,29 @@ export interface ArchiveCompanionBundle {
     | readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact, ArchiveCompanionArtifact];
 }
 
+/**
+ * Provider-neutral description of one verified binary archive asset.
+ *
+ * `assetId` is an opaque runtime correlation key only. The persisted name is
+ * content-addressed, so a provider filename, URL, signature, and identifier
+ * never cross the persistence boundary.
+ */
+export interface StagedBinaryAssetDescriptor {
+  assetId: string;
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+  relativePath: string;
+}
+
+/** One durable binary destination result, scoped to a single asset. */
+export interface StagedBinaryAssetResult {
+  assetId: string;
+  descriptor?: StagedBinaryAssetDescriptor;
+  results: OutputResult[];
+  allSuccessful: boolean;
+}
+
 /** Runtime-only plan consumed sequentially by the content orchestrator. */
 export interface AllBranchesPresentationPlan {
   archive: LiskaThreadArchive;
@@ -410,6 +433,29 @@ export type ExtensionMessage =
       artifact: ArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
+  | {
+      action: 'beginStagedBinaryAsset';
+      source: AIPlatform;
+      stageId: string;
+      descriptor: StagedBinaryAssetDescriptor;
+    }
+  | {
+      action: 'appendStagedBinaryAsset';
+      source: AIPlatform;
+      stageId: string;
+      offset: number;
+      chunkBase64: string;
+    }
+  | {
+      action: 'commitStagedBinaryAsset';
+      stageId: string;
+      captureId: string;
+      conversationKey: string;
+      source: AIPlatform;
+      descriptor: StagedBinaryAssetDescriptor;
+      outputs: PersistentOutputDestination[];
+    }
+  | { action: 'abortStagedBinaryAsset'; source: AIPlatform; stageId: string }
   | { action: 'getSettings' }
   | { action: 'testConnection' }
   | { action: 'fetchImage'; url: string }
@@ -449,17 +495,73 @@ export interface OffscreenArchiveBlobRevokeMessage {
   url: string;
 }
 
+/** Start one exact safe-named OPFS binary stage. */
+export interface OffscreenBinaryStageBeginMessage {
+  action: 'binaryStageBegin';
+  target: 'offscreen';
+  stageId: string;
+  descriptor: StagedBinaryAssetDescriptor;
+}
+
+/** Append one independently canonical-base64 chunk at an exact byte offset. */
+export interface OffscreenBinaryStageAppendMessage {
+  action: 'binaryStageAppend';
+  target: 'offscreen';
+  stageId: string;
+  offset: number;
+  chunkBase64: string;
+}
+
+/** Verify the exact persisted descriptor, size, and digest before outputs. */
+export interface OffscreenBinaryStageFinalizeMessage {
+  action: 'binaryStageFinalize';
+  target: 'offscreen';
+  stageId: string;
+  descriptor: StagedBinaryAssetDescriptor;
+}
+
+/** Revoke a finalized URL and clean only its exact OPFS stage. */
+export interface OffscreenBinaryStageReleaseMessage {
+  action: 'binaryStageRelease';
+  target: 'offscreen';
+  stageId: string;
+  url: string;
+}
+
+/** Remove only one exact unfinished OPFS stage. */
+export interface OffscreenBinaryStageAbortMessage {
+  action: 'binaryStageAbort';
+  target: 'offscreen';
+  stageId: string;
+}
+
 export type OffscreenArchiveBlobMessage =
   | OffscreenArchiveBlobCreateMessage
   | OffscreenArchiveBlobRevokeMessage;
 
-export type OffscreenMessage = OffscreenClipboardMessage | OffscreenArchiveBlobMessage;
+export type OffscreenBinaryStageMessage =
+  | OffscreenBinaryStageBeginMessage
+  | OffscreenBinaryStageAppendMessage
+  | OffscreenBinaryStageFinalizeMessage
+  | OffscreenBinaryStageReleaseMessage
+  | OffscreenBinaryStageAbortMessage;
+
+export type OffscreenMessage =
+  | OffscreenClipboardMessage
+  | OffscreenArchiveBlobMessage
+  | OffscreenBinaryStageMessage;
 
 export type ArchiveBlobCreateResponse =
   | { success: true; url: string }
   | { success: false; error: string };
 
 export type ArchiveBlobRevokeResponse = { success: boolean; error?: string };
+
+export type BinaryStageResponse = { success: boolean; error?: string };
+
+export type BinaryStageFinalizeResponse =
+  | { success: true; url: string }
+  | { success: false; error: string };
 
 export interface OutputOptionsUpdateResponse {
   success: boolean;

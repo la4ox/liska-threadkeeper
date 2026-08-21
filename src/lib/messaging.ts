@@ -9,6 +9,7 @@ import type {
   ContentScriptSettings,
   MultiOutputResponse,
   OutputOptionsUpdateResponse,
+  BinaryStageResponse,
 } from './types';
 
 /** User-friendly message for extension context invalidation */
@@ -24,6 +25,10 @@ interface MessageResponseMap {
   persistArchiveCompanion: MultiOutputResponse;
   updateOutputOptions: OutputOptionsUpdateResponse;
   captureChatGptConversation: ChatGptCaptureResponse;
+  beginStagedBinaryAsset: BinaryStageResponse;
+  appendStagedBinaryAsset: BinaryStageResponse;
+  commitStagedBinaryAsset: MultiOutputResponse;
+  abortStagedBinaryAsset: BinaryStageResponse;
 }
 
 /**

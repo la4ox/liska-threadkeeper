@@ -134,7 +134,7 @@ async function ensureOffscreenDocument(): Promise<void> {
   }
 }
 
-interface OffscreenLease {
+export interface OffscreenLease {
   release(): void;
 }
 
@@ -152,6 +152,15 @@ async function acquireOffscreenLease(): Promise<OffscreenLease> {
       if (offscreenLeaseCount === 0) scheduleOffscreenClose();
     },
   };
+}
+
+/**
+ * Keep the existing offscreen lifecycle authoritative for staged binary
+ * assets too. The caller transfers this lease to a late Downloads observer
+ * when necessary, then releases it only after the exact stage is cleaned.
+ */
+export async function acquireOffscreenLeaseForStagedBinaryAsset(): Promise<OffscreenLease> {
+  return acquireOffscreenLease();
 }
 
 /**
@@ -333,20 +342,25 @@ async function createArchiveBlobUrl(
 }
 
 /** Wait for Downloads to report a terminal state before releasing the Blob URL. */
-interface ArchiveDownloadOutcome {
+export interface ArchiveDownloadOutcome {
   error: string | null;
   /** Blob may be released only after Downloads has reached a terminal state. */
   terminal: boolean;
+  /** Present only after Chrome assigned a Downloads item to this Blob URL. */
+  downloadId?: number;
 }
 
 function isTerminalDownloadState(state: string | undefined): state is 'complete' | 'interrupted' {
   return state === 'complete' || state === 'interrupted';
 }
 
-function terminalDownloadOutcome(state: 'complete' | 'interrupted'): ArchiveDownloadOutcome {
+function terminalDownloadOutcome(
+  state: 'complete' | 'interrupted',
+  downloadId: number
+): ArchiveDownloadOutcome {
   return state === 'complete'
-    ? { error: null, terminal: true }
-    : { error: 'Archive download was interrupted', terminal: true };
+    ? { error: null, terminal: true, downloadId }
+    : { error: 'Archive download was interrupted', terminal: true, downloadId };
 }
 
 async function inspectArchiveDownload(
@@ -366,13 +380,15 @@ async function inspectArchiveDownload(
  * `onLateTerminal` once Downloads eventually resolves the private Blob.
  */
 /* eslint-disable max-lines-per-function -- callback, event, and timeout state share one lifecycle. */
-function downloadArchiveBlob(
+export function downloadArchiveBlob(
   url: string,
   filename: string,
-  onLateTerminal: () => Promise<void>
+  onLateTerminal: () => Promise<void>,
+  onDownloadId?: (downloadId: number) => Promise<void>
 ): Promise<ArchiveDownloadOutcome> {
   return new Promise(resolve => {
     let downloadId: number | undefined;
+    let downloadIdContinuation: Promise<void> | undefined;
     let callerSettled = false;
     let terminal = false;
     let retainObserver = false;
@@ -404,6 +420,9 @@ function downloadArchiveBlob(
       callerSettled = true;
       resolve(outcome);
     };
+    const waitForDownloadIdContinuation = async (): Promise<void> => {
+      await downloadIdContinuation;
+    };
     const onChanged = (delta: chrome.downloads.DownloadDelta): void => {
       const state = delta.state?.current;
       if (!isTerminalDownloadState(state)) return;
@@ -411,10 +430,17 @@ function downloadArchiveBlob(
         pendingTerminalDeltas.push({ id: delta.id, state });
         return;
       }
-      if (delta.id === downloadId) void finishTerminal(terminalDownloadOutcome(state));
+      if (delta.id === downloadId) {
+        void (async () => {
+          await waitForDownloadIdContinuation();
+          await finishTerminal(terminalDownloadOutcome(state, delta.id));
+        })();
+      }
     };
 
-    const reconcileDownloadState = async (): Promise<void> => {
+    const reconcileDownloadState = async (waitForOwnership = true): Promise<void> => {
+      if (downloadId === undefined || terminal) return;
+      if (waitForOwnership) await waitForDownloadIdContinuation();
       if (downloadId === undefined || terminal) return;
       // Always query after callback assignment: onChanged can race the
       // callback, while search gives Downloads' authoritative current state.
@@ -422,15 +448,19 @@ function downloadArchiveBlob(
       const pending = pendingTerminalDeltas.find(delta => delta.id === downloadId);
       if (pending) {
         void statePromise;
-        await finishTerminal(terminalDownloadOutcome(pending.state));
+        await finishTerminal(terminalDownloadOutcome(pending.state, downloadId));
         return;
       }
       const state = await statePromise;
-      if (isTerminalDownloadState(state)) await finishTerminal(terminalDownloadOutcome(state));
+      if (isTerminalDownloadState(state))
+        await finishTerminal(terminalDownloadOutcome(state, downloadId));
     };
 
     const returnUnconfirmedFailure = (error: string): void => {
-      settleCaller({ error, terminal: false }, true);
+      settleCaller(
+        { error, terminal: false, ...(downloadId !== undefined && { downloadId }) },
+        true
+      );
     };
     const cancelAndConfirm = async (): Promise<void> => {
       if (terminal || callerSettled) return;
@@ -440,9 +470,11 @@ function downloadArchiveBlob(
         returnUnconfirmedFailure('Archive download did not complete');
         return;
       }
+      await waitForDownloadIdContinuation();
+      if (downloadId === undefined || terminal || callerSettled) return;
       const state = await inspectArchiveDownload(downloadId);
       if (isTerminalDownloadState(state)) {
-        await finishTerminal(terminalDownloadOutcome(state));
+        await finishTerminal(terminalDownloadOutcome(state, downloadId));
         return;
       }
       if (state !== 'in_progress') {
@@ -482,7 +514,15 @@ function downloadArchiveBlob(
         }
       } else {
         downloadId = id;
-        void reconcileDownloadState();
+        downloadIdContinuation = (async () => {
+          try {
+            await onDownloadId?.(id);
+          } catch {
+            // Ownership persistence reports its own bounded failure to the caller.
+          }
+          await reconcileDownloadState(false);
+        })();
+        void downloadIdContinuation;
       }
     });
   });

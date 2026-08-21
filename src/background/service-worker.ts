@@ -5,9 +5,16 @@
 
 import { getErrorMessage } from '../lib/error-utils';
 import { getSettings, migrateSettings, saveSettings } from '../lib/storage';
-import { validateChatGptCaptureSender, validateSender, validateMessageContent } from './validation';
+import {
+  validateChatGptCaptureSender,
+  validateMessageContent,
+  validateSender,
+  validateStagedBinaryAssetSender,
+} from './validation';
 import { handleTestConnection } from './obsidian-handlers';
 import { handleMultiOutput, handlePersistArchiveCompanion } from './output-handlers';
+import { handleStagedBinaryAssetMessage } from './binary-asset-handlers';
+import { startStagedBinaryDownloadRecovery } from './binary-download-recovery';
 import { handleFetchImage } from './image-fetch';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
@@ -25,11 +32,38 @@ import type {
 /** Latest acknowledged popup intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
 
+// Register durable Downloads recovery before any awaited startup work. A fresh
+// MV3 worker must observe terminal deltas and browser-startup reconciliation.
+startStagedBinaryDownloadRecovery();
+
 // Run settings migration on service worker startup (C-01)
 // Note: top-level await not available in service workers, use .catch() for error handling
 migrateSettings().catch(error => {
   console.error('[G2O Background] Settings migration failed:', error);
 });
+
+function dispatchMessage(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: unknown) => void
+): void {
+  handleMessage(message, sender)
+    .then(response => {
+      try {
+        sendResponse(response);
+      } catch {
+        /* sender disconnected */
+      }
+    })
+    .catch(error => {
+      console.error('[G2O Background] Error handling message:', error);
+      try {
+        sendResponse({ success: false, error: getErrorMessage(error) });
+      } catch {
+        /* sender disconnected */
+      }
+    });
+}
 
 /**
  * Handle incoming messages from content script and popup
@@ -80,22 +114,12 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    handleMessage(message, sender)
-      .then(response => {
-        try {
-          sendResponse(response);
-        } catch {
-          /* sender disconnected */
-        }
-      })
-      .catch(error => {
-        console.error('[G2O Background] Error handling message:', error);
-        try {
-          sendResponse({ success: false, error: getErrorMessage(error) });
-        } catch {
-          /* sender disconnected */
-        }
-      });
+    if (!isAuthorizedStagedBinaryAssetRequest(message, sender)) {
+      sendResponse({ success: false, error: 'Unauthorized' });
+      return false;
+    }
+
+    dispatchMessage(message, sender, sendResponse);
     return true; // Indicates async response
   }
 );
@@ -149,6 +173,32 @@ function isAuthorizedOutputOptionsUpdate(
     sender.id === chrome.runtime.id &&
     sender.url === chrome.runtime.getURL('src/popup/index.html')
   );
+}
+
+function isStagedBinaryAssetMessage(
+  message: ExtensionMessage
+): message is Extract<
+  ExtensionMessage,
+  | { action: 'beginStagedBinaryAsset' }
+  | { action: 'appendStagedBinaryAsset' }
+  | { action: 'commitStagedBinaryAsset' }
+  | { action: 'abortStagedBinaryAsset' }
+> {
+  return (
+    message.action === 'beginStagedBinaryAsset' ||
+    message.action === 'appendStagedBinaryAsset' ||
+    message.action === 'commitStagedBinaryAsset' ||
+    message.action === 'abortStagedBinaryAsset'
+  );
+}
+
+function isAuthorizedStagedBinaryAssetRequest(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (!isStagedBinaryAssetMessage(message) || sender.tab === undefined)
+    return !isStagedBinaryAssetMessage(message);
+  return validateStagedBinaryAssetSender(sender, message.source);
 }
 
 /** Chrome 96 exposes permissions.contains as a callback API; reject unavailable APIs as absent. */
@@ -266,6 +316,12 @@ async function handleMessage(
 
     case 'persistArchiveCompanion':
       return handlePersistArchiveCompanion(message, settings);
+
+    case 'beginStagedBinaryAsset':
+    case 'appendStagedBinaryAsset':
+    case 'commitStagedBinaryAsset':
+    case 'abortStagedBinaryAsset':
+      return handleStagedBinaryAssetMessage(message, settings);
 
     case 'testConnection':
       return handleTestConnection(settings);
