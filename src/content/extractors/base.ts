@@ -14,7 +14,7 @@ import type {
   DeepResearchSource,
 } from '../../lib/types';
 import { extractErrorMessage } from '../../lib/error-utils';
-import { generateHash } from '../../lib/hash';
+import { sha256Hex } from '../../lib/sha256';
 import { sanitizeHtml } from '../../lib/sanitize';
 import {
   ALL_PLATFORM_LABELS,
@@ -98,7 +98,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
         };
       }
 
-      const deepResearchResult = this.tryExtractDeepResearch();
+      const deepResearchResult = await this.tryExtractDeepResearch();
       if (deepResearchResult) {
         return deepResearchResult;
       }
@@ -129,7 +129,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
    * keep the default false and skip straight to normal extraction.
    * @returns ExtractionResult if Deep Research detected, null otherwise
    */
-  protected tryExtractDeepResearch(): ExtractionResult | null {
+  protected async tryExtractDeepResearch(): Promise<ExtractionResult | null> {
     if (!this.isDeepResearchVisible()) return null;
     console.info(`[G2O] ${this.platformLabel} Deep Research panel detected, extracting report`);
     return this.buildDeepResearchResult();
@@ -205,7 +205,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
    * Subclasses override getDeepResearchSelectors() and extractSourceList()
    * for platform-specific DOM access.
    */
-  protected buildDeepResearchResult(): ExtractionResult {
+  protected async buildDeepResearchResult(): Promise<ExtractionResult> {
     const title = this.getDeepResearchTitle();
     const content = this.extractDeepResearchContent();
 
@@ -217,8 +217,14 @@ export abstract class BaseExtractor implements IConversationExtractor {
       };
     }
 
-    const titleHash = generateHash(title);
-    const conversationId = `deep-research-${titleHash}`;
+    // A title is presentation text, not durable object identity. Bind the
+    // local report ID to the exact extracted content so two ordinary reports
+    // with the same title cannot authorize one another's overwrite. A later
+    // changed report deliberately becomes a new append-only snapshot.
+    const identityBytes = new TextEncoder().encode(
+      `liska-deep-research/1\u0000${this.platform}\u0000${title}\u0000${content}`
+    );
+    const conversationId = `deep-research-${await sha256Hex(identityBytes)}`;
     const links = this.extractDeepResearchLinks();
 
     const messages = [

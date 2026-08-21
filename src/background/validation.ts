@@ -164,9 +164,17 @@ function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
 function validateChatGptCaptureMessage(
   message: Extract<ExtensionMessage, { action: 'captureChatGptConversation' }>
 ): boolean {
+  const exactBase = hasExactOwnKeys(message, ['action', 'conversationId']);
+  const exactOptIn = hasExactOwnKeys(message, [
+    'action',
+    'conversationId',
+    'observeAssetResolvers',
+  ]);
   return (
-    hasExactOwnKeys(message, ['action', 'conversationId']) &&
-    isChatGptConversationId(message.conversationId)
+    (exactBase || exactOptIn) &&
+    isChatGptConversationId(message.conversationId) &&
+    (message.observeAssetResolvers === undefined ||
+      typeof message.observeAssetResolvers === 'boolean')
   );
 }
 

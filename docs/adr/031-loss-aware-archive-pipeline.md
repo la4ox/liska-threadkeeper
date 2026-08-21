@@ -135,6 +135,28 @@ is not wired to the staged route yet, so removing that guard now would again
 permit a fetched manifest/canonical claim before destination sequencing and
 partial-output reporting are exercised in the real browser.
 
+The first page-owned acquisition boundary is now implemented without enabling
+it in the ordinary export path. An explicit capture opt-in adds a marker to the
+inactive temporary tab. Its document-start observer binds the result to the
+expected conversation and watches only exact page-owned resolver GETs during a
+single hard two-second window. It never reads request headers, cookies, body,
+browser storage, or authentication middleware. Resolver JSON is capped and
+hash-verified again in background; only an opaque, domain-separated resolver
+key and a strictly allowlisted transient signed estuary URL cross back to the
+content script. Literal raw URL/path/query grammar prevents URL normalization
+from widening this boundary.
+
+Pure matcher and credentialless acquisition helpers can then bind those opaque
+keys to exact ledger source pointers and fetch only the already signed asset
+URL with omitted credentials, disabled redirects, passive MIME allowlisting,
+timeouts, per-asset limits, attempt limits, and a cumulative read-work budget.
+Every bounded body read consumes that budget even if later hash or asset
+validation rejects the bytes. These helpers do not yet update a capture bundle
+or call the staged destination writer. The next orchestration step must commit
+binary output first and derive destination-honest manifest/canonical states
+afterward; until then every production asset remains `not-attempted` and the
+JSON-only guard stays in place.
+
 Discovering every reference does not make `completeness.assets` complete. Until
 all selected binary acquisitions reach an evidenced terminal state, a
 metadata-only inventory remains `not-attempted` (or `partial` after a mixed

@@ -236,14 +236,14 @@ function hasScriptingPermission(): Promise<boolean> {
   });
 }
 
-async function handleChatGptCapture(conversationId: string) {
+async function handleChatGptCapture(conversationId: string, observeAssetResolvers: boolean) {
   if (!(await hasScriptingPermission())) {
     return createChatGptCaptureFailure('permission-unavailable');
   }
 
   let capture: Awaited<ReturnType<typeof captureChatGptInTemporaryTab>>;
   try {
-    capture = await captureChatGptInTemporaryTab(conversationId);
+    capture = await captureChatGptInTemporaryTab(conversationId, { observeAssetResolvers });
   } catch (error) {
     return createChatGptCaptureFailure(
       error instanceof ChatGptTemporaryCaptureError ? error.code : 'background-capture-exception'
@@ -262,6 +262,10 @@ async function handleChatGptCapture(conversationId: string) {
           method: CHATGPT_CAPTURE_ENDPOINT.method,
           pathPattern: CHATGPT_CAPTURE_ENDPOINT.pathPattern,
         },
+        transientAssetResolvers: capture.transientAssetResolvers.map(resolver => ({
+          resolverKey: resolver.resolverKey,
+          downloadUrl: resolver.downloadUrl,
+        })),
       },
     };
     return isChatGptCaptureResponse(response)
@@ -292,7 +296,7 @@ async function handleMessage(
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
   if (message.action === 'captureChatGptConversation') {
-    return handleChatGptCapture(message.conversationId);
+    return handleChatGptCapture(message.conversationId, message.observeAssetResolvers === true);
   }
 
   if (message.action === 'updateOutputOptions') {

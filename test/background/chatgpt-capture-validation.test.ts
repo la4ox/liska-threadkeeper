@@ -20,12 +20,27 @@ describe('ChatGPT capture message validation', () => {
       validateMessageContent({
         action: 'captureChatGptConversation',
         conversationId: CONVERSATION_ID,
+        observeAssetResolvers: false,
       })
     ).toBe(true);
     expect(
       validateMessageContent({
         action: 'captureChatGptConversation',
         conversationId: '../not-a-conversation-id',
+        observeAssetResolvers: false,
+      })
+    ).toBe(false);
+    expect(
+      validateMessageContent({
+        action: 'captureChatGptConversation',
+        conversationId: CONVERSATION_ID,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'captureChatGptConversation',
+        conversationId: CONVERSATION_ID,
+        observeAssetResolvers: 'yes',
       })
     ).toBe(false);
   });
@@ -35,6 +50,7 @@ describe('ChatGPT capture message validation', () => {
       validateMessageContent({
         action: 'captureChatGptConversation',
         conversationId: CONVERSATION_ID,
+        observeAssetResolvers: false,
         [extraKey]: 'must-not-cross-the-boundary',
       })
     ).toBe(false);

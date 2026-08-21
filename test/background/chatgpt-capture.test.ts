@@ -9,9 +9,18 @@ import {
 } from '../../src/background/chatgpt-capture';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
+const OTHER_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555';
 const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
 const STATE_KEY = `__liskaChatGptCapture_${NONCE}`;
 const CAPTURE_HASH = 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3';
+const RESOLVER_FILE_ID = 'file-abc_123';
+const RESOLVER_DOWNLOAD_URL =
+  `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+  '&id=signed-transport-id&p=path&sig=signature&ts=123&v=1';
+const RESOLVER_RESPONSE_BASE64 =
+  'eyJkb3dubG9hZF91cmwiOiJodHRwczovL2NoYXRncHQuY29tL2JhY2tlbmQtYXBpL2VzdHVhcnkvY29udGVudD9jaWQ9MDEyMzQ1NjctODlhYi00Y2RlLThmMDEtMjM0NTY3ODlhYmNkJmlkPXNpZ25lZC10cmFuc3BvcnQtaWQmcD1wYXRoJnNpZz1zaWduYXR1cmUmdHM9MTIzJnY9MSIsImV4cGlyZXNfYXQiOiIyMDI2LTA4LTIxVDEyOjAwOjAwWiJ9';
+const RESOLVER_RESPONSE_HASH = '4de7dff011b39883431c6d0a3e58bf494df907568b267d4da781c4bcb62f0568';
+const RESOLVER_KEY = '7404723b52ebe964b6ac76965f76009f8edb166d7b5ebeb8619b05b0d53033ff';
 
 type FakeTab = { status?: string; url?: string };
 type ScriptResult = { result?: unknown };
@@ -24,12 +33,14 @@ const READY_TARGET_TAB: FakeTab = {
 function capturedResult() {
   return {
     kind: 'captured' as const,
+    conversationId: CONVERSATION_ID,
     capture: {
       bodyBase64: 'AP8BgCo=',
       byteLength: 5,
       sha256: CAPTURE_HASH,
       mediaType: 'application/json; charset=utf-8',
     },
+    resolverObservations: [],
   };
 }
 
@@ -58,6 +69,33 @@ function captureDependencies(chromeApi: ReturnType<typeof fakeChrome>) {
     chromeApi,
     createNonce: () => NONCE,
     digestSha256: async () => CAPTURE_HASH,
+  };
+}
+
+async function actualDigest(bytes: Uint8Array): Promise<string> {
+  const buffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+  const digest = await webcrypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function base64Bytes(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+async function resolverObservation(value: unknown) {
+  const source = typeof value === 'string' ? value : JSON.stringify(value);
+  const bytes = new TextEncoder().encode(source);
+  return {
+    providerFileId: RESOLVER_FILE_ID,
+    bodyBase64: base64Bytes(bytes),
+    byteLength: bytes.byteLength,
+    sha256: await actualDigest(bytes),
+    mediaType: 'application/json',
   };
 }
 
@@ -95,14 +133,159 @@ describe('captureChatGptInTemporaryTab', () => {
     expect(chromeApi.tabs.remove).toHaveBeenCalledOnce();
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
     expect(extensionFetch).not.toHaveBeenCalled();
-    expect(result).toEqual({ ...capturedResult().capture, endpoint: CHATGPT_CAPTURE_ENDPOINT });
+    expect(result).toEqual({
+      ...capturedResult().capture,
+      endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      transientAssetResolvers: [],
+    });
     expect(Object.keys(result)).toEqual([
       'bodyBase64',
       'byteLength',
       'sha256',
       'mediaType',
+      'transientAssetResolvers',
       'endpoint',
     ]);
+  });
+
+  it('keeps resolver discovery opt-in while retaining the default fast capture path', async () => {
+    const chromeApi = fakeChrome();
+
+    await captureChatGptInTemporaryTab(CONVERSATION_ID, {
+      ...captureDependencies(chromeApi),
+      observeAssetResolvers: true,
+    });
+
+    expect(chromeApi.tabs.create).toHaveBeenCalledWith({
+      url: `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${NONCE}&liska-observe-asset-resolvers=1`,
+      active: false,
+    });
+  });
+
+  it('keeps a verified capture when exact temporary-tab cleanup throws synchronously', async () => {
+    const chromeApi = fakeChrome();
+    chromeApi.tabs.remove.mockImplementation(() => {
+      throw new Error('browser cleanup unavailable');
+    });
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+    ).resolves.toMatchObject({ endpoint: CHATGPT_CAPTURE_ENDPOINT });
+    expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
+  });
+
+  it('binds the captured snapshot to the requested conversation before accepting it', async () => {
+    const chromeApi = fakeChrome([{ ...capturedResult(), conversationId: OTHER_CONVERSATION_ID }]);
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+    ).rejects.toMatchObject({ code: 'captured-conversation-id-mismatch' });
+  });
+
+  it.each([
+    ['malformed', 'not-an-observation-array'],
+    ['over-cap', Array.from({ length: 33 }, () => null)],
+  ])(
+    'drops %s resolver observations without downgrading a verified conversation',
+    async (_label, observations) => {
+      const chromeApi = fakeChrome([{ ...capturedResult(), resolverObservations: observations }]);
+
+      await expect(
+        captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(chromeApi))
+      ).resolves.toMatchObject({ transientAssetResolvers: [] });
+    }
+  );
+
+  it('returns only deduplicated opaque resolver keys with independently validated URLs', async () => {
+    const resolverObservation = {
+      providerFileId: RESOLVER_FILE_ID,
+      bodyBase64: RESOLVER_RESPONSE_BASE64,
+      byteLength: 198,
+      sha256: RESOLVER_RESPONSE_HASH,
+      mediaType: 'application/json',
+    };
+    const chromeApi = fakeChrome([
+      {
+        ...capturedResult(),
+        resolverObservations: [
+          resolverObservation,
+          resolverObservation,
+          { ...resolverObservation, providerFileId: 'file-other', sha256: '0'.repeat(64) },
+        ],
+      },
+    ]);
+
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(chromeApi),
+        digestSha256: actualDigest,
+        observeAssetResolvers: true,
+      })
+    ).resolves.toMatchObject({
+      transientAssetResolvers: [{ resolverKey: RESOLVER_KEY, downloadUrl: RESOLVER_DOWNLOAD_URL }],
+    });
+  });
+
+  it('drops malformed resolver records and unapproved resolver response bodies', async () => {
+    const valid = await resolverObservation({ download_url: RESOLVER_DOWNLOAD_URL });
+    const bodies = [
+      { ...valid, unexpected: true },
+      await resolverObservation({ download_url: '' }),
+      await resolverObservation({
+        download_url: RESOLVER_DOWNLOAD_URL.replace('https://chatgpt.com', 'https://evil.example'),
+      }),
+      await resolverObservation({
+        download_url: RESOLVER_DOWNLOAD_URL.replace('&sig=signature', '&unknown=value'),
+      }),
+      await resolverObservation({ download_url: 'not a valid absolute URL' }),
+      await resolverObservation({ detail: 'missing download URL' }),
+      await resolverObservation('not-json'),
+    ];
+
+    for (const observation of bodies) {
+      const chromeApi = fakeChrome([{ ...capturedResult(), resolverObservations: [observation] }]);
+      await expect(
+        captureChatGptInTemporaryTab(CONVERSATION_ID, {
+          ...captureDependencies(chromeApi),
+          digestSha256: actualDigest,
+          observeAssetResolvers: true,
+        })
+      ).resolves.toMatchObject({ transientAssetResolvers: [] });
+    }
+  });
+
+  it('drops resolver observations when response or opaque-key hashing is unavailable', async () => {
+    const observation = await resolverObservation({ download_url: RESOLVER_DOWNLOAD_URL });
+    const responseDigestFailure = fakeChrome([
+      { ...capturedResult(), resolverObservations: [observation] },
+    ]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(responseDigestFailure),
+        digestSha256: bytes =>
+          bytes.byteLength === 5
+            ? actualDigest(bytes)
+            : Promise.reject(new Error('resolver digest unavailable')),
+        observeAssetResolvers: true,
+      })
+    ).resolves.toMatchObject({ transientAssetResolvers: [] });
+
+    let digestCalls = 0;
+    const keyDigestFailure = fakeChrome([
+      { ...capturedResult(), resolverObservations: [observation] },
+    ]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(keyDigestFailure),
+        digestSha256: bytes => {
+          digestCalls += 1;
+          return digestCalls < 3
+            ? actualDigest(bytes)
+            : Promise.reject(new Error('key digest unavailable'));
+        },
+        observeAssetResolvers: true,
+      })
+    ).resolves.toMatchObject({ transientAssetResolvers: [] });
   });
 
   it('creates the nonce before creating a temporary tab', async () => {
@@ -299,10 +482,17 @@ describe('captureChatGptInTemporaryTab', () => {
     const captureChrome = fakeChrome([pageResult]);
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(captureChrome))
-    ).resolves.toEqual({ ...capturedResult().capture, endpoint: CHATGPT_CAPTURE_ENDPOINT });
+    ).resolves.toEqual({
+      ...capturedResult().capture,
+      endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      transientAssetResolvers: [],
+    });
 
     const mismatchedHash = fakeChrome([
-      { kind: 'captured', capture: { ...capturedResult().capture, sha256: '0'.repeat(64) } },
+      {
+        ...capturedResult(),
+        capture: { ...capturedResult().capture, sha256: '0'.repeat(64) },
+      },
     ]);
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(mismatchedHash))
@@ -369,7 +559,7 @@ describe('captureChatGptInTemporaryTab', () => {
     const digestSha256 = vi.fn(async () => CAPTURE_HASH);
     const oversized = fakeChrome([
       {
-        kind: 'captured',
+        ...capturedResult(),
         capture: {
           ...capturedResult().capture,
           byteLength: CHATGPT_CAPTURE_MAX_BYTES + 1,
@@ -443,7 +633,7 @@ describe('captureChatGptInTemporaryTab', () => {
   it('rejects malformed base64, unsafe media type, and digest failures', async () => {
     const malformed = fakeChrome([
       {
-        kind: 'captured',
+        ...capturedResult(),
         capture: { ...capturedResult().capture, bodyBase64: 'not base64!', byteLength: 11 },
       },
     ]);
@@ -453,7 +643,7 @@ describe('captureChatGptInTemporaryTab', () => {
 
     const unsafeMedia = fakeChrome([
       {
-        kind: 'captured',
+        ...capturedResult(),
         capture: { ...capturedResult().capture, mediaType: 'application/json\u0000' },
       },
     ]);
@@ -578,7 +768,9 @@ describe('temporary capture snapshot reader', () => {
     const snapshot = capturedResult();
     const getter = vi.fn(() => ({
       kind: snapshot.kind,
+      conversationId: snapshot.conversationId,
       capture: { ...snapshot.capture },
+      resolverObservations: [],
     }));
     Object.defineProperty(fakeWindow, STATE_KEY, {
       configurable: false,
@@ -601,6 +793,8 @@ describe('temporary capture snapshot reader', () => {
       { kind: 'captured', capture: null },
       {
         kind: 'captured',
+        conversationId: CONVERSATION_ID,
+        resolverObservations: [],
         capture: { bodyBase64: 42, byteLength: '5', sha256: null, mediaType: [] },
       },
     ];
@@ -619,6 +813,28 @@ describe('temporary capture snapshot reader', () => {
     });
     vi.stubGlobal('window', throwingWindow);
     expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
+  });
+
+  it('copies only complete primitive resolver observations from a captured snapshot', () => {
+    const valid = {
+      providerFileId: RESOLVER_FILE_ID,
+      bodyBase64: RESOLVER_RESPONSE_BASE64,
+      byteLength: 198,
+      sha256: RESOLVER_RESPONSE_HASH,
+      mediaType: 'application/json',
+    };
+    const fakeWindow = {
+      [STATE_KEY]: {
+        ...capturedResult(),
+        resolverObservations: [null, { providerFileId: RESOLVER_FILE_ID }, valid],
+      },
+    } as unknown as Window & typeof globalThis;
+    vi.stubGlobal('window', fakeWindow);
+
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({
+      ...capturedResult(),
+      resolverObservations: [valid],
+    });
   });
 
   it('reconstructs an allowlisted primitive error snapshot', () => {

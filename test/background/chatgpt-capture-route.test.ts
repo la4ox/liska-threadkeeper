@@ -38,12 +38,16 @@ function captureArtifact() {
     sha256: 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3',
     mediaType: 'application/json; charset=utf-8',
     endpoint: CHATGPT_CAPTURE_ENDPOINT,
+    transientAssetResolvers: [],
   };
 }
 
 function invokeCapture(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
   const returned = capturedListener(
-    { action: 'captureChatGptConversation', conversationId: CONVERSATION_ID },
+    {
+      action: 'captureChatGptConversation',
+      conversationId: CONVERSATION_ID,
+    },
     { tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` } } as chrome.runtime.MessageSender,
     sendResponse
   );
@@ -90,7 +94,9 @@ describe('ChatGPT capture service-worker route', () => {
     const sendResponse = invokeCapture();
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
-    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID, {
+      observeAssetResolvers: false,
+    });
     expect(mocks.getSettings).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
   });
@@ -98,7 +104,11 @@ describe('ChatGPT capture service-worker route', () => {
   it('authorizes the current conversation after same-origin SPA navigation', async () => {
     const sendResponse = vi.fn();
     const returned = capturedListener(
-      { action: 'captureChatGptConversation', conversationId: CONVERSATION_ID },
+      {
+        action: 'captureChatGptConversation',
+        conversationId: CONVERSATION_ID,
+        observeAssetResolvers: true,
+      },
       {
         tab: { url: `https://chatgpt.com/g/my-custom-gpt/c/${CONVERSATION_ID}` },
         url: 'https://chatgpt.com/c/11111111-2222-3333-4444-555555555555',
@@ -108,7 +118,9 @@ describe('ChatGPT capture service-worker route', () => {
 
     expect(returned).toBe(true);
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
-    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID, {
+      observeAssetResolvers: true,
+    });
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
   });
 
@@ -180,7 +192,9 @@ describe('ChatGPT capture service-worker route', () => {
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
     expect(contains).toHaveBeenCalledWith({ permissions: ['scripting'] }, expect.any(Function));
-    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID, {
+      observeAssetResolvers: false,
+    });
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
   });
 
@@ -212,7 +226,11 @@ describe('ChatGPT capture service-worker route', () => {
   it('rejects a popup sender before permission checks or capture handling', () => {
     const sendResponse = vi.fn();
     const returned = capturedListener(
-      { action: 'captureChatGptConversation', conversationId: CONVERSATION_ID },
+      {
+        action: 'captureChatGptConversation',
+        conversationId: CONVERSATION_ID,
+        observeAssetResolvers: false,
+      },
       { url: `chrome-extension://${chrome.runtime.id}/popup.html` } as chrome.runtime.MessageSender,
       sendResponse
     );
@@ -229,7 +247,11 @@ describe('ChatGPT capture service-worker route', () => {
 
     expect(
       capturedListener(
-        { action: 'captureChatGptConversation', conversationId: CONVERSATION_ID },
+        {
+          action: 'captureChatGptConversation',
+          conversationId: CONVERSATION_ID,
+          observeAssetResolvers: false,
+        },
         {
           tab: { url: `https://evil.example/c/${CONVERSATION_ID}` },
         } as chrome.runtime.MessageSender,
@@ -245,6 +267,7 @@ describe('ChatGPT capture service-worker route', () => {
         {
           action: 'captureChatGptConversation',
           conversationId: CONVERSATION_ID,
+          observeAssetResolvers: false,
           apiKey: 'must-not-cross-the-boundary',
         },
         {

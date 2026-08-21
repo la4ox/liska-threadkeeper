@@ -1,4 +1,4 @@
-/* eslint-disable max-lines-per-function, complexity -- The marker-gated document-start entry snapshots page primordials before host code runs; keeping each trust-boundary operation linear avoids late page-global lookups. */
+/* eslint-disable max-lines-per-function, complexity, max-lines -- The marker-gated document-start entry snapshots page primordials before host code runs; keeping each trust-boundary operation linear avoids late page-global lookups. */
 /**
  * MAIN-world document-start observer for ChatGPT's page-native conversation
  * request. This entry deliberately has no extension imports or messaging:
@@ -7,10 +7,15 @@
  */
 
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
-const CAPTURE_FRAGMENT_PATTERN = /^#liska-capture=([a-z0-9-]{16,128})$/i;
+const CAPTURE_FRAGMENT_PATTERN =
+  /^#liska-capture=([a-z0-9-]{16,128})(?:&liska-observe-asset-resolvers=(1))?$/i;
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
+const DEFAULT_RESOLVER_DISCOVERY_WINDOW_MS = 2_000;
+const DEFAULT_RESOLVER_MAX_BYTES = 64 * 1024;
+const DEFAULT_RESOLVER_MAX_OBSERVATIONS = 32;
+const RESOLVER_PATH_PREFIX = '/backend-api/files/download/';
 const PAYLOAD_TOO_LARGE = {};
 const PRIMORDIAL_UNAVAILABLE = {};
 const HEX_DIGITS = '0123456789abcdef';
@@ -29,14 +34,24 @@ type HookResult =
   | { kind: 'ready' }
   | {
       kind: 'captured';
+      conversationId: string;
       capture: {
         bodyBase64: string;
         byteLength: number;
         sha256: string;
         mediaType: string;
       };
+      resolverObservations: ResolverObservation[];
     }
   | { kind: 'error'; code: HookErrorCode };
+
+type ResolverObservation = {
+  providerFileId: string;
+  bodyBase64: string;
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+};
 
 type CapturedCallable = CallableFunction;
 
@@ -52,7 +67,6 @@ type DocumentPrimordials = {
   responseBody: CapturedCallable | undefined;
   headersGet: CapturedCallable | undefined;
   streamGetReader: CapturedCallable | undefined;
-  streamCancel: CapturedCallable | undefined;
   readerRead: CapturedCallable | undefined;
   readerCancel: CapturedCallable | undefined;
   requestUrl: CapturedCallable | undefined;
@@ -95,8 +109,21 @@ type PageState = {
   originalFetch: typeof window.fetch;
   wrappedFetch: typeof window.fetch | undefined;
   timeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  resolverDiscoveryTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
   settled: boolean;
   claimed: boolean;
+  resolverDiscoveryActive: boolean;
+  resolverDiscoveryExpired: boolean;
+  resolverClaims: number;
+  conversationCapture:
+    | {
+        bodyBase64: string;
+        byteLength: number;
+        sha256: string;
+        mediaType: string;
+      }
+    | undefined;
+  resolverObservations: ResolverObservation[];
   result: HookResult;
 };
 
@@ -110,6 +137,7 @@ type PageWindow = Window & typeof globalThis;
 type MarkerTarget = {
   conversationId: string;
   nonce: string;
+  observeAssetResolvers: boolean;
 };
 
 function methodAt(prototype: object | undefined, property: string): CapturedCallable | undefined {
@@ -173,7 +201,6 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     responseBody: getterAt(getOwnPropertyDescriptor, responsePrototype, 'body'),
     headersGet: methodAt(headersPrototype, 'get'),
     streamGetReader: methodAt(streamPrototype, 'getReader'),
-    streamCancel: methodAt(streamPrototype, 'cancel'),
     readerRead: methodAt(readerPrototype, 'read'),
     readerCancel: methodAt(readerPrototype, 'cancel'),
     requestUrl: getterAt(getOwnPropertyDescriptor, requestPrototype, 'url'),
@@ -230,7 +257,8 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
       return undefined;
     }
 
-    const nonce = CAPTURE_FRAGMENT_PATTERN.exec(url.hash)?.[1];
+    const marker = CAPTURE_FRAGMENT_PATTERN.exec(url.hash);
+    const nonce = marker?.[1];
     if (nonce === undefined) return undefined;
 
     const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
@@ -239,7 +267,7 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
     );
     const conversationId = standard?.[1] ?? custom?.[1];
     return conversationId !== undefined && CONVERSATION_ID_PATTERN.test(conversationId)
-      ? { conversationId, nonce }
+      ? { conversationId, nonce, observeAssetResolvers: marker?.[2] === '1' }
       : undefined;
   } catch {
     return undefined;
@@ -311,12 +339,11 @@ function isJsonMediaType(primordials: PagePrimordials, value: unknown): value is
   );
 }
 
-function targetRequest(
+function pageOwnedGetUrl(
   primordials: PagePrimordials,
   input: RequestInfo | URL,
-  init: RequestInit | undefined,
-  conversationId: string
-): boolean {
+  init: RequestInit | undefined
+): URL | undefined {
   try {
     let rawUrl: string;
     let requestMethod: unknown = 'GET';
@@ -343,23 +370,90 @@ function targetRequest(
     const initMethod = init?.method;
     const method = typeof initMethod === 'string' ? initMethod : requestMethod;
     const URLConstructor = primordials.document.URL;
-    if (URLConstructor === undefined || typeof method !== 'string') return false;
+    if (URLConstructor === undefined || typeof method !== 'string') return undefined;
     const url = new URLConstructor(rawUrl, CHATGPT_ORIGIN);
-    return (
-      applyCaptured<string>(primordials, primordials.document.stringToUpperCase, method, []) ===
-        'GET' &&
+    return applyCaptured<string>(
+      primordials,
+      primordials.document.stringToUpperCase,
+      method,
+      []
+    ) === 'GET' &&
       applyCaptured<string>(primordials, primordials.document.urlOrigin, url, []) ===
         CHATGPT_ORIGIN &&
       applyCaptured<string>(primordials, primordials.document.urlUsername, url, []) === '' &&
-      applyCaptured<string>(primordials, primordials.document.urlPassword, url, []) === '' &&
-      applyCaptured<string>(primordials, primordials.document.urlPathname, url, []) ===
-        `/backend-api/conversation/${conversationId}` &&
-      applyCaptured<string>(primordials, primordials.document.urlSearch, url, []) === '' &&
-      applyCaptured<string>(primordials, primordials.document.urlHash, url, []) === ''
-    );
+      applyCaptured<string>(primordials, primordials.document.urlPassword, url, []) === ''
+      ? url
+      : undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function targetRequest(
+  primordials: PagePrimordials,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  conversationId: string
+): boolean {
+  const url = pageOwnedGetUrl(primordials, input, init);
+  return (
+    url !== undefined &&
+    applyCaptured<string>(primordials, primordials.document.urlPathname, url, []) ===
+      `/backend-api/conversation/${conversationId}` &&
+    applyCaptured<string>(primordials, primordials.document.urlSearch, url, []) === '' &&
+    applyCaptured<string>(primordials, primordials.document.urlHash, url, []) === ''
+  );
+}
+
+function isSafeResolverFileId(primordials: PagePrimordials, value: string): boolean {
+  if (value.length === 0 || value.length > 256) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = applyCaptured<number>(primordials, primordials.document.stringCharCodeAt, value, [
+      index,
+    ]);
+    const isAsciiLetter = (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
+    const isDigit = code >= 0x30 && code <= 0x39;
+    if (!isAsciiLetter && !isDigit && code !== 0x2d && code !== 0x5f) return false;
+  }
+  return true;
+}
+
+/**
+ * Return only the bounded path segment needed to bind a resolver observation.
+ * URL/method are the sole request fields inspected; headers, cookies, and body
+ * remain entirely page-private.
+ */
+function resolverTargetFileId(
+  primordials: PagePrimordials,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  conversationId: string
+): string | undefined {
+  const url = pageOwnedGetUrl(primordials, input, init);
+  if (url === undefined) return undefined;
+  const pathname = applyCaptured<string>(primordials, primordials.document.urlPathname, url, []);
+  const pathPrefixIndex = applyCaptured<number>(
+    primordials,
+    primordials.document.stringIndexOf,
+    pathname,
+    [RESOLVER_PATH_PREFIX]
+  );
+  if (pathPrefixIndex !== 0) return undefined;
+  const providerFileId = applyCaptured<string>(
+    primordials,
+    primordials.document.stringSlice,
+    pathname,
+    [RESOLVER_PATH_PREFIX.length]
+  );
+  if (!isSafeResolverFileId(primordials, providerFileId)) return undefined;
+
+  const query = applyCaptured<string>(primordials, primordials.document.urlSearch, url, []);
+  const expectedFirst = `?conversation_id=${conversationId}&inline=true`;
+  const expectedSecond = `?inline=true&conversation_id=${conversationId}`;
+  return (query === expectedFirst || query === expectedSecond) &&
+    applyCaptured<string>(primordials, primordials.document.urlHash, url, []) === ''
+    ? providerFileId
+    : undefined;
 }
 
 function responseBody(
@@ -376,22 +470,16 @@ function responseBody(
 
 async function cancelClone(
   primordials: PagePrimordials,
-  response: Response,
-  reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  reader: ReadableStreamDefaultReader<Uint8Array>
 ): Promise<void> {
   try {
-    if (reader !== undefined && primordials.document.readerCancel !== undefined) {
+    if (primordials.document.readerCancel !== undefined) {
       await applyCaptured<Promise<void>>(
         primordials,
         primordials.document.readerCancel,
         reader,
         []
       );
-      return;
-    }
-    const body = responseBody(primordials, response);
-    if (body !== null && primordials.document.streamCancel !== undefined) {
-      await applyCaptured<Promise<void>>(primordials, primordials.document.streamCancel, body, []);
     }
   } catch {
     // Keep the size error stable even when a cloned transport cannot cancel.
@@ -441,7 +529,7 @@ async function readBoundedClone(
     }
     byteLength += chunk.byteLength;
     if (byteLength > maxBytes) {
-      await cancelClone(primordials, response, reader);
+      await cancelClone(primordials, reader);
       throw PAYLOAD_TOO_LARGE;
     }
     applyCaptured<void>(primordials, primordials.document.arrayPush, chunks, [chunk]);
@@ -509,14 +597,27 @@ function stateKeyFor(nonce: string): string {
 function snapshotHookResult(result: HookResult): HookResult {
   if (result.kind === 'ready') return { kind: 'ready' };
   if (result.kind === 'error') return { kind: 'error', code: result.code };
+  const resolverObservations: ResolverObservation[] = [];
+  for (let index = 0; index < result.resolverObservations.length; index += 1) {
+    const observation = result.resolverObservations[index];
+    resolverObservations[index] = {
+      providerFileId: observation.providerFileId,
+      bodyBase64: observation.bodyBase64,
+      byteLength: observation.byteLength,
+      sha256: observation.sha256,
+      mediaType: observation.mediaType,
+    };
+  }
   return {
     kind: 'captured',
+    conversationId: result.conversationId,
     capture: {
       bodyBase64: result.capture.bodyBase64,
       byteLength: result.capture.byteLength,
       sha256: result.capture.sha256,
       mediaType: result.capture.mediaType,
     },
+    resolverObservations,
   };
 }
 
@@ -552,8 +653,14 @@ function createPageState(
       originalFetch,
       wrappedFetch: undefined,
       timeoutId: undefined,
+      resolverDiscoveryTimeoutId: undefined,
       settled: false,
       claimed: false,
+      resolverDiscoveryActive: false,
+      resolverDiscoveryExpired: false,
+      resolverClaims: 0,
+      conversationCapture: undefined,
+      resolverObservations: [],
       result: { kind: 'ready' },
     };
   } catch {
@@ -577,6 +684,18 @@ function finishCapture(pageWindow: PageWindow, state: PageState, result: HookRes
     state.timeoutId = undefined;
   }
 
+  if (state.resolverDiscoveryTimeoutId !== undefined) {
+    try {
+      applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+        state.resolverDiscoveryTimeoutId,
+      ]);
+    } catch {
+      // The result is still terminal even if a hostile page shim rejects clearTimeout.
+    }
+    state.resolverDiscoveryTimeoutId = undefined;
+  }
+  state.resolverDiscoveryActive = false;
+
   try {
     if (state.wrappedFetch !== undefined && pageWindow.fetch === state.wrappedFetch) {
       pageWindow.fetch = state.originalFetch;
@@ -586,11 +705,96 @@ function finishCapture(pageWindow: PageWindow, state: PageState, result: HookRes
   }
 }
 
+function completeCapturedConversation(
+  pageWindow: PageWindow,
+  state: PageState,
+  conversationId: string
+): void {
+  const capture = state.conversationCapture;
+  if (capture === undefined) {
+    finishCapture(pageWindow, state, { kind: 'error', code: 'response-processing-failed' });
+    return;
+  }
+  finishCapture(pageWindow, state, {
+    kind: 'captured',
+    conversationId,
+    capture,
+    resolverObservations: state.resolverObservations,
+  });
+}
+
+function armResolverDiscoveryWindow(
+  pageWindow: PageWindow,
+  state: PageState,
+  target: MarkerTarget
+): void {
+  if (
+    !target.observeAssetResolvers ||
+    state.settled ||
+    state.resolverDiscoveryActive ||
+    state.resolverDiscoveryExpired
+  ) {
+    return;
+  }
+  state.resolverDiscoveryActive = true;
+  try {
+    state.resolverDiscoveryTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      state.primordials,
+      state.primordials.setTimeout,
+      pageWindow,
+      [
+        () => {
+          state.resolverDiscoveryTimeoutId = undefined;
+          state.resolverDiscoveryActive = false;
+          state.resolverDiscoveryExpired = true;
+          if (state.conversationCapture !== undefined) {
+            completeCapturedConversation(pageWindow, state, target.conversationId);
+          }
+        },
+        DEFAULT_RESOLVER_DISCOVERY_WINDOW_MS,
+      ]
+    );
+  } catch {
+    state.resolverDiscoveryActive = false;
+    state.resolverDiscoveryExpired = true;
+  }
+}
+
+function beginResolverDiscovery(
+  pageWindow: PageWindow,
+  state: PageState,
+  target: MarkerTarget,
+  capture: NonNullable<PageState['conversationCapture']>
+): void {
+  if (state.settled) return;
+  state.conversationCapture = capture;
+
+  if (state.timeoutId !== undefined) {
+    try {
+      applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+        state.timeoutId,
+      ]);
+    } catch {
+      // A verified capture remains valid even if a hostile timer shim rejects cleanup.
+    }
+    state.timeoutId = undefined;
+  }
+
+  if (
+    !target.observeAssetResolvers ||
+    state.resolverDiscoveryExpired ||
+    !state.resolverDiscoveryActive
+  ) {
+    completeCapturedConversation(pageWindow, state, target.conversationId);
+  }
+}
+
 async function captureNativeResponse(
   pageWindow: PageWindow,
   state: PageState,
   response: Response,
-  maxBytes: number
+  maxBytes: number,
+  target: MarkerTarget
 ): Promise<void> {
   const primordials = state.primordials;
   try {
@@ -626,6 +830,12 @@ async function captureNativeResponse(
       return;
     }
 
+    // The page receives the original response promise and may begin resolver
+    // requests while our large conversation clone is still being read. The
+    // single hard two-second window starts before that await and is never
+    // extended by clone/hash work.
+    armResolverDiscoveryWindow(pageWindow, state, target);
+
     // The page receives the original response promise unchanged. Only this
     // exact native request gets a clone, which is consumed under the byte cap.
     const clone = applyCaptured<Response>(
@@ -636,14 +846,11 @@ async function captureNativeResponse(
     );
     const bytes = await readBoundedClone(primordials, clone, maxBytes);
     const sha256 = await sha256FromBytes(primordials, bytes);
-    finishCapture(pageWindow, state, {
-      kind: 'captured',
-      capture: {
-        bodyBase64: base64FromBytes(primordials, bytes),
-        byteLength: bytes.byteLength,
-        sha256,
-        mediaType,
-      },
+    beginResolverDiscovery(pageWindow, state, target, {
+      bodyBase64: base64FromBytes(primordials, bytes),
+      byteLength: bytes.byteLength,
+      sha256,
+      mediaType,
     });
   } catch (error) {
     finishCapture(pageWindow, state, {
@@ -653,10 +860,69 @@ async function captureNativeResponse(
   }
 }
 
+async function captureResolverResponse(
+  pageWindow: PageWindow,
+  state: PageState,
+  response: Response,
+  providerFileId: string
+): Promise<void> {
+  const primordials = state.primordials;
+  try {
+    if (!state.resolverDiscoveryActive) return;
+    const status = applyCaptured<number>(
+      primordials,
+      primordials.document.responseStatus,
+      response,
+      []
+    );
+    if (status < 200 || status >= 300) return;
+
+    const headers = applyCaptured<Headers>(
+      primordials,
+      primordials.document.responseHeaders,
+      response,
+      []
+    );
+    const rawMediaType = applyCaptured<string | null>(
+      primordials,
+      primordials.document.headersGet,
+      headers,
+      ['content-type']
+    );
+    const mediaType =
+      typeof rawMediaType === 'string'
+        ? applyCaptured<string>(primordials, primordials.document.stringTrim, rawMediaType, [])
+        : '';
+    if (!isJsonMediaType(primordials, mediaType)) return;
+
+    const clone = applyCaptured<Response>(
+      primordials,
+      primordials.document.responseClone,
+      response,
+      []
+    );
+    const bytes = await readBoundedClone(primordials, clone, DEFAULT_RESOLVER_MAX_BYTES);
+    if (!state.resolverDiscoveryActive) return;
+    const sha256 = await sha256FromBytes(primordials, bytes);
+    if (!state.resolverDiscoveryActive) return;
+    state.resolverObservations[state.resolverObservations.length] = {
+      providerFileId,
+      bodyBase64: base64FromBytes(primordials, bytes),
+      byteLength: bytes.byteLength,
+      sha256,
+      mediaType,
+    };
+  } catch {
+    // Resolver observations are optional and never downgrade a verified
+    // conversation capture. Malformed, oversized, and late responses vanish.
+  }
+}
+
 function observeNativeResponse(
   pageWindow: PageWindow,
   state: PageState,
-  responsePromise: Promise<Response>
+  responsePromise: Promise<Response>,
+  target: MarkerTarget
 ): void {
   try {
     const observation = applyCaptured<Promise<unknown>>(
@@ -665,7 +931,7 @@ function observeNativeResponse(
       responsePromise,
       [
         (response: Response) =>
-          captureNativeResponse(pageWindow, state, response, DEFAULT_MAX_BYTES),
+          captureNativeResponse(pageWindow, state, response, DEFAULT_MAX_BYTES, target),
         () => finishCapture(pageWindow, state, { kind: 'error', code: 'request-failed' }),
       ]
     );
@@ -684,6 +950,34 @@ function observeNativeResponse(
   }
 }
 
+function observeResolverResponse(
+  pageWindow: PageWindow,
+  state: PageState,
+  responsePromise: Promise<Response>,
+  providerFileId: string
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        (response: Response) =>
+          captureResolverResponse(pageWindow, state, response, providerFileId),
+        () => undefined,
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [() => undefined, () => undefined]
+    );
+  } catch {
+    // Resolver observations are opportunistic and must stay fail-silent.
+  }
+}
+
 function createWrappedFetch(
   pageWindow: PageWindow,
   state: PageState,
@@ -693,11 +987,19 @@ function createWrappedFetch(
     this: PageWindow,
     ...args: Parameters<typeof pageWindow.fetch>
   ): ReturnType<typeof pageWindow.fetch> {
-    const shouldCapture =
+    const shouldCaptureConversation =
       !state.settled &&
       !state.claimed &&
       targetRequest(state.primordials, args[0], args[1], target.conversationId);
-    if (shouldCapture) state.claimed = true;
+    if (shouldCaptureConversation) state.claimed = true;
+
+    const resolverFileId =
+      !state.settled &&
+      state.resolverDiscoveryActive &&
+      state.resolverClaims < DEFAULT_RESOLVER_MAX_OBSERVATIONS
+        ? resolverTargetFileId(state.primordials, args[0], args[1], target.conversationId)
+        : undefined;
+    if (resolverFileId !== undefined) state.resolverClaims += 1;
 
     let responsePromise: ReturnType<typeof pageWindow.fetch>;
     try {
@@ -708,13 +1010,17 @@ function createWrappedFetch(
         args
       );
     } catch (error) {
-      if (shouldCapture) {
+      if (shouldCaptureConversation) {
         finishCapture(pageWindow, state, { kind: 'error', code: 'request-failed' });
       }
       throw error;
     }
 
-    if (shouldCapture) observeNativeResponse(pageWindow, state, responsePromise);
+    if (shouldCaptureConversation)
+      observeNativeResponse(pageWindow, state, responsePromise, target);
+    if (resolverFileId !== undefined) {
+      observeResolverResponse(pageWindow, state, responsePromise, resolverFileId);
+    }
     return responsePromise;
   } as typeof pageWindow.fetch;
 }

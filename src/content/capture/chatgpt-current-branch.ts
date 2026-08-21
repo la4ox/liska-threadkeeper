@@ -27,6 +27,7 @@ import {
   isChatGptCaptureResponse,
   isChatGptConversationId,
   type ChatGptCaptureResponse,
+  type ChatGptTransientAssetResolver,
 } from '../../lib/chatgpt-capture-contract';
 import { bytesToBase64 } from '../../lib/image-utils';
 import { canonicalBase64ByteLength } from '../../lib/base64';
@@ -37,6 +38,10 @@ import {
 } from '../../lib/types';
 import { hashCaptureManifest, sha256Hex } from './response';
 import { requestChatGptConversationCapture } from './chatgpt-request';
+import {
+  matchChatGptPageOwnedAssetResolvers,
+  type ChatGptPageOwnedAssetCandidate,
+} from './chatgpt-asset-resolver';
 
 const ARTIFACT_ID = 'conversation';
 const ARTIFACT_PATH = 'responses/conversation.json';
@@ -96,7 +101,12 @@ export class ChatGptCurrentBranchError extends Error {
 
 export interface ChatGptCurrentBranchDependencies {
   /** Injectable only for focused tests; production uses the runtime bridge. */
-  requestCapture?: (conversationId: string) => Promise<ChatGptCaptureResponse>;
+  requestCapture?: (
+    conversationId: string,
+    observeAssetResolvers?: boolean
+  ) => Promise<ChatGptCaptureResponse>;
+  /** Explicitly opt in only when the caller will consume transient candidates. */
+  observeAssetResolvers?: boolean;
   /** Injectable only for focused tests; production uses crypto.randomUUID(). */
   createCaptureId?: () => string;
   /** Injectable clock keeps evidence metadata reproducible in focused tests. */
@@ -109,6 +119,8 @@ export interface ChatGptCurrentBranchDependencies {
 export interface ChatGptArchiveCapture {
   archive: LiskaThreadArchive;
   archiveCompanion: ArchiveCompanionBundle;
+  /** Ephemeral only: never serialized into raw, manifest, canonical, or Markdown. */
+  transientAssetCandidates: ChatGptPageOwnedAssetCandidate[];
 }
 
 /**
@@ -181,6 +193,8 @@ interface CapturedArtifact {
   artifact: RawCaptureArtifact;
   /** The raw provider string is retained verbatim for eventual archive persistence. */
   bodyBase64: string;
+  /** Validated by the runtime contract; consumed only by the transient matcher. */
+  transientAssetResolvers: ChatGptTransientAssetResolver[];
 }
 
 function captureArtifact(response: ChatGptCaptureResponse): CapturedArtifact {
@@ -210,7 +224,11 @@ function captureArtifact(response: ChatGptCaptureResponse): CapturedArtifact {
     sha256: data.sha256,
     endpoint: CHATGPT_CAPTURE_ENDPOINT,
   };
-  return { artifact: { record, bytes }, bodyBase64: data.bodyBase64 };
+  return {
+    artifact: { record, bytes },
+    bodyBase64: data.bodyBase64,
+    transientAssetResolvers: data.transientAssetResolvers.map(resolver => ({ ...resolver })),
+  };
 }
 
 async function verifyCapturedArtifactIntegrity(artifact: RawCaptureArtifact): Promise<void> {
@@ -242,10 +260,14 @@ export function manifestAllowsChatGptStructuredCapture(): boolean {
 
 async function requestCaptureResponse(
   conversationId: string,
-  requestCapture: ChatGptCurrentBranchDependencies['requestCapture']
+  requestCapture: ChatGptCurrentBranchDependencies['requestCapture'],
+  observeAssetResolvers: boolean
 ): Promise<ChatGptCaptureResponse> {
   try {
-    return await (requestCapture ?? requestChatGptConversationCapture)(conversationId);
+    return await (requestCapture ?? requestChatGptConversationCapture)(
+      conversationId,
+      observeAssetResolvers
+    );
   } catch {
     throw new ChatGptCurrentBranchError('runtime-message-failed');
   }
@@ -262,11 +284,16 @@ function parseRawForInventory(bytes: Uint8Array): unknown {
 async function buildCaptureBundle(
   conversationId: string,
   artifact: RawCaptureArtifact,
+  transientAssetResolvers: readonly ChatGptTransientAssetResolver[],
   createCaptureId: (() => string) | undefined,
   now: (() => Date) | undefined
-): Promise<RawCaptureBundle> {
+): Promise<{
+  bundle: RawCaptureBundle;
+  transientAssetCandidates: ChatGptPageOwnedAssetCandidate[];
+}> {
+  const raw = parseRawForInventory(artifact.bytes);
   const inventory = await inventoryChatGptRawAssets({
-    raw: parseRawForInventory(artifact.bytes),
+    raw,
     artifactId: ARTIFACT_ID,
     sha256: sha256Hex,
   });
@@ -286,11 +313,18 @@ async function buildCaptureBundle(
     },
     warnings: inventory.warnings,
   });
-  return {
+  const bundle: RawCaptureBundle = {
     manifest,
     artifacts: [{ record: manifest.artifacts[0], bytes: artifact.bytes }],
     assets: [],
   };
+  const transientAssetCandidates = await matchChatGptPageOwnedAssetResolvers({
+    raw,
+    assets: manifest.assets,
+    resolvers: transientAssetResolvers,
+    sha256: sha256Hex,
+  });
+  return { bundle, transientAssetCandidates };
 }
 
 async function captureManifestSha256(bundle: RawCaptureBundle): Promise<string> {
@@ -399,12 +433,17 @@ export async function captureChatGptArchive(
     throw new ChatGptCurrentBranchError('invalid-conversation-id');
   }
 
-  const response = await requestCaptureResponse(conversationId, dependencies.requestCapture);
+  const response = await requestCaptureResponse(
+    conversationId,
+    dependencies.requestCapture,
+    dependencies.observeAssetResolvers === true
+  );
   const captured = captureArtifact(response);
   await verifyCapturedArtifactIntegrity(captured.artifact);
-  const bundle = await buildCaptureBundle(
+  const { bundle, transientAssetCandidates } = await buildCaptureBundle(
     conversationId,
     captured.artifact,
+    captured.transientAssetResolvers,
     dependencies.createCaptureId,
     dependencies.now
   );
@@ -437,7 +476,7 @@ export async function captureChatGptArchive(
     throw new ChatGptCurrentBranchError('capture-integrity-failed', { archiveCompanion });
   }
 
-  return { archive: normalized.archive, archiveCompanion };
+  return { archive: normalized.archive, archiveCompanion, transientAssetCandidates };
 }
 
 /**

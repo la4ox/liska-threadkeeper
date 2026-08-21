@@ -526,10 +526,15 @@ async function saveFreshNote(
     });
   }
 
+  // Collision resolution owns the durable filename. Companion image names
+  // and wikilinks must use that same resolved namespace or a renamed note can
+  // overwrite the earlier note's images.
+  const resolvedNote =
+    target.fileName === note.fileName ? note : { ...note, fileName: target.fileName };
   const { note: saveNote, failedImageCount } = await prepareNoteImages(
     client,
     settings,
-    note,
+    resolvedNote,
     templateVariables
   );
   const flattenedBody = maybeFlatten(saveNote.body, settings);

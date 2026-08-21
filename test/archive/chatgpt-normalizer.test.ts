@@ -280,6 +280,12 @@ describe('ChatGPT raw-byte normalizer', () => {
     message.metadata.account_id = 'account-secret';
     message.extra = {
       access_token: 'token-secret',
+      refresh_token: 'refresh-secret',
+      id_token: 'id-token-secret',
+      client_secret: 'client-secret',
+      private_key: 'private-key-secret',
+      password: 'password-secret',
+      'x-api-key': 'x-api-key-secret',
       provider_uri: 'blob:https://chatgpt.com/opaque-secret',
       nested: {
         user_id: 'user-secret',
@@ -289,13 +295,13 @@ describe('ChatGPT raw-byte normalizer', () => {
       },
     };
     message.content.parts[0] =
-      'https://cdn.example.invalid/file?X-Goog-Signature=goog-secret&access_token=token-secret&api_key=api-secret&auth=auth-secret&authorization=authorization-secret&jwt=jwt-secret&credential=credential-secret';
+      'https://cdn.example.invalid/file?X-Goog-Signature=goog-secret&access_token=token-secret&refresh_token=refresh-secret&id_token=id-token-secret&api_key=api-secret&x-api-key=x-api-key-secret&client_secret=client-secret&private_key=private-key-secret&password=password-secret&auth=auth-secret&authorization=authorization-secret&jwt=jwt-secret&credential=credential-secret';
 
     const { archive } = await normalize(raw);
     const serialized = JSON.stringify(archive);
 
     expect(serialized).not.toMatch(
-      /request-secret|camel-request-secret|account-secret|token-secret|opaque-secret|user-secret|organization-secret|workspace-secret|tenant-secret|api-secret|auth-secret|authorization-secret|jwt-secret|credential-secret/
+      /request-secret|camel-request-secret|account-secret|token-secret|refresh-secret|id-token-secret|client-secret|private-key-secret|password-secret|x-api-key-secret|opaque-secret|user-secret|organization-secret|workspace-secret|tenant-secret|api-secret|auth-secret|authorization-secret|jwt-secret|credential-secret/
     );
     expect(serialized).toContain('[redacted-sensitive-url]');
     expect(archive.diagnostics.entries).toEqual(

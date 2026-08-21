@@ -459,7 +459,12 @@ export type ExtensionMessage =
   | { action: 'getSettings' }
   | { action: 'testConnection' }
   | { action: 'fetchImage'; url: string }
-  | { action: 'captureChatGptConversation'; conversationId: string };
+  | {
+      action: 'captureChatGptConversation';
+      conversationId: string;
+      /** Explicit opt-in; absent stale-tab messages remain on the fast path. */
+      observeAssetResolvers?: boolean;
+    };
 
 /**
  * Response to a `fetchImage` message. The background worker fetches remote

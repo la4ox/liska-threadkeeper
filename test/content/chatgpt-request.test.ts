@@ -30,6 +30,20 @@ describe('requestChatGptConversationCapture', () => {
     );
   });
 
+  it('requires an explicit opt-in before asking the page to observe asset resolvers', async () => {
+    const response = createChatGptCaptureFailure('permission-unavailable');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mocks.sendMessage.mockResolvedValueOnce(response);
+
+    await requestChatGptConversationCapture(CONVERSATION_ID, true);
+
+    expect(mocks.sendMessage).toHaveBeenCalledWith({
+      action: 'captureChatGptConversation',
+      conversationId: CONVERSATION_ID,
+      observeAssetResolvers: true,
+    });
+  });
+
   it('replaces a malformed background value with a stable capture failure', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     mocks.sendMessage.mockResolvedValueOnce({

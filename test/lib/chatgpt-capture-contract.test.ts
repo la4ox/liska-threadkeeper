@@ -4,9 +4,17 @@ import {
   createChatGptCaptureFailure,
   isChatGptCaptureResponse,
   isChatGptConversationId,
+  isChatGptTransientDownloadUrl,
+  isChatGptTransientAssetResolver,
 } from '../../src/lib/chatgpt-capture-contract';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
+const TRANSIENT_RESOLVER = {
+  resolverKey: '7404723b52ebe964b6ac76965f76009f8edb166d7b5ebeb8619b05b0d53033ff',
+  downloadUrl:
+    `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+    '&id=file-abc_123&p=path&sig=signature&ts=123&v=1',
+};
 
 function captureResponse() {
   return {
@@ -17,6 +25,7 @@ function captureResponse() {
       sha256: 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3',
       mediaType: 'application/json; charset=utf-8',
       endpoint: { ...CHATGPT_CAPTURE_ENDPOINT },
+      transientAssetResolvers: [],
     },
   };
 }
@@ -41,6 +50,7 @@ describe('ChatGPT capture runtime contract', () => {
       'sha256',
       'mediaType',
       'endpoint',
+      'transientAssetResolvers',
     ]);
   });
 
@@ -89,6 +99,107 @@ describe('ChatGPT capture runtime contract', () => {
       })
     ).toBe(false);
     expect(isChatGptCaptureResponse({ success: 'unknown' })).toBe(false);
+  });
+
+  it('accepts only exact, bounded transient resolver records', () => {
+    expect(isChatGptTransientAssetResolver(TRANSIENT_RESOLVER)).toBe(true);
+    expect(
+      isChatGptTransientDownloadUrl(
+        TRANSIENT_RESOLVER.downloadUrl,
+        '11111111-2222-3333-4444-555555555555'
+      )
+    ).toBe(false);
+    expect(
+      isChatGptCaptureResponse({
+        ...captureResponse(),
+        data: { ...captureResponse().data, transientAssetResolvers: [TRANSIENT_RESOLVER] },
+      })
+    ).toBe(true);
+    expect(
+      isChatGptCaptureResponse({
+        ...captureResponse(),
+        data: {
+          ...captureResponse().data,
+          transientAssetResolvers: [TRANSIENT_RESOLVER, TRANSIENT_RESOLVER],
+        },
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        providerFileId: 'must-not-cross-the-boundary',
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: `${TRANSIENT_RESOLVER.downloadUrl}&cid=${CONVERSATION_ID}`,
+      })
+    ).toBe(false);
+    expect(isChatGptTransientAssetResolver(null)).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: '',
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: 'https://evil.example/backend-api/estuary/content?cid=x',
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: 'not a valid absolute URL',
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: TRANSIENT_RESOLVER.downloadUrl.replace('&sig=signature', '&unknown=value'),
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: TRANSIENT_RESOLVER.downloadUrl.replace('?cid=', '?%63id='),
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: TRANSIENT_RESOLVER.downloadUrl.replace('/estuary/', '/%65stuary/'),
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: TRANSIENT_RESOLVER.downloadUrl.replace(
+          '/estuary/content?',
+          '/estuary/x/../content?'
+        ),
+      })
+    ).toBe(false);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: `${TRANSIENT_RESOLVER.downloadUrl}#fragment`,
+      })
+    ).toBe(false);
+    expect(
+      isChatGptCaptureResponse({
+        ...captureResponse(),
+        data: {
+          ...captureResponse().data,
+          transientAssetResolvers: Array.from({ length: 33 }, (_, index) => ({
+            ...TRANSIENT_RESOLVER,
+            resolverKey: index.toString(16).padStart(64, '0'),
+          })),
+        },
+      })
+    ).toBe(false);
   });
 
   it('serializes failures from the stable error allowlist only', () => {

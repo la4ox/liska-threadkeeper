@@ -12,11 +12,14 @@ import {
   CHATGPT_CAPTURE_ENDPOINT,
   CHATGPT_CAPTURE_ERROR_MESSAGES,
   CHATGPT_CAPTURE_MAX_BYTES,
+  CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT,
   isChatGptConversationId,
+  isChatGptTransientDownloadUrl,
 } from '../lib/chatgpt-capture-contract';
 import type {
   ChatGptCaptureArtifact,
   ChatGptCaptureErrorCode,
+  ChatGptTransientAssetResolver,
 } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
 
@@ -33,11 +36,15 @@ export const CHATGPT_CAPTURE_TIMEOUT_MS = 190_000;
 
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
 const CAPTURE_FRAGMENT_PREFIX = '#liska-capture=';
+const RESOLVER_OBSERVATION_FRAGMENT = '&liska-observe-asset-resolvers=1';
 const MIN_TIMEOUT_MS = 1_000;
 // Let the page-owned 180-second timeout win before background cleanup.
 const MAX_TIMEOUT_MS = 195_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
+const CHATGPT_RESOLVER_MAX_BYTES = 64 * 1024;
+const CHATGPT_RESOLVER_FILE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
+const CHATGPT_RESOLVER_KEY_DOMAIN = 'liska-chatgpt-resolver/1\u0000';
 
 /** A stable, intentionally non-diagnostic error safe to show at the UI boundary. */
 export class ChatGptTemporaryCaptureError extends Error {
@@ -78,6 +85,8 @@ export interface ChatGptTemporaryCaptureDependencies {
   pollIntervalMs?: number;
   createNonce?: () => string;
   digestSha256?: (bytes: Uint8Array) => Promise<string>;
+  /** Defaults to false so ordinary conversation capture stays on the fast path. */
+  observeAssetResolvers?: boolean;
 }
 
 type HookErrorCode =
@@ -94,9 +103,22 @@ type HookErrorCode =
 
 type HookResult =
   | { kind: 'ready' }
-  | { kind: 'captured'; capture: Omit<ChatGptCaptureArtifact, 'endpoint'> }
+  | {
+      kind: 'captured';
+      conversationId: string;
+      capture: Omit<ChatGptCaptureArtifact, 'endpoint' | 'transientAssetResolvers'>;
+      resolverObservations: RawResolverObservation[];
+    }
   | { kind: 'error'; code: HookErrorCode }
   | { kind: 'missing' };
+
+type RawResolverObservation = {
+  providerFileId: string;
+  bodyBase64: string;
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+};
 
 type ReadinessResult =
   | { kind: 'ready' }
@@ -157,8 +179,12 @@ function isSafeNonce(value: string): boolean {
   return /^[a-z0-9-]{16,128}$/i.test(value);
 }
 
-function temporaryTargetUrl(conversationId: string, nonce: string): string {
-  return `${CHATGPT_ORIGIN}/c/${encodeURIComponent(conversationId)}${CAPTURE_FRAGMENT_PREFIX}${nonce}`;
+function temporaryTargetUrl(
+  conversationId: string,
+  nonce: string,
+  observeAssetResolvers: boolean
+): string {
+  return `${CHATGPT_ORIGIN}/c/${encodeURIComponent(conversationId)}${CAPTURE_FRAGMENT_PREFIX}${nonce}${observeAssetResolvers ? RESOLVER_OBSERVATION_FRAGMENT : ''}`;
 }
 
 function temporaryTargetPath(conversationId: string): string {
@@ -241,16 +267,23 @@ function mapHookError(code: unknown): ChatGptCaptureErrorCode {
   return 'unexpected-capture-result';
 }
 
-function isCapturedResult(value: unknown): value is Extract<HookResult, { kind: 'captured' }> {
-  if (!isHookResult(value, 'captured')) return false;
-  const capture = (value as { capture?: unknown }).capture;
-  if (typeof capture !== 'object' || capture === null) return false;
-  const record = capture as Record<string, unknown>;
+function hasExactKeys(value: object, expected: readonly string[]): boolean {
+  const keys = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    keys.length === sortedExpected.length &&
+    keys.every((key, index) => key === sortedExpected[index])
+  );
+}
+
+function isCaptureRecord(value: unknown, maxBytes: number): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
   return (
     typeof record.bodyBase64 === 'string' &&
     Number.isSafeInteger(record.byteLength) &&
     (record.byteLength as number) >= 0 &&
-    (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
+    (record.byteLength as number) <= maxBytes &&
     canonicalBase64ByteLength(record.bodyBase64) === record.byteLength &&
     typeof record.sha256 === 'string' &&
     /^[a-f0-9]{64}$/i.test(record.sha256) &&
@@ -258,11 +291,123 @@ function isCapturedResult(value: unknown): value is Extract<HookResult, { kind: 
   );
 }
 
+function isCapturedResult(value: unknown): value is Extract<HookResult, { kind: 'captured' }> {
+  if (
+    !isHookResult(value, 'captured') ||
+    !hasExactKeys(value as object, ['kind', 'conversationId', 'capture', 'resolverObservations'])
+  ) {
+    return false;
+  }
+  const result = value as Record<string, unknown>;
+  const capture = (value as { capture?: unknown }).capture;
+  return (
+    typeof result.conversationId === 'string' && isCaptureRecord(capture, CHATGPT_CAPTURE_MAX_BYTES)
+  );
+}
+
+function isRawResolverObservation(value: unknown): value is RawResolverObservation {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!hasExactKeys(value, ['providerFileId', 'bodyBase64', 'byteLength', 'sha256', 'mediaType'])) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.providerFileId === 'string' &&
+    CHATGPT_RESOLVER_FILE_ID_PATTERN.test(record.providerFileId) &&
+    isCaptureRecord(
+      {
+        bodyBase64: record.bodyBase64,
+        byteLength: record.byteLength,
+        sha256: record.sha256,
+        mediaType: record.mediaType,
+      },
+      CHATGPT_RESOLVER_MAX_BYTES
+    )
+  );
+}
+
+function parseResolverDownloadUrl(bytes: Uint8Array): string | undefined {
+  try {
+    const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const value: unknown = JSON.parse(source);
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      Array.isArray(value) ||
+      !Object.prototype.hasOwnProperty.call(value, 'download_url') ||
+      typeof (value as { download_url?: unknown }).download_url !== 'string'
+    ) {
+      return undefined;
+    }
+    return (value as { download_url: string }).download_url;
+  } catch {
+    return undefined;
+  }
+}
+
+async function validateResolverObservation(
+  value: unknown,
+  conversationId: string,
+  digestSha256: (bytes: Uint8Array) => Promise<string>
+): Promise<ChatGptTransientAssetResolver | undefined> {
+  if (!isRawResolverObservation(value)) return undefined;
+  const bytes = strictBase64Bytes(value.bodyBase64);
+  if (bytes === undefined || bytes.byteLength !== value.byteLength) return undefined;
+
+  let responseSha256: string;
+  try {
+    responseSha256 = (await digestSha256(bytes)).toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (!/^[a-f0-9]{64}$/.test(responseSha256) || responseSha256 !== value.sha256.toLowerCase()) {
+    return undefined;
+  }
+
+  const downloadUrl = parseResolverDownloadUrl(bytes);
+  if (downloadUrl === undefined || !isChatGptTransientDownloadUrl(downloadUrl, conversationId)) {
+    return undefined;
+  }
+
+  let resolverKey: string;
+  try {
+    const resolverKeyBytes = new TextEncoder().encode(
+      `${CHATGPT_RESOLVER_KEY_DOMAIN}${value.providerFileId}`
+    );
+    resolverKey = (await digestSha256(resolverKeyBytes)).toLowerCase();
+  } catch {
+    return undefined;
+  }
+  return /^[a-f0-9]{64}$/.test(resolverKey) ? { resolverKey, downloadUrl } : undefined;
+}
+
+async function validateResolverObservations(
+  observations: unknown[],
+  conversationId: string,
+  digestSha256: (bytes: Uint8Array) => Promise<string>
+): Promise<ChatGptTransientAssetResolver[]> {
+  if (observations.length > CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT) return [];
+  const result: ChatGptTransientAssetResolver[] = [];
+  const resolverKeys = new Set<string>();
+  for (const observation of observations) {
+    if (!isRawResolverObservation(observation)) continue;
+    const resolver = await validateResolverObservation(observation, conversationId, digestSha256);
+    if (resolver === undefined || resolverKeys.has(resolver.resolverKey)) continue;
+    resolverKeys.add(resolver.resolverKey);
+    result.push(resolver);
+  }
+  return result;
+}
+
 async function validateCapturedResult(
   value: unknown,
+  expectedConversationId: string,
   digestSha256: (bytes: Uint8Array) => Promise<string>
 ): Promise<Omit<ChatGptCaptureArtifact, 'endpoint'> | undefined> {
   if (!isCapturedResult(value)) return undefined;
+  if (value.conversationId !== expectedConversationId) {
+    throw new ChatGptTemporaryCaptureError('captured-conversation-id-mismatch');
+  }
 
   const capture = value.capture;
   const bytes = strictBase64Bytes(capture.bodyBase64);
@@ -293,6 +438,11 @@ async function validateCapturedResult(
     byteLength: capture.byteLength,
     sha256: normalizedSha256,
     mediaType: capture.mediaType,
+    transientAssetResolvers: await validateResolverObservations(
+      Array.isArray(value.resolverObservations) ? value.resolverObservations : [],
+      expectedConversationId,
+      digestSha256
+    ),
   };
 }
 
@@ -308,6 +458,7 @@ function makeDependencies(overrides: ChatGptTemporaryCaptureDependencies) {
     pollIntervalMs: normalizePollInterval(overrides.pollIntervalMs),
     createNonce: overrides.createNonce ?? defaultNonce,
     digestSha256: overrides.digestSha256 ?? defaultDigestSha256,
+    observeAssetResolvers: overrides.observeAssetResolvers === true,
   };
 }
 
@@ -358,13 +509,14 @@ async function createTemporaryTab(
   chromeApi: ChatGptCaptureChromeApi,
   conversationId: string,
   nonce: string,
+  observeAssetResolvers: boolean,
   deadline: number,
   now: () => number
 ): Promise<number> {
   let creation: Promise<{ id?: number }>;
   try {
     creation = chromeApi.tabs.create({
-      url: temporaryTargetUrl(conversationId, nonce),
+      url: temporaryTargetUrl(conversationId, nonce, observeAssetResolvers),
       active: false,
     });
   } catch {
@@ -457,10 +609,6 @@ async function waitForTemporaryTarget(
     if (isReadinessResult(readiness, 'path-rejected')) {
       throw new ChatGptTemporaryCaptureError('unexpected-path');
     }
-    if (!isReadinessResult(readiness, 'waiting')) {
-      throw new ChatGptTemporaryCaptureError('unexpected-readiness');
-    }
-
     const remaining = deadline - now();
     if (remaining <= 0) break;
     await sleep(Math.min(pollIntervalMs, remaining));
@@ -494,6 +642,7 @@ async function waitForCapturedResult(
   dependencies: ResolvedCaptureDependencies,
   tabId: number,
   nonce: string,
+  conversationId: string,
   deadline: number
 ): Promise<ChatGptCaptureArtifact> {
   while (dependencies.now() <= deadline) {
@@ -502,7 +651,7 @@ async function waitForCapturedResult(
       remainingTimeout(deadline, dependencies.now),
       'capture-result-timeout'
     );
-    const capture = await validateCapturedResult(state, dependencies.digestSha256);
+    const capture = await validateCapturedResult(state, conversationId, dependencies.digestSha256);
     if (capture !== undefined) {
       return { ...capture, endpoint: CHATGPT_CAPTURE_ENDPOINT };
     }
@@ -555,6 +704,7 @@ export async function captureChatGptInTemporaryTab(
       dependencies.chromeApi,
       conversationId,
       nonce,
+      dependencies.observeAssetResolvers,
       deadline,
       dependencies.now
     );
@@ -568,7 +718,13 @@ export async function captureChatGptInTemporaryTab(
       dependencies.sleep,
       dependencies.pollIntervalMs
     );
-    return await waitForCapturedResult(dependencies, temporaryTabId, nonce, deadline);
+    return await waitForCapturedResult(
+      dependencies,
+      temporaryTabId,
+      nonce,
+      conversationId,
+      deadline
+    );
   } finally {
     await cleanupTemporaryTab(dependencies.chromeApi, temporaryTabId);
   }
@@ -609,8 +765,14 @@ export function readChatGptTemporaryCaptureState(nonce: string): HookResult {
     }
 
     if (result.kind !== 'captured') return { kind: 'missing' };
+    const conversationId = result.conversationId;
     const capture = result.capture;
-    if (typeof capture !== 'object' || capture === null) return { kind: 'missing' };
+    const rawObservations = Array.isArray(result.resolverObservations)
+      ? result.resolverObservations
+      : [];
+    if (typeof conversationId !== 'string' || typeof capture !== 'object' || capture === null) {
+      return { kind: 'missing' };
+    }
     const record = capture as Record<string, unknown>;
     if (
       typeof record.bodyBase64 !== 'string' ||
@@ -620,14 +782,40 @@ export function readChatGptTemporaryCaptureState(nonce: string): HookResult {
     ) {
       return { kind: 'missing' };
     }
+    const resolverObservations: RawResolverObservation[] = [];
+    if (rawObservations.length <= CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT) {
+      for (let index = 0; index < rawObservations.length; index += 1) {
+        const observation = rawObservations[index];
+        if (typeof observation !== 'object' || observation === null) continue;
+        const resolver = observation as Record<string, unknown>;
+        if (
+          typeof resolver.providerFileId !== 'string' ||
+          typeof resolver.bodyBase64 !== 'string' ||
+          typeof resolver.byteLength !== 'number' ||
+          typeof resolver.sha256 !== 'string' ||
+          typeof resolver.mediaType !== 'string'
+        ) {
+          continue;
+        }
+        resolverObservations[resolverObservations.length] = {
+          providerFileId: resolver.providerFileId,
+          bodyBase64: resolver.bodyBase64,
+          byteLength: resolver.byteLength,
+          sha256: resolver.sha256,
+          mediaType: resolver.mediaType,
+        };
+      }
+    }
     return {
       kind: 'captured',
+      conversationId,
       capture: {
         bodyBase64: record.bodyBase64,
         byteLength: record.byteLength,
         sha256: record.sha256,
         mediaType: record.mediaType,
       },
+      resolverObservations,
     };
   } catch {
     return { kind: 'missing' };

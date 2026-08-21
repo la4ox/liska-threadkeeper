@@ -10,6 +10,10 @@ const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
 const STATE_KEY = `__liskaChatGptCapture_${NONCE}`;
 const ENDPOINT = `/backend-api/conversation/${CONVERSATION_ID}`;
 const CAPTURE_HASH = 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3';
+const RESOLVER_FILE_ID = 'file-abc_123';
+const RESOLVER_ENDPOINT =
+  `/backend-api/files/download/${RESOLVER_FILE_ID}` +
+  `?inline=true&conversation_id=${CONVERSATION_ID}`;
 
 class TestRequest {
   readonly #url: string;
@@ -37,8 +41,10 @@ type FakePage = {
 
 const pages: FakePage[] = [];
 
-function markedUrl(path = `/c/${CONVERSATION_ID}`): string {
-  return `https://chatgpt.com${path}#liska-capture=${NONCE}`;
+function markedUrl(path = `/c/${CONVERSATION_ID}`, observeAssetResolvers = false): string {
+  return `https://chatgpt.com${path}#liska-capture=${NONCE}${
+    observeAssetResolvers ? '&liska-observe-asset-resolvers=1' : ''
+  }`;
 }
 
 function fakePage(
@@ -185,17 +191,137 @@ describe('startChatGptDocumentStartCapture', () => {
       await vi.waitFor(() =>
         expect(snapshotOf(page)).toEqual({
           kind: 'captured',
+          conversationId: CONVERSATION_ID,
           capture: {
             bodyBase64: 'AP8BgCo=',
             byteLength: 5,
             sha256: CAPTURE_HASH,
             mediaType: 'application/json; charset=utf-8',
           },
+          resolverObservations: [],
         })
       );
       expect(clone).not.toHaveBeenCalled();
     }
   );
+
+  it('collects only exact page-owned resolver responses during the opt-in discovery window', async () => {
+    vi.useFakeTimers();
+    const resolverDownloadUrl =
+      `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+      `&id=${RESOLVER_FILE_ID}&p=path&sig=signature&ts=123&v=1`;
+    const resolverBody = JSON.stringify({ download_url: resolverDownloadUrl });
+    const clone = vi.spyOn(Response.prototype, 'clone');
+    const { response: conversationResponse } = responseWithCloneSpy(new Uint8Array([1]));
+    const { response: resolverResponse } = responseWithCloneSpy(
+      new TextEncoder().encode(resolverBody)
+    );
+    const page = fakePage(markedUrl(`/c/${CONVERSATION_ID}`, true), async input => {
+      if (input === ENDPOINT) return conversationResponse;
+      if (input === RESOLVER_ENDPOINT) return resolverResponse;
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    page.pageWindow.crypto = {
+      subtle: { digest: async () => new Uint8Array(32).buffer },
+    } as unknown as Crypto;
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await page.pageWindow.fetch(ENDPOINT);
+    // The page can begin resolving attachments while our conversation clone
+    // is still being consumed. This first resolver must not be missed.
+    await page.pageWindow.fetch(RESOLVER_ENDPOINT);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(snapshotOf(page)).toEqual({ kind: 'ready' });
+
+    await page.pageWindow.fetch(
+      `/backend-api/files/download/${RESOLVER_FILE_ID}?conversation_id=${OTHER_CONVERSATION_ID}&inline=true`
+    );
+    for (let index = 0; index < 32; index += 1) {
+      await page.pageWindow.fetch(RESOLVER_ENDPOINT);
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(clone).toHaveBeenCalledTimes(33);
+    const snapshot = snapshotOf(page) as {
+      kind?: string;
+      conversationId?: string;
+      resolverObservations?: unknown[];
+    };
+    expect(snapshot).toMatchObject({
+      kind: 'captured',
+      conversationId: CONVERSATION_ID,
+    });
+    expect(snapshot.resolverObservations).toHaveLength(32);
+    expect(snapshot.resolverObservations?.[0]).toMatchObject({
+      providerFileId: RESOLVER_FILE_ID,
+      bodyBase64: btoa(resolverBody),
+      byteLength: new TextEncoder().encode(resolverBody).byteLength,
+      mediaType: 'application/json; charset=utf-8',
+    });
+  });
+
+  it('does not extend the two-second resolver window while a large capture is still hashing', async () => {
+    vi.useFakeTimers();
+    let releaseDigest: ((value: ArrayBuffer) => void) | undefined;
+    const digest = new Promise<ArrayBuffer>(resolve => {
+      releaseDigest = resolve;
+    });
+    const clone = vi.spyOn(Response.prototype, 'clone');
+    const { response: conversationResponse } = responseWithCloneSpy(new Uint8Array([1]));
+    const resolverResponse = new Response(JSON.stringify({ download_url: 'ignored' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    const page = fakePage(markedUrl(`/c/${CONVERSATION_ID}`, true), async input =>
+      input === ENDPOINT ? conversationResponse : resolverResponse
+    );
+    page.pageWindow.crypto = {
+      subtle: { digest: () => digest },
+    } as unknown as Crypto;
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await page.pageWindow.fetch(ENDPOINT);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(snapshotOf(page)).toEqual({ kind: 'ready' });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await page.pageWindow.fetch(RESOLVER_ENDPOINT);
+    releaseDigest?.(new Uint8Array(32).buffer);
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(snapshotOf(page)).toMatchObject({
+      kind: 'captured',
+      conversationId: CONVERSATION_ID,
+      resolverObservations: [],
+    });
+    expect(clone).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the verified conversation when the optional resolver timer cannot be armed', async () => {
+    const { response } = responseWithCloneSpy(new Uint8Array([1]));
+    const page = fakePage(markedUrl(`/c/${CONVERSATION_ID}`, true), async () => response);
+    const nativeSetTimeout = page.pageWindow.setTimeout.bind(page.pageWindow);
+    let timerCalls = 0;
+    page.pageWindow.setTimeout = ((callback: TimerHandler, timeout?: number) => {
+      timerCalls += 1;
+      if (timerCalls === 2) throw new Error('optional timer unavailable');
+      return nativeSetTimeout(callback, timeout);
+    }) as typeof page.pageWindow.setTimeout;
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await page.pageWindow.fetch(ENDPOINT);
+
+    await vi.waitFor(() =>
+      expect(snapshotOf(page)).toMatchObject({
+        kind: 'captured',
+        conversationId: CONVERSATION_ID,
+        resolverObservations: [],
+      })
+    );
+  });
 
   it('does not inspect request or init headers while matching a native Request', async () => {
     const { response } = responseWithCloneSpy(new Uint8Array([1]));
@@ -255,12 +381,14 @@ describe('startChatGptDocumentStartCapture', () => {
 
     const expected = {
       kind: 'captured',
+      conversationId: CONVERSATION_ID,
       capture: {
         bodyBase64: 'AP8BgCo=',
         byteLength: 5,
         sha256: CAPTURE_HASH,
         mediaType: 'application/json; charset=utf-8',
       },
+      resolverObservations: [],
     };
     const second = snapshotOf(page);
     expect(second).not.toBe(first);
@@ -312,12 +440,14 @@ describe('startChatGptDocumentStartCapture', () => {
     await vi.waitFor(() =>
       expect(snapshotOf(page)).toEqual({
         kind: 'captured',
+        conversationId: CONVERSATION_ID,
         capture: {
           bodyBase64: 'AP8BgCo=',
           byteLength: 5,
           sha256: CAPTURE_HASH,
           mediaType: 'application/json; charset=utf-8',
         },
+        resolverObservations: [],
       })
     );
   });
@@ -390,12 +520,14 @@ describe('startChatGptDocumentStartCapture', () => {
     await vi.waitFor(() =>
       expect(snapshotOf(page)).toEqual({
         kind: 'captured',
+        conversationId: CONVERSATION_ID,
         capture: {
           bodyBase64: '',
           byteLength: 0,
           sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
           mediaType: 'application/json',
         },
+        resolverObservations: [],
       })
     );
   });

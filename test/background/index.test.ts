@@ -1767,6 +1767,36 @@ describe('background/index', () => {
       expect(savedContent).not.toContain('g2o-image://');
     });
 
+    it('obsidian: collision-renamed notes use the resolved image namespace', async () => {
+      const suffix = generateHash('imgconv');
+      const resolvedFileName = `img-note-${suffix}.md`;
+      mockClient.getFile.mockImplementation((path: string) => {
+        if (path === 'AI/Gemini/img-note.md') {
+          return Promise.resolve('---\nid: another-conversation\n---\nExisting note');
+        }
+        return Promise.resolve(null);
+      });
+      mockClient.putFile.mockResolvedValue(undefined);
+      mockClient.putBinaryFile.mockResolvedValue(undefined);
+
+      const sendResponse = save(['obsidian']);
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+
+      expect(mockClient.putBinaryFile).toHaveBeenCalledWith(
+        `AI/gemini/images/img-note-${suffix}-img-1.png`,
+        expect.any(Uint8Array),
+        'image/png'
+      );
+      expect(mockClient.putFile).toHaveBeenCalledWith(
+        `AI/Gemini/${resolvedFileName}`,
+        expect.stringContaining(`![[img-note-${suffix}-img-1.png]]`)
+      );
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results.find(result => result.destination === 'obsidian')?.savedAs).toBe(
+        resolvedFileName
+      );
+    });
+
     it('file: downloads the markdown and each image as separate files', async () => {
       // Reset any download impl left by earlier tests (clearAllMocks keeps impl).
       vi.mocked(chrome.downloads.download).mockImplementation((_options, callback) => {

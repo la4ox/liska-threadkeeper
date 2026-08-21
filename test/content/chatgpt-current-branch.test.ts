@@ -77,6 +77,7 @@ async function successfulResponse(
       sha256: await sha256Hex(bytes),
       mediaType: 'application/json',
       endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      transientAssetResolvers: [],
     },
   };
 }
@@ -134,6 +135,7 @@ describe('ChatGPT current-branch capture composition', () => {
       'manifest',
       'canonical',
     ]);
+    expect(capture.transientAssetCandidates).toEqual([]);
   });
 
   it('builds a not-attempted attachment ledger without upgrading asset acquisition completeness', async () => {
@@ -162,6 +164,41 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(JSON.stringify(manifest)).not.toContain('synthetic-image-1');
     expect(JSON.stringify(capture.archive.assets)).toContain('synthetic-image-1');
     expect(JSON.stringify(capture.archive.assets)).not.toContain('signature=not-retained');
+  });
+
+  it('matches opt-in page-owned resolvers transiently without persisting their signed URLs', async () => {
+    const response = await successfulResponse();
+    if (!response.success) throw new Error('synthetic capture response must succeed');
+    const signedUrl =
+      `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+      '&id=signed-transport-id&p=path&sig=transport-signature-secret&ts=123&v=1';
+    response.data.transientAssetResolvers = [
+      {
+        resolverKey: await sha256Hex(
+          new TextEncoder().encode('liska-chatgpt-resolver/1\u0000synthetic-file-2')
+        ),
+        downloadUrl: signedUrl,
+      },
+    ];
+    const requestCapture = vi.fn().mockResolvedValue(response);
+
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture,
+      observeAssetResolvers: true,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+
+    expect(requestCapture).toHaveBeenCalledWith(CONVERSATION_ID, true);
+    expect(capture.transientAssetCandidates).toEqual([
+      {
+        assetId: expect.stringMatching(/^chatgpt-asset-[a-f0-9]{64}$/),
+        downloadUrl: signedUrl,
+      },
+    ]);
+    expect(
+      JSON.stringify({ archive: capture.archive, companion: capture.archiveCompanion })
+    ).not.toContain('transport-signature-secret');
   });
 
   it('rejects a fetched manifest claim before the JSON-only companion can be assembled', async () => {
@@ -227,7 +264,7 @@ describe('ChatGPT current-branch capture composition', () => {
     });
 
     expect(requestCapture).toHaveBeenCalledOnce();
-    expect(requestCapture).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(requestCapture).toHaveBeenCalledWith(CONVERSATION_ID, false);
     expect(projection.selectedNodeIds).toEqual([
       'node/root~structural',
       'node/user',
