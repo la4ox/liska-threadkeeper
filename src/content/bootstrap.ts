@@ -15,6 +15,8 @@ import { DeepSeekExtractor } from './extractors/deepseek';
 import { extractErrorMessage } from '../lib/error-utils';
 import type {
   AllBranchesPresentationPlan,
+  ArchiveCompanionArtifact,
+  ArchiveCompanionKind,
   ArchiveCompanionBundle,
   ConversationData,
   ExtractionResult,
@@ -24,6 +26,8 @@ import {
   persistAllBranchesPresentation,
   type AllBranchesPersistenceSummary,
 } from './archive-branch-persistence';
+import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-export';
+import { observeChatGptAssetResolversViaOpaqueSource } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
 import {
   injectBranchExportButton,
@@ -50,6 +54,7 @@ import type {
   OutputDestination,
   OutputResult,
   MultiOutputResponse,
+  PersistentOutputDestination,
 } from '../lib/types';
 import { platformForHost } from '../lib/platform-registry';
 import { throttle } from '../lib/throttle';
@@ -360,6 +365,31 @@ function archiveDestinationWarnings(
   );
 }
 
+const ARCHIVE_COMPANION_WRITE_ORDER: readonly ArchiveCompanionKind[] = [
+  'raw',
+  'manifest',
+  'canonical',
+];
+
+function requestedArchiveArtifacts(
+  companion: ArchiveCompanionBundle,
+  artifactKinds: readonly ArchiveCompanionKind[] | undefined
+): ArchiveCompanionArtifact[] | undefined {
+  const requested = artifactKinds ?? companion.artifacts.map(artifact => artifact.kind);
+  if (!Array.isArray(requested) || requested.length === 0) return undefined;
+  let previousIndex = -1;
+  const selected: ArchiveCompanionArtifact[] = [];
+  for (const kind of requested) {
+    const order = ARCHIVE_COMPANION_WRITE_ORDER.indexOf(kind);
+    if (order < 0 || order <= previousIndex) return undefined;
+    previousIndex = order;
+    const matching = companion.artifacts.filter(artifact => artifact.kind === kind);
+    if (matching.length !== 1) return undefined;
+    selected.push(matching[0]);
+  }
+  return selected;
+}
+
 function archiveWriteOutcome(
   response: unknown,
   label: string,
@@ -390,27 +420,48 @@ function archiveWriteOutcome(
   };
 }
 
+export interface ArchiveCompanionPersistenceOutcome {
+  activeOutputs: PersistentOutputDestination[];
+  warnings: string[];
+}
+
 /**
- * Save the three immutable structured artifacts one at a time. Archive writes
- * never join the Markdown message, and a failed companion stays non-fatal so
- * the readable note is still saved with an explicit warning.
+ * Persist selected immutable structured artifacts in order and retain the
+ * destinations that reached every requested artifact. Callers use this to
+ * make later ChatGPT attachment manifests destination-honest.
  */
-export async function persistArchiveCompanions(
+// eslint-disable-next-line max-lines-per-function -- Per-artifact destination gating must remain visible at this persistence boundary.
+export async function persistArchiveCompanionArtifacts(
   companion: ArchiveCompanionBundle | undefined,
   noteFileName: string,
   source: AIPlatform,
-  outputs: OutputDestination[]
-): Promise<string[]> {
-  if (!companion) return [];
+  outputs: OutputDestination[],
+  artifactKinds?: readonly ArchiveCompanionKind[]
+): Promise<ArchiveCompanionPersistenceOutcome> {
+  if (!companion) return { activeOutputs: [], warnings: [] };
   let activeOutputs = outputs.filter(
-    (output): output is 'file' | 'obsidian' => output === 'file' || output === 'obsidian'
+    (output): output is PersistentOutputDestination => output === 'file' || output === 'obsidian'
   );
   if (activeOutputs.length === 0) {
-    return ['ChatGPT raw/canonical archive was not saved because only Clipboard is enabled'];
+    return {
+      activeOutputs,
+      warnings: ['ChatGPT raw/canonical archive was not saved because only Clipboard is enabled'],
+    };
   }
 
   const warnings: string[] = [];
-  for (const artifact of companion.artifacts) {
+  const selected = requestedArchiveArtifacts(companion, artifactKinds);
+  if (!selected) {
+    return {
+      activeOutputs: [],
+      warnings: archiveDestinationWarnings(
+        'requested archive companion set',
+        activeOutputs,
+        'the requested archive companion set is invalid'
+      ),
+    };
+  }
+  for (const artifact of selected) {
     if (activeOutputs.length === 0) break;
     const message = {
       action: 'persistArchiveCompanion' as const,
@@ -443,7 +494,22 @@ export async function persistArchiveCompanions(
       activeOutputs = [];
     }
   }
-  return warnings;
+  return { activeOutputs, warnings };
+}
+
+/**
+ * Compatibility wrapper for callers that only need human-facing warnings.
+ * Archive writes never join the Markdown message, and a failed companion
+ * stays non-fatal so the readable note is still saved with an explicit warning.
+ */
+export async function persistArchiveCompanions(
+  companion: ArchiveCompanionBundle | undefined,
+  noteFileName: string,
+  source: AIPlatform,
+  outputs: OutputDestination[]
+): Promise<string[]> {
+  return (await persistArchiveCompanionArtifacts(companion, noteFileName, source, outputs))
+    .warnings;
 }
 
 /** Preserve verified source evidence even when no readable Markdown can be built. */
@@ -567,7 +633,10 @@ function allBranchesDestinationNames(summary: AllBranchesPersistenceSummary): st
   return summary.destinations.map(destination => destination.destination).join(', ');
 }
 
-export function displayAllBranchesSummary(summary: AllBranchesPersistenceSummary): void {
+export function displayAllBranchesSummary(
+  summary: AllBranchesPersistenceSummary,
+  archiveWarnings: readonly string[] = []
+): void {
   if (summary.destinations.length === 0) {
     showErrorToast('Exporting all branches requires File or Obsidian output');
     return;
@@ -584,6 +653,7 @@ export function displayAllBranchesSummary(summary: AllBranchesPersistenceSummary
     destination => destination.archiveSaved
   ).length;
   const caveats = [
+    ...new Set(archiveWarnings),
     ...(summary.omissionBranchCount > 0
       ? [
           `${summary.omissionBranchCount} branch Markdown file(s) omit records retained in the canonical archive`,
@@ -613,7 +683,9 @@ export async function persistAllBranchesBundle(
   plan: AllBranchesPresentationPlan,
   companion: ArchiveCompanionBundle,
   settings: ContentScriptSettings,
-  outputs: OutputDestination[]
+  outputs: OutputDestination[],
+  archiveAlreadyPersisted = false,
+  archiveWarnings: readonly string[] = []
 ): Promise<void> {
   showToast('Saving all branches...', 'info', 0);
   let lastReported = 0;
@@ -625,6 +697,7 @@ export async function persistAllBranchesBundle(
     outputs,
     {
       persistCompanions: persistArchiveCompanions,
+      archiveAlreadyPersisted,
       writeNote: async (note, destination, messageCount) => {
         const attempt = await writeNoteToOutputs(note, [destination], messageCount);
         return (
@@ -643,7 +716,28 @@ export async function persistAllBranchesBundle(
       },
     }
   );
-  displayAllBranchesSummary(summary);
+  displayAllBranchesSummary(summary, archiveWarnings);
+}
+
+function hasDurableOutput(outputs: readonly OutputDestination[]): boolean {
+  return outputs.some(output => output === 'file' || output === 'obsidian');
+}
+
+function canExportChatGptAttachments(
+  result: ExtractionResult,
+  settings: ContentScriptSettings,
+  outputs: readonly OutputDestination[]
+): result is ExtractionResult & {
+  archiveCompanion: ArchiveCompanionBundle;
+  chatGptAssetExportContext: NonNullable<ExtractionResult['chatGptAssetExportContext']>;
+} {
+  return (
+    settings.enableImageExport === true &&
+    hasDurableOutput(outputs) &&
+    result.archiveCompanion !== undefined &&
+    result.chatGptAssetExportContext !== undefined &&
+    (result.allBranches !== undefined || result.data?.source === 'chatgpt')
+  );
 }
 
 async function persistNote(
@@ -664,7 +758,7 @@ async function persistNote(
 /**
  * Handle sync button click
  */
-// eslint-disable-next-line max-lines-per-function -- The staged user-visible pipeline stays linear so evidence persistence always precedes Markdown validation.
+// eslint-disable-next-line complexity, max-lines-per-function -- The staged user-visible pipeline stays linear so evidence persistence always precedes Markdown validation.
 export async function handleSync(branchMode: 'current' | 'selected' = 'current'): Promise<void> {
   console.info('[G2O] Sync initiated');
   setButtonLoading(true);
@@ -673,13 +767,17 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
   try {
     const settings = await getSettings();
     const enabledOutputs = getEnabledOutputs(settings);
-    stage = 'checking output configuration';
-    const configError = await validateOutputConfig(settings, enabledOutputs);
-    if (configError) {
-      showErrorToast(configError);
-      return;
-    }
     const extractor = getExtractor();
+    const isChatGptOpaqueProbe =
+      settings.enableChatGptOpaqueProbe === true && extractor instanceof ChatGPTExtractor;
+    if (!isChatGptOpaqueProbe) {
+      stage = 'checking output configuration';
+      const configError = await validateOutputConfig(settings, enabledOutputs);
+      if (configError) {
+        showErrorToast(configError);
+        return;
+      }
+    }
     if (!extractor || !extractor.canExtract()) {
       showErrorToast('Not on a valid conversation page');
       return;
@@ -693,6 +791,38 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     if (result.allBranches) {
       if (!result.archiveCompanion) {
         showErrorToast('All-branches export requires a complete canonical archive');
+        return;
+      }
+      if (canExportChatGptAttachments(result, settings, enabledOutputs)) {
+        stage = 'saving the original ChatGPT raw archive companion';
+        const attachmentExport = await persistChatGptDestinationHonestAttachments(
+          result.chatGptAssetExportContext,
+          result.archiveCompanion,
+          'chatgpt-all-branches.md',
+          enabledOutputs,
+          {
+            persistArtifacts: persistArchiveCompanionArtifacts,
+            ...(settings.enableChatGptOpaqueReplay === true
+              ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
+              : {}),
+          }
+        );
+        if (attachmentExport.completeDestinations.length === 0) {
+          showWarningToast(
+            attachmentExport.warnings.join('. ') ||
+              'ChatGPT all-branches Markdown was not saved because its archive companions were incomplete.'
+          );
+          return;
+        }
+        stage = 'saving the all-branches Markdown bundle';
+        await persistAllBranchesBundle(
+          result.allBranches,
+          result.archiveCompanion,
+          settings,
+          attachmentExport.completeDestinations,
+          true,
+          attachmentExport.warnings
+        );
         return;
       }
       stage = 'saving the all-branches archive and Markdown bundle';
@@ -718,6 +848,28 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     }
     if (!result.data) {
       showErrorToast('No conversation data extracted');
+      return;
+    }
+    if (canExportChatGptAttachments(result, settings, enabledOutputs)) {
+      const note = conversationToNote(result.data, settings.templateOptions);
+      stage = 'saving the original ChatGPT raw archive companion';
+      const attachmentExport = await persistChatGptDestinationHonestAttachments(
+        result.chatGptAssetExportContext,
+        result.archiveCompanion,
+        note.fileName,
+        enabledOutputs,
+        {
+          persistArtifacts: persistArchiveCompanionArtifacts,
+          ...(settings.enableChatGptOpaqueReplay === true
+            ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
+            : {}),
+        }
+      );
+      stage = 'saving the ChatGPT note';
+      await persistNote(note, enabledOutputs, result.data.messages.length, [
+        ...(result.warnings ?? []),
+        ...attachmentExport.warnings,
+      ]);
       return;
     }
     stage = 'formatting and saving the ChatGPT archive companions and note';

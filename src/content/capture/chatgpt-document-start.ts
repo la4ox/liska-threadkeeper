@@ -9,16 +9,43 @@
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
 const CAPTURE_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})(?:&liska-observe-asset-resolvers=(1))?$/i;
+const OPAQUE_PROBE_FRAGMENT_PATTERN = /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-probe=1$/i;
+const OPAQUE_REPLAY_FRAGMENT_PATTERN =
+  /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-replay=1$/i;
+const OPAQUE_RESOLVER_FRAGMENT_PATTERN =
+  /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-resolver-observer=1$/i;
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
+const DEFAULT_OPAQUE_PROBE_TIMEOUT_MS = 45_000;
 const DEFAULT_RESOLVER_DISCOVERY_WINDOW_MS = 2_000;
+const DEFAULT_OPAQUE_RESOLVER_DISCOVERY_WINDOW_MS = 8_000;
 const DEFAULT_RESOLVER_MAX_BYTES = 64 * 1024;
 const DEFAULT_RESOLVER_MAX_OBSERVATIONS = 32;
 const RESOLVER_PATH_PREFIX = '/backend-api/files/download/';
+const CALPICO_RESOLVER_PATH_PREFIX = '/backend-api/calpico/chatgpt/files/';
 const PAYLOAD_TOO_LARGE = {};
 const PRIMORDIAL_UNAVAILABLE = {};
 const HEX_DIGITS = '0123456789abcdef';
+const REQUEST_INIT_MEMBER_NAMES = [
+  'attributionReporting',
+  'body',
+  'browsingTopics',
+  'cache',
+  'credentials',
+  'duplex',
+  'headers',
+  'integrity',
+  'keepalive',
+  'method',
+  'mode',
+  'priority',
+  'redirect',
+  'referrer',
+  'referrerPolicy',
+  'signal',
+  'window',
+] as const;
 
 type HookErrorCode =
   | 'hook-state-failed'
@@ -60,17 +87,28 @@ type DocumentPrimordials = {
   URL: typeof URL | undefined;
   objectDefineProperty: typeof Object.defineProperty | undefined;
   objectGetOwnPropertyDescriptor: typeof Object.getOwnPropertyDescriptor | undefined;
+  objectGetPrototypeOf: typeof Object.getPrototypeOf | undefined;
+  objectPrototype: object | undefined;
+  reflectOwnKeys: typeof Reflect.ownKeys | undefined;
   responseClone: CapturedCallable | undefined;
   responseArrayBuffer: CapturedCallable | undefined;
   responseStatus: CapturedCallable | undefined;
   responseHeaders: CapturedCallable | undefined;
   responseBody: CapturedCallable | undefined;
   headersGet: CapturedCallable | undefined;
+  headersHas: CapturedCallable | undefined;
   streamGetReader: CapturedCallable | undefined;
   readerRead: CapturedCallable | undefined;
   readerCancel: CapturedCallable | undefined;
   requestUrl: CapturedCallable | undefined;
   requestMethod: CapturedCallable | undefined;
+  requestHeaders: CapturedCallable | undefined;
+  requestCredentials: CapturedCallable | undefined;
+  requestClone: CapturedCallable | undefined;
+  requestConstructor: typeof Request | undefined;
+  abortControllerConstructor: typeof AbortController | undefined;
+  abortControllerAbort: CapturedCallable | undefined;
+  abortControllerSignal: CapturedCallable | undefined;
   urlHref: CapturedCallable | undefined;
   urlOrigin: CapturedCallable | undefined;
   urlUsername: CapturedCallable | undefined;
@@ -138,6 +176,7 @@ type MarkerTarget = {
   conversationId: string;
   nonce: string;
   observeAssetResolvers: boolean;
+  mode: 'capture' | 'opaque-probe' | 'opaque-replay' | 'opaque-resolver';
 };
 
 function methodAt(prototype: object | undefined, property: string): CapturedCallable | undefined {
@@ -170,6 +209,7 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
   const NativeResponse = pageWindow.Response;
   const NativeHeaders = pageWindow.Headers;
   const NativeRequest = pageWindow.Request;
+  const NativeAbortController = pageWindow.AbortController;
   const NativeURL = pageWindow.URL;
   const NativeReadableStream = pageWindow.ReadableStream;
   const NativeReader = pageWindow.ReadableStreamDefaultReader;
@@ -181,6 +221,7 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
   const responsePrototype = NativeResponse?.prototype;
   const headersPrototype = NativeHeaders?.prototype;
   const requestPrototype = NativeRequest?.prototype;
+  const abortControllerPrototype = NativeAbortController?.prototype;
   const urlPrototype = NativeURL?.prototype;
   const streamPrototype =
     typeof NativeReadableStream === 'function' ? NativeReadableStream.prototype : undefined;
@@ -194,17 +235,31 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
       typeof NativeObject?.defineProperty === 'function' ? NativeObject.defineProperty : undefined,
     objectGetOwnPropertyDescriptor:
       typeof getOwnPropertyDescriptor === 'function' ? getOwnPropertyDescriptor : undefined,
+    objectGetPrototypeOf:
+      typeof NativeObject?.getPrototypeOf === 'function' ? NativeObject.getPrototypeOf : undefined,
+    objectPrototype: NativeObject?.prototype,
+    reflectOwnKeys:
+      typeof pageWindow.Reflect?.ownKeys === 'function' ? pageWindow.Reflect.ownKeys : undefined,
     responseClone: methodAt(responsePrototype, 'clone'),
     responseArrayBuffer: methodAt(responsePrototype, 'arrayBuffer'),
     responseStatus: getterAt(getOwnPropertyDescriptor, responsePrototype, 'status'),
     responseHeaders: getterAt(getOwnPropertyDescriptor, responsePrototype, 'headers'),
     responseBody: getterAt(getOwnPropertyDescriptor, responsePrototype, 'body'),
     headersGet: methodAt(headersPrototype, 'get'),
+    headersHas: methodAt(headersPrototype, 'has'),
     streamGetReader: methodAt(streamPrototype, 'getReader'),
     readerRead: methodAt(readerPrototype, 'read'),
     readerCancel: methodAt(readerPrototype, 'cancel'),
     requestUrl: getterAt(getOwnPropertyDescriptor, requestPrototype, 'url'),
     requestMethod: getterAt(getOwnPropertyDescriptor, requestPrototype, 'method'),
+    requestHeaders: getterAt(getOwnPropertyDescriptor, requestPrototype, 'headers'),
+    requestCredentials: getterAt(getOwnPropertyDescriptor, requestPrototype, 'credentials'),
+    requestClone: methodAt(requestPrototype, 'clone'),
+    requestConstructor: typeof NativeRequest === 'function' ? NativeRequest : undefined,
+    abortControllerConstructor:
+      typeof NativeAbortController === 'function' ? NativeAbortController : undefined,
+    abortControllerAbort: methodAt(abortControllerPrototype, 'abort'),
+    abortControllerSignal: getterAt(getOwnPropertyDescriptor, abortControllerPrototype, 'signal'),
     urlHref: getterAt(getOwnPropertyDescriptor, urlPrototype, 'href'),
     urlOrigin: getterAt(getOwnPropertyDescriptor, urlPrototype, 'origin'),
     urlUsername: getterAt(getOwnPropertyDescriptor, urlPrototype, 'username'),
@@ -257,7 +312,15 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
       return undefined;
     }
 
-    const marker = CAPTURE_FRAGMENT_PATTERN.exec(url.hash);
+    const replayMarker = OPAQUE_REPLAY_FRAGMENT_PATTERN.exec(url.hash);
+    const resolverMarker =
+      replayMarker === null ? OPAQUE_RESOLVER_FRAGMENT_PATTERN.exec(url.hash) : null;
+    const probeMarker =
+      replayMarker === null && resolverMarker === null
+        ? OPAQUE_PROBE_FRAGMENT_PATTERN.exec(url.hash)
+        : null;
+    const marker =
+      replayMarker ?? resolverMarker ?? probeMarker ?? CAPTURE_FRAGMENT_PATTERN.exec(url.hash);
     const nonce = marker?.[1];
     if (nonce === undefined) return undefined;
 
@@ -267,7 +330,19 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
     );
     const conversationId = standard?.[1] ?? custom?.[1];
     return conversationId !== undefined && CONVERSATION_ID_PATTERN.test(conversationId)
-      ? { conversationId, nonce, observeAssetResolvers: marker?.[2] === '1' }
+      ? {
+          conversationId,
+          nonce,
+          observeAssetResolvers: marker?.[2] === '1',
+          mode:
+            replayMarker !== null
+              ? 'opaque-replay'
+              : resolverMarker !== null
+                ? 'opaque-resolver'
+                : probeMarker !== null
+                  ? 'opaque-probe'
+                  : 'capture',
+        }
       : undefined;
   } catch {
     return undefined;
@@ -432,28 +507,58 @@ function resolverTargetFileId(
   const url = pageOwnedGetUrl(primordials, input, init);
   if (url === undefined) return undefined;
   const pathname = applyCaptured<string>(primordials, primordials.document.urlPathname, url, []);
-  const pathPrefixIndex = applyCaptured<number>(
+  const legacyPathPrefixIndex = applyCaptured<number>(
     primordials,
     primordials.document.stringIndexOf,
     pathname,
     [RESOLVER_PATH_PREFIX]
   );
-  if (pathPrefixIndex !== 0) return undefined;
+  const calpicoPathPrefixIndex = applyCaptured<number>(
+    primordials,
+    primordials.document.stringIndexOf,
+    pathname,
+    [CALPICO_RESOLVER_PATH_PREFIX]
+  );
+  const pathPrefix =
+    legacyPathPrefixIndex === 0
+      ? RESOLVER_PATH_PREFIX
+      : calpicoPathPrefixIndex === 0
+        ? CALPICO_RESOLVER_PATH_PREFIX
+        : undefined;
+  if (pathPrefix === undefined) return undefined;
   const providerFileId = applyCaptured<string>(
     primordials,
     primordials.document.stringSlice,
     pathname,
-    [RESOLVER_PATH_PREFIX.length]
+    [pathPrefix.length]
   );
   if (!isSafeResolverFileId(primordials, providerFileId)) return undefined;
 
   const query = applyCaptured<string>(primordials, primordials.document.urlSearch, url, []);
-  const expectedFirst = `?conversation_id=${conversationId}&inline=true`;
-  const expectedSecond = `?inline=true&conversation_id=${conversationId}`;
-  return (query === expectedFirst || query === expectedSecond) &&
-    applyCaptured<string>(primordials, primordials.document.urlHash, url, []) === ''
-    ? providerFileId
-    : undefined;
+  if (applyCaptured<string>(primordials, primordials.document.urlHash, url, []) !== '') {
+    return undefined;
+  }
+  if (pathPrefix === CALPICO_RESOLVER_PATH_PREFIX) {
+    return query === '' ? providerFileId : undefined;
+  }
+
+  const conversation = `conversation_id=${conversationId}`;
+  const inline = 'inline=true';
+  const scopedConversation = `check_context_scopes_for_conversation_id=${conversationId}`;
+  const expectedQueries = [
+    `?${conversation}&${inline}`,
+    `?${inline}&${conversation}`,
+    `?${conversation}&${inline}&${scopedConversation}`,
+    `?${conversation}&${scopedConversation}&${inline}`,
+    `?${inline}&${conversation}&${scopedConversation}`,
+    `?${inline}&${scopedConversation}&${conversation}`,
+    `?${scopedConversation}&${conversation}&${inline}`,
+    `?${scopedConversation}&${inline}&${conversation}`,
+  ];
+  for (let index = 0; index < expectedQueries.length; index += 1) {
+    if (query === expectedQueries[index]) return providerFileId;
+  }
+  return undefined;
 }
 
 function responseBody(
@@ -860,9 +965,14 @@ async function captureNativeResponse(
   }
 }
 
+type ResolverObservationState = Pick<
+  PageState,
+  'primordials' | 'resolverDiscoveryActive' | 'resolverObservations'
+>;
+
 async function captureResolverResponse(
   pageWindow: PageWindow,
-  state: PageState,
+  state: ResolverObservationState,
   response: Response,
   providerFileId: string
 ): Promise<void> {
@@ -952,7 +1062,7 @@ function observeNativeResponse(
 
 function observeResolverResponse(
   pageWindow: PageWindow,
-  state: PageState,
+  state: ResolverObservationState,
   responsePromise: Promise<Response>,
   providerFileId: string
 ): void {
@@ -1052,6 +1162,1581 @@ function armNativeFetchObserver(
   }
 }
 
+/*
+ * The opaque probe deliberately has a separate state machine from ordinary
+ * capture. It never reads a response body, never issues a request, and never
+ * shares a result shape with the capture bridge.
+ */
+type OpaqueProbeOutcome =
+  | 'target-not-observed'
+  | 'source-not-native-request'
+  | 'init-present'
+  | 'init-security-sensitive'
+  | 'init-unsupported'
+  | 'target-mismatch'
+  | 'clone-failed'
+  | 'authorization-absent'
+  | 'credentials-rejected'
+  | 'source-rejected'
+  | 'source-http-unauthorized'
+  | 'source-http-forbidden'
+  | 'source-http-rate-limited'
+  | 'source-http-redirect'
+  | 'source-http-error'
+  | 'source-non-json'
+  | 'eligible'
+  | 'eligible-init-empty'
+  | 'eligible-init-signal-only'
+  | 'hook-state-failed'
+  | 'probe-failed';
+
+type OpaqueProbeInitKind =
+  | 'absent'
+  | 'empty'
+  | 'signal-only'
+  | 'security-sensitive'
+  | 'unsupported';
+
+type OpaqueProbeResult = {
+  observedTargetRequest: boolean;
+  sourceIsNativeRequest: boolean;
+  initAbsent: boolean;
+  exactTarget: boolean;
+  authorizationPresent: boolean;
+  credentialsAccepted: boolean;
+  sourceStatus: number | null;
+  sourceJson: boolean;
+  singularDispatchCount: 0;
+  outcome: OpaqueProbeOutcome;
+};
+
+type OpaqueProbeHookResult = { kind: 'ready' } | { kind: 'result'; result: OpaqueProbeResult };
+
+type OpaqueProbePageState = {
+  primordials: PagePrimordials;
+  originalFetch: typeof window.fetch;
+  wrappedFetch: typeof window.fetch | undefined;
+  timeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  settled: boolean;
+  claimed: boolean;
+  result: OpaqueProbeHookResult;
+};
+
+type OpaqueProbeCandidate = Omit<
+  OpaqueProbeResult,
+  'sourceStatus' | 'sourceJson' | 'singularDispatchCount' | 'outcome'
+> & {
+  methodAccepted: boolean;
+  cloneFailed: boolean;
+  initKind: OpaqueProbeInitKind;
+  sourceClone: Request | undefined;
+};
+
+function opaqueProbeResult(
+  outcome: OpaqueProbeOutcome,
+  overrides: Partial<Omit<OpaqueProbeResult, 'outcome' | 'singularDispatchCount'>> = {}
+): OpaqueProbeResult {
+  return {
+    observedTargetRequest: false,
+    sourceIsNativeRequest: false,
+    initAbsent: false,
+    exactTarget: false,
+    authorizationPresent: false,
+    credentialsAccepted: false,
+    sourceStatus: null,
+    sourceJson: false,
+    singularDispatchCount: 0,
+    ...overrides,
+    outcome,
+  };
+}
+
+function opaqueProbeStateKeyFor(nonce: string): string {
+  return `__liskaChatGptOpaqueProbe_${nonce}`;
+}
+
+function snapshotOpaqueProbeResult(result: OpaqueProbeHookResult): OpaqueProbeHookResult {
+  if (result.kind === 'ready') return { kind: 'ready' };
+  const value = result.result;
+  return {
+    kind: 'result',
+    result: {
+      observedTargetRequest: value.observedTargetRequest,
+      sourceIsNativeRequest: value.sourceIsNativeRequest,
+      initAbsent: value.initAbsent,
+      exactTarget: value.exactTarget,
+      authorizationPresent: value.authorizationPresent,
+      credentialsAccepted: value.credentialsAccepted,
+      sourceStatus: value.sourceStatus,
+      sourceJson: value.sourceJson,
+      singularDispatchCount: 0,
+      outcome: value.outcome,
+    },
+  };
+}
+
+function hasOpaqueProbeArmingPrimordials(primordials: PagePrimordials): boolean {
+  const document = primordials.document;
+  return (
+    document.reflectApply !== undefined &&
+    document.URL !== undefined &&
+    document.objectDefineProperty !== undefined &&
+    document.objectGetOwnPropertyDescriptor !== undefined &&
+    document.objectGetPrototypeOf !== undefined &&
+    document.objectPrototype !== undefined &&
+    document.reflectOwnKeys !== undefined &&
+    document.requestClone !== undefined &&
+    document.requestUrl !== undefined &&
+    document.requestMethod !== undefined &&
+    document.requestHeaders !== undefined &&
+    document.requestCredentials !== undefined &&
+    document.headersHas !== undefined &&
+    document.urlHref !== undefined &&
+    document.urlOrigin !== undefined &&
+    document.urlUsername !== undefined &&
+    document.urlPassword !== undefined &&
+    document.urlPathname !== undefined &&
+    document.urlSearch !== undefined &&
+    document.urlHash !== undefined &&
+    document.responseStatus !== undefined &&
+    document.responseHeaders !== undefined &&
+    document.headersGet !== undefined &&
+    document.stringToUpperCase !== undefined &&
+    document.stringCharCodeAt !== undefined &&
+    document.stringIndexOf !== undefined &&
+    document.stringSlice !== undefined &&
+    document.stringTrim !== undefined &&
+    document.stringToLowerCase !== undefined &&
+    document.stringEndsWith !== undefined &&
+    document.promiseThen !== undefined &&
+    primordials.setTimeout !== undefined &&
+    primordials.clearTimeout !== undefined
+  );
+}
+
+function opaqueProbeUrl(primordials: PagePrimordials, input: RequestInfo | URL): URL | undefined {
+  try {
+    let rawUrl: string;
+    if (typeof input === 'string') {
+      rawUrl = input;
+    } else {
+      try {
+        rawUrl = applyCaptured<string>(primordials, primordials.document.urlHref, input, []);
+      } catch {
+        rawUrl = applyCaptured<string>(primordials, primordials.document.requestUrl, input, []);
+      }
+    }
+    const URLConstructor = primordials.document.URL;
+    return URLConstructor === undefined ? undefined : new URLConstructor(rawUrl, CHATGPT_ORIGIN);
+  } catch {
+    return undefined;
+  }
+}
+
+function hasExactOpaqueProbeQuery(primordials: PagePrimordials, url: URL): boolean {
+  const search = applyCaptured<string>(primordials, primordials.document.urlSearch, url, []);
+  // Compare the raw query verbatim rather than decoding keys or values. The
+  // two allowed orderings are the whole grammar, so duplicates, extras, and
+  // percent-encoded lookalikes cannot slip through.
+  return (
+    search === '?include_has_versions=true&num_turns=10' ||
+    search === '?num_turns=10&include_has_versions=true'
+  );
+}
+
+/**
+ * Classify RequestInit without reading any property value.  Only an ordinary
+ * empty object (or explicit null/undefined) and an ordinary signal-only object
+ * are structurally safe enough for a later replay experiment that drops init.
+ * Any credential-, header-, body-, or method-bearing init fails closed.
+ */
+function opaqueProbeInitKind(
+  primordials: PagePrimordials,
+  args: Parameters<typeof window.fetch>
+): OpaqueProbeInitKind {
+  if (args.length === 1) return 'absent';
+  if (args.length !== 2) return 'unsupported';
+  const init: unknown = args[1];
+  if (init === undefined || init === null) return 'empty';
+  if (typeof init !== 'object') return 'unsupported';
+  try {
+    const prototype = applyCaptured<unknown>(
+      primordials,
+      primordials.document.objectGetPrototypeOf,
+      undefined,
+      [init]
+    );
+    if (prototype !== null && prototype !== primordials.document.objectPrototype) {
+      return 'unsupported';
+    }
+    if (prototype === primordials.document.objectPrototype) {
+      const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
+      const objectPrototype = primordials.document.objectPrototype;
+      for (let index = 0; index < REQUEST_INIT_MEMBER_NAMES.length; index += 1) {
+        const descriptor = applyCaptured<PropertyDescriptor | undefined>(
+          primordials,
+          getOwnPropertyDescriptor,
+          undefined,
+          [objectPrototype, REQUEST_INIT_MEMBER_NAMES[index]]
+        );
+        if (descriptor !== undefined) return 'unsupported';
+      }
+    }
+    const keys = applyCaptured<Array<string | symbol>>(
+      primordials,
+      primordials.document.reflectOwnKeys,
+      undefined,
+      [init]
+    );
+    if (keys.length === 0) return 'empty';
+    if (keys.length === 1 && keys[0] === 'signal') return 'signal-only';
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (key === 'headers' || key === 'body' || key === 'method' || key === 'credentials') {
+        return 'security-sensitive';
+      }
+    }
+    return 'unsupported';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+function opaqueProbeCandidate(
+  primordials: PagePrimordials,
+  args: Parameters<typeof window.fetch>,
+  conversationId: string
+): OpaqueProbeCandidate | undefined {
+  const input = args[0];
+  const url = opaqueProbeUrl(primordials, input);
+  if (url === undefined) return undefined;
+  const path = applyCaptured<string>(primordials, primordials.document.urlPathname, url, []);
+  if (path !== `/backend-api/conversations/${conversationId}`) return undefined;
+
+  const exactTarget =
+    applyCaptured<string>(primordials, primordials.document.urlOrigin, url, []) ===
+      CHATGPT_ORIGIN &&
+    applyCaptured<string>(primordials, primordials.document.urlUsername, url, []) === '' &&
+    applyCaptured<string>(primordials, primordials.document.urlPassword, url, []) === '' &&
+    applyCaptured<string>(primordials, primordials.document.urlHash, url, []) === '' &&
+    hasExactOpaqueProbeQuery(primordials, url);
+  const initKind = opaqueProbeInitKind(primordials, args);
+  const structurallySafeInit =
+    initKind === 'absent' || initKind === 'empty' || initKind === 'signal-only';
+  let sourceIsNativeRequest = false;
+  let methodAccepted = false;
+  let sourceClone: Request | undefined;
+  let cloneFailed = false;
+  if (typeof input === 'object' && input !== null && exactTarget && structurallySafeInit) {
+    try {
+      const method = applyCaptured<unknown>(
+        primordials,
+        primordials.document.requestMethod,
+        input,
+        []
+      );
+      sourceIsNativeRequest = true;
+      methodAccepted =
+        typeof method === 'string' &&
+        applyCaptured<string>(primordials, primordials.document.stringToUpperCase, method, []) ===
+          'GET';
+      if (methodAccepted) {
+        try {
+          sourceClone = applyCaptured<Request>(
+            primordials,
+            primordials.document.requestClone,
+            input,
+            []
+          );
+        } catch {
+          cloneFailed = true;
+        }
+      }
+    } catch {
+      sourceIsNativeRequest = false;
+      methodAccepted = false;
+    }
+  }
+  return {
+    observedTargetRequest: true,
+    sourceIsNativeRequest,
+    initAbsent: initKind === 'absent',
+    exactTarget,
+    authorizationPresent: false,
+    credentialsAccepted: false,
+    methodAccepted,
+    cloneFailed,
+    initKind,
+    sourceClone,
+  };
+}
+
+function finishOpaqueProbe(
+  pageWindow: PageWindow,
+  state: OpaqueProbePageState,
+  result: OpaqueProbeResult
+): void {
+  if (state.settled) return;
+  state.settled = true;
+  state.result = { kind: 'result', result };
+  if (state.timeoutId !== undefined) {
+    try {
+      applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+        state.timeoutId,
+      ]);
+    } catch {
+      // A terminal bounded result is retained even if timer cleanup is poisoned.
+    }
+    state.timeoutId = undefined;
+  }
+  try {
+    if (state.wrappedFetch !== undefined && pageWindow.fetch === state.wrappedFetch) {
+      pageWindow.fetch = state.originalFetch;
+    }
+  } catch {
+    // Never overwrite a later page-owned wrapper.
+  }
+}
+
+function preliminaryOpaqueProbeResult(
+  primordials: PagePrimordials,
+  candidate: OpaqueProbeCandidate
+): OpaqueProbeResult | undefined {
+  const base = {
+    observedTargetRequest: candidate.observedTargetRequest,
+    sourceIsNativeRequest: candidate.sourceIsNativeRequest,
+    initAbsent: candidate.initAbsent,
+    exactTarget: candidate.exactTarget,
+  };
+  if (candidate.initKind === 'security-sensitive') {
+    return opaqueProbeResult('init-security-sensitive', base);
+  }
+  if (candidate.initKind === 'unsupported') return opaqueProbeResult('init-unsupported', base);
+  if (!candidate.exactTarget) return opaqueProbeResult('target-mismatch', base);
+  if (!candidate.sourceIsNativeRequest) {
+    return opaqueProbeResult('source-not-native-request', base);
+  }
+  if (!candidate.methodAccepted) return opaqueProbeResult('target-mismatch', base);
+  if (candidate.cloneFailed || candidate.sourceClone === undefined) {
+    return opaqueProbeResult('clone-failed', base);
+  }
+  try {
+    const clone = candidate.sourceClone;
+    const credentials = applyCaptured<unknown>(
+      primordials,
+      primordials.document.requestCredentials,
+      clone,
+      []
+    );
+    const credentialsAccepted = credentials === 'include' || credentials === 'same-origin';
+    const headers = applyCaptured<Headers>(
+      primordials,
+      primordials.document.requestHeaders,
+      clone,
+      []
+    );
+    const authorizationPresent = applyCaptured<boolean>(
+      primordials,
+      primordials.document.headersHas,
+      headers,
+      ['authorization']
+    );
+    const verified = { ...base, credentialsAccepted, authorizationPresent };
+    if (!credentialsAccepted) return opaqueProbeResult('credentials-rejected', verified);
+    if (!authorizationPresent) return opaqueProbeResult('authorization-absent', verified);
+    return undefined;
+  } catch {
+    return opaqueProbeResult('clone-failed', base);
+  }
+}
+
+function observeOpaqueProbeResponse(
+  pageWindow: PageWindow,
+  state: OpaqueProbePageState,
+  responsePromise: Promise<Response>,
+  candidate: OpaqueProbeCandidate
+): void {
+  const base = {
+    observedTargetRequest: candidate.observedTargetRequest,
+    sourceIsNativeRequest: candidate.sourceIsNativeRequest,
+    initAbsent: candidate.initAbsent,
+    exactTarget: candidate.exactTarget,
+    authorizationPresent: true,
+    credentialsAccepted: true,
+  };
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        (response: Response) => {
+          try {
+            const status = applyCaptured<number>(
+              state.primordials,
+              state.primordials.document.responseStatus,
+              response,
+              []
+            );
+            const headers = applyCaptured<Headers>(
+              state.primordials,
+              state.primordials.document.responseHeaders,
+              response,
+              []
+            );
+            const contentType = applyCaptured<string | null>(
+              state.primordials,
+              state.primordials.document.headersGet,
+              headers,
+              ['content-type']
+            );
+            const sourceJson =
+              typeof contentType === 'string' && isJsonMediaType(state.primordials, contentType);
+            const shared = { ...base, sourceStatus: status, sourceJson };
+            if (status === 401)
+              finishOpaqueProbe(
+                pageWindow,
+                state,
+                opaqueProbeResult('source-http-unauthorized', shared)
+              );
+            else if (status === 403)
+              finishOpaqueProbe(
+                pageWindow,
+                state,
+                opaqueProbeResult('source-http-forbidden', shared)
+              );
+            else if (status === 429)
+              finishOpaqueProbe(
+                pageWindow,
+                state,
+                opaqueProbeResult('source-http-rate-limited', shared)
+              );
+            else if (status >= 300 && status < 400)
+              finishOpaqueProbe(
+                pageWindow,
+                state,
+                opaqueProbeResult('source-http-redirect', shared)
+              );
+            else if (status !== 200)
+              finishOpaqueProbe(pageWindow, state, opaqueProbeResult('source-http-error', shared));
+            else if (!sourceJson)
+              finishOpaqueProbe(pageWindow, state, opaqueProbeResult('source-non-json', shared));
+            else {
+              const eligibleOutcome: OpaqueProbeOutcome =
+                candidate.initKind === 'empty'
+                  ? 'eligible-init-empty'
+                  : candidate.initKind === 'signal-only'
+                    ? 'eligible-init-signal-only'
+                    : 'eligible';
+              finishOpaqueProbe(pageWindow, state, opaqueProbeResult(eligibleOutcome, shared));
+            }
+          } catch {
+            finishOpaqueProbe(pageWindow, state, opaqueProbeResult('probe-failed', base));
+          }
+        },
+        () => finishOpaqueProbe(pageWindow, state, opaqueProbeResult('source-rejected', base)),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [
+        () => undefined,
+        () => finishOpaqueProbe(pageWindow, state, opaqueProbeResult('probe-failed', base)),
+      ]
+    );
+  } catch {
+    finishOpaqueProbe(pageWindow, state, opaqueProbeResult('probe-failed', base));
+  }
+}
+
+function armOpaqueProbe(
+  pageWindow: PageWindow,
+  primordials: PagePrimordials,
+  target: MarkerTarget,
+  windowRecord: Record<string, unknown>
+): ChatGptDocumentStartResult {
+  const originalFetch = pageWindow.fetch;
+  if (typeof originalFetch !== 'function') return { kind: 'error', code: 'hook-state-failed' };
+  const state: OpaqueProbePageState = {
+    primordials,
+    originalFetch,
+    wrappedFetch: undefined,
+    timeoutId: undefined,
+    settled: false,
+    claimed: false,
+    result: { kind: 'ready' },
+  };
+  const stateKey = opaqueProbeStateKeyFor(target.nonce);
+  try {
+    const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
+    const defineProperty = primordials.document.objectDefineProperty;
+    if (
+      getOwnPropertyDescriptor === undefined ||
+      defineProperty === undefined ||
+      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined
+    ) {
+      return { kind: 'error', code: 'hook-state-failed' };
+    }
+    defineProperty(windowRecord, stateKey, {
+      configurable: false,
+      enumerable: false,
+      get: () => snapshotOpaqueProbeResult(state.result),
+    });
+    const wrappedFetch = function (
+      this: PageWindow,
+      ...args: Parameters<typeof pageWindow.fetch>
+    ): ReturnType<typeof pageWindow.fetch> {
+      let candidate: OpaqueProbeCandidate | undefined;
+      let preliminary: OpaqueProbeResult | undefined;
+      try {
+        candidate =
+          !state.settled && !state.claimed
+            ? opaqueProbeCandidate(state.primordials, args, target.conversationId)
+            : undefined;
+        if (candidate !== undefined) state.claimed = true;
+        preliminary =
+          candidate === undefined
+            ? undefined
+            : preliminaryOpaqueProbeResult(state.primordials, candidate);
+        if (preliminary !== undefined) finishOpaqueProbe(pageWindow, state, preliminary);
+      } catch {
+        if (!state.settled) state.claimed = false;
+        candidate = undefined;
+        preliminary = undefined;
+      }
+      let responsePromise: ReturnType<typeof pageWindow.fetch>;
+      try {
+        responsePromise = applyCaptured<ReturnType<typeof pageWindow.fetch>>(
+          state.primordials,
+          state.originalFetch,
+          this,
+          args
+        );
+      } catch (error) {
+        if (candidate !== undefined && !state.settled) {
+          finishOpaqueProbe(
+            pageWindow,
+            state,
+            opaqueProbeResult('source-rejected', {
+              observedTargetRequest: candidate.observedTargetRequest,
+              sourceIsNativeRequest: candidate.sourceIsNativeRequest,
+              initAbsent: candidate.initAbsent,
+              exactTarget: candidate.exactTarget,
+              authorizationPresent: true,
+              credentialsAccepted: true,
+            })
+          );
+        }
+        throw error;
+      }
+      if (candidate !== undefined && preliminary === undefined) {
+        observeOpaqueProbeResponse(pageWindow, state, responsePromise, candidate);
+      }
+      return responsePromise;
+    } as typeof pageWindow.fetch;
+    state.wrappedFetch = wrappedFetch;
+    pageWindow.fetch = wrappedFetch;
+    state.timeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      primordials,
+      primordials.setTimeout,
+      pageWindow,
+      [
+        () => finishOpaqueProbe(pageWindow, state, opaqueProbeResult('target-not-observed')),
+        DEFAULT_OPAQUE_PROBE_TIMEOUT_MS,
+      ]
+    );
+    return { kind: 'ready' };
+  } catch {
+    finishOpaqueProbe(pageWindow, state, opaqueProbeResult('hook-state-failed'));
+    return { kind: 'error', code: 'hook-state-failed' };
+  }
+}
+
+/*
+ * The post-persistence resolver observer is deliberately separate from both
+ * ordinary capture and A-strict replay.  After at least one destination has
+ * durably re-verified initial replay raw bytes, a fresh marker-gated tab may
+ * observe exact page-owned plural metadata and bounded resolver responses.
+ * It performs zero singular dispatches and never reads the plural source
+ * body.  Safe records are usable only if their domain-separated key uniquely
+ * matches a provider identifier at an exact pointer in committed raw: this is
+ * committed-raw identifier correlation, not raw recapture equality.
+ */
+type OpaqueResolverErrorCode =
+  | 'hook-state-failed'
+  | 'target-not-observed'
+  | 'source-not-eligible'
+  | 'source-rejected'
+  | 'source-http-error'
+  | 'source-non-json';
+
+type OpaqueResolverHookResult =
+  | { kind: 'ready' }
+  | {
+      kind: 'observed';
+      conversationId: string;
+      resolverObservations: ResolverObservation[];
+      singularDispatchCount: 0;
+    }
+  | { kind: 'error'; code: OpaqueResolverErrorCode; singularDispatchCount: 0 };
+
+type OpaqueResolverPageState = {
+  primordials: PagePrimordials;
+  originalFetch: typeof window.fetch;
+  wrappedFetch: typeof window.fetch | undefined;
+  timeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  resolverDiscoveryTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  settled: boolean;
+  claimed: boolean;
+  resolverDiscoveryActive: boolean;
+  resolverDiscoveryExpired: boolean;
+  sourceValidated: boolean;
+  resolverClaims: number;
+  resolverObservations: ResolverObservation[];
+  result: OpaqueResolverHookResult;
+};
+
+function opaqueResolverStateKeyFor(nonce: string): string {
+  return `__liskaChatGptOpaqueResolver_${nonce}`;
+}
+
+function snapshotOpaqueResolverResult(result: OpaqueResolverHookResult): OpaqueResolverHookResult {
+  if (result.kind === 'ready') return { kind: 'ready' };
+  if (result.kind === 'error') {
+    return { kind: 'error', code: result.code, singularDispatchCount: 0 };
+  }
+  const resolverObservations: ResolverObservation[] = [];
+  for (let index = 0; index < result.resolverObservations.length; index += 1) {
+    const observation = result.resolverObservations[index];
+    resolverObservations[index] = {
+      providerFileId: observation.providerFileId,
+      bodyBase64: observation.bodyBase64,
+      byteLength: observation.byteLength,
+      sha256: observation.sha256,
+      mediaType: observation.mediaType,
+    };
+  }
+  return {
+    kind: 'observed',
+    conversationId: result.conversationId,
+    resolverObservations,
+    singularDispatchCount: 0,
+  };
+}
+
+function hasOpaqueResolverArmingPrimordials(primordials: PagePrimordials): boolean {
+  const document = primordials.document;
+  return (
+    hasOpaqueProbeArmingPrimordials(primordials) &&
+    document.responseClone !== undefined &&
+    document.responseBody !== undefined &&
+    document.streamGetReader !== undefined &&
+    document.readerRead !== undefined &&
+    document.readerCancel !== undefined &&
+    document.uint8Array !== undefined &&
+    document.uint8ArraySet !== undefined &&
+    document.uint8ArraySubarray !== undefined &&
+    document.arrayBufferSlice !== undefined &&
+    document.stringFromCharCode !== undefined &&
+    primordials.btoa !== undefined &&
+    primordials.subtleDigest !== undefined
+  );
+}
+
+function finishOpaqueResolver(
+  pageWindow: PageWindow,
+  state: OpaqueResolverPageState,
+  result: OpaqueResolverHookResult
+): void {
+  if (state.settled) return;
+  state.settled = true;
+  if (result.kind === 'error') state.resolverObservations = [];
+  state.result = result;
+  const timeoutId = state.timeoutId;
+  if (timeoutId !== undefined) {
+    try {
+      applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+        timeoutId,
+      ]);
+    } catch {
+      // A terminal result remains available when page timer cleanup is poisoned.
+    }
+    state.timeoutId = undefined;
+  }
+  const resolverDiscoveryTimeoutId = state.resolverDiscoveryTimeoutId;
+  if (resolverDiscoveryTimeoutId !== undefined) {
+    try {
+      applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+        resolverDiscoveryTimeoutId,
+      ]);
+    } catch {
+      // The bounded observer is terminal even when its timer cannot be cleared.
+    }
+    state.resolverDiscoveryTimeoutId = undefined;
+  }
+  state.resolverDiscoveryActive = false;
+  try {
+    if (state.wrappedFetch !== undefined && pageWindow.fetch === state.wrappedFetch) {
+      pageWindow.fetch = state.originalFetch;
+    }
+  } catch {
+    // Never overwrite a later page-owned wrapper during cleanup.
+  }
+}
+
+function finishOpaqueResolverObserved(
+  pageWindow: PageWindow,
+  state: OpaqueResolverPageState,
+  conversationId: string
+): void {
+  finishOpaqueResolver(pageWindow, state, {
+    kind: 'observed',
+    conversationId,
+    resolverObservations: state.resolverObservations,
+    singularDispatchCount: 0,
+  });
+}
+
+/**
+ * Reuse the probe's safe source classification.  It reads only Request URL,
+ * method, credentials and boolean authorization membership; no header value,
+ * request body, cookie, storage, DOM, or source response body is observed.
+ */
+function opaqueResolverSourceEligible(
+  primordials: PagePrimordials,
+  candidate: OpaqueProbeCandidate
+): boolean {
+  const preparation = prepareOpaqueReplay(primordials, candidate);
+  return typeof preparation !== 'string';
+}
+
+function armOpaqueResolverWindow(
+  pageWindow: PageWindow,
+  state: OpaqueResolverPageState,
+  conversationId: string
+): void {
+  if (state.settled || state.resolverDiscoveryActive || state.resolverDiscoveryExpired) return;
+  state.resolverDiscoveryActive = true;
+  try {
+    state.resolverDiscoveryTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      state.primordials,
+      state.primordials.setTimeout,
+      pageWindow,
+      [
+        () => {
+          state.resolverDiscoveryTimeoutId = undefined;
+          state.resolverDiscoveryActive = false;
+          state.resolverDiscoveryExpired = true;
+          if (state.sourceValidated) {
+            finishOpaqueResolverObserved(pageWindow, state, conversationId);
+          }
+        },
+        DEFAULT_OPAQUE_RESOLVER_DISCOVERY_WINDOW_MS,
+      ]
+    );
+  } catch {
+    state.resolverDiscoveryActive = false;
+    state.resolverDiscoveryExpired = true;
+    finishOpaqueResolver(pageWindow, state, {
+      kind: 'error',
+      code: 'hook-state-failed',
+      singularDispatchCount: 0,
+    });
+  }
+}
+
+function observeOpaqueResolverSourceResponse(
+  pageWindow: PageWindow,
+  state: OpaqueResolverPageState,
+  responsePromise: Promise<Response>,
+  conversationId: string
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        (response: Response) => {
+          try {
+            const status = applyCaptured<number>(
+              state.primordials,
+              state.primordials.document.responseStatus,
+              response,
+              []
+            );
+            const headers = applyCaptured<Headers>(
+              state.primordials,
+              state.primordials.document.responseHeaders,
+              response,
+              []
+            );
+            const contentType = applyCaptured<string | null>(
+              state.primordials,
+              state.primordials.document.headersGet,
+              headers,
+              ['content-type']
+            );
+            if (status !== 200) {
+              finishOpaqueResolver(pageWindow, state, {
+                kind: 'error',
+                code: 'source-http-error',
+                singularDispatchCount: 0,
+              });
+            } else if (
+              typeof contentType !== 'string' ||
+              !isJsonMediaType(state.primordials, contentType)
+            ) {
+              finishOpaqueResolver(pageWindow, state, {
+                kind: 'error',
+                code: 'source-non-json',
+                singularDispatchCount: 0,
+              });
+            } else {
+              // Deliberately no clone/arrayBuffer/text/json source operation.
+              state.sourceValidated = true;
+              if (state.resolverDiscoveryExpired) {
+                finishOpaqueResolverObserved(pageWindow, state, conversationId);
+              }
+            }
+          } catch {
+            finishOpaqueResolver(pageWindow, state, {
+              kind: 'error',
+              code: 'source-http-error',
+              singularDispatchCount: 0,
+            });
+          }
+        },
+        () =>
+          finishOpaqueResolver(pageWindow, state, {
+            kind: 'error',
+            code: 'source-rejected',
+            singularDispatchCount: 0,
+          }),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [() => undefined, () => undefined]
+    );
+  } catch {
+    finishOpaqueResolver(pageWindow, state, {
+      kind: 'error',
+      code: 'source-http-error',
+      singularDispatchCount: 0,
+    });
+  }
+}
+
+function armOpaqueResolver(
+  pageWindow: PageWindow,
+  primordials: PagePrimordials,
+  target: MarkerTarget,
+  windowRecord: Record<string, unknown>
+): ChatGptDocumentStartResult {
+  const originalFetch = pageWindow.fetch;
+  if (typeof originalFetch !== 'function') return { kind: 'error', code: 'hook-state-failed' };
+  const state: OpaqueResolverPageState = {
+    primordials,
+    originalFetch,
+    wrappedFetch: undefined,
+    timeoutId: undefined,
+    resolverDiscoveryTimeoutId: undefined,
+    settled: false,
+    claimed: false,
+    resolverDiscoveryActive: false,
+    resolverDiscoveryExpired: false,
+    sourceValidated: false,
+    resolverClaims: 0,
+    resolverObservations: [],
+    result: { kind: 'ready' },
+  };
+  const stateKey = opaqueResolverStateKeyFor(target.nonce);
+  try {
+    const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
+    const defineProperty = primordials.document.objectDefineProperty;
+    if (
+      getOwnPropertyDescriptor === undefined ||
+      defineProperty === undefined ||
+      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined
+    ) {
+      return { kind: 'error', code: 'hook-state-failed' };
+    }
+    defineProperty(windowRecord, stateKey, {
+      configurable: false,
+      enumerable: false,
+      get: () => snapshotOpaqueResolverResult(state.result),
+    });
+    const wrappedFetch = function (
+      this: PageWindow,
+      ...args: Parameters<typeof pageWindow.fetch>
+    ): ReturnType<typeof pageWindow.fetch> {
+      let sourceCandidate: OpaqueProbeCandidate | undefined;
+      let sourceEligible = false;
+      try {
+        sourceCandidate =
+          !state.settled && !state.claimed
+            ? opaqueProbeCandidate(state.primordials, args, target.conversationId)
+            : undefined;
+        if (sourceCandidate !== undefined) {
+          state.claimed = true;
+          if (!opaqueResolverSourceEligible(state.primordials, sourceCandidate)) {
+            finishOpaqueResolver(pageWindow, state, {
+              kind: 'error',
+              code: 'source-not-eligible',
+              singularDispatchCount: 0,
+            });
+          } else {
+            sourceEligible = true;
+          }
+        }
+      } catch {
+        if (!state.settled) state.claimed = false;
+        sourceCandidate = undefined;
+      }
+      const resolverFileId =
+        !state.settled &&
+        state.resolverDiscoveryActive &&
+        state.resolverClaims < DEFAULT_RESOLVER_MAX_OBSERVATIONS
+          ? resolverTargetFileId(state.primordials, args[0], args[1], target.conversationId)
+          : undefined;
+      if (resolverFileId !== undefined) state.resolverClaims += 1;
+      if (sourceEligible) {
+        // Resolver dispatch can begin from cached UI state before the matching
+        // source Response settles. The hard, non-extendable window therefore
+        // begins immediately before this exact source request is handed to the
+        // page's original fetch.
+        armOpaqueResolverWindow(pageWindow, state, target.conversationId);
+      }
+      let responsePromise: ReturnType<typeof pageWindow.fetch>;
+      try {
+        responsePromise = applyCaptured<ReturnType<typeof pageWindow.fetch>>(
+          state.primordials,
+          state.originalFetch,
+          this,
+          args
+        );
+      } catch (error) {
+        if (sourceCandidate !== undefined && !state.settled) {
+          finishOpaqueResolver(pageWindow, state, {
+            kind: 'error',
+            code: 'source-rejected',
+            singularDispatchCount: 0,
+          });
+        }
+        throw error;
+      }
+      if (sourceCandidate !== undefined && !state.settled) {
+        observeOpaqueResolverSourceResponse(
+          pageWindow,
+          state,
+          responsePromise,
+          target.conversationId
+        );
+      }
+      if (resolverFileId !== undefined) {
+        observeResolverResponse(pageWindow, state, responsePromise, resolverFileId);
+      }
+      return responsePromise;
+    } as typeof pageWindow.fetch;
+    state.wrappedFetch = wrappedFetch;
+    pageWindow.fetch = wrappedFetch;
+    state.timeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      primordials,
+      primordials.setTimeout,
+      pageWindow,
+      [
+        () =>
+          finishOpaqueResolver(pageWindow, state, {
+            kind: 'error',
+            code: 'target-not-observed',
+            singularDispatchCount: 0,
+          }),
+        DEFAULT_OPAQUE_PROBE_TIMEOUT_MS,
+      ]
+    );
+    return { kind: 'ready' };
+  } catch {
+    finishOpaqueResolver(pageWindow, state, {
+      kind: 'error',
+      code: 'hook-state-failed',
+      singularDispatchCount: 0,
+    });
+    return { kind: 'error', code: 'hook-state-failed' };
+  }
+}
+
+/*
+ * The opaque replay is intentionally separate from the metadata probe and
+ * ordinary capture.  A source Request clone remains closure-private; only a
+ * freshly constructed singular Request is dispatched, exactly once, after the
+ * page-owned plural response is known to be a 200 JSON response.
+ */
+type OpaqueReplayErrorCode =
+  | 'hook-state-failed'
+  | 'permission-unavailable'
+  | 'target-not-observed'
+  | 'source-not-native-request'
+  | 'init-security-sensitive'
+  | 'init-unsupported'
+  | 'target-mismatch'
+  | 'clone-failed'
+  | 'authorization-absent'
+  | 'credentials-rejected'
+  | 'source-rejected'
+  | 'source-http-error'
+  | 'source-non-json'
+  | 'replay-construction-failed'
+  | 'replay-dispatch-failed'
+  | 'replay-rejected'
+  | 'replay-http-error'
+  | 'replay-non-json'
+  | 'response-processing-failed'
+  | 'payload-too-large'
+  | 'timed-out';
+
+type OpaqueReplayCapture = {
+  bodyBase64: string;
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+};
+
+type OpaqueReplayHookResult =
+  | { kind: 'ready' }
+  | {
+      kind: 'captured';
+      conversationId: string;
+      capture: OpaqueReplayCapture;
+      singularDispatchCount: 1;
+    }
+  | { kind: 'error'; code: OpaqueReplayErrorCode; singularDispatchCount: 0 | 1 };
+
+type OpaqueReplayPageState = {
+  primordials: PagePrimordials;
+  originalFetch: typeof window.fetch;
+  wrappedFetch: typeof window.fetch | undefined;
+  timeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  abortController: AbortController | undefined;
+  settled: boolean;
+  claimed: boolean;
+  singularDispatchCount: 0 | 1;
+  result: OpaqueReplayHookResult;
+};
+
+type OpaqueReplayPreparation = {
+  headers: Headers;
+  credentials: RequestCredentials;
+};
+
+function opaqueReplayStateKeyFor(nonce: string): string {
+  return `__liskaChatGptOpaqueReplay_${nonce}`;
+}
+
+function snapshotOpaqueReplayResult(result: OpaqueReplayHookResult): OpaqueReplayHookResult {
+  if (result.kind === 'ready') return { kind: 'ready' };
+  if (result.kind === 'error') {
+    return {
+      kind: 'error',
+      code: result.code,
+      singularDispatchCount: result.singularDispatchCount,
+    };
+  }
+  return {
+    kind: 'captured',
+    conversationId: result.conversationId,
+    capture: {
+      bodyBase64: result.capture.bodyBase64,
+      byteLength: result.capture.byteLength,
+      sha256: result.capture.sha256,
+      mediaType: result.capture.mediaType,
+    },
+    singularDispatchCount: 1,
+  };
+}
+
+function hasOpaqueReplayArmingPrimordials(primordials: PagePrimordials): boolean {
+  const document = primordials.document;
+  return (
+    hasOpaqueProbeArmingPrimordials(primordials) &&
+    document.requestConstructor !== undefined &&
+    document.abortControllerConstructor !== undefined &&
+    document.abortControllerAbort !== undefined &&
+    document.abortControllerSignal !== undefined &&
+    document.responseClone !== undefined &&
+    document.responseBody !== undefined &&
+    document.streamGetReader !== undefined &&
+    document.readerRead !== undefined &&
+    document.readerCancel !== undefined &&
+    document.uint8Array !== undefined &&
+    document.uint8ArraySet !== undefined &&
+    document.uint8ArraySubarray !== undefined &&
+    document.arrayBufferSlice !== undefined &&
+    document.stringFromCharCode !== undefined &&
+    primordials.btoa !== undefined &&
+    primordials.subtleDigest !== undefined
+  );
+}
+
+function opaqueReplayError(
+  state: OpaqueReplayPageState,
+  code: OpaqueReplayErrorCode
+): OpaqueReplayHookResult {
+  return { kind: 'error', code, singularDispatchCount: state.singularDispatchCount };
+}
+
+function abortOpaqueReplay(state: OpaqueReplayPageState): void {
+  if (state.abortController === undefined) return;
+  try {
+    applyCaptured<void>(
+      state.primordials,
+      state.primordials.document.abortControllerAbort,
+      state.abortController,
+      []
+    );
+  } catch {
+    // The deadline/result is terminal even if the page cannot observe abort.
+  }
+  state.abortController = undefined;
+}
+
+function finishOpaqueReplay(
+  pageWindow: PageWindow,
+  state: OpaqueReplayPageState,
+  result: OpaqueReplayHookResult
+): void {
+  if (state.settled) return;
+  state.settled = true;
+  state.result = result;
+  if (state.timeoutId !== undefined) {
+    try {
+      applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+        state.timeoutId,
+      ]);
+    } catch {
+      // The terminal result remains available when timer cleanup is poisoned.
+    }
+    state.timeoutId = undefined;
+  }
+  abortOpaqueReplay(state);
+  try {
+    if (state.wrappedFetch !== undefined && pageWindow.fetch === state.wrappedFetch) {
+      pageWindow.fetch = state.originalFetch;
+    }
+  } catch {
+    // Do not replace a page wrapper installed after this observer.
+  }
+}
+
+function prepareOpaqueReplay(
+  primordials: PagePrimordials,
+  candidate: OpaqueProbeCandidate
+): OpaqueReplayPreparation | OpaqueReplayErrorCode {
+  if (candidate.initKind === 'security-sensitive') return 'init-security-sensitive';
+  if (candidate.initKind === 'unsupported') return 'init-unsupported';
+  if (!candidate.exactTarget || !candidate.methodAccepted) return 'target-mismatch';
+  if (!candidate.sourceIsNativeRequest) return 'source-not-native-request';
+  if (candidate.cloneFailed || candidate.sourceClone === undefined) return 'clone-failed';
+  try {
+    const credentials = applyCaptured<unknown>(
+      primordials,
+      primordials.document.requestCredentials,
+      candidate.sourceClone,
+      []
+    );
+    if (credentials !== 'include' && credentials !== 'same-origin') return 'credentials-rejected';
+    const headers = applyCaptured<Headers>(
+      primordials,
+      primordials.document.requestHeaders,
+      candidate.sourceClone,
+      []
+    );
+    // This boolean-only membership check is the sole header operation.  No
+    // header values are read, iterated, serialized, logged, or stored.
+    if (
+      !applyCaptured<boolean>(primordials, primordials.document.headersHas, headers, [
+        'authorization',
+      ])
+    ) {
+      return 'authorization-absent';
+    }
+    return { headers, credentials };
+  } catch {
+    return 'clone-failed';
+  }
+}
+
+/**
+ * The direct replay response is never returned to page code.  Cancel its
+ * unconsumed tee branch after cloning so it cannot apply backpressure to the
+ * bounded clone reader (and it still never exposes or reads response bytes).
+ */
+function discardOpaqueReplayOriginalBody(primordials: PagePrimordials, response: Response): void {
+  try {
+    const body = applyCaptured<ReadableStream<Uint8Array> | null>(
+      primordials,
+      primordials.document.responseBody,
+      response,
+      []
+    );
+    if (body === null) return;
+    const reader = applyCaptured<ReadableStreamDefaultReader<Uint8Array>>(
+      primordials,
+      primordials.document.streamGetReader,
+      body,
+      []
+    );
+    const cancellation = applyCaptured<Promise<void>>(
+      primordials,
+      primordials.document.readerCancel,
+      reader,
+      []
+    );
+    void applyCaptured<Promise<unknown>>(
+      primordials,
+      primordials.document.promiseThen,
+      cancellation,
+      [() => undefined, () => undefined]
+    );
+  } catch {
+    // Backpressure avoidance is best-effort; the core deadline remains hard.
+  }
+}
+
+async function captureOpaqueReplayResponse(
+  pageWindow: PageWindow,
+  state: OpaqueReplayPageState,
+  response: Response,
+  conversationId: string
+): Promise<void> {
+  try {
+    const status = applyCaptured<number>(
+      state.primordials,
+      state.primordials.document.responseStatus,
+      response,
+      []
+    );
+    if (status !== 200) {
+      finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'replay-http-error'));
+      return;
+    }
+    const headers = applyCaptured<Headers>(
+      state.primordials,
+      state.primordials.document.responseHeaders,
+      response,
+      []
+    );
+    const rawMediaType = applyCaptured<string | null>(
+      state.primordials,
+      state.primordials.document.headersGet,
+      headers,
+      ['content-type']
+    );
+    const mediaType =
+      typeof rawMediaType === 'string'
+        ? applyCaptured<string>(
+            state.primordials,
+            state.primordials.document.stringTrim,
+            rawMediaType,
+            []
+          )
+        : '';
+    if (!isJsonMediaType(state.primordials, mediaType)) {
+      finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'replay-non-json'));
+      return;
+    }
+    const clone = applyCaptured<Response>(
+      state.primordials,
+      state.primordials.document.responseClone,
+      response,
+      []
+    );
+    discardOpaqueReplayOriginalBody(state.primordials, response);
+    const bytes = await readBoundedClone(state.primordials, clone, DEFAULT_MAX_BYTES);
+    const sha256 = await sha256FromBytes(state.primordials, bytes);
+    if (state.settled) return;
+    finishOpaqueReplay(pageWindow, state, {
+      kind: 'captured',
+      conversationId,
+      capture: {
+        bodyBase64: base64FromBytes(state.primordials, bytes),
+        byteLength: bytes.byteLength,
+        sha256,
+        mediaType,
+      },
+      singularDispatchCount: 1,
+    });
+  } catch (error) {
+    finishOpaqueReplay(
+      pageWindow,
+      state,
+      opaqueReplayError(
+        state,
+        error === PAYLOAD_TOO_LARGE ? 'payload-too-large' : 'response-processing-failed'
+      )
+    );
+  }
+}
+
+function observeOpaqueReplayResponse(
+  pageWindow: PageWindow,
+  state: OpaqueReplayPageState,
+  responsePromise: Promise<Response>,
+  conversationId: string
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        (response: Response) =>
+          captureOpaqueReplayResponse(pageWindow, state, response, conversationId),
+        () => finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'replay-rejected')),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [
+        () => undefined,
+        () =>
+          finishOpaqueReplay(
+            pageWindow,
+            state,
+            opaqueReplayError(state, 'response-processing-failed')
+          ),
+      ]
+    );
+  } catch {
+    finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'response-processing-failed'));
+  }
+}
+
+function dispatchOpaqueReplay(
+  pageWindow: PageWindow,
+  state: OpaqueReplayPageState,
+  target: MarkerTarget,
+  preparation: OpaqueReplayPreparation
+): void {
+  if (state.settled || state.singularDispatchCount !== 0) return;
+  try {
+    const AbortControllerConstructor = state.primordials.document.abortControllerConstructor;
+    const RequestConstructor = state.primordials.document.requestConstructor;
+    if (AbortControllerConstructor === undefined || RequestConstructor === undefined) {
+      throw PRIMORDIAL_UNAVAILABLE;
+    }
+    const controller = new AbortControllerConstructor();
+    const signal = applyCaptured<AbortSignal>(
+      state.primordials,
+      state.primordials.document.abortControllerSignal,
+      controller,
+      []
+    );
+    // Headers is deliberately passed as the exact opaque source Headers object.
+    // Native Request copies it internally; no original RequestInit is replayed.
+    const replayRequest = new RequestConstructor(
+      `${CHATGPT_ORIGIN}/backend-api/conversation/${target.conversationId}`,
+      {
+        method: 'GET',
+        headers: preparation.headers,
+        credentials: preparation.credentials,
+        redirect: 'error',
+        cache: 'no-store',
+        signal,
+      }
+    );
+    state.abortController = controller;
+    // This transition happens immediately before the sole direct dispatch.
+    state.singularDispatchCount = 1;
+    let responsePromise: ReturnType<typeof pageWindow.fetch>;
+    try {
+      responsePromise = applyCaptured<ReturnType<typeof pageWindow.fetch>>(
+        state.primordials,
+        state.originalFetch,
+        pageWindow,
+        [replayRequest]
+      );
+    } catch {
+      finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'replay-dispatch-failed'));
+      return;
+    }
+    observeOpaqueReplayResponse(pageWindow, state, responsePromise, target.conversationId);
+  } catch {
+    finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'replay-construction-failed'));
+  }
+}
+
+function observeOpaqueReplaySourceResponse(
+  pageWindow: PageWindow,
+  state: OpaqueReplayPageState,
+  responsePromise: Promise<Response>,
+  target: MarkerTarget,
+  preparation: OpaqueReplayPreparation
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        (response: Response) => {
+          try {
+            if (state.settled) return;
+            const status = applyCaptured<number>(
+              state.primordials,
+              state.primordials.document.responseStatus,
+              response,
+              []
+            );
+            if (status !== 200) {
+              finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'source-http-error'));
+              return;
+            }
+            const headers = applyCaptured<Headers>(
+              state.primordials,
+              state.primordials.document.responseHeaders,
+              response,
+              []
+            );
+            const contentType = applyCaptured<string | null>(
+              state.primordials,
+              state.primordials.document.headersGet,
+              headers,
+              ['content-type']
+            );
+            if (
+              typeof contentType !== 'string' ||
+              !isJsonMediaType(state.primordials, contentType)
+            ) {
+              finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'source-non-json'));
+              return;
+            }
+            // Source response body is intentionally neither cloned nor read.
+            dispatchOpaqueReplay(pageWindow, state, target, preparation);
+          } catch {
+            finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'source-http-error'));
+          }
+        },
+        () => finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'source-rejected')),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [
+        () => undefined,
+        () => finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'source-http-error')),
+      ]
+    );
+  } catch {
+    finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'source-http-error'));
+  }
+}
+
+function armOpaqueReplay(
+  pageWindow: PageWindow,
+  primordials: PagePrimordials,
+  target: MarkerTarget,
+  windowRecord: Record<string, unknown>
+): ChatGptDocumentStartResult {
+  const originalFetch = pageWindow.fetch;
+  if (typeof originalFetch !== 'function') return { kind: 'error', code: 'hook-state-failed' };
+  const state: OpaqueReplayPageState = {
+    primordials,
+    originalFetch,
+    wrappedFetch: undefined,
+    timeoutId: undefined,
+    abortController: undefined,
+    settled: false,
+    claimed: false,
+    singularDispatchCount: 0,
+    result: { kind: 'ready' },
+  };
+  const stateKey = opaqueReplayStateKeyFor(target.nonce);
+  try {
+    const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
+    const defineProperty = primordials.document.objectDefineProperty;
+    if (
+      getOwnPropertyDescriptor === undefined ||
+      defineProperty === undefined ||
+      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined
+    ) {
+      return { kind: 'error', code: 'hook-state-failed' };
+    }
+    defineProperty(windowRecord, stateKey, {
+      configurable: false,
+      enumerable: false,
+      get: () => snapshotOpaqueReplayResult(state.result),
+    });
+    const wrappedFetch = function (
+      this: PageWindow,
+      ...args: Parameters<typeof pageWindow.fetch>
+    ): ReturnType<typeof pageWindow.fetch> {
+      let candidate: OpaqueProbeCandidate | undefined;
+      let preparation: OpaqueReplayPreparation | OpaqueReplayErrorCode | undefined;
+      try {
+        candidate =
+          !state.settled && !state.claimed
+            ? opaqueProbeCandidate(state.primordials, args, target.conversationId)
+            : undefined;
+        if (candidate !== undefined) {
+          state.claimed = true;
+          preparation = prepareOpaqueReplay(state.primordials, candidate);
+          if (typeof preparation === 'string') {
+            finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, preparation));
+          }
+        }
+      } catch {
+        // The original page call must still happen even when a hostile input
+        // defeats the observer/classifier.
+        if (!state.settled) state.claimed = false;
+        candidate = undefined;
+        preparation = undefined;
+      }
+      let responsePromise: ReturnType<typeof pageWindow.fetch>;
+      try {
+        responsePromise = applyCaptured<ReturnType<typeof pageWindow.fetch>>(
+          state.primordials,
+          state.originalFetch,
+          this,
+          args
+        );
+      } catch (error) {
+        if (candidate !== undefined && !state.settled) {
+          finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'source-rejected'));
+        }
+        throw error;
+      }
+      if (candidate !== undefined && preparation !== undefined && typeof preparation !== 'string') {
+        observeOpaqueReplaySourceResponse(pageWindow, state, responsePromise, target, preparation);
+      }
+      return responsePromise;
+    } as typeof pageWindow.fetch;
+    state.wrappedFetch = wrappedFetch;
+    pageWindow.fetch = wrappedFetch;
+    state.timeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      primordials,
+      primordials.setTimeout,
+      pageWindow,
+      [
+        () => finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'timed-out')),
+        DEFAULT_TIMEOUT_MS,
+      ]
+    );
+    return { kind: 'ready' };
+  } catch {
+    finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'hook-state-failed'));
+    return { kind: 'error', code: 'hook-state-failed' };
+  }
+}
+
 /**
  * Arm a single document before ChatGPT application code starts. URLs without
  * an exact route and nonce marker return inert before touching fetch, DOM, or
@@ -1064,12 +2749,31 @@ export function startChatGptDocumentStartCapture(
   if (target === undefined) return { kind: 'inert' };
 
   const primordials = pagePrimordials(pageWindow);
-  if (primordials === undefined || !hasArmingPrimordials(primordials)) {
+  if (
+    primordials === undefined ||
+    (target.mode === 'capture'
+      ? !hasArmingPrimordials(primordials)
+      : target.mode === 'opaque-probe'
+        ? !hasOpaqueProbeArmingPrimordials(primordials)
+        : target.mode === 'opaque-resolver'
+          ? !hasOpaqueResolverArmingPrimordials(primordials)
+          : !hasOpaqueReplayArmingPrimordials(primordials))
+  ) {
     return { kind: 'error', code: 'hook-state-failed' };
   }
 
-  const stateKey = stateKeyFor(target.nonce);
   const windowRecord = pageWindow as unknown as Record<string, unknown>;
+  if (target.mode === 'opaque-probe') {
+    return armOpaqueProbe(pageWindow, primordials, target, windowRecord);
+  }
+  if (target.mode === 'opaque-resolver') {
+    return armOpaqueResolver(pageWindow, primordials, target, windowRecord);
+  }
+  if (target.mode === 'opaque-replay') {
+    return armOpaqueReplay(pageWindow, primordials, target, windowRecord);
+  }
+
+  const stateKey = stateKeyFor(target.nonce);
   try {
     const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
     if (

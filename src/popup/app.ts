@@ -99,6 +99,8 @@ function queryElements() {
     enableAppendMode: getElement<HTMLInputElement>('enableAppendMode'),
     enableToolContent: getElement<HTMLInputElement>('enableToolContent'),
     enableImageExport: getElement<HTMLInputElement>('enableImageExport'),
+    enableChatGptOpaqueProbe: getElement<HTMLInputElement>('enableChatGptOpaqueProbe'),
+    enableChatGptOpaqueReplay: getElement<HTMLInputElement>('enableChatGptOpaqueReplay'),
     imageVaultPath: getElement<HTMLInputElement>('imageVaultPath'),
     flattenLargeCallouts: getElement<HTMLInputElement>('flattenLargeCallouts'),
     maxCalloutLines: getElement<HTMLInputElement>('maxCalloutLines'),
@@ -115,6 +117,10 @@ type PopupElements = ReturnType<typeof queryElements>;
 // Assigned by initPopup() before any UI handler can run
 let elements: PopupElements;
 let outputSaveChain: Promise<void> = Promise.resolve();
+
+function isOpaqueReplaySettingActive(settings: ExtensionSettings): boolean {
+  return settings.enableChatGptOpaqueReplay === true && settings.enableChatGptOpaqueProbe !== true;
+}
 
 /**
  * Initialize popup — queries the DOM and wires the UI.
@@ -149,6 +155,9 @@ function populateForm(settings: ExtensionSettings): void {
   elements.enableAppendMode.checked = settings.enableAppendMode ?? false;
   elements.enableToolContent.checked = settings.enableToolContent ?? false;
   elements.enableImageExport.checked = settings.enableImageExport ?? true;
+  const enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe === true;
+  elements.enableChatGptOpaqueProbe.checked = enableChatGptOpaqueProbe;
+  elements.enableChatGptOpaqueReplay.checked = isOpaqueReplaySettingActive(settings);
   elements.imageVaultPath.value = settings.imageVaultPath || '';
   elements.flattenLargeCallouts.checked = settings.flattenLargeCallouts ?? true;
   elements.maxCalloutLines.value = String(settings.maxCalloutLines ?? DEFAULT_MAX_CALLOUT_LINES);
@@ -213,6 +222,19 @@ function setupEventListeners(): void {
   });
   elements.outputFile.addEventListener('change', queueOutputOptionsSave);
   elements.outputClipboard.addEventListener('change', queueOutputOptionsSave);
+
+  elements.enableChatGptOpaqueProbe.addEventListener('change', () => {
+    if (elements.enableChatGptOpaqueProbe.checked) {
+      elements.enableChatGptOpaqueReplay.checked = false;
+      elements.enableChatGptOpaqueReplay.setAttribute('aria-checked', 'false');
+    }
+  });
+  elements.enableChatGptOpaqueReplay.addEventListener('change', () => {
+    if (elements.enableChatGptOpaqueReplay.checked) {
+      elements.enableChatGptOpaqueProbe.checked = false;
+      elements.enableChatGptOpaqueProbe.setAttribute('aria-checked', 'false');
+    }
+  });
 
   // Show/hide timezone when includeDates changes
   elements.includeDates.addEventListener('change', updateTimezoneVisibility);
@@ -399,6 +421,8 @@ function collectSettings(): ExtensionSettings {
     enableAppendMode: elements.enableAppendMode.checked,
     enableToolContent: elements.enableToolContent.checked,
     enableImageExport: elements.enableImageExport.checked,
+    enableChatGptOpaqueProbe: elements.enableChatGptOpaqueProbe.checked,
+    enableChatGptOpaqueReplay: elements.enableChatGptOpaqueReplay.checked,
     imageVaultPath: elements.imageVaultPath.value.trim() || 'AI/{platform}/images',
     flattenLargeCallouts: elements.flattenLargeCallouts.checked,
     maxCalloutLines: parseCalloutLines(elements.maxCalloutLines.value),

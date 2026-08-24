@@ -12,7 +12,10 @@ import {
   ChatGptNormalizationError,
   normalizeChatGptCapture,
   validateCaptureBundleShape,
+  verifyCaptureBundleIntegrity,
   type RawCaptureArtifact,
+  type RawCaptureAsset,
+  type RawCaptureAssetRecord,
   type RawCaptureArtifactRecord,
   type RawCaptureBundle,
   type LiskaThreadArchive,
@@ -35,6 +38,7 @@ import {
   ARCHIVE_COMPANION_RELATIVE_PATHS,
   type ArchiveCompanionArtifact,
   type ArchiveCompanionBundle,
+  type ChatGptAssetExportContext,
 } from '../../lib/types';
 import { hashCaptureManifest, sha256Hex } from './response';
 import { requestChatGptConversationCapture } from './chatgpt-request';
@@ -42,6 +46,8 @@ import {
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
+import { requestChatGptOpaqueResolverObservation } from './chatgpt-opaque-resolver-request';
+import type { ChatGptOpaqueResolverResponse } from '../../lib/chatgpt-opaque-resolver-contract';
 
 const ARTIFACT_ID = 'conversation';
 const ARTIFACT_PATH = 'responses/conversation.json';
@@ -119,9 +125,16 @@ export interface ChatGptCurrentBranchDependencies {
 export interface ChatGptArchiveCapture {
   archive: LiskaThreadArchive;
   archiveCompanion: ArchiveCompanionBundle;
+  /** Runtime-only original evidence for a later opt-in attachment export pass. */
+  assetExportContext?: ChatGptAssetExportContext;
   /** Ephemeral only: never serialized into raw, manifest, canonical, or Markdown. */
   transientAssetCandidates: ChatGptPageOwnedAssetCandidate[];
 }
+
+export const CHATGPT_ASSET_RECAPTURE_FAILED_WARNING =
+  'ChatGPT attachment resolver recapture failed; attachments were not attempted.';
+export const CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING =
+  'ChatGPT attachment resolver recapture did not match the original capture; attachments were not attempted.';
 
 /**
  * Decode only canonical standard base64 without Node Buffer or an argument
@@ -219,7 +232,9 @@ function captureArtifact(response: ChatGptCaptureResponse): CapturedArtifact {
   const record: RawCaptureArtifactRecord = {
     id: ARTIFACT_ID,
     relativePath: ARTIFACT_PATH,
-    mediaType: data.mediaType,
+    // The validated response may include JSON parameters such as charset;
+    // archive companions use the canonical JSON media type for exact binding.
+    mediaType: 'application/json',
     byteLength: bytes.byteLength,
     sha256: data.sha256,
     endpoint: CHATGPT_CAPTURE_ENDPOINT,
@@ -421,10 +436,236 @@ function safeNormalizerCode(error: unknown): string | undefined {
     : undefined;
 }
 
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function destinationAssetCompleteness(
+  original: RawCaptureBundle['manifest']['completeness']['assets'],
+  assets: readonly RawCaptureAssetRecord[]
+): RawCaptureBundle['manifest']['completeness']['assets'] {
+  if (original === 'unknown') return 'unknown';
+  if (assets.every(asset => asset.state === 'not-attempted')) return 'not-attempted';
+  return assets.every(asset => asset.state !== 'not-attempted') ? 'complete' : 'partial';
+}
+
+async function verifiedOriginalRaw(
+  context: ChatGptAssetExportContext
+): Promise<RawCaptureArtifact> {
+  try {
+    if (
+      !isChatGptConversationId(context.conversationId) ||
+      context.conversationId !== context.rawCaptureBundle.manifest.conversationId ||
+      context.rawCaptureBundle.manifest.provider !== 'chatgpt'
+    ) {
+      throw new Error('context identity');
+    }
+    assertJsonOnlyArchiveCompanionSafe(context.rawCaptureBundle);
+    if (context.rawCaptureBundle.artifacts.length !== 1) throw new Error('context artifact count');
+    const raw = context.rawCaptureBundle.artifacts[0];
+    if (!raw || bytesToBase64(raw.bytes) !== context.rawBodyBase64) {
+      throw new Error('context raw body');
+    }
+    if (raw.record.id !== ARTIFACT_ID || raw.record.relativePath !== ARTIFACT_PATH) {
+      throw new Error('context raw identity');
+    }
+    await verifyCaptureBundleIntegrity(context.rawCaptureBundle, sha256Hex);
+    return raw;
+  } catch {
+    throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  }
+}
+
+/** Verify the original runtime-only source context before a later persistence binding. */
+export async function verifyChatGptAssetExportContext(
+  context: ChatGptAssetExportContext
+): Promise<RawCaptureArtifact> {
+  return verifiedOriginalRaw(context);
+}
+
+export type ChatGptAssetResolverObservation =
+  | { kind: 'matched'; candidates: ChatGptPageOwnedAssetCandidate[] }
+  | { kind: 'recapture-failed'; warning: typeof CHATGPT_ASSET_RECAPTURE_FAILED_WARNING }
+  | { kind: 'recapture-mismatch'; warning: typeof CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING };
+
+export interface ChatGptAssetResolverObservationDependencies {
+  /** Injectable only for focused tests; production uses the runtime bridge. */
+  requestCapture?: ChatGptCurrentBranchDependencies['requestCapture'];
+  /**
+   * Explicit post-persistence opaque observer.  When supplied it is the only
+   * resolver route: this path must never fall back to legacy raw recapture.
+   */
+  requestResolvers?: (conversationId: string) => Promise<ChatGptOpaqueResolverResponse>;
+}
+
+/**
+ * Observe page-owned resolver responses only after the original raw companion
+ * has reached a durable destination. Resolver URLs stay in this return value
+ * only and are discarded before every persistence operation.
+ */
+// eslint-disable-next-line max-lines-per-function -- Both isolated resolver routes share one committed-raw verification boundary.
+export async function observeChatGptAssetResolvers(
+  context: ChatGptAssetExportContext,
+  dependencies: ChatGptAssetResolverObservationDependencies = {}
+): Promise<ChatGptAssetResolverObservation> {
+  let original: RawCaptureArtifact;
+  try {
+    original = await verifiedOriginalRaw(context);
+  } catch {
+    return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
+  }
+
+  try {
+    if (dependencies.requestResolvers !== undefined) {
+      const response = await dependencies.requestResolvers(context.conversationId);
+      if (!response.success) {
+        return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
+      }
+      return {
+        kind: 'matched',
+        candidates: await matchChatGptPageOwnedAssetResolvers({
+          raw: parseRawForInventory(original.bytes),
+          assets: context.rawCaptureBundle.manifest.assets,
+          resolvers: response.data.transientAssetResolvers,
+          sha256: sha256Hex,
+        }),
+      };
+    }
+    const response = await requestCaptureResponse(
+      context.conversationId,
+      dependencies.requestCapture,
+      true
+    );
+    const recaptured = captureArtifact(response);
+    await verifyCapturedArtifactIntegrity(recaptured.artifact);
+    if (
+      recaptured.artifact.record.byteLength !== original.record.byteLength ||
+      recaptured.artifact.record.sha256 !== original.record.sha256 ||
+      recaptured.bodyBase64 !== context.rawBodyBase64 ||
+      !bytesEqual(recaptured.artifact.bytes, original.bytes)
+    ) {
+      return { kind: 'recapture-mismatch', warning: CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING };
+    }
+
+    return {
+      kind: 'matched',
+      candidates: await matchChatGptPageOwnedAssetResolvers({
+        raw: parseRawForInventory(original.bytes),
+        assets: context.rawCaptureBundle.manifest.assets,
+        resolvers: recaptured.transientAssetResolvers,
+        sha256: sha256Hex,
+      }),
+    };
+  } catch {
+    return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
+  }
+}
+
+/**
+ * Post-persistence route-C composition.  It verifies the original committed
+ * raw context and correlates opaque resolver keys at exact raw pointers; it
+ * does not request a second raw conversation capture.
+ */
+export async function observeChatGptAssetResolversViaOpaqueSource(
+  context: ChatGptAssetExportContext
+): Promise<ChatGptAssetResolverObservation> {
+  return observeChatGptAssetResolvers(context, {
+    requestResolvers: requestChatGptOpaqueResolverObservation,
+  });
+}
+
+/**
+ * Rebuild one destination's manifest and canonical archive from the original
+ * raw artifact and only those runtime binary bytes that completed in that
+ * destination. Unlike the initial JSON-only builder, this accepts fetched
+ * runtime assets and validates their byte/hash evidence before normalization.
+ */
+// eslint-disable-next-line max-lines-per-function -- One explicit validation-to-normalization path prevents fetched-byte claims from bypassing the archive contract.
+export async function buildChatGptBinaryAwareArchiveCompanion(
+  context: ChatGptAssetExportContext,
+  assetRecords: readonly RawCaptureAssetRecord[],
+  runtimeAssets: readonly RawCaptureAsset[]
+): Promise<ArchiveCompanionBundle> {
+  const originalRaw = await verifiedOriginalRaw(context);
+  try {
+    const originalManifest = context.rawCaptureBundle.manifest;
+    const manifest = buildCaptureManifest({
+      captureId: originalManifest.captureId,
+      provider: originalManifest.provider,
+      conversationId: originalManifest.conversationId,
+      capturedAt: originalManifest.capturedAt,
+      method: originalManifest.method,
+      artifacts: originalManifest.artifacts,
+      assets: [...assetRecords],
+      completeness: {
+        ...originalManifest.completeness,
+        assets: destinationAssetCompleteness(originalManifest.completeness.assets, assetRecords),
+      },
+      warnings: originalManifest.warnings,
+      observedUnknownContentTypes: originalManifest.observedUnknownContentTypes,
+    });
+    const destinationRecords = new Map(manifest.assets.map(asset => [asset.id, asset]));
+    const bundle: RawCaptureBundle = {
+      manifest,
+      artifacts: [
+        {
+          record: manifest.artifacts.find(record => record.id === ARTIFACT_ID)!,
+          bytes: originalRaw.bytes,
+        },
+      ],
+      assets: runtimeAssets.map(asset => {
+        const record = destinationRecords.get(asset.record.id);
+        if (!record) throw new Error('unknown runtime asset');
+        return { record, bytes: asset.bytes };
+      }),
+    };
+    validateCaptureBundleShape(bundle);
+    await verifyCaptureBundleIntegrity(bundle, sha256Hex);
+    const manifestSha256 = await captureManifestSha256(bundle);
+    const rawManifest = await buildBinaryAwareRawManifestCompanionBundle(
+      bundle,
+      context.rawBodyBase64
+    );
+    const normalized = await normalizeChatGptCapture({
+      bundle,
+      artifactId: ARTIFACT_ID,
+      manifestSha256,
+      sha256: sha256Hex,
+    });
+    return appendCanonicalCompanion(rawManifest, normalized.archive);
+  } catch {
+    throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  }
+}
+
+async function buildBinaryAwareRawManifestCompanionBundle(
+  bundle: RawCaptureBundle,
+  rawBodyBase64: string
+): Promise<ArchiveCompanionBundle> {
+  const raw = bundle.artifacts.find(artifact => artifact.record.id === ARTIFACT_ID);
+  if (!raw) throw new Error('missing raw');
+  const manifestBytes = serializeJsonBytes(bundle.manifest);
+  const conversationKey = await sha256Hex(new TextEncoder().encode(bundle.manifest.conversationId));
+  const artifacts = await Promise.all([
+    archiveCompanionArtifact('raw', ARCHIVE_COMPANION_RELATIVE_PATHS.raw, raw.bytes, rawBodyBase64),
+    archiveCompanionArtifact('manifest', ARCHIVE_COMPANION_RELATIVE_PATHS.manifest, manifestBytes),
+  ]);
+  return {
+    captureId: bundle.manifest.captureId,
+    conversationKey,
+    artifacts: artifacts as readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact],
+  };
+}
+
 /**
  * Capture and integrity-check the complete ChatGPT graph, retaining raw,
  * manifest, and canonical companions before any presentation is selected.
  */
+// eslint-disable-next-line max-lines-per-function -- Keep capture verification, raw preservation, and canonical normalization in their trust-boundary order.
 export async function captureChatGptArchive(
   conversationId: string,
   dependencies: ChatGptCurrentBranchDependencies = {}
@@ -476,7 +717,16 @@ export async function captureChatGptArchive(
     throw new ChatGptCurrentBranchError('capture-integrity-failed', { archiveCompanion });
   }
 
-  return { archive: normalized.archive, archiveCompanion, transientAssetCandidates };
+  return {
+    archive: normalized.archive,
+    archiveCompanion,
+    assetExportContext: {
+      conversationId,
+      rawCaptureBundle: bundle,
+      rawBodyBase64: captured.bodyBase64,
+    },
+    transientAssetCandidates,
+  };
 }
 
 /**
@@ -489,12 +739,16 @@ export async function captureChatGptCurrentBranch(
   includeToolContent: boolean,
   dependencies: ChatGptCurrentBranchDependencies = {}
 ): Promise<ArchiveProjectionResult> {
-  const { archive, archiveCompanion } = await captureChatGptArchive(conversationId, dependencies);
+  const { archive, archiveCompanion, assetExportContext } = await captureChatGptArchive(
+    conversationId,
+    dependencies
+  );
 
   try {
     return {
       ...projectArchiveBranch(archive, { includeToolContent }),
       archiveCompanion,
+      chatGptAssetExportContext: assetExportContext,
     };
   } catch {
     throw new ChatGptCurrentBranchError('projection-failed', { archiveCompanion });

@@ -41,6 +41,8 @@ export interface AllBranchesPersistenceDependencies {
     destination: PersistentOutputDestination,
     messageCount: number
   ) => Promise<boolean>;
+  /** The caller already completed raw -> manifest -> canonical for every output. */
+  archiveAlreadyPersisted?: boolean;
   onProgress?: (completedBranches: number, totalBranches: number) => void;
 }
 
@@ -88,6 +90,15 @@ async function prepareDestinations(
 ): Promise<AllBranchesDestinationSummary[]> {
   const destinations: AllBranchesDestinationSummary[] = [];
   for (const destination of durableOutputs(outputs)) {
+    if (dependencies.archiveAlreadyPersisted === true) {
+      destinations.push({
+        destination,
+        archiveSaved: true,
+        branchFilesSaved: 0,
+        indexSaved: false,
+      });
+      continue;
+    }
     const warnings = await dependencies.persistCompanions(
       companion,
       'chatgpt-all-branches.md',

@@ -17,6 +17,7 @@ import { ALL_PLATFORMS, platformOrigin } from '../lib/platform-registry';
 import type {
   AIPlatform,
   ArchiveCompanionBundle,
+  ChatGptAssetExportContext,
   ConversationData,
   ConversationMessage,
 } from '../lib/types';
@@ -54,6 +55,8 @@ export interface ArchiveProjectionResult {
   warnings: string[];
   /** Immutable raw/manifest/canonical evidence available only after structured capture. */
   archiveCompanion?: ArchiveCompanionBundle;
+  /** Runtime-only original evidence for optional destination-honest attachment export. */
+  chatGptAssetExportContext?: ChatGptAssetExportContext;
 }
 
 type OmissionKind =

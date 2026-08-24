@@ -45,6 +45,72 @@ describe('ChatGPT capture message validation', () => {
     ).toBe(false);
   });
 
+  it('accepts only the exact opaque-probe message shape', () => {
+    expect(
+      validateMessageContent({
+        action: 'probeChatGptOpaqueRequest',
+        conversationId: CONVERSATION_ID,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'probeChatGptOpaqueRequest',
+        conversationId: CONVERSATION_ID,
+        authorization: 'synthetic-secret',
+      })
+    ).toBe(false);
+    expect(
+      validateMessageContent({
+        action: 'probeChatGptOpaqueRequest',
+        conversationId: 'not-a-conversation-id',
+      })
+    ).toBe(false);
+  });
+
+  it('accepts only the exact opaque-replay message shape', () => {
+    expect(
+      validateMessageContent({
+        action: 'captureChatGptConversationViaOpaqueReplay',
+        conversationId: CONVERSATION_ID,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'captureChatGptConversationViaOpaqueReplay',
+        conversationId: 'not-a-conversation-id',
+      })
+    ).toBe(false);
+    expect(
+      validateMessageContent({
+        action: 'captureChatGptConversationViaOpaqueReplay',
+        conversationId: CONVERSATION_ID,
+        headers: 'must-not-cross-the-boundary',
+      })
+    ).toBe(false);
+  });
+
+  it('accepts only the exact post-persistence opaque resolver message shape', () => {
+    expect(
+      validateMessageContent({
+        action: 'observeChatGptAssetResolversViaOpaqueSource',
+        conversationId: CONVERSATION_ID,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'observeChatGptAssetResolversViaOpaqueSource',
+        conversationId: CONVERSATION_ID,
+        rawBodyBase64: 'must-not-cross',
+      })
+    ).toBe(false);
+    expect(
+      validateMessageContent({
+        action: 'observeChatGptAssetResolversViaOpaqueSource',
+        conversationId: 'not-a-conversation-id',
+      })
+    ).toBe(false);
+  });
+
   it.each(['apiKey', 'headers', 'accountId'])('rejects the extra own key %s', extraKey => {
     expect(
       validateMessageContent({
@@ -52,6 +118,26 @@ describe('ChatGPT capture message validation', () => {
         conversationId: CONVERSATION_ID,
         observeAssetResolvers: false,
         [extraKey]: 'must-not-cross-the-boundary',
+      })
+    ).toBe(false);
+  });
+
+  it('rejects non-enumerable and symbol extras on ChatGPT bridge messages', () => {
+    const nonEnumerableExtra = {
+      action: 'captureChatGptConversationViaOpaqueReplay',
+      conversationId: CONVERSATION_ID,
+    };
+    Object.defineProperty(nonEnumerableExtra, 'secret', {
+      configurable: true,
+      enumerable: false,
+      value: 'must-not-cross-the-boundary',
+    });
+    expect(validateMessageContent(nonEnumerableExtra)).toBe(false);
+    expect(
+      validateMessageContent({
+        action: 'captureChatGptConversationViaOpaqueReplay',
+        conversationId: CONVERSATION_ID,
+        [Symbol('secret')]: true,
       })
     ).toBe(false);
   });

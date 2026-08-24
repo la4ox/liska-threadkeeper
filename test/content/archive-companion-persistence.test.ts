@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  persistArchiveCompanionArtifacts,
   persistArchiveCompanions,
   persistFailedExtractionArchive,
 } from '../../src/content/bootstrap';
@@ -224,6 +225,85 @@ describe('content archive companion persistence', () => {
       }),
     ]);
     expect(warnings).toEqual(['raw archive companion was not saved to obsidian']);
+  });
+
+  it('returns only destinations that completed the requested raw artifact', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [
+            { destination: 'file', success: true },
+            { destination: 'obsidian', success: false },
+          ],
+          allSuccessful: false,
+          anySuccessful: true,
+        });
+      }
+    );
+
+    const outcome = await persistArchiveCompanionArtifacts(
+      companion,
+      'note.md',
+      'chatgpt',
+      ['file', 'obsidian'],
+      ['raw']
+    );
+
+    expect(outcome.activeOutputs).toEqual(['file']);
+    expect(outcome.warnings).toEqual(['raw archive companion was not saved to obsidian']);
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('returns a destination-scoped warning when the background archive write rejects', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(() => {
+      throw new Error('extension context invalidated');
+    });
+
+    const outcome = await persistArchiveCompanionArtifacts(
+      companion,
+      'note.md',
+      'chatgpt',
+      ['file', 'obsidian'],
+      ['raw']
+    );
+
+    expect(outcome).toEqual({
+      activeOutputs: [],
+      warnings: [
+        'raw archive companion was not saved to file because the extension write failed',
+        'raw archive companion was not saved to obsidian because the extension write failed',
+      ],
+    });
+  });
+
+  it.each([
+    [
+      'a missing requested canonical artifact',
+      { ...companion, artifacts: [companion.artifacts[0], companion.artifacts[1]] },
+      ['raw', 'manifest', 'canonical'],
+    ],
+    [
+      'a duplicate raw artifact',
+      { ...companion, artifacts: [companion.artifacts[0], companion.artifacts[0]] },
+      ['raw'],
+    ],
+    ['an out-of-order request', companion, ['manifest', 'raw']],
+  ])('fails closed without a background write for %s', async (_label, malformed, kinds) => {
+    const outcome = await persistArchiveCompanionArtifacts(
+      malformed as ArchiveCompanionBundle,
+      'note.md',
+      'chatgpt',
+      ['file'],
+      kinds as ('raw' | 'manifest' | 'canonical')[]
+    );
+
+    expect(outcome).toEqual({
+      activeOutputs: [],
+      warnings: [
+        'requested archive companion set was not saved to file because the requested archive companion set is invalid',
+      ],
+    });
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('rejects malformed output result sets with duplicate or missing destinations', async () => {

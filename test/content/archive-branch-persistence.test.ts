@@ -190,6 +190,26 @@ describe('all-branches sequential persistence', () => {
     ]);
   });
 
+  it('writes all-branches Markdown without rewriting companions already finalized per destination', async () => {
+    const persistCompanions = vi.fn();
+    const writeNote = vi.fn().mockResolvedValue(true);
+
+    const summary = await persistAllBranchesPresentation(
+      plan(),
+      companion,
+      templateOptions,
+      false,
+      ['file'],
+      { persistCompanions, writeNote, archiveAlreadyPersisted: true }
+    );
+
+    expect(persistCompanions).not.toHaveBeenCalled();
+    expect(writeNote).toHaveBeenCalledTimes(3);
+    expect(summary.destinations).toEqual([
+      { destination: 'file', archiveSaved: true, branchFilesSaved: 2, indexSaved: true },
+    ]);
+  });
+
   it('continues remaining leaves but withholds the index after one note write fails', async () => {
     const persistCompanions = vi.fn().mockResolvedValue([]);
     const writeNote = vi

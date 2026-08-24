@@ -3,9 +3,14 @@ import {
   CHATGPT_CAPTURE_ENDPOINT,
   createChatGptCaptureFailure,
 } from '../../src/lib/chatgpt-capture-contract';
+import { createChatGptOpaqueProbeResult } from '../../src/lib/chatgpt-opaque-probe-contract';
+import { createChatGptOpaqueReplayFailure } from '../../src/lib/chatgpt-opaque-replay-contract';
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
+  probe: vi.fn(),
+  replay: vi.fn(),
+  resolver: vi.fn(),
   getSettings: vi.fn(),
   migrateSettings: vi.fn(),
 }));
@@ -20,6 +25,32 @@ vi.mock('../../src/background/chatgpt-capture', async importOriginal => {
   return {
     ...actual,
     captureChatGptInTemporaryTab: (...args: unknown[]) => mocks.capture(...args),
+  };
+});
+
+vi.mock('../../src/background/chatgpt-opaque-probe', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/background/chatgpt-opaque-probe')>();
+  return {
+    ...actual,
+    probeChatGptOpaqueRequest: (...args: unknown[]) => mocks.probe(...args),
+  };
+});
+
+vi.mock('../../src/background/chatgpt-opaque-replay', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/background/chatgpt-opaque-replay')>();
+  return {
+    ...actual,
+    captureChatGptConversationViaOpaqueReplay: (...args: unknown[]) => mocks.replay(...args),
+  };
+});
+
+vi.mock('../../src/background/chatgpt-opaque-resolver', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/background/chatgpt-opaque-resolver')>();
+  return {
+    ...actual,
+    observeChatGptAssetResolversViaOpaqueSource: (...args: unknown[]) => mocks.resolver(...args),
   };
 });
 
@@ -55,6 +86,42 @@ function invokeCapture(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
   return sendResponse;
 }
 
+function invokeOpaqueProbe(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
+  const returned = capturedListener(
+    { action: 'probeChatGptOpaqueRequest', conversationId: CONVERSATION_ID },
+    { tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` } } as chrome.runtime.MessageSender,
+    sendResponse
+  );
+  expect(returned).toBe(true);
+  return sendResponse;
+}
+
+function invokeOpaqueReplay(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
+  const returned = capturedListener(
+    {
+      action: 'captureChatGptConversationViaOpaqueReplay',
+      conversationId: CONVERSATION_ID,
+    },
+    { tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` } } as chrome.runtime.MessageSender,
+    sendResponse
+  );
+  expect(returned).toBe(true);
+  return sendResponse;
+}
+
+function invokeOpaqueResolver(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
+  const returned = capturedListener(
+    {
+      action: 'observeChatGptAssetResolversViaOpaqueSource',
+      conversationId: CONVERSATION_ID,
+    },
+    { tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` } } as chrome.runtime.MessageSender,
+    sendResponse
+  );
+  expect(returned).toBe(true);
+  return sendResponse;
+}
+
 function setScriptingPermission(granted: boolean): ReturnType<typeof vi.fn> {
   const contains = vi.fn(
     (_permissions: { permissions: string[] }, callback: (result: boolean) => void) =>
@@ -76,6 +143,9 @@ describe('ChatGPT capture service-worker route', () => {
     mocks.migrateSettings.mockResolvedValue(undefined);
     mocks.getSettings.mockResolvedValue({ obsidianApiKey: 'must-not-be-read' });
     mocks.capture.mockResolvedValue(captureArtifact());
+    mocks.probe.mockResolvedValue(createChatGptOpaqueProbeResult('eligible'));
+    mocks.replay.mockResolvedValue({ success: true, data: captureArtifact() });
+    mocks.resolver.mockResolvedValue({ success: true, data: { transientAssetResolvers: [] } });
     setScriptingPermission(true);
     vi.mocked(chrome.runtime.onMessage.addListener).mockImplementation(listener => {
       capturedListener = listener;
@@ -99,6 +169,66 @@ describe('ChatGPT capture service-worker route', () => {
     });
     expect(mocks.getSettings).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
+  });
+
+  it('routes the exact opaque probe through the same sender and scripting checks without capture', async () => {
+    const sendResponse = invokeOpaqueProbe();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.probe).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      data: createChatGptOpaqueProbeResult('eligible'),
+    });
+    expect(JSON.stringify(sendResponse.mock.calls[0][0])).not.toContain(CONVERSATION_ID);
+  });
+
+  it('fails the opaque probe before dispatch when scripting is unavailable', async () => {
+    setScriptingPermission(false);
+    const sendResponse = invokeOpaqueProbe();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.probe).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      data: createChatGptOpaqueProbeResult('probe-failed'),
+    });
+  });
+
+  it('routes the exact one-shot opaque replay without settings or ordinary capture', async () => {
+    const sendResponse = invokeOpaqueReplay();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.replay).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.probe).not.toHaveBeenCalled();
+    expect(mocks.getSettings).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
+  });
+
+  it('fails opaque replay before dispatch when scripting is unavailable', async () => {
+    setScriptingPermission(false);
+    const sendResponse = invokeOpaqueReplay();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.replay).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptOpaqueReplayFailure('permission-unavailable')
+    );
+  });
+
+  it('routes the exact post-persistence resolver observer without ordinary capture or replay', async () => {
+    const sendResponse = invokeOpaqueResolver();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.resolver).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.replay).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      data: { transientAssetResolvers: [] },
+    });
   });
 
   it('authorizes the current conversation after same-origin SPA navigation', async () => {
@@ -279,6 +409,45 @@ describe('ChatGPT capture service-worker route', () => {
     expect(malformedResponse).toHaveBeenCalledWith(createChatGptCaptureFailure('capture-failed'));
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.getSettings).not.toHaveBeenCalled();
+  });
+
+  it('uses the replay failure envelope for untrusted replay messages rejected early', () => {
+    const unauthorizedResponse = vi.fn();
+    const malformedResponse = vi.fn();
+
+    expect(
+      capturedListener(
+        {
+          action: 'captureChatGptConversationViaOpaqueReplay',
+          conversationId: CONVERSATION_ID,
+        },
+        {
+          tab: { url: `https://evil.example/c/${CONVERSATION_ID}` },
+        } as chrome.runtime.MessageSender,
+        unauthorizedResponse
+      )
+    ).toBe(false);
+    expect(unauthorizedResponse).toHaveBeenCalledWith(
+      createChatGptOpaqueReplayFailure('replay-result-invalid')
+    );
+
+    expect(
+      capturedListener(
+        {
+          action: 'captureChatGptConversationViaOpaqueReplay',
+          conversationId: CONVERSATION_ID,
+          authorization: 'must-not-cross-the-boundary',
+        },
+        {
+          tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+        } as chrome.runtime.MessageSender,
+        malformedResponse
+      )
+    ).toBe(false);
+    expect(malformedResponse).toHaveBeenCalledWith(
+      createChatGptOpaqueReplayFailure('replay-result-invalid')
+    );
+    expect(mocks.replay).not.toHaveBeenCalled();
   });
 
   it('does not invoke untrusted action getters while choosing an early reject envelope', () => {

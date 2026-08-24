@@ -395,6 +395,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
     // Skip for Deep Research which only has assistant content
     if (
       !isDeepResearch &&
+      result.data.capture?.completeness !== 'complete' &&
       Math.abs(metadata.userMessageCount - metadata.assistantMessageCount) > 1
     ) {
       warnings.push('Unbalanced message count - some messages may not have been extracted');

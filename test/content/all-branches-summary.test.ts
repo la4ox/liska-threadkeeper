@@ -63,6 +63,20 @@ describe('all-branches user summary', () => {
     expect(showWarningToast).not.toHaveBeenCalled();
   });
 
+  it('keeps attachment archive caveats visible even when remaining destinations completed', () => {
+    displayAllBranchesSummary(summary(), [
+      'One or more ChatGPT attachments were not saved to obsidian; the archive manifest records them as failed.',
+    ]);
+
+    expect(showToast).not.toHaveBeenCalledWith('Saved 2 branches and an index to file', 'success');
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining('One or more ChatGPT attachments were not saved to obsidian')
+    );
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining('Saved 2 branches and an index to file')
+    );
+  });
+
   it('summarizes legacy omissions, canonical-only stubs, and skipped Clipboard', () => {
     displayAllBranchesSummary(
       summary({ omissionBranchCount: 2, canonicalOnlyCount: 1, clipboardSkipped: true })

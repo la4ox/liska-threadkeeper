@@ -381,7 +381,13 @@ async function validateResolverObservation(
   return /^[a-f0-9]{64}$/.test(resolverKey) ? { resolverKey, downloadUrl } : undefined;
 }
 
-async function validateResolverObservations(
+/**
+ * Validate bounded resolver JSON clones before their provider identifiers are
+ * domain-separated into runtime-only resolver keys.  This is shared by the
+ * legacy capture bridge and the post-persistence opaque observer; neither
+ * caller may persist or log the raw observation values.
+ */
+export async function validateChatGptResolverObservations(
   observations: unknown[],
   conversationId: string,
   digestSha256: (bytes: Uint8Array) => Promise<string>
@@ -438,7 +444,7 @@ async function validateCapturedResult(
     byteLength: capture.byteLength,
     sha256: normalizedSha256,
     mediaType: capture.mediaType,
-    transientAssetResolvers: await validateResolverObservations(
+    transientAssetResolvers: await validateChatGptResolverObservations(
       Array.isArray(value.resolverObservations) ? value.resolverObservations : [],
       expectedConversationId,
       digestSha256

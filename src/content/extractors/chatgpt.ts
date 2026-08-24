@@ -30,6 +30,11 @@ import {
   manifestAllowsChatGptStructuredCapture,
   type ChatGptArchiveCapture,
 } from '../capture/chatgpt-current-branch';
+import { requestChatGptOpaqueProbe } from '../capture/chatgpt-opaque-probe-request';
+import {
+  captureChatGptArchiveViaOpaqueReplay,
+  captureChatGptCurrentBranchViaOpaqueReplay,
+} from '../capture/chatgpt-opaque-replay-request';
 import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
 import { buildArchiveBranchPickerOptions } from '../archive-branch-options';
 import {
@@ -95,6 +100,19 @@ function selectedBranchFailure(error: unknown, fallbackCode: string): Extraction
   };
 }
 
+function opaqueReplayFailure(error: unknown): ExtractionResult {
+  const code = error instanceof ChatGptCurrentBranchError ? error.code : 'capture-failed';
+  const detail =
+    error instanceof ChatGptCurrentBranchError && error.detailCode ? `:${error.detailCode}` : '';
+  const archiveCompanion =
+    error instanceof ChatGptCurrentBranchError ? error.archiveCompanion : undefined;
+  return {
+    success: false,
+    error: `ChatGPT experimental A-strict replay failed (${code}${detail}); no fallback export was created.`,
+    ...(archiveCompanion ? { archiveCompanion } : {}),
+  };
+}
+
 export interface ChatGPTExtractorDependencies {
   captureCurrentBranch?: (
     conversationId: string,
@@ -103,6 +121,12 @@ export interface ChatGPTExtractorDependencies {
   captureArchive?: (conversationId: string) => Promise<ChatGptArchiveCapture>;
   selectBranch?: (options: ArchiveBranchPickerOption[]) => Promise<ArchiveBranchPickerSelection>;
   manifestAllowsStructuredCapture?: () => boolean;
+  requestOpaqueProbe?: (conversationId: string) => ReturnType<typeof requestChatGptOpaqueProbe>;
+  captureReplayCurrentBranch?: (
+    conversationId: string,
+    includeToolContent: boolean
+  ) => Promise<ArchiveProjectionResult>;
+  captureReplayArchive?: (conversationId: string) => Promise<ChatGptArchiveCapture>;
 }
 
 export type ChatGptBranchExportMode = 'current' | 'selected';
@@ -133,6 +157,8 @@ export class ChatGPTExtractor extends BaseExtractor {
 
   /** Include projected reasoning and tool blocks from the verified archive. */
   enableToolContent = false;
+  private enableChatGptOpaqueProbe = false;
+  private enableChatGptOpaqueReplay = false;
   private branchExportMode: ChatGptBranchExportMode = 'current';
 
   private readonly captureCurrentBranch: NonNullable<
@@ -143,6 +169,15 @@ export class ChatGPTExtractor extends BaseExtractor {
   >;
   private readonly captureArchive: NonNullable<ChatGPTExtractorDependencies['captureArchive']>;
   private readonly selectBranch: NonNullable<ChatGPTExtractorDependencies['selectBranch']>;
+  private readonly requestOpaqueProbe: NonNullable<
+    ChatGPTExtractorDependencies['requestOpaqueProbe']
+  >;
+  private readonly captureReplayCurrentBranch: NonNullable<
+    ChatGPTExtractorDependencies['captureReplayCurrentBranch']
+  >;
+  private readonly captureReplayArchive: NonNullable<
+    ChatGPTExtractorDependencies['captureReplayArchive']
+  >;
 
   constructor(dependencies: ChatGPTExtractorDependencies = {}) {
     super();
@@ -151,6 +186,11 @@ export class ChatGPTExtractor extends BaseExtractor {
     this.selectBranch = dependencies.selectBranch ?? showArchiveBranchPicker;
     this.manifestAllowsStructuredCapture =
       dependencies.manifestAllowsStructuredCapture ?? manifestAllowsChatGptStructuredCapture;
+    this.requestOpaqueProbe = dependencies.requestOpaqueProbe ?? requestChatGptOpaqueProbe;
+    this.captureReplayCurrentBranch =
+      dependencies.captureReplayCurrentBranch ?? captureChatGptCurrentBranchViaOpaqueReplay;
+    this.captureReplayArchive =
+      dependencies.captureReplayArchive ?? captureChatGptArchiveViaOpaqueReplay;
   }
 
   /** Select a transient presentation without changing persisted extraction settings. */
@@ -164,6 +204,8 @@ export class ChatGPTExtractor extends BaseExtractor {
   applySettings(settings: SyncSettings): void {
     this.enableAutoScroll = settings.enableAutoScroll ?? false;
     this.enableToolContent = settings.enableToolContent ?? false;
+    this.enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe ?? false;
+    this.enableChatGptOpaqueReplay = settings.enableChatGptOpaqueReplay ?? false;
   }
 
   /**
@@ -188,6 +230,10 @@ export class ChatGPTExtractor extends BaseExtractor {
     }
     const { conversationId } = route;
 
+    if (this.enableChatGptOpaqueProbe) {
+      return this.runOpaqueProbe(conversationId);
+    }
+
     if (!this.allowsStructuredCapture()) {
       return this.handlePreSelectionFailure(
         new ChatGptCurrentBranchError('permission-unavailable'),
@@ -200,7 +246,24 @@ export class ChatGPTExtractor extends BaseExtractor {
         await this.captureRequestedProjection(conversationId)
       );
     } catch (error) {
+      if (this.enableChatGptOpaqueReplay) return opaqueReplayFailure(error);
       return this.handlePreSelectionFailure(error, 'capture-failed');
+    }
+  }
+
+  private async runOpaqueProbe(conversationId: string): Promise<ExtractionResult> {
+    try {
+      const result = await this.requestOpaqueProbe(conversationId);
+      return {
+        success: false,
+        error: `ChatGPT experimental metadata-only probe: ${result.data.outcome}. No conversation was exported.`,
+      };
+    } catch {
+      return {
+        success: false,
+        error:
+          'ChatGPT experimental metadata-only probe did not complete. No conversation was exported.',
+      };
     }
   }
 
@@ -219,6 +282,7 @@ export class ChatGPTExtractor extends BaseExtractor {
       return {
         success: true,
         archiveCompanion: selection.capture.archiveCompanion,
+        chatGptAssetExportContext: selection.capture.assetExportContext,
         allBranches: {
           archive: selection.capture.archive,
           catalog: selection.catalog,
@@ -253,13 +317,19 @@ export class ChatGPTExtractor extends BaseExtractor {
       success: true,
       data: { ...data, capture: { mode: 'structured-api', completeness: 'complete' } },
       ...(projection.archiveCompanion && { archiveCompanion: projection.archiveCompanion }),
+      ...(projection.chatGptAssetExportContext && {
+        chatGptAssetExportContext: projection.chatGptAssetExportContext,
+      }),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 
   private captureRequestedProjection(conversationId: string): Promise<ProjectionSelection> {
     if (this.branchExportMode === 'current') {
-      return this.captureCurrentBranch(conversationId, this.enableToolContent).then(projection => ({
+      const captureCurrentBranch = this.enableChatGptOpaqueReplay
+        ? this.captureReplayCurrentBranch
+        : this.captureCurrentBranch;
+      return captureCurrentBranch(conversationId, this.enableToolContent).then(projection => ({
         kind: 'projection',
         projection,
       }));
@@ -268,7 +338,9 @@ export class ChatGPTExtractor extends BaseExtractor {
   }
 
   private async captureSelectedBranch(conversationId: string): Promise<ProjectionSelection> {
-    const capture = await this.captureArchive(conversationId);
+    const capture = await (this.enableChatGptOpaqueReplay
+      ? this.captureReplayArchive(conversationId)
+      : this.captureArchive(conversationId));
     try {
       const catalog = getArchiveBranchCatalog(capture.archive);
       const selection = await this.selectBranch(
@@ -298,6 +370,7 @@ export class ChatGPTExtractor extends BaseExtractor {
             },
           },
           archiveCompanion: capture.archiveCompanion,
+          chatGptAssetExportContext: capture.assetExportContext,
         },
       };
     } catch {

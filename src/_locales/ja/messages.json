@@ -268,10 +268,22 @@
     "message": "Claude の Web 検索やツール結果も保存する"
   },
   "settings_enableImageExport": {
-    "message": "画像を書き出す"
+    "message": "画像と添付ファイルを書き出す"
+  },
+  "settings_enableChatGptOpaqueProbe": {
+    "message": "実験的な ChatGPT メタデータプローブ"
+  },
+  "settings_chatGptOpaqueProbeHelp": {
+    "message": "メタデータのみを確認します。有効中は会話を書き出しません"
+  },
+  "settings_enableChatGptOpaqueReplay": {
+    "message": "実験的な ChatGPT フルグラフ再取得"
+  },
+  "settings_chatGptOpaqueReplayHelp": {
+    "message": "同一オリジンへの厳密な 1 回のリクエスト。既定では無効です"
   },
   "settings_imageExportHelp": {
-    "message": "生成された画像を保存する（Obsidian・ファイルダウンロード）"
+    "message": "生成画像と対応する ChatGPT の添付ファイルを保存する"
   },
   "settings_imageVaultPath": {
     "message": "画像フォルダ"

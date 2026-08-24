@@ -4,6 +4,9 @@
  */
 
 import type { ChatGptCaptureResponse } from './chatgpt-capture-contract';
+import type { ChatGptOpaqueProbeResponse } from './chatgpt-opaque-probe-contract';
+import type { ChatGptOpaqueReplayResponse } from './chatgpt-opaque-replay-contract';
+import type { ChatGptOpaqueResolverResponse } from './chatgpt-opaque-resolver-contract';
 import type {
   ExtensionMessage,
   ContentScriptSettings,
@@ -25,6 +28,9 @@ interface MessageResponseMap {
   persistArchiveCompanion: MultiOutputResponse;
   updateOutputOptions: OutputOptionsUpdateResponse;
   captureChatGptConversation: ChatGptCaptureResponse;
+  probeChatGptOpaqueRequest: ChatGptOpaqueProbeResponse;
+  captureChatGptConversationViaOpaqueReplay: ChatGptOpaqueReplayResponse;
+  observeChatGptAssetResolversViaOpaqueSource: ChatGptOpaqueResolverResponse;
   beginStagedBinaryAsset: BinaryStageResponse;
   appendStagedBinaryAsset: BinaryStageResponse;
   commitStagedBinaryAsset: MultiOutputResponse;

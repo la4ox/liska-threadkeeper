@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createChatGptCaptureFailure } from '../../src/lib/chatgpt-capture-contract';
+import { createChatGptOpaqueProbeResult } from '../../src/lib/chatgpt-opaque-probe-contract';
 
 const mocks = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 
 import { requestChatGptConversationCapture } from '../../src/content/capture/chatgpt-request';
+import { requestChatGptOpaqueProbe } from '../../src/content/capture/chatgpt-opaque-probe-request';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 
@@ -58,5 +60,43 @@ describe('requestChatGptConversationCapture', () => {
       '[G2O] ChatGPT structured capture unavailable:',
       'unexpected-capture-result'
     );
+  });
+});
+
+describe('requestChatGptOpaqueProbe', () => {
+  it('uses only the exact separate probe action and returns the bounded metadata result', async () => {
+    const response = {
+      success: false as const,
+      data: createChatGptOpaqueProbeResult('eligible', {
+        observedTargetRequest: true,
+        sourceIsNativeRequest: true,
+        initAbsent: true,
+        exactTarget: true,
+        authorizationPresent: true,
+        credentialsAccepted: true,
+        sourceStatus: 200,
+        sourceJson: true,
+      }),
+    };
+    mocks.sendMessage.mockResolvedValueOnce(response);
+
+    await expect(requestChatGptOpaqueProbe(CONVERSATION_ID)).resolves.toEqual(response);
+    expect(mocks.sendMessage).toHaveBeenCalledWith({
+      action: 'probeChatGptOpaqueRequest',
+      conversationId: CONVERSATION_ID,
+    });
+    expect(JSON.stringify(mocks.sendMessage.mock.calls)).not.toContain('authorization');
+  });
+
+  it('replaces malformed probe responses with a stable secret-free diagnostic', async () => {
+    mocks.sendMessage.mockResolvedValueOnce({
+      success: false,
+      data: { header: 'synthetic-secret' },
+    });
+
+    await expect(requestChatGptOpaqueProbe(CONVERSATION_ID)).resolves.toEqual({
+      success: false,
+      data: createChatGptOpaqueProbeResult('probe-failed'),
+    });
   });
 });

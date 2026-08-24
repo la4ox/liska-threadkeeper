@@ -150,6 +150,160 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
   });
 
+  it('runs only the metadata probe when the experimental setting is enabled', async () => {
+    renderedConversation();
+    const captureCurrentBranch = vi.fn();
+    const captureArchive = vi.fn();
+    const requestOpaqueProbe = vi.fn().mockResolvedValue({
+      success: false,
+      data: {
+        observedTargetRequest: true,
+        sourceIsNativeRequest: true,
+        initAbsent: true,
+        exactTarget: true,
+        authorizationPresent: true,
+        credentialsAccepted: true,
+        sourceStatus: 200,
+        sourceJson: true,
+        singularDispatchCount: 0,
+        outcome: 'eligible',
+      },
+    });
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      captureArchive,
+      requestOpaqueProbe,
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('DOM extraction must not run for the opaque probe');
+    });
+    extractor.applySettings({ enableChatGptOpaqueProbe: true } as never);
+
+    const result = await extractor.extract();
+
+    expect(requestOpaqueProbe).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(captureCurrentBranch).not.toHaveBeenCalled();
+    expect(captureArchive).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      success: false,
+      error: 'ChatGPT experimental metadata-only probe: eligible. No conversation was exported.',
+    });
+  });
+
+  it('uses only the explicit replay current-branch route when replay is enabled', async () => {
+    renderedConversation();
+    const captureCurrentBranch = vi.fn();
+    const captureReplayCurrentBranch = vi.fn().mockResolvedValue(projection());
+    const requestOpaqueProbe = vi.fn();
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      captureReplayCurrentBranch,
+      requestOpaqueProbe,
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('explicit replay must not enter DOM fallback');
+    });
+    extractor.applySettings({ enableChatGptOpaqueReplay: true } as never);
+
+    const result = await extractor.extract();
+
+    expect(captureReplayCurrentBranch).toHaveBeenCalledWith(CONVERSATION_ID, false);
+    expect(captureCurrentBranch).not.toHaveBeenCalled();
+    expect(requestOpaqueProbe).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
+  });
+
+  it('keeps the zero-dispatch metadata probe ahead of replay when stale settings enable both', async () => {
+    renderedConversation();
+    const requestOpaqueProbe = vi.fn().mockResolvedValue({
+      success: false,
+      data: {
+        observedTargetRequest: true,
+        sourceIsNativeRequest: true,
+        initAbsent: false,
+        exactTarget: true,
+        authorizationPresent: true,
+        credentialsAccepted: true,
+        sourceStatus: 200,
+        sourceJson: true,
+        singularDispatchCount: 0,
+        outcome: 'eligible-init-empty',
+      },
+    });
+    const captureReplayCurrentBranch = vi.fn();
+    const extractor = new ChatGPTExtractor({
+      requestOpaqueProbe,
+      captureReplayCurrentBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.applySettings({
+      enableChatGptOpaqueProbe: true,
+      enableChatGptOpaqueReplay: true,
+    } as never);
+
+    const result = await extractor.extract();
+
+    expect(requestOpaqueProbe).toHaveBeenCalledOnce();
+    expect(captureReplayCurrentBranch).not.toHaveBeenCalled();
+    expect(result.error).toContain('eligible-init-empty');
+  });
+
+  it('fails explicit replay closed without rendered fallback and retains available evidence', async () => {
+    renderedConversation();
+    const partialCompanion = completeCompanion();
+    partialCompanion.artifacts = partialCompanion.artifacts.filter(
+      artifact => artifact.kind !== 'canonical'
+    );
+    const captureReplayCurrentBranch = vi.fn().mockRejectedValue(
+      new ChatGptCurrentBranchError('normalization-failed', {
+        archiveCompanion: partialCompanion,
+        detailCode: 'opaque-replay-missing-graph',
+      })
+    );
+    const extractor = new ChatGPTExtractor({
+      captureReplayCurrentBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('explicit replay failure must not enter DOM fallback');
+    });
+    extractor.applySettings({ enableChatGptOpaqueReplay: true } as never);
+
+    const result = await extractor.extract();
+
+    expect(result).toMatchObject({
+      success: false,
+      error:
+        'ChatGPT experimental A-strict replay failed (normalization-failed:opaque-replay-missing-graph); no fallback export was created.',
+      archiveCompanion: partialCompanion,
+    });
+    expect(result.data).toBeUndefined();
+  });
+
+  it('uses the replay archive once for explicit selected-branch mode', async () => {
+    renderedConversation();
+    const captureReplayArchive = vi.fn().mockResolvedValue(branchCapture());
+    const captureArchive = vi.fn();
+    const extractor = new ChatGPTExtractor({
+      captureArchive,
+      captureReplayArchive,
+      selectBranch: vi.fn().mockResolvedValue(2),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+    extractor.applySettings({ enableChatGptOpaqueReplay: true } as never);
+
+    const result = await extractor.extract();
+
+    expect(captureReplayArchive).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(captureArchive).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data?.presentation).toMatchObject({ mode: 'selected-branch', branchOrdinal: 2 });
+  });
+
   it('carries the complete archive companion only after a structured capture', async () => {
     renderedConversation();
     const structured = projection();

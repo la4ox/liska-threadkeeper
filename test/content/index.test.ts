@@ -57,6 +57,8 @@ const baseSettings: ContentScriptSettings = {
   enableAutoScroll: false,
   enableAppendMode: false,
   enableToolContent: false,
+  enableChatGptOpaqueProbe: false,
+  enableChatGptOpaqueReplay: false,
   outputOptions: { obsidian: true, file: false, clipboard: false },
   templateOptions: {
     includeId: true,
@@ -93,6 +95,22 @@ function mockMessaging(overrides: {
         return Promise.resolve({ ...baseSettings, ...overrides.settings });
       case 'testConnection':
         return Promise.resolve(overrides.connection ?? { success: true });
+      case 'probeChatGptOpaqueRequest':
+        return Promise.resolve({
+          success: true,
+          data: {
+            observedTargetRequest: true,
+            sourceIsNativeRequest: true,
+            initAbsent: true,
+            exactTarget: true,
+            authorizationPresent: true,
+            credentialsAccepted: true,
+            sourceStatus: 200,
+            sourceJson: true,
+            singularDispatchCount: 0,
+            outcome: 'eligible',
+          },
+        });
       case 'saveToOutputs':
         return Promise.resolve(overrides.save ?? okSave);
       default:
@@ -293,6 +311,53 @@ describe('content/bootstrap', () => {
 
       await handleSync();
 
+      expect(showErrorToast).toHaveBeenCalledWith('Obsidian is not running');
+    });
+
+    it('runs the ChatGPT metadata-only probe without output or Obsidian preflight', async () => {
+      const conversationId = '01234567-89ab-4cde-8f01-23456789abcd';
+      setChatGPTLocation(conversationId);
+      createChatGPTPage(conversationId, [
+        { role: 'user', content: 'Question' },
+        { role: 'assistant', content: '<p>Answer</p>' },
+      ]);
+      mockMessaging({
+        settings: { enableChatGptOpaqueProbe: true },
+        connection: { success: false, error: 'Obsidian is not running' },
+      });
+
+      await handleSync();
+
+      const actions = vi
+        .mocked(sendMessage)
+        .mock.calls.map(call => (call[0] as { action: string }).action);
+      expect(actions).toContain('probeChatGptOpaqueRequest');
+      expect(actions).not.toContain('testConnection');
+      expect(actions).not.toContain('saveToOutputs');
+      expect(showErrorToast).toHaveBeenCalledWith(
+        'ChatGPT experimental metadata-only probe: eligible. No conversation was exported.'
+      );
+    });
+
+    it('keeps ordinary output and Obsidian preflight for the active replay experiment', async () => {
+      const conversationId = '01234567-89ab-4cde-8f01-23456789abcd';
+      setChatGPTLocation(conversationId);
+      createChatGPTPage(conversationId, [
+        { role: 'user', content: 'Question' },
+        { role: 'assistant', content: '<p>Answer</p>' },
+      ]);
+      mockMessaging({
+        settings: { enableChatGptOpaqueReplay: true },
+        connection: { success: false, error: 'Obsidian is not running' },
+      });
+
+      await handleSync();
+
+      const actions = vi
+        .mocked(sendMessage)
+        .mock.calls.map(call => (call[0] as { action: string }).action);
+      expect(actions).toContain('testConnection');
+      expect(actions).not.toContain('captureChatGptConversationViaOpaqueReplay');
       expect(showErrorToast).toHaveBeenCalledWith('Obsidian is not running');
     });
 

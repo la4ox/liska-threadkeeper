@@ -21,7 +21,22 @@ import {
   createChatGptCaptureFailure,
   isChatGptCaptureResponse,
 } from '../lib/chatgpt-capture-contract';
+import {
+  createChatGptOpaqueProbeResult,
+  isChatGptOpaqueProbeResponse,
+} from '../lib/chatgpt-opaque-probe-contract';
+import {
+  createChatGptOpaqueReplayFailure,
+  isChatGptOpaqueReplayResponse,
+} from '../lib/chatgpt-opaque-replay-contract';
+import {
+  createChatGptOpaqueResolverFailure,
+  isChatGptOpaqueResolverResponse,
+} from '../lib/chatgpt-opaque-resolver-contract';
 import { captureChatGptInTemporaryTab, ChatGptTemporaryCaptureError } from './chatgpt-capture';
+import { probeChatGptOpaqueRequest } from './chatgpt-opaque-probe';
+import { captureChatGptConversationViaOpaqueReplay } from './chatgpt-opaque-replay';
+import { observeChatGptAssetResolversViaOpaqueSource } from './chatgpt-opaque-resolver';
 import type {
   ExtensionMessage,
   ContentScriptSettings,
@@ -76,14 +91,14 @@ chrome.runtime.onMessage.addListener(
   ) => {
     // Ignore messages targeted at offscreen document
     // These are handled by the offscreen document's own listener
-    if (!isChatGptCaptureMessage(message) && hasOwnDataProperty(message, 'target', 'offscreen')) {
+    if (!isChatGptBridgeMessage(message) && hasOwnDataProperty(message, 'target', 'offscreen')) {
       return false;
     }
 
     // Sender validation (M-02)
     if (!validateSender(sender)) {
       console.warn('[G2O Background] Rejected message from unauthorized sender');
-      sendResponse(captureFailureOr(message, { success: false, error: 'Unauthorized' }));
+      sendResponse(chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' }));
       return false;
     }
 
@@ -94,18 +109,20 @@ chrome.runtime.onMessage.addListener(
       if (!validateMessageContent(message)) {
         console.warn('[G2O Background] Invalid message content');
         sendResponse(
-          captureFailureOr(message, { success: false, error: 'Invalid message content' })
+          chatGptBridgeFailureOr(message, { success: false, error: 'Invalid message content' })
         );
         return false;
       }
     } catch (error) {
       console.warn('[G2O Background] Message validation threw:', getErrorMessage(error));
-      sendResponse(captureFailureOr(message, { success: false, error: 'Invalid message content' }));
+      sendResponse(
+        chatGptBridgeFailureOr(message, { success: false, error: 'Invalid message content' })
+      );
       return false;
     }
 
     if (!isAuthorizedChatGptCaptureRequest(message, sender)) {
-      sendResponse(createChatGptCaptureFailure('capture-failed'));
+      sendResponse(chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' }));
       return false;
     }
 
@@ -140,17 +157,37 @@ function hasOwnDataProperty(message: unknown, property: string, expectedValue: s
   }
 }
 
-function isChatGptCaptureMessage(message: unknown): boolean {
-  return hasOwnDataProperty(message, 'action', 'captureChatGptConversation');
+function isChatGptBridgeMessage(message: unknown): boolean {
+  return (
+    hasOwnDataProperty(message, 'action', 'captureChatGptConversation') ||
+    hasOwnDataProperty(message, 'action', 'probeChatGptOpaqueRequest') ||
+    hasOwnDataProperty(message, 'action', 'captureChatGptConversationViaOpaqueReplay') ||
+    hasOwnDataProperty(message, 'action', 'observeChatGptAssetResolversViaOpaqueSource')
+  );
 }
 
-function captureFailureOr<T>(
+function chatGptBridgeFailureOr<T>(
   message: unknown,
   genericResponse: T
-): T | ReturnType<typeof createChatGptCaptureFailure> {
-  return isChatGptCaptureMessage(message)
-    ? createChatGptCaptureFailure('capture-failed')
-    : genericResponse;
+):
+  | T
+  | ReturnType<typeof createChatGptCaptureFailure>
+  | ReturnType<typeof createChatGptOpaqueReplayFailure>
+  | ReturnType<typeof createChatGptOpaqueResolverFailure>
+  | { success: false; data: unknown } {
+  if (hasOwnDataProperty(message, 'action', 'captureChatGptConversation')) {
+    return createChatGptCaptureFailure('capture-failed');
+  }
+  if (hasOwnDataProperty(message, 'action', 'probeChatGptOpaqueRequest')) {
+    return { success: false, data: createChatGptOpaqueProbeResult('probe-failed') };
+  }
+  if (hasOwnDataProperty(message, 'action', 'captureChatGptConversationViaOpaqueReplay')) {
+    return createChatGptOpaqueReplayFailure('replay-result-invalid');
+  }
+  if (hasOwnDataProperty(message, 'action', 'observeChatGptAssetResolversViaOpaqueSource')) {
+    return createChatGptOpaqueResolverFailure('observer-result-invalid');
+  }
+  return genericResponse;
 }
 
 function isAuthorizedChatGptCaptureRequest(
@@ -158,7 +195,10 @@ function isAuthorizedChatGptCaptureRequest(
   sender: chrome.runtime.MessageSender
 ): boolean {
   return (
-    message.action !== 'captureChatGptConversation' ||
+    (message.action !== 'captureChatGptConversation' &&
+      message.action !== 'probeChatGptOpaqueRequest' &&
+      message.action !== 'captureChatGptConversationViaOpaqueReplay' &&
+      message.action !== 'observeChatGptAssetResolversViaOpaqueSource') ||
     validateChatGptCaptureSender(sender, message.conversationId)
   );
 }
@@ -276,6 +316,93 @@ async function handleChatGptCapture(conversationId: string, observeAssetResolver
   }
 }
 
+async function handleChatGptOpaqueProbe(conversationId: string) {
+  if (!(await hasScriptingPermission())) {
+    return { success: false, data: createChatGptOpaqueProbeResult('probe-failed') };
+  }
+  try {
+    const response = {
+      success: false as const,
+      data: await probeChatGptOpaqueRequest(conversationId),
+    };
+    return isChatGptOpaqueProbeResponse(response)
+      ? response
+      : { success: false, data: createChatGptOpaqueProbeResult('probe-failed') };
+  } catch {
+    return { success: false, data: createChatGptOpaqueProbeResult('probe-failed') };
+  }
+}
+
+async function handleChatGptOpaqueReplay(conversationId: string) {
+  if (!(await hasScriptingPermission())) {
+    return createChatGptOpaqueReplayFailure('permission-unavailable');
+  }
+  try {
+    const response = await captureChatGptConversationViaOpaqueReplay(conversationId);
+    return isChatGptOpaqueReplayResponse(response)
+      ? response
+      : createChatGptOpaqueReplayFailure('replay-result-invalid');
+  } catch {
+    return createChatGptOpaqueReplayFailure('replay-result-invalid');
+  }
+}
+
+async function handleChatGptOpaqueResolver(conversationId: string) {
+  if (!(await hasScriptingPermission())) {
+    return createChatGptOpaqueResolverFailure('permission-unavailable');
+  }
+  try {
+    const response = await observeChatGptAssetResolversViaOpaqueSource(conversationId);
+    return isChatGptOpaqueResolverResponse(response)
+      ? response
+      : createChatGptOpaqueResolverFailure('observer-result-invalid');
+  } catch {
+    return createChatGptOpaqueResolverFailure('observer-result-invalid');
+  }
+}
+
+function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
+  ExtensionMessage,
+  {
+    action:
+      | 'captureChatGptConversation'
+      | 'probeChatGptOpaqueRequest'
+      | 'captureChatGptConversationViaOpaqueReplay'
+      | 'observeChatGptAssetResolversViaOpaqueSource';
+  }
+> {
+  return (
+    message.action === 'captureChatGptConversation' ||
+    message.action === 'probeChatGptOpaqueRequest' ||
+    message.action === 'captureChatGptConversationViaOpaqueReplay' ||
+    message.action === 'observeChatGptAssetResolversViaOpaqueSource'
+  );
+}
+
+async function handleChatGptBridgeMessage(
+  message: Extract<
+    ExtensionMessage,
+    {
+      action:
+        | 'captureChatGptConversation'
+        | 'probeChatGptOpaqueRequest'
+        | 'captureChatGptConversationViaOpaqueReplay'
+        | 'observeChatGptAssetResolversViaOpaqueSource';
+    }
+  >
+): Promise<unknown> {
+  if (message.action === 'captureChatGptConversation') {
+    return handleChatGptCapture(message.conversationId, message.observeAssetResolvers === true);
+  }
+  if (message.action === 'captureChatGptConversationViaOpaqueReplay') {
+    return handleChatGptOpaqueReplay(message.conversationId);
+  }
+  if (message.action === 'observeChatGptAssetResolversViaOpaqueSource') {
+    return handleChatGptOpaqueResolver(message.conversationId);
+  }
+  return handleChatGptOpaqueProbe(message.conversationId);
+}
+
 /**
  * Redact sensitive settings for content scripts.
  * Content scripts only need to know IF an API key is configured, not the key itself.
@@ -295,8 +422,8 @@ async function handleMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
-  if (message.action === 'captureChatGptConversation') {
-    return handleChatGptCapture(message.conversationId, message.observeAssetResolvers === true);
+  if (isChatGptBridgeAction(message)) {
+    return handleChatGptBridgeMessage(message);
   }
 
   if (message.action === 'updateOutputOptions') {

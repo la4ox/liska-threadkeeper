@@ -23,6 +23,20 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   ...DEFAULT_SYNC_SETTINGS,
 };
 
+const SYNC_PASS_THROUGH_KEYS = [
+  'obsidianUrl',
+  'vaultPath',
+  'imageVaultPath',
+  'enableAutoScroll',
+  'enableAppendMode',
+  'enableToolContent',
+  'enableImageExport',
+  'enableChatGptOpaqueProbe',
+  'enableChatGptOpaqueReplay',
+  'flattenLargeCallouts',
+  'maxCalloutLines',
+] as const;
+
 /**
  * Get extension settings from chrome.storage (local + sync)
  *
@@ -83,18 +97,7 @@ export async function saveSettings(settings: Partial<ExtensionSettings>): Promis
     // Save non-sensitive data to sync storage. Simple scalar fields pass
     // through directly; templateOptions/outputOptions merge with defaults.
     const syncData: Partial<SyncSettings> = {};
-    const PASS_THROUGH_KEYS = [
-      'obsidianUrl',
-      'vaultPath',
-      'imageVaultPath',
-      'enableAutoScroll',
-      'enableAppendMode',
-      'enableToolContent',
-      'enableImageExport',
-      'flattenLargeCallouts',
-      'maxCalloutLines',
-    ] as const;
-    for (const key of PASS_THROUGH_KEYS) {
+    for (const key of SYNC_PASS_THROUGH_KEYS) {
       if (settings[key] !== undefined) {
         (syncData[key] as SyncSettings[typeof key]) = settings[key] as SyncSettings[typeof key];
       }

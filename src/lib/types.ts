@@ -3,6 +3,7 @@
  */
 
 import type { ArchiveBranchCatalog } from '../archive/branches';
+import type { RawCaptureBundle } from '../archive/capture';
 import type { LiskaThreadArchive } from '../archive/types';
 
 /**
@@ -227,6 +228,18 @@ export interface ArchiveCompanionBundle {
 }
 
 /**
+ * Runtime-only original ChatGPT capture retained for an optional attachment
+ * export pass. It is never sent over an extension message or serialized into
+ * Markdown/archive companions. The raw base64 is retained solely to bind a
+ * later marker-gated resolver observation to these exact source bytes.
+ */
+export interface ChatGptAssetExportContext {
+  conversationId: string;
+  rawCaptureBundle: RawCaptureBundle;
+  rawBodyBase64: string;
+}
+
+/**
  * Provider-neutral description of one verified binary archive asset.
  *
  * `assetId` is an opaque runtime correlation key only. The persisted name is
@@ -342,6 +355,17 @@ export interface SyncSettings {
   enableToolContent: boolean;
   /** Export conversation images (Obsidian vault + file download). */
   enableImageExport: boolean;
+  /**
+   * Experimental ChatGPT metadata-only opaque request probe. While enabled a
+   * ChatGPT export stops before capture, DOM fallback, or persistence.
+   */
+  enableChatGptOpaqueProbe: boolean;
+  /**
+   * Experimental one-shot ChatGPT A-strict replay. The exact eligible request
+   * template remains inside MAIN world; credential values never cross the
+   * extension boundary. Disabled by default.
+   */
+  enableChatGptOpaqueReplay: boolean;
   /**
    * Vault-relative folder for exported images. Supports the same template
    * tokens as {@link vaultPath} (`{platform}`, `{YYYY}`, …). Default
@@ -464,7 +488,10 @@ export type ExtensionMessage =
       conversationId: string;
       /** Explicit opt-in; absent stale-tab messages remain on the fast path. */
       observeAssetResolvers?: boolean;
-    };
+    }
+  | { action: 'probeChatGptOpaqueRequest'; conversationId: string }
+  | { action: 'captureChatGptConversationViaOpaqueReplay'; conversationId: string }
+  | { action: 'observeChatGptAssetResolversViaOpaqueSource'; conversationId: string };
 
 /**
  * Response to a `fetchImage` message. The background worker fetches remote
@@ -602,6 +629,8 @@ export interface ExtractionResult {
   warnings?: string[];
   /** Present only when a structured capture produced all immutable companions. */
   archiveCompanion?: ArchiveCompanionBundle;
+  /** Runtime-only source evidence for optional destination-honest ChatGPT attachment export. */
+  chatGptAssetExportContext?: ChatGptAssetExportContext;
   /** Complete graph retained for sequential per-leaf presentation writes. */
   allBranches?: AllBranchesPresentationPlan;
 }

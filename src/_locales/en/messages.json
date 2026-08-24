@@ -365,12 +365,28 @@
     "description": "Help text for tool content toggle"
   },
   "settings_enableImageExport": {
-    "message": "Export images",
-    "description": "Label for image export toggle"
+    "message": "Export images & attachments",
+    "description": "Label for image and attachment export toggle"
+  },
+  "settings_enableChatGptOpaqueProbe": {
+    "message": "Experimental ChatGPT metadata probe",
+    "description": "Label for the disabled-by-default ChatGPT opaque request probe"
+  },
+  "settings_chatGptOpaqueProbeHelp": {
+    "message": "Metadata only: no conversation is exported while enabled",
+    "description": "Explains that the experimental probe never exports conversation content"
+  },
+  "settings_enableChatGptOpaqueReplay": {
+    "message": "Experimental ChatGPT full graph replay",
+    "description": "Label for the disabled-by-default one-shot A-strict replay"
+  },
+  "settings_chatGptOpaqueReplayHelp": {
+    "message": "One strict same-origin request; disabled by default",
+    "description": "Explains the bounded experimental ChatGPT replay"
   },
   "settings_imageExportHelp": {
-    "message": "Save generated images (Obsidian vault and file download)",
-    "description": "Help text for image export toggle"
+    "message": "Save generated images and supported ChatGPT attachments",
+    "description": "Help text for image and attachment export toggle"
   },
   "settings_imageVaultPath": {
     "message": "Image Folder",

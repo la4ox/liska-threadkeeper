@@ -128,34 +128,128 @@ Obsidian was offline and reported a separate fixed preflight failure; a fresh
 capture after Local REST API resumed wrote byte-identical content-addressed
 files to both durable destinations. The smoke made no provider request and did
 not read conversation content. Deliberate worker-suspension recovery remains a
-synthetic lifecycle test until acquisition is wired.
+synthetic lifecycle test rather than a forced interruption of a live browser.
 
-The ChatGPT JSON companion writer still rejects runtime asset bytes. Acquisition
-is not wired to the staged route yet, so removing that guard now would again
-permit a fetched manifest/canonical claim before destination sequencing and
-partial-output reporting are exercised in the real browser.
+The initial ChatGPT JSON companion writer still rejects runtime asset bytes.
+The destination-honest image-export path uses a separate binary-aware finalizer
+only after raw and binary destination outcomes exist, so the ordinary capture
+route still cannot publish a premature fetched manifest/canonical claim.
 
-The first page-owned acquisition boundary is now implemented without enabling
-it in the ordinary export path. An explicit capture opt-in adds a marker to the
-inactive temporary tab. Its document-start observer binds the result to the
-expected conversation and watches only exact page-owned resolver GETs during a
-single hard two-second window. It never reads request headers, cookies, body,
-browser storage, or authentication middleware. Resolver JSON is capped and
-hash-verified again in background; only an opaque, domain-separated resolver
-key and a strictly allowlisted transient signed estuary URL cross back to the
-content script. Literal raw URL/path/query grammar prevents URL normalization
-from widening this boundary.
+The first page-owned acquisition boundary is explicit and remains disabled in
+the default structured capture. The image-export path may opt in only after raw
+persistence succeeds. For the opaque replay route, a separate marker-gated tab
+then observes the exact eligible page-owned plural request without reading its
+body. ChatGPT defers attachment rendering in hidden documents, so this trusted
+click briefly foregrounds the observer tab and exact-closes it afterward. It
+dispatches zero singular graph requests. A dedicated hard eight-second window
+starts immediately before the eligible source fetch because cached UI state may
+issue a resolver before the source Response settles. Observations are published
+only after both source `200 JSON` validation and window expiry, in either order.
+At most 32 resolver responses of at most 64 KiB each are cloned. Request header
+values, cookies, request and plural-response bodies, browser storage, DOM, and
+authentication middleware are never read. Background revalidates the resolver
+bytes and only an opaque, domain-separated key plus a strictly allowlisted
+transient signed estuary URL cross back to the content script. Literal
+URL/path/raw-query grammar prevents normalization from widening this boundary.
+The route grammar follows current public frontend source rather than prefix
+guessing: legacy `/backend-api/files/download/{file_id}` accepts only the exact
+two-key conversation/inline query or the exact three-key variant whose context
+scope equals the same conversation; automatic cache resolution may instead use
+exact query-free `/backend-api/calpico/chatgpt/files/{file_id}`. Calpico has no
+request-level conversation field, so its result is usable only after background
+validates the signed URL's conversation and content re-matches the opaque file
+key against a unique pointer in committed raw.
 
-Pure matcher and credentialless acquisition helpers can then bind those opaque
-keys to exact ledger source pointers and fetch only the already signed asset
-URL with omitted credentials, disabled redirects, passive MIME allowlisting,
-timeouts, per-asset limits, attempt limits, and a cumulative read-work budget.
-Every bounded body read consumes that budget even if later hash or asset
-validation rejects the bytes. These helpers do not yet update a capture bundle
-or call the staged destination writer. The next orchestration step must commit
-binary output first and derive destination-honest manifest/canonical states
-afterward; until then every production asset remains `not-attempted` and the
-JSON-only guard stays in place.
+Pure matcher and credentialless acquisition helpers bind those opaque keys to
+exact ledger source pointers and fetch only the already signed asset URL with
+omitted credentials, disabled redirects, passive MIME allowlisting, timeouts,
+per-asset limits, attempt limits, and a cumulative read-work budget. Every
+bounded body read consumes that budget even if later hash or asset validation
+rejects the bytes.
+
+The integrated orchestration is gated by the existing
+`Export images & attachments` setting and at least one durable destination. The
+historical setting currently defaults on, but every export still requires a
+trusted user click. The pipeline first commits the original raw
+artifact and carries forward only raw-successful destinations. A zero-asset
+ledger skips resolver observation. In opaque replay mode the post-persistence
+observer is the only resolver route; failure never falls back to the legacy raw
+recapture. Each safe resolver key must uniquely match a provider identifier at
+an exact ledger pointer in the reverified committed raw before acquisition can
+start. This is committed-raw identifier correlation, not a claim that the
+plural response is byte-equal to the hidden full-graph replay. Ordinary capture
+retains the older byte-equality recapture path. Verified bytes are acquired once
+and staged to all surviving destinations. Each destination then receives its
+own manifest/canonical pair: `fetched` requires an exact matching descriptor and
+successful write there; every other state is recorded without a dangling local
+path. Raw is never rewritten, signed URLs/provider IDs remain transient, and
+all-branches presentation proceeds only for destinations whose companion pair
+completed. This order is covered offline and awaits one trusted-click live
+smoke with real ChatGPT attachments.
+
+ChatGPT's newer virtualized UI may request only
+`/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
+and never issue the legacy full-graph request observed by the original capture
+bridge. A disabled-by-default metadata-only `A-strict` probe now tests whether
+that plural request can serve as an opaque authorization template without
+crossing the credential boundary. The page closure uses captured
+Request accessors/`Request.prototype.clone` as the native brand check, requires
+the exact raw path/query, and classifies only absent, ordinary empty, or exact
+signal-only `RequestInit` without reading property values. It reads only the
+non-secret credentials mode, boolean result of `Headers.has('authorization')`,
+source status, and JSON media type. It neither reads a response body nor
+dispatches the singular request; its exact result structurally fixes
+`singularDispatchCount` to zero. Live cold/warm runs returned
+`eligible-init-empty` twice.
+
+A separate, disabled-by-default one-shot replay is therefore available as an
+explicit experiment. Probe and replay settings are mutually exclusive, with
+stale dual-true state canonicalized to probe-only. The eligible source Request
+clone remains inside the MAIN-world closure. Browser-native `Request` copies
+its Headers object opaquely into one exact same-origin singular GET with source
+credentials, a fresh abort signal, `redirect: error`, and `cache: no-store`.
+The captured previous fetch is called exactly once; there is no retry or DOM
+fallback. Only the singular 200 JSON response may be read under the 16 MiB cap.
+Page and background independently enforce exact shape, canonical base64,
+length, SHA-256, conversation binding, deadline, abort, and cleanup before the
+existing raw/manifest/canonical pipeline accepts the artifact. The active path
+is live-verified on a File-only stress capture: raw SHA-256/length matched its
+manifest, raw and canonical retained the same 1,083-node graph/current node,
+and no marker tab, DOM fallback, credential text, or signed transport value
+remained. Attachment acquisition stayed disabled; all 64 discovered references
+remained explicitly `not-attempted`. The later replay attachment path now uses
+the separate post-persistence zero-dispatch observer described above and is
+offline-tested, but its page-owned resolver behavior still requires a live
+smoke. Explicit bearer, cookie, device-ID, source-body, DOM, or header-value
+extraction remains forbidden even as a fallback.
+
+The first live cold/warm-equivalent smoke of that observer completed twice on
+an older seven-reference conversation because a controller timeout obscured a
+successful first click and prompted one retry. Both immutable captures retained
+identical verified raw bytes, complete graph claims, seven `not-attempted`
+assets, no binary/local claims, no durable signed transport values, and no
+leftover marker tab. No page-owned resolver was observed. This proves bounded
+failure behavior and honest persistence for that sample, not working binary
+acquisition. A short conversation with one recent visibly loadable attachment
+is the only remaining useful positive smoke; another empty bounded result must
+stop the experiment without widening the privacy boundary.
+
+A second live sample with 17 raw/canonical references also produced empty
+background, foreground, and eight-second pre-dispatch observer outcomes. Its raw
+held eight `sediment:` pointers and no signed URL, while the active page
+structurally displayed one estuary image. A credential-free scan of the current
+public React Router manifest and conversation modules showed that timing was not
+the only gap: current `Vbt` can add a same-conversation context-scope query and
+automatic file cache uses the Calpico endpoint above. The expanded exact grammar
+is covered for every allowed ordering and adjacent rejection; its live result
+also remained empty despite an observed foreground marker lifecycle. Passive
+`window.fetch` observation is therefore exhausted for the current runtime. No
+further path/window widening is permitted. A future active resolver replay must
+be treated as a distinct threat boundary: bounded provider IDs may come only
+from reverified committed raw, and exact resolver Requests may copy the eligible
+source Headers object only opaquely inside MAIN world with fixed dispatch/work
+budgets, no header-value extraction, no retry, independent response validation,
+transient-only signed URLs, and a separate live smoke.
 
 Discovering every reference does not make `completeness.assets` complete. Until
 all selected binary acquisitions reach an evidenced terminal state, a

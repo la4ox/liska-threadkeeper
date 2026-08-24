@@ -153,12 +153,9 @@ function isExactChatGptDocumentUrl(rawUrl: string): boolean {
 }
 
 function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
-  const keys = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
-  return (
-    keys.length === sortedExpected.length &&
-    keys.every((key, index) => key === sortedExpected[index])
-  );
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== expected.length) return false;
+  return expected.every(expectedKey => keys.some(key => key === expectedKey));
 }
 
 function validateChatGptCaptureMessage(
@@ -176,6 +173,54 @@ function validateChatGptCaptureMessage(
     (message.observeAssetResolvers === undefined ||
       typeof message.observeAssetResolvers === 'boolean')
   );
+}
+
+function validateChatGptOpaqueProbeMessage(
+  message: Extract<ExtensionMessage, { action: 'probeChatGptOpaqueRequest' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, ['action', 'conversationId']) &&
+    isChatGptConversationId(message.conversationId)
+  );
+}
+
+function validateChatGptOpaqueReplayMessage(
+  message: Extract<ExtensionMessage, { action: 'captureChatGptConversationViaOpaqueReplay' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, ['action', 'conversationId']) &&
+    isChatGptConversationId(message.conversationId)
+  );
+}
+
+function validateChatGptOpaqueResolverMessage(
+  message: Extract<ExtensionMessage, { action: 'observeChatGptAssetResolversViaOpaqueSource' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, ['action', 'conversationId']) &&
+    isChatGptConversationId(message.conversationId)
+  );
+}
+
+function validateChatGptBridgeMessage(
+  message: Extract<
+    ExtensionMessage,
+    {
+      action:
+        | 'captureChatGptConversation'
+        | 'probeChatGptOpaqueRequest'
+        | 'captureChatGptConversationViaOpaqueReplay'
+        | 'observeChatGptAssetResolversViaOpaqueSource';
+    }
+  >
+): boolean {
+  if (message.action === 'captureChatGptConversation')
+    return validateChatGptCaptureMessage(message);
+  return message.action === 'probeChatGptOpaqueRequest'
+    ? validateChatGptOpaqueProbeMessage(message)
+    : message.action === 'captureChatGptConversationViaOpaqueReplay'
+      ? validateChatGptOpaqueReplayMessage(message)
+      : validateChatGptOpaqueResolverMessage(message);
 }
 
 function validateFetchImageMessage(
@@ -367,13 +412,26 @@ function validateStagedBinaryAssetMessage(message: ExtensionMessage): boolean | 
   }
 }
 
+function validateSaveToOutputsMessage(
+  message: Extract<ExtensionMessage, { action: 'saveToOutputs' }>
+): boolean {
+  return (
+    validateNoteData(message.data) &&
+    Array.isArray(message.outputs) &&
+    message.outputs.length > 0 &&
+    message.outputs.every(output =>
+      VALID_OUTPUT_DESTINATIONS.includes(output as (typeof VALID_OUTPUT_DESTINATIONS)[number])
+    )
+  );
+}
+
 /**
  * Validate message content (M-02)
  *
  * Security: Content scripts are less trustworthy.
  * Validate and sanitize all input per Chrome extension best practices.
  */
-// eslint-disable-next-line complexity -- Keep every untrusted message action in one auditable fail-closed router.
+// eslint-disable-next-line complexity -- Exact bridge action boundaries remain explicit at this untrusted input gate.
 export function validateMessageContent(message: unknown): message is ExtensionMessage {
   if (typeof message !== 'object' || message === null || Array.isArray(message)) {
     return false;
@@ -395,22 +453,8 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     return false;
   }
 
-  // Detailed validation for saveToOutputs action
   if (extensionMessage.action === 'saveToOutputs') {
-    if (!validateNoteData(extensionMessage.data)) {
-      return false;
-    }
-    // Validate outputs array (using centralized constants)
-    if (!Array.isArray(extensionMessage.outputs) || extensionMessage.outputs.length === 0) {
-      return false;
-    }
-    if (
-      !extensionMessage.outputs.every(o =>
-        VALID_OUTPUT_DESTINATIONS.includes(o as (typeof VALID_OUTPUT_DESTINATIONS)[number])
-      )
-    ) {
-      return false;
-    }
+    return validateSaveToOutputsMessage(extensionMessage);
   }
 
   if (extensionMessage.action === 'persistArchiveCompanion') {
@@ -434,8 +478,13 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     return validateFetchImageMessage(extensionMessage);
   }
 
-  if (extensionMessage.action === 'captureChatGptConversation') {
-    return validateChatGptCaptureMessage(extensionMessage);
+  if (
+    extensionMessage.action === 'captureChatGptConversation' ||
+    extensionMessage.action === 'probeChatGptOpaqueRequest' ||
+    extensionMessage.action === 'captureChatGptConversationViaOpaqueReplay' ||
+    extensionMessage.action === 'observeChatGptAssetResolversViaOpaqueSource'
+  ) {
+    return validateChatGptBridgeMessage(extensionMessage);
   }
 
   return true;
