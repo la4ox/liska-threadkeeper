@@ -14,6 +14,8 @@ const OPAQUE_REPLAY_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-replay=1$/i;
 const OPAQUE_RESOLVER_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-resolver-observer=1$/i;
+const ACTIVE_RESOLVER_FRAGMENT_PATTERN =
+  /^#liska-capture=([a-z0-9-]{16,128})&liska-active-resolver=1$/i;
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -22,6 +24,11 @@ const DEFAULT_RESOLVER_DISCOVERY_WINDOW_MS = 2_000;
 const DEFAULT_OPAQUE_RESOLVER_DISCOVERY_WINDOW_MS = 8_000;
 const DEFAULT_RESOLVER_MAX_BYTES = 64 * 1024;
 const DEFAULT_RESOLVER_MAX_OBSERVATIONS = 32;
+const DEFAULT_ACTIVE_RESOLVER_MAX_OBSERVATIONS = 20;
+const DEFAULT_ACTIVE_RESOLVER_MAX_BYTES = 64 * 1024;
+const DEFAULT_ACTIVE_RESOLVER_MAX_TOTAL_BYTES =
+  DEFAULT_ACTIVE_RESOLVER_MAX_OBSERVATIONS * DEFAULT_ACTIVE_RESOLVER_MAX_BYTES;
+const DEFAULT_ACTIVE_RESOLVER_PER_ID_TIMEOUT_MS = 12_000;
 const RESOLVER_PATH_PREFIX = '/backend-api/files/download/';
 const CALPICO_RESOLVER_PATH_PREFIX = '/backend-api/calpico/chatgpt/files/';
 const PAYLOAD_TOO_LARGE = {};
@@ -117,6 +124,7 @@ type DocumentPrimordials = {
   urlSearch: CapturedCallable | undefined;
   urlHash: CapturedCallable | undefined;
   promiseThen: CapturedCallable | undefined;
+  arrayIsArray: CapturedCallable | undefined;
   arrayPush: CapturedCallable | undefined;
   uint8Array: typeof Uint8Array | undefined;
   uint8ArraySet: CapturedCallable | undefined;
@@ -176,7 +184,7 @@ type MarkerTarget = {
   conversationId: string;
   nonce: string;
   observeAssetResolvers: boolean;
-  mode: 'capture' | 'opaque-probe' | 'opaque-replay' | 'opaque-resolver';
+  mode: 'capture' | 'opaque-probe' | 'opaque-replay' | 'opaque-resolver' | 'active-resolver';
 };
 
 function methodAt(prototype: object | undefined, property: string): CapturedCallable | undefined {
@@ -268,6 +276,10 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     urlSearch: getterAt(getOwnPropertyDescriptor, urlPrototype, 'search'),
     urlHash: getterAt(getOwnPropertyDescriptor, urlPrototype, 'hash'),
     promiseThen: methodAt(NativePromise?.prototype, 'then'),
+    arrayIsArray:
+      typeof NativeArray?.isArray === 'function'
+        ? (NativeArray.isArray as CapturedCallable)
+        : undefined,
     arrayPush: methodAt(NativeArray?.prototype, 'push'),
     uint8Array: typeof NativeUint8Array === 'function' ? NativeUint8Array : undefined,
     uint8ArraySet: methodAt(NativeUint8Array?.prototype, 'set'),
@@ -312,15 +324,23 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
       return undefined;
     }
 
-    const replayMarker = OPAQUE_REPLAY_FRAGMENT_PATTERN.exec(url.hash);
+    const activeResolverMarker = ACTIVE_RESOLVER_FRAGMENT_PATTERN.exec(url.hash);
+    const replayMarker =
+      activeResolverMarker === null ? OPAQUE_REPLAY_FRAGMENT_PATTERN.exec(url.hash) : null;
     const resolverMarker =
-      replayMarker === null ? OPAQUE_RESOLVER_FRAGMENT_PATTERN.exec(url.hash) : null;
+      activeResolverMarker === null && replayMarker === null
+        ? OPAQUE_RESOLVER_FRAGMENT_PATTERN.exec(url.hash)
+        : null;
     const probeMarker =
-      replayMarker === null && resolverMarker === null
+      activeResolverMarker === null && replayMarker === null && resolverMarker === null
         ? OPAQUE_PROBE_FRAGMENT_PATTERN.exec(url.hash)
         : null;
     const marker =
-      replayMarker ?? resolverMarker ?? probeMarker ?? CAPTURE_FRAGMENT_PATTERN.exec(url.hash);
+      activeResolverMarker ??
+      replayMarker ??
+      resolverMarker ??
+      probeMarker ??
+      CAPTURE_FRAGMENT_PATTERN.exec(url.hash);
     const nonce = marker?.[1];
     if (nonce === undefined) return undefined;
 
@@ -335,13 +355,15 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
           nonce,
           observeAssetResolvers: marker?.[2] === '1',
           mode:
-            replayMarker !== null
-              ? 'opaque-replay'
-              : resolverMarker !== null
-                ? 'opaque-resolver'
-                : probeMarker !== null
-                  ? 'opaque-probe'
-                  : 'capture',
+            activeResolverMarker !== null
+              ? 'active-resolver'
+              : replayMarker !== null
+                ? 'opaque-replay'
+                : resolverMarker !== null
+                  ? 'opaque-resolver'
+                  : probeMarker !== null
+                    ? 'opaque-probe'
+                    : 'capture',
         }
       : undefined;
   } catch {
@@ -2737,6 +2759,622 @@ function armOpaqueReplay(
   }
 }
 
+/*
+ * Active resolver checkpoint. The source Request clone's Headers and
+ * credentials stay only in this closure. The published state is metric-safe:
+ * it contains neither provider IDs nor the source request/response.
+ */
+type ActiveResolverOutcome =
+  | { state: 'http-error' | 'rejected' | 'non-json' | 'oversized' | 'timed-out' | 'not-dispatched' }
+  | {
+      state: 'observed';
+      capture: { bodyBase64: string; byteLength: number; sha256: string; mediaType: string };
+    };
+
+type ActiveResolverHookResult =
+  | { kind: 'ready' }
+  | {
+      kind: 'complete';
+      conversationId: string;
+      requestedCount: number;
+      dispatchCount: number;
+      outcomes: ActiveResolverOutcome[];
+    }
+  | {
+      kind: 'error';
+      code:
+        | 'hook-state-failed'
+        | 'source-not-eligible'
+        | 'source-rejected'
+        | 'source-http-error'
+        | 'source-non-json'
+        | 'resolver-result-timeout';
+    };
+
+type ActiveResolverPageState = {
+  primordials: PagePrimordials;
+  originalFetch: typeof window.fetch;
+  armedHref: string;
+  wrappedFetch: typeof window.fetch | undefined;
+  globalTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  perIdTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  abortController: AbortController | undefined;
+  settled: boolean;
+  claimed: boolean;
+  commandAccepted: boolean;
+  sourceReady: boolean;
+  dispatchStarted: boolean;
+  preparation: OpaqueReplayPreparation | undefined;
+  providerFileIds: string[] | undefined;
+  outcomes: ActiveResolverOutcome[];
+  dispatchCount: number;
+  result: ActiveResolverHookResult;
+};
+
+function activeResolverStateKeyFor(nonce: string): string {
+  return `__liskaChatGptActiveResolver_${nonce}`;
+}
+
+function activeResolverCommandKeyFor(nonce: string): string {
+  return `__liskaChatGptActiveResolverCommand_${nonce}`;
+}
+
+function hasActiveResolverArmingPrimordials(primordials: PagePrimordials): boolean {
+  return (
+    hasOpaqueReplayArmingPrimordials(primordials) && primordials.document.arrayIsArray !== undefined
+  );
+}
+
+function snapshotActiveResolverResult(result: ActiveResolverHookResult): ActiveResolverHookResult {
+  if (result.kind === 'ready') return { kind: 'ready' };
+  if (result.kind === 'error') return { kind: 'error', code: result.code };
+  const outcomes: ActiveResolverOutcome[] = [];
+  for (const outcome of result.outcomes) {
+    if (outcome.state === 'observed') {
+      outcomes[outcomes.length] = { state: 'observed', capture: { ...outcome.capture } };
+    } else {
+      outcomes[outcomes.length] = { state: outcome.state };
+    }
+  }
+  return {
+    kind: 'complete',
+    conversationId: result.conversationId,
+    requestedCount: result.requestedCount,
+    dispatchCount: result.dispatchCount,
+    outcomes,
+  };
+}
+
+function appendActiveResolverOutcome(
+  state: ActiveResolverPageState,
+  outcome: ActiveResolverOutcome
+): void {
+  applyCaptured<void>(state.primordials, state.primordials.document.arrayPush, state.outcomes, [
+    outcome,
+  ]);
+}
+
+function abortActiveResolver(state: ActiveResolverPageState): void {
+  if (state.abortController === undefined) return;
+  try {
+    applyCaptured<void>(
+      state.primordials,
+      state.primordials.document.abortControllerAbort,
+      state.abortController,
+      []
+    );
+  } catch {
+    // The terminal metric state is authoritative even when cancellation fails.
+  }
+  state.abortController = undefined;
+}
+
+function clearActiveResolverTimer(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  field: 'globalTimeoutId' | 'perIdTimeoutId'
+): void {
+  const timeoutId = state[field];
+  if (timeoutId === undefined) return;
+  try {
+    applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [timeoutId]);
+  } catch {
+    // Timer cleanup does not change an already-complete result.
+  }
+  state[field] = undefined;
+}
+
+function finishActiveResolver(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  result: ActiveResolverHookResult
+): void {
+  if (state.settled) return;
+  state.settled = true;
+  state.result = result;
+  clearActiveResolverTimer(pageWindow, state, 'globalTimeoutId');
+  clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
+  abortActiveResolver(state);
+  try {
+    if (state.wrappedFetch !== undefined && pageWindow.fetch === state.wrappedFetch) {
+      pageWindow.fetch = state.originalFetch;
+    }
+  } catch {
+    // A later page wrapper is never replaced.
+  }
+}
+
+function activeResolverComplete(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  target: MarkerTarget
+): void {
+  const requestedCount = state.providerFileIds?.length ?? 0;
+  // A direct request increments dispatchCount immediately before fetch. On a
+  // global timeout it is therefore a dispatched (timed-out) ordinal, never a
+  // fictitious not-dispatched one; only the remaining queue is unstarted.
+  if (state.outcomes.length < state.dispatchCount) {
+    appendActiveResolverOutcome(state, { state: 'timed-out' });
+  }
+  while (state.outcomes.length < requestedCount) {
+    appendActiveResolverOutcome(state, { state: 'not-dispatched' });
+  }
+  finishActiveResolver(pageWindow, state, {
+    kind: 'complete',
+    conversationId: target.conversationId,
+    requestedCount,
+    dispatchCount: state.dispatchCount,
+    outcomes: state.outcomes,
+  });
+}
+
+function activeResolverSourceFailure(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  target: MarkerTarget,
+  code: Extract<ActiveResolverHookResult, { kind: 'error' }>['code']
+): void {
+  if (state.commandAccepted) {
+    activeResolverComplete(pageWindow, state, target);
+  } else {
+    finishActiveResolver(pageWindow, state, { kind: 'error', code });
+  }
+}
+
+function activeResolverTimeout(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  target: MarkerTarget
+): void {
+  if (state.commandAccepted) {
+    activeResolverComplete(pageWindow, state, target);
+  } else {
+    finishActiveResolver(pageWindow, state, { kind: 'error', code: 'resolver-result-timeout' });
+  }
+}
+
+function activeResolverRequestUrl(target: MarkerTarget, providerFileId: string): string {
+  return (
+    `${CHATGPT_ORIGIN}/backend-api/files/download/${providerFileId}` +
+    `?conversation_id=${target.conversationId}&inline=true` +
+    `&check_context_scopes_for_conversation_id=${target.conversationId}`
+  );
+}
+
+function activeResolverContainsId(providerFileIds: readonly string[], candidate: string): boolean {
+  for (let index = 0; index < providerFileIds.length; index += 1) {
+    if (providerFileIds[index] === candidate) return true;
+  }
+  return false;
+}
+
+function activeResolverObservedBytes(outcomes: readonly ActiveResolverOutcome[]): number {
+  let total = 0;
+  for (let index = 0; index < outcomes.length; index += 1) {
+    const outcome = outcomes[index];
+    if (outcome.state === 'observed') total += outcome.capture.byteLength;
+  }
+  return total;
+}
+
+function activeResolverHrefStillExact(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState
+): boolean {
+  try {
+    return pageWindow.location.href === state.armedHref;
+  } catch {
+    return false;
+  }
+}
+
+async function captureActiveResolverResponse(
+  state: ActiveResolverPageState,
+  response: Response
+): Promise<ActiveResolverOutcome> {
+  try {
+    const status = applyCaptured<number>(
+      state.primordials,
+      state.primordials.document.responseStatus,
+      response,
+      []
+    );
+    if (status !== 200) return { state: 'http-error' };
+    const headers = applyCaptured<Headers>(
+      state.primordials,
+      state.primordials.document.responseHeaders,
+      response,
+      []
+    );
+    const mediaType = applyCaptured<string | null>(
+      state.primordials,
+      state.primordials.document.headersGet,
+      headers,
+      ['content-type']
+    );
+    if (typeof mediaType !== 'string' || !isJsonMediaType(state.primordials, mediaType)) {
+      return { state: 'non-json' };
+    }
+    const clone = applyCaptured<Response>(
+      state.primordials,
+      state.primordials.document.responseClone,
+      response,
+      []
+    );
+    discardOpaqueReplayOriginalBody(state.primordials, response);
+    const bytes = await readBoundedClone(
+      state.primordials,
+      clone,
+      DEFAULT_ACTIVE_RESOLVER_MAX_BYTES
+    );
+    const currentBytes = activeResolverObservedBytes(state.outcomes);
+    if (currentBytes + bytes.byteLength > DEFAULT_ACTIVE_RESOLVER_MAX_TOTAL_BYTES) {
+      return { state: 'oversized' };
+    }
+    return {
+      state: 'observed',
+      capture: {
+        bodyBase64: base64FromBytes(state.primordials, bytes),
+        byteLength: bytes.byteLength,
+        sha256: await sha256FromBytes(state.primordials, bytes),
+        mediaType,
+      },
+    };
+  } catch (error) {
+    return { state: error === PAYLOAD_TOO_LARGE ? 'oversized' : 'rejected' };
+  }
+}
+
+async function dispatchActiveResolverQueue(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  target: MarkerTarget
+): Promise<void> {
+  const providerFileIds = state.providerFileIds;
+  const preparation = state.preparation;
+  if (state.settled || providerFileIds === undefined || preparation === undefined) return;
+  const AbortControllerConstructor = state.primordials.document.abortControllerConstructor;
+  const RequestConstructor = state.primordials.document.requestConstructor;
+  if (AbortControllerConstructor === undefined || RequestConstructor === undefined) {
+    activeResolverSourceFailure(pageWindow, state, target, 'hook-state-failed');
+    return;
+  }
+  state.dispatchStarted = true;
+  for (let ordinal = 0; ordinal < providerFileIds.length; ordinal += 1) {
+    if (state.settled) return;
+    if (!activeResolverHrefStillExact(pageWindow, state)) {
+      activeResolverComplete(pageWindow, state, target);
+      return;
+    }
+    let timedOut = false;
+    try {
+      const controller = new AbortControllerConstructor();
+      const signal = applyCaptured<AbortSignal>(
+        state.primordials,
+        state.primordials.document.abortControllerSignal,
+        controller,
+        []
+      );
+      state.abortController = controller;
+      state.perIdTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+        state.primordials,
+        state.primordials.setTimeout,
+        pageWindow,
+        [
+          () => {
+            timedOut = true;
+            abortActiveResolver(state);
+          },
+          DEFAULT_ACTIVE_RESOLVER_PER_ID_TIMEOUT_MS,
+        ]
+      );
+      const request = new RequestConstructor(
+        activeResolverRequestUrl(target, providerFileIds[ordinal]),
+        {
+          method: 'GET',
+          headers: preparation.headers,
+          credentials: preparation.credentials,
+          redirect: 'error',
+          cache: 'no-store',
+          signal,
+        }
+      );
+      state.dispatchCount += 1;
+      const response = await applyCaptured<Promise<Response>>(
+        state.primordials,
+        state.originalFetch,
+        pageWindow,
+        [request]
+      );
+      clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
+      state.abortController = undefined;
+      if (state.settled) return;
+      const outcome = timedOut
+        ? { state: 'timed-out' as const }
+        : await captureActiveResolverResponse(state, response);
+      // The non-extendable global deadline may settle while clone/hash work is
+      // pending. Never mutate the terminal result after that point.
+      if (state.settled) return;
+      appendActiveResolverOutcome(state, outcome);
+    } catch {
+      clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
+      state.abortController = undefined;
+      if (state.settled) return;
+      appendActiveResolverOutcome(state, { state: timedOut ? 'timed-out' : 'rejected' });
+    }
+  }
+  if (!state.settled) activeResolverComplete(pageWindow, state, target);
+}
+
+function maybeDispatchActiveResolver(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  target: MarkerTarget
+): void {
+  if (
+    state.settled ||
+    state.dispatchStarted ||
+    !state.commandAccepted ||
+    !state.sourceReady ||
+    state.providerFileIds === undefined ||
+    state.preparation === undefined
+  ) {
+    return;
+  }
+  if (!activeResolverHrefStillExact(pageWindow, state)) {
+    activeResolverComplete(pageWindow, state, target);
+    return;
+  }
+  void dispatchActiveResolverQueue(pageWindow, state, target);
+}
+
+function observeActiveResolverSourceResponse(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  responsePromise: Promise<Response>,
+  target: MarkerTarget,
+  preparation: OpaqueReplayPreparation
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        (response: Response) => {
+          try {
+            if (state.settled) return;
+            const status = applyCaptured<number>(
+              state.primordials,
+              state.primordials.document.responseStatus,
+              response,
+              []
+            );
+            if (status !== 200) {
+              activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+              return;
+            }
+            const headers = applyCaptured<Headers>(
+              state.primordials,
+              state.primordials.document.responseHeaders,
+              response,
+              []
+            );
+            const contentType = applyCaptured<string | null>(
+              state.primordials,
+              state.primordials.document.headersGet,
+              headers,
+              ['content-type']
+            );
+            if (
+              typeof contentType !== 'string' ||
+              !isJsonMediaType(state.primordials, contentType)
+            ) {
+              activeResolverSourceFailure(pageWindow, state, target, 'source-non-json');
+              return;
+            }
+            state.sourceReady = true;
+            state.preparation = preparation;
+            maybeDispatchActiveResolver(pageWindow, state, target);
+          } catch {
+            activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+          }
+        },
+        () => activeResolverSourceFailure(pageWindow, state, target, 'source-rejected'),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [
+        () => undefined,
+        () => activeResolverSourceFailure(pageWindow, state, target, 'source-http-error'),
+      ]
+    );
+  } catch {
+    activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+  }
+}
+
+function armActiveResolver(
+  pageWindow: PageWindow,
+  primordials: PagePrimordials,
+  target: MarkerTarget,
+  windowRecord: Record<string, unknown>
+): ChatGptDocumentStartResult {
+  const originalFetch = pageWindow.fetch;
+  if (typeof originalFetch !== 'function') return { kind: 'error', code: 'hook-state-failed' };
+  let armedHref: string;
+  try {
+    armedHref = pageWindow.location.href;
+  } catch {
+    return { kind: 'error', code: 'hook-state-failed' };
+  }
+  const state: ActiveResolverPageState = {
+    primordials,
+    originalFetch,
+    armedHref,
+    wrappedFetch: undefined,
+    globalTimeoutId: undefined,
+    perIdTimeoutId: undefined,
+    abortController: undefined,
+    settled: false,
+    claimed: false,
+    commandAccepted: false,
+    sourceReady: false,
+    dispatchStarted: false,
+    preparation: undefined,
+    providerFileIds: undefined,
+    outcomes: [],
+    dispatchCount: 0,
+    result: { kind: 'ready' },
+  };
+  const stateKey = activeResolverStateKeyFor(target.nonce);
+  const commandKey = activeResolverCommandKeyFor(target.nonce);
+  try {
+    const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
+    const defineProperty = primordials.document.objectDefineProperty;
+    if (
+      getOwnPropertyDescriptor === undefined ||
+      defineProperty === undefined ||
+      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined ||
+      getOwnPropertyDescriptor(windowRecord, commandKey) !== undefined
+    ) {
+      return { kind: 'error', code: 'hook-state-failed' };
+    }
+    defineProperty(windowRecord, stateKey, {
+      configurable: false,
+      enumerable: false,
+      get: () => snapshotActiveResolverResult(state.result),
+    });
+    defineProperty(windowRecord, commandKey, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: (providerFileIds: unknown): boolean => {
+        try {
+          if (
+            state.settled ||
+            state.commandAccepted ||
+            !activeResolverHrefStillExact(pageWindow, state) ||
+            !applyCaptured<boolean>(primordials, primordials.document.arrayIsArray, undefined, [
+              providerFileIds,
+            ])
+          )
+            return false;
+          const providerFileIdList = providerFileIds as unknown[];
+          if (
+            providerFileIdList.length === 0 ||
+            providerFileIdList.length > DEFAULT_ACTIVE_RESOLVER_MAX_OBSERVATIONS
+          ) {
+            return false;
+          }
+          const safeIds: string[] = [];
+          for (let index = 0; index < providerFileIdList.length; index += 1) {
+            const providerFileId = providerFileIdList[index];
+            if (
+              typeof providerFileId !== 'string' ||
+              !isSafeResolverFileId(primordials, providerFileId)
+            ) {
+              return false;
+            }
+            if (activeResolverContainsId(safeIds, providerFileId)) return false;
+            applyCaptured<void>(primordials, primordials.document.arrayPush, safeIds, [
+              providerFileId,
+            ]);
+          }
+          state.providerFileIds = safeIds;
+          state.commandAccepted = true;
+          maybeDispatchActiveResolver(pageWindow, state, target);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+    const wrappedFetch = function (
+      this: PageWindow,
+      ...args: Parameters<typeof pageWindow.fetch>
+    ): ReturnType<typeof pageWindow.fetch> {
+      let candidate: OpaqueProbeCandidate | undefined;
+      let preparation: OpaqueReplayPreparation | OpaqueReplayErrorCode | undefined;
+      try {
+        candidate =
+          !state.settled && !state.claimed
+            ? opaqueProbeCandidate(state.primordials, args, target.conversationId)
+            : undefined;
+        if (candidate !== undefined) {
+          state.claimed = true;
+          preparation = prepareOpaqueReplay(state.primordials, candidate);
+          if (typeof preparation === 'string') {
+            activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
+          }
+        }
+      } catch {
+        candidate = undefined;
+        preparation = undefined;
+      }
+      let responsePromise: ReturnType<typeof pageWindow.fetch>;
+      try {
+        responsePromise = applyCaptured<ReturnType<typeof pageWindow.fetch>>(
+          state.primordials,
+          state.originalFetch,
+          this,
+          args
+        );
+      } catch (error) {
+        if (candidate !== undefined && !state.settled) {
+          activeResolverSourceFailure(pageWindow, state, target, 'source-rejected');
+        }
+        throw error;
+      }
+      if (candidate !== undefined && preparation !== undefined && typeof preparation !== 'string') {
+        observeActiveResolverSourceResponse(
+          pageWindow,
+          state,
+          responsePromise,
+          target,
+          preparation
+        );
+      }
+      return responsePromise;
+    } as typeof pageWindow.fetch;
+    state.wrappedFetch = wrappedFetch;
+    pageWindow.fetch = wrappedFetch;
+    state.globalTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      primordials,
+      primordials.setTimeout,
+      pageWindow,
+      [() => activeResolverTimeout(pageWindow, state, target), DEFAULT_TIMEOUT_MS]
+    );
+    return { kind: 'ready' };
+  } catch {
+    finishActiveResolver(pageWindow, state, { kind: 'error', code: 'hook-state-failed' });
+    return { kind: 'error', code: 'hook-state-failed' };
+  }
+}
+
 /**
  * Arm a single document before ChatGPT application code starts. URLs without
  * an exact route and nonce marker return inert before touching fetch, DOM, or
@@ -2757,7 +3395,9 @@ export function startChatGptDocumentStartCapture(
         ? !hasOpaqueProbeArmingPrimordials(primordials)
         : target.mode === 'opaque-resolver'
           ? !hasOpaqueResolverArmingPrimordials(primordials)
-          : !hasOpaqueReplayArmingPrimordials(primordials))
+          : target.mode === 'active-resolver'
+            ? !hasActiveResolverArmingPrimordials(primordials)
+            : !hasOpaqueReplayArmingPrimordials(primordials))
   ) {
     return { kind: 'error', code: 'hook-state-failed' };
   }
@@ -2768,6 +3408,9 @@ export function startChatGptDocumentStartCapture(
   }
   if (target.mode === 'opaque-resolver') {
     return armOpaqueResolver(pageWindow, primordials, target, windowRecord);
+  }
+  if (target.mode === 'active-resolver') {
+    return armActiveResolver(pageWindow, primordials, target, windowRecord);
   }
   if (target.mode === 'opaque-replay') {
     return armOpaqueReplay(pageWindow, primordials, target, windowRecord);

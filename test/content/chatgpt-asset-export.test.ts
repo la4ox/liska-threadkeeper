@@ -162,6 +162,48 @@ function binaryResult(
 }
 
 describe('destination-honest ChatGPT attachment export', () => {
+  it('finalizes probe-only active metrics without acquisition, binary staging, or fetched ledger state', async () => {
+    const persistArtifacts = vi.fn().mockResolvedValue(persisted(['file']));
+    const acquireAssets = vi.fn();
+    const persistBinaryAssets = vi.fn();
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(),
+      companion(),
+      'thread.md',
+      ['file'],
+      {
+        persistArtifacts,
+        observeResolvers: vi.fn().mockResolvedValue({
+          kind: 'probe-only',
+          observedCount: 1,
+          requestedCount: 1,
+          warning: 'ChatGPT active resolver observed 1/1; binary acquisition remains disabled.',
+        }),
+        acquireAssets,
+        persistBinaryAssets,
+        buildDestinationCompanion: vi.fn(async (_context, records) => {
+          expect(records.every(record => record.state === 'not-attempted')).toBe(true);
+          return companion();
+        }),
+      }
+    );
+    expect(acquireAssets).not.toHaveBeenCalled();
+    expect(persistBinaryAssets).not.toHaveBeenCalled();
+    expect(persistArtifacts).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      'thread.md',
+      'chatgpt',
+      ['file'],
+      ['raw']
+    );
+    expect(result).toEqual({
+      rawSuccessfulDestinations: ['file'],
+      completeDestinations: ['file'],
+      warnings: ['ChatGPT active resolver observed 1/1; binary acquisition remains disabled.'],
+    });
+  });
+
   it('fails closed before raw persistence when the companion is not the exact original capture', async () => {
     const persistArtifacts = vi.fn();
     const observeResolvers = vi.fn();

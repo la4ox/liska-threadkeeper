@@ -33,6 +33,10 @@ import {
   CHATGPT_CAPTURE_MAX_BYTES,
   isChatGptConversationId,
 } from '../lib/chatgpt-capture-contract';
+import {
+  CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
+  isChatGptActiveResolverProviderFileId,
+} from '../lib/chatgpt-active-resolver-contract';
 import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
 import { canonicalBase64ByteLength } from '../lib/base64';
@@ -202,6 +206,28 @@ function validateChatGptOpaqueResolverMessage(
   );
 }
 
+function validateChatGptActiveResolverMessage(
+  message: Extract<ExtensionMessage, { action: 'probeChatGptActiveAssetResolvers' }>
+): boolean {
+  if (!hasExactOwnKeys(message, ['action', 'conversationId', 'providerFileIds'])) return false;
+  if (!isChatGptConversationId(message.conversationId) || !Array.isArray(message.providerFileIds)) {
+    return false;
+  }
+  if (
+    message.providerFileIds.length === 0 ||
+    message.providerFileIds.length > CHATGPT_ACTIVE_RESOLVER_MAX_COUNT
+  ) {
+    return false;
+  }
+  const seen = new Set<string>();
+  for (const providerFileId of message.providerFileIds) {
+    if (!isChatGptActiveResolverProviderFileId(providerFileId) || seen.has(providerFileId))
+      return false;
+    seen.add(providerFileId);
+  }
+  return true;
+}
+
 function validateChatGptBridgeMessage(
   message: Extract<
     ExtensionMessage,
@@ -210,7 +236,8 @@ function validateChatGptBridgeMessage(
         | 'captureChatGptConversation'
         | 'probeChatGptOpaqueRequest'
         | 'captureChatGptConversationViaOpaqueReplay'
-        | 'observeChatGptAssetResolversViaOpaqueSource';
+        | 'observeChatGptAssetResolversViaOpaqueSource'
+        | 'probeChatGptActiveAssetResolvers';
     }
   >
 ): boolean {
@@ -220,7 +247,9 @@ function validateChatGptBridgeMessage(
     ? validateChatGptOpaqueProbeMessage(message)
     : message.action === 'captureChatGptConversationViaOpaqueReplay'
       ? validateChatGptOpaqueReplayMessage(message)
-      : validateChatGptOpaqueResolverMessage(message);
+      : message.action === 'observeChatGptAssetResolversViaOpaqueSource'
+        ? validateChatGptOpaqueResolverMessage(message)
+        : validateChatGptActiveResolverMessage(message);
 }
 
 function validateFetchImageMessage(
@@ -482,7 +511,8 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     extensionMessage.action === 'captureChatGptConversation' ||
     extensionMessage.action === 'probeChatGptOpaqueRequest' ||
     extensionMessage.action === 'captureChatGptConversationViaOpaqueReplay' ||
-    extensionMessage.action === 'observeChatGptAssetResolversViaOpaqueSource'
+    extensionMessage.action === 'observeChatGptAssetResolversViaOpaqueSource' ||
+    extensionMessage.action === 'probeChatGptActiveAssetResolvers'
   ) {
     return validateChatGptBridgeMessage(extensionMessage);
   }

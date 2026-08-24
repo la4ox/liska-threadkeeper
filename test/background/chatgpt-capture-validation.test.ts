@@ -111,6 +111,22 @@ describe('ChatGPT capture message validation', () => {
     ).toBe(false);
   });
 
+  it('accepts only a bounded exact active resolver message without duplicate IDs', () => {
+    const message = {
+      action: 'probeChatGptActiveAssetResolvers',
+      conversationId: CONVERSATION_ID,
+      providerFileIds: ['file_one', 'file-two'],
+    };
+    expect(validateMessageContent(message)).toBe(true);
+    expect(validateMessageContent({ ...message, providerFileIds: ['file_one', 'file_one'] })).toBe(
+      false
+    );
+    expect(validateMessageContent({ ...message, providerFileIds: ['file.with-dot'] })).toBe(false);
+    expect(validateMessageContent({ ...message, secret: 'must-not-cross' })).toBe(false);
+    const withSymbol = { ...message, [Symbol('private')]: true };
+    expect(validateMessageContent(withSymbol)).toBe(false);
+  });
+
   it.each(['apiKey', 'headers', 'accountId'])('rejects the extra own key %s', extraKey => {
     expect(
       validateMessageContent({

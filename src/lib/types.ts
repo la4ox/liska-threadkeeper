@@ -491,7 +491,13 @@ export type ExtensionMessage =
     }
   | { action: 'probeChatGptOpaqueRequest'; conversationId: string }
   | { action: 'captureChatGptConversationViaOpaqueReplay'; conversationId: string }
-  | { action: 'observeChatGptAssetResolversViaOpaqueSource'; conversationId: string };
+  | { action: 'observeChatGptAssetResolversViaOpaqueSource'; conversationId: string }
+  | {
+      action: 'probeChatGptActiveAssetResolvers';
+      conversationId: string;
+      /** Transient only: never persisted, logged, or returned to content. */
+      providerFileIds: string[];
+    };
 
 /**
  * Response to a `fetchImage` message. The background worker fetches remote

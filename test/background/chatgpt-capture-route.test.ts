@@ -5,12 +5,14 @@ import {
 } from '../../src/lib/chatgpt-capture-contract';
 import { createChatGptOpaqueProbeResult } from '../../src/lib/chatgpt-opaque-probe-contract';
 import { createChatGptOpaqueReplayFailure } from '../../src/lib/chatgpt-opaque-replay-contract';
+import { createChatGptActiveResolverFailure } from '../../src/lib/chatgpt-active-resolver-contract';
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
   probe: vi.fn(),
   replay: vi.fn(),
   resolver: vi.fn(),
+  activeResolver: vi.fn(),
   getSettings: vi.fn(),
   migrateSettings: vi.fn(),
 }));
@@ -51,6 +53,15 @@ vi.mock('../../src/background/chatgpt-opaque-resolver', async importOriginal => 
   return {
     ...actual,
     observeChatGptAssetResolversViaOpaqueSource: (...args: unknown[]) => mocks.resolver(...args),
+  };
+});
+
+vi.mock('../../src/background/chatgpt-active-resolver', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/background/chatgpt-active-resolver')>();
+  return {
+    ...actual,
+    probeChatGptActiveAssetResolvers: (...args: unknown[]) => mocks.activeResolver(...args),
   };
 });
 
@@ -122,6 +133,20 @@ function invokeOpaqueResolver(sendResponse = vi.fn()): ReturnType<typeof vi.fn> 
   return sendResponse;
 }
 
+function invokeActiveResolver(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
+  const returned = capturedListener(
+    {
+      action: 'probeChatGptActiveAssetResolvers',
+      conversationId: CONVERSATION_ID,
+      providerFileIds: ['file_abc'],
+    },
+    { tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` } } as chrome.runtime.MessageSender,
+    sendResponse
+  );
+  expect(returned).toBe(true);
+  return sendResponse;
+}
+
 function setScriptingPermission(granted: boolean): ReturnType<typeof vi.fn> {
   const contains = vi.fn(
     (_permissions: { permissions: string[] }, callback: (result: boolean) => void) =>
@@ -146,6 +171,16 @@ describe('ChatGPT capture service-worker route', () => {
     mocks.probe.mockResolvedValue(createChatGptOpaqueProbeResult('eligible'));
     mocks.replay.mockResolvedValue({ success: true, data: captureArtifact() });
     mocks.resolver.mockResolvedValue({ success: true, data: { transientAssetResolvers: [] } });
+    mocks.activeResolver.mockResolvedValue({
+      success: true,
+      data: {
+        requestedCount: 1,
+        dispatchCount: 1,
+        observedCount: 1,
+        outcomes: ['observed'],
+        attemptedAt: '2026-08-24T12:00:00.000Z',
+      },
+    });
     setScriptingPermission(true);
     vi.mocked(chrome.runtime.onMessage.addListener).mockImplementation(listener => {
       capturedListener = listener;
@@ -229,6 +264,36 @@ describe('ChatGPT capture service-worker route', () => {
       success: true,
       data: { transientAssetResolvers: [] },
     });
+  });
+
+  it('routes the active metric resolver through the same sender and permission gate only', async () => {
+    const sendResponse = invokeActiveResolver();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.activeResolver).toHaveBeenCalledWith(CONVERSATION_ID, ['file_abc']);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.replay).not.toHaveBeenCalled();
+    expect(mocks.resolver).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      data: {
+        requestedCount: 1,
+        dispatchCount: 1,
+        observedCount: 1,
+        outcomes: ['observed'],
+        attemptedAt: '2026-08-24T12:00:00.000Z',
+      },
+    });
+    expect(JSON.stringify(sendResponse.mock.calls[0][0])).not.toContain('file_abc');
+  });
+
+  it('rejects the active route before dispatch when scripting is unavailable', async () => {
+    setScriptingPermission(false);
+    const sendResponse = invokeActiveResolver();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.activeResolver).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptActiveResolverFailure('permission-unavailable')
+    );
   });
 
   it('authorizes the current conversation after same-origin SPA navigation', async () => {

@@ -5,6 +5,7 @@ import { readChatGptTemporaryCaptureState } from '../../src/background/chatgpt-c
 import { readChatGptOpaqueProbeState } from '../../src/background/chatgpt-opaque-probe';
 import { readChatGptOpaqueReplayState } from '../../src/background/chatgpt-opaque-replay';
 import { readChatGptOpaqueResolverState } from '../../src/background/chatgpt-opaque-resolver';
+import { readChatGptActiveResolverState } from '../../src/background/chatgpt-active-resolver';
 import { startChatGptDocumentStartCapture } from '../../src/content/capture/chatgpt-document-start';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
@@ -14,6 +15,8 @@ const STATE_KEY = `__liskaChatGptCapture_${NONCE}`;
 const OPAQUE_STATE_KEY = `__liskaChatGptOpaqueProbe_${NONCE}`;
 const OPAQUE_REPLAY_STATE_KEY = `__liskaChatGptOpaqueReplay_${NONCE}`;
 const OPAQUE_RESOLVER_STATE_KEY = `__liskaChatGptOpaqueResolver_${NONCE}`;
+const ACTIVE_RESOLVER_STATE_KEY = `__liskaChatGptActiveResolver_${NONCE}`;
+const ACTIVE_RESOLVER_COMMAND_KEY = `__liskaChatGptActiveResolverCommand_${NONCE}`;
 const ENDPOINT = `/backend-api/conversation/${CONVERSATION_ID}`;
 const CAPTURE_HASH = 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3';
 const RESOLVER_FILE_ID = 'file-abc_123';
@@ -135,6 +138,10 @@ function markedOpaqueResolverUrl(path = `/c/${CONVERSATION_ID}`): string {
   return `https://chatgpt.com${path}#liska-capture=${NONCE}&liska-opaque-resolver-observer=1`;
 }
 
+function markedActiveResolverUrl(path = `/c/${CONVERSATION_ID}`): string {
+  return `https://chatgpt.com${path}#liska-capture=${NONCE}&liska-active-resolver=1`;
+}
+
 function fakePage(
   href: string,
   fetchImplementation: (
@@ -199,6 +206,11 @@ function opaqueReplaySnapshotOf(page: FakePage): unknown {
 
 function opaqueResolverSnapshotOf(page: FakePage): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(page.pageWindow, OPAQUE_RESOLVER_STATE_KEY);
+  return descriptor?.get?.call(page.pageWindow);
+}
+
+function activeResolverSnapshotOf(page: FakePage): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_STATE_KEY);
   return descriptor?.get?.call(page.pageWindow);
 }
 
@@ -2354,6 +2366,637 @@ describe('startChatGptDocumentStartCapture', () => {
       result: { outcome: 'probe-failed', singularDispatchCount: 0 },
     });
     expect(page.originalFetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(['command-before-source', 'source-before-command'] as const)(
+    'runs the active metric resolver only after both latches in %s order',
+    async latchOrder => {
+      const sourceUrl =
+        `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+        '?include_has_versions=true&num_turns=10';
+      const providerFileId = 'file_abc-123';
+      const resolverBody = JSON.stringify({
+        download_url:
+          `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+          '&id=private&p=p&sig=s&ts=t&v=v',
+      });
+      const sourceResponse = new Response('{}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+      const resolverResponse = new Response(resolverBody, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+      const page = fakePage(
+        markedActiveResolverUrl(),
+        async input =>
+          (input as OpaqueTestRequest).url === sourceUrl ? sourceResponse : resolverResponse,
+        OpaqueTestRequest
+      );
+      page.pageWindow.crypto = {
+        subtle: { digest: async () => new Uint8Array(32).buffer },
+      } as unknown as Crypto;
+      const source = new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request;
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+      const commandDescriptor = Object.getOwnPropertyDescriptor(
+        page.pageWindow,
+        ACTIVE_RESOLVER_COMMAND_KEY
+      );
+      expect(commandDescriptor).toMatchObject({
+        configurable: false,
+        enumerable: false,
+        writable: false,
+      });
+      const command = commandDescriptor?.value as (providerFileIds: unknown) => boolean;
+
+      if (latchOrder === 'command-before-source') expect(command([providerFileId])).toBe(true);
+      await expect(page.pageWindow.fetch(source)).resolves.toBe(sourceResponse);
+      if (latchOrder === 'source-before-command') expect(command([providerFileId])).toBe(true);
+
+      await vi.waitFor(() =>
+        expect(activeResolverSnapshotOf(page)).toMatchObject({
+          kind: 'complete',
+          conversationId: CONVERSATION_ID,
+          requestedCount: 1,
+          dispatchCount: 1,
+          outcomes: [
+            {
+              state: 'observed',
+              capture: { byteLength: new TextEncoder().encode(resolverBody).byteLength },
+            },
+          ],
+        })
+      );
+      expect(page.originalFetch).toHaveBeenCalledTimes(2);
+      const activeRequest = page.originalFetch.mock.calls[1]?.[0] as OpaqueTestRequest;
+      expect(activeRequest).toMatchObject({
+        url:
+          `https://chatgpt.com/backend-api/files/download/${providerFileId}` +
+          `?conversation_id=${CONVERSATION_ID}&inline=true` +
+          `&check_context_scopes_for_conversation_id=${CONVERSATION_ID}`,
+        method: 'GET',
+        credentials: 'include',
+        redirect: 'error',
+        cache: 'no-store',
+      });
+      vi.stubGlobal('window', page.pageWindow);
+      expect(readChatGptActiveResolverState(NONCE)).toEqual(activeResolverSnapshotOf(page));
+      expect(JSON.stringify(activeResolverSnapshotOf(page))).not.toContain(providerFileId);
+      expect(JSON.stringify(activeResolverSnapshotOf(page))).not.toContain(
+        'synthetic-authorization-sentinel'
+      );
+    }
+  );
+
+  it('fails closed for duplicate or malformed active command IDs without dispatch', async () => {
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    expect(command(['file_one', 'file_one'])).toBe(false);
+    expect(command(['file.with.dot'])).toBe(false);
+    expect(command([])).toBe(false);
+    expect(page.originalFetch).not.toHaveBeenCalled();
+    expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'ready' });
+  });
+
+  it('rejects an active command after same-document route drift', () => {
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    page.pageWindow.location.href = `https://chatgpt.com/c/${CONVERSATION_ID}`;
+    expect(command(['file_one'])).toBe(false);
+    expect(page.originalFetch).not.toHaveBeenCalled();
+    expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'ready' });
+  });
+
+  it('keeps a command-before-source route drift entirely not-dispatched', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}', { headers: { 'content-type': 'application/json' } }),
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    expect(command(['first', 'second'])).toBe(true);
+    page.pageWindow.location.href = `https://chatgpt.com/c/${CONVERSATION_ID}`;
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toEqual({
+        kind: 'complete',
+        conversationId: CONVERSATION_ID,
+        requestedCount: 2,
+        dispatchCount: 0,
+        outcomes: [{ state: 'not-dispatched' }, { state: 'not-dispatched' }],
+      })
+    );
+    expect(page.originalFetch).toHaveBeenCalledOnce();
+  });
+
+  it('stops before the next ordinal when the armed href drifts after one response', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    let page: FakePage;
+    page = fakePage(
+      markedActiveResolverUrl(),
+      async input => {
+        const request = input as OpaqueTestRequest;
+        if (request.url === sourceUrl) {
+          return new Response('{}', { headers: { 'content-type': 'application/json' } });
+        }
+        page.pageWindow.location.href = `https://chatgpt.com/c/${CONVERSATION_ID}`;
+        return new Response('{}', { headers: { 'content-type': 'application/json' } });
+      },
+      OpaqueTestRequest
+    );
+    page.pageWindow.crypto = {
+      subtle: { digest: async () => new Uint8Array(32).buffer },
+    } as unknown as Crypto;
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    expect(command(['first', 'second'])).toBe(true);
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toMatchObject({
+        kind: 'complete',
+        dispatchCount: 1,
+        outcomes: [{ state: 'observed' }, { state: 'not-dispatched' }],
+      })
+    );
+    expect(page.originalFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the document-start Array.isArray primordial and never invokes a supplied iterator', () => {
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    const iterator = vi.fn(() => {
+      throw new Error('iterator must stay unused');
+    });
+    const providerFileIds = ['file_one'];
+    Object.defineProperty(providerFileIds, Symbol.iterator, {
+      configurable: true,
+      value: iterator,
+    });
+    page.pageWindow.Array = { isArray: () => false } as unknown as ArrayConstructor;
+    expect(command(providerFileIds)).toBe(true);
+    expect(iterator).not.toHaveBeenCalled();
+  });
+
+  it('contains an active command proxy that throws while exposing its length', () => {
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    const hostile = new Proxy<string[]>([], {
+      get(target, property, receiver) {
+        if (property === 'length') throw new Error('synthetic length failure');
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(command(hostile)).toBe(false);
+    expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'ready' });
+  });
+
+  it('publishes a stable active timeout before any command is accepted', async () => {
+    vi.useFakeTimers();
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(activeResolverSnapshotOf(page)).toEqual({
+      kind: 'error',
+      code: 'resolver-result-timeout',
+    });
+  });
+
+  it.each([
+    [
+      'non-json',
+      () => new Response('{}', { status: 200, headers: { 'content-type': 'text/plain' } }),
+      'non-json',
+    ],
+    [
+      'oversized',
+      () =>
+        new Response(new Uint8Array(64 * 1024 + 1), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      'oversized',
+    ],
+  ] as const)(
+    'records an active resolver %s response without retry',
+    async (_label, response, state) => {
+      const sourceUrl =
+        `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+        '?include_has_versions=true&num_turns=10';
+      const page = fakePage(
+        markedActiveResolverUrl(),
+        async input =>
+          (input as OpaqueTestRequest).url === sourceUrl
+            ? new Response('{}', { headers: { 'content-type': 'application/json' } })
+            : response(),
+        OpaqueTestRequest
+      );
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+      const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+        ?.value as (providerFileIds: unknown) => boolean;
+      expect(command(['file_one'])).toBe(true);
+      await page.pageWindow.fetch(
+        new OpaqueTestRequest(sourceUrl, {
+          credentials: 'include',
+          headers: { authorization: 'synthetic-authorization-sentinel' },
+        }) as unknown as Request
+      );
+      await vi.waitFor(() =>
+        expect(activeResolverSnapshotOf(page)).toMatchObject({
+          kind: 'complete',
+          dispatchCount: 1,
+          outcomes: [{ state }],
+        })
+      );
+      expect(page.originalFetch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it('times out one active resolver, then continues once with a fresh signal', async () => {
+    vi.useFakeTimers();
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const resolverSignals: AbortSignal[] = [];
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      input => {
+        const request = input as OpaqueTestRequest;
+        if (request.url === sourceUrl) {
+          return Promise.resolve(
+            new Response('{}', { headers: { 'content-type': 'application/json' } })
+          );
+        }
+        resolverSignals.push(request.signal!);
+        if (request.url.includes('/first?')) {
+          return new Promise<Response>((_resolve, reject) => {
+            request.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            });
+          });
+        }
+        return Promise.resolve(
+          new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })
+        );
+      },
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    expect(command(['first', 'second'])).toBe(true);
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() => expect(page.originalFetch).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(12_000);
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toMatchObject({
+        kind: 'complete',
+        dispatchCount: 2,
+        outcomes: [{ state: 'timed-out' }, { state: 'http-error' }],
+      })
+    );
+    expect(resolverSignals).toHaveLength(2);
+    expect(resolverSignals[0]).not.toBe(resolverSignals[1]);
+    expect(resolverSignals[0].aborted).toBe(true);
+  });
+
+  it('accounts for two sequential observed resolver bodies under the aggregate cap', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async input =>
+        (input as OpaqueTestRequest).url === sourceUrl
+          ? new Response('{}', { headers: { 'content-type': 'application/json' } })
+          : new Response('{}', { headers: { 'content-type': 'application/json' } }),
+      OpaqueTestRequest
+    );
+    page.pageWindow.crypto = {
+      subtle: { digest: async () => new Uint8Array(32).buffer },
+    } as unknown as Crypto;
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    expect(command(['first', 'second'])).toBe(true);
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toMatchObject({
+        kind: 'complete',
+        dispatchCount: 2,
+        outcomes: [{ state: 'observed' }, { state: 'observed' }],
+      })
+    );
+    expect(page.originalFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps an already-commanded ineligible active source as not-dispatched', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}', { headers: { 'content-type': 'application/json' } }),
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    expect(command(['file_one'])).toBe(true);
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, { credentials: 'include' }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toEqual({
+        kind: 'complete',
+        conversationId: CONVERSATION_ID,
+        requestedCount: 1,
+        dispatchCount: 0,
+        outcomes: [{ state: 'not-dispatched' }],
+      })
+    );
+    expect(page.originalFetch).toHaveBeenCalledOnce();
+  });
+
+  it('contains malformed active source responses and synchronous source throws', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const malformedPage = fakePage(
+      markedActiveResolverUrl(),
+      async () => ({}) as Response,
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(malformedPage.pageWindow)).toEqual({ kind: 'ready' });
+    const malformedCommand = Object.getOwnPropertyDescriptor(
+      malformedPage.pageWindow,
+      ACTIVE_RESOLVER_COMMAND_KEY
+    )?.value as (providerFileIds: unknown) => boolean;
+    expect(malformedCommand(['file_one'])).toBe(true);
+    await malformedPage.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(malformedPage)).toMatchObject({
+        kind: 'complete',
+        outcomes: [{ state: 'not-dispatched' }],
+      })
+    );
+
+    const throwingPage = fakePage(
+      markedActiveResolverUrl(),
+      (() => {
+        throw new Error('synthetic synchronous source failure');
+      }) as never,
+      OpaqueTestRequest
+    );
+    expect(startChatGptDocumentStartCapture(throwingPage.pageWindow)).toEqual({ kind: 'ready' });
+    const throwingSource = new OpaqueTestRequest(sourceUrl, {
+      credentials: 'include',
+      headers: { authorization: 'synthetic-authorization-sentinel' },
+    }) as unknown as Request;
+    expect(() => throwingPage.pageWindow.fetch(throwingSource)).toThrow(
+      'synthetic synchronous source failure'
+    );
+    expect(activeResolverSnapshotOf(throwingPage)).toEqual({
+      kind: 'error',
+      code: 'source-rejected',
+    });
+  });
+
+  it('fails active arming for a second href read, a pre-existing key, or poisoned publication', () => {
+    const hrefPage = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    let hrefReads = 0;
+    Object.defineProperty(hrefPage.pageWindow.location, 'href', {
+      configurable: true,
+      get() {
+        hrefReads += 1;
+        if (hrefReads === 1) return markedActiveResolverUrl();
+        throw new Error('synthetic href failure');
+      },
+    });
+    expect(startChatGptDocumentStartCapture(hrefPage.pageWindow)).toEqual({
+      kind: 'error',
+      code: 'hook-state-failed',
+    });
+
+    const collisionPage = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    Object.defineProperty(collisionPage.pageWindow, ACTIVE_RESOLVER_STATE_KEY, {
+      configurable: true,
+      value: { kind: 'ready' },
+    });
+    expect(startChatGptDocumentStartCapture(collisionPage.pageWindow)).toEqual({
+      kind: 'error',
+      code: 'hook-state-failed',
+    });
+
+    const publicationPage = fakePage(
+      markedActiveResolverUrl(),
+      async () => new Response('{}'),
+      OpaqueTestRequest
+    );
+    publicationPage.pageWindow.Object = new Proxy(Object, {
+      get(target, property, receiver) {
+        if (property === 'defineProperty') {
+          return () => {
+            throw new Error('synthetic publication failure');
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as ObjectConstructor;
+    expect(startChatGptDocumentStartCapture(publicationPage.pageWindow)).toEqual({
+      kind: 'error',
+      code: 'hook-state-failed',
+    });
+  });
+
+  it.each([
+    [
+      'source rejection',
+      () => Promise.reject(new Error('synthetic source rejection')),
+      'source-rejected',
+    ],
+    [
+      'non-json source',
+      () => Promise.resolve(new Response('{}', { headers: { 'content-type': 'text/plain' } })),
+      'source-non-json',
+    ],
+    [
+      'http-error source',
+      () =>
+        Promise.resolve(
+          new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })
+        ),
+      'source-http-error',
+    ],
+  ] as const)(
+    'keeps active source transparent and terminal on %s',
+    async (_label, fetchImplementation, code) => {
+      const sourceUrl =
+        `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+        '?include_has_versions=true&num_turns=10';
+      const page = fakePage(markedActiveResolverUrl(), fetchImplementation, OpaqueTestRequest);
+      const source = new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request;
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+      await page.pageWindow.fetch(source).catch(() => undefined);
+      await vi.waitFor(() =>
+        expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'error', code })
+      );
+      expect(page.originalFetch).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('reports an already-commanded source failure as zero dispatch and all not-dispatched', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async () =>
+        new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }),
+      OpaqueTestRequest
+    );
+    const command = (() => {
+      startChatGptDocumentStartCapture(page.pageWindow);
+      return Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+        ?.value as (providerFileIds: unknown) => boolean;
+    })();
+    expect(command(['first', 'second'])).toBe(true);
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toEqual({
+        kind: 'complete',
+        conversationId: CONVERSATION_ID,
+        requestedCount: 2,
+        dispatchCount: 0,
+        outcomes: [{ state: 'not-dispatched' }, { state: 'not-dispatched' }],
+      })
+    );
+    expect(page.originalFetch).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a settled global-timeout partial queue immutable after delayed capture hashing', async () => {
+    vi.useFakeTimers();
+    let resolveDigest: ((value: ArrayBuffer) => void) | undefined;
+    const deferredDigest = new Promise<ArrayBuffer>(resolve => {
+      resolveDigest = resolve;
+    });
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      async input =>
+        (input as OpaqueTestRequest).url === sourceUrl
+          ? new Response('{}', { headers: { 'content-type': 'application/json' } })
+          : new Response('{}', { headers: { 'content-type': 'application/json' } }),
+      OpaqueTestRequest
+    );
+    page.pageWindow.crypto = { subtle: { digest: () => deferredDigest } } as unknown as Crypto;
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (providerFileIds: unknown) => boolean;
+    expect(command(['first', 'second'])).toBe(true);
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() => expect(page.originalFetch).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(180_000);
+    const settled = {
+      kind: 'complete',
+      conversationId: CONVERSATION_ID,
+      requestedCount: 2,
+      dispatchCount: 1,
+      outcomes: [{ state: 'timed-out' }, { state: 'not-dispatched' }],
+    };
+    expect(activeResolverSnapshotOf(page)).toEqual(settled);
+    resolveDigest?.(new Uint8Array(32).buffer);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(activeResolverSnapshotOf(page)).toEqual(settled);
+    expect(page.originalFetch).toHaveBeenCalledTimes(2);
   });
 
   it('replays one exact singular request only after a page-owned plural 200 JSON source', async () => {

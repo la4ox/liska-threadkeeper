@@ -137,55 +137,57 @@ route still cannot publish a premature fetched manifest/canonical claim.
 
 The first page-owned acquisition boundary is explicit and remains disabled in
 the default structured capture. The image-export path may opt in only after raw
-persistence succeeds. For the opaque replay route, a separate marker-gated tab
-then observes the exact eligible page-owned plural request without reading its
-body. ChatGPT defers attachment rendering in hidden documents, so this trusted
-click briefly foregrounds the observer tab and exact-closes it afterward. It
-dispatches zero singular graph requests. A dedicated hard eight-second window
-starts immediately before the eligible source fetch because cached UI state may
-issue a resolver before the source Response settles. Observations are published
-only after both source `200 JSON` validation and window expiry, in either order.
-At most 32 resolver responses of at most 64 KiB each are cloned. Request header
-values, cookies, request and plural-response bodies, browser storage, DOM, and
-authentication middleware are never read. Background revalidates the resolver
-bytes and only an opaque, domain-separated key plus a strictly allowlisted
-transient signed estuary URL cross back to the content script. Literal
-URL/path/raw-query grammar prevents normalization from widening this boundary.
-The route grammar follows current public frontend source rather than prefix
-guessing: legacy `/backend-api/files/download/{file_id}` accepts only the exact
-two-key conversation/inline query or the exact three-key variant whose context
-scope equals the same conversation; automatic cache resolution may instead use
-exact query-free `/backend-api/calpico/chatgpt/files/{file_id}`. Calpico has no
-request-level conversation field, so its result is usable only after background
-validates the signed URL's conversation and content re-matches the opaque file
-key against a unique pointer in committed raw.
+persistence succeeds. Its first opaque-replay implementation was a separate
+marker-gated passive observer: it read no plural source body or header value,
+dispatched zero graph requests, and bounded response clones to 32 × 64 KiB.
+Background validated base64, SHA-256, JSON, signed-URL conversation binding, and
+exact raw-pointer correlation before a transient URL could cross to content.
+Foreground, early-window, and both public route grammars all completed safely
+but observed no resolver in representative live samples. Passive observation is
+therefore a closed experiment; its exact code remains as evidence, not as the
+current opaque-replay route.
 
-Pure matcher and credentialless acquisition helpers bind those opaque keys to
-exact ledger source pointers and fetch only the already signed asset URL with
-omitted credentials, disabled redirects, passive MIME allowlisting, timeouts,
-per-asset limits, attempt limits, and a cumulative read-work budget. Every
-bounded body read consumes that budget even if later hash or asset validation
-rejects the bytes.
+The next checkpoint is a separate **active metric-only** resolver. After an
+original raw companion is durably written and reverified, a pure plan selects at
+most 20 unique IDs deterministically from exact attachment-ledger pointers. The
+IDs cross once as transient `executeScript` arguments—never in fragment/history,
+warnings, logs, archives, or results. A document-start closure retains an exact
+eligible native plural Request clone's Headers and credentials opaquely, checks
+only authorization membership, credentials mode, source status, and JSON media
+type, and never reads the source body. It waits for both source validation and a
+one-shot command, in either order. The command and every poll are pinned to one
+`documentId`, and the closure rechecks the exact armed href immediately before
+accepting IDs. MAIN world is still page-controlled: the nonce is not a secret,
+so a page may pre-empt the command and affect availability. That residual is
+accepted only for this disabled metric experiment and must not be described as
+an isolation guarantee.
+
+For each ordinal the closure constructs exactly one same-origin request:
+`GET /backend-api/files/download/{file_id}` with `conversation_id`,
+`inline=true`, and `check_context_scopes_for_conversation_id` bound to the same
+conversation. It copies the opaque source Headers/credentials into a native
+Request, uses a fresh AbortController, `redirect: error`, `cache: no-store`, a
+per-ID timeout, one non-extendable batch deadline, and no retry, Calpico route,
+or route switching. Every requested ordinal terminates as `observed`,
+`http-error`, `rejected`, `non-json`, `oversized`, `timed-out`, or
+`not-dispatched`; each body is at most 64 KiB and aggregate response work is at
+most 20 × 64 KiB. Background treats MAIN output as hostile, revalidates exact
+shape, ordinal mapping, canonical base64, length, SHA-256, JSON, and signed-URL
+conversation binding, then discards IDs, bodies, and URLs. Content receives only
+counts, outcome codes, and a batch timestamp.
 
 The integrated orchestration is gated by the existing
-`Export images & attachments` setting and at least one durable destination. The
-historical setting currently defaults on, but every export still requires a
-trusted user click. The pipeline first commits the original raw
-artifact and carries forward only raw-successful destinations. A zero-asset
-ledger skips resolver observation. In opaque replay mode the post-persistence
-observer is the only resolver route; failure never falls back to the legacy raw
-recapture. Each safe resolver key must uniquely match a provider identifier at
-an exact ledger pointer in the reverified committed raw before acquisition can
-start. This is committed-raw identifier correlation, not a claim that the
-plural response is byte-equal to the hidden full-graph replay. Ordinary capture
-retains the older byte-equality recapture path. Verified bytes are acquired once
-and staged to all surviving destinations. Each destination then receives its
-own manifest/canonical pair: `fetched` requires an exact matching descriptor and
-successful write there; every other state is recorded without a dangling local
-path. Raw is never rewritten, signed URLs/provider IDs remain transient, and
-all-branches presentation proceeds only for destinations whose companion pair
-completed. This order is covered offline and awaits one trusted-click live
-smoke with real ChatGPT attachments.
+`Export images & attachments` setting and at least one durable destination; every
+export still requires a trusted click. Raw is committed first and only
+raw-successful destinations continue. A zero-asset ledger skips resolver work.
+In opaque replay mode this checkpoint is deliberately probe-only: it performs
+zero credentialless acquisition or binary staging, leaves every asset
+`not-attempted`, and writes only a count-safe warning. Ordinary capture retains
+the older byte-equality recapture and bounded credentialless signed-URL path.
+Only a positive live metric smoke plus fresh review may connect the active route
+to that existing acquisition layer. Raw is never rewritten, and signed URLs or
+provider IDs never enter manifest, canonical, Markdown, warning, or runtime asset
+records.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
@@ -217,11 +219,11 @@ is live-verified on a File-only stress capture: raw SHA-256/length matched its
 manifest, raw and canonical retained the same 1,083-node graph/current node,
 and no marker tab, DOM fallback, credential text, or signed transport value
 remained. Attachment acquisition stayed disabled; all 64 discovered references
-remained explicitly `not-attempted`. The later replay attachment path now uses
-the separate post-persistence zero-dispatch observer described above and is
-offline-tested, but its page-owned resolver behavior still requires a live
-smoke. Explicit bearer, cookie, device-ID, source-body, DOM, or header-value
-extraction remains forbidden even as a fallback.
+remained explicitly `not-attempted`. Replay-mode attachment discovery now uses
+the post-persistence active metric-only checkpoint described above. It is
+offline-tested but still requires its first live smoke. Explicit bearer, cookie,
+device-ID, source-body, DOM, or header-value extraction remains forbidden even
+as a fallback.
 
 The first live cold/warm-equivalent smoke of that observer completed twice on
 an older seven-reference conversation because a controller timeout obscured a
@@ -230,9 +232,7 @@ identical verified raw bytes, complete graph claims, seven `not-attempted`
 assets, no binary/local claims, no durable signed transport values, and no
 leftover marker tab. No page-owned resolver was observed. This proves bounded
 failure behavior and honest persistence for that sample, not working binary
-acquisition. A short conversation with one recent visibly loadable attachment
-is the only remaining useful positive smoke; another empty bounded result must
-stop the experiment without widening the privacy boundary.
+acquisition. This passive experiment is now closed.
 
 A second live sample with 17 raw/canonical references also produced empty
 background, foreground, and eight-second pre-dispatch observer outcomes. Its raw
@@ -244,12 +244,13 @@ automatic file cache uses the Calpico endpoint above. The expanded exact grammar
 is covered for every allowed ordering and adjacent rejection; its live result
 also remained empty despite an observed foreground marker lifecycle. Passive
 `window.fetch` observation is therefore exhausted for the current runtime. No
-further path/window widening is permitted. A future active resolver replay must
-be treated as a distinct threat boundary: bounded provider IDs may come only
-from reverified committed raw, and exact resolver Requests may copy the eligible
-source Headers object only opaquely inside MAIN world with fixed dispatch/work
-budgets, no header-value extraction, no retry, independent response validation,
-transient-only signed URLs, and a separate live smoke.
+further path/window widening is permitted. The implemented active metric-only
+resolver is a distinct threat boundary: bounded provider IDs come only from
+reverified committed raw, exact resolver Requests copy eligible source Headers
+only opaquely inside MAIN world, dispatch/work budgets are fixed, and there is no
+header-value extraction, retry, or persisted signed URL. Its next evidence must
+be one short trusted-click smoke with a visibly loadable attachment; an empty
+result stops the route rather than triggering a fallback.
 
 Discovering every reference does not make `completeness.assets` complete. Until
 all selected binary acquisitions reach an evidenced terminal state, a

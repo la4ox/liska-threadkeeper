@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { RawCaptureAssetRecord } from '../../src/archive/capture';
 import {
+  extractChatGptActiveResolverPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptTransientResolverRecord,
 } from '../../src/content/capture/chatgpt-asset-resolver';
@@ -35,6 +36,51 @@ function asset(id: string, rawPointer: string): RawCaptureAssetRecord {
 }
 
 describe('ChatGPT page-owned asset resolver matching', () => {
+  it('extracts a bounded deterministic active plan only from exact ledger pointers', () => {
+    const direct = asset('a', '/mapping/root/message/metadata/attachments/0');
+    const ambiguous = asset('b', '/mapping/root/message/content/parts/0');
+    const duplicate = asset('c', '/mapping/root/message/metadata/attachments/1');
+    const plan = extractChatGptActiveResolverPlan(
+      {
+        mapping: {
+          root: {
+            message: {
+              metadata: { attachments: [{ file_id: 'one' }, { id: 'one' }] },
+              content: { parts: [{ file_id: 'two', asset_id: 'three' }] },
+            },
+          },
+        },
+        unrelated: { file_id: 'must-not-be-scanned' },
+      },
+      [ambiguous, duplicate, direct]
+    );
+    expect(plan).toEqual({ providerFileIds: ['one'] });
+    expect(JSON.stringify(plan)).not.toContain('must-not-be-scanned');
+  });
+
+  it('uses the active 20-ID cap without leaking rejected malformed values', () => {
+    const assets = Array.from({ length: 25 }, (_, index) => asset(`x${index}`, `/asset/${index}`));
+    const raw = {
+      asset: Array.from({ length: 25 }, (_, index) => ({ file_id: `file_${index}` })),
+    };
+    const plan = extractChatGptActiveResolverPlan(raw, assets);
+    expect(plan.providerFileIds).toHaveLength(20);
+    expect(extractChatGptActiveResolverPlan(raw, [...assets].reverse())).toEqual(plan);
+  });
+
+  it('accepts one safe transport pointer and ignores a pointed record without one', () => {
+    const pointer = asset('pointer', '/asset/0');
+    const missing = asset('missing', '/asset/1');
+    expect(
+      extractChatGptActiveResolverPlan(
+        {
+          asset: [{ asset_pointer: 'sediment://pointer-one' }, { content_type: 'text' }],
+        },
+        [missing, pointer]
+      )
+    ).toEqual({ providerFileIds: ['pointer-one'] });
+  });
+
   it('matches an exact provider ID without returning that private ID', async () => {
     const privateId = 'private-file-id';
     const signedUrl =

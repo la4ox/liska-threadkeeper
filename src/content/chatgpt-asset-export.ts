@@ -296,6 +296,15 @@ async function attemptAssets(
     return { acquired: { records: [], runtimeAssets: [] }, binaryResults: [], warnings: [] };
   }
   const observation = await observeResolvers(context, dependencies);
+  if (observation.kind === 'probe-only') {
+    return {
+      acquired: acquisitionFailure(context),
+      binaryResults: [],
+      // A metric checkpoint is intentionally the sole attachment warning: all
+      // source ledger records remain honestly not-attempted.
+      warnings: [observation.warning],
+    };
+  }
   if (observation.kind !== 'matched') {
     const acquired = acquisitionFailure(context);
     return {

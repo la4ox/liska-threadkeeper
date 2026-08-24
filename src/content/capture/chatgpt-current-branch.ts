@@ -43,11 +43,13 @@ import {
 import { hashCaptureManifest, sha256Hex } from './response';
 import { requestChatGptConversationCapture } from './chatgpt-request';
 import {
+  extractChatGptActiveResolverPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
 import { requestChatGptOpaqueResolverObservation } from './chatgpt-opaque-resolver-request';
 import type { ChatGptOpaqueResolverResponse } from '../../lib/chatgpt-opaque-resolver-contract';
+import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver-request';
 
 const ARTIFACT_ID = 'conversation';
 const ARTIFACT_PATH = 'responses/conversation.json';
@@ -135,6 +137,13 @@ export const CHATGPT_ASSET_RECAPTURE_FAILED_WARNING =
   'ChatGPT attachment resolver recapture failed; attachments were not attempted.';
 export const CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING =
   'ChatGPT attachment resolver recapture did not match the original capture; attachments were not attempted.';
+
+export function chatGptActiveResolverProbeWarning(
+  observedCount: number,
+  requestedCount: number
+): string {
+  return `ChatGPT active resolver observed ${observedCount}/${requestedCount}; binary acquisition remains disabled.`;
+}
 
 /**
  * Decode only canonical standard base64 without Node Buffer or an argument
@@ -489,6 +498,12 @@ export async function verifyChatGptAssetExportContext(
 
 export type ChatGptAssetResolverObservation =
   | { kind: 'matched'; candidates: ChatGptPageOwnedAssetCandidate[] }
+  | {
+      kind: 'probe-only';
+      observedCount: number;
+      requestedCount: number;
+      warning: string;
+    }
   | { kind: 'recapture-failed'; warning: typeof CHATGPT_ASSET_RECAPTURE_FAILED_WARNING }
   | { kind: 'recapture-mismatch'; warning: typeof CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING };
 
@@ -576,6 +591,54 @@ export async function observeChatGptAssetResolversViaOpaqueSource(
   return observeChatGptAssetResolvers(context, {
     requestResolvers: requestChatGptOpaqueResolverObservation,
   });
+}
+
+/**
+ * Active resolver checkpoint for the raw-first attachment path. It extracts
+ * IDs solely from ledger pointers and returns aggregate metrics, never
+ * candidates or URLs, so callers cannot acquire or stage attachment bytes.
+ */
+export async function observeChatGptActiveAssetResolvers(
+  context: ChatGptAssetExportContext
+): Promise<ChatGptAssetResolverObservation> {
+  let original: RawCaptureArtifact;
+  try {
+    original = await verifiedOriginalRaw(context);
+  } catch {
+    return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
+  }
+  const plan = extractChatGptActiveResolverPlan(
+    parseRawForInventory(original.bytes),
+    context.rawCaptureBundle.manifest.assets
+  );
+  if (plan.providerFileIds.length === 0) {
+    return {
+      kind: 'probe-only',
+      observedCount: 0,
+      requestedCount: 0,
+      warning: chatGptActiveResolverProbeWarning(0, 0),
+    };
+  }
+  try {
+    const response = await probeChatGptActiveAssetResolvers(
+      context.conversationId,
+      plan.providerFileIds
+    );
+    const observedCount = response.success ? response.data.observedCount : 0;
+    return {
+      kind: 'probe-only',
+      observedCount,
+      requestedCount: plan.providerFileIds.length,
+      warning: chatGptActiveResolverProbeWarning(observedCount, plan.providerFileIds.length),
+    };
+  } catch {
+    return {
+      kind: 'probe-only',
+      observedCount: 0,
+      requestedCount: plan.providerFileIds.length,
+      warning: chatGptActiveResolverProbeWarning(0, plan.providerFileIds.length),
+    };
+  }
 }
 
 /**

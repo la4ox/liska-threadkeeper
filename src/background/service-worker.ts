@@ -33,10 +33,15 @@ import {
   createChatGptOpaqueResolverFailure,
   isChatGptOpaqueResolverResponse,
 } from '../lib/chatgpt-opaque-resolver-contract';
+import {
+  createChatGptActiveResolverFailure,
+  isChatGptActiveResolverResponse,
+} from '../lib/chatgpt-active-resolver-contract';
 import { captureChatGptInTemporaryTab, ChatGptTemporaryCaptureError } from './chatgpt-capture';
 import { probeChatGptOpaqueRequest } from './chatgpt-opaque-probe';
 import { captureChatGptConversationViaOpaqueReplay } from './chatgpt-opaque-replay';
 import { observeChatGptAssetResolversViaOpaqueSource } from './chatgpt-opaque-resolver';
+import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver';
 import type {
   ExtensionMessage,
   ContentScriptSettings,
@@ -162,7 +167,8 @@ function isChatGptBridgeMessage(message: unknown): boolean {
     hasOwnDataProperty(message, 'action', 'captureChatGptConversation') ||
     hasOwnDataProperty(message, 'action', 'probeChatGptOpaqueRequest') ||
     hasOwnDataProperty(message, 'action', 'captureChatGptConversationViaOpaqueReplay') ||
-    hasOwnDataProperty(message, 'action', 'observeChatGptAssetResolversViaOpaqueSource')
+    hasOwnDataProperty(message, 'action', 'observeChatGptAssetResolversViaOpaqueSource') ||
+    hasOwnDataProperty(message, 'action', 'probeChatGptActiveAssetResolvers')
   );
 }
 
@@ -174,6 +180,7 @@ function chatGptBridgeFailureOr<T>(
   | ReturnType<typeof createChatGptCaptureFailure>
   | ReturnType<typeof createChatGptOpaqueReplayFailure>
   | ReturnType<typeof createChatGptOpaqueResolverFailure>
+  | ReturnType<typeof createChatGptActiveResolverFailure>
   | { success: false; data: unknown } {
   if (hasOwnDataProperty(message, 'action', 'captureChatGptConversation')) {
     return createChatGptCaptureFailure('capture-failed');
@@ -187,6 +194,9 @@ function chatGptBridgeFailureOr<T>(
   if (hasOwnDataProperty(message, 'action', 'observeChatGptAssetResolversViaOpaqueSource')) {
     return createChatGptOpaqueResolverFailure('observer-result-invalid');
   }
+  if (hasOwnDataProperty(message, 'action', 'probeChatGptActiveAssetResolvers')) {
+    return createChatGptActiveResolverFailure('resolver-result-invalid');
+  }
   return genericResponse;
 }
 
@@ -198,7 +208,8 @@ function isAuthorizedChatGptCaptureRequest(
     (message.action !== 'captureChatGptConversation' &&
       message.action !== 'probeChatGptOpaqueRequest' &&
       message.action !== 'captureChatGptConversationViaOpaqueReplay' &&
-      message.action !== 'observeChatGptAssetResolversViaOpaqueSource') ||
+      message.action !== 'observeChatGptAssetResolversViaOpaqueSource' &&
+      message.action !== 'probeChatGptActiveAssetResolvers') ||
     validateChatGptCaptureSender(sender, message.conversationId)
   );
 }
@@ -361,6 +372,20 @@ async function handleChatGptOpaqueResolver(conversationId: string) {
   }
 }
 
+async function handleChatGptActiveResolver(conversationId: string, providerFileIds: string[]) {
+  if (!(await hasScriptingPermission())) {
+    return createChatGptActiveResolverFailure('permission-unavailable');
+  }
+  try {
+    const response = await probeChatGptActiveAssetResolvers(conversationId, providerFileIds);
+    return isChatGptActiveResolverResponse(response)
+      ? response
+      : createChatGptActiveResolverFailure('resolver-result-invalid');
+  } catch {
+    return createChatGptActiveResolverFailure('resolver-result-invalid');
+  }
+}
+
 function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
   ExtensionMessage,
   {
@@ -368,14 +393,16 @@ function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
       | 'captureChatGptConversation'
       | 'probeChatGptOpaqueRequest'
       | 'captureChatGptConversationViaOpaqueReplay'
-      | 'observeChatGptAssetResolversViaOpaqueSource';
+      | 'observeChatGptAssetResolversViaOpaqueSource'
+      | 'probeChatGptActiveAssetResolvers';
   }
 > {
   return (
     message.action === 'captureChatGptConversation' ||
     message.action === 'probeChatGptOpaqueRequest' ||
     message.action === 'captureChatGptConversationViaOpaqueReplay' ||
-    message.action === 'observeChatGptAssetResolversViaOpaqueSource'
+    message.action === 'observeChatGptAssetResolversViaOpaqueSource' ||
+    message.action === 'probeChatGptActiveAssetResolvers'
   );
 }
 
@@ -387,7 +414,8 @@ async function handleChatGptBridgeMessage(
         | 'captureChatGptConversation'
         | 'probeChatGptOpaqueRequest'
         | 'captureChatGptConversationViaOpaqueReplay'
-        | 'observeChatGptAssetResolversViaOpaqueSource';
+        | 'observeChatGptAssetResolversViaOpaqueSource'
+        | 'probeChatGptActiveAssetResolvers';
     }
   >
 ): Promise<unknown> {
@@ -399,6 +427,9 @@ async function handleChatGptBridgeMessage(
   }
   if (message.action === 'observeChatGptAssetResolversViaOpaqueSource') {
     return handleChatGptOpaqueResolver(message.conversationId);
+  }
+  if (message.action === 'probeChatGptActiveAssetResolvers') {
+    return handleChatGptActiveResolver(message.conversationId, message.providerFileIds);
   }
   return handleChatGptOpaqueProbe(message.conversationId);
 }

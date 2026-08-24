@@ -6,6 +6,10 @@
 
 import type { RawCaptureAssetRecord } from '../../archive/capture';
 import { sha256Hex } from '../../lib/sha256';
+import {
+  CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
+  isChatGptActiveResolverProviderFileId,
+} from '../../lib/chatgpt-active-resolver-contract';
 
 const RESOLVER_KEY_DOMAIN = 'liska-chatgpt-resolver/1\u0000';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -28,6 +32,14 @@ export interface MatchChatGptAssetResolversInput {
   assets: readonly RawCaptureAssetRecord[];
   resolvers: readonly ChatGptTransientResolverRecord[];
   sha256?: (bytes: Uint8Array) => Promise<string>;
+}
+
+/**
+ * Transient provider IDs selected from exact ledger source references for the
+ * active metric probe. This plan never reaches persistence or warning text.
+ */
+export interface ChatGptActiveResolverPlan {
+  providerFileIds: string[];
 }
 
 interface ProviderFileEvidence {
@@ -81,6 +93,51 @@ function providerFileEvidence(value: unknown): ProviderFileEvidence[] {
   if (typeof pointer !== 'string') return [];
   const match = POINTER_FILE_ID_PATTERN.exec(pointer);
   return match?.[1] ? [{ fileId: match[1], strength: 1 }] : [];
+}
+
+function activeProviderFileEvidence(value: unknown): string[] {
+  if (!isRecord(value)) return [];
+  const direct = new Set<string>();
+  for (const field of DIRECT_ID_FIELDS) {
+    const candidate = value[field];
+    if (isChatGptActiveResolverProviderFileId(candidate)) direct.add(candidate);
+  }
+  if (direct.size > 0) return [...direct].sort();
+  const pointer = value.asset_pointer;
+  if (typeof pointer !== 'string') return [];
+  const match = POINTER_FILE_ID_PATTERN.exec(pointer);
+  return match?.[1] && isChatGptActiveResolverProviderFileId(match[1]) ? [match[1]] : [];
+}
+
+/**
+ * Extract only the ledger's already-validated JSON pointers. A source record
+ * with zero or multiple possible IDs is deliberately skipped; this is not a
+ * broad raw-data scan and never exposes an ID through a diagnostic channel.
+ */
+export function extractChatGptActiveResolverPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[]
+): ChatGptActiveResolverPlan {
+  if (!Array.isArray(assets)) return { providerFileIds: [] };
+  const selected = new Set<string>();
+  const orderedAssets = [...assets].sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+  );
+  for (const asset of orderedAssets) {
+    if (!asset || typeof asset !== 'object' || !Array.isArray(asset.sourceRefs)) continue;
+    const candidates = new Set<string>();
+    for (const sourceRef of asset.sourceRefs) {
+      if (!sourceRef || sourceRef.artifactId !== 'conversation') continue;
+      for (const fileId of activeProviderFileEvidence(atJsonPointer(raw, sourceRef.rawPointer))) {
+        candidates.add(fileId);
+      }
+    }
+    if (candidates.size !== 1) continue;
+    const fileId = candidates.values().next().value;
+    if (typeof fileId === 'string') selected.add(fileId);
+    if (selected.size >= CHATGPT_ACTIVE_RESOLVER_MAX_COUNT) break;
+  }
+  return { providerFileIds: [...selected] };
 }
 
 async function resolverKeyFor(
