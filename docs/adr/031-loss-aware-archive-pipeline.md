@@ -206,6 +206,17 @@ finalization. Neither surface contains an ID, URL, response body, or conversatio
 content. One fresh smoke after reload must read that exact manifest metric once,
 without retry.
 
+That fresh capture returned the durable count exactly once: `observed 0/16`.
+It again wrote Markdown plus raw/manifest/canonical and zero binaries; raw matched
+manifest length/SHA-256; all 17 assets stayed `not-attempted`; durable structural
+scans again found no resolver/auth/provider keys, transport pointers, signed
+URLs, or signed-query values. This is a conclusive negative result for the
+canonical three-key scoped legacy route on the representative current
+conversation. The active resolver experiment is closed. It must not trigger a
+retry, Calpico fallback, route widening, source-body/DOM capture, or header-value
+extraction. A later attachment design requires a new threat boundary and ADR
+amendment rather than another variant of this resolver.
+
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
 and never issue the legacy full-graph request observed by the original capture
