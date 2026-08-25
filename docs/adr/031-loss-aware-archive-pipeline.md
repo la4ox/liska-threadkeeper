@@ -231,8 +231,19 @@ line is reconstructed from numbers and enums after exact-key, bound, total,
 observed-count, and `not-dispatched = requested - dispatched` validation. It
 cannot contain provider IDs, URLs, timestamps, header values, response bodies,
 or conversation content. Acquisition and binary staging remain physically
-disabled. One deliberate live run is still required before this route can be
-classified; failure telemetry is evidence, not permission to add a fallback.
+disabled.
+
+The one approved audit-v2 live run completed with the exact aggregate
+`requested=16`, `dispatched=16`, `observed=0`, `rejected=16`, every other
+outcome zero, and `failure=none`. The output contained only Markdown plus the
+three archive JSON companions and no binaries. Raw matched the manifest length
+and SHA-256; all 17 manifest assets stayed `not-attempted` with no attempted or
+local evidence. This proves that the one-shot command and every dispatch ran; it
+was not an early lifecycle or settings failure. No response passed the safe
+acceptance boundary. Because `rejected` deliberately aggregates native-fetch
+rejection and later body/URL validation rejection, it does not justify a more
+invasive discriminator. The active route is closed as reference-only and must
+not be repeated, connected to acquisition, widened, or given a fallback.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
