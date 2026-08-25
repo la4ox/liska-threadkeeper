@@ -175,15 +175,42 @@ describe('destination-honest ChatGPT attachment export', () => {
         persistArtifacts,
         observeResolvers: vi.fn().mockResolvedValue({
           kind: 'probe-only',
-          observedCount: 1,
-          requestedCount: 1,
+          metric: {
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 1,
+            outcomeCounts: {
+              observed: 1,
+              'http-error': 0,
+              rejected: 0,
+              'non-json': 0,
+              oversized: 0,
+              'timed-out': 0,
+              'not-dispatched': 0,
+            },
+            failureCode: null,
+          },
           warning: 'ChatGPT active resolver observed 1/1; binary acquisition remains disabled.',
         }),
         acquireAssets,
         persistBinaryAssets,
         buildDestinationCompanion: vi.fn(async (_context, records, _runtimeAssets, metric) => {
           expect(records.every(record => record.state === 'not-attempted')).toBe(true);
-          expect(metric).toEqual({ observedCount: 1, requestedCount: 1 });
+          expect(metric).toEqual({
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 1,
+            outcomeCounts: {
+              observed: 1,
+              'http-error': 0,
+              rejected: 0,
+              'non-json': 0,
+              oversized: 0,
+              'timed-out': 0,
+              'not-dispatched': 0,
+            },
+            failureCode: null,
+          });
           return companion();
         }),
       }

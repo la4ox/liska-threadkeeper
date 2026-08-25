@@ -14,9 +14,9 @@ import {
   CHATGPT_ASSET_RECAPTURE_FAILED_WARNING,
   observeChatGptAssetResolvers,
   verifyChatGptAssetExportContext,
-  type ChatGptActiveResolverMetric,
   type ChatGptAssetResolverObservation,
 } from './capture/chatgpt-current-branch';
+import type { ChatGptActiveResolverMetric } from './capture/chatgpt-active-resolver-audit';
 import { sha256Hex } from './capture/response';
 import { persistVerifiedBinaryAssets } from './staged-binary-persistence';
 import { ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
@@ -296,10 +296,7 @@ function probeOnlyAssetAttempt(
     acquired: acquisitionFailure(context),
     binaryResults: [],
     warnings: [observation.warning],
-    activeResolverMetric: {
-      observedCount: observation.observedCount,
-      requestedCount: observation.requestedCount,
-    },
+    activeResolverMetric: observation.metric,
   };
 }
 

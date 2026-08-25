@@ -220,6 +220,20 @@ count-safe audit with no IDs, URLs, bodies, or credential values; Calpico
 fallback, route widening, source-body/DOM capture, and header-value extraction
 remain forbidden.
 
+The replacement audit keeps the same network boundary and changes only the
+aggregate evidence that survives into the local manifest. A completed resolver
+batch is reduced to `requested`, `dispatched`, `observed`, and a histogram over
+the seven already allowlisted outcome codes. If the background returns before a
+complete batch metric exists, the manifest records `dispatched=unknown`,
+`outcomes=unavailable`, and the exact allowlisted failure code instead of
+inventing zero dispatches. The user-facing warning remains short. The durable
+line is reconstructed from numbers and enums after exact-key, bound, total,
+observed-count, and `not-dispatched = requested - dispatched` validation. It
+cannot contain provider IDs, URLs, timestamps, header values, response bodies,
+or conversation content. Acquisition and binary staging remain physically
+disabled. One deliberate live run is still required before this route can be
+classified; failure telemetry is evidence, not permission to add a fallback.
+
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
 and never issue the legacy full-graph request observed by the original capture

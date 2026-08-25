@@ -49,7 +49,14 @@ import {
 } from './chatgpt-asset-resolver';
 import { requestChatGptOpaqueResolverObservation } from './chatgpt-opaque-resolver-request';
 import type { ChatGptOpaqueResolverResponse } from '../../lib/chatgpt-opaque-resolver-contract';
-import { CHATGPT_ACTIVE_RESOLVER_MAX_COUNT } from '../../lib/chatgpt-active-resolver-contract';
+import {
+  chatGptActiveResolverAuditWarning,
+  chatGptActiveResolverFailureMetric,
+  chatGptActiveResolverMetricFromResponse,
+  chatGptActiveResolverProbeWarning,
+  emptyChatGptActiveResolverMetric,
+  type ChatGptActiveResolverMetric,
+} from './chatgpt-active-resolver-audit';
 import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver-request';
 
 const ARTIFACT_ID = 'conversation';
@@ -139,44 +146,15 @@ export const CHATGPT_ASSET_RECAPTURE_FAILED_WARNING =
 export const CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING =
   'ChatGPT attachment resolver recapture did not match the original capture; attachments were not attempted.';
 
-export function chatGptActiveResolverProbeWarning(
-  observedCount: number,
-  requestedCount: number
-): string {
-  return `ChatGPT active resolver observed ${observedCount}/${requestedCount}; binary acquisition remains disabled.`;
-}
-
 function activeResolverProbeOnly(
-  observedCount: number,
-  requestedCount: number
+  metric: ChatGptActiveResolverMetric
 ): Extract<ChatGptAssetResolverObservation, { kind: 'probe-only' }> {
-  const warning = chatGptActiveResolverProbeWarning(observedCount, requestedCount);
-  // Count-only audit evidence survives the short toast lifetime without
+  const warning = chatGptActiveResolverProbeWarning(metric);
+  const audit = chatGptActiveResolverAuditWarning(metric);
+  // Aggregate audit evidence survives the short toast lifetime without
   // exposing provider IDs, response bodies, URLs, or conversation content.
-  console.info(`[G2O] ${warning}`);
-  return { kind: 'probe-only', observedCount, requestedCount, warning };
-}
-
-export interface ChatGptActiveResolverMetric {
-  observedCount: number;
-  requestedCount: number;
-}
-
-function activeResolverMetricWarning(
-  metric: ChatGptActiveResolverMetric | undefined
-): string | undefined {
-  if (metric === undefined) return undefined;
-  if (
-    !Number.isSafeInteger(metric.observedCount) ||
-    !Number.isSafeInteger(metric.requestedCount) ||
-    metric.observedCount < 0 ||
-    metric.requestedCount < 0 ||
-    metric.observedCount > metric.requestedCount ||
-    metric.requestedCount > CHATGPT_ACTIVE_RESOLVER_MAX_COUNT
-  ) {
-    throw new ChatGptCurrentBranchError('capture-integrity-failed');
-  }
-  return chatGptActiveResolverProbeWarning(metric.observedCount, metric.requestedCount);
+  console.info(`[G2O] ${audit}`);
+  return { kind: 'probe-only', metric, warning };
 }
 
 /**
@@ -534,8 +512,7 @@ export type ChatGptAssetResolverObservation =
   | { kind: 'matched'; candidates: ChatGptPageOwnedAssetCandidate[] }
   | {
       kind: 'probe-only';
-      observedCount: number;
-      requestedCount: number;
+      metric: ChatGptActiveResolverMetric;
       warning: string;
     }
   | { kind: 'recapture-failed'; warning: typeof CHATGPT_ASSET_RECAPTURE_FAILED_WARNING }
@@ -646,17 +623,20 @@ export async function observeChatGptActiveAssetResolvers(
     context.rawCaptureBundle.manifest.assets
   );
   if (plan.providerFileIds.length === 0) {
-    return activeResolverProbeOnly(0, 0);
+    return activeResolverProbeOnly(emptyChatGptActiveResolverMetric());
   }
   try {
     const response = await probeChatGptActiveAssetResolvers(
       context.conversationId,
       plan.providerFileIds
     );
-    const observedCount = response.success ? response.data.observedCount : 0;
-    return activeResolverProbeOnly(observedCount, plan.providerFileIds.length);
+    return activeResolverProbeOnly(
+      chatGptActiveResolverMetricFromResponse(response, plan.providerFileIds.length)
+    );
   } catch {
-    return activeResolverProbeOnly(0, plan.providerFileIds.length);
+    return activeResolverProbeOnly(
+      chatGptActiveResolverFailureMetric(plan.providerFileIds.length, 'resolver-result-invalid')
+    );
   }
 }
 
@@ -676,7 +656,7 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
   const originalRaw = await verifiedOriginalRaw(context);
   try {
     const originalManifest = context.rawCaptureBundle.manifest;
-    const metricWarning = activeResolverMetricWarning(activeResolverMetric);
+    const metricWarning = chatGptActiveResolverAuditWarning(activeResolverMetric);
     const manifest = buildCaptureManifest({
       captureId: originalManifest.captureId,
       provider: originalManifest.provider,
