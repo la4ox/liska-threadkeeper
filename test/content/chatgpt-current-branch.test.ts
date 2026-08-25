@@ -311,6 +311,51 @@ describe('ChatGPT current-branch capture composition', () => {
     });
   });
 
+  it('persists only the count-safe active resolver metric in the capture manifest', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const context = capture.assetExportContext!;
+    const companion = await buildChatGptBinaryAwareArchiveCompanion(
+      context,
+      context.rawCaptureBundle.manifest.assets,
+      [],
+      { observedCount: 1, requestedCount: 2 }
+    );
+
+    const persistedManifest = parseBase64Json(companion.artifacts[1].bodyBase64);
+    const persistedCanonical = parseBase64Json(companion.artifacts[2].bodyBase64);
+    const metric = 'ChatGPT active resolver observed 1/2; binary acquisition remains disabled.';
+    expect(persistedManifest.warnings).toContain(metric);
+    const durable = JSON.stringify({ persistedManifest, persistedCanonical });
+    expect(durable).not.toContain('download_url');
+    expect(durable).not.toContain('/backend-api/estuary/content');
+    expect(durable).not.toContain('providerFileId');
+  });
+
+  it.each([
+    { observedCount: 2, requestedCount: 1 },
+    { observedCount: 0, requestedCount: 21 },
+    { observedCount: -1, requestedCount: 1 },
+  ])('rejects an invalid durable active resolver metric %#', async metric => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const context = capture.assetExportContext!;
+    await expect(
+      buildChatGptBinaryAwareArchiveCompanion(
+        context,
+        context.rawCaptureBundle.manifest.assets,
+        [],
+        metric
+      )
+    ).rejects.toMatchObject({ code: 'capture-integrity-failed' });
+  });
+
   it('fails closed before resolver observation for altered original context identity, raw body, or path', async () => {
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: () => successfulResponse(),

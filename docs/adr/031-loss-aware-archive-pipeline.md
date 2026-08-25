@@ -199,9 +199,12 @@ SHA-256 matched the manifest; all 17 manifest/canonical asset records remained
 found no provider-ID/auth keys, resolver bodies, transport pointers, signed URLs,
 or signed-query values. The short warning toast expired before it was sampled, so
 this is not evidence that any resolver response was observed. The count-safe
-warning is therefore also emitted to local console as `[G2O] ... observed N/M`;
-the log contains no ID, URL, response body, or conversation content. One fresh
-smoke after reload must read that exact metric once, without retry.
+warning is therefore emitted both to local console as `[G2O] ... observed N/M`
+and to the final destination manifest. The value is reconstructed from validated
+integer counts rather than accepting page text; invalid or over-cap metrics fail
+finalization. Neither surface contains an ID, URL, response body, or conversation
+content. One fresh smoke after reload must read that exact manifest metric once,
+without retry.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`

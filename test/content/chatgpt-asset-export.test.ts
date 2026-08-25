@@ -181,8 +181,9 @@ describe('destination-honest ChatGPT attachment export', () => {
         }),
         acquireAssets,
         persistBinaryAssets,
-        buildDestinationCompanion: vi.fn(async (_context, records) => {
+        buildDestinationCompanion: vi.fn(async (_context, records, _runtimeAssets, metric) => {
           expect(records.every(record => record.state === 'not-attempted')).toBe(true);
+          expect(metric).toEqual({ observedCount: 1, requestedCount: 1 });
           return companion();
         }),
       }

@@ -49,6 +49,7 @@ import {
 } from './chatgpt-asset-resolver';
 import { requestChatGptOpaqueResolverObservation } from './chatgpt-opaque-resolver-request';
 import type { ChatGptOpaqueResolverResponse } from '../../lib/chatgpt-opaque-resolver-contract';
+import { CHATGPT_ACTIVE_RESOLVER_MAX_COUNT } from '../../lib/chatgpt-active-resolver-contract';
 import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver-request';
 
 const ARTIFACT_ID = 'conversation';
@@ -154,6 +155,28 @@ function activeResolverProbeOnly(
   // exposing provider IDs, response bodies, URLs, or conversation content.
   console.info(`[G2O] ${warning}`);
   return { kind: 'probe-only', observedCount, requestedCount, warning };
+}
+
+export interface ChatGptActiveResolverMetric {
+  observedCount: number;
+  requestedCount: number;
+}
+
+function activeResolverMetricWarning(
+  metric: ChatGptActiveResolverMetric | undefined
+): string | undefined {
+  if (metric === undefined) return undefined;
+  if (
+    !Number.isSafeInteger(metric.observedCount) ||
+    !Number.isSafeInteger(metric.requestedCount) ||
+    metric.observedCount < 0 ||
+    metric.requestedCount < 0 ||
+    metric.observedCount > metric.requestedCount ||
+    metric.requestedCount > CHATGPT_ACTIVE_RESOLVER_MAX_COUNT
+  ) {
+    throw new ChatGptCurrentBranchError('capture-integrity-failed');
+  }
+  return chatGptActiveResolverProbeWarning(metric.observedCount, metric.requestedCount);
 }
 
 /**
@@ -647,11 +670,13 @@ export async function observeChatGptActiveAssetResolvers(
 export async function buildChatGptBinaryAwareArchiveCompanion(
   context: ChatGptAssetExportContext,
   assetRecords: readonly RawCaptureAssetRecord[],
-  runtimeAssets: readonly RawCaptureAsset[]
+  runtimeAssets: readonly RawCaptureAsset[],
+  activeResolverMetric?: ChatGptActiveResolverMetric
 ): Promise<ArchiveCompanionBundle> {
   const originalRaw = await verifiedOriginalRaw(context);
   try {
     const originalManifest = context.rawCaptureBundle.manifest;
+    const metricWarning = activeResolverMetricWarning(activeResolverMetric);
     const manifest = buildCaptureManifest({
       captureId: originalManifest.captureId,
       provider: originalManifest.provider,
@@ -664,7 +689,10 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
         ...originalManifest.completeness,
         assets: destinationAssetCompleteness(originalManifest.completeness.assets, assetRecords),
       },
-      warnings: originalManifest.warnings,
+      warnings:
+        metricWarning === undefined
+          ? originalManifest.warnings
+          : [...new Set([...originalManifest.warnings, metricWarning])],
       observedUnknownContentTypes: originalManifest.observedUnknownContentTypes,
     });
     const destinationRecords = new Map(manifest.assets.map(asset => [asset.id, asset]));

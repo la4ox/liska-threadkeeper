@@ -14,6 +14,7 @@ import {
   CHATGPT_ASSET_RECAPTURE_FAILED_WARNING,
   observeChatGptAssetResolvers,
   verifyChatGptAssetExportContext,
+  type ChatGptActiveResolverMetric,
   type ChatGptAssetResolverObservation,
 } from './capture/chatgpt-current-branch';
 import { sha256Hex } from './capture/response';
@@ -79,6 +80,7 @@ interface AssetAttempt {
   acquired: AcquiredAssets;
   binaryResults: StagedBinaryAssetResult[];
   warnings: string[];
+  activeResolverMetric?: ChatGptActiveResolverMetric;
 }
 
 /**
@@ -286,6 +288,21 @@ async function persistAcquiredBinaries(
   }
 }
 
+function probeOnlyAssetAttempt(
+  context: ChatGptAssetExportContext,
+  observation: Extract<ChatGptAssetResolverObservation, { kind: 'probe-only' }>
+): AssetAttempt {
+  return {
+    acquired: acquisitionFailure(context),
+    binaryResults: [],
+    warnings: [observation.warning],
+    activeResolverMetric: {
+      observedCount: observation.observedCount,
+      requestedCount: observation.requestedCount,
+    },
+  };
+}
+
 async function attemptAssets(
   context: ChatGptAssetExportContext,
   companion: ArchiveCompanionBundle,
@@ -297,13 +314,7 @@ async function attemptAssets(
   }
   const observation = await observeResolvers(context, dependencies);
   if (observation.kind === 'probe-only') {
-    return {
-      acquired: acquisitionFailure(context),
-      binaryResults: [],
-      // A metric checkpoint is intentionally the sole attachment warning: all
-      // source ledger records remain honestly not-attempted.
-      warnings: [observation.warning],
-    };
+    return probeOnlyAssetAttempt(context, observation);
   }
   if (observation.kind !== 'matched') {
     const acquired = acquisitionFailure(context);
@@ -344,6 +355,7 @@ async function finalizeDestination(
   destination: PersistentOutputDestination,
   acquired: AcquiredAssets,
   binaryResults: readonly StagedBinaryAssetResult[],
+  activeResolverMetric: ChatGptActiveResolverMetric | undefined,
   dependencies: ChatGptAssetExportDependencies
 ): Promise<{ complete: boolean; warnings: string[] }> {
   const destinationState = destinationAssets(acquired, binaryResults, destination);
@@ -356,7 +368,7 @@ async function finalizeDestination(
   try {
     const destinationCompanion = await (
       dependencies.buildDestinationCompanion ?? buildChatGptBinaryAwareArchiveCompanion
-    )(context, destinationState.records, destinationState.runtimeAssets);
+    )(context, destinationState.records, destinationState.runtimeAssets, activeResolverMetric);
     const outcome = await dependencies.persistArtifacts(
       destinationCompanion,
       noteFileName,
@@ -429,7 +441,7 @@ export async function persistChatGptDestinationHonestAttachments(
     rawSuccessfulDestinations,
     dependencies
   );
-  const { acquired, binaryResults } = assetAttempt;
+  const { acquired, binaryResults, activeResolverMetric } = assetAttempt;
   warnings.push(...assetAttempt.warnings);
 
   const completeDestinations: PersistentOutputDestination[] = [];
@@ -441,6 +453,7 @@ export async function persistChatGptDestinationHonestAttachments(
       destination,
       acquired,
       binaryResults,
+      activeResolverMetric,
       dependencies
     );
     warnings.push(...finalized.warnings);
