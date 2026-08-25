@@ -24,10 +24,8 @@ const DEFAULT_RESOLVER_DISCOVERY_WINDOW_MS = 2_000;
 const DEFAULT_OPAQUE_RESOLVER_DISCOVERY_WINDOW_MS = 8_000;
 const DEFAULT_RESOLVER_MAX_BYTES = 64 * 1024;
 const DEFAULT_RESOLVER_MAX_OBSERVATIONS = 32;
-const DEFAULT_ACTIVE_RESOLVER_MAX_OBSERVATIONS = 20;
+const DEFAULT_ACTIVE_RESOLVER_MAX_OBSERVATIONS = 1;
 const DEFAULT_ACTIVE_RESOLVER_MAX_BYTES = 64 * 1024;
-const DEFAULT_ACTIVE_RESOLVER_MAX_TOTAL_BYTES =
-  DEFAULT_ACTIVE_RESOLVER_MAX_OBSERVATIONS * DEFAULT_ACTIVE_RESOLVER_MAX_BYTES;
 const DEFAULT_ACTIVE_RESOLVER_PER_ID_TIMEOUT_MS = 12_000;
 const RESOLVER_PATH_PREFIX = '/backend-api/files/download/';
 const CALPICO_RESOLVER_PATH_PREFIX = '/backend-api/calpico/chatgpt/files/';
@@ -2765,7 +2763,16 @@ function armOpaqueReplay(
  * it contains neither provider IDs nor the source request/response.
  */
 type ActiveResolverOutcome =
-  | { state: 'http-error' | 'rejected' | 'non-json' | 'oversized' | 'timed-out' | 'not-dispatched' }
+  | {
+      state:
+        | 'http-error'
+        | 'fetch-rejected'
+        | 'response-processing-rejected'
+        | 'non-json'
+        | 'oversized'
+        | 'timed-out'
+        | 'not-dispatched';
+    }
   | {
       state: 'observed';
       capture: { bodyBase64: string; byteLength: number; sha256: string; mediaType: string };
@@ -2968,15 +2975,6 @@ function activeResolverContainsId(providerFileIds: readonly string[], candidate:
   return false;
 }
 
-function activeResolverObservedBytes(outcomes: readonly ActiveResolverOutcome[]): number {
-  let total = 0;
-  for (let index = 0; index < outcomes.length; index += 1) {
-    const outcome = outcomes[index];
-    if (outcome.state === 'observed') total += outcome.capture.byteLength;
-  }
-  return total;
-}
-
 function activeResolverHrefStillExact(
   pageWindow: PageWindow,
   state: ActiveResolverPageState
@@ -3027,10 +3025,6 @@ async function captureActiveResolverResponse(
       clone,
       DEFAULT_ACTIVE_RESOLVER_MAX_BYTES
     );
-    const currentBytes = activeResolverObservedBytes(state.outcomes);
-    if (currentBytes + bytes.byteLength > DEFAULT_ACTIVE_RESOLVER_MAX_TOTAL_BYTES) {
-      return { state: 'oversized' };
-    }
     return {
       state: 'observed',
       capture: {
@@ -3041,7 +3035,9 @@ async function captureActiveResolverResponse(
       },
     };
   } catch (error) {
-    return { state: error === PAYLOAD_TOO_LARGE ? 'oversized' : 'rejected' };
+    return {
+      state: error === PAYLOAD_TOO_LARGE ? 'oversized' : 'response-processing-rejected',
+    };
   }
 }
 
@@ -3067,6 +3063,7 @@ async function dispatchActiveResolverQueue(
       return;
     }
     let timedOut = false;
+    let request: Request;
     try {
       const controller = new AbortControllerConstructor();
       const signal = applyCaptured<AbortSignal>(
@@ -3088,18 +3085,20 @@ async function dispatchActiveResolverQueue(
           DEFAULT_ACTIVE_RESOLVER_PER_ID_TIMEOUT_MS,
         ]
       );
-      const request = new RequestConstructor(
-        activeResolverRequestUrl(target, providerFileIds[ordinal]),
-        {
-          method: 'GET',
-          headers: preparation.headers,
-          credentials: preparation.credentials,
-          redirect: 'error',
-          cache: 'no-store',
-          signal,
-        }
-      );
-      state.dispatchCount += 1;
+      request = new RequestConstructor(activeResolverRequestUrl(target, providerFileIds[ordinal]), {
+        method: 'GET',
+        headers: preparation.headers,
+        credentials: preparation.credentials,
+        redirect: 'error',
+        cache: 'no-store',
+        signal,
+      });
+    } catch {
+      finishActiveResolver(pageWindow, state, { kind: 'error', code: 'hook-state-failed' });
+      return;
+    }
+    state.dispatchCount += 1;
+    try {
       const response = await applyCaptured<Promise<Response>>(
         state.primordials,
         state.originalFetch,
@@ -3120,7 +3119,9 @@ async function dispatchActiveResolverQueue(
       clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
       state.abortController = undefined;
       if (state.settled) return;
-      appendActiveResolverOutcome(state, { state: timedOut ? 'timed-out' : 'rejected' });
+      appendActiveResolverOutcome(state, {
+        state: timedOut ? 'timed-out' : 'fetch-rejected',
+      });
     }
   }
   if (!state.settled) activeResolverComplete(pageWindow, state, target);

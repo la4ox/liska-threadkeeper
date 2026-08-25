@@ -13,10 +13,10 @@ function metricResponse() {
   return {
     success: true as const,
     data: {
-      requestedCount: 2,
-      dispatchCount: 2,
+      requestedCount: 1,
+      dispatchCount: 1,
       observedCount: 1,
-      outcomes: ['observed', 'http-error'] as const,
+      outcomes: ['observed'] as const,
       attemptedAt: '2026-08-24T12:00:00.000Z',
     },
   };
@@ -26,7 +26,7 @@ describe('ChatGPT active resolver content bridge', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('sends the exact transient ID list and returns only validated metrics', async () => {
-    const providerFileIds = ['synthetic-file-one', 'synthetic-file-two'];
+    const providerFileIds = ['synthetic-file-one'];
     const response = metricResponse();
     mocks.sendMessage.mockResolvedValue(response);
 
@@ -47,8 +47,25 @@ describe('ChatGPT active resolver content bridge', () => {
     ]);
     const returned = JSON.stringify(response);
     expect(returned).not.toContain('synthetic-file-one');
-    expect(returned).not.toContain('synthetic-file-two');
     expect(returned).not.toContain('https://');
+  });
+
+  it.each([
+    ['a plural list', ['synthetic-file-one', 'synthetic-file-two']],
+    ['an empty list', []],
+    ['an unsafe ID', ['../synthetic-private-id']],
+  ])('rejects %s before runtime messaging', async (_label, providerFileIds) => {
+    await expect(
+      probeChatGptActiveAssetResolvers(CONVERSATION_ID, providerFileIds)
+    ).resolves.toEqual(createChatGptActiveResolverFailure('invalid-provider-file-ids'));
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid conversation before runtime messaging', async () => {
+    await expect(
+      probeChatGptActiveAssetResolvers('not-a-conversation', ['synthetic-file-one'])
+    ).resolves.toEqual(createChatGptActiveResolverFailure('invalid-conversation-id'));
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
   });
 
   it('replaces malformed responses with one stable metric-only failure', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
   CHATGPT_ACTIVE_RESOLVER_MAX_BYTES,
   createChatGptActiveResolverFailure,
   isChatGptActiveResolverObservedCapture,
@@ -14,7 +15,7 @@ function completeHook() {
   return {
     kind: 'complete' as const,
     conversationId: CONVERSATION_ID,
-    requestedCount: 2,
+    requestedCount: 1,
     dispatchCount: 1,
     outcomes: [
       {
@@ -26,7 +27,6 @@ function completeHook() {
           mediaType: 'application/json',
         },
       },
-      { state: 'not-dispatched' as const },
     ],
   };
 }
@@ -67,10 +67,10 @@ describe('ChatGPT active resolver metric contract', () => {
     const response = {
       success: true as const,
       data: {
-        requestedCount: 2,
+        requestedCount: 1,
         dispatchCount: 1,
         observedCount: 1,
-        outcomes: ['observed', 'not-dispatched'],
+        outcomes: ['observed'],
         attemptedAt: '2026-08-24T12:00:00.000Z',
       },
     };
@@ -141,47 +141,44 @@ describe('ChatGPT active resolver metric contract', () => {
     ).toBe(false);
   });
 
-  it('requires every requested ordinal and validates safe failures', () => {
+  it('allows only the exact diagnostic outcome codes and one requested ordinal', () => {
     expect(
       isChatGptActiveResolverHookResult({ ...completeHook(), outcomes: [{ state: 'rejected' }] })
     ).toBe(false);
     expect(
       isChatGptActiveResolverHookResult({
         ...completeHook(),
-        dispatchCount: 2,
-        outcomes: [{ state: 'not-dispatched' }, { state: 'http-error' }],
+        outcomes: [{ state: 'fetch-rejected' }],
+      })
+    ).toBe(true);
+    expect(
+      isChatGptActiveResolverHookResult({
+        ...completeHook(),
+        outcomes: [{ state: 'response-processing-rejected' }],
+      })
+    ).toBe(true);
+    expect(
+      isChatGptActiveResolverHookResult({
+        ...completeHook(),
+        outcomes: [{ state: 'payload-validation-rejected' }],
       })
     ).toBe(false);
     expect(
       isChatGptActiveResolverHookResult({
         ...completeHook(),
-        dispatchCount: 2,
-        outcomes: [
-          { state: 'observed', capture: completeHook().outcomes[0].capture },
-          { state: 'http-error' },
-        ],
-      })
-    ).toBe(true);
-    expect(
-      isChatGptActiveResolverHookResult({
-        ...completeHook(),
-        requestedCount: 3,
-        dispatchCount: 2,
-        outcomes: [
-          { state: 'observed', capture: completeHook().outcomes[0].capture },
-          { state: 'rejected' },
-          { state: 'not-dispatched' },
-        ],
-      })
-    ).toBe(true);
-    expect(
-      isChatGptActiveResolverHookResult({
-        ...completeHook(),
-        requestedCount: 2,
+        requestedCount: 1,
         dispatchCount: 0,
-        outcomes: [{ state: 'not-dispatched' }, { state: 'not-dispatched' }],
+        outcomes: [{ state: 'not-dispatched' }],
       })
     ).toBe(true);
+    expect(
+      isChatGptActiveResolverHookResult({
+        ...completeHook(),
+        requestedCount: CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT + 1,
+        dispatchCount: 1,
+        outcomes: [{ state: 'http-error' }, { state: 'not-dispatched' }],
+      })
+    ).toBe(false);
     const failure = createChatGptActiveResolverFailure('source-non-json');
     expect(failure).toEqual({ success: false, code: 'source-non-json' });
     expect(isChatGptActiveResolverResponse(failure)).toBe(true);
@@ -191,10 +188,10 @@ describe('ChatGPT active resolver metric contract', () => {
     const base = {
       success: true as const,
       data: {
-        requestedCount: 2,
-        dispatchCount: 2,
+        requestedCount: 1,
+        dispatchCount: 1,
         observedCount: 1,
-        outcomes: ['observed', 'http-error'],
+        outcomes: ['observed'],
         attemptedAt: '2026-08-24T12:00:00.000Z',
       },
     };
@@ -202,24 +199,32 @@ describe('ChatGPT active resolver metric contract', () => {
 
     const malformed = [
       { ...base, data: { ...base.data, requestedCount: -1 } },
-      { ...base, data: { ...base.data, requestedCount: 21 } },
+      {
+        ...base,
+        data: {
+          ...base.data,
+          requestedCount: CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT + 1,
+          outcomes: ['observed', 'not-dispatched'],
+        },
+      },
       { ...base, data: { ...base.data, requestedCount: 2.5 } },
-      { ...base, data: { ...base.data, dispatchCount: 3 } },
+      { ...base, data: { ...base.data, dispatchCount: 2 } },
       {
         ...base,
-        data: { ...base.data, dispatchCount: 1, outcomes: ['observed', 'http-error'] },
+        data: { ...base.data, dispatchCount: 0, outcomes: ['observed'] },
       },
       {
         ...base,
-        data: { ...base.data, dispatchCount: 2, outcomes: ['observed', 'not-dispatched'] },
+        data: { ...base.data, dispatchCount: 1, outcomes: ['not-dispatched'] },
       },
       {
         ...base,
-        data: { ...base.data, dispatchCount: 1, observedCount: 2 },
+        data: { ...base.data, dispatchCount: 0, observedCount: 1 },
       },
       { ...base, data: { ...base.data, observedCount: 2 } },
-      { ...base, data: { ...base.data, outcomes: ['observed'] } },
-      { ...base, data: { ...base.data, outcomes: ['observed', 'private'] } },
+      { ...base, data: { ...base.data, outcomes: [] } },
+      { ...base, data: { ...base.data, outcomes: ['rejected'] } },
+      { ...base, data: { ...base.data, outcomes: ['private'] } },
       { ...base, data: { ...base.data, attemptedAt: 'not-a-timestamp' } },
       { ...base, data: { ...base.data, attemptedAt: '2026-99-99T12:00:00.000Z' } },
       { ...base, data: { ...base.data, observedCount: 0 } },

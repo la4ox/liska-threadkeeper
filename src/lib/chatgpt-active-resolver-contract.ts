@@ -7,14 +7,19 @@
 import { isChatGptConversationId } from './chatgpt-capture-contract';
 
 export const CHATGPT_ACTIVE_RESOLVER_MAX_COUNT = 20;
+/**
+ * The metric-only active attachment diagnostic may request one exact ledger
+ * pointer. The wider count remains the pure inventory-plan bound.
+ */
+export const CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT = 1;
 export const CHATGPT_ACTIVE_RESOLVER_MAX_BYTES = 64 * 1024;
-export const CHATGPT_ACTIVE_RESOLVER_MAX_TOTAL_BYTES =
-  CHATGPT_ACTIVE_RESOLVER_MAX_COUNT * CHATGPT_ACTIVE_RESOLVER_MAX_BYTES;
 
 export const CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES = [
   'observed',
   'http-error',
-  'rejected',
+  'fetch-rejected',
+  'response-processing-rejected',
+  'payload-validation-rejected',
   'non-json',
   'oversized',
   'timed-out',
@@ -22,6 +27,19 @@ export const CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES = [
 ] as const;
 export type ChatGptActiveResolverOutcomeCode =
   (typeof CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES)[number];
+
+/** Page-observable outcomes only; payload validation is background-owned. */
+export const CHATGPT_ACTIVE_RESOLVER_HOOK_OUTCOME_CODES = [
+  'http-error',
+  'fetch-rejected',
+  'response-processing-rejected',
+  'non-json',
+  'oversized',
+  'timed-out',
+  'not-dispatched',
+] as const;
+export type ChatGptActiveResolverHookOutcomeCode =
+  (typeof CHATGPT_ACTIVE_RESOLVER_HOOK_OUTCOME_CODES)[number];
 
 export const CHATGPT_ACTIVE_RESOLVER_ERROR_CODES = [
   'invalid-conversation-id',
@@ -54,7 +72,7 @@ export interface ChatGptActiveResolverObservedCapture {
 
 /** MAIN-to-background only; bodies are dropped before background responds. */
 export type ChatGptActiveResolverHookOutcome =
-  | { state: Exclude<ChatGptActiveResolverOutcomeCode, 'observed'> }
+  | { state: ChatGptActiveResolverHookOutcomeCode }
   | { state: 'observed'; capture: ChatGptActiveResolverObservedCapture };
 
 export type ChatGptActiveResolverHookResult =
@@ -127,8 +145,7 @@ function isHookOutcome(value: unknown): value is ChatGptActiveResolverHookOutcom
   return (
     hasExactOwnKeys(value, ['state']) &&
     typeof record.state === 'string' &&
-    (CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES as readonly string[]).includes(record.state) &&
-    record.state !== 'observed'
+    (CHATGPT_ACTIVE_RESOLVER_HOOK_OUTCOME_CODES as readonly string[]).includes(record.state)
   );
 }
 
@@ -178,7 +195,7 @@ export function isChatGptActiveResolverHookResult(
     isChatGptConversationId(record.conversationId) &&
     Number.isSafeInteger(record.requestedCount) &&
     (record.requestedCount as number) >= 0 &&
-    (record.requestedCount as number) <= CHATGPT_ACTIVE_RESOLVER_MAX_COUNT &&
+    (record.requestedCount as number) <= CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT &&
     Number.isSafeInteger(record.dispatchCount) &&
     (record.dispatchCount as number) >= 0 &&
     (record.dispatchCount as number) <= (record.requestedCount as number) &&
@@ -215,7 +232,7 @@ function isMetrics(value: unknown): value is ChatGptActiveResolverMetrics {
   return (
     Number.isSafeInteger(record.requestedCount) &&
     (record.requestedCount as number) >= 0 &&
-    (record.requestedCount as number) <= CHATGPT_ACTIVE_RESOLVER_MAX_COUNT &&
+    (record.requestedCount as number) <= CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT &&
     Number.isSafeInteger(record.dispatchCount) &&
     (record.dispatchCount as number) >= 0 &&
     (record.dispatchCount as number) <= (record.requestedCount as number) &&

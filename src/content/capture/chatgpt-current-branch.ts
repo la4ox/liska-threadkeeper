@@ -47,6 +47,7 @@ import {
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
+import { CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT } from '../../lib/chatgpt-active-resolver-contract';
 import { requestChatGptOpaqueResolverObservation } from './chatgpt-opaque-resolver-request';
 import type { ChatGptOpaqueResolverResponse } from '../../lib/chatgpt-opaque-resolver-contract';
 import {
@@ -628,14 +629,20 @@ export async function observeChatGptActiveAssetResolvers(
   try {
     const response = await probeChatGptActiveAssetResolvers(
       context.conversationId,
-      plan.providerFileIds
+      plan.providerFileIds.slice(0, CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT)
     );
     return activeResolverProbeOnly(
-      chatGptActiveResolverMetricFromResponse(response, plan.providerFileIds.length)
+      chatGptActiveResolverMetricFromResponse(
+        response,
+        Math.min(plan.providerFileIds.length, CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT)
+      )
     );
   } catch {
     return activeResolverProbeOnly(
-      chatGptActiveResolverFailureMetric(plan.providerFileIds.length, 'resolver-result-invalid')
+      chatGptActiveResolverFailureMetric(
+        Math.min(plan.providerFileIds.length, CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT),
+        'resolver-result-invalid'
+      )
     );
   }
 }

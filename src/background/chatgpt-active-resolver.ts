@@ -10,8 +10,7 @@ import {
   isChatGptTransientDownloadUrl,
 } from '../lib/chatgpt-capture-contract';
 import {
-  CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
-  CHATGPT_ACTIVE_RESOLVER_MAX_TOTAL_BYTES,
+  CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
   createChatGptActiveResolverFailure,
   isChatGptActiveResolverHookResult,
   isChatGptActiveResolverProviderFileId,
@@ -324,28 +323,26 @@ function isJsonResolverMediaType(value: unknown): value is string {
 async function metricOutcome(
   outcome: Extract<ChatGptActiveResolverHookResult, { kind: 'complete' }>['outcomes'][number],
   conversationId: string,
-  digestSha256: (bytes: Uint8Array) => Promise<string>,
-  totalBytes: { value: number }
+  digestSha256: (bytes: Uint8Array) => Promise<string>
 ): Promise<ChatGptActiveResolverOutcomeCode> {
   if (outcome.state !== 'observed') return outcome.state;
   const capture = outcome.capture;
-  if (!isJsonResolverMediaType(capture.mediaType)) return 'rejected';
+  if (!isJsonResolverMediaType(capture.mediaType)) return 'payload-validation-rejected';
   const bytes = strictBase64Bytes(capture.bodyBase64);
-  if (bytes === undefined || bytes.byteLength !== capture.byteLength) return 'rejected';
-  if (totalBytes.value + bytes.byteLength > CHATGPT_ACTIVE_RESOLVER_MAX_TOTAL_BYTES)
-    return 'oversized';
+  if (bytes === undefined || bytes.byteLength !== capture.byteLength)
+    return 'payload-validation-rejected';
   let digest: string;
   try {
     digest = (await digestSha256(bytes)).toLowerCase();
   } catch {
-    return 'rejected';
+    return 'payload-validation-rejected';
   }
-  if (!/^[a-f0-9]{64}$/.test(digest) || digest !== capture.sha256.toLowerCase()) return 'rejected';
+  if (!/^[a-f0-9]{64}$/.test(digest) || digest !== capture.sha256.toLowerCase())
+    return 'payload-validation-rejected';
   const signedUrl = signedUrlFromResolverBody(bytes);
   if (signedUrl === undefined || !isChatGptTransientDownloadUrl(signedUrl, conversationId)) {
-    return 'rejected';
+    return 'payload-validation-rejected';
   }
-  totalBytes.value += bytes.byteLength;
   return 'observed';
 }
 
@@ -375,12 +372,9 @@ async function metricsFromState(
   ) {
     return undefined;
   }
-  const totalBytes = { value: 0 };
   const outcomes: ChatGptActiveResolverOutcomeCode[] = [];
   for (let ordinal = 0; ordinal < state.outcomes.length; ordinal += 1) {
-    outcomes.push(
-      await metricOutcome(state.outcomes[ordinal], conversationId, digestSha256, totalBytes)
-    );
+    outcomes.push(await metricOutcome(state.outcomes[ordinal], conversationId, digestSha256));
   }
   return {
     success: true,
@@ -410,7 +404,7 @@ export async function probeChatGptActiveAssetResolvers(
   if (
     !Array.isArray(providerFileIds) ||
     providerFileIds.length === 0 ||
-    providerFileIds.length > CHATGPT_ACTIVE_RESOLVER_MAX_COUNT ||
+    providerFileIds.length > CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT ||
     providerFileIds.some(fileId => !isChatGptActiveResolverProviderFileId(fileId)) ||
     new Set(providerFileIds).size !== providerFileIds.length
   ) {
@@ -622,11 +616,16 @@ export function readChatGptActiveResolverState(nonce: string): HookState {
       typeof state.conversationId !== 'string' ||
       !Number.isSafeInteger(state.requestedCount) ||
       !Number.isSafeInteger(state.dispatchCount) ||
+      (state.requestedCount as number) < 0 ||
+      (state.requestedCount as number) > CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT ||
+      (state.dispatchCount as number) < 0 ||
+      (state.dispatchCount as number) > (state.requestedCount as number) ||
       !Array.isArray(state.outcomes)
     ) {
       return { kind: 'missing' };
     }
     const outcomes: unknown[] = [];
+    if (state.outcomes.length !== (state.requestedCount as number)) return { kind: 'missing' };
     for (const outcome of state.outcomes) {
       if (typeof outcome !== 'object' || outcome === null) return { kind: 'missing' };
       const value = outcome as Record<string, unknown>;
@@ -662,7 +661,8 @@ export function readChatGptActiveResolverState(nonce: string): HookState {
         typeof value.state === 'string' &&
         allowed(value.state, [
           'http-error',
-          'rejected',
+          'fetch-rejected',
+          'response-processing-rejected',
           'non-json',
           'oversized',
           'timed-out',

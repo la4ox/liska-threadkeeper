@@ -22,6 +22,7 @@ import {
   type RawCaptureBundle,
 } from '../../src/archive';
 import { sha256Hex } from '../../src/content/capture/response';
+import { extractChatGptActiveResolverPlan } from '../../src/content/capture/chatgpt-asset-resolver';
 
 const activeResolverMocks = vi.hoisted(() => ({ probe: vi.fn() }));
 
@@ -323,13 +324,15 @@ describe('ChatGPT current-branch capture composition', () => {
       context.rawCaptureBundle.manifest.assets,
       [],
       {
-        requestedCount: 2,
-        dispatchCount: 2,
+        requestedCount: 1,
+        dispatchCount: 1,
         observedCount: 1,
         outcomeCounts: {
           observed: 1,
-          'http-error': 1,
-          rejected: 0,
+          'http-error': 0,
+          'fetch-rejected': 0,
+          'response-processing-rejected': 0,
+          'payload-validation-rejected': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -342,7 +345,7 @@ describe('ChatGPT current-branch capture composition', () => {
     const persistedManifest = parseBase64Json(companion.artifacts[1].bodyBase64);
     const persistedCanonical = parseBase64Json(companion.artifacts[2].bodyBase64);
     const metric =
-      'ChatGPT active resolver audit: requested=2; dispatched=2; observed=1; outcomes=observed:1,http-error:1,rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.';
+      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-validation-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.';
     expect(persistedManifest.warnings).toContain(metric);
     const durable = JSON.stringify({ persistedManifest, persistedCanonical });
     expect(durable).not.toContain('download_url');
@@ -362,7 +365,7 @@ describe('ChatGPT current-branch capture composition', () => {
       context.rawCaptureBundle.manifest.assets,
       [],
       {
-        requestedCount: 2,
+        requestedCount: 1,
         dispatchCount: null,
         observedCount: 0,
         outcomeCounts: null,
@@ -372,7 +375,7 @@ describe('ChatGPT current-branch capture composition', () => {
 
     const persistedManifest = parseBase64Json(companion.artifacts[1].bodyBase64);
     expect(persistedManifest.warnings).toContain(
-      'ChatGPT active resolver audit: requested=2; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-error; binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-error; binary acquisition remains disabled.'
     );
     const durable = JSON.stringify({
       persistedManifest,
@@ -391,7 +394,9 @@ describe('ChatGPT current-branch capture composition', () => {
       outcomeCounts: {
         observed: 2,
         'http-error': 0,
-        rejected: 0,
+        'fetch-rejected': 0,
+        'response-processing-rejected': 0,
+        'payload-validation-rejected': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -400,17 +405,19 @@ describe('ChatGPT current-branch capture composition', () => {
       failureCode: null,
     },
     {
-      requestedCount: 21,
+      requestedCount: 2,
       dispatchCount: 0,
       observedCount: 0,
       outcomeCounts: {
         observed: 0,
         'http-error': 0,
-        rejected: 0,
+        'fetch-rejected': 0,
+        'response-processing-rejected': 0,
+        'payload-validation-rejected': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
-        'not-dispatched': 21,
+        'not-dispatched': 2,
       },
       failureCode: null,
     },
@@ -421,7 +428,9 @@ describe('ChatGPT current-branch capture composition', () => {
       outcomeCounts: {
         observed: 0,
         'http-error': 1,
-        rejected: 0,
+        'fetch-rejected': 0,
+        'response-processing-rejected': 0,
+        'payload-validation-rejected': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -642,7 +651,9 @@ describe('ChatGPT current-branch capture composition', () => {
         outcomeCounts: {
           observed: 0,
           'http-error': 0,
-          rejected: 0,
+          'fetch-rejected': 0,
+          'response-processing-rejected': 0,
+          'payload-validation-rejected': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -659,20 +670,27 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(JSON.stringify(observed)).not.toContain('assets/');
   });
 
-  it('returns count-only active metrics and sends only exact ledger-derived IDs', async () => {
+  it('sends exactly the deterministic first ID from a multi-ID ledger plan', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: () => successfulResponse(),
       createCaptureId: fixedCaptureId,
       now: fixedNow,
     });
+    const originalRaw = capture.assetExportContext!.rawCaptureBundle.artifacts[0];
+    if (!originalRaw) throw new Error('synthetic raw artifact must be present');
+    const plan = extractChatGptActiveResolverPlan(
+      JSON.parse(new TextDecoder().decode(originalRaw.bytes)),
+      capture.assetExportContext!.rawCaptureBundle.manifest.assets
+    );
+    expect(plan.providerFileIds).toEqual(['synthetic-image-1', 'synthetic-file-2']);
     activeResolverMocks.probe.mockResolvedValue({
       success: true,
       data: {
-        requestedCount: 2,
-        dispatchCount: 2,
+        requestedCount: 1,
+        dispatchCount: 1,
         observedCount: 1,
-        outcomes: ['observed', 'http-error'],
+        outcomes: ['observed'],
         attemptedAt: '2026-08-24T12:00:00.000Z',
       },
     });
@@ -682,13 +700,15 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(observed).toEqual({
       kind: 'probe-only',
       metric: {
-        requestedCount: 2,
-        dispatchCount: 2,
+        requestedCount: 1,
+        dispatchCount: 1,
         observedCount: 1,
         outcomeCounts: {
           observed: 1,
-          'http-error': 1,
-          rejected: 0,
+          'http-error': 0,
+          'fetch-rejected': 0,
+          'response-processing-rejected': 0,
+          'payload-validation-rejected': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -696,19 +716,17 @@ describe('ChatGPT current-branch capture composition', () => {
         },
         failureCode: null,
       },
-      warning: 'ChatGPT active resolver observed 1/2; binary acquisition remains disabled.',
+      warning: 'ChatGPT active resolver observed 1/1; binary acquisition remains disabled.',
     });
     const providerFileIds = activeResolverMocks.probe.mock.calls[0]?.[1] as string[];
-    expect(providerFileIds).toHaveLength(2);
-    expect(providerFileIds).toEqual(
-      expect.arrayContaining(['synthetic-image-1', 'synthetic-file-2'])
-    );
+    expect(providerFileIds).toHaveLength(1);
+    expect(providerFileIds).toEqual(['synthetic-image-1']);
     const returned = JSON.stringify(observed);
     expect(returned).not.toContain('synthetic-file-2');
     expect(returned).not.toContain('https://');
     expect(returned).not.toContain('assets/');
     expect(info).toHaveBeenCalledWith(
-      '[G2O] ChatGPT active resolver audit: requested=2; dispatched=2; observed=1; outcomes=observed:1,http-error:1,rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
+      '[G2O] ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-validation-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
     );
     expect(JSON.stringify(info.mock.calls)).not.toContain('synthetic-file-2');
     expect(JSON.stringify(info.mock.calls)).not.toContain('https://');
@@ -740,7 +758,7 @@ describe('ChatGPT current-branch capture composition', () => {
       expect(observed).toEqual({
         kind: 'probe-only',
         metric: {
-          requestedCount: 2,
+          requestedCount: 1,
           dispatchCount: null,
           observedCount: 0,
           outcomeCounts: null,

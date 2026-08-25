@@ -6,7 +6,7 @@
 
 import {
   CHATGPT_ACTIVE_RESOLVER_ERROR_CODES,
-  CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
+  CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
   CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES,
   type ChatGptActiveResolverErrorCode,
   type ChatGptActiveResolverOutcomeCode,
@@ -27,7 +27,9 @@ export function emptyChatGptActiveResolverOutcomeCounts(): ChatGptActiveResolver
   return {
     observed: 0,
     'http-error': 0,
-    rejected: 0,
+    'fetch-rejected': 0,
+    'response-processing-rejected': 0,
+    'payload-validation-rejected': 0,
     'non-json': 0,
     oversized: 0,
     'timed-out': 0,
@@ -97,7 +99,7 @@ function validateMetricBase(metric: ChatGptActiveResolverMetric): void {
   if (
     !Number.isSafeInteger(metric.requestedCount) ||
     metric.requestedCount < 0 ||
-    metric.requestedCount > CHATGPT_ACTIVE_RESOLVER_MAX_COUNT ||
+    metric.requestedCount > CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT ||
     !Number.isSafeInteger(metric.observedCount) ||
     metric.observedCount < 0 ||
     metric.observedCount > metric.requestedCount ||

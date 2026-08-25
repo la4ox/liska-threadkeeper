@@ -111,16 +111,23 @@ describe('ChatGPT capture message validation', () => {
     ).toBe(false);
   });
 
-  it('accepts only a bounded exact active resolver message without duplicate IDs', () => {
+  it('accepts exactly one active resolver diagnostic ID and rejects plural message requests', () => {
     const message = {
       action: 'probeChatGptActiveAssetResolvers',
       conversationId: CONVERSATION_ID,
-      providerFileIds: ['file_one', 'file-two'],
+      providerFileIds: ['file_one'],
     };
     expect(validateMessageContent(message)).toBe(true);
+    expect(validateMessageContent({ ...message, providerFileIds: ['file_one', 'file-two'] })).toBe(
+      false
+    );
     expect(validateMessageContent({ ...message, providerFileIds: ['file_one', 'file_one'] })).toBe(
       false
     );
+    expect(validateMessageContent({ ...message, conversationId: 'not-a-conversation' })).toBe(
+      false
+    );
+    expect(validateMessageContent({ ...message, providerFileIds: 'file_one' })).toBe(false);
     expect(validateMessageContent({ ...message, providerFileIds: ['file.with-dot'] })).toBe(false);
     expect(validateMessageContent({ ...message, secret: 'must-not-cross' })).toBe(false);
     const withSymbol = { ...message, [Symbol('private')]: true };

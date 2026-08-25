@@ -34,7 +34,7 @@ import {
   isChatGptConversationId,
 } from '../lib/chatgpt-capture-contract';
 import {
-  CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
+  CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
   isChatGptActiveResolverProviderFileId,
 } from '../lib/chatgpt-active-resolver-contract';
 import { containsPathTraversal } from '../lib/path-utils';
@@ -215,7 +215,7 @@ function validateChatGptActiveResolverMessage(
   }
   if (
     message.providerFileIds.length === 0 ||
-    message.providerFileIds.length > CHATGPT_ACTIVE_RESOLVER_MAX_COUNT
+    message.providerFileIds.length > CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT
   ) {
     return false;
   }

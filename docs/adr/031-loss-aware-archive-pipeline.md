@@ -148,10 +148,13 @@ therefore a closed experiment; its exact code remains as evidence, not as the
 current opaque-replay route.
 
 The next checkpoint is a separate **active metric-only** resolver. After an
-original raw companion is durably written and reverified, a pure plan selects at
-most 20 unique IDs deterministically from exact attachment-ledger pointers. The
-IDs cross once as transient `executeScript` arguments—never in fragment/history,
-warnings, logs, archives, or results. A document-start closure retains an exact
+original raw companion is durably written and reverified, a pure plan inventories
+at most 20 unique IDs deterministically from exact attachment-ledger pointers,
+while the live diagnostic selects only the first. Content bridge, message
+validation, background runtime/reader, response contract, and MAIN command each
+independently reject more than one diagnostic ID. The one ID crosses once as a
+transient `executeScript` argument—never in fragment/history, warnings, logs,
+archives, or results. A document-start closure retains an exact
 eligible native plural Request clone's Headers and credentials opaquely, checks
 only authorization membership, credentials mode, source status, and JSON media
 type, and never reads the source body. It waits for both source validation and a
@@ -162,19 +165,23 @@ so a page may pre-empt the command and affect availability. That residual is
 accepted only for this disabled metric experiment and must not be described as
 an isolation guarantee.
 
-For each ordinal the closure constructs exactly one same-origin request:
+For the one selected ordinal the closure constructs exactly one same-origin request:
 `GET /backend-api/files/download/{file_id}` with `conversation_id`,
 `inline=true`, and `check_context_scopes_for_conversation_id` bound to the same
 conversation. It copies the opaque source Headers/credentials into a native
 Request, uses a fresh AbortController, `redirect: error`, `cache: no-store`, a
-per-ID timeout, one non-extendable batch deadline, and no retry, Calpico route,
-or route switching. Every requested ordinal terminates as `observed`,
-`http-error`, `rejected`, `non-json`, `oversized`, `timed-out`, or
-`not-dispatched`; each body is at most 64 KiB and aggregate response work is at
-most 20 × 64 KiB. Background treats MAIN output as hostile, revalidates exact
-shape, ordinal mapping, canonical base64, length, SHA-256, JSON, and signed-URL
-conversation binding, then discards IDs, bodies, and URLs. Content receives only
-counts, outcome codes, and a batch timestamp.
+per-ID timeout, one non-extendable deadline, and no retry, Calpico route, or route
+switching. Pre-fetch setup failure terminates before dispatch as
+`hook-state-failed`. Only the actual fetch try may emit `fetch-rejected`; a
+Response whose bounded clone/body/hash processing fails may emit
+`response-processing-rejected`; only background validation of an observed `200
+JSON` capture may emit `payload-validation-rejected`. Other terminal outcomes are
+`observed`, `http-error`, `non-json`, `oversized`, `timed-out`, and
+`not-dispatched`. The body is at most 64 KiB. Background treats MAIN output as
+hostile, revalidates exact shape, ordinal mapping, canonical base64, length,
+SHA-256, JSON, and signed-URL conversation binding, then discards IDs, bodies,
+URLs, and the batch timestamp before durable audit construction. MAIN cannot
+originate `payload-validation-rejected`.
 
 The integrated orchestration is gated by the existing
 `Export images & attachments` setting and at least one durable destination; every
@@ -240,10 +247,20 @@ three archive JSON companions and no binaries. Raw matched the manifest length
 and SHA-256; all 17 manifest assets stayed `not-attempted` with no attempted or
 local evidence. This proves that the one-shot command and every dispatch ran; it
 was not an early lifecycle or settings failure. No response passed the safe
-acceptance boundary. Because `rejected` deliberately aggregates native-fetch
-rejection and later body/URL validation rejection, it does not justify a more
-invasive discriminator. The active route is closed as reference-only and must
-not be repeated, connected to acquisition, widened, or given a fallback.
+acceptance boundary. That broad 16-ID build is closed and must not be repeated,
+connected to acquisition, widened, or given a fallback.
+
+The user's endpoint-specific authorization hypothesis motivates one narrower
+stage-only follow-up. Generic `rejected` is removed in favor of the three
+origin-owned codes above, and every live boundary is reduced to one deterministic
+ID while the offline inventory remains capped at 20. The durable histogram still
+contains only allowlisted counts; it cannot represent an ID, URL, status, header
+value, body, timestamp, exception text, or chat content. A fresh review found one
+setup/fetch attribution defect before live use: Request-construction failure now
+terminates as `hook-state-failed` before `dispatchCount` changes, so
+`fetch-rejected` is reserved for the actual fetch call and ordinal invariants stay
+valid. Offline tests, full coverage gate, lint, build, and bundle inspection pass.
+Exactly one user-approved live result remains; no automatic retry is allowed.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`

@@ -118,7 +118,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
     expect(chrome.remove).toHaveBeenCalledWith(123);
   });
 
-  it('downgrades hostile observed bodies without exposing them or using a fallback route', async () => {
+  it('emits payload-validation-rejected only while validating an observed capture', async () => {
     const chrome = chromeApi(observedState('e30=', 2, '0'.repeat(64)));
     const response = await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
       chromeApi: chrome.api,
@@ -127,7 +127,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
     });
     expect(response).toMatchObject({
       success: true,
-      data: { outcomes: ['rejected'], observedCount: 0, dispatchCount: 1 },
+      data: { outcomes: ['payload-validation-rejected'], observedCount: 0, dispatchCount: 1 },
     });
     expect(chrome.executeScript).toHaveBeenCalledTimes(3);
   });
@@ -155,6 +155,9 @@ describe('ChatGPT active resolver background checkpoint', () => {
     ).resolves.toEqual({ success: false, code: 'invalid-conversation-id' });
     await expect(
       probeChatGptActiveAssetResolvers(CONVERSATION_ID, ['duplicate', 'duplicate'], { chromeApi })
+    ).resolves.toEqual({ success: false, code: 'invalid-provider-file-ids' });
+    await expect(
+      probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID, 'file-two'], { chromeApi })
     ).resolves.toEqual({ success: false, code: 'invalid-provider-file-ids' });
     await expect(
       probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
@@ -227,32 +230,28 @@ describe('ChatGPT active resolver background checkpoint', () => {
     });
   });
 
-  it('preserves a batch-start timestamp and metric-only partial ordinal states', async () => {
+  it('preserves a diagnostic-start timestamp and metric-only terminal state', async () => {
     const partial = {
       kind: 'complete',
       conversationId: CONVERSATION_ID,
-      requestedCount: 3,
+      requestedCount: 1,
       dispatchCount: 1,
-      outcomes: [{ state: 'http-error' }, { state: 'not-dispatched' }, { state: 'not-dispatched' }],
+      outcomes: [{ state: 'http-error' }],
     };
     const chrome = chromeApi(partial);
     let calls = 0;
-    const response = await probeChatGptActiveAssetResolvers(
-      CONVERSATION_ID,
-      ['first', 'second', 'third'],
-      {
-        chromeApi: chrome.api,
-        createNonce: () => NONCE,
-        now: () => (calls++ === 0 ? 1_000 : 2_000),
-      }
-    );
+    const response = await probeChatGptActiveAssetResolvers(CONVERSATION_ID, ['first'], {
+      chromeApi: chrome.api,
+      createNonce: () => NONCE,
+      now: () => (calls++ === 0 ? 1_000 : 2_000),
+    });
     expect(response).toEqual({
       success: true,
       data: {
-        requestedCount: 3,
+        requestedCount: 1,
         dispatchCount: 1,
         observedCount: 0,
-        outcomes: ['http-error', 'not-dispatched', 'not-dispatched'],
+        outcomes: ['http-error'],
         attemptedAt: '1970-01-01T00:00:01.000Z',
       },
     });
@@ -649,7 +648,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
       });
       expect(response).toMatchObject({
         success: true,
-        data: { outcomes: ['rejected'], observedCount: 0 },
+        data: { outcomes: ['payload-validation-rejected'], observedCount: 0 },
       });
     }
   });
@@ -669,7 +668,10 @@ describe('ChatGPT active resolver background checkpoint', () => {
           createNonce: () => NONCE,
           digestSha256: digest,
         })
-      ).resolves.toMatchObject({ success: true, data: { outcomes: ['rejected'] } });
+      ).resolves.toMatchObject({
+        success: true,
+        data: { outcomes: ['payload-validation-rejected'] },
+      });
 
       vi.stubGlobal('atob', originalAtob);
       vi.stubGlobal('btoa', undefined);
@@ -680,7 +682,10 @@ describe('ChatGPT active resolver background checkpoint', () => {
           createNonce: () => NONCE,
           digestSha256: digest,
         })
-      ).resolves.toMatchObject({ success: true, data: { outcomes: ['rejected'] } });
+      ).resolves.toMatchObject({
+        success: true,
+        data: { outcomes: ['payload-validation-rejected'] },
+      });
 
       vi.stubGlobal('btoa', originalBtoa);
       vi.stubGlobal('atob', () => {
@@ -693,7 +698,10 @@ describe('ChatGPT active resolver background checkpoint', () => {
           createNonce: () => NONCE,
           digestSha256: digest,
         })
-      ).resolves.toMatchObject({ success: true, data: { outcomes: ['rejected'] } });
+      ).resolves.toMatchObject({
+        success: true,
+        data: { outcomes: ['payload-validation-rejected'] },
+      });
 
       vi.stubGlobal('atob', originalAtob);
       const invalidJson = new TextEncoder().encode('{');
@@ -709,7 +717,10 @@ describe('ChatGPT active resolver background checkpoint', () => {
           createNonce: () => NONCE,
           digestSha256: digest,
         })
-      ).resolves.toMatchObject({ success: true, data: { outcomes: ['rejected'] } });
+      ).resolves.toMatchObject({
+        success: true,
+        data: { outcomes: ['payload-validation-rejected'] },
+      });
     } finally {
       vi.stubGlobal('atob', originalAtob);
       vi.stubGlobal('btoa', originalBtoa);
@@ -758,7 +769,10 @@ describe('ChatGPT active resolver background checkpoint', () => {
         createNonce: () => NONCE,
         digestSha256: digest,
       })
-    ).resolves.toMatchObject({ success: true, data: { outcomes: ['rejected'] } });
+    ).resolves.toMatchObject({
+      success: true,
+      data: { outcomes: ['payload-validation-rejected'] },
+    });
   });
 
   it('reads only exact MAIN snapshots and invokes a nonce-scoped one-shot command fail closed', () => {
@@ -775,15 +789,25 @@ describe('ChatGPT active resolver background checkpoint', () => {
         conversationId: CONVERSATION_ID,
         requestedCount: 1,
         dispatchCount: 1,
-        outcomes: [{ state: 'rejected', extra: true }],
+        outcomes: [{ state: 'payload-validation-rejected', extra: true }],
       },
       [`__liskaChatGptActiveResolverCommand_${NONCE}`]: () => {
         throw new Error('synthetic command failure');
       },
     });
     expect(readChatGptActiveResolverState(NONCE)).toEqual({ kind: 'missing' });
-    expect(commandChatGptActiveResolver('short', [PROVIDER_ID])).toEqual({ accepted: false });
     expect(commandChatGptActiveResolver(NONCE, [PROVIDER_ID])).toEqual({ accepted: false });
+    vi.stubGlobal('window', {
+      [`__liskaChatGptActiveResolver_${NONCE}`]: {
+        kind: 'complete',
+        conversationId: CONVERSATION_ID,
+        requestedCount: 1,
+        dispatchCount: 1,
+        outcomes: [{ state: 'payload-validation-rejected' }],
+      },
+    });
+    expect(readChatGptActiveResolverState(NONCE)).toEqual({ kind: 'missing' });
+    expect(commandChatGptActiveResolver('short', [PROVIDER_ID])).toEqual({ accepted: false });
   });
 
   it('reads exact error, observed, and non-observed snapshots while containing hostile getters', () => {
@@ -798,8 +822,8 @@ describe('ChatGPT active resolver background checkpoint', () => {
       [`__liskaChatGptActiveResolver_${NONCE}`]: {
         kind: 'complete',
         conversationId: CONVERSATION_ID,
-        requestedCount: 2,
-        dispatchCount: 2,
+        requestedCount: 1,
+        dispatchCount: 1,
         outcomes: [
           {
             state: 'observed',
@@ -810,13 +834,25 @@ describe('ChatGPT active resolver background checkpoint', () => {
               mediaType: 'application/json',
             },
           },
-          { state: 'http-error' },
         ],
       },
     });
     expect(readChatGptActiveResolverState(NONCE)).toMatchObject({
       kind: 'complete',
-      outcomes: [{ state: 'observed' }, { state: 'http-error' }],
+      outcomes: [{ state: 'observed' }],
+    });
+    vi.stubGlobal('window', {
+      [`__liskaChatGptActiveResolver_${NONCE}`]: {
+        kind: 'complete',
+        conversationId: CONVERSATION_ID,
+        requestedCount: 1,
+        dispatchCount: 1,
+        outcomes: [{ state: 'fetch-rejected' }],
+      },
+    });
+    expect(readChatGptActiveResolverState(NONCE)).toMatchObject({
+      kind: 'complete',
+      outcomes: [{ state: 'fetch-rejected' }],
     });
     vi.stubGlobal('window', {
       get [`__liskaChatGptActiveResolver_${NONCE}`]() {
@@ -831,6 +867,16 @@ describe('ChatGPT active resolver background checkpoint', () => {
       [`__liskaChatGptActiveResolver_${NONCE}`]: { kind: 'error', code: 'unknown-code' },
     });
     expect(readChatGptActiveResolverState('short')).toEqual({ kind: 'missing' });
+    expect(readChatGptActiveResolverState(NONCE)).toEqual({ kind: 'missing' });
+    vi.stubGlobal('window', {
+      [`__liskaChatGptActiveResolver_${NONCE}`]: {
+        kind: 'complete',
+        conversationId: CONVERSATION_ID,
+        requestedCount: 2,
+        dispatchCount: 1,
+        outcomes: [{ state: 'http-error' }, { state: 'not-dispatched' }],
+      },
+    });
     expect(readChatGptActiveResolverState(NONCE)).toEqual({ kind: 'missing' });
     vi.stubGlobal('window', {
       [`__liskaChatGptActiveResolver_${NONCE}`]: {
