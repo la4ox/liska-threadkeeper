@@ -53,6 +53,7 @@
 - Raw and manifest persistence precede normalization. If provider normalization fails, those two companions remain downloadable for deterministic offline repair; canonical is appended only after normalization succeeds. Deep graph validation is iterative, so long linear conversations no longer overflow the JavaScript call stack.
 - The first temporary-tab implementation bounds a single ChatGPT conversation response to 16 MiB and holds a base64 transfer transiently in memory. The largest current live sample is already 13,117,554 bytes, leaving limited headroom. Larger captures need staged local persistence instead of silently raising or hiding the limit.
 - Live resolver evidence now contains five empty bounded outcomes and closes the passive-observer experiment. An older seven-reference conversation produced two immutable byte-identical 1,472,828-byte raw captures because a browser-control timeout obscured the first successful click; no files were removed. A newer conversation produced background, foreground, eight-second pre-dispatch, and strict multi-route captures, each with one 1,284,848-byte raw, 17 manifest/canonical references, complete graph/messages/branches, zero attempted/local claims, zero binary files, clean durable transport scans, and no leftover marker tabs. The final run observed the foreground marker lifecycle from zero to one and back to zero while allowing both current public endpoint contracts, yet still received no resolver response. Its verified raw contained eight `sediment:` pointers and no estuary/signed URL, while the active page structurally displayed one direct estuary image. A credential-free scan of the current public React Router manifest and 264 conversation JS modules confirmed that ChatGPT's typed `safeGet` client owns the resolver routes; no private response, cookie, or chat text was used. Current runtime evidence therefore shows that these calls do not surface through the tested `window.fetch` observer path. Real resolver/acquisition, signed-URL lifetime, real attachment MIME behavior, and forced MV3-suspension recovery remain gaps. One asset is capped at 64 MiB until Obsidian upload/readback becomes fully streaming; chunks remain 512 KiB and no whole-asset base64 message is created.
+- The first active metric-only trusted-click smoke completed on a short current conversation whose rendered page contained seven direct estuary images. One stale pre-reload click failed before settings read with `Extension context invalidated`, created no marker tab, and wrote nothing. After reloading that page, one real click opened exactly one active marker tab and exact-closed it without duplicates. File output produced one Markdown plus raw/manifest/canonical companions and zero binary files. The 1,284,848-byte raw matched its manifest length and SHA-256, retained 280 graph nodes, and projected complete structured Markdown with 83 messages. Manifest and canonical each retained 17 assets, all `not-attempted`, with zero attempt timestamps, local paths/artifact refs, or acquired hashes. Structural scans of durable JSON found zero provider-ID/auth keys, resolver bodies, transport pointers, estuary URLs, or signed-query values. The short count-only toast expired before observation, so a positive `observed N/M` result is not yet proven and the smoke must not be repeated blindly. The same safe warning is now duplicated to a local `[G2O]` console entry containing only counts; IDs, URLs, response bodies, and conversation content remain excluded.
 - Three scan-derived hardening items remain outside this checkpoint: fail-closed cleanup of a legacy Obsidian key retained in `chrome.storage.sync` after migration failure; shared structural work budgets for recursive ChatGPT/DeepSeek normalization; and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
 - One earlier settings run attempted an Obsidian archive write after the user had visually disabled that output without a confirmed persisted update. Destination toggles now send an acknowledged popup-only background update, apply an in-memory override before `chrome.storage.sync` completes, and serialize rapid changes. Live Obsidian-only followed immediately by File+Obsidian smokes confirmed the toggle/readback path.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
@@ -87,16 +88,13 @@
 
 ## Next step
 
-Keep PR #7 in draft and keep attachment export disabled. Reload the unpacked
-extension only after this checkpoint is committed, then perform one trusted-click
-metric-only smoke on a short current ChatGPT conversation with one known visibly
-loadable attachment, File output only and Obsidian off. The expected user-visible
-result is a count-safe warning such as `observed 1/1`; raw/manifest/canonical and
-Markdown may save, but no attachment binary may be fetched or staged and every
-asset record must remain `not-attempted`. Verify exact marker-tab cleanup and scan
-durable companions for provider IDs, resolver bodies, signed URLs, and credential
-markers without reading conversation content. If the canonical scoped legacy
-route returns zero observed results, stop: do not retry, switch to Calpico, widen
-the route, or extract header values. Only a positive smoke plus a fresh review may
-open the separate credentialless binary-acquisition step. The staged response
-path beyond 16 MiB remains the following storage task.
+Keep PR #7 in draft and replay-mode binary acquisition disabled. Commit the
+count-only console audit, reload the unpacked extension and the test page, then
+perform one fresh trusted-click metric-only capture with File output only and
+Obsidian off. Read the exact local `[G2O] ChatGPT active resolver observed N/M`
+entry; do not rely on toast timing and do not repeat the click. The output must
+again contain Markdown plus raw/manifest/canonical, zero binaries, and only
+`not-attempted` assets. If `N` is zero, stop: do not retry, switch to Calpico,
+widen the route, or extract header values. Only a positive `N/M` plus a fresh
+review may open the separate credentialless binary-acquisition step. The staged
+response path beyond 16 MiB remains the following storage task.

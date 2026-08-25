@@ -189,6 +189,20 @@ to that existing acquisition layer. Raw is never rewritten, and signed URLs or
 provider IDs never enter manifest, canonical, Markdown, warning, or runtime asset
 records.
 
+The first trusted-click active smoke established the lifecycle and durable
+privacy half of this boundary but lost the ephemeral count. A stale pre-reload
+click stopped before settings read and produced no marker or files. After a page
+reload, one real click opened and closed exactly one active marker tab, wrote
+Markdown plus raw/manifest/canonical, and wrote zero binaries. Raw length and
+SHA-256 matched the manifest; all 17 manifest/canonical asset records remained
+`not-attempted` with no local or attempted evidence; structural durable scans
+found no provider-ID/auth keys, resolver bodies, transport pointers, signed URLs,
+or signed-query values. The short warning toast expired before it was sampled, so
+this is not evidence that any resolver response was observed. The count-safe
+warning is therefore also emitted to local console as `[G2O] ... observed N/M`;
+the log contains no ID, URL, response body, or conversation content. One fresh
+smoke after reload must read that exact metric once, without retry.
+
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
 and never issue the legacy full-graph request observed by the original capture

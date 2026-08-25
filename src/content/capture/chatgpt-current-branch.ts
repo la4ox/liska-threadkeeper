@@ -145,6 +145,17 @@ export function chatGptActiveResolverProbeWarning(
   return `ChatGPT active resolver observed ${observedCount}/${requestedCount}; binary acquisition remains disabled.`;
 }
 
+function activeResolverProbeOnly(
+  observedCount: number,
+  requestedCount: number
+): Extract<ChatGptAssetResolverObservation, { kind: 'probe-only' }> {
+  const warning = chatGptActiveResolverProbeWarning(observedCount, requestedCount);
+  // Count-only audit evidence survives the short toast lifetime without
+  // exposing provider IDs, response bodies, URLs, or conversation content.
+  console.info(`[G2O] ${warning}`);
+  return { kind: 'probe-only', observedCount, requestedCount, warning };
+}
+
 /**
  * Decode only canonical standard base64 without Node Buffer or an argument
  * spread. The btoa round-trip rejects decoder normalization such as missing
@@ -612,12 +623,7 @@ export async function observeChatGptActiveAssetResolvers(
     context.rawCaptureBundle.manifest.assets
   );
   if (plan.providerFileIds.length === 0) {
-    return {
-      kind: 'probe-only',
-      observedCount: 0,
-      requestedCount: 0,
-      warning: chatGptActiveResolverProbeWarning(0, 0),
-    };
+    return activeResolverProbeOnly(0, 0);
   }
   try {
     const response = await probeChatGptActiveAssetResolvers(
@@ -625,19 +631,9 @@ export async function observeChatGptActiveAssetResolvers(
       plan.providerFileIds
     );
     const observedCount = response.success ? response.data.observedCount : 0;
-    return {
-      kind: 'probe-only',
-      observedCount,
-      requestedCount: plan.providerFileIds.length,
-      warning: chatGptActiveResolverProbeWarning(observedCount, plan.providerFileIds.length),
-    };
+    return activeResolverProbeOnly(observedCount, plan.providerFileIds.length);
   } catch {
-    return {
-      kind: 'probe-only',
-      observedCount: 0,
-      requestedCount: plan.providerFileIds.length,
-      warning: chatGptActiveResolverProbeWarning(0, plan.providerFileIds.length),
-    };
+    return activeResolverProbeOnly(0, plan.providerFileIds.length);
   }
 }
 

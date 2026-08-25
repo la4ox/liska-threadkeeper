@@ -512,6 +512,7 @@ describe('ChatGPT current-branch capture composition', () => {
   });
 
   it('returns count-only active metrics and sends only exact ledger-derived IDs', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: () => successfulResponse(),
       createCaptureId: fixedCaptureId,
@@ -545,6 +546,11 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(returned).not.toContain('synthetic-file-2');
     expect(returned).not.toContain('https://');
     expect(returned).not.toContain('assets/');
+    expect(info).toHaveBeenCalledWith(
+      '[G2O] ChatGPT active resolver observed 1/2; binary acquisition remains disabled.'
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain('synthetic-file-2');
+    expect(JSON.stringify(info.mock.calls)).not.toContain('https://');
   });
 
   it.each([
