@@ -210,12 +210,15 @@ That fresh capture returned the durable count exactly once: `observed 0/16`.
 It again wrote Markdown plus raw/manifest/canonical and zero binaries; raw matched
 manifest length/SHA-256; all 17 assets stayed `not-attempted`; durable structural
 scans again found no resolver/auth/provider keys, transport pointers, signed
-URLs, or signed-query values. This is a conclusive negative result for the
-canonical three-key scoped legacy route on the representative current
-conversation. The active resolver experiment is closed. It must not trigger a
-retry, Calpico fallback, route widening, source-body/DOM capture, or header-value
-extraction. A later attachment design requires a new threat boundary and ADR
-amendment rather than another variant of this resolver.
+URLs, or signed-query values. This proves correct settings, verified raw, a
+16-ID plan, and zero validated responses at the content boundary. Metric v1 did
+not persist failure code, dispatch count, or outcome histogram, so the evidence
+cannot distinguish a safe early runtime failure from 16 dispatched requests with
+zero valid responses. The current build must not be repeated or treated as a
+conclusive route failure. Any final diagnostic run first requires an expanded
+count-safe audit with no IDs, URLs, bodies, or credential values; Calpico
+fallback, route widening, source-body/DOM capture, and header-value extraction
+remain forbidden.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
