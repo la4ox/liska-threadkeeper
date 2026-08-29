@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { RawCaptureAssetRecord } from '../../src/archive/capture';
 import {
+  CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
   extractChatGptActiveResolverPlan,
+  extractChatGptInterpreterAssetPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptTransientResolverRecord,
 } from '../../src/content/capture/chatgpt-asset-resolver';
@@ -35,7 +37,304 @@ function asset(id: string, rawPointer: string): RawCaptureAssetRecord {
   };
 }
 
+function assetWithSourceRefs(id: string, rawPointers: readonly string[]): RawCaptureAssetRecord {
+  return {
+    ...asset(id, rawPointers[0] ?? '/missing'),
+    sourceRefs: rawPointers.map(rawPointer => ({ artifactId: 'conversation', rawPointer })),
+  };
+}
+
+function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
+  return {
+    ...asset('a', `/mapping/node-${index}/message/metadata/attachments/0`),
+    id: `chatgpt-asset-${index.toString(16).padStart(64, '0')}`,
+  };
+}
+
 describe('ChatGPT page-owned asset resolver matching', () => {
+  describe('interpreter attachment plan', () => {
+    it('extracts an exact metadata attachment with its same-node message and safe Unicode filename', () => {
+      const metadata = asset('a', '/mapping/node~1current/message/metadata/attachments/0');
+      const plan = extractChatGptInterpreterAssetPlan(
+        {
+          mapping: {
+            'node/current': {
+              message: {
+                id: 'message_123',
+                metadata: {
+                  attachments: [
+                    {
+                      id: 'attachment',
+                      mime_type: 'text/plain',
+                      name: '/mnt/data/Отчёт 01.txt',
+                      size: 12,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        [metadata]
+      );
+
+      expect(plan).toEqual([
+        {
+          assetId: metadata.id,
+          messageId: 'message_123',
+          sandboxPath: '/mnt/data/Отчёт 01.txt',
+        },
+      ]);
+      expect(Object.keys(plan[0] ?? {}).sort()).toEqual(['assetId', 'messageId', 'sandboxPath']);
+      expect(plan[0]).not.toHaveProperty('raw');
+      expect(plan[0]).not.toHaveProperty('url');
+      expect(plan[0]).not.toHaveProperty('downloadUrl');
+      expect(plan[0]).not.toHaveProperty('headers');
+      expect(plan[0]).not.toHaveProperty('body');
+    });
+
+    it('ignores incidental sandbox-looking strings and first-slice content parts', () => {
+      const parts = asset('a', '/mapping/root/message/content/parts/0');
+      expect(
+        extractChatGptInterpreterAssetPlan(
+          {
+            mapping: {
+              root: {
+                message: {
+                  id: 'message_123',
+                  content: {
+                    parts: [
+                      '/mnt/data/incidental-in-text.txt',
+                      { content_type: 'code', text: 'open(/mnt/data/incidental-code.py)' },
+                      { content_type: 'execution_output', text: '/mnt/data/incidental-output.csv' },
+                    ],
+                  },
+                  metadata: { note: '/mnt/data/not-an-attachment.txt' },
+                },
+              },
+            },
+          },
+          [parts]
+        )
+      ).toEqual([]);
+    });
+
+    it.each([
+      ['relative path', 'relative.txt'],
+      ['different root', '/tmp/file.txt'],
+      ['empty filename', '/mnt/data/'],
+      ['empty segment', '/mnt/data/folder//file.txt'],
+      ['dot segment', '/mnt/data/./file.txt'],
+      ['parent segment', '/mnt/data/../file.txt'],
+      ['backslash', '/mnt/data/folder\\file.txt'],
+      ['control character', '/mnt/data/file\n.txt'],
+      ['overlong path', `/mnt/data/${'a'.repeat(4_100)}`],
+    ])('rejects %s in a sandbox path', (_label, name) => {
+      const metadata = asset('a', '/mapping/root/message/metadata/attachments/0');
+      expect(
+        extractChatGptInterpreterAssetPlan(
+          {
+            mapping: {
+              root: {
+                message: {
+                  id: 'message_123',
+                  metadata: { attachments: [{ name }] },
+                },
+              },
+            },
+          },
+          [metadata]
+        )
+      ).toEqual([]);
+    });
+
+    it.each([
+      ['an empty pointer', ''],
+      ['an overlong pointer', `/${'a'.repeat(4_100)}`],
+      ['a control-bearing pointer', '/mapping/root/message/metadata/attachments/0\n'],
+      ['a non-string pointer', 42],
+    ])('rejects %s before pointer traversal', (_label, rawPointer) => {
+      const invalid = {
+        ...asset('a', '/mapping/root/message/metadata/attachments/0'),
+        sourceRefs: [{ artifactId: 'conversation', rawPointer }],
+      } as unknown as RawCaptureAssetRecord;
+      expect(extractChatGptInterpreterAssetPlan({ mapping: {} }, [invalid])).toEqual([]);
+    });
+
+    it.each([null, {}, { id: 'missing-name' }])(
+      'rejects an exact attachment value without a string name %#',
+      attachment => {
+        const metadata = asset('a', '/mapping/root/message/metadata/attachments/0');
+        expect(
+          extractChatGptInterpreterAssetPlan(
+            {
+              mapping: {
+                root: {
+                  message: {
+                    id: 'message_123',
+                    metadata: { attachments: [attachment] },
+                  },
+                },
+              },
+            },
+            [metadata]
+          )
+        ).toEqual([]);
+      }
+    );
+
+    it('rejects malformed pointers and unsafe paths, message IDs, and internal asset IDs', () => {
+      const pointers = [
+        '/mapping/node~2bad/message/metadata/attachments/0',
+        '/mapping//message/metadata/attachments/0',
+        '/mapping/root/message/content/parts/0',
+        '/mapping/root/message/metadata/attachments/00',
+        '/mapping/root/message/metadata/attachments/0/extra',
+      ];
+      const malformed = pointers.map((pointer, index) =>
+        asset(String.fromCharCode(97 + index), pointer)
+      );
+      const unsafePath = asset('f', '/mapping/path/message/metadata/attachments/0');
+      const unsafeMessage = asset('a', '/mapping/message/message/metadata/attachments/0');
+      const unsafeAsset = {
+        ...asset('b', '/mapping/asset/message/metadata/attachments/0'),
+        id: 'unsafe-id',
+      };
+
+      expect(
+        extractChatGptInterpreterAssetPlan(
+          {
+            mapping: {
+              root: {
+                message: {
+                  id: 'message_123',
+                  metadata: { attachments: [{ name: '/mnt/data/a.txt' }] },
+                },
+              },
+              path: {
+                message: {
+                  id: 'message_123',
+                  metadata: { attachments: [{ name: '/mnt/data/../up.txt' }] },
+                },
+              },
+              message: {
+                message: {
+                  id: 'unsafe message\n',
+                  metadata: { attachments: [{ name: '/mnt/data/ok.txt' }] },
+                },
+              },
+              asset: {
+                message: {
+                  id: 'message_123',
+                  metadata: { attachments: [{ name: '/mnt/data/ok.txt' }] },
+                },
+              },
+            },
+          },
+          [...malformed, unsafePath, unsafeMessage, unsafeAsset]
+        )
+      ).toEqual([]);
+    });
+
+    it('skips an asset with conflicting attachment source refs', () => {
+      const conflicting = assetWithSourceRefs('a', [
+        '/mapping/first/message/metadata/attachments/0',
+        '/mapping/second/message/metadata/attachments/0',
+      ]);
+      expect(
+        extractChatGptInterpreterAssetPlan(
+          {
+            mapping: {
+              first: {
+                message: {
+                  id: 'message_1',
+                  metadata: { attachments: [{ name: '/mnt/data/one.txt' }] },
+                },
+              },
+              second: {
+                message: {
+                  id: 'message_2',
+                  metadata: { attachments: [{ name: '/mnt/data/two.txt' }] },
+                },
+              },
+            },
+          },
+          [conflicting]
+        )
+      ).toEqual([]);
+    });
+
+    it('deduplicates exact message-path pairs and remains stable when assets are reversed', () => {
+      const first = asset('a', '/mapping/first/message/metadata/attachments/0');
+      const duplicate = asset('b', '/mapping/duplicate/message/metadata/attachments/0');
+      const distinct = asset('c', '/mapping/distinct/message/metadata/attachments/0');
+      const raw = {
+        mapping: {
+          first: {
+            message: {
+              id: 'message_1',
+              metadata: { attachments: [{ name: '/mnt/data/shared.txt' }] },
+            },
+          },
+          duplicate: {
+            message: {
+              id: 'message_1',
+              metadata: { attachments: [{ name: '/mnt/data/shared.txt' }] },
+            },
+          },
+          distinct: {
+            message: {
+              id: 'message_2',
+              metadata: { attachments: [{ name: '/mnt/data/other.txt' }] },
+            },
+          },
+        },
+      };
+      const expected = [
+        {
+          assetId: first.id,
+          messageId: 'message_1',
+          sandboxPath: '/mnt/data/shared.txt',
+        },
+        {
+          assetId: distinct.id,
+          messageId: 'message_2',
+          sandboxPath: '/mnt/data/other.txt',
+        },
+      ];
+
+      expect(extractChatGptInterpreterAssetPlan(raw, [duplicate, distinct, first])).toEqual(
+        expected
+      );
+      expect(
+        extractChatGptInterpreterAssetPlan(raw, [first, distinct, duplicate].reverse())
+      ).toEqual(expected);
+    });
+
+    it('uses its dedicated 20-candidate cap after deterministic asset ordering', () => {
+      const assets = Array.from({ length: 25 }, (_, index) => indexedInterpreterAsset(index));
+      const raw = {
+        mapping: Object.fromEntries(
+          assets.map((_, index) => [
+            `node-${index}`,
+            {
+              message: {
+                id: `message_${index}`,
+                metadata: { attachments: [{ name: `/mnt/data/file-${index}.txt` }] },
+              },
+            },
+          ])
+        ),
+      };
+      const plan = extractChatGptInterpreterAssetPlan(raw, [...assets].reverse());
+
+      expect(plan).toHaveLength(CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT);
+      expect(plan.map(candidate => candidate.assetId)).toEqual(
+        assets.slice(0, CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT).map(candidate => candidate.id)
+      );
+    });
+  });
+
   it('extracts a bounded deterministic active plan only from exact ledger pointers', () => {
     const direct = asset('a', '/mapping/root/message/metadata/attachments/0');
     const ambiguous = asset('b', '/mapping/root/message/content/parts/0');

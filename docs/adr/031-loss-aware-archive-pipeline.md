@@ -340,6 +340,23 @@ boundary, discard all provider transport values, and feed verified bytes into th
 existing content-addressed staged persistence. Preview and physical-download UI
 controls share the resolver family but differ after signed content resolution.
 
+A field-only reconciliation of that committed raw and its 17-asset manifest found
+14 exact interpreter-shaped ledger records at
+`/mapping/{node}/message/metadata/attachments/{i}`. Each pointed to a plain object
+with `id,mime_type,name,size`; `name` contained a plain `/mnt/data/...` path, and
+the same graph node carried a string `message.id`. Many incidental `/mnt/data/`
+strings also existed in text, code, and output fields, confirming that broad scans
+would be unsound. The first pure implementation therefore follows only exact
+conversation sourceRefs, binds the same-node message ID, accepts a strict safe
+`/mnt/data/` path, and returns only transient `{assetId,messageId,sandboxPath}`.
+Conflicting candidates are skipped, exact message/path pairs deduplicate
+deterministically, and a dedicated cap is 20. Unsafe pointer escapes, IDs,
+controls, backslashes, empty/dot/dotdot/outside/overlong paths, and content parts
+fail closed. No production caller, endpoint, hash, persistence, log, or network
+path is connected; the slice is tree-shaken from the build. The next gate is a
+separate strict transient request/result contract whose URLSearchParams encoding
+is applied exactly once, including for percent-looking filename characters.
+
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
 and never issue the legacy full-graph request observed by the original capture

@@ -5,6 +5,7 @@
  */
 
 import type { RawCaptureAssetRecord } from '../../archive/capture';
+import { isSafeStagedBinaryAssetId } from '../../lib/binary-asset-contract';
 import { sha256Hex } from '../../lib/sha256';
 import {
   CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
@@ -16,6 +17,18 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const PROVIDER_FILE_ID_PATTERN = /^[A-Za-z0-9._-]{1,512}$/;
 const POINTER_FILE_ID_PATTERN = /^(?:file-service|sediment):(?:\/\/)?([A-Za-z0-9._-]{1,512})$/;
 const DIRECT_ID_FIELDS = ['asset_id', 'assetId', 'file_id', 'fileId', 'id'] as const;
+const CHATGPT_INTERPRETER_MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
+const CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN = /^(?:0|[1-9][0-9]*)$/;
+const CHATGPT_INTERPRETER_SANDBOX_PREFIX = '/mnt/data/';
+const CHATGPT_INTERPRETER_MAX_POINTER_LENGTH = 4_096;
+const CHATGPT_INTERPRETER_MAX_SANDBOX_PATH_LENGTH = 4_096;
+
+/**
+ * Independent bound for the offline interpreter-download plan. This is not
+ * the active file-ID diagnostic cap because these candidates carry a separate
+ * same-message sandbox-path binding.
+ */
+export const CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT = 20;
 
 export interface ChatGptTransientResolverRecord {
   resolverKey: string;
@@ -42,6 +55,16 @@ export interface ChatGptActiveResolverPlan {
   providerFileIds: string[];
 }
 
+/**
+ * Runtime-only input for the interpreter download endpoint. It intentionally
+ * contains no raw record, transport URL, request headers, or response body.
+ */
+export interface ChatGptInterpreterAssetCandidate {
+  assetId: string;
+  messageId: string;
+  sandboxPath: string;
+}
+
 interface ProviderFileEvidence {
   fileId: string;
   /** Direct provider IDs outrank transport-pointer deductions. */
@@ -59,6 +82,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasControlCharacters(value: string): boolean {
+  return Array.from(value).some(character => {
+    const codePoint = character.codePointAt(0);
+    return (
+      codePoint !== undefined && (codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f))
+    );
+  });
+}
+
 function decodePointerSegment(segment: string): string | undefined {
   if (/~(?![01])/u.test(segment)) return undefined;
   return segment.replace(/~1/g, '/').replace(/~0/g, '~');
@@ -74,6 +112,146 @@ function atJsonPointer(raw: unknown, pointer: string): unknown {
     value = (value as Record<string, unknown>)[segment];
   }
   return value;
+}
+
+interface ChatGptInterpreterAttachmentPointer {
+  nodeSegment: string;
+}
+
+interface ChatGptInterpreterAttachmentEvidence {
+  messageId: string;
+  sandboxPath: string;
+}
+
+function interpreterAttachmentPointer(
+  pointer: unknown
+): ChatGptInterpreterAttachmentPointer | undefined {
+  if (
+    typeof pointer !== 'string' ||
+    pointer.length === 0 ||
+    pointer.length > CHATGPT_INTERPRETER_MAX_POINTER_LENGTH ||
+    hasControlCharacters(pointer)
+  ) {
+    return undefined;
+  }
+  const segments = pointer.split('/');
+  if (
+    segments.length !== 7 ||
+    segments[0] !== '' ||
+    segments[1] !== 'mapping' ||
+    segments[3] !== 'message' ||
+    segments[4] !== 'metadata' ||
+    segments[5] !== 'attachments' ||
+    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6])
+  ) {
+    return undefined;
+  }
+  const node = decodePointerSegment(segments[2]);
+  if (node === undefined || node.length === 0 || hasControlCharacters(node)) return undefined;
+  return { nodeSegment: segments[2] };
+}
+
+function safeInterpreterSandboxPath(value: unknown): { sandboxPath: string } | undefined {
+  if (
+    typeof value !== 'string' ||
+    value.length <= CHATGPT_INTERPRETER_SANDBOX_PREFIX.length ||
+    value.length > CHATGPT_INTERPRETER_MAX_SANDBOX_PATH_LENGTH ||
+    !value.startsWith(CHATGPT_INTERPRETER_SANDBOX_PREFIX) ||
+    value.includes('\\') ||
+    hasControlCharacters(value)
+  ) {
+    return undefined;
+  }
+  const segments = value.split('/');
+  if (
+    segments.length < 4 ||
+    segments[0] !== '' ||
+    segments[1] !== 'mnt' ||
+    segments[2] !== 'data' ||
+    segments.slice(3).some(segment => segment.length === 0 || segment === '.' || segment === '..')
+  ) {
+    return undefined;
+  }
+  return { sandboxPath: value };
+}
+
+function interpreterAttachmentEvidence(
+  raw: unknown,
+  rawPointer: unknown
+): ChatGptInterpreterAttachmentEvidence | undefined {
+  const location = interpreterAttachmentPointer(rawPointer);
+  if (!location) return undefined;
+  const attachment = atJsonPointer(raw, rawPointer as string);
+  if (!isPlainRecord(attachment) || !Object.prototype.hasOwnProperty.call(attachment, 'name'))
+    return undefined;
+  const path = safeInterpreterSandboxPath(attachment.name);
+  if (!path) return undefined;
+  const messageId = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message/id`);
+  if (typeof messageId !== 'string' || !CHATGPT_INTERPRETER_MESSAGE_ID_PATTERN.test(messageId))
+    return undefined;
+  return { messageId, ...path };
+}
+
+function sourceRefsSortKey(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  return value
+    .filter(isPlainRecord)
+    .map(sourceRef => {
+      const artifactId = sourceRef.artifactId;
+      const rawPointer = sourceRef.rawPointer;
+      return typeof artifactId === 'string' && typeof rawPointer === 'string'
+        ? `${artifactId}\u0000${rawPointer}`
+        : '';
+    })
+    .sort()
+    .join('\u0001');
+}
+
+function compareInterpreterAssets(
+  left: RawCaptureAssetRecord,
+  right: RawCaptureAssetRecord
+): number {
+  const leftId = typeof left?.id === 'string' ? left.id : '';
+  const rightId = typeof right?.id === 'string' ? right.id : '';
+  if (leftId !== rightId) return leftId < rightId ? -1 : 1;
+  const leftRefs = sourceRefsSortKey(left?.sourceRefs);
+  const rightRefs = sourceRefsSortKey(right?.sourceRefs);
+  return leftRefs < rightRefs ? -1 : leftRefs > rightRefs ? 1 : 0;
+}
+
+/**
+ * Select bounded, exact metadata attachment locations for a future
+ * interpreter-download attempt. This pure function only follows ledger
+ * pointers and their same-node message IDs; it never scans message content.
+ */
+export function extractChatGptInterpreterAssetPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[]
+): ChatGptInterpreterAssetCandidate[] {
+  if (!Array.isArray(assets)) return [];
+  const selectedPairs = new Set<string>();
+  const selected: ChatGptInterpreterAssetCandidate[] = [];
+  const orderedAssets = [...assets].sort(compareInterpreterAssets);
+  for (const asset of orderedAssets) {
+    if (!asset || typeof asset !== 'object' || !isSafeStagedBinaryAssetId(asset.id)) continue;
+    if (!Array.isArray(asset.sourceRefs)) continue;
+    const candidates = new Map<string, ChatGptInterpreterAttachmentEvidence>();
+    for (const sourceRef of asset.sourceRefs) {
+      if (!isPlainRecord(sourceRef) || sourceRef.artifactId !== 'conversation') continue;
+      const evidence = interpreterAttachmentEvidence(raw, sourceRef.rawPointer);
+      if (!evidence) continue;
+      candidates.set(`${evidence.messageId}\u0000${evidence.sandboxPath}`, evidence);
+    }
+    if (candidates.size !== 1) continue;
+    const evidence = candidates.values().next().value;
+    if (!evidence) continue;
+    const pair = `${evidence.messageId}\u0000${evidence.sandboxPath}`;
+    if (selectedPairs.has(pair)) continue;
+    selectedPairs.add(pair);
+    selected.push({ assetId: asset.id, ...evidence });
+    if (selected.length >= CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT) break;
+  }
+  return selected;
 }
 
 function providerFileEvidence(value: unknown): ProviderFileEvidence[] {
