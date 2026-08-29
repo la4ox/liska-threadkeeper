@@ -326,6 +326,20 @@ pointers, bind them to the same conversation, and keep them out of durable
 warnings/logs/manifests. The existing active file-ID probe remains evidence for
 only its own family and must not be generalized to interpreter or library assets.
 
+A third user-approved action selected the attachment row's hover-only `Скачать
+файл` control rather than opening its preview. It repeated the interpreter helper
+as a fresh `200 application/json`, fetched the signed estuary URL as a fresh `200
+application/pdf`, and produced a browser download event. Exactly one new local
+file appeared: 62,962 bytes, `%PDF-1.7`, SHA-256
+`6939a1659d01e01e9948eed4b36724a95bd4248d3f2c184b8624b4740f3996a7`;
+filename and document content were not read. This proves the complete
+acquisition-mechanics chain for an ordinary-chat interpreter output. The planned
+adapter may derive transient `message_id + sandbox_path` only from exact verified
+raw pointers, resolve one signed URL inside the same-conversation trusted-click
+boundary, discard all provider transport values, and feed verified bytes into the
+existing content-addressed staged persistence. Preview and physical-download UI
+controls share the resolver family but differ after signed content resolution.
+
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
 and never issue the legacy full-graph request observed by the original capture
