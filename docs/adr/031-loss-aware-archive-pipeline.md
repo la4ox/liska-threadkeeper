@@ -260,7 +260,20 @@ setup/fetch attribution defect before live use: Request-construction failure now
 terminates as `hook-state-failed` before `dispatchCount` changes, so
 `fetch-rejected` is reserved for the actual fetch call and ordinal invariants stay
 valid. Offline tests, full coverage gate, lint, build, and bundle inspection pass.
-Exactly one user-approved live result remains; no automatic retry is allowed.
+
+The one user-approved live result was `requested=1`, `dispatched=1`,
+`observed=0`, and `payload-validation-rejected=1`, with every other outcome zero
+and `failure=none`. ChatGPT therefore returned a `200 JSON` Response through the
+actual fetch path, and page-side bounded clone/body/hash processing completed;
+only background payload validation rejected it. The output contained Markdown
+plus exactly three capture JSON files and no binaries. Raw matched the manifest
+length and SHA-256; all 17 assets stayed `not-attempted` with no attempted/local
+evidence; the marker tab exact-closed. This rules out fetch-level missing
+authorization, but an endpoint-specific authorization/error envelope encoded as
+`200 JSON` remains possible. Without retaining body/schema/value data, the
+remaining aggregate possibilities are a missing or changed `download_url` shape
+or a signed URL that fails exact conversation binding. No automatic retry is
+allowed; any value-free payload subreason requires a new explicit decision.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
