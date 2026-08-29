@@ -204,6 +204,34 @@ describe('structured archive companion message validation', () => {
     ).toBe(false);
   });
 
+  it('rejects non-string frontmatter title and URL values at the worker boundary', () => {
+    const note = {
+      fileName: 'coverage.md',
+      body: '# coverage',
+      contentHash: 'coverage-hash',
+      frontmatter: {
+        title: 'Coverage',
+        source: 'chatgpt',
+        url: 'https://chatgpt.com/',
+        tags: ['coverage'],
+      },
+    };
+    const message = { action: 'saveToOutputs', outputs: ['file'], data: note };
+
+    expect(
+      validateMessageContent({
+        ...message,
+        data: { ...note, frontmatter: { ...note.frontmatter, title: 42 } },
+      })
+    ).toBe(false);
+    expect(
+      validateMessageContent({
+        ...message,
+        data: { ...note, frontmatter: { ...note.frontmatter, url: 42 } },
+      })
+    ).toBe(false);
+  });
+
   it('rejects malformed ChatGPT tab and sender URLs', () => {
     const conversationId = '01234567-89ab-4cde-8f01-23456789abcd';
 
