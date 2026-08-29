@@ -291,7 +291,22 @@ Success envelope in active and shared passive parsers, and exposes only the thre
 value-free background subreasons above. A reviewer caught and rechecked the
 missing-status protocol gap before live use. Optional `gizmo_id` remains
 underived, so this default route does not claim custom-GPT attachment coverage.
-No provider request has been made with the corrected build.
+The one approved corrected-build smoke returned `requested=1`, `dispatched=1`,
+`observed=0`, and `download-url-missing=1`, with every other outcome zero and
+`failure=none`. Exact download-mode therefore fetched a response whose bytes
+passed page processing and background integrity checks, but no acceptable own
+`status === "Success"` plus string `download_url` envelope remained. The
+value-free outcome intentionally does not distinguish `Retry`, `file_not_found`,
+`file_expired`, another non-success status, malformed JSON, or a protocol-violating
+Success without URL. The deterministic first ledger ID is not freshness-ranked,
+so an old unavailable attachment remains plausible; this run does not disprove
+the corrected route for a known-fresh ordinary-chat file. Output contained
+Markdown plus exactly three capture JSON files and no binaries. Raw matched the
+manifest length/SHA-256; all 17 assets remained `not-attempted` with no
+attempted/local evidence; the marker tab exact-closed. No automatic retry is
+allowed. Any next live step requires a value-free allowlisted envelope category
+and an explicitly known-fresh non-Gizmo fixture, or the live route stops in favor
+of offline hydration.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
