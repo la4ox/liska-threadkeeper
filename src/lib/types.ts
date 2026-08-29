@@ -497,6 +497,12 @@ export type ExtensionMessage =
       conversationId: string;
       /** Transient only: never persisted, logged, or returned to content. */
       providerFileIds: string[];
+    }
+  | {
+      action: 'resolveChatGptInterpreterAssets';
+      conversationId: string;
+      /** Transient plan only: never persisted or copied into MAIN state. */
+      candidates: Array<{ assetId: string; messageId: string; sandboxPath: string }>;
     };
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   validateChatGptCaptureSender,
+  validateChatGptStandardConversationSender,
   validateMessageContent,
 } from '../../src/background/validation';
 
@@ -134,6 +135,35 @@ describe('ChatGPT capture message validation', () => {
     expect(validateMessageContent(withSymbol)).toBe(false);
   });
 
+  it('accepts the strict bounded interpreter candidate plan only', () => {
+    const message = {
+      action: 'resolveChatGptInterpreterAssets',
+      conversationId: CONVERSATION_ID,
+      candidates: [
+        {
+          assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+          messageId: 'msg_one',
+          sandboxPath: '/mnt/data/100% & = файл.txt',
+        },
+      ],
+    };
+    expect(validateMessageContent(message)).toBe(true);
+    expect(
+      validateMessageContent({
+        ...message,
+        candidates: [{ ...message.candidates[0], sandboxPath: '/mnt/data/../secret.txt' }],
+      })
+    ).toBe(false);
+    expect(
+      validateMessageContent({
+        ...message,
+        candidates: [{ ...message.candidates[0], secret: 'no' }],
+      })
+    ).toBe(false);
+    expect(validateMessageContent({ ...message, candidates: [] })).toBe(false);
+    expect(validateMessageContent({ ...message, headers: 'must-not-cross' })).toBe(false);
+  });
+
   it.each(['apiKey', 'headers', 'accountId'])('rejects the extra own key %s', extraKey => {
     expect(
       validateMessageContent({
@@ -181,6 +211,21 @@ describe('ChatGPT capture message validation', () => {
         CONVERSATION_ID
       )
     ).toBe(true);
+  });
+
+  it('keeps interpreter resolution on standard conversation routes only', () => {
+    expect(
+      validateChatGptStandardConversationSender(
+        contentSender(`https://chatgpt.com/c/${CONVERSATION_ID}`),
+        CONVERSATION_ID
+      )
+    ).toBe(true);
+    expect(
+      validateChatGptStandardConversationSender(
+        contentSender(`https://chatgpt.com/g/my-custom-gpt/c/${CONVERSATION_ID}`),
+        CONVERSATION_ID
+      )
+    ).toBe(false);
   });
 
   it('rejects a route with a different conversation ID', () => {

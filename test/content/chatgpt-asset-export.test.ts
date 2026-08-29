@@ -35,7 +35,10 @@ function originalAsset(): RawCaptureAssetRecord {
   };
 }
 
-function context(includeAsset = true): ChatGptAssetExportContext {
+function context(
+  includeAsset = true,
+  assetRecords?: RawCaptureAssetRecord[]
+): ChatGptAssetExportContext {
   const bytes = new TextEncoder().encode('{}');
   const manifest = buildCaptureManifest({
     captureId: CAPTURE_ID,
@@ -53,7 +56,7 @@ function context(includeAsset = true): ChatGptAssetExportContext {
         endpoint: { method: 'GET', pathPattern: '/backend-api/conversation/{conversationId}' },
       },
     ],
-    assets: includeAsset ? [originalAsset()] : [],
+    assets: assetRecords ?? (includeAsset ? [originalAsset()] : []),
     completeness: {
       graph: 'complete',
       messages: 'complete',
@@ -194,7 +197,8 @@ describe('destination-honest ChatGPT attachment export', () => {
             },
             failureCode: null,
           },
-          warning: 'ChatGPT active resolver observed 1/1; binary acquisition remains disabled.',
+          warning:
+            'ChatGPT active resolver observed 1/1; file-ID binary acquisition remains disabled.',
         }),
         acquireAssets,
         persistBinaryAssets,
@@ -236,7 +240,9 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(result).toEqual({
       rawSuccessfulDestinations: ['file'],
       completeDestinations: ['file'],
-      warnings: ['ChatGPT active resolver observed 1/1; binary acquisition remains disabled.'],
+      warnings: [
+        'ChatGPT active resolver observed 1/1; file-ID binary acquisition remains disabled.',
+      ],
     });
   });
 
@@ -426,6 +432,168 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(JSON.stringify(persistArtifacts.mock.calls)).not.toContain(signedSentinel);
   });
 
+  it('resolves interpreter assets first, fills only remaining IDs from legacy, and acquires once', async () => {
+    const first = originalAsset();
+    const second: RawCaptureAssetRecord = {
+      ...originalAsset(),
+      id: `chatgpt-asset-${'b'.repeat(64)}`,
+      sourceRefs: [{ artifactId: 'conversation', rawPointer: '/second-asset' }],
+    };
+    const exportContext = context(true, [first, second]);
+    const interpreterUrl = 'signed-interpreter-url';
+    const legacyUrl = 'signed-legacy-url';
+    const events: string[] = [];
+    const persistArtifacts = vi.fn(
+      async (_companion, _name, _source, outputs: ('file' | 'obsidian')[], kinds: string[]) => {
+        events.push(kinds.join('+'));
+        return persisted(outputs);
+      }
+    );
+    const observeInterpreterResolvers = vi.fn(async () => {
+      events.push('interpreter');
+      return {
+        kind: 'matched' as const,
+        candidates: [{ assetId: first.id, downloadUrl: interpreterUrl }],
+        warning:
+          'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.' as const,
+      };
+    });
+    const observeResolvers = vi.fn(async () => {
+      events.push('legacy');
+      return {
+        kind: 'matched' as const,
+        candidates: [
+          { assetId: first.id, downloadUrl: 'must-not-overwrite-interpreter' },
+          { assetId: second.id, downloadUrl: legacyUrl },
+        ],
+      };
+    });
+    const acquireAssets = vi.fn(async () => {
+      events.push('acquire');
+      return {
+        records: exportContext.rawCaptureBundle.manifest.assets.map(record => ({ ...record })),
+        runtimeAssets: [],
+        completeness: 'not-attempted' as const,
+      };
+    });
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      exportContext,
+      companion(),
+      'note.md',
+      ['file'],
+      {
+        persistArtifacts,
+        observeInterpreterResolvers,
+        observeResolvers,
+        acquireAssets,
+        buildDestinationCompanion: async () => companion(),
+      }
+    );
+
+    expect(events.slice(0, 4)).toEqual(['raw', 'interpreter', 'legacy', 'acquire']);
+    expect(observeInterpreterResolvers).toHaveBeenCalledOnce();
+    expect(observeResolvers).toHaveBeenCalledOnce();
+    expect(observeResolvers).toHaveBeenCalledWith(exportContext, [second.id]);
+    expect(acquireAssets).toHaveBeenCalledOnce();
+    expect(acquireAssets.mock.calls[0]?.[0].candidates).toEqual([
+      { assetId: first.id, downloadUrl: interpreterUrl },
+      { assetId: second.id, downloadUrl: legacyUrl },
+    ]);
+    expect(JSON.stringify(persistArtifacts.mock.calls)).not.toContain(interpreterUrl);
+    expect(JSON.stringify(persistArtifacts.mock.calls)).not.toContain(legacyUrl);
+    expect(result.warnings).toContain(
+      'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.'
+    );
+    expect(JSON.stringify(result.warnings)).not.toContain(
+      'matching attachments remain not attempted'
+    );
+  });
+
+  it('skips the legacy resolver when interpreter candidates cover the entire ledger', async () => {
+    const asset = originalAsset();
+    const observeResolvers = vi.fn();
+    const acquireAssets = vi.fn().mockResolvedValue({
+      records: [asset],
+      runtimeAssets: [],
+      completeness: 'not-attempted',
+    });
+
+    await persistChatGptDestinationHonestAttachments(context(), companion(), 'note.md', ['file'], {
+      persistArtifacts: vi.fn().mockResolvedValue(persisted(['file'])),
+      observeInterpreterResolvers: async () => ({
+        kind: 'matched',
+        candidates: [{ assetId: asset.id, downloadUrl: 'signed-interpreter-only' }],
+      }),
+      observeResolvers,
+      acquireAssets,
+      buildDestinationCompanion: async () => companion(),
+    });
+
+    expect(observeResolvers).not.toHaveBeenCalled();
+    expect(acquireAssets).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      'failed',
+      {
+        kind: 'recapture-failed' as const,
+        warning:
+          'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.' as const,
+      },
+    ],
+    [
+      'mismatched',
+      {
+        kind: 'recapture-mismatch' as const,
+        warning:
+          'ChatGPT legacy attachment resolver recapture did not match the original capture; final attachment states are recorded in the archive manifest.' as const,
+      },
+    ],
+  ])(
+    'keeps interpreter candidates attemptable when the remaining legacy recapture is %s',
+    async (_label, legacyObservation) => {
+      const first = originalAsset();
+      const second: RawCaptureAssetRecord = {
+        ...originalAsset(),
+        id: `chatgpt-asset-${'b'.repeat(64)}`,
+        sourceRefs: [{ artifactId: 'conversation', rawPointer: '/second-asset' }],
+      };
+      const exportContext = context(true, [first, second]);
+      const acquireAssets = vi.fn().mockResolvedValue({
+        records: [first, second],
+        runtimeAssets: [],
+        completeness: 'not-attempted',
+      });
+
+      const result = await persistChatGptDestinationHonestAttachments(
+        exportContext,
+        companion(),
+        'note.md',
+        ['file'],
+        {
+          persistArtifacts: vi.fn().mockResolvedValue(persisted(['file'])),
+          observeInterpreterResolvers: async () => ({
+            kind: 'matched',
+            candidates: [{ assetId: first.id, downloadUrl: 'signed-interpreter-candidate' }],
+          }),
+          observeResolvers: async () => legacyObservation,
+          acquireAssets,
+          buildDestinationCompanion: async () => companion(),
+        }
+      );
+
+      expect(acquireAssets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          candidates: [{ assetId: first.id, downloadUrl: 'signed-interpreter-candidate' }],
+        })
+      );
+      expect(result.warnings).toContain(legacyObservation.warning);
+      expect(JSON.stringify(result.warnings)).not.toContain('attachments were not attempted');
+    }
+  );
+
   it('skips recapture and binary staging for a raw-failed destination while another proceeds', async () => {
     const asset = fetchedAsset();
     const persistArtifacts = vi
@@ -472,7 +640,7 @@ describe('destination-honest ChatGPT attachment export', () => {
     const observeResolvers = vi.fn().mockResolvedValue({
       kind: 'recapture-mismatch',
       warning:
-        'ChatGPT attachment resolver recapture did not match the original capture; attachments were not attempted.',
+        'ChatGPT legacy attachment resolver recapture did not match the original capture; final attachment states are recorded in the archive manifest.',
     });
     const acquireAssets = vi.fn();
     const persistBinaryAssets = vi.fn();
@@ -499,7 +667,7 @@ describe('destination-honest ChatGPT attachment export', () => {
     ).toBe(true);
     expect(result.completeDestinations).toEqual(['file', 'obsidian']);
     expect(result.warnings).toContain(
-      'ChatGPT attachment resolver recapture did not match the original capture; attachments were not attempted.'
+      'ChatGPT legacy attachment resolver recapture did not match the original capture; final attachment states are recorded in the archive manifest.'
     );
     expect(result.warnings).toContain(
       'Some ChatGPT attachments were not resolved during this export attempt; the archive manifest records them as not attempted.'
@@ -576,12 +744,29 @@ describe('destination-honest ChatGPT attachment export', () => {
         buildDestinationCompanion,
       }
     );
+    const interpreterObserverFailure = await persistChatGptDestinationHonestAttachments(
+      context(),
+      companion(),
+      'note.md',
+      ['file'],
+      {
+        persistArtifacts,
+        observeInterpreterResolvers: async () => {
+          throw new Error('interpreter resolver unavailable');
+        },
+        observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+        buildDestinationCompanion,
+      }
+    );
 
     expect(observerFailure.warnings).toContain(
-      'ChatGPT attachment resolver recapture failed; attachments were not attempted.'
+      'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.'
     );
     expect(acquisitionFailure.warnings).toContain(
       'ChatGPT attachment acquisition failed; attachments were not attempted.'
+    );
+    expect(interpreterObserverFailure.warnings).toContain(
+      'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.'
     );
     expect(
       buildDestinationCompanion.mock.calls.every(call => call[1][0].state === 'not-attempted')

@@ -8,6 +8,7 @@ import type { ChatGptOpaqueProbeResponse } from './chatgpt-opaque-probe-contract
 import type { ChatGptOpaqueReplayResponse } from './chatgpt-opaque-replay-contract';
 import type { ChatGptOpaqueResolverResponse } from './chatgpt-opaque-resolver-contract';
 import type { ChatGptActiveResolverResponse } from './chatgpt-active-resolver-contract';
+import type { ChatGptInterpreterResolverResponse } from './chatgpt-interpreter-resolver-contract';
 import type {
   ExtensionMessage,
   ContentScriptSettings,
@@ -33,6 +34,7 @@ interface MessageResponseMap {
   captureChatGptConversationViaOpaqueReplay: ChatGptOpaqueReplayResponse;
   observeChatGptAssetResolversViaOpaqueSource: ChatGptOpaqueResolverResponse;
   probeChatGptActiveAssetResolvers: ChatGptActiveResolverResponse;
+  resolveChatGptInterpreterAssets: ChatGptInterpreterResolverResponse;
   beginStagedBinaryAsset: BinaryStageResponse;
   appendStagedBinaryAsset: BinaryStageResponse;
   commitStagedBinaryAsset: MultiOutputResponse;

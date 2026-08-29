@@ -43,6 +43,7 @@ import {
 import { hashCaptureManifest, sha256Hex } from './response';
 import { requestChatGptConversationCapture } from './chatgpt-request';
 import {
+  extractChatGptInterpreterAssetPlan,
   extractChatGptActiveResolverPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
@@ -59,6 +60,7 @@ import {
   type ChatGptActiveResolverMetric,
 } from './chatgpt-active-resolver-audit';
 import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver-request';
+import { resolveChatGptInterpreterAssets } from './chatgpt-interpreter-resolver-request';
 
 const ARTIFACT_ID = 'conversation';
 const ARTIFACT_PATH = 'responses/conversation.json';
@@ -143,9 +145,11 @@ export interface ChatGptArchiveCapture {
 }
 
 export const CHATGPT_ASSET_RECAPTURE_FAILED_WARNING =
-  'ChatGPT attachment resolver recapture failed; attachments were not attempted.';
+  'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.';
 export const CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING =
-  'ChatGPT attachment resolver recapture did not match the original capture; attachments were not attempted.';
+  'ChatGPT legacy attachment resolver recapture did not match the original capture; final attachment states are recorded in the archive manifest.';
+export const CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING =
+  'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.';
 
 function activeResolverProbeOnly(
   metric: ChatGptActiveResolverMetric
@@ -510,14 +514,22 @@ export async function verifyChatGptAssetExportContext(
 }
 
 export type ChatGptAssetResolverObservation =
-  | { kind: 'matched'; candidates: ChatGptPageOwnedAssetCandidate[] }
+  | {
+      kind: 'matched';
+      candidates: ChatGptPageOwnedAssetCandidate[];
+      warning?: typeof CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING;
+    }
   | {
       kind: 'probe-only';
       metric: ChatGptActiveResolverMetric;
       warning: string;
     }
   | { kind: 'recapture-failed'; warning: typeof CHATGPT_ASSET_RECAPTURE_FAILED_WARNING }
-  | { kind: 'recapture-mismatch'; warning: typeof CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING };
+  | { kind: 'recapture-mismatch'; warning: typeof CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING }
+  | {
+      kind: 'interpreter-failed';
+      warning: typeof CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING;
+    };
 
 export interface ChatGptAssetResolverObservationDependencies {
   /** Injectable only for focused tests; production uses the runtime bridge. */
@@ -529,6 +541,15 @@ export interface ChatGptAssetResolverObservationDependencies {
   requestResolvers?: (conversationId: string) => Promise<ChatGptOpaqueResolverResponse>;
 }
 
+function eligibleAssetRecords(
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds?: readonly string[]
+): RawCaptureAssetRecord[] {
+  if (eligibleAssetIds === undefined) return [...context.rawCaptureBundle.manifest.assets];
+  const allowed = new Set(eligibleAssetIds);
+  return context.rawCaptureBundle.manifest.assets.filter(asset => allowed.has(asset.id));
+}
+
 /**
  * Observe page-owned resolver responses only after the original raw companion
  * has reached a durable destination. Resolver URLs stay in this return value
@@ -537,7 +558,8 @@ export interface ChatGptAssetResolverObservationDependencies {
 // eslint-disable-next-line max-lines-per-function -- Both isolated resolver routes share one committed-raw verification boundary.
 export async function observeChatGptAssetResolvers(
   context: ChatGptAssetExportContext,
-  dependencies: ChatGptAssetResolverObservationDependencies = {}
+  dependencies: ChatGptAssetResolverObservationDependencies = {},
+  eligibleAssetIds?: readonly string[]
 ): Promise<ChatGptAssetResolverObservation> {
   let original: RawCaptureArtifact;
   try {
@@ -547,6 +569,7 @@ export async function observeChatGptAssetResolvers(
   }
 
   try {
+    const assets = eligibleAssetRecords(context, eligibleAssetIds);
     if (dependencies.requestResolvers !== undefined) {
       const response = await dependencies.requestResolvers(context.conversationId);
       if (!response.success) {
@@ -556,7 +579,7 @@ export async function observeChatGptAssetResolvers(
         kind: 'matched',
         candidates: await matchChatGptPageOwnedAssetResolvers({
           raw: parseRawForInventory(original.bytes),
-          assets: context.rawCaptureBundle.manifest.assets,
+          assets,
           resolvers: response.data.transientAssetResolvers,
           sha256: sha256Hex,
         }),
@@ -582,7 +605,7 @@ export async function observeChatGptAssetResolvers(
       kind: 'matched',
       candidates: await matchChatGptPageOwnedAssetResolvers({
         raw: parseRawForInventory(original.bytes),
-        assets: context.rawCaptureBundle.manifest.assets,
+        assets,
         resolvers: recaptured.transientAssetResolvers,
         sha256: sha256Hex,
       }),
@@ -598,11 +621,14 @@ export async function observeChatGptAssetResolvers(
  * does not request a second raw conversation capture.
  */
 export async function observeChatGptAssetResolversViaOpaqueSource(
-  context: ChatGptAssetExportContext
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds?: readonly string[]
 ): Promise<ChatGptAssetResolverObservation> {
-  return observeChatGptAssetResolvers(context, {
-    requestResolvers: requestChatGptOpaqueResolverObservation,
-  });
+  return observeChatGptAssetResolvers(
+    context,
+    { requestResolvers: requestChatGptOpaqueResolverObservation },
+    eligibleAssetIds
+  );
 }
 
 /**
@@ -611,7 +637,8 @@ export async function observeChatGptAssetResolversViaOpaqueSource(
  * candidates or URLs, so callers cannot acquire or stage attachment bytes.
  */
 export async function observeChatGptActiveAssetResolvers(
-  context: ChatGptAssetExportContext
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds?: readonly string[]
 ): Promise<ChatGptAssetResolverObservation> {
   let original: RawCaptureArtifact;
   try {
@@ -621,7 +648,7 @@ export async function observeChatGptActiveAssetResolvers(
   }
   const plan = extractChatGptActiveResolverPlan(
     parseRawForInventory(original.bytes),
-    context.rawCaptureBundle.manifest.assets
+    eligibleAssetRecords(context, eligibleAssetIds)
   );
   if (plan.providerFileIds.length === 0) {
     return activeResolverProbeOnly(emptyChatGptActiveResolverMetric());
@@ -644,6 +671,52 @@ export async function observeChatGptActiveAssetResolvers(
         'resolver-result-invalid'
       )
     );
+  }
+}
+
+/**
+ * Resolve exact committed-raw interpreter attachment pointers through their
+ * separate message_id + sandbox_path helper family. Provider values and URLs
+ * remain transient; only opaque asset IDs cross into the shared acquisition
+ * seam.
+ */
+export async function observeChatGptInterpreterAssetResolvers(
+  context: ChatGptAssetExportContext
+): Promise<ChatGptAssetResolverObservation> {
+  let original: RawCaptureArtifact;
+  try {
+    original = await verifiedOriginalRaw(context);
+  } catch {
+    return {
+      kind: 'interpreter-failed',
+      warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
+    };
+  }
+  const plan = extractChatGptInterpreterAssetPlan(
+    parseRawForInventory(original.bytes),
+    context.rawCaptureBundle.manifest.assets
+  );
+  if (plan.length === 0) return { kind: 'matched', candidates: [] };
+  try {
+    const response = await resolveChatGptInterpreterAssets(context.conversationId, plan);
+    if (!response.success) {
+      return {
+        kind: 'interpreter-failed',
+        warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
+      };
+    }
+    return {
+      kind: 'matched',
+      candidates: response.data.resolved.map(candidate => ({ ...candidate })),
+      ...(response.data.resolved.length < plan.length && {
+        warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
+      }),
+    };
+  } catch {
+    return {
+      kind: 'interpreter-failed',
+      warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
+    };
   }
 }
 

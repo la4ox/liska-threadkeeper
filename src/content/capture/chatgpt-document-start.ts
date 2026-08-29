@@ -16,6 +16,8 @@ const OPAQUE_RESOLVER_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-resolver-observer=1$/i;
 const ACTIVE_RESOLVER_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})&liska-active-resolver=1$/i;
+const INTERPRETER_RESOLVER_FRAGMENT_PATTERN =
+  /^#liska-capture=([a-z0-9-]{16,128})&liska-interpreter-resolver=1$/i;
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -27,6 +29,9 @@ const DEFAULT_RESOLVER_MAX_OBSERVATIONS = 32;
 const DEFAULT_ACTIVE_RESOLVER_MAX_OBSERVATIONS = 1;
 const DEFAULT_ACTIVE_RESOLVER_MAX_BYTES = 64 * 1024;
 const DEFAULT_ACTIVE_RESOLVER_PER_ID_TIMEOUT_MS = 12_000;
+const DEFAULT_INTERPRETER_RESOLVER_MAX_OBSERVATIONS = 20;
+const DEFAULT_INTERPRETER_RESOLVER_MAX_BYTES = 64 * 1024;
+const DEFAULT_INTERPRETER_RESOLVER_PER_ITEM_TIMEOUT_MS = 12_000;
 const RESOLVER_PATH_PREFIX = '/backend-api/files/download/';
 const CALPICO_RESOLVER_PATH_PREFIX = '/backend-api/calpico/chatgpt/files/';
 const PAYLOAD_TOO_LARGE = {};
@@ -111,6 +116,9 @@ type DocumentPrimordials = {
   requestCredentials: CapturedCallable | undefined;
   requestClone: CapturedCallable | undefined;
   requestConstructor: typeof Request | undefined;
+  URLSearchParams: typeof URLSearchParams | undefined;
+  urlSearchParamsSet: CapturedCallable | undefined;
+  urlSearchParamsToString: CapturedCallable | undefined;
   abortControllerConstructor: typeof AbortController | undefined;
   abortControllerAbort: CapturedCallable | undefined;
   abortControllerSignal: CapturedCallable | undefined;
@@ -182,7 +190,13 @@ type MarkerTarget = {
   conversationId: string;
   nonce: string;
   observeAssetResolvers: boolean;
-  mode: 'capture' | 'opaque-probe' | 'opaque-replay' | 'opaque-resolver' | 'active-resolver';
+  mode:
+    | 'capture'
+    | 'opaque-probe'
+    | 'opaque-replay'
+    | 'opaque-resolver'
+    | 'active-resolver'
+    | 'interpreter-resolver';
 };
 
 function methodAt(prototype: object | undefined, property: string): CapturedCallable | undefined {
@@ -217,6 +231,7 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
   const NativeRequest = pageWindow.Request;
   const NativeAbortController = pageWindow.AbortController;
   const NativeURL = pageWindow.URL;
+  const NativeURLSearchParams = pageWindow.URLSearchParams;
   const NativeReadableStream = pageWindow.ReadableStream;
   const NativeReader = pageWindow.ReadableStreamDefaultReader;
   const NativePromise = pageWindow.Promise;
@@ -262,6 +277,10 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     requestCredentials: getterAt(getOwnPropertyDescriptor, requestPrototype, 'credentials'),
     requestClone: methodAt(requestPrototype, 'clone'),
     requestConstructor: typeof NativeRequest === 'function' ? NativeRequest : undefined,
+    URLSearchParams:
+      typeof NativeURLSearchParams === 'function' ? NativeURLSearchParams : undefined,
+    urlSearchParamsSet: methodAt(NativeURLSearchParams?.prototype, 'set'),
+    urlSearchParamsToString: methodAt(NativeURLSearchParams?.prototype, 'toString'),
     abortControllerConstructor:
       typeof NativeAbortController === 'function' ? NativeAbortController : undefined,
     abortControllerAbort: methodAt(abortControllerPrototype, 'abort'),
@@ -322,18 +341,26 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
       return undefined;
     }
 
-    const activeResolverMarker = ACTIVE_RESOLVER_FRAGMENT_PATTERN.exec(url.hash);
+    const interpreterResolverMarker = INTERPRETER_RESOLVER_FRAGMENT_PATTERN.exec(url.hash);
+    const activeResolverMarker =
+      interpreterResolverMarker === null ? ACTIVE_RESOLVER_FRAGMENT_PATTERN.exec(url.hash) : null;
     const replayMarker =
-      activeResolverMarker === null ? OPAQUE_REPLAY_FRAGMENT_PATTERN.exec(url.hash) : null;
+      interpreterResolverMarker === null && activeResolverMarker === null
+        ? OPAQUE_REPLAY_FRAGMENT_PATTERN.exec(url.hash)
+        : null;
     const resolverMarker =
-      activeResolverMarker === null && replayMarker === null
+      interpreterResolverMarker === null && activeResolverMarker === null && replayMarker === null
         ? OPAQUE_RESOLVER_FRAGMENT_PATTERN.exec(url.hash)
         : null;
     const probeMarker =
-      activeResolverMarker === null && replayMarker === null && resolverMarker === null
+      interpreterResolverMarker === null &&
+      activeResolverMarker === null &&
+      replayMarker === null &&
+      resolverMarker === null
         ? OPAQUE_PROBE_FRAGMENT_PATTERN.exec(url.hash)
         : null;
     const marker =
+      interpreterResolverMarker ??
       activeResolverMarker ??
       replayMarker ??
       resolverMarker ??
@@ -353,15 +380,17 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
           nonce,
           observeAssetResolvers: marker?.[2] === '1',
           mode:
-            activeResolverMarker !== null
-              ? 'active-resolver'
-              : replayMarker !== null
-                ? 'opaque-replay'
-                : resolverMarker !== null
-                  ? 'opaque-resolver'
-                  : probeMarker !== null
-                    ? 'opaque-probe'
-                    : 'capture',
+            interpreterResolverMarker !== null
+              ? 'interpreter-resolver'
+              : activeResolverMarker !== null
+                ? 'active-resolver'
+                : replayMarker !== null
+                  ? 'opaque-replay'
+                  : resolverMarker !== null
+                    ? 'opaque-resolver'
+                    : probeMarker !== null
+                      ? 'opaque-probe'
+                      : 'capture',
         }
       : undefined;
   } catch {
@@ -3376,6 +3405,832 @@ function armActiveResolver(
   }
 }
 
+/*
+ * Interpreter resolver transport. This is deliberately separate from the
+ * file-ID active resolver: it has a distinct marker, state/command keys,
+ * candidate grammar, endpoint, and response contract. Only the closure-local
+ * source Request Headers/credentials preparation is shared.
+ */
+type InterpreterResolverOutcome = ActiveResolverOutcome;
+
+type InterpreterResolverHookResult =
+  | { kind: 'ready' }
+  | {
+      kind: 'complete';
+      conversationId: string;
+      requestedCount: number;
+      dispatchCount: number;
+      outcomes: InterpreterResolverOutcome[];
+    }
+  | {
+      kind: 'error';
+      code:
+        | 'source-not-eligible'
+        | 'source-rejected'
+        | 'source-http-error'
+        | 'source-non-json'
+        | 'interpreter-result-timeout'
+        | 'interpreter-result-invalid';
+    };
+
+type InterpreterResolverCandidate = {
+  assetId: string;
+  messageId: string;
+  sandboxPath: string;
+};
+
+type InterpreterResolverPageState = {
+  primordials: PagePrimordials;
+  originalFetch: typeof window.fetch;
+  armedHref: string;
+  wrappedFetch: typeof window.fetch | undefined;
+  globalTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  perItemTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
+  abortController: AbortController | undefined;
+  settled: boolean;
+  claimed: boolean;
+  commandAccepted: boolean;
+  sourceReady: boolean;
+  dispatchStarted: boolean;
+  preparation: OpaqueReplayPreparation | undefined;
+  candidates: InterpreterResolverCandidate[] | undefined;
+  outcomes: InterpreterResolverOutcome[];
+  dispatchCount: number;
+  result: InterpreterResolverHookResult;
+};
+
+function interpreterResolverStateKeyFor(nonce: string): string {
+  return `__liskaChatGptInterpreterResolver_${nonce}`;
+}
+
+function interpreterResolverCommandKeyFor(nonce: string): string {
+  return `__liskaChatGptInterpreterResolverCommand_${nonce}`;
+}
+
+function hasInterpreterResolverArmingPrimordials(primordials: PagePrimordials): boolean {
+  const document = primordials.document;
+  return (
+    hasActiveResolverArmingPrimordials(primordials) &&
+    document.URLSearchParams !== undefined &&
+    document.urlSearchParamsSet !== undefined &&
+    document.urlSearchParamsToString !== undefined
+  );
+}
+
+function snapshotInterpreterResolverResult(
+  result: InterpreterResolverHookResult,
+  primordials: PagePrimordials
+): InterpreterResolverHookResult {
+  if (result.kind === 'ready') return { kind: 'ready' };
+  if (result.kind === 'error') return { kind: 'error', code: result.code };
+  const outcomes: InterpreterResolverOutcome[] = [];
+  for (let index = 0; index < result.outcomes.length; index += 1) {
+    const outcome = result.outcomes[index];
+    const snapshot: InterpreterResolverOutcome =
+      outcome.state === 'observed'
+        ? {
+            state: 'observed',
+            capture: {
+              bodyBase64: outcome.capture.bodyBase64,
+              byteLength: outcome.capture.byteLength,
+              sha256: outcome.capture.sha256,
+              mediaType: outcome.capture.mediaType,
+            },
+          }
+        : { state: outcome.state };
+    applyCaptured<void>(primordials, primordials.document.arrayPush, outcomes, [snapshot]);
+  }
+  return {
+    kind: 'complete',
+    conversationId: result.conversationId,
+    requestedCount: result.requestedCount,
+    dispatchCount: result.dispatchCount,
+    outcomes,
+  };
+}
+
+function appendInterpreterResolverOutcome(
+  state: InterpreterResolverPageState,
+  outcome: InterpreterResolverOutcome
+): void {
+  applyCaptured<void>(state.primordials, state.primordials.document.arrayPush, state.outcomes, [
+    outcome,
+  ]);
+}
+
+function abortInterpreterResolver(state: InterpreterResolverPageState): void {
+  if (state.abortController === undefined) return;
+  try {
+    applyCaptured<void>(
+      state.primordials,
+      state.primordials.document.abortControllerAbort,
+      state.abortController,
+      []
+    );
+  } catch {
+    // A terminal result remains authoritative if page-visible abort fails.
+  }
+  state.abortController = undefined;
+}
+
+function clearInterpreterResolverTimer(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  field: 'globalTimeoutId' | 'perItemTimeoutId'
+): void {
+  const timeoutId = state[field];
+  if (timeoutId === undefined) return;
+  try {
+    applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [timeoutId]);
+  } catch {
+    // Timer cleanup cannot change a terminal state.
+  }
+  state[field] = undefined;
+}
+
+function finishInterpreterResolver(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  result: InterpreterResolverHookResult
+): void {
+  if (state.settled) return;
+  state.settled = true;
+  state.result = result;
+  clearInterpreterResolverTimer(pageWindow, state, 'globalTimeoutId');
+  clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
+  abortInterpreterResolver(state);
+  try {
+    if (state.wrappedFetch !== undefined && pageWindow.fetch === state.wrappedFetch) {
+      pageWindow.fetch = state.originalFetch;
+    }
+  } catch {
+    // Never replace a later page wrapper.
+  }
+}
+
+function interpreterResolverComplete(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  target: MarkerTarget
+): void {
+  const requestedCount = state.candidates?.length ?? 0;
+  if (state.outcomes.length < state.dispatchCount) {
+    appendInterpreterResolverOutcome(state, { state: 'timed-out' });
+  }
+  while (state.outcomes.length < requestedCount) {
+    appendInterpreterResolverOutcome(state, { state: 'not-dispatched' });
+  }
+  finishInterpreterResolver(pageWindow, state, {
+    kind: 'complete',
+    conversationId: target.conversationId,
+    requestedCount,
+    dispatchCount: state.dispatchCount,
+    outcomes: state.outcomes,
+  });
+}
+
+function interpreterResolverSourceFailure(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  target: MarkerTarget,
+  code: Extract<InterpreterResolverHookResult, { kind: 'error' }>['code']
+): void {
+  if (state.commandAccepted) interpreterResolverComplete(pageWindow, state, target);
+  else finishInterpreterResolver(pageWindow, state, { kind: 'error', code });
+}
+
+function interpreterResolverTimeout(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  target: MarkerTarget
+): void {
+  if (state.commandAccepted) interpreterResolverComplete(pageWindow, state, target);
+  else
+    finishInterpreterResolver(pageWindow, state, {
+      kind: 'error',
+      code: 'interpreter-result-timeout',
+    });
+}
+
+function capturedStringCharacterCode(
+  primordials: PagePrimordials,
+  value: string,
+  index: number
+): number {
+  return applyCaptured<number>(primordials, primordials.document.stringCharCodeAt, value, [index]);
+}
+
+function capturedStringSlice(
+  primordials: PagePrimordials,
+  value: string,
+  start: number,
+  end?: number
+): string {
+  return applyCaptured<string>(primordials, primordials.document.stringSlice, value, [start, end]);
+}
+
+function isSafeInterpreterAssetId(primordials: PagePrimordials, value: string): boolean {
+  const suffixLength = '-asset-'.length + 64;
+  const prefixLength = value.length - suffixLength;
+  if (prefixLength < 1 || prefixLength > 32) return false;
+  if (capturedStringSlice(primordials, value, prefixLength, prefixLength + 7) !== '-asset-') {
+    return false;
+  }
+  for (let index = 0; index < prefixLength; index += 1) {
+    const code = capturedStringCharacterCode(primordials, value, index);
+    const lower = code >= 0x61 && code <= 0x7a;
+    const digit = code >= 0x30 && code <= 0x39;
+    if (!lower && !(index > 0 && (digit || code === 0x2d))) return false;
+  }
+  for (let index = prefixLength + 7; index < value.length; index += 1) {
+    const code = capturedStringCharacterCode(primordials, value, index);
+    const digit = code >= 0x30 && code <= 0x39;
+    const lowerHex = code >= 0x61 && code <= 0x66;
+    if (!digit && !lowerHex) return false;
+  }
+  return true;
+}
+
+function isSafeInterpreterMessageId(primordials: PagePrimordials, value: string): boolean {
+  if (value.length < 1 || value.length > 256) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = capturedStringCharacterCode(primordials, value, index);
+    const upper = code >= 0x41 && code <= 0x5a;
+    const lower = code >= 0x61 && code <= 0x7a;
+    const digit = code >= 0x30 && code <= 0x39;
+    if (!upper && !lower && !digit && code !== 0x5f && code !== 0x2d) return false;
+  }
+  return true;
+}
+
+function isSafeInterpreterSandboxPath(primordials: PagePrimordials, value: string): boolean {
+  const prefix = '/mnt/data/';
+  if (
+    value.length <= prefix.length ||
+    value.length > 4 * 1024 ||
+    capturedStringSlice(primordials, value, 0, prefix.length) !== prefix
+  ) {
+    return false;
+  }
+  let segmentStart = prefix.length;
+  for (let index = 0; index <= value.length; index += 1) {
+    if (index < value.length) {
+      const code = capturedStringCharacterCode(primordials, value, index);
+      if (code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x5c) return false;
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next =
+          index + 1 < value.length
+            ? capturedStringCharacterCode(primordials, value, index + 1)
+            : -1;
+        if (next < 0xdc00 || next > 0xdfff) return false;
+        index += 1;
+        continue;
+      }
+      if (code >= 0xdc00 && code <= 0xdfff) return false;
+      if (code !== 0x2f) continue;
+    }
+    if (index < prefix.length) continue;
+    const segment = capturedStringSlice(primordials, value, segmentStart, index);
+    if (segment.length === 0 || segment === '.' || segment === '..') return false;
+    segmentStart = index + 1;
+  }
+  return true;
+}
+
+function interpreterResolverCandidate(
+  primordials: PagePrimordials,
+  value: unknown
+): InterpreterResolverCandidate | undefined {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    applyCaptured<boolean>(primordials, primordials.document.arrayIsArray, undefined, [value])
+  ) {
+    return undefined;
+  }
+  try {
+    const candidate = value as Record<string, unknown>;
+    const keys = applyCaptured<PropertyKey[]>(
+      primordials,
+      primordials.document.reflectOwnKeys,
+      undefined,
+      [candidate]
+    );
+    if (keys.length !== 3) return undefined;
+    let hasAssetId = false;
+    let hasMessageId = false;
+    let hasSandboxPath = false;
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (key === 'assetId') hasAssetId = true;
+      else if (key === 'messageId') hasMessageId = true;
+      else if (key === 'sandboxPath') hasSandboxPath = true;
+    }
+    if (!hasAssetId || !hasMessageId || !hasSandboxPath) {
+      return undefined;
+    }
+    const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
+    const assetId = applyCaptured<PropertyDescriptor | undefined>(
+      primordials,
+      getOwnPropertyDescriptor,
+      undefined,
+      [candidate, 'assetId']
+    )?.value;
+    const messageId = applyCaptured<PropertyDescriptor | undefined>(
+      primordials,
+      getOwnPropertyDescriptor,
+      undefined,
+      [candidate, 'messageId']
+    )?.value;
+    const sandboxPath = applyCaptured<PropertyDescriptor | undefined>(
+      primordials,
+      getOwnPropertyDescriptor,
+      undefined,
+      [candidate, 'sandboxPath']
+    )?.value;
+    if (
+      typeof assetId !== 'string' ||
+      typeof messageId !== 'string' ||
+      typeof sandboxPath !== 'string' ||
+      !isSafeInterpreterAssetId(primordials, assetId) ||
+      !isSafeInterpreterMessageId(primordials, messageId) ||
+      !isSafeInterpreterSandboxPath(primordials, sandboxPath)
+    ) {
+      return undefined;
+    }
+    return { assetId, messageId, sandboxPath };
+  } catch {
+    return undefined;
+  }
+}
+
+function interpreterResolverContainsCandidate(
+  candidates: readonly InterpreterResolverCandidate[],
+  candidate: InterpreterResolverCandidate
+): boolean {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const known = candidates[index];
+    if (
+      known.assetId === candidate.assetId ||
+      (known.messageId === candidate.messageId && known.sandboxPath === candidate.sandboxPath)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function interpreterResolverHrefStillExact(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState
+): boolean {
+  try {
+    return pageWindow.location.href === state.armedHref;
+  } catch {
+    return false;
+  }
+}
+
+function interpreterResolverRequestUrl(
+  primordials: PagePrimordials,
+  target: MarkerTarget,
+  candidate: InterpreterResolverCandidate
+): string | undefined {
+  try {
+    const Constructor = primordials.document.URLSearchParams;
+    if (Constructor === undefined) return undefined;
+    const query = new Constructor();
+    // Raw, already-validated values are passed once each to captured native set;
+    // they are neither decoded nor pre-encoded by this hook.
+    applyCaptured<void>(primordials, primordials.document.urlSearchParamsSet, query, [
+      'message_id',
+      candidate.messageId,
+    ]);
+    applyCaptured<void>(primordials, primordials.document.urlSearchParamsSet, query, [
+      'sandbox_path',
+      candidate.sandboxPath,
+    ]);
+    const encoded = applyCaptured<string>(
+      primordials,
+      primordials.document.urlSearchParamsToString,
+      query,
+      []
+    );
+    return `${CHATGPT_ORIGIN}/backend-api/conversation/${target.conversationId}/interpreter/download?${encoded}`;
+  } catch {
+    return undefined;
+  }
+}
+
+async function captureInterpreterResolverResponse(
+  state: InterpreterResolverPageState,
+  response: Response
+): Promise<InterpreterResolverOutcome> {
+  try {
+    const status = applyCaptured<number>(
+      state.primordials,
+      state.primordials.document.responseStatus,
+      response,
+      []
+    );
+    if (status !== 200) return { state: 'http-error' };
+    const headers = applyCaptured<Headers>(
+      state.primordials,
+      state.primordials.document.responseHeaders,
+      response,
+      []
+    );
+    const mediaType = applyCaptured<string | null>(
+      state.primordials,
+      state.primordials.document.headersGet,
+      headers,
+      ['content-type']
+    );
+    if (typeof mediaType !== 'string' || !isJsonMediaType(state.primordials, mediaType)) {
+      return { state: 'non-json' };
+    }
+    const clone = applyCaptured<Response>(
+      state.primordials,
+      state.primordials.document.responseClone,
+      response,
+      []
+    );
+    discardOpaqueReplayOriginalBody(state.primordials, response);
+    const bytes = await readBoundedClone(
+      state.primordials,
+      clone,
+      DEFAULT_INTERPRETER_RESOLVER_MAX_BYTES
+    );
+    return {
+      state: 'observed',
+      capture: {
+        bodyBase64: base64FromBytes(state.primordials, bytes),
+        byteLength: bytes.byteLength,
+        sha256: await sha256FromBytes(state.primordials, bytes),
+        mediaType,
+      },
+    };
+  } catch (error) {
+    return { state: error === PAYLOAD_TOO_LARGE ? 'oversized' : 'response-processing-rejected' };
+  }
+}
+
+async function dispatchInterpreterResolverQueue(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  target: MarkerTarget
+): Promise<void> {
+  const candidates = state.candidates;
+  const preparation = state.preparation;
+  const AbortControllerConstructor = state.primordials.document.abortControllerConstructor;
+  const RequestConstructor = state.primordials.document.requestConstructor;
+  if (
+    state.settled ||
+    candidates === undefined ||
+    preparation === undefined ||
+    AbortControllerConstructor === undefined ||
+    RequestConstructor === undefined
+  ) {
+    if (!state.settled)
+      finishInterpreterResolver(pageWindow, state, {
+        kind: 'error',
+        code: 'interpreter-result-invalid',
+      });
+    return;
+  }
+  state.dispatchStarted = true;
+  for (let ordinal = 0; ordinal < candidates.length; ordinal += 1) {
+    if (state.settled) return;
+    if (!interpreterResolverHrefStillExact(pageWindow, state)) {
+      interpreterResolverComplete(pageWindow, state, target);
+      return;
+    }
+    let timedOut = false;
+    let request: Request;
+    try {
+      const controller = new AbortControllerConstructor();
+      const signal = applyCaptured<AbortSignal>(
+        state.primordials,
+        state.primordials.document.abortControllerSignal,
+        controller,
+        []
+      );
+      const requestUrl = interpreterResolverRequestUrl(
+        state.primordials,
+        target,
+        candidates[ordinal]
+      );
+      if (requestUrl === undefined) throw PRIMORDIAL_UNAVAILABLE;
+      state.abortController = controller;
+      state.perItemTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+        state.primordials,
+        state.primordials.setTimeout,
+        pageWindow,
+        [
+          () => {
+            timedOut = true;
+            abortInterpreterResolver(state);
+          },
+          DEFAULT_INTERPRETER_RESOLVER_PER_ITEM_TIMEOUT_MS,
+        ]
+      );
+      request = new RequestConstructor(requestUrl, {
+        method: 'GET',
+        headers: preparation.headers,
+        credentials: preparation.credentials,
+        redirect: 'error',
+        cache: 'no-store',
+        signal,
+      });
+    } catch {
+      clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
+      abortInterpreterResolver(state);
+      finishInterpreterResolver(pageWindow, state, {
+        kind: 'error',
+        code: 'interpreter-result-invalid',
+      });
+      return;
+    }
+    state.dispatchCount += 1;
+    try {
+      const response = await applyCaptured<Promise<Response>>(
+        state.primordials,
+        state.originalFetch,
+        pageWindow,
+        [request]
+      );
+      clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
+      state.abortController = undefined;
+      if (state.settled) return;
+      const outcome = timedOut
+        ? ({ state: 'timed-out' } as const)
+        : await captureInterpreterResolverResponse(state, response);
+      if (!state.settled) appendInterpreterResolverOutcome(state, outcome);
+    } catch {
+      clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
+      state.abortController = undefined;
+      if (!state.settled) {
+        appendInterpreterResolverOutcome(state, {
+          state: timedOut ? 'timed-out' : 'fetch-rejected',
+        });
+      }
+    }
+  }
+  if (!state.settled) interpreterResolverComplete(pageWindow, state, target);
+}
+
+function maybeDispatchInterpreterResolver(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  target: MarkerTarget
+): void {
+  if (
+    state.settled ||
+    state.dispatchStarted ||
+    !state.commandAccepted ||
+    !state.sourceReady ||
+    state.candidates === undefined ||
+    state.preparation === undefined
+  ) {
+    return;
+  }
+  if (!interpreterResolverHrefStillExact(pageWindow, state)) {
+    interpreterResolverComplete(pageWindow, state, target);
+    return;
+  }
+  void dispatchInterpreterResolverQueue(pageWindow, state, target);
+}
+
+function observeInterpreterResolverSourceResponse(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  responsePromise: Promise<Response>,
+  target: MarkerTarget,
+  preparation: OpaqueReplayPreparation
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        (response: Response) => {
+          try {
+            if (state.settled) return;
+            const status = applyCaptured<number>(
+              state.primordials,
+              state.primordials.document.responseStatus,
+              response,
+              []
+            );
+            if (status !== 200) {
+              interpreterResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+              return;
+            }
+            const headers = applyCaptured<Headers>(
+              state.primordials,
+              state.primordials.document.responseHeaders,
+              response,
+              []
+            );
+            const contentType = applyCaptured<string | null>(
+              state.primordials,
+              state.primordials.document.headersGet,
+              headers,
+              ['content-type']
+            );
+            if (
+              typeof contentType !== 'string' ||
+              !isJsonMediaType(state.primordials, contentType)
+            ) {
+              interpreterResolverSourceFailure(pageWindow, state, target, 'source-non-json');
+              return;
+            }
+            state.sourceReady = true;
+            state.preparation = preparation;
+            maybeDispatchInterpreterResolver(pageWindow, state, target);
+          } catch {
+            interpreterResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+          }
+        },
+        () => interpreterResolverSourceFailure(pageWindow, state, target, 'source-rejected'),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [
+        () => undefined,
+        () => interpreterResolverSourceFailure(pageWindow, state, target, 'source-http-error'),
+      ]
+    );
+  } catch {
+    interpreterResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+  }
+}
+
+function armInterpreterResolver(
+  pageWindow: PageWindow,
+  primordials: PagePrimordials,
+  target: MarkerTarget,
+  windowRecord: Record<string, unknown>
+): ChatGptDocumentStartResult {
+  const originalFetch = pageWindow.fetch;
+  if (typeof originalFetch !== 'function') return { kind: 'error', code: 'hook-state-failed' };
+  let armedHref: string;
+  try {
+    armedHref = pageWindow.location.href;
+  } catch {
+    return { kind: 'error', code: 'hook-state-failed' };
+  }
+  const state: InterpreterResolverPageState = {
+    primordials,
+    originalFetch,
+    armedHref,
+    wrappedFetch: undefined,
+    globalTimeoutId: undefined,
+    perItemTimeoutId: undefined,
+    abortController: undefined,
+    settled: false,
+    claimed: false,
+    commandAccepted: false,
+    sourceReady: false,
+    dispatchStarted: false,
+    preparation: undefined,
+    candidates: undefined,
+    outcomes: [],
+    dispatchCount: 0,
+    result: { kind: 'ready' },
+  };
+  const stateKey = interpreterResolverStateKeyFor(target.nonce);
+  const commandKey = interpreterResolverCommandKeyFor(target.nonce);
+  try {
+    const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
+    const defineProperty = primordials.document.objectDefineProperty;
+    if (
+      getOwnPropertyDescriptor === undefined ||
+      defineProperty === undefined ||
+      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined ||
+      getOwnPropertyDescriptor(windowRecord, commandKey) !== undefined
+    ) {
+      return { kind: 'error', code: 'hook-state-failed' };
+    }
+    defineProperty(windowRecord, stateKey, {
+      configurable: false,
+      enumerable: false,
+      get: () => snapshotInterpreterResolverResult(state.result, primordials),
+    });
+    defineProperty(windowRecord, commandKey, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: (rawCandidates: unknown): boolean => {
+        try {
+          if (
+            state.settled ||
+            state.commandAccepted ||
+            !interpreterResolverHrefStillExact(pageWindow, state) ||
+            !applyCaptured<boolean>(primordials, primordials.document.arrayIsArray, undefined, [
+              rawCandidates,
+            ])
+          ) {
+            return false;
+          }
+          const candidateList = rawCandidates as unknown[];
+          if (
+            candidateList.length === 0 ||
+            candidateList.length > DEFAULT_INTERPRETER_RESOLVER_MAX_OBSERVATIONS
+          ) {
+            return false;
+          }
+          const safeCandidates: InterpreterResolverCandidate[] = [];
+          for (let index = 0; index < candidateList.length; index += 1) {
+            const candidate = interpreterResolverCandidate(primordials, candidateList[index]);
+            if (
+              candidate === undefined ||
+              interpreterResolverContainsCandidate(safeCandidates, candidate)
+            ) {
+              return false;
+            }
+            applyCaptured<void>(primordials, primordials.document.arrayPush, safeCandidates, [
+              candidate,
+            ]);
+          }
+          state.candidates = safeCandidates;
+          state.commandAccepted = true;
+          maybeDispatchInterpreterResolver(pageWindow, state, target);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+    const wrappedFetch = function (
+      this: PageWindow,
+      ...args: Parameters<typeof pageWindow.fetch>
+    ): ReturnType<typeof pageWindow.fetch> {
+      let candidate: OpaqueProbeCandidate | undefined;
+      let preparation: OpaqueReplayPreparation | OpaqueReplayErrorCode | undefined;
+      try {
+        candidate =
+          !state.settled && !state.claimed
+            ? opaqueProbeCandidate(state.primordials, args, target.conversationId)
+            : undefined;
+        if (candidate !== undefined) {
+          state.claimed = true;
+          preparation = prepareOpaqueReplay(state.primordials, candidate);
+          if (typeof preparation === 'string') {
+            interpreterResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
+          }
+        }
+      } catch {
+        candidate = undefined;
+        preparation = undefined;
+      }
+      let responsePromise: ReturnType<typeof pageWindow.fetch>;
+      try {
+        responsePromise = applyCaptured<ReturnType<typeof pageWindow.fetch>>(
+          state.primordials,
+          state.originalFetch,
+          this,
+          args
+        );
+      } catch (error) {
+        if (candidate !== undefined && !state.settled) {
+          interpreterResolverSourceFailure(pageWindow, state, target, 'source-rejected');
+        }
+        throw error;
+      }
+      if (candidate !== undefined && preparation !== undefined && typeof preparation !== 'string') {
+        observeInterpreterResolverSourceResponse(
+          pageWindow,
+          state,
+          responsePromise,
+          target,
+          preparation
+        );
+      }
+      return responsePromise;
+    } as typeof pageWindow.fetch;
+    state.wrappedFetch = wrappedFetch;
+    pageWindow.fetch = wrappedFetch;
+    state.globalTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      primordials,
+      primordials.setTimeout,
+      pageWindow,
+      [() => interpreterResolverTimeout(pageWindow, state, target), DEFAULT_TIMEOUT_MS]
+    );
+    return { kind: 'ready' };
+  } catch {
+    finishInterpreterResolver(pageWindow, state, {
+      kind: 'error',
+      code: 'interpreter-result-invalid',
+    });
+    return { kind: 'error', code: 'hook-state-failed' };
+  }
+}
+
 /**
  * Arm a single document before ChatGPT application code starts. URLs without
  * an exact route and nonce marker return inert before touching fetch, DOM, or
@@ -3398,7 +4253,9 @@ export function startChatGptDocumentStartCapture(
           ? !hasOpaqueResolverArmingPrimordials(primordials)
           : target.mode === 'active-resolver'
             ? !hasActiveResolverArmingPrimordials(primordials)
-            : !hasOpaqueReplayArmingPrimordials(primordials))
+            : target.mode === 'interpreter-resolver'
+              ? !hasInterpreterResolverArmingPrimordials(primordials)
+              : !hasOpaqueReplayArmingPrimordials(primordials))
   ) {
     return { kind: 'error', code: 'hook-state-failed' };
   }
@@ -3412,6 +4269,9 @@ export function startChatGptDocumentStartCapture(
   }
   if (target.mode === 'active-resolver') {
     return armActiveResolver(pageWindow, primordials, target, windowRecord);
+  }
+  if (target.mode === 'interpreter-resolver') {
+    return armInterpreterResolver(pageWindow, primordials, target, windowRecord);
   }
   if (target.mode === 'opaque-replay') {
     return armOpaqueReplay(pageWindow, primordials, target, windowRecord);

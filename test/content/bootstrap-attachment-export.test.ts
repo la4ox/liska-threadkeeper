@@ -177,7 +177,10 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         companion,
         expect.stringMatching(/\.md$/),
         ['file'],
-        expect.objectContaining({ persistArtifacts: expect.any(Function) })
+        expect.objectContaining({
+          persistArtifacts: expect.any(Function),
+          observeInterpreterResolvers: expect.any(Function),
+        })
       );
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'saveToOutputs', outputs: ['file'] })
@@ -203,6 +206,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       ['file'],
       expect.objectContaining({
         persistArtifacts: expect.any(Function),
+        observeInterpreterResolvers: expect.any(Function),
         observeResolvers: expect.any(Function),
       })
     );
@@ -236,7 +240,10 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       companion,
       'chatgpt-all-branches.md',
       ['file'],
-      expect.objectContaining({ persistArtifacts: expect.any(Function) })
+      expect.objectContaining({
+        persistArtifacts: expect.any(Function),
+        observeInterpreterResolvers: expect.any(Function),
+      })
     );
     expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledWith(
       allBranchesResult.allBranches,

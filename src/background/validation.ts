@@ -37,6 +37,7 @@ import {
   CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
   isChatGptActiveResolverProviderFileId,
 } from '../lib/chatgpt-active-resolver-contract';
+import { isChatGptInterpreterCandidates } from '../lib/chatgpt-interpreter-resolver-contract';
 import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
 import { canonicalBase64ByteLength } from '../lib/base64';
@@ -92,6 +93,21 @@ export function validateChatGptCaptureSender(
   // navigation. The current tab route above remains exact and UUID-bound; the
   // document URL only needs to prove that the sender is still a ChatGPT page.
   return sender.url === undefined || isExactChatGptDocumentUrl(sender.url);
+}
+
+/** Interpreter sandbox downloads are unsupported on custom-GPT routes. */
+export function validateChatGptStandardConversationSender(
+  sender: chrome.runtime.MessageSender,
+  conversationId: string
+): boolean {
+  if (!isChatGptConversationId(conversationId) || !sender.tab?.url) return false;
+  const tabUrl = parseChatGptCaptureTabUrl(sender.tab.url, conversationId);
+  if (tabUrl === undefined) return false;
+  const standard = /^\/c\/([^/]+)\/?$/.exec(tabUrl.pathname);
+  return (
+    standard?.[1] === conversationId &&
+    (sender.url === undefined || isExactChatGptDocumentUrl(sender.url))
+  );
 }
 
 /**
@@ -228,6 +244,16 @@ function validateChatGptActiveResolverMessage(
   return true;
 }
 
+function validateChatGptInterpreterResolverMessage(
+  message: Extract<ExtensionMessage, { action: 'resolveChatGptInterpreterAssets' }>
+): boolean {
+  return (
+    hasExactOwnKeys(message, ['action', 'conversationId', 'candidates']) &&
+    isChatGptConversationId(message.conversationId) &&
+    isChatGptInterpreterCandidates(message.candidates)
+  );
+}
+
 function validateChatGptBridgeMessage(
   message: Extract<
     ExtensionMessage,
@@ -237,7 +263,8 @@ function validateChatGptBridgeMessage(
         | 'probeChatGptOpaqueRequest'
         | 'captureChatGptConversationViaOpaqueReplay'
         | 'observeChatGptAssetResolversViaOpaqueSource'
-        | 'probeChatGptActiveAssetResolvers';
+        | 'probeChatGptActiveAssetResolvers'
+        | 'resolveChatGptInterpreterAssets';
     }
   >
 ): boolean {
@@ -249,7 +276,9 @@ function validateChatGptBridgeMessage(
       ? validateChatGptOpaqueReplayMessage(message)
       : message.action === 'observeChatGptAssetResolversViaOpaqueSource'
         ? validateChatGptOpaqueResolverMessage(message)
-        : validateChatGptActiveResolverMessage(message);
+        : message.action === 'probeChatGptActiveAssetResolvers'
+          ? validateChatGptActiveResolverMessage(message)
+          : validateChatGptInterpreterResolverMessage(message);
 }
 
 function validateFetchImageMessage(
@@ -512,7 +541,8 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     extensionMessage.action === 'probeChatGptOpaqueRequest' ||
     extensionMessage.action === 'captureChatGptConversationViaOpaqueReplay' ||
     extensionMessage.action === 'observeChatGptAssetResolversViaOpaqueSource' ||
-    extensionMessage.action === 'probeChatGptActiveAssetResolvers'
+    extensionMessage.action === 'probeChatGptActiveAssetResolvers' ||
+    extensionMessage.action === 'resolveChatGptInterpreterAssets'
   ) {
     return validateChatGptBridgeMessage(extensionMessage);
   }

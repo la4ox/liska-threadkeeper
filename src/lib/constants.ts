@@ -221,6 +221,7 @@ export const VALID_MESSAGE_ACTIONS = [
   'captureChatGptConversationViaOpaqueReplay',
   'observeChatGptAssetResolversViaOpaqueSource',
   'probeChatGptActiveAssetResolvers',
+  'resolveChatGptInterpreterAssets',
   'updateOutputOptions',
   'persistArchiveCompanion',
   'beginStagedBinaryAsset',

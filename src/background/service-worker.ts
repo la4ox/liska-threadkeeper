@@ -7,6 +7,7 @@ import { getErrorMessage } from '../lib/error-utils';
 import { getSettings, migrateSettings, saveSettings } from '../lib/storage';
 import {
   validateChatGptCaptureSender,
+  validateChatGptStandardConversationSender,
   validateMessageContent,
   validateSender,
   validateStagedBinaryAssetSender,
@@ -37,11 +38,16 @@ import {
   createChatGptActiveResolverFailure,
   isChatGptActiveResolverResponse,
 } from '../lib/chatgpt-active-resolver-contract';
+import {
+  createChatGptInterpreterResolverFailure,
+  isChatGptInterpreterResolverResponse,
+} from '../lib/chatgpt-interpreter-resolver-contract';
 import { captureChatGptInTemporaryTab, ChatGptTemporaryCaptureError } from './chatgpt-capture';
 import { probeChatGptOpaqueRequest } from './chatgpt-opaque-probe';
 import { captureChatGptConversationViaOpaqueReplay } from './chatgpt-opaque-replay';
 import { observeChatGptAssetResolversViaOpaqueSource } from './chatgpt-opaque-resolver';
 import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver';
+import { resolveChatGptInterpreterAssets } from './chatgpt-interpreter-resolver';
 import type {
   ExtensionMessage,
   ContentScriptSettings,
@@ -168,7 +174,8 @@ function isChatGptBridgeMessage(message: unknown): boolean {
     hasOwnDataProperty(message, 'action', 'probeChatGptOpaqueRequest') ||
     hasOwnDataProperty(message, 'action', 'captureChatGptConversationViaOpaqueReplay') ||
     hasOwnDataProperty(message, 'action', 'observeChatGptAssetResolversViaOpaqueSource') ||
-    hasOwnDataProperty(message, 'action', 'probeChatGptActiveAssetResolvers')
+    hasOwnDataProperty(message, 'action', 'probeChatGptActiveAssetResolvers') ||
+    hasOwnDataProperty(message, 'action', 'resolveChatGptInterpreterAssets')
   );
 }
 
@@ -181,6 +188,7 @@ function chatGptBridgeFailureOr<T>(
   | ReturnType<typeof createChatGptOpaqueReplayFailure>
   | ReturnType<typeof createChatGptOpaqueResolverFailure>
   | ReturnType<typeof createChatGptActiveResolverFailure>
+  | ReturnType<typeof createChatGptInterpreterResolverFailure>
   | { success: false; data: unknown } {
   if (hasOwnDataProperty(message, 'action', 'captureChatGptConversation')) {
     return createChatGptCaptureFailure('capture-failed');
@@ -197,6 +205,9 @@ function chatGptBridgeFailureOr<T>(
   if (hasOwnDataProperty(message, 'action', 'probeChatGptActiveAssetResolvers')) {
     return createChatGptActiveResolverFailure('resolver-result-invalid');
   }
+  if (hasOwnDataProperty(message, 'action', 'resolveChatGptInterpreterAssets')) {
+    return createChatGptInterpreterResolverFailure('interpreter-result-invalid');
+  }
   return genericResponse;
 }
 
@@ -204,6 +215,9 @@ function isAuthorizedChatGptCaptureRequest(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): boolean {
+  if (message.action === 'resolveChatGptInterpreterAssets') {
+    return validateChatGptStandardConversationSender(sender, message.conversationId);
+  }
   return (
     (message.action !== 'captureChatGptConversation' &&
       message.action !== 'probeChatGptOpaqueRequest' &&
@@ -386,6 +400,23 @@ async function handleChatGptActiveResolver(conversationId: string, providerFileI
   }
 }
 
+async function handleChatGptInterpreterResolver(
+  conversationId: string,
+  candidates: Extract<ExtensionMessage, { action: 'resolveChatGptInterpreterAssets' }>['candidates']
+) {
+  if (!(await hasScriptingPermission())) {
+    return createChatGptInterpreterResolverFailure('permission-unavailable');
+  }
+  try {
+    const response = await resolveChatGptInterpreterAssets(conversationId, candidates);
+    return isChatGptInterpreterResolverResponse(response)
+      ? response
+      : createChatGptInterpreterResolverFailure('interpreter-result-invalid');
+  } catch {
+    return createChatGptInterpreterResolverFailure('interpreter-result-invalid');
+  }
+}
+
 function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
   ExtensionMessage,
   {
@@ -394,7 +425,8 @@ function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
       | 'probeChatGptOpaqueRequest'
       | 'captureChatGptConversationViaOpaqueReplay'
       | 'observeChatGptAssetResolversViaOpaqueSource'
-      | 'probeChatGptActiveAssetResolvers';
+      | 'probeChatGptActiveAssetResolvers'
+      | 'resolveChatGptInterpreterAssets';
   }
 > {
   return (
@@ -402,7 +434,8 @@ function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
     message.action === 'probeChatGptOpaqueRequest' ||
     message.action === 'captureChatGptConversationViaOpaqueReplay' ||
     message.action === 'observeChatGptAssetResolversViaOpaqueSource' ||
-    message.action === 'probeChatGptActiveAssetResolvers'
+    message.action === 'probeChatGptActiveAssetResolvers' ||
+    message.action === 'resolveChatGptInterpreterAssets'
   );
 }
 
@@ -415,7 +448,8 @@ async function handleChatGptBridgeMessage(
         | 'probeChatGptOpaqueRequest'
         | 'captureChatGptConversationViaOpaqueReplay'
         | 'observeChatGptAssetResolversViaOpaqueSource'
-        | 'probeChatGptActiveAssetResolvers';
+        | 'probeChatGptActiveAssetResolvers'
+        | 'resolveChatGptInterpreterAssets';
     }
   >
 ): Promise<unknown> {
@@ -430,6 +464,9 @@ async function handleChatGptBridgeMessage(
   }
   if (message.action === 'probeChatGptActiveAssetResolvers') {
     return handleChatGptActiveResolver(message.conversationId, message.providerFileIds);
+  }
+  if (message.action === 'resolveChatGptInterpreterAssets') {
+    return handleChatGptInterpreterResolver(message.conversationId, message.candidates);
   }
   return handleChatGptOpaqueProbe(message.conversationId);
 }

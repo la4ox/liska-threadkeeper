@@ -89,8 +89,8 @@ export function chatGptActiveResolverMetricFromResponse(
 
 export function chatGptActiveResolverProbeWarning(metric: ChatGptActiveResolverMetric): string {
   return metric.failureCode === null
-    ? `ChatGPT active resolver observed ${metric.observedCount}/${metric.requestedCount}; binary acquisition remains disabled.`
-    : `ChatGPT active resolver diagnostic failed (${metric.failureCode}); binary acquisition remains disabled.`;
+    ? `ChatGPT active resolver observed ${metric.observedCount}/${metric.requestedCount}; file-ID binary acquisition remains disabled.`
+    : `ChatGPT active resolver diagnostic failed (${metric.failureCode}); file-ID binary acquisition remains disabled.`;
 }
 
 function invalidMetric(): never {
@@ -172,8 +172,8 @@ export function chatGptActiveResolverAuditWarning(
   validateMetricBase(metric);
   if (metric.outcomeCounts === null) {
     validateFailureMetric(metric);
-    return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=unknown; observed=0; outcomes=unavailable; failure=${metric.failureCode}; binary acquisition remains disabled.`;
+    return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=unknown; observed=0; outcomes=unavailable; failure=${metric.failureCode}; file-ID binary acquisition remains disabled.`;
   }
   validateSuccessMetric(metric, metric.outcomeCounts);
-  return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=${metric.dispatchCount}; observed=${metric.observedCount}; outcomes=${histogram(metric.outcomeCounts)}; failure=none; binary acquisition remains disabled.`;
+  return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=${metric.dispatchCount}; observed=${metric.observedCount}; outcomes=${histogram(metric.outcomeCounts)}; failure=none; file-ID binary acquisition remains disabled.`;
 }

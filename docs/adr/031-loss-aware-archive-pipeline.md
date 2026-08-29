@@ -351,11 +351,26 @@ conversation sourceRefs, binds the same-node message ID, accepts a strict safe
 `/mnt/data/` path, and returns only transient `{assetId,messageId,sandboxPath}`.
 Conflicting candidates are skipped, exact message/path pairs deduplicate
 deterministically, and a dedicated cap is 20. Unsafe pointer escapes, IDs,
-controls, backslashes, empty/dot/dotdot/outside/overlong paths, and content parts
-fail closed. No production caller, endpoint, hash, persistence, log, or network
-path is connected; the slice is tree-shaken from the build. The next gate is a
-separate strict transient request/result contract whose URLSearchParams encoding
-is applied exactly once, including for percent-looking filename characters.
+controls, backslashes, unpaired surrogates, empty/dot/dotdot/outside/overlong
+paths, and content parts fail closed.
+
+The separate transient gate is now implemented and offline-verified. The existing
+attachment toggle and trusted click authorize the standard-conversation adapter;
+no new ambiguous setting is added. Only after at least one raw destination succeeds,
+the adapter derives the plan from verified committed bytes, opens its own
+`liska-interpreter-resolver=1` marker tab, pins command and reads to one document,
+and issues sequential no-retry helper GETs. Captured native
+`URLSearchParams.set` receives `message_id` and `sandbox_path` exactly once in that
+order. The hook's published state is ordinal-only. Background verifies the bounded
+JSON response bytes and accepts only exact `{download_url}` or exact
+`{status:"Success",download_url}` objects whose signed estuary URL binds to the same
+conversation. Content revalidates a deterministic subset of input asset IDs.
+Interpreter candidates win same-asset conflicts; only remaining asset IDs enter
+the independent legacy resolver plan; then the existing credentialless bounded
+acquisition and content-addressed staged writer run once. Custom-GPT, library-ID,
+Calpico, retry, and broad content scans remain unsupported. The production wiring
+is intentionally not claimed live until a known-fresh one-interpreter-file smoke
+confirms the helper envelope and destination readback.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`

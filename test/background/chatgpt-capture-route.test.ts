@@ -6,6 +6,7 @@ import {
 import { createChatGptOpaqueProbeResult } from '../../src/lib/chatgpt-opaque-probe-contract';
 import { createChatGptOpaqueReplayFailure } from '../../src/lib/chatgpt-opaque-replay-contract';
 import { createChatGptActiveResolverFailure } from '../../src/lib/chatgpt-active-resolver-contract';
+import { createChatGptInterpreterResolverFailure } from '../../src/lib/chatgpt-interpreter-resolver-contract';
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   replay: vi.fn(),
   resolver: vi.fn(),
   activeResolver: vi.fn(),
+  interpreterResolver: vi.fn(),
   getSettings: vi.fn(),
   migrateSettings: vi.fn(),
 }));
@@ -62,6 +64,15 @@ vi.mock('../../src/background/chatgpt-active-resolver', async importOriginal => 
   return {
     ...actual,
     probeChatGptActiveAssetResolvers: (...args: unknown[]) => mocks.activeResolver(...args),
+  };
+});
+
+vi.mock('../../src/background/chatgpt-interpreter-resolver', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/background/chatgpt-interpreter-resolver')>();
+  return {
+    ...actual,
+    resolveChatGptInterpreterAssets: (...args: unknown[]) => mocks.interpreterResolver(...args),
   };
 });
 
@@ -147,6 +158,26 @@ function invokeActiveResolver(sendResponse = vi.fn()): ReturnType<typeof vi.fn> 
   return sendResponse;
 }
 
+function invokeInterpreterResolver(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
+  const returned = capturedListener(
+    {
+      action: 'resolveChatGptInterpreterAssets',
+      conversationId: CONVERSATION_ID,
+      candidates: [
+        {
+          assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+          messageId: 'msg_one',
+          sandboxPath: '/mnt/data/one.txt',
+        },
+      ],
+    },
+    { tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` } } as chrome.runtime.MessageSender,
+    sendResponse
+  );
+  expect(returned).toBe(true);
+  return sendResponse;
+}
+
 function setScriptingPermission(granted: boolean): ReturnType<typeof vi.fn> {
   const contains = vi.fn(
     (_permissions: { permissions: string[] }, callback: (result: boolean) => void) =>
@@ -179,6 +210,19 @@ describe('ChatGPT capture service-worker route', () => {
         observedCount: 1,
         outcomes: ['observed'],
         attemptedAt: '2026-08-24T12:00:00.000Z',
+      },
+    });
+    mocks.interpreterResolver.mockResolvedValue({
+      success: true,
+      data: {
+        resolved: [
+          {
+            assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+            downloadUrl:
+              `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+              '&id=private&p=p&sig=s&ts=1&v=1',
+          },
+        ],
       },
     });
     setScriptingPermission(true);
@@ -293,6 +337,81 @@ describe('ChatGPT capture service-worker route', () => {
     expect(mocks.activeResolver).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith(
       createChatGptActiveResolverFailure('permission-unavailable')
+    );
+  });
+
+  it('routes the separate interpreter resolver through the same sender and permission gate only', async () => {
+    const sendResponse = invokeInterpreterResolver();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.interpreterResolver).toHaveBeenCalledWith(CONVERSATION_ID, [
+      {
+        assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+        messageId: 'msg_one',
+        sandboxPath: '/mnt/data/one.txt',
+      },
+    ]);
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(mocks.activeResolver).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      data: {
+        resolved: [
+          {
+            assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+            downloadUrl:
+              `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+              '&id=private&p=p&sig=s&ts=1&v=1',
+          },
+        ],
+      },
+    });
+  });
+
+  it('rejects custom-GPT interpreter resolution before permission or tab transport dispatch', () => {
+    const sendResponse = vi.fn();
+    const returned = capturedListener(
+      {
+        action: 'resolveChatGptInterpreterAssets',
+        conversationId: CONVERSATION_ID,
+        candidates: [
+          {
+            assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+            messageId: 'msg_one',
+            sandboxPath: '/mnt/data/one.txt',
+          },
+        ],
+      },
+      {
+        tab: { url: `https://chatgpt.com/g/my-custom-gpt/c/${CONVERSATION_ID}` },
+      } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(returned).toBe(false);
+    expect(mocks.interpreterResolver).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptInterpreterResolverFailure('interpreter-result-invalid')
+    );
+  });
+
+  it('contains interpreter transport exceptions in the typed failure envelope', async () => {
+    mocks.interpreterResolver.mockRejectedValueOnce(new Error('synthetic interpreter failure'));
+    const sendResponse = invokeInterpreterResolver();
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptInterpreterResolverFailure('interpreter-result-invalid')
+    );
+    expect(JSON.stringify(sendResponse.mock.calls)).not.toContain('synthetic interpreter failure');
+  });
+
+  it('rejects the interpreter route before dispatch when scripting is unavailable', async () => {
+    setScriptingPermission(false);
+    const sendResponse = invokeInterpreterResolver();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.interpreterResolver).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptInterpreterResolverFailure('permission-unavailable')
     );
   });
 

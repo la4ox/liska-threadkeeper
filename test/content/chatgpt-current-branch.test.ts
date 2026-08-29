@@ -14,6 +14,8 @@ import {
   manifestAllowsChatGptStructuredCapture,
   observeChatGptActiveAssetResolvers,
   observeChatGptAssetResolvers,
+  observeChatGptAssetResolversViaOpaqueSource,
+  observeChatGptInterpreterAssetResolvers,
   verifyChatGptAssetExportContext,
 } from '../../src/content/capture/chatgpt-current-branch';
 import {
@@ -25,9 +27,19 @@ import { sha256Hex } from '../../src/content/capture/response';
 import { extractChatGptActiveResolverPlan } from '../../src/content/capture/chatgpt-asset-resolver';
 
 const activeResolverMocks = vi.hoisted(() => ({ probe: vi.fn() }));
+const interpreterResolverMocks = vi.hoisted(() => ({ resolve: vi.fn() }));
+const opaqueResolverMocks = vi.hoisted(() => ({ request: vi.fn() }));
 
 vi.mock('../../src/content/capture/chatgpt-active-resolver-request', () => ({
   probeChatGptActiveAssetResolvers: activeResolverMocks.probe,
+}));
+
+vi.mock('../../src/content/capture/chatgpt-interpreter-resolver-request', () => ({
+  resolveChatGptInterpreterAssets: interpreterResolverMocks.resolve,
+}));
+
+vi.mock('../../src/content/capture/chatgpt-opaque-resolver-request', () => ({
+  requestChatGptOpaqueResolverObservation: opaqueResolverMocks.request,
 }));
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
@@ -58,6 +70,8 @@ afterEach(() => {
 
 beforeEach(() => {
   activeResolverMocks.probe.mockReset();
+  interpreterResolverMocks.resolve.mockReset();
+  opaqueResolverMocks.request.mockReset();
 });
 
 function setManifestReader(reader: () => unknown): void {
@@ -95,6 +109,22 @@ async function successfulResponse(
       transientAssetResolvers: [],
     },
   };
+}
+
+function successfulInterpreterResponse(): Promise<ChatGptCaptureResponse> {
+  return successfulResponse(payload => {
+    const mapping = payload.mapping as Record<string, Record<string, unknown>>;
+    const message = mapping['node/current']?.message as Record<string, unknown>;
+    message.id = 'message_interpreter_failure';
+    (message.metadata as Record<string, unknown>).attachments = [
+      {
+        id: 'raw-only-provider-id',
+        mime_type: 'application/pdf',
+        name: '/mnt/data/failure-fixture.pdf',
+        size: 5,
+      },
+    ];
+  });
 }
 
 function fixedNow(): Date {
@@ -308,7 +338,7 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(observed).toEqual({
       kind: 'recapture-mismatch',
       warning:
-        'ChatGPT attachment resolver recapture did not match the original capture; attachments were not attempted.',
+        'ChatGPT legacy attachment resolver recapture did not match the original capture; final attachment states are recorded in the archive manifest.',
     });
   });
 
@@ -347,7 +377,7 @@ describe('ChatGPT current-branch capture composition', () => {
     const persistedManifest = parseBase64Json(companion.artifacts[1].bodyBase64);
     const persistedCanonical = parseBase64Json(companion.artifacts[2].bodyBase64);
     const metric =
-      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.';
+      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.';
     expect(persistedManifest.warnings).toContain(metric);
     const durable = JSON.stringify({ persistedManifest, persistedCanonical });
     expect(durable).not.toContain('download_url');
@@ -377,7 +407,7 @@ describe('ChatGPT current-branch capture composition', () => {
 
     const persistedManifest = parseBase64Json(companion.artifacts[1].bodyBase64);
     expect(persistedManifest.warnings).toContain(
-      'ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-error; binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-error; file-ID binary acquisition remains disabled.'
     );
     const durable = JSON.stringify({
       persistedManifest,
@@ -471,6 +501,11 @@ describe('ChatGPT current-branch capture composition', () => {
     });
     const context = capture.assetExportContext!;
     const raw = context.rawCaptureBundle.artifacts[0]!;
+    const nonCanonicalRecord = {
+      ...raw.record,
+      id: 'other-conversation-artifact',
+      relativePath: 'responses/other.json',
+    };
     const invalidContexts = [
       {
         ...context,
@@ -485,6 +520,17 @@ describe('ChatGPT current-branch capture composition', () => {
         rawCaptureBundle: {
           ...context.rawCaptureBundle,
           artifacts: [{ ...raw, record: { ...raw.record, relativePath: 'responses/other.json' } }],
+        },
+      },
+      {
+        ...context,
+        rawCaptureBundle: {
+          ...context.rawCaptureBundle,
+          manifest: {
+            ...context.rawCaptureBundle.manifest,
+            artifacts: [nonCanonicalRecord],
+          },
+          artifacts: [{ ...raw, record: nonCanonicalRecord }],
         },
       },
     ];
@@ -517,7 +563,8 @@ describe('ChatGPT current-branch capture composition', () => {
       })
     ).resolves.toEqual({
       kind: 'recapture-failed',
-      warning: 'ChatGPT attachment resolver recapture failed; attachments were not attempted.',
+      warning:
+        'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.',
     });
   });
 
@@ -557,6 +604,25 @@ describe('ChatGPT current-branch capture composition', () => {
     });
   });
 
+  it('routes the production opaque observer wrapper through the remaining-asset filter', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const remaining = capture.assetExportContext!.rawCaptureBundle.manifest.assets[0];
+    if (!remaining) throw new Error('fixture must contain a remaining asset');
+    opaqueResolverMocks.request.mockResolvedValue({
+      success: true,
+      data: { transientAssetResolvers: [] },
+    });
+
+    await expect(
+      observeChatGptAssetResolversViaOpaqueSource(capture.assetExportContext!, [remaining.id])
+    ).resolves.toEqual({ kind: 'matched', candidates: [] });
+    expect(opaqueResolverMocks.request).toHaveBeenCalledWith(CONVERSATION_ID);
+  });
+
   it('keeps an empty opaque resolver observation as an honest not-attempted match', async () => {
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: () => successfulResponse(),
@@ -589,7 +655,8 @@ describe('ChatGPT current-branch capture composition', () => {
 
     expect(observed).toEqual({
       kind: 'recapture-failed',
-      warning: 'ChatGPT attachment resolver recapture failed; attachments were not attempted.',
+      warning:
+        'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.',
     });
     expect(requestCapture).not.toHaveBeenCalled();
   });
@@ -605,7 +672,8 @@ describe('ChatGPT current-branch capture composition', () => {
 
     await expect(observeChatGptActiveAssetResolvers(invalidContext)).resolves.toEqual({
       kind: 'recapture-failed',
-      warning: 'ChatGPT attachment resolver recapture failed; attachments were not attempted.',
+      warning:
+        'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.',
     });
     expect(activeResolverMocks.probe).not.toHaveBeenCalled();
   });
@@ -671,7 +739,7 @@ describe('ChatGPT current-branch capture composition', () => {
         },
         failureCode: null,
       },
-      warning: 'ChatGPT active resolver observed 0/0; binary acquisition remains disabled.',
+      warning: 'ChatGPT active resolver observed 0/0; file-ID binary acquisition remains disabled.',
     });
     expect(activeResolverMocks.probe).not.toHaveBeenCalled();
     expect(requestCapture).not.toHaveBeenCalled();
@@ -728,7 +796,7 @@ describe('ChatGPT current-branch capture composition', () => {
         },
         failureCode: null,
       },
-      warning: 'ChatGPT active resolver observed 1/1; binary acquisition remains disabled.',
+      warning: 'ChatGPT active resolver observed 1/1; file-ID binary acquisition remains disabled.',
     });
     const providerFileIds = activeResolverMocks.probe.mock.calls[0]?.[1] as string[];
     expect(providerFileIds).toHaveLength(1);
@@ -738,10 +806,40 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(returned).not.toContain('https://');
     expect(returned).not.toContain('assets/');
     expect(info).toHaveBeenCalledWith(
-      '[G2O] ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
+      '[G2O] ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
     );
     expect(JSON.stringify(info.mock.calls)).not.toContain('synthetic-file-2');
     expect(JSON.stringify(info.mock.calls)).not.toContain('https://');
+  });
+
+  it('builds the active legacy plan only from explicitly remaining asset IDs', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const raw = capture.assetExportContext!.rawCaptureBundle.artifacts[0];
+    if (!raw) throw new Error('synthetic raw artifact must be present');
+    const parsed = JSON.parse(new TextDecoder().decode(raw.bytes));
+    const remaining = capture.assetExportContext!.rawCaptureBundle.manifest.assets.find(asset =>
+      extractChatGptActiveResolverPlan(parsed, [asset]).providerFileIds.includes('synthetic-file-2')
+    );
+    if (!remaining) throw new Error('fixture must bind the second provider file ID');
+    activeResolverMocks.probe.mockResolvedValue({
+      success: true,
+      data: {
+        requestedCount: 1,
+        dispatchCount: 1,
+        observedCount: 1,
+        outcomes: ['observed'],
+        attemptedAt: '2026-08-24T12:00:00.000Z',
+      },
+    });
+
+    await observeChatGptActiveAssetResolvers(capture.assetExportContext!, [remaining.id]);
+
+    expect(activeResolverMocks.probe).toHaveBeenCalledWith(CONVERSATION_ID, ['synthetic-file-2']);
+    expect(JSON.stringify(activeResolverMocks.probe.mock.calls)).not.toContain('synthetic-image-1');
   });
 
   it.each([
@@ -776,13 +874,139 @@ describe('ChatGPT current-branch capture composition', () => {
           outcomeCounts: null,
           failureCode,
         },
-        warning: `ChatGPT active resolver diagnostic failed (${failureCode}); binary acquisition remains disabled.`,
+        warning: `ChatGPT active resolver diagnostic failed (${failureCode}); file-ID binary acquisition remains disabled.`,
       });
       expect(JSON.stringify(observed)).not.toContain('synthetic-file-2');
       expect(JSON.stringify(observed)).not.toContain('https://');
       expect(JSON.stringify(observed)).not.toContain('private active resolver diagnostic');
     }
   );
+
+  it('resolves exact committed-raw interpreter metadata without returning message/path values', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () =>
+        successfulResponse(payload => {
+          const mapping = payload.mapping as Record<string, Record<string, unknown>>;
+          const message = mapping['node/current']?.message as Record<string, unknown>;
+          message.id = 'message_interpreter_1';
+          const metadata = message.metadata as Record<string, unknown>;
+          metadata.attachments = [
+            {
+              id: 'provider-id-remains-raw-only',
+              mime_type: 'application/pdf',
+              name: '/mnt/data/report% ?# файл.pdf',
+              size: 123,
+            },
+          ];
+          const content = message.content as Record<string, unknown>;
+          if (Array.isArray(content.parts)) {
+            content.parts = content.parts.filter(
+              part =>
+                !part ||
+                typeof part !== 'object' ||
+                (part as Record<string, unknown>).content_type !== 'image_asset_pointer'
+            );
+          }
+        }),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const interpreterAsset = capture.assetExportContext!.rawCaptureBundle.manifest.assets.find(
+      asset =>
+        asset.sourceRefs.some(sourceRef => sourceRef.rawPointer.includes('/metadata/attachments/'))
+    );
+    if (!interpreterAsset) throw new Error('fixture must create an interpreter ledger asset');
+    const downloadUrl =
+      `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+      '&id=private&p=p&sig=s&ts=1&v=1';
+    interpreterResolverMocks.resolve.mockResolvedValue({
+      success: true,
+      data: { resolved: [{ assetId: interpreterAsset.id, downloadUrl }] },
+    });
+
+    const observed = await observeChatGptInterpreterAssetResolvers(capture.assetExportContext!);
+
+    expect(interpreterResolverMocks.resolve).toHaveBeenCalledWith(CONVERSATION_ID, [
+      {
+        assetId: interpreterAsset.id,
+        messageId: 'message_interpreter_1',
+        sandboxPath: '/mnt/data/report% ?# файл.pdf',
+      },
+    ]);
+    expect(observed).toEqual({
+      kind: 'matched',
+      candidates: [{ assetId: interpreterAsset.id, downloadUrl }],
+    });
+    const serialized = JSON.stringify(observed);
+    expect(serialized).not.toContain('message_interpreter_1');
+    expect(serialized).not.toContain('/mnt/data/');
+    expect(serialized).not.toContain('provider-id-remains-raw-only');
+  });
+
+  it('keeps incomplete interpreter resolution honest without exposing candidate diagnostics', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () =>
+        successfulResponse(payload => {
+          const mapping = payload.mapping as Record<string, Record<string, unknown>>;
+          const message = mapping['node/current']?.message as Record<string, unknown>;
+          message.id = 'message_interpreter_2';
+          (message.metadata as Record<string, unknown>).attachments = [
+            {
+              id: 'raw-only-provider-id',
+              mime_type: 'application/pdf',
+              name: '/mnt/data/incomplete.pdf',
+              size: 5,
+            },
+          ];
+        }),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    interpreterResolverMocks.resolve.mockResolvedValue({ success: true, data: { resolved: [] } });
+
+    const observed = await observeChatGptInterpreterAssetResolvers(capture.assetExportContext!);
+
+    expect(observed).toEqual({
+      kind: 'matched',
+      candidates: [],
+      warning:
+        'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.',
+    });
+    expect(JSON.stringify(observed)).not.toContain('message_interpreter_2');
+    expect(JSON.stringify(observed)).not.toContain('/mnt/data/');
+  });
+
+  it('maps interpreter bridge failure, rejection, and invalid raw binding to one safe warning', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulInterpreterResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const expected = {
+      kind: 'interpreter-failed',
+      warning:
+        'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.',
+    };
+
+    interpreterResolverMocks.resolve.mockResolvedValue({
+      success: false,
+      code: 'source-http-error',
+    });
+    await expect(
+      observeChatGptInterpreterAssetResolvers(capture.assetExportContext!)
+    ).resolves.toEqual(expected);
+
+    interpreterResolverMocks.resolve.mockRejectedValue(new Error('synthetic bridge rejection'));
+    await expect(
+      observeChatGptInterpreterAssetResolvers(capture.assetExportContext!)
+    ).resolves.toEqual(expected);
+
+    const invalidContext = { ...capture.assetExportContext!, rawBodyBase64: 'bm90LXRoZS1yYXc=' };
+    await expect(observeChatGptInterpreterAssetResolvers(invalidContext)).resolves.toEqual(
+      expected
+    );
+    expect(JSON.stringify(expected)).not.toContain('synthetic bridge rejection');
+  });
 
   it('rejects a binary-aware companion with runtime bytes outside the destination ledger', async () => {
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
@@ -815,6 +1039,7 @@ describe('ChatGPT current-branch capture composition', () => {
   it('rejects a fetched manifest claim before the JSON-only companion can be assembled', async () => {
     const rawBytes = new TextEncoder().encode('{}');
     const assetBytes = new Uint8Array([1]);
+    const assetSha256 = await sha256Hex(assetBytes);
     const manifest = buildCaptureManifest({
       captureId: fixedCaptureId(),
       provider: 'chatgpt',
@@ -836,13 +1061,13 @@ describe('ChatGPT current-branch capture composition', () => {
       ],
       assets: [
         {
-          id: 'asset-one',
+          id: `chatgpt-asset-${'a'.repeat(64)}`,
           state: 'fetched',
           attemptedAt: '2026-08-17T12:00:01.000Z',
-          relativePath: 'assets/asset-one.bin',
+          relativePath: `assets/${assetSha256}.bin`,
           mediaType: 'application/octet-stream',
           byteLength: assetBytes.byteLength,
-          sha256: await sha256Hex(assetBytes),
+          sha256: assetSha256,
           detail: null,
           sourceRefs: [{ artifactId: 'conversation', rawPointer: '/asset' }],
         },
@@ -857,7 +1082,7 @@ describe('ChatGPT current-branch capture composition', () => {
     const bundle: RawCaptureBundle = {
       manifest,
       artifacts: [{ record: manifest.artifacts[0], bytes: rawBytes }],
-      assets: [],
+      assets: [{ record: manifest.assets[0], bytes: assetBytes }],
     };
 
     expect(() => assertJsonOnlyArchiveCompanionSafe(bundle)).toThrow(

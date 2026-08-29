@@ -11,24 +11,25 @@ import {
   CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
   isChatGptActiveResolverProviderFileId,
 } from '../../lib/chatgpt-active-resolver-contract';
+import {
+  CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
+  isChatGptInterpreterMessageId,
+  isChatGptInterpreterSandboxPath,
+  type ChatGptInterpreterAssetCandidate,
+} from '../../lib/chatgpt-interpreter-resolver-contract';
+
+export {
+  CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
+  type ChatGptInterpreterAssetCandidate,
+} from '../../lib/chatgpt-interpreter-resolver-contract';
 
 const RESOLVER_KEY_DOMAIN = 'liska-chatgpt-resolver/1\u0000';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const PROVIDER_FILE_ID_PATTERN = /^[A-Za-z0-9._-]{1,512}$/;
 const POINTER_FILE_ID_PATTERN = /^(?:file-service|sediment):(?:\/\/)?([A-Za-z0-9._-]{1,512})$/;
 const DIRECT_ID_FIELDS = ['asset_id', 'assetId', 'file_id', 'fileId', 'id'] as const;
-const CHATGPT_INTERPRETER_MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN = /^(?:0|[1-9][0-9]*)$/;
-const CHATGPT_INTERPRETER_SANDBOX_PREFIX = '/mnt/data/';
 const CHATGPT_INTERPRETER_MAX_POINTER_LENGTH = 4_096;
-const CHATGPT_INTERPRETER_MAX_SANDBOX_PATH_LENGTH = 4_096;
-
-/**
- * Independent bound for the offline interpreter-download plan. This is not
- * the active file-ID diagnostic cap because these candidates carry a separate
- * same-message sandbox-path binding.
- */
-export const CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT = 20;
 
 export interface ChatGptTransientResolverRecord {
   resolverKey: string;
@@ -53,16 +54,6 @@ export interface MatchChatGptAssetResolversInput {
  */
 export interface ChatGptActiveResolverPlan {
   providerFileIds: string[];
-}
-
-/**
- * Runtime-only input for the interpreter download endpoint. It intentionally
- * contains no raw record, transport URL, request headers, or response body.
- */
-export interface ChatGptInterpreterAssetCandidate {
-  assetId: string;
-  messageId: string;
-  sandboxPath: string;
 }
 
 interface ProviderFileEvidence {
@@ -151,30 +142,6 @@ function interpreterAttachmentPointer(
   return { nodeSegment: segments[2] };
 }
 
-function safeInterpreterSandboxPath(value: unknown): { sandboxPath: string } | undefined {
-  if (
-    typeof value !== 'string' ||
-    value.length <= CHATGPT_INTERPRETER_SANDBOX_PREFIX.length ||
-    value.length > CHATGPT_INTERPRETER_MAX_SANDBOX_PATH_LENGTH ||
-    !value.startsWith(CHATGPT_INTERPRETER_SANDBOX_PREFIX) ||
-    value.includes('\\') ||
-    hasControlCharacters(value)
-  ) {
-    return undefined;
-  }
-  const segments = value.split('/');
-  if (
-    segments.length < 4 ||
-    segments[0] !== '' ||
-    segments[1] !== 'mnt' ||
-    segments[2] !== 'data' ||
-    segments.slice(3).some(segment => segment.length === 0 || segment === '.' || segment === '..')
-  ) {
-    return undefined;
-  }
-  return { sandboxPath: value };
-}
-
 function interpreterAttachmentEvidence(
   raw: unknown,
   rawPointer: unknown
@@ -184,12 +151,10 @@ function interpreterAttachmentEvidence(
   const attachment = atJsonPointer(raw, rawPointer as string);
   if (!isPlainRecord(attachment) || !Object.prototype.hasOwnProperty.call(attachment, 'name'))
     return undefined;
-  const path = safeInterpreterSandboxPath(attachment.name);
-  if (!path) return undefined;
+  if (!isChatGptInterpreterSandboxPath(attachment.name)) return undefined;
   const messageId = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message/id`);
-  if (typeof messageId !== 'string' || !CHATGPT_INTERPRETER_MESSAGE_ID_PATTERN.test(messageId))
-    return undefined;
-  return { messageId, ...path };
+  if (!isChatGptInterpreterMessageId(messageId)) return undefined;
+  return { messageId, sandboxPath: attachment.name };
 }
 
 function sourceRefsSortKey(value: unknown): string {

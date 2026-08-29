@@ -12,11 +12,13 @@ import { acquireChatGptPageOwnedAssets } from './capture/chatgpt-asset-acquisiti
 import {
   buildChatGptBinaryAwareArchiveCompanion,
   CHATGPT_ASSET_RECAPTURE_FAILED_WARNING,
+  CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
   observeChatGptAssetResolvers,
   verifyChatGptAssetExportContext,
   type ChatGptAssetResolverObservation,
 } from './capture/chatgpt-current-branch';
 import type { ChatGptActiveResolverMetric } from './capture/chatgpt-active-resolver-audit';
+import type { ChatGptPageOwnedAssetCandidate } from './capture/chatgpt-asset-resolver';
 import { sha256Hex } from './capture/response';
 import { persistVerifiedBinaryAssets } from './staged-binary-persistence';
 import { ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
@@ -58,6 +60,10 @@ export interface ChatGptAssetExportDependencies {
     artifactKinds: readonly ArchiveCompanionKind[]
   ) => Promise<ArchiveCompanionPersistenceOutcome>;
   observeResolvers?: (
+    context: ChatGptAssetExportContext,
+    eligibleAssetIds: readonly string[]
+  ) => Promise<ChatGptAssetResolverObservation>;
+  observeInterpreterResolvers?: (
     context: ChatGptAssetExportContext
   ) => Promise<ChatGptAssetResolverObservation>;
   acquireAssets?: typeof acquireChatGptPageOwnedAssets;
@@ -80,6 +86,13 @@ interface AssetAttempt {
   acquired: AcquiredAssets;
   binaryResults: StagedBinaryAssetResult[];
   warnings: string[];
+  activeResolverMetric?: ChatGptActiveResolverMetric;
+}
+
+interface ChatGptAssetCandidateResolution {
+  candidates: ChatGptPageOwnedAssetCandidate[];
+  warnings: string[];
+  matched: boolean;
   activeResolverMetric?: ChatGptActiveResolverMetric;
 }
 
@@ -240,32 +253,108 @@ function acquisitionOutcomeWarnings(records: readonly RawCaptureAssetRecord[]): 
 
 async function acquireObservedAssets(
   context: ChatGptAssetExportContext,
-  observation: Extract<ChatGptAssetResolverObservation, { kind: 'matched' }>,
+  candidates: readonly ChatGptPageOwnedAssetCandidate[],
   dependencies: ChatGptAssetExportDependencies
 ): Promise<AcquiredAssets | undefined> {
   try {
     return await (dependencies.acquireAssets ?? acquireChatGptPageOwnedAssets)({
       conversationId: context.conversationId,
       assets: context.rawCaptureBundle.manifest.assets,
-      candidates: observation.candidates,
+      candidates,
     });
   } catch {
     return undefined;
   }
 }
 
-async function observeResolvers(
+async function observeLegacyResolvers(
   context: ChatGptAssetExportContext,
-  dependencies: ChatGptAssetExportDependencies
+  dependencies: ChatGptAssetExportDependencies,
+  eligibleAssetIds: readonly string[]
 ): Promise<ChatGptAssetResolverObservation> {
   try {
-    return await (dependencies.observeResolvers ?? observeChatGptAssetResolvers)(context);
+    return dependencies.observeResolvers === undefined
+      ? await observeChatGptAssetResolvers(context, {}, eligibleAssetIds)
+      : await dependencies.observeResolvers(context, eligibleAssetIds);
   } catch {
     return {
       kind: 'recapture-failed',
       warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING,
     };
   }
+}
+
+async function observeInterpreterResolvers(
+  context: ChatGptAssetExportContext,
+  dependencies: ChatGptAssetExportDependencies
+): Promise<ChatGptAssetResolverObservation | undefined> {
+  if (dependencies.observeInterpreterResolvers === undefined) return undefined;
+  try {
+    return await dependencies.observeInterpreterResolvers(context);
+  } catch {
+    return {
+      kind: 'interpreter-failed',
+      warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
+    };
+  }
+}
+
+function addWarning(warnings: string[], warning: string | undefined): void {
+  if (warning !== undefined && !warnings.includes(warning)) warnings.push(warning);
+}
+
+function addObservation(
+  resolution: ChatGptAssetCandidateResolution,
+  observation: ChatGptAssetResolverObservation,
+  candidates: Map<string, ChatGptPageOwnedAssetCandidate>,
+  allowedAssetIds: ReadonlySet<string>,
+  interpreterPrecedence: boolean
+): void {
+  if (observation.kind === 'matched') {
+    resolution.matched = true;
+    addWarning(resolution.warnings, observation.warning);
+    for (const candidate of observation.candidates) {
+      if (!allowedAssetIds.has(candidate.assetId)) continue;
+      if (interpreterPrecedence || !candidates.has(candidate.assetId)) {
+        candidates.set(candidate.assetId, { ...candidate });
+      }
+    }
+    return;
+  }
+  if (observation.kind === 'probe-only') {
+    resolution.activeResolverMetric = observation.metric;
+  }
+  addWarning(resolution.warnings, observation.warning);
+}
+
+async function resolveAssetCandidates(
+  context: ChatGptAssetExportContext,
+  dependencies: ChatGptAssetExportDependencies
+): Promise<ChatGptAssetCandidateResolution> {
+  const resolution: ChatGptAssetCandidateResolution = {
+    candidates: [],
+    warnings: [],
+    matched: false,
+  };
+  const allowedAssetIds = new Set(context.rawCaptureBundle.manifest.assets.map(asset => asset.id));
+  const candidates = new Map<string, ChatGptPageOwnedAssetCandidate>();
+  const interpreter = await observeInterpreterResolvers(context, dependencies);
+  if (interpreter !== undefined) {
+    addObservation(resolution, interpreter, candidates, allowedAssetIds, true);
+  }
+
+  const hasUnresolvedAsset = [...allowedAssetIds].some(assetId => !candidates.has(assetId));
+  if (hasUnresolvedAsset) {
+    const remainingAssetIds = [...allowedAssetIds]
+      .filter(assetId => !candidates.has(assetId))
+      .sort();
+    const legacy = await observeLegacyResolvers(context, dependencies, remainingAssetIds);
+    addObservation(resolution, legacy, candidates, allowedAssetIds, false);
+  }
+  resolution.candidates = [...candidates.values()].sort((left, right) =>
+    left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
+  );
+  return resolution;
 }
 
 async function persistAcquiredBinaries(
@@ -288,18 +377,6 @@ async function persistAcquiredBinaries(
   }
 }
 
-function probeOnlyAssetAttempt(
-  context: ChatGptAssetExportContext,
-  observation: Extract<ChatGptAssetResolverObservation, { kind: 'probe-only' }>
-): AssetAttempt {
-  return {
-    acquired: acquisitionFailure(context),
-    binaryResults: [],
-    warnings: [observation.warning],
-    activeResolverMetric: observation.metric,
-  };
-}
-
 async function attemptAssets(
   context: ChatGptAssetExportContext,
   companion: ArchiveCompanionBundle,
@@ -309,28 +386,31 @@ async function attemptAssets(
   if (context.rawCaptureBundle.manifest.assets.length === 0) {
     return { acquired: { records: [], runtimeAssets: [] }, binaryResults: [], warnings: [] };
   }
-  const observation = await observeResolvers(context, dependencies);
-  if (observation.kind === 'probe-only') {
-    return probeOnlyAssetAttempt(context, observation);
-  }
-  if (observation.kind !== 'matched') {
+  const resolution = await resolveAssetCandidates(context, dependencies);
+  if (!resolution.matched) {
     const acquired = acquisitionFailure(context);
     return {
       acquired,
       binaryResults: [],
-      warnings: [observation.warning, ...acquisitionOutcomeWarnings(acquired.records)],
+      warnings:
+        resolution.activeResolverMetric === undefined
+          ? [...resolution.warnings, ...acquisitionOutcomeWarnings(acquired.records)]
+          : resolution.warnings,
+      activeResolverMetric: resolution.activeResolverMetric,
     };
   }
-  const acquired = await acquireObservedAssets(context, observation, dependencies);
+  const acquired = await acquireObservedAssets(context, resolution.candidates, dependencies);
   if (!acquired) {
     const failedAcquisition = acquisitionFailure(context);
     return {
       acquired: failedAcquisition,
       binaryResults: [],
       warnings: [
+        ...resolution.warnings,
         CHATGPT_ASSET_ACQUISITION_FAILED_WARNING,
         ...acquisitionOutcomeWarnings(failedAcquisition.records),
       ],
+      activeResolverMetric: resolution.activeResolverMetric,
     };
   }
   return {
@@ -341,7 +421,8 @@ async function attemptAssets(
       rawSuccessfulDestinations,
       dependencies
     ),
-    warnings: acquisitionOutcomeWarnings(acquired.records),
+    warnings: [...resolution.warnings, ...acquisitionOutcomeWarnings(acquired.records)],
+    activeResolverMetric: resolution.activeResolverMetric,
   };
 }
 
