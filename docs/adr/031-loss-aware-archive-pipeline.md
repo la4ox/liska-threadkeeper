@@ -308,6 +308,24 @@ allowed. Any next live step requires a value-free allowlisted envelope category
 and an explicitly known-fresh non-Gizmo fixture, or the live route stops in favor
 of offline hydration.
 
+A pair of user-approved clicks on two real visible attachments independently
+demonstrated a separate provider family rather than the file-ID resolver. Each
+page action called
+`GET /backend-api/conversation/{conversationId}/interpreter/download` with only
+the query keys `message_id` and `sandbox_path`, received `200 application/json`,
+then fetched a signed `/backend-api/estuary/content` URL and received `200` DOCX.
+No query value, identifier, header, body, filename, or file content was emitted or
+retained. The second helper response was confirmed as a fresh network response;
+the signed DOCX responses were served from disk cache and completed without a
+network failure. Neither action produced a Playwright download event or a new
+`D:\Downloads` file, so physical persistence is not claimed. The repeated actual
+contract therefore requires a discriminated acquisition plan: ordinary file-ID, interpreter
+`message_id + sandbox_path`, and library-ID flows are not interchangeable. Any
+interpreter plan must derive both transient values from exact committed-raw
+pointers, bind them to the same conversation, and keep them out of durable
+warnings/logs/manifests. The existing active file-ID probe remains evidence for
+only its own family and must not be generalized to interpreter or library assets.
+
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
 and never issue the legacy full-graph request observed by the original capture
