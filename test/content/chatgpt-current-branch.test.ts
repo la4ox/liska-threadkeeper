@@ -332,7 +332,9 @@ describe('ChatGPT current-branch capture composition', () => {
           'http-error': 0,
           'fetch-rejected': 0,
           'response-processing-rejected': 0,
-          'payload-validation-rejected': 0,
+          'payload-integrity-rejected': 0,
+          'download-url-missing': 0,
+          'download-url-binding-rejected': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -345,7 +347,7 @@ describe('ChatGPT current-branch capture composition', () => {
     const persistedManifest = parseBase64Json(companion.artifacts[1].bodyBase64);
     const persistedCanonical = parseBase64Json(companion.artifacts[2].bodyBase64);
     const metric =
-      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-validation-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.';
+      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.';
     expect(persistedManifest.warnings).toContain(metric);
     const durable = JSON.stringify({ persistedManifest, persistedCanonical });
     expect(durable).not.toContain('download_url');
@@ -396,7 +398,9 @@ describe('ChatGPT current-branch capture composition', () => {
         'http-error': 0,
         'fetch-rejected': 0,
         'response-processing-rejected': 0,
-        'payload-validation-rejected': 0,
+        'payload-integrity-rejected': 0,
+        'download-url-missing': 0,
+        'download-url-binding-rejected': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -413,7 +417,9 @@ describe('ChatGPT current-branch capture composition', () => {
         'http-error': 0,
         'fetch-rejected': 0,
         'response-processing-rejected': 0,
-        'payload-validation-rejected': 0,
+        'payload-integrity-rejected': 0,
+        'download-url-missing': 0,
+        'download-url-binding-rejected': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -430,7 +436,9 @@ describe('ChatGPT current-branch capture composition', () => {
         'http-error': 1,
         'fetch-rejected': 0,
         'response-processing-rejected': 0,
-        'payload-validation-rejected': 0,
+        'payload-integrity-rejected': 0,
+        'download-url-missing': 0,
+        'download-url-binding-rejected': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -653,7 +661,9 @@ describe('ChatGPT current-branch capture composition', () => {
           'http-error': 0,
           'fetch-rejected': 0,
           'response-processing-rejected': 0,
-          'payload-validation-rejected': 0,
+          'payload-integrity-rejected': 0,
+          'download-url-missing': 0,
+          'download-url-binding-rejected': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -708,7 +718,9 @@ describe('ChatGPT current-branch capture composition', () => {
           'http-error': 0,
           'fetch-rejected': 0,
           'response-processing-rejected': 0,
-          'payload-validation-rejected': 0,
+          'payload-integrity-rejected': 0,
+          'download-url-missing': 0,
+          'download-url-binding-rejected': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -726,7 +738,7 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(returned).not.toContain('https://');
     expect(returned).not.toContain('assets/');
     expect(info).toHaveBeenCalledWith(
-      '[G2O] ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-validation-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
+      '[G2O] ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
     );
     expect(JSON.stringify(info.mock.calls)).not.toContain('synthetic-file-2');
     expect(JSON.stringify(info.mock.calls)).not.toContain('https://');

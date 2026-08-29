@@ -2435,7 +2435,7 @@ describe('startChatGptDocumentStartCapture', () => {
       expect(activeRequest).toMatchObject({
         url:
           `https://chatgpt.com/backend-api/files/download/${providerFileId}` +
-          `?conversation_id=${CONVERSATION_ID}&inline=true` +
+          '?download_intent=true' +
           `&check_context_scopes_for_conversation_id=${CONVERSATION_ID}`,
         method: 'GET',
         credentials: 'include',

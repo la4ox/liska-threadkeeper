@@ -43,7 +43,9 @@ describe('ChatGPT active resolver durable audit', () => {
         'http-error': 0,
         'fetch-rejected': 0,
         'response-processing-rejected': 0,
-        'payload-validation-rejected': 0,
+        'payload-integrity-rejected': 0,
+        'download-url-missing': 0,
+        'download-url-binding-rejected': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -52,7 +54,7 @@ describe('ChatGPT active resolver durable audit', () => {
       failureCode: null,
     });
     expect(chatGptActiveResolverAuditWarning(metric)).toBe(
-      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-validation-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
     );
     expect(chatGptActiveResolverProbeWarning(metric)).toBe(
       'ChatGPT active resolver observed 1/1; binary acquisition remains disabled.'
@@ -66,14 +68,16 @@ describe('ChatGPT active resolver durable audit', () => {
       'http-error',
       'fetch-rejected',
       'response-processing-rejected',
-      'payload-validation-rejected',
+      'payload-integrity-rejected',
+      'download-url-missing',
+      'download-url-binding-rejected',
       'non-json',
       'oversized',
       'timed-out',
       'not-dispatched',
     ]);
     expect(chatGptActiveResolverAuditWarning(emptyChatGptActiveResolverMetric())).toBe(
-      'ChatGPT active resolver audit: requested=0; dispatched=0; observed=0; outcomes=observed:0,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-validation-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=0; dispatched=0; observed=0; outcomes=observed:0,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; binary acquisition remains disabled.'
     );
   });
 

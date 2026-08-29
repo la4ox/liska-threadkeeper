@@ -2963,7 +2963,7 @@ function activeResolverTimeout(
 function activeResolverRequestUrl(target: MarkerTarget, providerFileId: string): string {
   return (
     `${CHATGPT_ORIGIN}/backend-api/files/download/${providerFileId}` +
-    `?conversation_id=${target.conversationId}&inline=true` +
+    '?download_intent=true' +
     `&check_context_scopes_for_conversation_id=${target.conversationId}`
   );
 }

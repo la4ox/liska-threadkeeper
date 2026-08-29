@@ -165,23 +165,27 @@ so a page may pre-empt the command and affect availability. That residual is
 accepted only for this disabled metric experiment and must not be described as
 an isolation guarantee.
 
-For the one selected ordinal the closure constructs exactly one same-origin request:
-`GET /backend-api/files/download/{file_id}` with `conversation_id`,
-`inline=true`, and `check_context_scopes_for_conversation_id` bound to the same
-conversation. It copies the opaque source Headers/credentials into a native
+For the one selected ordinal the closure constructs exactly one same-origin
+request: `GET /backend-api/files/download/{file_id}` with
+`download_intent=true` and `check_context_scopes_for_conversation_id` bound to
+the same conversation. Preview-only `conversation_id + inline=true` is a
+separate provider mode and is not combined with the download query. The closure
+copies the opaque source Headers/credentials into a native
 Request, uses a fresh AbortController, `redirect: error`, `cache: no-store`, a
 per-ID timeout, one non-extendable deadline, and no retry, Calpico route, or route
 switching. Pre-fetch setup failure terminates before dispatch as
 `hook-state-failed`. Only the actual fetch try may emit `fetch-rejected`; a
 Response whose bounded clone/body/hash processing fails may emit
 `response-processing-rejected`; only background validation of an observed `200
-JSON` capture may emit `payload-validation-rejected`. Other terminal outcomes are
-`observed`, `http-error`, `non-json`, `oversized`, `timed-out`, and
+JSON` capture may emit `payload-integrity-rejected`, `download-url-missing`, or
+`download-url-binding-rejected`. Active and shared passive parsers require an own
+top-level `status === "Success"` plus a string `download_url`. Other terminal
+outcomes are `observed`, `http-error`, `non-json`, `oversized`, `timed-out`, and
 `not-dispatched`. The body is at most 64 KiB. Background treats MAIN output as
 hostile, revalidates exact shape, ordinal mapping, canonical base64, length,
-SHA-256, JSON, and signed-URL conversation binding, then discards IDs, bodies,
-URLs, and the batch timestamp before durable audit construction. MAIN cannot
-originate `payload-validation-rejected`.
+SHA-256, JSON, Success envelope, and signed-URL conversation binding, then
+discards IDs, bodies, URLs, and the batch timestamp before durable audit
+construction. MAIN cannot originate the three background-only outcomes.
 
 The integrated orchestration is gated by the existing
 `Export images & attachments` setting and at least one durable destination; every
@@ -274,6 +278,20 @@ authorization, but an endpoint-specific authorization/error envelope encoded as
 remaining aggregate possibilities are a missing or changed `download_url` shape
 or a signed URL that fails exact conversation binding. No automatic retry is
 allowed; any value-free payload subreason requires a new explicit decision.
+
+A later neutral-page inspection of 57 already loaded public ChatGPT scripts—no
+conversation route, private response, storage, cookie, or header read—found that
+the current `SendIfAvailable` helper keeps preview mode (`conversation_id` plus
+`inline=true`) separate from explicit download mode (`download_intent=true` plus
+`check_context_scopes_for_conversation_id`). Liska's rejected request had combined
+those modes. The public consumer requires `status === "Success"` before reading
+top-level `download_url`; `file_not_found` and `file_expired` are explicit errors.
+The corrected local build now uses the exact download query, requires that
+Success envelope in active and shared passive parsers, and exposes only the three
+value-free background subreasons above. A reviewer caught and rechecked the
+missing-status protocol gap before live use. Optional `gizmo_id` remains
+underived, so this default route does not claim custom-GPT attachment coverage.
+No provider request has been made with the corrected build.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`

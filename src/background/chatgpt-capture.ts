@@ -334,6 +334,8 @@ function parseResolverDownloadUrl(bytes: Uint8Array): string | undefined {
       typeof value !== 'object' ||
       value === null ||
       Array.isArray(value) ||
+      !Object.prototype.hasOwnProperty.call(value, 'status') ||
+      (value as { status?: unknown }).status !== 'Success' ||
       !Object.prototype.hasOwnProperty.call(value, 'download_url') ||
       typeof (value as { download_url?: unknown }).download_url !== 'string'
     ) {

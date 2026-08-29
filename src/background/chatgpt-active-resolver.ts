@@ -300,6 +300,8 @@ function signedUrlFromResolverBody(bytes: Uint8Array): string | undefined {
       typeof parsed !== 'object' ||
       parsed === null ||
       Array.isArray(parsed) ||
+      !Object.prototype.hasOwnProperty.call(parsed, 'status') ||
+      (parsed as { status?: unknown }).status !== 'Success' ||
       !Object.prototype.hasOwnProperty.call(parsed, 'download_url') ||
       typeof (parsed as { download_url?: unknown }).download_url !== 'string'
     ) {
@@ -327,22 +329,22 @@ async function metricOutcome(
 ): Promise<ChatGptActiveResolverOutcomeCode> {
   if (outcome.state !== 'observed') return outcome.state;
   const capture = outcome.capture;
-  if (!isJsonResolverMediaType(capture.mediaType)) return 'payload-validation-rejected';
+  if (!isJsonResolverMediaType(capture.mediaType)) return 'payload-integrity-rejected';
   const bytes = strictBase64Bytes(capture.bodyBase64);
   if (bytes === undefined || bytes.byteLength !== capture.byteLength)
-    return 'payload-validation-rejected';
+    return 'payload-integrity-rejected';
   let digest: string;
   try {
     digest = (await digestSha256(bytes)).toLowerCase();
   } catch {
-    return 'payload-validation-rejected';
+    return 'payload-integrity-rejected';
   }
   if (!/^[a-f0-9]{64}$/.test(digest) || digest !== capture.sha256.toLowerCase())
-    return 'payload-validation-rejected';
+    return 'payload-integrity-rejected';
   const signedUrl = signedUrlFromResolverBody(bytes);
-  if (signedUrl === undefined || !isChatGptTransientDownloadUrl(signedUrl, conversationId)) {
-    return 'payload-validation-rejected';
-  }
+  if (signedUrl === undefined) return 'download-url-missing';
+  if (!isChatGptTransientDownloadUrl(signedUrl, conversationId))
+    return 'download-url-binding-rejected';
   return 'observed';
 }
 

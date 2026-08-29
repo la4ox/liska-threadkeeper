@@ -18,8 +18,8 @@ const RESOLVER_DOWNLOAD_URL =
   `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
   '&id=signed-transport-id&p=path&sig=signature&ts=123&v=1';
 const RESOLVER_RESPONSE_BASE64 =
-  'eyJkb3dubG9hZF91cmwiOiJodHRwczovL2NoYXRncHQuY29tL2JhY2tlbmQtYXBpL2VzdHVhcnkvY29udGVudD9jaWQ9MDEyMzQ1NjctODlhYi00Y2RlLThmMDEtMjM0NTY3ODlhYmNkJmlkPXNpZ25lZC10cmFuc3BvcnQtaWQmcD1wYXRoJnNpZz1zaWduYXR1cmUmdHM9MTIzJnY9MSIsImV4cGlyZXNfYXQiOiIyMDI2LTA4LTIxVDEyOjAwOjAwWiJ9';
-const RESOLVER_RESPONSE_HASH = '4de7dff011b39883431c6d0a3e58bf494df907568b267d4da781c4bcb62f0568';
+  'eyJzdGF0dXMiOiJTdWNjZXNzIiwiZG93bmxvYWRfdXJsIjoiaHR0cHM6Ly9jaGF0Z3B0LmNvbS9iYWNrZW5kLWFwaS9lc3R1YXJ5L2NvbnRlbnQ/Y2lkPTAxMjM0NTY3LTg5YWItNGNkZS04ZjAxLTIzNDU2Nzg5YWJjZCZpZD1zaWduZWQtdHJhbnNwb3J0LWlkJnA9cGF0aCZzaWc9c2lnbmF0dXJlJnRzPTEyMyZ2PTEiLCJleHBpcmVzX2F0IjoiMjAyNi0wOC0yMVQxMjowMDowMFoifQ==';
+const RESOLVER_RESPONSE_HASH = '5a688d0bba29fa9cc48f23e6a0ff84adf037acc533137f25364ebc7e9e6f79aa';
 const RESOLVER_KEY = '7404723b52ebe964b6ac76965f76009f8edb166d7b5ebeb8619b05b0d53033ff';
 
 type FakeTab = { status?: string; url?: string };
@@ -200,7 +200,7 @@ describe('captureChatGptInTemporaryTab', () => {
     const resolverObservation = {
       providerFileId: RESOLVER_FILE_ID,
       bodyBase64: RESOLVER_RESPONSE_BASE64,
-      byteLength: 198,
+      byteLength: 217,
       sha256: RESOLVER_RESPONSE_HASH,
       mediaType: 'application/json',
     };
@@ -227,18 +227,25 @@ describe('captureChatGptInTemporaryTab', () => {
   });
 
   it('drops malformed resolver records and unapproved resolver response bodies', async () => {
-    const valid = await resolverObservation({ download_url: RESOLVER_DOWNLOAD_URL });
+    const valid = await resolverObservation({
+      status: 'Success',
+      download_url: RESOLVER_DOWNLOAD_URL,
+    });
     const bodies = [
       { ...valid, unexpected: true },
-      await resolverObservation({ download_url: '' }),
+      await resolverObservation({ status: 'Success', download_url: '' }),
       await resolverObservation({
+        status: 'Success',
         download_url: RESOLVER_DOWNLOAD_URL.replace('https://chatgpt.com', 'https://evil.example'),
       }),
       await resolverObservation({
+        status: 'Success',
         download_url: RESOLVER_DOWNLOAD_URL.replace('&sig=signature', '&unknown=value'),
       }),
-      await resolverObservation({ download_url: 'not a valid absolute URL' }),
-      await resolverObservation({ detail: 'missing download URL' }),
+      await resolverObservation({ status: 'Success', download_url: 'not a valid absolute URL' }),
+      await resolverObservation({ status: 'Success', detail: 'missing download URL' }),
+      await resolverObservation({ status: 'Error', download_url: RESOLVER_DOWNLOAD_URL }),
+      await resolverObservation({ download_url: RESOLVER_DOWNLOAD_URL }),
       await resolverObservation('not-json'),
     ];
 
@@ -255,7 +262,10 @@ describe('captureChatGptInTemporaryTab', () => {
   });
 
   it('drops resolver observations when response or opaque-key hashing is unavailable', async () => {
-    const observation = await resolverObservation({ download_url: RESOLVER_DOWNLOAD_URL });
+    const observation = await resolverObservation({
+      status: 'Success',
+      download_url: RESOLVER_DOWNLOAD_URL,
+    });
     const responseDigestFailure = fakeChrome([
       { ...capturedResult(), resolverObservations: [observation] },
     ]);
@@ -819,7 +829,7 @@ describe('temporary capture snapshot reader', () => {
     const valid = {
       providerFileId: RESOLVER_FILE_ID,
       bodyBase64: RESOLVER_RESPONSE_BASE64,
-      byteLength: 198,
+      byteLength: 217,
       sha256: RESOLVER_RESPONSE_HASH,
       mediaType: 'application/json',
     };

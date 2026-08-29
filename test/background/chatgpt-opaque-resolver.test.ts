@@ -14,7 +14,7 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function observedState(body = JSON.stringify({ download_url: DOWNLOAD_URL })) {
+function observedState(body = JSON.stringify({ status: 'Success', download_url: DOWNLOAD_URL })) {
   const bytes = new TextEncoder().encode(body);
   return {
     kind: 'observed' as const,

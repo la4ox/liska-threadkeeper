@@ -83,7 +83,9 @@ describe('ChatGPT active resolver background checkpoint', () => {
     const signedUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
       '&id=private-file&p=p&sig=s&ts=t&v=v';
-    const body = new TextEncoder().encode(JSON.stringify({ download_url: signedUrl }));
+    const body = new TextEncoder().encode(
+      JSON.stringify({ status: 'Success', download_url: signedUrl })
+    );
     const chrome = chromeApi(
       observedState(btoa(String.fromCharCode(...body)), body.byteLength, await digest(body))
     );
@@ -118,7 +120,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
     expect(chrome.remove).toHaveBeenCalledWith(123);
   });
 
-  it('emits payload-validation-rejected only while validating an observed capture', async () => {
+  it('emits payload-integrity-rejected only while validating an observed capture', async () => {
     const chrome = chromeApi(observedState('e30=', 2, '0'.repeat(64)));
     const response = await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
       chromeApi: chrome.api,
@@ -127,7 +129,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
     });
     expect(response).toMatchObject({
       success: true,
-      data: { outcomes: ['payload-validation-rejected'], observedCount: 0, dispatchCount: 1 },
+      data: { outcomes: ['payload-integrity-rejected'], observedCount: 0, dispatchCount: 1 },
     });
     expect(chrome.executeScript).toHaveBeenCalledTimes(3);
   });
@@ -263,7 +265,9 @@ describe('ChatGPT active resolver background checkpoint', () => {
     const signedUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
       '&id=private-file&p=p&sig=s&ts=t&v=v';
-    const body = new TextEncoder().encode(JSON.stringify({ download_url: signedUrl }));
+    const body = new TextEncoder().encode(
+      JSON.stringify({ status: 'Success', download_url: signedUrl })
+    );
     const chrome = chromeApi(
       observedState(btoa(String.fromCharCode(...body)), body.byteLength, '0'.repeat(64))
     );
@@ -404,7 +408,9 @@ describe('ChatGPT active resolver background checkpoint', () => {
     const signedUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
       '&id=private-file&p=p&sig=s&ts=t&v=v';
-    const body = new TextEncoder().encode(JSON.stringify({ download_url: signedUrl }));
+    const body = new TextEncoder().encode(
+      JSON.stringify({ status: 'Success', download_url: signedUrl })
+    );
     const hash = await globalThis.crypto.subtle.digest('SHA-256', body);
     const sha256 = Array.from(new Uint8Array(hash), value =>
       value.toString(16).padStart(2, '0')
@@ -593,13 +599,24 @@ describe('ChatGPT active resolver background checkpoint', () => {
     ).resolves.toEqual({ success: false, code: 'resolver-result-timeout' });
   });
 
-  it('downgrades malformed media, digest, and signed URL observations independently', async () => {
+  it('separates payload integrity from signed URL binding rejection', async () => {
     const validUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
       '&id=private-file&p=p&sig=s&ts=t&v=v';
-    const body = new TextEncoder().encode(JSON.stringify({ download_url: validUrl }));
+    const body = new TextEncoder().encode(
+      JSON.stringify({ status: 'Success', download_url: validUrl })
+    );
     const bodyBase64 = btoa(String.fromCharCode(...body));
     const hash = await digest(body);
+    const wrongConversationBody = new TextEncoder().encode(
+      JSON.stringify({
+        status: 'Success',
+        download_url:
+          'https://chatgpt.com/backend-api/estuary/content?cid=11111111-2222-3333-4444-555555555555&id=x&p=p&sig=s&ts=t&v=v',
+      })
+    );
+    const wrongConversationBase64 = btoa(String.fromCharCode(...wrongConversationBody));
+    const wrongConversationHash = await digest(wrongConversationBody);
     const cases = [
       {
         label: 'media type',
@@ -618,25 +635,23 @@ describe('ChatGPT active resolver background checkpoint', () => {
           ],
         },
         digestSha256: digest,
+        expected: 'payload-integrity-rejected',
       },
       {
         label: 'digest rejection',
         state: observedState(bodyBase64, body.byteLength, hash),
         digestSha256: () => Promise.reject(new Error('synthetic digest failure')),
+        expected: 'payload-integrity-rejected',
       },
       {
         label: 'wrong conversation URL',
         state: observedState(
-          btoa(
-            JSON.stringify({
-              download_url:
-                'https://chatgpt.com/backend-api/estuary/content?cid=11111111-2222-3333-4444-555555555555&id=x&p=p&sig=s&ts=t&v=v',
-            })
-          ),
-          130,
-          '0'.repeat(64)
+          wrongConversationBase64,
+          wrongConversationBody.byteLength,
+          wrongConversationHash
         ),
         digestSha256: digest,
+        expected: 'download-url-binding-rejected',
       },
     ] as const;
     for (const testCase of cases) {
@@ -648,7 +663,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
       });
       expect(response).toMatchObject({
         success: true,
-        data: { outcomes: ['payload-validation-rejected'], observedCount: 0 },
+        data: { outcomes: [testCase.expected], observedCount: 0 },
       });
     }
   });
@@ -670,7 +685,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
         })
       ).resolves.toMatchObject({
         success: true,
-        data: { outcomes: ['payload-validation-rejected'] },
+        data: { outcomes: ['payload-integrity-rejected'] },
       });
 
       vi.stubGlobal('atob', originalAtob);
@@ -684,7 +699,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
         })
       ).resolves.toMatchObject({
         success: true,
-        data: { outcomes: ['payload-validation-rejected'] },
+        data: { outcomes: ['payload-integrity-rejected'] },
       });
 
       vi.stubGlobal('btoa', originalBtoa);
@@ -700,7 +715,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
         })
       ).resolves.toMatchObject({
         success: true,
-        data: { outcomes: ['payload-validation-rejected'] },
+        data: { outcomes: ['payload-integrity-rejected'] },
       });
 
       vi.stubGlobal('atob', originalAtob);
@@ -719,7 +734,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
         })
       ).resolves.toMatchObject({
         success: true,
-        data: { outcomes: ['payload-validation-rejected'] },
+        data: { outcomes: ['download-url-missing'] },
       });
     } finally {
       vi.stubGlobal('atob', originalAtob);
@@ -760,9 +775,14 @@ describe('ChatGPT active resolver background checkpoint', () => {
     ).resolves.toMatchObject({ success: true, data: { outcomes: ['http-error'] } });
   });
 
-  it('rejects a valid JSON resolver object without a download URL', async () => {
-    const body = new TextEncoder().encode('{}');
-    const chrome = chromeApi(observedState(btoa('{}'), body.byteLength, await digest(body)));
+  it.each([
+    ['a missing status', { download_url: 'https://private.example/signed' }],
+    ['a non-success status', { status: 'Error', download_url: 'https://private.example/signed' }],
+    ['a success envelope without download_url', { status: 'Success' }],
+  ])('rejects resolver JSON with %s', async (_label, value) => {
+    const source = JSON.stringify(value);
+    const body = new TextEncoder().encode(source);
+    const chrome = chromeApi(observedState(btoa(source), body.byteLength, await digest(body)));
     await expect(
       probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
         chromeApi: chrome.api,
@@ -771,7 +791,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
       })
     ).resolves.toMatchObject({
       success: true,
-      data: { outcomes: ['payload-validation-rejected'] },
+      data: { outcomes: ['download-url-missing'] },
     });
   });
 
@@ -789,7 +809,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
         conversationId: CONVERSATION_ID,
         requestedCount: 1,
         dispatchCount: 1,
-        outcomes: [{ state: 'payload-validation-rejected', extra: true }],
+        outcomes: [{ state: 'download-url-missing', extra: true }],
       },
       [`__liskaChatGptActiveResolverCommand_${NONCE}`]: () => {
         throw new Error('synthetic command failure');
@@ -803,7 +823,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
         conversationId: CONVERSATION_ID,
         requestedCount: 1,
         dispatchCount: 1,
-        outcomes: [{ state: 'payload-validation-rejected' }],
+        outcomes: [{ state: 'download-url-missing' }],
       },
     });
     expect(readChatGptActiveResolverState(NONCE)).toEqual({ kind: 'missing' });

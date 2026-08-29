@@ -157,12 +157,15 @@ describe('ChatGPT active resolver metric contract', () => {
         outcomes: [{ state: 'response-processing-rejected' }],
       })
     ).toBe(true);
-    expect(
-      isChatGptActiveResolverHookResult({
-        ...completeHook(),
-        outcomes: [{ state: 'payload-validation-rejected' }],
-      })
-    ).toBe(false);
+    for (const state of [
+      'payload-integrity-rejected',
+      'download-url-missing',
+      'download-url-binding-rejected',
+    ] as const) {
+      expect(isChatGptActiveResolverHookResult({ ...completeHook(), outcomes: [{ state }] })).toBe(
+        false
+      );
+    }
     expect(
       isChatGptActiveResolverHookResult({
         ...completeHook(),
