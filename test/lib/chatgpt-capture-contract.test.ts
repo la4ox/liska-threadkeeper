@@ -202,6 +202,37 @@ describe('ChatGPT capture runtime contract', () => {
     ).toBe(false);
   });
 
+  it('accepts the current signed estuary grammar without treating opaque cid as a conversation UUID', () => {
+    const currentUrl =
+      'https://chatgpt.com/backend-api/estuary/content?' +
+      new URLSearchParams({
+        id: 'file_00000000synthetic',
+        fn: 'synthetic-guide.docx',
+        cd: 'attachment',
+        ts: '123456',
+        p: 'fs',
+        cid: '1',
+        sig: 'a'.repeat(64),
+        v: '0',
+      }).toString();
+
+    expect(isChatGptTransientDownloadUrl(currentUrl)).toBe(true);
+    expect(isChatGptTransientDownloadUrl(currentUrl, CONVERSATION_ID)).toBe(true);
+    expect(
+      isChatGptTransientAssetResolver({ ...TRANSIENT_RESOLVER, downloadUrl: currentUrl })
+    ).toBe(true);
+    for (const invalid of [
+      currentUrl.replace('cd=attachment', 'cd=inline'),
+      currentUrl.replace('p=fs', 'p=other'),
+      currentUrl.replace('cid=1', 'cid=0'),
+      currentUrl.replace(`sig=${'a'.repeat(64)}`, 'sig=short'),
+      currentUrl.replace('fn=synthetic-guide.docx', 'fn=folder%2Fsynthetic-guide.docx'),
+      `${currentUrl}&extra=value`,
+    ]) {
+      expect(isChatGptTransientDownloadUrl(invalid)).toBe(false);
+    }
+  });
+
   it('serializes failures from the stable error allowlist only', () => {
     const failure = createChatGptCaptureFailure('permission-unavailable');
     const injectionFailure = createChatGptCaptureFailure('hook-injection-rejected');

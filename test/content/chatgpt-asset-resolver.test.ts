@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { RawCaptureAssetRecord } from '../../src/archive/capture';
+import { inventoryChatGptRawAssets } from '../../src/archive/normalizers/chatgpt/inventory';
+import {
+  chatGptAssetIdForIdentity,
+  chatGptSandboxLinkIdentity,
+} from '../../src/archive/chatgpt-sandbox-link';
 import {
   CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
   extractChatGptActiveResolverPlan,
@@ -53,9 +58,76 @@ function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
 
 describe('ChatGPT page-owned asset resolver matching', () => {
   describe('interpreter attachment plan', () => {
-    it('extracts an exact metadata attachment with its same-node message and safe Unicode filename', () => {
+    it('matches each assistant Markdown link from one exact text-part ledger source', async () => {
+      const raw = {
+        mapping: {
+          node: {
+            message: {
+              id: 'assistant-message',
+              author: { role: 'assistant' },
+              content: {
+                content_type: 'text',
+                parts: [
+                  '[document](sandbox:/mnt/data/one%20file.docx) [sheet](sandbox:/mnt/data/two.xlsx)',
+                ],
+              },
+            },
+          },
+        },
+      };
+      const inventory = await inventoryChatGptRawAssets({
+        raw,
+        artifactId: 'conversation',
+        sha256: digest,
+      });
+      const plan = await extractChatGptInterpreterAssetPlan(raw, inventory.assets, digest);
+
+      expect(inventory.assets).toHaveLength(2);
+      expect(plan).toHaveLength(2);
+      expect(plan.map(candidate => candidate.sandboxPath).sort()).toEqual([
+        '/mnt/data/one file.docx',
+        '/mnt/data/two.xlsx',
+      ]);
+      expect(plan.every(candidate => candidate.messageId === 'assistant-message')).toBe(true);
+      await expect(
+        extractChatGptInterpreterAssetPlan(raw, [...inventory.assets].reverse(), digest)
+      ).resolves.toEqual(plan);
+    });
+
+    it('rejects a matching opaque ledger ID when its source link is inside indented code', async () => {
+      const messageId = 'assistant-message';
+      const sandboxPath = '/mnt/data/private.txt';
+      const identity = chatGptSandboxLinkIdentity(messageId, sandboxPath);
+      if (!identity) throw new Error('synthetic identity must be valid');
+      const assetId = await chatGptAssetIdForIdentity(identity, digest);
+      if (!assetId) throw new Error('synthetic asset ID must be valid');
+      const raw = {
+        mapping: {
+          node: {
+            message: {
+              id: messageId,
+              author: { role: 'assistant' },
+              content: {
+                content_type: 'text',
+                parts: ['    [code example](sandbox:/mnt/data/private.txt)'],
+              },
+            },
+          },
+        },
+      };
+      const forgedLedgerAsset: RawCaptureAssetRecord = {
+        ...asset('a', '/mapping/node/message/content/parts/0'),
+        id: assetId,
+      };
+
+      await expect(
+        extractChatGptInterpreterAssetPlan(raw, [forgedLedgerAsset], digest)
+      ).resolves.toEqual([]);
+    });
+
+    it('extracts an exact metadata attachment with its same-node message and safe Unicode filename', async () => {
       const metadata = asset('a', '/mapping/node~1current/message/metadata/attachments/0');
-      const plan = extractChatGptInterpreterAssetPlan(
+      const plan = await extractChatGptInterpreterAssetPlan(
         {
           mapping: {
             'node/current': {
@@ -93,10 +165,10 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       expect(plan[0]).not.toHaveProperty('body');
     });
 
-    it('ignores incidental sandbox-looking strings and first-slice content parts', () => {
+    it('ignores incidental sandbox-looking strings and first-slice content parts', async () => {
       const parts = asset('a', '/mapping/root/message/content/parts/0');
       expect(
-        extractChatGptInterpreterAssetPlan(
+        await extractChatGptInterpreterAssetPlan(
           {
             mapping: {
               root: {
@@ -129,10 +201,10 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ['backslash', '/mnt/data/folder\\file.txt'],
       ['control character', '/mnt/data/file\n.txt'],
       ['overlong path', `/mnt/data/${'a'.repeat(4_100)}`],
-    ])('rejects %s in a sandbox path', (_label, name) => {
+    ])('rejects %s in a sandbox path', async (_label, name) => {
       const metadata = asset('a', '/mapping/root/message/metadata/attachments/0');
       expect(
-        extractChatGptInterpreterAssetPlan(
+        await extractChatGptInterpreterAssetPlan(
           {
             mapping: {
               root: {
@@ -153,20 +225,22 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ['an overlong pointer', `/${'a'.repeat(4_100)}`],
       ['a control-bearing pointer', '/mapping/root/message/metadata/attachments/0\n'],
       ['a non-string pointer', 42],
-    ])('rejects %s before pointer traversal', (_label, rawPointer) => {
+    ])('rejects %s before pointer traversal', async (_label, rawPointer) => {
       const invalid = {
         ...asset('a', '/mapping/root/message/metadata/attachments/0'),
         sourceRefs: [{ artifactId: 'conversation', rawPointer }],
       } as unknown as RawCaptureAssetRecord;
-      expect(extractChatGptInterpreterAssetPlan({ mapping: {} }, [invalid])).toEqual([]);
+      await expect(extractChatGptInterpreterAssetPlan({ mapping: {} }, [invalid])).resolves.toEqual(
+        []
+      );
     });
 
     it.each([null, {}, { id: 'missing-name' }])(
       'rejects an exact attachment value without a string name %#',
-      attachment => {
+      async attachment => {
         const metadata = asset('a', '/mapping/root/message/metadata/attachments/0');
         expect(
-          extractChatGptInterpreterAssetPlan(
+          await extractChatGptInterpreterAssetPlan(
             {
               mapping: {
                 root: {
@@ -183,7 +257,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       }
     );
 
-    it('rejects malformed pointers and unsafe paths, message IDs, and internal asset IDs', () => {
+    it('rejects malformed pointers and unsafe paths, message IDs, and internal asset IDs', async () => {
       const pointers = [
         '/mapping/node~2bad/message/metadata/attachments/0',
         '/mapping//message/metadata/attachments/0',
@@ -202,7 +276,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       };
 
       expect(
-        extractChatGptInterpreterAssetPlan(
+        await extractChatGptInterpreterAssetPlan(
           {
             mapping: {
               root: {
@@ -236,13 +310,13 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ).toEqual([]);
     });
 
-    it('skips an asset with conflicting attachment source refs', () => {
+    it('skips an asset with conflicting attachment source refs', async () => {
       const conflicting = assetWithSourceRefs('a', [
         '/mapping/first/message/metadata/attachments/0',
         '/mapping/second/message/metadata/attachments/0',
       ]);
       expect(
-        extractChatGptInterpreterAssetPlan(
+        await extractChatGptInterpreterAssetPlan(
           {
             mapping: {
               first: {
@@ -264,7 +338,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ).toEqual([]);
     });
 
-    it('deduplicates exact message-path pairs and remains stable when assets are reversed', () => {
+    it('deduplicates exact message-path pairs and remains stable when assets are reversed', async () => {
       const first = asset('a', '/mapping/first/message/metadata/attachments/0');
       const duplicate = asset('b', '/mapping/duplicate/message/metadata/attachments/0');
       const distinct = asset('c', '/mapping/distinct/message/metadata/attachments/0');
@@ -303,15 +377,15 @@ describe('ChatGPT page-owned asset resolver matching', () => {
         },
       ];
 
-      expect(extractChatGptInterpreterAssetPlan(raw, [duplicate, distinct, first])).toEqual(
+      expect(await extractChatGptInterpreterAssetPlan(raw, [duplicate, distinct, first])).toEqual(
         expected
       );
       expect(
-        extractChatGptInterpreterAssetPlan(raw, [first, distinct, duplicate].reverse())
+        await extractChatGptInterpreterAssetPlan(raw, [first, distinct, duplicate].reverse())
       ).toEqual(expected);
     });
 
-    it('uses its dedicated 20-candidate cap after deterministic asset ordering', () => {
+    it('uses its dedicated 20-candidate cap after deterministic asset ordering', async () => {
       const assets = Array.from({ length: 25 }, (_, index) => indexedInterpreterAsset(index));
       const raw = {
         mapping: Object.fromEntries(
@@ -326,7 +400,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
           ])
         ),
       };
-      const plan = extractChatGptInterpreterAssetPlan(raw, [...assets].reverse());
+      const plan = await extractChatGptInterpreterAssetPlan(raw, [...assets].reverse());
 
       expect(plan).toHaveLength(CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT);
       expect(plan.map(candidate => candidate.assetId)).toEqual(

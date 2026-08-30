@@ -8,6 +8,15 @@
 import { canonicalBase64ByteLength } from './base64';
 import { isChatGptConversationId, isChatGptTransientDownloadUrl } from './chatgpt-capture-contract';
 import { isSafeStagedBinaryAssetId } from './binary-asset-contract';
+import {
+  isChatGptInterpreterMessageId,
+  isChatGptInterpreterSandboxPath,
+} from './chatgpt-interpreter-values';
+
+export {
+  isChatGptInterpreterMessageId,
+  isChatGptInterpreterSandboxPath,
+} from './chatgpt-interpreter-values';
 
 export const CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT = 20;
 export const CHATGPT_INTERPRETER_RESOLVER_MAX_BYTES = 64 * 1024;
@@ -82,9 +91,6 @@ export type ChatGptInterpreterResolverResponse =
   | { success: true; data: { resolved: ChatGptInterpreterResolvedAsset[] } }
   | { success: false; code: ChatGptInterpreterResolverErrorCode };
 
-const MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
-const SANDBOX_PATH_PREFIX = '/mnt/data/';
-
 function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
   try {
     const keys = Reflect.ownKeys(value);
@@ -95,38 +101,6 @@ function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
   } catch {
     return false;
   }
-}
-
-export function isChatGptInterpreterMessageId(value: unknown): value is string {
-  return typeof value === 'string' && MESSAGE_ID_PATTERN.test(value);
-}
-
-/** Retain raw Unicode query values, but reject controls, separators, and traversal. */
-export function isChatGptInterpreterSandboxPath(value: unknown): value is string {
-  const hasUnsafeCharacter =
-    typeof value === 'string' &&
-    Array.from(value).some(character => {
-      const code = character.codePointAt(0) ?? 0;
-      return (
-        code <= 0x1f ||
-        (code >= 0x7f && code <= 0x9f) ||
-        (code >= 0xd800 && code <= 0xdfff) ||
-        character === '\\'
-      );
-    });
-  if (
-    typeof value !== 'string' ||
-    !value.startsWith(SANDBOX_PATH_PREFIX) ||
-    value.length <= SANDBOX_PATH_PREFIX.length ||
-    value.length > 4 * 1024 ||
-    hasUnsafeCharacter
-  ) {
-    return false;
-  }
-  return value
-    .slice(SANDBOX_PATH_PREFIX.length)
-    .split('/')
-    .every(segment => segment.length > 0 && segment !== '.' && segment !== '..');
 }
 
 export function isChatGptInterpreterAssetCandidate(

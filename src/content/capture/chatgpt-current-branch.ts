@@ -692,7 +692,7 @@ export async function observeChatGptInterpreterAssetResolvers(
       warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
     };
   }
-  const plan = extractChatGptInterpreterAssetPlan(
+  const plan = await extractChatGptInterpreterAssetPlan(
     parseRawForInventory(original.bytes),
     context.rawCaptureBundle.manifest.assets
   );

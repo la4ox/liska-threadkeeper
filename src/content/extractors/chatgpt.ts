@@ -113,6 +113,12 @@ function opaqueReplayFailure(error: unknown): ExtractionResult {
   };
 }
 
+function isPassiveRequestTimeout(error: unknown): boolean {
+  return (
+    error instanceof ChatGptCurrentBranchError && error.code === 'conversation-request-timeout'
+  );
+}
+
 export interface ChatGPTExtractorDependencies {
   captureCurrentBranch?: (
     conversationId: string,
@@ -324,23 +330,42 @@ export class ChatGPTExtractor extends BaseExtractor {
     };
   }
 
-  private captureRequestedProjection(conversationId: string): Promise<ProjectionSelection> {
+  private async captureRequestedProjection(conversationId: string): Promise<ProjectionSelection> {
     if (this.branchExportMode === 'current') {
-      const captureCurrentBranch = this.enableChatGptOpaqueReplay
-        ? this.captureReplayCurrentBranch
-        : this.captureCurrentBranch;
-      return captureCurrentBranch(conversationId, this.enableToolContent).then(projection => ({
-        kind: 'projection',
-        projection,
-      }));
+      if (this.enableChatGptOpaqueReplay) {
+        return {
+          kind: 'projection',
+          projection: await this.captureReplayCurrentBranch(conversationId, this.enableToolContent),
+        };
+      }
+      try {
+        return {
+          kind: 'projection',
+          projection: await this.captureCurrentBranch(conversationId, this.enableToolContent),
+        };
+      } catch (error) {
+        if (!isPassiveRequestTimeout(error)) throw error;
+        return {
+          kind: 'projection',
+          projection: await this.captureReplayCurrentBranch(conversationId, this.enableToolContent),
+        };
+      }
     }
     return this.captureSelectedBranch(conversationId);
   }
 
   private async captureSelectedBranch(conversationId: string): Promise<ProjectionSelection> {
-    const capture = await (this.enableChatGptOpaqueReplay
-      ? this.captureReplayArchive(conversationId)
-      : this.captureArchive(conversationId));
+    let capture: ChatGptArchiveCapture;
+    if (this.enableChatGptOpaqueReplay) {
+      capture = await this.captureReplayArchive(conversationId);
+    } else {
+      try {
+        capture = await this.captureArchive(conversationId);
+      } catch (error) {
+        if (!isPassiveRequestTimeout(error)) throw error;
+        capture = await this.captureReplayArchive(conversationId);
+      }
+    }
     try {
       const catalog = getArchiveBranchCatalog(capture.archive);
       const selection = await this.selectBranch(

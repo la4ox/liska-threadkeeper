@@ -280,7 +280,7 @@
     "message": "実験的な ChatGPT フルグラフ再取得"
   },
   "settings_chatGptOpaqueReplayHelp": {
-    "message": "同一オリジンへの厳密な 1 回のリクエスト。既定では無効です"
+    "message": "直接再取得を強制します。通常モードでも、受動取得でリクエストを観測できずタイムアウトした場合に限り 1 回だけ試行します"
   },
   "settings_imageExportHelp": {
     "message": "生成画像と対応する ChatGPT の添付ファイルを保存する"

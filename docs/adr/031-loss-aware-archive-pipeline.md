@@ -192,9 +192,10 @@ The integrated orchestration is gated by the existing
 export still requires a trusted click. Raw is committed first and only
 raw-successful destinations continue. A zero-asset ledger skips resolver work.
 In opaque replay mode this checkpoint is deliberately probe-only: it performs
-zero credentialless acquisition or binary staging, leaves every asset
+zero binary acquisition or staging, leaves every asset
 `not-attempted`, and writes only a count-safe warning. Ordinary capture retains
-the older byte-equality recapture and bounded credentialless signed-URL path.
+the older byte-equality recapture and bounded same-origin signed-URL path with
+browser-managed credentials that extension code never reads or serializes.
 Only a positive live metric smoke plus fresh review may connect the active route
 to that existing acquisition layer. Raw is never rewritten, and signed URLs or
 provider IDs never enter manifest, canonical, Markdown, warning, or runtime asset
@@ -340,21 +341,20 @@ boundary, discard all provider transport values, and feed verified bytes into th
 existing content-addressed staged persistence. Preview and physical-download UI
 controls share the resolver family but differ after signed content resolution.
 
-A field-only reconciliation of that committed raw and its 17-asset manifest found
-14 exact interpreter-shaped ledger records at
-`/mapping/{node}/message/metadata/attachments/{i}`. Each pointed to a plain object
-with `id,mime_type,name,size`; `name` contained a plain `/mnt/data/...` path, and
-the same graph node carried a string `message.id`. Many incidental `/mnt/data/`
-strings also existed in text, code, and output fields, confirming that broad scans
-would be unsound. The first pure implementation therefore follows only exact
-conversation sourceRefs, binds the same-node message ID, accepts a strict safe
-`/mnt/data/` path, and returns only transient `{assetId,messageId,sandboxPath}`.
-Conflicting candidates are skipped, exact message/path pairs deduplicate
-deterministically, and a dedicated cap is 20. Unsafe pointer escapes, IDs,
-controls, backslashes, unpaired surrogates, empty/dot/dotdot/outside/overlong
-paths, and content parts fail closed.
+A field-only reconciliation first found exact interpreter-shaped ledger records at
+`/mapping/{node}/message/metadata/attachments/{i}`. A later fresh capture exposed
+the second provider representation: a directly rendered assistant Markdown link
+whose destination is `sandbox:/mnt/data/...`. The inventory accepts only these two
+structural sources, binds each to the same-node `message.id`, and hashes the
+message/path identity before it reaches the manifest. User/tool content, arbitrary
+strings, image syntax, inline/fenced/indented code, malformed/double encoding, and
+unsafe paths remain excluded. Multiple links in one text part receive distinct
+opaque IDs and are re-matched by recomputing the same identity rather than by
+persisting a filename or sandbox path. The transient result remains only
+`{assetId,messageId,sandboxPath}`; conflicts are skipped, exact pairs deduplicate
+deterministically, and the cap remains 20.
 
-The separate transient gate is now implemented and offline-verified. The existing
+The separate transient gate is implemented, offline-verified, and live-verified. The existing
 attachment toggle and trusted click authorize the standard-conversation adapter;
 no new ambiguous setting is added. Only after at least one raw destination succeeds,
 the adapter derives the plan from verified committed bytes, opens its own
@@ -362,15 +362,24 @@ the adapter derives the plan from verified committed bytes, opens its own
 and issues sequential no-retry helper GETs. Captured native
 `URLSearchParams.set` receives `message_id` and `sandbox_path` exactly once in that
 order. The hook's published state is ordinal-only. Background verifies the bounded
-JSON response bytes and accepts only exact `{download_url}` or exact
-`{status:"Success",download_url}` objects whose signed estuary URL binds to the same
-conversation. Content revalidates a deterministic subset of input asset IDs.
-Interpreter candidates win same-asset conflicts; only remaining asset IDs enter
-the independent legacy resolver plan; then the existing credentialless bounded
-acquisition and content-addressed staged writer run once. Custom-GPT, library-ID,
-Calpico, retry, and broad content scans remain unsupported. The production wiring
-is intentionally not claimed live until a known-fresh one-interpreter-file smoke
-confirms the helper envelope and destination readback.
+JSON response bytes. It accepts the legacy exact `{download_url}` envelope or an
+own-field success envelope whose status is `Success` or `success`; additional
+descriptive fields are ignored and never cross the boundary. Legacy signed URLs
+retain UUID `cid` binding. Current signed URLs use exact
+`id,fn,cd,ts,p,cid,sig,v` grammar with numeric `cid`; their conversation binding is
+instead established by the exact same-conversation helper route, pinned document,
+and committed-raw message/path pair. Content revalidates a deterministic subset of
+input asset IDs.
+Interpreter candidates win same-asset conflicts and their signed bytes are fetched
+immediately, before only remaining asset IDs enter the independent legacy resolver
+plan. The content script uses one exact same-origin `credentials: include` GET with
+`redirect: error`, `no-referrer`, and `no-store`; Chrome attaches eligible session
+credentials without exposing them to extension code. Both families share one
+20-attempt/128 MiB budget, then the content-addressed staged writer runs once.
+The fresh DOCX canary persisted 38,620 bytes with matching manifest/canonical
+length and SHA-256, valid DOCX ZIP structure, one fetched canonical asset, two
+untouched previews, matching raw provenance, and zero marker tabs. Custom-GPT,
+library-ID, Calpico, retry, and broad content scans remain unsupported.
 
 ChatGPT's newer virtualized UI may request only
 `/backend-api/conversations/{conversationId}?include_has_versions=true&num_turns=10`
@@ -387,14 +396,19 @@ dispatches the singular request; its exact result structurally fixes
 `singularDispatchCount` to zero. Live cold/warm runs returned
 `eligible-init-empty` twice.
 
-A separate, disabled-by-default one-shot replay is therefore available as an
-explicit experiment. Probe and replay settings are mutually exclusive, with
-stale dual-true state canonicalized to probe-only. The eligible source Request
-clone remains inside the MAIN-world closure. Browser-native `Request` copies
-its Headers object opaquely into one exact same-origin singular GET with source
-credentials, a fresh abort signal, `redirect: error`, and `cache: no-store`.
-The captured previous fetch is called exactly once; there is no retry or DOM
-fallback. Only the singular 200 JSON response may be read under the 16 MiB cap.
+A disabled-by-default setting still forces this one-shot replay directly as an
+explicit experiment. In normal mode, passive capture now waits only 15 seconds for
+the page to issue the graph request; only `conversation-request-timeout` permits
+one automatic replay. A claimed request receives its own 180-second response
+window and is never replayed. Probe and force-replay settings remain mutually
+exclusive, with stale dual-true state canonicalized to probe-only. The eligible
+source Request clone remains inside the MAIN-world closure. Browser-native
+`Request` copies its Headers object opaquely into one exact same-origin singular
+GET with source credentials, a fresh abort signal, `redirect: error`, and
+`cache: no-store`. Each replay invocation dispatches at most once and never retries.
+An explicit replay failure remains fail-closed; a failed automatic fallback may
+still produce the existing honestly marked DOM current-branch export. Only the
+singular 200 JSON response may be read under the 16 MiB cap.
 Page and background independently enforce exact shape, canonical base64,
 length, SHA-256, conversation binding, deadline, abort, and cleanup before the
 existing raw/manifest/canonical pipeline accepts the artifact. The active path

@@ -150,6 +150,51 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
   });
 
+  it('falls back once to same-origin replay when passive capture observes no request', async () => {
+    renderedConversation();
+    const captureCurrentBranch = vi
+      .fn()
+      .mockRejectedValue(new ChatGptCurrentBranchError('conversation-request-timeout'));
+    const captureReplayCurrentBranch = vi.fn().mockResolvedValue(projection());
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      captureReplayCurrentBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.extractMessages = vi.fn(() => {
+      throw new Error('successful replay must not enter DOM fallback');
+    });
+
+    const result = await extractor.extract();
+
+    expect(captureCurrentBranch).toHaveBeenCalledWith(CONVERSATION_ID, false);
+    expect(captureReplayCurrentBranch).toHaveBeenCalledWith(CONVERSATION_ID, false);
+    expect(result.success).toBe(true);
+    expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
+  });
+
+  it('does not replay a passive capture that already claimed the provider request', async () => {
+    renderedConversation();
+    const captureCurrentBranch = vi
+      .fn()
+      .mockRejectedValue(new ChatGptCurrentBranchError('conversation-response-timeout'));
+    const captureReplayCurrentBranch = vi.fn();
+    const extractor = new ChatGPTExtractor({
+      captureCurrentBranch,
+      captureReplayCurrentBranch,
+      manifestAllowsStructuredCapture: () => true,
+    });
+
+    const result = await extractor.extract();
+
+    expect(captureReplayCurrentBranch).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+    expect(result.warnings).toContainEqual(
+      expect.stringContaining('conversation-response-timeout')
+    );
+  });
+
   it('runs only the metadata probe when the experimental setting is enabled', async () => {
     renderedConversation();
     const captureCurrentBranch = vi.fn();
@@ -300,6 +345,28 @@ describe('ChatGPTExtractor API-first bridge', () => {
 
     expect(captureReplayArchive).toHaveBeenCalledWith(CONVERSATION_ID);
     expect(captureArchive).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data?.presentation).toMatchObject({ mode: 'selected-branch', branchOrdinal: 2 });
+  });
+
+  it('falls back once to replay archive for branch selection after passive request timeout', async () => {
+    renderedConversation();
+    const captureArchive = vi
+      .fn()
+      .mockRejectedValue(new ChatGptCurrentBranchError('conversation-request-timeout'));
+    const captureReplayArchive = vi.fn().mockResolvedValue(branchCapture());
+    const extractor = new ChatGPTExtractor({
+      captureArchive,
+      captureReplayArchive,
+      selectBranch: vi.fn().mockResolvedValue(2),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+
+    const result = await extractor.extract();
+
+    expect(captureArchive).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(captureReplayArchive).toHaveBeenCalledWith(CONVERSATION_ID);
     expect(result.success).toBe(true);
     expect(result.data?.presentation).toMatchObject({ mode: 'selected-branch', branchOrdinal: 2 });
   });

@@ -6,6 +6,10 @@
 
 import type { RawCaptureAssetRecord } from '../../archive/capture';
 import { isSafeStagedBinaryAssetId } from '../../lib/binary-asset-contract';
+import {
+  chatGptAssetIdForIdentity,
+  chatGptSandboxLinksFromAssistantTextPart,
+} from '../../archive/chatgpt-sandbox-link';
 import { sha256Hex } from '../../lib/sha256';
 import {
   CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
@@ -114,6 +118,10 @@ interface ChatGptInterpreterAttachmentEvidence {
   sandboxPath: string;
 }
 
+interface ChatGptInterpreterAssistantTextPartPointer {
+  nodeSegment: string;
+}
+
 function interpreterAttachmentPointer(
   pointer: unknown
 ): ChatGptInterpreterAttachmentPointer | undefined {
@@ -157,6 +165,71 @@ function interpreterAttachmentEvidence(
   return { messageId, sandboxPath: attachment.name };
 }
 
+function interpreterAssistantTextPartPointer(
+  pointer: unknown
+): ChatGptInterpreterAssistantTextPartPointer | undefined {
+  if (
+    typeof pointer !== 'string' ||
+    pointer.length === 0 ||
+    pointer.length > CHATGPT_INTERPRETER_MAX_POINTER_LENGTH ||
+    hasControlCharacters(pointer)
+  ) {
+    return undefined;
+  }
+  const segments = pointer.split('/');
+  if (
+    segments.length !== 7 ||
+    segments[0] !== '' ||
+    segments[1] !== 'mapping' ||
+    segments[3] !== 'message' ||
+    segments[4] !== 'content' ||
+    segments[5] !== 'parts' ||
+    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6])
+  ) {
+    return undefined;
+  }
+  const node = decodePointerSegment(segments[2]);
+  if (node === undefined || node.length === 0 || hasControlCharacters(node)) return undefined;
+  return { nodeSegment: segments[2] };
+}
+
+/**
+ * Re-read one exact ledger text-part pointer and prove that its asset ID was
+ * derived from a link rendered by that same assistant message node. This never
+ * scans unrelated raw strings or nested tool/code data.
+ */
+async function interpreterSandboxLinkEvidence(
+  raw: unknown,
+  rawPointer: unknown,
+  assetId: string,
+  assetIdForIdentity: (identity: string) => Promise<string | undefined>
+): Promise<ChatGptInterpreterAttachmentEvidence[]> {
+  const location = interpreterAssistantTextPartPointer(rawPointer);
+  if (!location) return [];
+  const part = atJsonPointer(raw, rawPointer as string);
+  const message = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message`);
+  if (
+    typeof part !== 'string' ||
+    !isPlainRecord(message) ||
+    !isPlainRecord(message.author) ||
+    message.author.role !== 'assistant' ||
+    !isPlainRecord(message.content) ||
+    message.content.content_type !== 'text' ||
+    !Array.isArray(message.content.parts) ||
+    !isChatGptInterpreterMessageId(message.id)
+  ) {
+    return [];
+  }
+  const matches: ChatGptInterpreterAttachmentEvidence[] = [];
+  for (const link of chatGptSandboxLinksFromAssistantTextPart(message.id, part)) {
+    const expectedAssetId = await assetIdForIdentity(link.identity);
+    if (expectedAssetId === assetId) {
+      matches.push({ messageId: link.messageId, sandboxPath: link.sandboxPath });
+    }
+  }
+  return matches;
+}
+
 function sourceRefsSortKey(value: unknown): string {
   if (!Array.isArray(value)) return '';
   return value
@@ -184,29 +257,56 @@ function compareInterpreterAssets(
   return leftRefs < rightRefs ? -1 : leftRefs > rightRefs ? 1 : 0;
 }
 
-/**
- * Select bounded, exact metadata attachment locations for a future
- * interpreter-download attempt. This pure function only follows ledger
- * pointers and their same-node message IDs; it never scans message content.
- */
-export function extractChatGptInterpreterAssetPlan(
+async function interpreterEvidenceForAsset(
   raw: unknown,
-  assets: readonly RawCaptureAssetRecord[]
-): ChatGptInterpreterAssetCandidate[] {
+  asset: RawCaptureAssetRecord,
+  assetIdForIdentity: (identity: string) => Promise<string | undefined>
+): Promise<Map<string, ChatGptInterpreterAttachmentEvidence>> {
+  const candidates = new Map<string, ChatGptInterpreterAttachmentEvidence>();
+  for (const sourceRef of asset.sourceRefs) {
+    if (!isPlainRecord(sourceRef) || sourceRef.artifactId !== 'conversation') continue;
+    const attachment = interpreterAttachmentEvidence(raw, sourceRef.rawPointer);
+    if (attachment) {
+      candidates.set(`${attachment.messageId}\u0000${attachment.sandboxPath}`, attachment);
+    }
+    for (const sandboxLink of await interpreterSandboxLinkEvidence(
+      raw,
+      sourceRef.rawPointer,
+      asset.id,
+      assetIdForIdentity
+    )) {
+      candidates.set(`${sandboxLink.messageId}\u0000${sandboxLink.sandboxPath}`, sandboxLink);
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Select bounded, exact ledger locations for a future interpreter-download
+ * attempt. Metadata attachments stay synchronous in effect; assistant sandbox
+ * links are verified against their centralized opaque asset-ID derivation.
+ */
+export async function extractChatGptInterpreterAssetPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex
+): Promise<ChatGptInterpreterAssetCandidate[]> {
   if (!Array.isArray(assets)) return [];
   const selectedPairs = new Set<string>();
   const selected: ChatGptInterpreterAssetCandidate[] = [];
+  const sandboxAssetIds = new Map<string, Promise<string | undefined>>();
+  const assetIdForIdentity = (identity: string): Promise<string | undefined> => {
+    const existing = sandboxAssetIds.get(identity);
+    if (existing) return existing;
+    const pending = chatGptAssetIdForIdentity(identity, sha256);
+    sandboxAssetIds.set(identity, pending);
+    return pending;
+  };
   const orderedAssets = [...assets].sort(compareInterpreterAssets);
   for (const asset of orderedAssets) {
     if (!asset || typeof asset !== 'object' || !isSafeStagedBinaryAssetId(asset.id)) continue;
     if (!Array.isArray(asset.sourceRefs)) continue;
-    const candidates = new Map<string, ChatGptInterpreterAttachmentEvidence>();
-    for (const sourceRef of asset.sourceRefs) {
-      if (!isPlainRecord(sourceRef) || sourceRef.artifactId !== 'conversation') continue;
-      const evidence = interpreterAttachmentEvidence(raw, sourceRef.rawPointer);
-      if (!evidence) continue;
-      candidates.set(`${evidence.messageId}\u0000${evidence.sandboxPath}`, evidence);
-    }
+    const candidates = await interpreterEvidenceForAsset(raw, asset, assetIdForIdentity);
     if (candidates.size !== 1) continue;
     const evidence = candidates.values().next().value;
     if (!evidence) continue;

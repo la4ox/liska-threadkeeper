@@ -310,7 +310,11 @@ function isJsonResolverMediaType(value: unknown): value is string {
   return essence === 'application/json' || essence?.endsWith('+json') === true;
 }
 
-/** Accept exactly the documented interpreter response envelopes, including own-key checks. */
+/**
+ * Accept the live success envelope's own status/download_url fields while
+ * discarding its descriptive metadata. Legacy minimal envelopes remain
+ * supported for captured conversations that still emit them.
+ */
 function downloadUrlFromInterpreterBody(bytes: Uint8Array): string | undefined {
   try {
     const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
@@ -318,12 +322,11 @@ function downloadUrlFromInterpreterBody(bytes: Uint8Array): string | undefined {
     const record = parsed as Record<string, unknown>;
     const keys = Reflect.ownKeys(parsed);
     const exactDownload = keys.length === 1 && keys[0] === 'download_url';
-    const exactSuccess =
-      keys.length === 2 &&
-      keys.some(key => key === 'status') &&
-      keys.some(key => key === 'download_url') &&
-      record.status === 'Success';
-    return (exactDownload || exactSuccess) && typeof record.download_url === 'string'
+    const successfulEnvelope =
+      Object.prototype.hasOwnProperty.call(record, 'status') &&
+      Object.prototype.hasOwnProperty.call(record, 'download_url') &&
+      (record.status === 'Success' || record.status === 'success');
+    return (exactDownload || successfulEnvelope) && typeof record.download_url === 'string'
       ? record.download_url
       : undefined;
   } catch {

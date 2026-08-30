@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RawCaptureAssetRecord } from '../../src/archive/capture';
 import {
   acquireChatGptPageOwnedAssets,
+  createChatGptPageOwnedAssetAcquisitionBudget,
   CHATGPT_ASSET_FETCHED_DETAIL,
   CHATGPT_ASSET_FETCH_FAILED_DETAIL,
+  CHATGPT_ASSET_HTTP_FAILED_DETAIL,
   CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
 } from '../../src/content/capture/chatgpt-asset-acquisition';
 
@@ -70,7 +72,7 @@ function responseLike(
 }
 
 describe('ChatGPT page-owned asset acquisition', () => {
-  it('performs one credentialless signed GET and returns content-addressed verified bytes', async () => {
+  it('performs one browser-authenticated same-origin signed GET without exposing credentials', async () => {
     const record = ledger();
     const bytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
     const url = signedUrl();
@@ -89,7 +91,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
       url,
       expect.objectContaining({
         method: 'GET',
-        credentials: 'omit',
+        credentials: 'include',
         redirect: 'error',
         referrerPolicy: 'no-referrer',
         cache: 'no-store',
@@ -160,11 +162,10 @@ describe('ChatGPT page-owned asset acquisition', () => {
       sha256: digest,
     });
 
-    expect(result.records).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ state: 'failed', detail: CHATGPT_ASSET_FETCH_FAILED_DETAIL }),
-      ])
-    );
+    expect(result.records.map(record => record.detail)).toEqual([
+      CHATGPT_ASSET_FETCH_FAILED_DETAIL,
+      CHATGPT_ASSET_HTTP_FAILED_DETAIL,
+    ]);
     expect(result.records.every(record => record.state !== 'expired')).toBe(true);
     expect(result.completeness).toBe('complete');
   });
@@ -359,5 +360,42 @@ describe('ChatGPT page-owned asset acquisition', () => {
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(result.records.map(record => record.state)).toEqual(['failed', 'not-attempted']);
+  });
+
+  it('shares attempt and byte budgets across sequential resolver-family acquisitions', async () => {
+    const first = ledger('a');
+    const second = ledger('b');
+    const firstUrl = signedUrl('a');
+    const secondUrl = signedUrl('b');
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response(firstUrl, new Uint8Array([1])));
+    const budget = createChatGptPageOwnedAssetAcquisitionBudget();
+    budget.attemptsRemaining = 1;
+    budget.bytesRemaining = 1;
+
+    const firstResult = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [first],
+      candidates: [{ assetId: first.id, downloadUrl: firstUrl }],
+      fetcher,
+      now: () => new Date('2026-08-21T12:00:00.000Z'),
+      sha256: digest,
+      budget,
+    });
+    const secondResult = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [second],
+      candidates: [{ assetId: second.id, downloadUrl: secondUrl }],
+      fetcher,
+      now: () => new Date('2026-08-21T12:00:00.000Z'),
+      sha256: digest,
+      budget,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(firstResult.records[0].state).toBe('fetched');
+    expect(secondResult.records[0].state).toBe('not-attempted');
+    expect(budget).toEqual({ attemptsRemaining: 0, bytesRemaining: 0 });
   });
 });

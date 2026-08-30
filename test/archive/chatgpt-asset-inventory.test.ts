@@ -230,6 +230,155 @@ describe('ChatGPT raw attachment inventory', () => {
     ]);
   });
 
+  it('inventories one rendered assistant sandbox link without retaining its path or label', async () => {
+    const result = await inventory({
+      mapping: {
+        root: {
+          message: {
+            id: 'assistant-message-1',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'text',
+              parts: ['Download [report](sandbox:/mnt/data/Quarterly%20Report.docx).'],
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.assets).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^chatgpt-asset-[a-f0-9]{64}$/),
+        mediaType: null,
+        sourceRefs: [
+          {
+            artifactId: 'conversation',
+            rawPointer: '/mapping/root/message/content/parts/0',
+          },
+        ],
+      }),
+    ]);
+    expect(JSON.stringify(result.assets)).not.toContain('Quarterly Report.docx');
+    expect(JSON.stringify(result.assets)).not.toContain('sandbox:/mnt/data');
+  });
+
+  it('inventories multiple distinct assistant links in one text part deterministically', async () => {
+    const raw = {
+      mapping: {
+        root: {
+          message: {
+            id: 'assistant-message-2',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'text',
+              parts: ['[second](sandbox:/mnt/data/b.txt) and [first](sandbox:/mnt/data/a.txt)'],
+            },
+          },
+        },
+      },
+    };
+    const first = await inventory(raw);
+    const second = await inventory(raw);
+
+    expect(first.assets).toHaveLength(2);
+    expect(first.assets).toEqual(second.assets);
+    expect(first.assets.map(asset => asset.sourceRefs)).toEqual([
+      [{ artifactId: 'conversation', rawPointer: '/mapping/root/message/content/parts/0' }],
+      [{ artifactId: 'conversation', rawPointer: '/mapping/root/message/content/parts/0' }],
+    ]);
+  });
+
+  it('ignores user, tool, arbitrary-code, malformed, and unsafe sandbox-looking strings', async () => {
+    const result = await inventory({
+      mapping: {
+        user: {
+          message: {
+            id: 'user-message',
+            author: { role: 'user' },
+            content: {
+              content_type: 'text',
+              parts: ['[user](sandbox:/mnt/data/user.txt)'],
+            },
+          },
+        },
+        tool: {
+          message: {
+            id: 'tool-message',
+            author: { role: 'tool' },
+            content: {
+              content_type: 'text',
+              parts: ['[tool](sandbox:/mnt/data/tool.txt)'],
+            },
+          },
+        },
+        code: {
+          message: {
+            id: 'assistant-code',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'code',
+              parts: ['[code](sandbox:/mnt/data/not-a-link.txt)'],
+            },
+          },
+        },
+        inlineCode: {
+          message: {
+            id: 'assistant-inline-code',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'text',
+              parts: ['`[inline example](sandbox:/mnt/data/not-rendered.txt)`'],
+            },
+          },
+        },
+        fencedCode: {
+          message: {
+            id: 'assistant-fenced-code',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'text',
+              parts: ['```markdown\n[fenced example](sandbox:/mnt/data/not-rendered.txt)\n```'],
+            },
+          },
+        },
+        indentedCode: {
+          message: {
+            id: 'assistant-indented-code',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'text',
+              parts: ['    [indented example](sandbox:/mnt/data/not-rendered.txt)'],
+            },
+          },
+        },
+        tabIndentedCode: {
+          message: {
+            id: 'assistant-tab-indented-code',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'text',
+              parts: ['\t[tab-indented example](sandbox:/mnt/data/not-rendered.txt)'],
+            },
+          },
+        },
+        unsafe: {
+          message: {
+            id: 'assistant-unsafe',
+            author: { role: 'assistant' },
+            content: {
+              content_type: 'text',
+              parts: [
+                '[bad encoding](sandbox:/mnt/data/a%2Fb.txt) [bad percent](sandbox:/mnt/data/%ZZ) [traversal](sandbox:/mnt/data/%2e%2e/up.txt) [double encoded](sandbox:/mnt/data/%252e%252e/up.txt) [slash](sandbox:/mnt/data/a%5Cb.txt)',
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toEqual({ assets: [], completeness: 'not-attempted', warnings: [] });
+  });
+
   it('falls back to a stable unknown inventory on malformed or ambiguous raw shape', async () => {
     const malformed = await inventory(rootRaw({ content_type: 'text', parts: 'not-an-array' }));
     const ambiguous = await inventory({

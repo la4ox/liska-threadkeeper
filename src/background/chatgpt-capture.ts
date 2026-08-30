@@ -32,14 +32,14 @@ export type {
   ChatGptCaptureErrorCode as ChatGptTemporaryCaptureErrorCode,
 } from '../lib/chatgpt-capture-contract';
 
-export const CHATGPT_CAPTURE_TIMEOUT_MS = 190_000;
+export const CHATGPT_CAPTURE_TIMEOUT_MS = 205_000;
 
 const CHATGPT_ORIGIN = 'https://chatgpt.com';
 const CAPTURE_FRAGMENT_PREFIX = '#liska-capture=';
 const RESOLVER_OBSERVATION_FRAGMENT = '&liska-observe-asset-resolvers=1';
 const MIN_TIMEOUT_MS = 1_000;
-// Let the page-owned 180-second timeout win before background cleanup.
-const MAX_TIMEOUT_MS = 195_000;
+// Let the page-owned request window plus 180-second response timeout win.
+const MAX_TIMEOUT_MS = 210_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
 const CHATGPT_RESOLVER_MAX_BYTES = 64 * 1024;

@@ -634,7 +634,7 @@ describe('startChatGptDocumentStartCapture', () => {
     let timerCalls = 0;
     page.pageWindow.setTimeout = ((callback: TimerHandler, timeout?: number) => {
       timerCalls += 1;
-      if (timerCalls === 2) throw new Error('optional timer unavailable');
+      if (timerCalls === 3) throw new Error('optional timer unavailable');
       return nativeSetTimeout(callback, timeout);
     }) as typeof page.pageWindow.setTimeout;
 
@@ -930,7 +930,7 @@ describe('startChatGptDocumentStartCapture', () => {
     const laterWrapper = vi.fn();
     page.pageWindow.fetch = laterWrapper as unknown as typeof page.pageWindow.fetch;
 
-    await vi.advanceTimersByTimeAsync(180_000);
+    await vi.advanceTimersByTimeAsync(15_000);
 
     expect(snapshotOf(page)).toEqual({ kind: 'error', code: 'conversation-request-timeout' });
     expect(page.pageWindow.fetch).toBe(laterWrapper);
@@ -945,6 +945,22 @@ describe('startChatGptDocumentStartCapture', () => {
     void page.pageWindow.fetch(ENDPOINT);
     await vi.advanceTimersByTimeAsync(180_000);
 
+    expect(snapshotOf(page)).toEqual({ kind: 'error', code: 'conversation-response-timeout' });
+  });
+
+  it('replaces the short request timer with a full response timer after a late claim', async () => {
+    vi.useFakeTimers();
+    const page = fakePage(markedUrl(), () => new Promise<Response>(() => undefined));
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await vi.advanceTimersByTimeAsync(14_999);
+    void page.pageWindow.fetch(ENDPOINT);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(snapshotOf(page)).toEqual({ kind: 'ready' });
+    await vi.advanceTimersByTimeAsync(179_998);
+    expect(snapshotOf(page)).toEqual({ kind: 'ready' });
+    await vi.advanceTimersByTimeAsync(1);
     expect(snapshotOf(page)).toEqual({ kind: 'error', code: 'conversation-response-timeout' });
   });
 

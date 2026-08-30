@@ -1,4 +1,8 @@
 import type { RawCaptureAssetRecord } from '../../capture';
+import {
+  chatGptAssetIdForIdentity,
+  chatGptSandboxLinksFromAssistantTextPart,
+} from '../../chatgpt-sandbox-link';
 import type { JsonRecord } from './contracts';
 import { hasOwn, isPlainRecord, pointerAt } from './privacy';
 
@@ -55,7 +59,6 @@ const KNOWN_MIME_TYPES = new Set([
 const MAX_IDENTITY_LENGTH = 8_192;
 const MAX_CONTENT_DEPTH = 64;
 const MAX_DISCOVERED_ASSETS = 50_000;
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 export interface ChatGptAssetInventoryInput {
   /** Parsed bytes from an integrity-verified ChatGPT raw artifact. */
@@ -164,6 +167,13 @@ function scanMessage(
       0,
       new WeakSet()
     );
+    scanAssistantTextSandboxLinks(
+      message,
+      message.content,
+      pointerAt(pointer, 'content'),
+      artifactId,
+      candidates
+    );
   }
   if (!hasOwn(message, 'metadata') || message.metadata === null) return;
   if (!isPlainRecord(message.metadata)) throw new Error();
@@ -181,6 +191,42 @@ function scanMessage(
       );
     });
   }
+}
+
+/**
+ * Sandbox links are intentionally read only from direct assistant text parts.
+ * In particular, do not recurse through tool/code structures or scan generic
+ * strings: those can contain incidental /mnt/data values that were never
+ * rendered as assistant links.
+ */
+function scanAssistantTextSandboxLinks(
+  message: JsonRecord,
+  content: unknown,
+  contentPointer: string,
+  artifactId: string,
+  candidates: Candidate[]
+): void {
+  if (
+    !isPlainRecord(message.author) ||
+    message.author.role !== 'assistant' ||
+    typeof message.id !== 'string' ||
+    !isPlainRecord(content) ||
+    content.content_type !== 'text' ||
+    !Array.isArray(content.parts)
+  ) {
+    return;
+  }
+  content.parts.forEach((part, index) => {
+    if (typeof part !== 'string') return;
+    for (const link of chatGptSandboxLinksFromAssistantTextPart(message.id, part)) {
+      pushIdentityCandidate(
+        link.identity,
+        null,
+        { artifactId, rawPointer: pointerAt(contentPointer, 'parts', String(index)) },
+        candidates
+      );
+    }
+  });
 }
 
 function scanContent(
@@ -221,12 +267,22 @@ function pushCandidate(
   artifactId: string,
   candidates: Candidate[]
 ): void {
+  pushIdentityCandidate(
+    assetIdentity(record, rawPointer),
+    knownMimeType(record),
+    { artifactId, rawPointer },
+    candidates
+  );
+}
+
+function pushIdentityCandidate(
+  identity: string,
+  mediaType: string | null,
+  sourceRef: Candidate['sourceRef'],
+  candidates: Candidate[]
+): void {
   if (candidates.length >= MAX_DISCOVERED_ASSETS) throw new Error();
-  candidates.push({
-    identity: assetIdentity(record, rawPointer),
-    mediaType: knownMimeType(record),
-    sourceRef: { artifactId, rawPointer },
-  });
+  candidates.push({ identity, mediaType, sourceRef });
 }
 
 function assetIdentity(record: JsonRecord, rawPointer: string): string {
@@ -321,12 +377,10 @@ async function recordForDiscoveredAsset(
   asset: DiscoveredAsset,
   sha256: ChatGptAssetInventoryInput['sha256']
 ): Promise<RawCaptureAssetRecord> {
-  const digest = await sha256(
-    new TextEncoder().encode(`liska-chatgpt-asset/1\u0000${asset.identity}`)
-  );
-  if (!SHA256_PATTERN.test(digest)) throw new Error();
+  const id = await chatGptAssetIdForIdentity(asset.identity, sha256);
+  if (!id) throw new Error();
   return {
-    id: `chatgpt-asset-${digest}`,
+    id,
     state: 'not-attempted',
     attemptedAt: null,
     relativePath: null,

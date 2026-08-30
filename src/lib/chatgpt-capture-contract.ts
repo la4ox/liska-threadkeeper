@@ -15,8 +15,18 @@ export const CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT = 32;
 
 const CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_MAX_LENGTH = 8 * 1024;
 const CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_BASE = 'https://chatgpt.com/backend-api/estuary/content';
-const CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_QUERY_KEYS = [
+const CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_LEGACY_QUERY_KEYS = [
   'cid',
+  'id',
+  'p',
+  'sig',
+  'ts',
+  'v',
+] as const;
+const CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_CURRENT_QUERY_KEYS = [
+  'cd',
+  'cid',
+  'fn',
   'id',
   'p',
   'sig',
@@ -164,7 +174,79 @@ function isExactEndpoint(value: unknown): value is typeof CHATGPT_CAPTURE_ENDPOI
   );
 }
 
-// eslint-disable-next-line complexity, max-lines-per-function -- Keep the exact raw and parsed URL grammar together at both runtime boundaries.
+function hasExactQueryKeys(url: URL, expected: readonly string[]): boolean {
+  const rawPairs = url.search.length === 0 ? [] : url.search.slice(1).split('&');
+  if (rawPairs.length !== expected.length) return false;
+  const seen = new Set<string>();
+  for (const rawPair of rawPairs) {
+    const separator = rawPair.indexOf('=');
+    if (separator <= 0) return false;
+    const key = rawPair.slice(0, separator);
+    if (!expected.includes(key) || seen.has(key)) return false;
+    seen.add(key);
+  }
+  return expected.every(key => seen.has(key));
+}
+
+function hasBoundedQueryValues(url: URL, keys: readonly string[]): boolean {
+  return keys.every(key => {
+    const parameter = url.searchParams.get(key);
+    return parameter !== null && parameter.length > 0 && parameter.length <= 2_048;
+  });
+}
+
+function isSafeDownloadFilename(value: string): boolean {
+  return !Array.from(value).some(character => {
+    const code = character.codePointAt(0) ?? 0;
+    return (
+      code <= 0x1f || (code >= 0x7f && code <= 0x9f) || character === '/' || character === '\\'
+    );
+  });
+}
+
+function isCurrentSignedDownloadUrl(url: URL): boolean {
+  if (
+    !hasExactQueryKeys(url, CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_CURRENT_QUERY_KEYS) ||
+    !hasBoundedQueryValues(url, CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_CURRENT_QUERY_KEYS)
+  ) {
+    return false;
+  }
+  return [
+    url.searchParams.get('cd') === 'attachment',
+    /^[1-9][0-9]{0,9}$/.test(url.searchParams.get('cid') ?? ''),
+    /^[A-Za-z0-9._-]{1,512}$/.test(url.searchParams.get('id') ?? ''),
+    url.searchParams.get('p') === 'fs',
+    /^[a-f0-9]{64}$/i.test(url.searchParams.get('sig') ?? ''),
+    /^[0-9]{1,32}$/.test(url.searchParams.get('ts') ?? ''),
+    /^[0-9]{1,8}$/.test(url.searchParams.get('v') ?? ''),
+    isSafeDownloadFilename(url.searchParams.get('fn') ?? ''),
+  ].every(Boolean);
+}
+
+function isExactEstuaryUrl(url: URL): boolean {
+  return [
+    url.origin === 'https://chatgpt.com',
+    url.username === '',
+    url.password === '',
+    url.pathname === '/backend-api/estuary/content',
+    url.hash === '',
+  ].every(Boolean);
+}
+
+function isLegacySignedDownloadUrl(url: URL, expectedConversationId?: string): boolean {
+  if (
+    !hasExactQueryKeys(url, CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_LEGACY_QUERY_KEYS) ||
+    !hasBoundedQueryValues(url, CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_LEGACY_QUERY_KEYS)
+  ) {
+    return false;
+  }
+  const conversationId = url.searchParams.get('cid');
+  return (
+    isChatGptConversationId(conversationId) &&
+    (expectedConversationId === undefined || conversationId === expectedConversationId)
+  );
+}
+
 export function isChatGptTransientDownloadUrl(
   value: unknown,
   expectedConversationId?: string
@@ -185,44 +267,16 @@ export function isChatGptTransientDownloadUrl(
     return false;
   }
   const url = new URL(value);
-  if (
-    url.origin !== 'https://chatgpt.com' ||
-    url.username !== '' ||
-    url.password !== '' ||
-    url.pathname !== '/backend-api/estuary/content' ||
-    url.hash !== ''
-  ) {
-    return false;
+  if (!isExactEstuaryUrl(url)) return false;
+
+  if (isCurrentSignedDownloadUrl(url)) {
+    // Current estuary URLs use an opaque numeric cid. Conversation binding is
+    // established by the exact same-origin helper request that returned this
+    // signed URL, not by a UUID duplicated into the URL itself.
+    return true;
   }
 
-  const rawPairs = url.search.length === 0 ? [] : url.search.slice(1).split('&');
-  if (rawPairs.length !== CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_QUERY_KEYS.length) return false;
-
-  const seen = new Set<string>();
-  for (const rawPair of rawPairs) {
-    const separator = rawPair.indexOf('=');
-    if (separator <= 0) return false;
-    const key = rawPair.slice(0, separator);
-    if (
-      !CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_QUERY_KEYS.includes(
-        key as (typeof CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_QUERY_KEYS)[number]
-      ) ||
-      seen.has(key)
-    ) {
-      return false;
-    }
-    seen.add(key);
-  }
-
-  const conversationId = url.searchParams.get('cid');
-  return (
-    CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_QUERY_KEYS.every(key => {
-      const parameter = url.searchParams.get(key);
-      return parameter !== null && parameter.length > 0 && parameter.length <= 2_048;
-    }) &&
-    isChatGptConversationId(conversationId) &&
-    (expectedConversationId === undefined || conversationId === expectedConversationId)
-  );
+  return isLegacySignedDownloadUrl(url, expectedConversationId);
 }
 
 /** Strict transient resolver boundary: opaque key plus one allowlisted URL only. */

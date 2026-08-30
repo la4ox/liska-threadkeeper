@@ -21,6 +21,8 @@ const INTERPRETER_RESOLVER_FRAGMENT_PATTERN =
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_RESPONSE_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
 const DEFAULT_OPAQUE_PROBE_TIMEOUT_MS = 45_000;
 const DEFAULT_RESOLVER_DISCOVERY_WINDOW_MS = 2_000;
 const DEFAULT_OPAQUE_RESOLVER_DISCOVERY_WINDOW_MS = 8_000;
@@ -859,6 +861,34 @@ function finishCapture(pageWindow: PageWindow, state: PageState, result: HookRes
   }
 }
 
+function armCaptureTimeout(
+  pageWindow: PageWindow,
+  state: PageState,
+  code: 'conversation-request-timeout' | 'conversation-response-timeout',
+  timeoutMs: number
+): void {
+  if (state.timeoutId !== undefined) {
+    try {
+      applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+        state.timeoutId,
+      ]);
+    } catch {
+      // A replacement timer still provides the bounded terminal result.
+    }
+    state.timeoutId = undefined;
+  }
+  try {
+    state.timeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      state.primordials,
+      state.primordials.setTimeout,
+      pageWindow,
+      [() => finishCapture(pageWindow, state, { kind: 'error', code }), timeoutMs]
+    );
+  } catch {
+    finishCapture(pageWindow, state, { kind: 'error', code: 'hook-state-failed' });
+  }
+}
+
 function completeCapturedConversation(
   pageWindow: PageWindow,
   state: PageState,
@@ -1150,7 +1180,15 @@ function createWrappedFetch(
       !state.settled &&
       !state.claimed &&
       targetRequest(state.primordials, args[0], args[1], target.conversationId);
-    if (shouldCaptureConversation) state.claimed = true;
+    if (shouldCaptureConversation) {
+      state.claimed = true;
+      armCaptureTimeout(
+        pageWindow,
+        state,
+        'conversation-response-timeout',
+        DEFAULT_RESPONSE_TIMEOUT_MS
+      );
+    }
 
     const resolverFileId =
       !state.settled &&
@@ -1193,18 +1231,11 @@ function armNativeFetchObserver(
   try {
     state.wrappedFetch = wrappedFetch;
     pageWindow.fetch = wrappedFetch;
-    state.timeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
-      state.primordials,
-      state.primordials.setTimeout,
+    armCaptureTimeout(
       pageWindow,
-      [
-        () =>
-          finishCapture(pageWindow, state, {
-            kind: 'error',
-            code: state.claimed ? 'conversation-response-timeout' : 'conversation-request-timeout',
-          }),
-        DEFAULT_TIMEOUT_MS,
-      ]
+      state,
+      'conversation-request-timeout',
+      DEFAULT_REQUEST_TIMEOUT_MS
     );
   } catch {
     finishCapture(pageWindow, state, { kind: 'error', code: 'hook-state-failed' });

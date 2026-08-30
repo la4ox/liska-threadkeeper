@@ -106,11 +106,11 @@ describe('ChatGPT interpreter resolver background transport', () => {
   it('omits malformed/helper-invalid items while retaining completed partial success', async () => {
     const invalid = new TextEncoder().encode(
       JSON.stringify({
-        status: 'Success',
+        status: 'error',
         download_url:
           `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
           '&id=private&p=p&sig=s&ts=1&v=1',
-        extra: 'must-not-be-accepted',
+        extra: 'ignored-provider-metadata',
       })
     );
     const chrome = chromeApi({

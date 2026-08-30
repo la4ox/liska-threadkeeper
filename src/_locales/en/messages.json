@@ -378,11 +378,11 @@
   },
   "settings_enableChatGptOpaqueReplay": {
     "message": "Experimental ChatGPT full graph replay",
-    "description": "Label for the disabled-by-default one-shot A-strict replay"
+    "description": "Label for forcing the one-shot A-strict replay directly"
   },
   "settings_chatGptOpaqueReplayHelp": {
-    "message": "One strict same-origin request; disabled by default",
-    "description": "Explains the bounded experimental ChatGPT replay"
+    "message": "Forces direct replay; normal mode also tries it once after a passive request timeout",
+    "description": "Explains direct replay and the bounded automatic request-timeout fallback"
   },
   "settings_imageExportHelp": {
     "message": "Save generated images and supported ChatGPT attachments",

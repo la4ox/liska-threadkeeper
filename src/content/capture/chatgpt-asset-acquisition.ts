@@ -3,7 +3,8 @@
  *
  * This module never calls ChatGPT's authenticated resolver. It accepts only a
  * signed estuary URL that the marker-gated page observer already witnessed,
- * performs a credentialless one-shot GET, and returns verified runtime bytes.
+ * performs one exact same-origin GET with browser-managed session credentials,
+ * without reading or serializing them, and returns verified runtime bytes.
  * Destination persistence remains a later orchestration step.
  */
 
@@ -24,6 +25,7 @@ const DEFAULT_ASSET_TIMEOUT_MS = 30_000;
 
 export const CHATGPT_ASSET_FETCHED_DETAIL = 'page-owned-signed-response';
 export const CHATGPT_ASSET_FETCH_FAILED_DETAIL = 'page-owned-fetch-failed';
+export const CHATGPT_ASSET_HTTP_FAILED_DETAIL = 'page-owned-http-failed';
 export const CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL = 'page-owned-response-rejected';
 
 export interface AcquireChatGptPageOwnedAssetsInput {
@@ -38,12 +40,32 @@ export interface AcquireChatGptPageOwnedAssetsInput {
   maxTotalBytes?: number;
   /** Optional stricter per-asset budget; never raises the built-in 64 MiB cap. */
   maxAssetBytes?: number;
+  /** Shared mutable budget for sequential resolver families in one trusted click. */
+  budget?: ChatGptPageOwnedAssetAcquisitionBudget;
+}
+
+export interface ChatGptPageOwnedAssetAcquisitionBudget {
+  attemptsRemaining: number;
+  bytesRemaining: number;
 }
 
 export interface ChatGptPageOwnedAssetAcquisition {
   records: RawCaptureAssetRecord[];
   runtimeAssets: RawCaptureAsset[];
   completeness: CaptureCompletenessState;
+}
+
+export function createChatGptPageOwnedAssetAcquisitionBudget(): ChatGptPageOwnedAssetAcquisitionBudget {
+  return {
+    attemptsRemaining: MAX_PAGE_OWNED_ASSET_ATTEMPTS,
+    bytesRemaining: MAX_PAGE_OWNED_ASSET_BYTES_TOTAL,
+  };
+}
+
+function boundedBudgetValue(value: number | undefined, maximum: number): number {
+  return value === undefined || !Number.isFinite(value)
+    ? maximum
+    : Math.min(maximum, Math.max(0, Math.floor(value)));
 }
 
 function attemptedAt(now: (() => Date) | undefined): string | undefined {
@@ -136,7 +158,7 @@ function failedRecord(
   };
 }
 
-// eslint-disable-next-line complexity, max-lines-per-function -- Keep one abort-bounded credentialless fetch and its integrity decisions in a single lifecycle.
+// eslint-disable-next-line complexity, max-lines-per-function -- Keep one abort-bounded same-origin authenticated fetch and its integrity decisions in a single lifecycle.
 async function fetchOne(
   record: RawCaptureAssetRecord,
   candidate: ChatGptPageOwnedAssetCandidate,
@@ -158,19 +180,21 @@ async function fetchOne(
   try {
     const response = await (input.fetcher ?? fetch)(signedUrl.href, {
       method: 'GET',
-      credentials: 'omit',
+      credentials: 'include',
       redirect: 'error',
       referrerPolicy: 'no-referrer',
       cache: 'no-store',
       signal: controller.signal,
     });
-    if (
-      !response.ok ||
-      response.status !== 200 ||
-      (response.url !== '' && !exactSignedAssetUrl(response.url, input.conversationId))
-    ) {
+    if (!response.ok || response.status !== 200) {
       return {
-        record: failedRecord(record, timestamp, CHATGPT_ASSET_FETCH_FAILED_DETAIL),
+        record: failedRecord(record, timestamp, CHATGPT_ASSET_HTTP_FAILED_DETAIL),
+        byteCost: 0,
+      };
+    }
+    if (response.url !== '' && !exactSignedAssetUrl(response.url, input.conversationId)) {
+      return {
+        record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
         byteCost: 0,
       };
     }
@@ -239,6 +263,7 @@ function acquisitionCompleteness(
 }
 
 /** Acquire matched assets sequentially and leave every unmatched ledger record untouched. */
+// eslint-disable-next-line complexity, max-lines-per-function -- Keep one atomic lifecycle for the shared attempt/byte budget and sequential fetch accounting.
 export async function acquireChatGptPageOwnedAssets(
   input: AcquireChatGptPageOwnedAssetsInput
 ): Promise<ChatGptPageOwnedAssetAcquisition> {
@@ -248,17 +273,26 @@ export async function acquireChatGptPageOwnedAssets(
   const runtimeAssets: RawCaptureAsset[] = [];
   let totalReadBytes = 0;
   let attempts = 0;
-  const maxTotalBytes =
+  const configuredTotalBytes =
     input.maxTotalBytes === undefined || !Number.isFinite(input.maxTotalBytes)
       ? MAX_PAGE_OWNED_ASSET_BYTES_TOTAL
       : Math.min(MAX_PAGE_OWNED_ASSET_BYTES_TOTAL, Math.max(0, Math.floor(input.maxTotalBytes)));
+  const budgetAttempts = boundedBudgetValue(
+    input.budget?.attemptsRemaining,
+    MAX_PAGE_OWNED_ASSET_ATTEMPTS
+  );
+  const budgetBytes = boundedBudgetValue(
+    input.budget?.bytesRemaining,
+    MAX_PAGE_OWNED_ASSET_BYTES_TOTAL
+  );
+  const maxTotalBytes = Math.min(configuredTotalBytes, budgetBytes);
   const maxAssetBytes =
     input.maxAssetBytes === undefined || !Number.isFinite(input.maxAssetBytes)
       ? MAX_STAGED_BINARY_ASSET_BYTES
       : Math.min(MAX_STAGED_BINARY_ASSET_BYTES, Math.max(0, Math.floor(input.maxAssetBytes)));
 
   for (const candidate of input.candidates) {
-    if (attempts >= MAX_PAGE_OWNED_ASSET_ATTEMPTS) break;
+    if (attempts >= budgetAttempts) break;
     if (seen.has(candidate.assetId)) continue;
     seen.add(candidate.assetId);
     const index = byId.get(candidate.assetId);
@@ -275,6 +309,11 @@ export async function acquireChatGptPageOwnedAssets(
     if (acquired.runtime) {
       runtimeAssets.push(acquired.runtime);
     }
+  }
+
+  if (input.budget) {
+    input.budget.attemptsRemaining = Math.max(0, budgetAttempts - attempts);
+    input.budget.bytesRemaining = Math.max(0, budgetBytes - totalReadBytes);
   }
 
   return {

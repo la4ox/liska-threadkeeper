@@ -33,6 +33,18 @@ const CANDIDATES: ChatGptInterpreterAssetCandidate[] = [
 const VALID_DOWNLOAD_URL =
   `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
   '&id=synthetic-file&p=p&sig=s&ts=t&v=v';
+const CURRENT_DOWNLOAD_URL =
+  'https://chatgpt.com/backend-api/estuary/content?' +
+  new URLSearchParams({
+    id: 'file_00000000synthetic',
+    fn: 'synthetic.txt',
+    cd: 'attachment',
+    ts: '123456',
+    p: 'fs',
+    cid: '1',
+    sig: 'a'.repeat(64),
+    v: '0',
+  }).toString();
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -651,15 +663,48 @@ describe('ChatGPT interpreter resolver coverage', () => {
 
   it.each([
     ['only download_url', { download_url: VALID_DOWNLOAD_URL }, true],
-    ['success envelope', { status: 'Success', download_url: VALID_DOWNLOAD_URL }, true],
+    ['legacy success envelope', { status: 'Success', download_url: VALID_DOWNLOAD_URL }, true],
+    [
+      'legacy status with ignored metadata',
+      { status: 'Success', download_url: VALID_DOWNLOAD_URL, metadata: { synthetic: true } },
+      true,
+    ],
+    [
+      'live success envelope with ignored metadata',
+      {
+        status: 'success',
+        download_url: CURRENT_DOWNLOAD_URL,
+        creation_time: 1,
+        file_name: 'synthetic.txt',
+        file_size_bytes: 1,
+        metadata: { synthetic: true },
+        mime_type: 'text/plain',
+        no_auth_user_upload: false,
+      },
+      true,
+    ],
     ['extra envelope key', { download_url: VALID_DOWNLOAD_URL, extra: true }, false],
-    ['missing status', { status: 'Error', download_url: VALID_DOWNLOAD_URL }, false],
+    ['non-success status', { status: 'error', download_url: VALID_DOWNLOAD_URL }, false],
+    [
+      'wrong download URL',
+      { status: 'success', download_url: 'https://example.test/not-an-estuary-url' },
+      false,
+    ],
     ['missing URL', { status: 'Success' }, false],
     ['array body', [VALID_DOWNLOAD_URL], false],
     ['null body', null, false],
   ] as const)(
-    'accepts only exact interpreter JSON envelopes: %s',
+    'accepts supported interpreter JSON envelopes: %s',
     async (_label, value, accepted) => {
+      const expectedUrl =
+        accepted &&
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        'download_url' in value &&
+        typeof value.download_url === 'string'
+          ? value.download_url
+          : undefined;
       const body = captureFor(JSON.stringify(value));
       const fixture = chromeFixture({
         finalResult: completeState([{ state: 'observed', capture: body }], {
@@ -670,9 +715,7 @@ describe('ChatGPT interpreter resolver coverage', () => {
       await expect(resolveFixture(fixture, [CANDIDATES[0]])).resolves.toEqual({
         success: true,
         data: {
-          resolved: accepted
-            ? [{ assetId: CANDIDATES[0].assetId, downloadUrl: VALID_DOWNLOAD_URL }]
-            : [],
+          resolved: accepted ? [{ assetId: CANDIDATES[0].assetId, downloadUrl: expectedUrl }] : [],
         },
       });
     }

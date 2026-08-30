@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { buildCaptureManifest, type RawCaptureAssetRecord } from '../../src/archive';
 import {
+  CHATGPT_ASSET_ACQUISITION_FAILED_WARNING,
   CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL,
   persistChatGptDestinationHonestAttachments,
   validateChatGptAssetExportBinding,
@@ -147,7 +148,7 @@ function binaryResult(
   }
   return [
     {
-      assetId: ASSET_ID,
+      assetId: record.id,
       descriptor: {
         assetId: record.id,
         relativePath: record.relativePath,
@@ -432,7 +433,7 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(JSON.stringify(persistArtifacts.mock.calls)).not.toContain(signedSentinel);
   });
 
-  it('resolves interpreter assets first, fills only remaining IDs from legacy, and acquires once', async () => {
+  it('acquires interpreter assets before resolving and acquiring only remaining legacy IDs', async () => {
     const first = originalAsset();
     const second: RawCaptureAssetRecord = {
       ...originalAsset(),
@@ -491,15 +492,18 @@ describe('destination-honest ChatGPT attachment export', () => {
       }
     );
 
-    expect(events.slice(0, 4)).toEqual(['raw', 'interpreter', 'legacy', 'acquire']);
+    expect(events.slice(0, 5)).toEqual(['raw', 'interpreter', 'acquire', 'legacy', 'acquire']);
     expect(observeInterpreterResolvers).toHaveBeenCalledOnce();
     expect(observeResolvers).toHaveBeenCalledOnce();
     expect(observeResolvers).toHaveBeenCalledWith(exportContext, [second.id]);
-    expect(acquireAssets).toHaveBeenCalledOnce();
+    expect(acquireAssets).toHaveBeenCalledTimes(2);
     expect(acquireAssets.mock.calls[0]?.[0].candidates).toEqual([
       { assetId: first.id, downloadUrl: interpreterUrl },
+    ]);
+    expect(acquireAssets.mock.calls[1]?.[0].candidates).toEqual([
       { assetId: second.id, downloadUrl: legacyUrl },
     ]);
+    expect(acquireAssets.mock.calls[0]?.[0].budget).toBe(acquireAssets.mock.calls[1]?.[0].budget);
     expect(JSON.stringify(persistArtifacts.mock.calls)).not.toContain(interpreterUrl);
     expect(JSON.stringify(persistArtifacts.mock.calls)).not.toContain(legacyUrl);
     expect(result.warnings).toContain(
@@ -508,6 +512,69 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(JSON.stringify(result.warnings)).not.toContain(
       'matching attachments remain not attempted'
     );
+  });
+
+  it('keeps partial acquisition warnings honest when interpreter acquisition throws and legacy succeeds', async () => {
+    const first = originalAsset();
+    const second: RawCaptureAssetRecord = {
+      ...originalAsset(),
+      id: `chatgpt-asset-${'b'.repeat(64)}`,
+      sourceRefs: [{ artifactId: 'conversation', rawPointer: '/second-asset' }],
+    };
+    const bytes = new Uint8Array([4, 5, 6]);
+    const digest = sha256(bytes);
+    const fetchedSecond: RawCaptureAssetRecord = {
+      ...second,
+      state: 'fetched',
+      attemptedAt: '2026-08-21T12:01:00.000Z',
+      relativePath: `assets/${digest}.png`,
+      byteLength: bytes.byteLength,
+      sha256: digest,
+      detail: 'page-owned-signed-response',
+    };
+    const exportContext = context(true, [first, second]);
+    const acquireAssets = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('interpreter fetch unavailable'))
+      .mockResolvedValueOnce({
+        records: [first, fetchedSecond],
+        runtimeAssets: [{ record: fetchedSecond, bytes }],
+        completeness: 'partial',
+      });
+    const buildDestinationCompanion = vi.fn().mockResolvedValue(companion());
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      exportContext,
+      companion(),
+      'note.md',
+      ['file'],
+      {
+        persistArtifacts: vi.fn().mockResolvedValue(persisted(['file'])),
+        observeInterpreterResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: first.id, downloadUrl: 'signed-interpreter' }],
+        }),
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: second.id, downloadUrl: 'signed-legacy' }],
+        }),
+        acquireAssets,
+        persistBinaryAssets: async () => binaryResult(fetchedSecond, true, false),
+        buildDestinationCompanion,
+      }
+    );
+
+    expect(acquireAssets).toHaveBeenCalledTimes(2);
+    expect(buildDestinationCompanion.mock.calls[0]?.[1].map(record => record.state)).toEqual([
+      'not-attempted',
+      'fetched',
+    ]);
+    expect(result.warnings).toContain(CHATGPT_ASSET_ACQUISITION_FAILED_WARNING);
+    expect(result.warnings).toContain(
+      'Some ChatGPT attachments were not resolved during this export attempt; the archive manifest records them as not attempted.'
+    );
+    expect(JSON.stringify(result.warnings)).not.toContain('attachments were not attempted');
+    expect(result.completeDestinations).toEqual(['file']);
   });
 
   it('skips the legacy resolver when interpreter candidates cover the entire ledger', async () => {
@@ -602,7 +669,10 @@ describe('destination-honest ChatGPT attachment export', () => {
         async (_companion, _name, _source, outputs: ('file' | 'obsidian')[], kinds: string[]) =>
           kinds[0] === 'raw' ? persisted(['file']) : persisted(outputs)
       );
-    const observeResolvers = vi.fn().mockResolvedValue({ kind: 'matched', candidates: [] });
+    const observeResolvers = vi.fn().mockResolvedValue({
+      kind: 'matched',
+      candidates: [{ assetId: asset.record.id, downloadUrl: 'signed-asset' }],
+    });
     const acquireAssets = vi.fn().mockResolvedValue({
       records: [asset.record],
       runtimeAssets: [asset],
@@ -691,7 +761,10 @@ describe('destination-honest ChatGPT attachment export', () => {
 
     await persistChatGptDestinationHonestAttachments(context(), companion(), 'note.md', ['file'], {
       persistArtifacts,
-      observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+      observeResolvers: async () => ({
+        kind: 'matched',
+        candidates: [{ assetId: failed.id, downloadUrl: 'signed-failed' }],
+      }),
       acquireAssets: async () => ({
         records: [failed],
         runtimeAssets: [],
@@ -737,7 +810,10 @@ describe('destination-honest ChatGPT attachment export', () => {
       ['file'],
       {
         persistArtifacts,
-        observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: ASSET_ID, downloadUrl: 'signed-throw' }],
+        }),
         acquireAssets: async () => {
           throw new Error('fetch unavailable');
         },
@@ -763,7 +839,7 @@ describe('destination-honest ChatGPT attachment export', () => {
       'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.'
     );
     expect(acquisitionFailure.warnings).toContain(
-      'ChatGPT attachment acquisition failed; attachments were not attempted.'
+      'ChatGPT attachment acquisition was incomplete; final attachment states are recorded in the archive manifest.'
     );
     expect(interpreterObserverFailure.warnings).toContain(
       'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.'
@@ -788,7 +864,10 @@ describe('destination-honest ChatGPT attachment export', () => {
       ['file'],
       {
         persistArtifacts,
-        observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: asset.record.id, downloadUrl: 'signed-binary' }],
+        }),
         acquireAssets: async () => ({
           records: [asset.record],
           runtimeAssets: [asset],
@@ -851,7 +930,10 @@ describe('destination-honest ChatGPT attachment export', () => {
 
     await persistChatGptDestinationHonestAttachments(context(), companion(), 'note.md', ['file'], {
       persistArtifacts,
-      observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+      observeResolvers: async () => ({
+        kind: 'matched',
+        candidates: [{ assetId: asset.record.id, downloadUrl: 'signed-descriptor' }],
+      }),
       acquireAssets: async () => ({
         records: [asset.record],
         runtimeAssets: [asset],
@@ -903,7 +985,10 @@ describe('destination-honest ChatGPT attachment export', () => {
       ['file', 'obsidian'],
       {
         persistArtifacts,
-        observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: failed.id, downloadUrl: 'signed-warning' }],
+        }),
         acquireAssets: async () => ({
           records: [failed, unresolved],
           runtimeAssets: [],
