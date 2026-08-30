@@ -14,7 +14,12 @@ import type {
   RawCaptureAssetRecord,
 } from '../../archive/capture';
 import { binaryAssetExtension, isSafeStagedBinaryAssetId } from '../../lib/binary-asset-contract';
-import { isChatGptTransientDownloadUrl } from '../../lib/chatgpt-capture-contract';
+import {
+  CHATGPT_RESOLVER_KEY_DOMAIN,
+  getChatGptNumericImageFileId,
+  getChatGptNumericResolverFileId,
+  isChatGptTransientDownloadUrl,
+} from '../../lib/chatgpt-capture-contract';
 import { MAX_STAGED_BINARY_ASSET_BYTES } from '../../lib/constants';
 import { sha256Hex } from '../../lib/sha256';
 import type { ChatGptPageOwnedAssetCandidate } from './chatgpt-asset-resolver';
@@ -78,8 +83,58 @@ function attemptedAt(now: (() => Date) | undefined): string | undefined {
   }
 }
 
-function exactSignedAssetUrl(value: string, conversationId: string): URL | undefined {
-  return isChatGptTransientDownloadUrl(value, conversationId) ? new URL(value) : undefined;
+interface ExactSignedAssetUrl {
+  url: URL;
+  numericResolverFileId?: string;
+}
+
+async function exactSignedAssetUrl(
+  candidate: ChatGptPageOwnedAssetCandidate,
+  conversationId: string,
+  digest: (bytes: Uint8Array) => Promise<string>
+): Promise<ExactSignedAssetUrl | undefined> {
+  const numericResolverFileId = getChatGptNumericResolverFileId(candidate.downloadUrl);
+  if (candidate.resolverKey !== undefined) {
+    if (
+      numericResolverFileId === undefined ||
+      typeof candidate.resolverKey !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(candidate.resolverKey)
+    ) {
+      return undefined;
+    }
+    try {
+      const expectedResolverKey = await digest(
+        new TextEncoder().encode(`${CHATGPT_RESOLVER_KEY_DOMAIN}${numericResolverFileId}`)
+      );
+      if (
+        !/^[a-f0-9]{64}$/.test(expectedResolverKey) ||
+        expectedResolverKey !== candidate.resolverKey
+      ) {
+        return undefined;
+      }
+      return { url: new URL(candidate.downloadUrl), numericResolverFileId };
+    } catch {
+      return undefined;
+    }
+  }
+  // Strict numeric six-key image URLs are admitted only with an opaque key.
+  // Valid unkeyed numeric eight-key URLs remain on the existing interpreter
+  // route, which has a separate producer-side binding.
+  if (getChatGptNumericImageFileId(candidate.downloadUrl) !== undefined) return undefined;
+  return isChatGptTransientDownloadUrl(candidate.downloadUrl, conversationId)
+    ? { url: new URL(candidate.downloadUrl) }
+    : undefined;
+}
+
+function exactResponseUrl(
+  value: string,
+  conversationId: string,
+  numericResolverFileId: string | undefined
+): boolean {
+  if (numericResolverFileId !== undefined) {
+    return getChatGptNumericResolverFileId(value) === numericResolverFileId;
+  }
+  return isChatGptTransientDownloadUrl(value, conversationId);
 }
 
 function normalizedMediaType(response: Response): string | undefined {
@@ -166,7 +221,11 @@ async function fetchOne(
   timestamp: string,
   maxAssetBytes: number
 ): Promise<{ record: RawCaptureAssetRecord; runtime?: RawCaptureAsset; byteCost: number }> {
-  const signedUrl = exactSignedAssetUrl(candidate.downloadUrl, input.conversationId);
+  const signedUrl = await exactSignedAssetUrl(
+    candidate,
+    input.conversationId,
+    input.sha256 ?? sha256Hex
+  );
   if (!signedUrl) {
     return {
       record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
@@ -178,7 +237,7 @@ async function fetchOne(
   const timeoutMs = Math.min(120_000, Math.max(1_000, input.timeoutMs ?? DEFAULT_ASSET_TIMEOUT_MS));
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await (input.fetcher ?? fetch)(signedUrl.href, {
+    const response = await (input.fetcher ?? fetch)(signedUrl.url.href, {
       method: 'GET',
       credentials: 'include',
       redirect: 'error',
@@ -192,7 +251,10 @@ async function fetchOne(
         byteCost: 0,
       };
     }
-    if (response.url !== '' && !exactSignedAssetUrl(response.url, input.conversationId)) {
+    if (
+      response.url !== '' &&
+      !exactResponseUrl(response.url, input.conversationId, signedUrl.numericResolverFileId)
+    ) {
       return {
         record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
         byteCost: 0,

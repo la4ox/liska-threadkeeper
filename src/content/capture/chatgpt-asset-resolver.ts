@@ -12,6 +12,10 @@ import {
 } from '../../archive/chatgpt-sandbox-link';
 import { sha256Hex } from '../../lib/sha256';
 import {
+  CHATGPT_RESOLVER_KEY_DOMAIN,
+  getChatGptNumericResolverFileId,
+} from '../../lib/chatgpt-capture-contract';
+import {
   CHATGPT_ACTIVE_RESOLVER_MAX_COUNT,
   isChatGptActiveResolverProviderFileId,
 } from '../../lib/chatgpt-active-resolver-contract';
@@ -27,7 +31,6 @@ export {
   type ChatGptInterpreterAssetCandidate,
 } from '../../lib/chatgpt-interpreter-resolver-contract';
 
-const RESOLVER_KEY_DOMAIN = 'liska-chatgpt-resolver/1\u0000';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const PROVIDER_FILE_ID_PATTERN = /^[A-Za-z0-9._-]{1,512}$/;
 const POINTER_FILE_ID_PATTERN = /^(?:file-service|sediment):(?:\/\/)?([A-Za-z0-9._-]{1,512})$/;
@@ -43,6 +46,8 @@ export interface ChatGptTransientResolverRecord {
 export interface ChatGptPageOwnedAssetCandidate {
   assetId: string;
   downloadUrl: string;
+  /** Runtime-only binding retained only for opaque numeric-cid resolver URLs. */
+  resolverKey?: string;
 }
 
 export interface MatchChatGptAssetResolversInput {
@@ -70,6 +75,7 @@ interface MatchedAsset {
   assetId: string;
   downloadUrl: string;
   resolverKey: string;
+  numericResolver: boolean;
   strength: 1 | 2;
 }
 
@@ -388,7 +394,7 @@ async function resolverKeyFor(
   digest: (bytes: Uint8Array) => Promise<string>
 ): Promise<string | undefined> {
   try {
-    const key = await digest(new TextEncoder().encode(`${RESOLVER_KEY_DOMAIN}${fileId}`));
+    const key = await digest(new TextEncoder().encode(`${CHATGPT_RESOLVER_KEY_DOMAIN}${fileId}`));
     return SHA256_PATTERN.test(key) ? key : undefined;
   } catch {
     return undefined;
@@ -435,10 +441,14 @@ async function matchOneAsset(
       if (!resolverKey) continue;
       const downloadUrl = resolvers.get(resolverKey);
       if (!downloadUrl) continue;
+      const numericResolverFileId = getChatGptNumericResolverFileId(downloadUrl);
+      if (numericResolverFileId !== undefined && numericResolverFileId !== evidence.fileId)
+        continue;
       matches.set(resolverKey, {
         assetId: asset.id,
         downloadUrl,
         resolverKey,
+        numericResolver: numericResolverFileId !== undefined,
         strength: evidence.strength,
       });
     }
@@ -481,7 +491,16 @@ export async function matchChatGptPageOwnedAssetResolvers(
     const strongest = Math.max(...candidates.map(candidate => candidate.strength));
     const winners = candidates.filter(candidate => candidate.strength === strongest);
     if (winners.length !== 1) continue;
-    selected.push({ assetId: winners[0].assetId, downloadUrl: winners[0].downloadUrl });
+    const winner = winners[0];
+    selected.push(
+      winner.numericResolver
+        ? {
+            assetId: winner.assetId,
+            downloadUrl: winner.downloadUrl,
+            resolverKey: winner.resolverKey,
+          }
+        : { assetId: winner.assetId, downloadUrl: winner.downloadUrl }
+    );
   }
   return selected.sort((left, right) =>
     left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0

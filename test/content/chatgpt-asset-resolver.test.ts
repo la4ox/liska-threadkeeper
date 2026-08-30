@@ -474,6 +474,75 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     expect(JSON.stringify(result)).not.toContain(privateId);
   });
 
+  it('retains the opaque key only for numeric resolver URLs that exactly bind the raw file ID', async () => {
+    const privateId = 'file-image_123';
+    const numericImageUrl =
+      'https://chatgpt.com/backend-api/estuary/content?' +
+      `cid=123456&id=${privateId}&p=fs&sig=${'a'.repeat(64)}&ts=123456&v=1`;
+    const metadata = asset('a', '/mapping/root/message/metadata/attachments/0');
+    const observed = await resolver(privateId, numericImageUrl);
+    const raw = {
+      mapping: {
+        root: { message: { metadata: { attachments: [{ file_id: privateId }] } } },
+      },
+    };
+
+    await expect(
+      matchChatGptPageOwnedAssetResolvers({
+        raw,
+        assets: [metadata],
+        resolvers: [observed],
+        sha256: digest,
+      })
+    ).resolves.toEqual([
+      {
+        assetId: metadata.id,
+        downloadUrl: numericImageUrl,
+        resolverKey: observed.resolverKey,
+      },
+    ]);
+    await expect(
+      matchChatGptPageOwnedAssetResolvers({
+        raw,
+        assets: [metadata],
+        resolvers: [
+          await resolver(privateId, numericImageUrl.replace(`id=${privateId}`, 'id=file-other')),
+        ],
+        sha256: digest,
+      })
+    ).resolves.toEqual([]);
+
+    const numericEightUrl =
+      'https://chatgpt.com/backend-api/estuary/content?' +
+      `cd=attachment&cid=123456&fn=synthetic-image.png&id=${privateId}` +
+      `&p=fs&sig=${'a'.repeat(64)}&ts=123456&v=1`;
+    const numericEightObserved = await resolver(privateId, numericEightUrl);
+    await expect(
+      matchChatGptPageOwnedAssetResolvers({
+        raw,
+        assets: [metadata],
+        resolvers: [numericEightObserved],
+        sha256: digest,
+      })
+    ).resolves.toEqual([
+      {
+        assetId: metadata.id,
+        downloadUrl: numericEightUrl,
+        resolverKey: numericEightObserved.resolverKey,
+      },
+    ]);
+    await expect(
+      matchChatGptPageOwnedAssetResolvers({
+        raw,
+        assets: [metadata],
+        resolvers: [
+          await resolver(privateId, numericEightUrl.replace(`id=${privateId}`, 'id=file-forged')),
+        ],
+        sha256: digest,
+      })
+    ).resolves.toEqual([]);
+  });
+
   it('prefers a direct metadata ID over a pointer-only duplicate', async () => {
     const fileId = 'shared-file-id';
     const pointer = asset('a', '/mapping/root/message/content/parts/0');

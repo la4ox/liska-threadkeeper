@@ -28,7 +28,7 @@ import {
 } from './archive-branch-persistence';
 import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-export';
 import {
-  observeChatGptActiveAssetResolvers,
+  observeChatGptAssetResolversViaOpaqueSource,
   observeChatGptInterpreterAssetResolvers,
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
@@ -835,7 +835,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
             persistArtifacts: persistArchiveCompanionArtifacts,
             observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
             ...(settings.enableChatGptOpaqueReplay === true
-              ? { observeResolvers: observeChatGptActiveAssetResolvers }
+              ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
               : {}),
           }
         );
@@ -894,7 +894,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           persistArtifacts: persistArchiveCompanionArtifacts,
           observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
           ...(settings.enableChatGptOpaqueReplay === true
-            ? { observeResolvers: observeChatGptActiveAssetResolvers }
+            ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
             : {}),
         }
       );

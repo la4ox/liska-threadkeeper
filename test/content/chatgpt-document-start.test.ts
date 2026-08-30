@@ -609,6 +609,77 @@ describe('startChatGptDocumentStartCapture', () => {
     expect(clone).toHaveBeenCalledTimes(1 + expectedFileIds.length);
   });
 
+  it('observes all 24 exact native image helper query permutations only', async () => {
+    vi.useFakeTimers();
+    const components = [
+      `conversation_id=${CONVERSATION_ID}`,
+      'inline=false',
+      'download_intent=false',
+      'include_library_file_state=true',
+    ];
+    const nativeImageQueries: string[] = [];
+    for (let first = 0; first < components.length; first += 1) {
+      for (let second = 0; second < components.length; second += 1) {
+        if (second === first) continue;
+        for (let third = 0; third < components.length; third += 1) {
+          if (third === first || third === second) continue;
+          nativeImageQueries.push(
+            [
+              components[first],
+              components[second],
+              components[third],
+              components[6 - first - second - third],
+            ].join('&')
+          );
+        }
+      }
+    }
+    expect(nativeImageQueries).toHaveLength(24);
+    const accepted = nativeImageQueries.map(
+      (query, index) => `/backend-api/files/download/file-native-image-${index}?${query}`
+    );
+    const rejected = [
+      `/backend-api/files/download/file-native-mismatched?conversation_id=${OTHER_CONVERSATION_ID}&inline=false&download_intent=false&include_library_file_state=true`,
+      `/backend-api/files/download/file-native-duplicate?conversation_id=${CONVERSATION_ID}&inline=false&download_intent=false&include_library_file_state=true&inline=false`,
+      `/backend-api/files/download/file-native-extra?conversation_id=${CONVERSATION_ID}&inline=false&download_intent=false&include_library_file_state=true&extra=value`,
+      `/backend-api/files/download/file-native-inline-alias?conversation_id=${CONVERSATION_ID}&inline=0&download_intent=false&include_library_file_state=true`,
+      `/backend-api/files/download/file-native-library-alias?conversation_id=${CONVERSATION_ID}&inline=false&download_intent=false&include_library_file_state=1`,
+      `/backend-api/files/download/file-native-encoded?conversation_id=%3001234567-89ab-4cde-8f01-23456789abcd&inline=false&download_intent=false&include_library_file_state=true`,
+      `/backend-api/files/download/file-native-fragment?conversation_id=${CONVERSATION_ID}&inline=false&download_intent=false&include_library_file_state=true#fragment`,
+    ];
+    const clone = vi.spyOn(Response.prototype, 'clone');
+    const { response: conversationResponse } = responseWithCloneSpy(new Uint8Array([1]));
+    const resolverResponse = new Response(
+      JSON.stringify({ download_url: 'safe-raw-observation' }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }
+    );
+    const page = fakePage(markedUrl(`/c/${CONVERSATION_ID}`, true), async input =>
+      input === ENDPOINT ? conversationResponse : resolverResponse
+    );
+    page.pageWindow.crypto = {
+      subtle: { digest: async () => new Uint8Array(32).buffer },
+    } as unknown as Crypto;
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await page.pageWindow.fetch(ENDPOINT);
+    for (const endpoint of accepted) await page.pageWindow.fetch(endpoint);
+    for (const endpoint of rejected) await page.pageWindow.fetch(endpoint);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const snapshot = snapshotOf(page) as {
+      resolverObservations: Array<{ providerFileId: string }>;
+    };
+    const expectedFileIds = nativeImageQueries.map((_, index) => `file-native-image-${index}`);
+    expect(snapshot.resolverObservations.map(value => value.providerFileId)).toEqual(
+      expectedFileIds
+    );
+    expect(clone).toHaveBeenCalledTimes(1 + expectedFileIds.length);
+  });
+
   it('does not extend the two-second resolver window while a large capture is still hashing', async () => {
     vi.useFakeTimers();
     let releaseDigest: ((value: ArrayBuffer) => void) | undefined;

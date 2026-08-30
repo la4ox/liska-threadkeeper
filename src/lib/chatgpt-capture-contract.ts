@@ -37,6 +37,11 @@ const CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_CURRENT_QUERY_KEYS = [
   'ts',
   'v',
 ] as const;
+const CHATGPT_NUMERIC_IMAGE_DOWNLOAD_URL_QUERY_KEYS = ['cid', 'id', 'p', 'sig', 'ts', 'v'] as const;
+const CHATGPT_NUMERIC_IMAGE_FILE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
+
+/** Domain-separate runtime-only keys from provider file IDs. */
+export const CHATGPT_RESOLVER_KEY_DOMAIN = 'liska-chatgpt-resolver/1\u0000';
 
 /** The only provider endpoint represented by this capture bridge. */
 export const CHATGPT_CAPTURE_ENDPOINT = {
@@ -263,6 +268,60 @@ function isLegacySignedDownloadUrl(url: URL, expectedConversationId?: string): b
   );
 }
 
+/**
+ * Return the provider file ID only from the strict numeric-cid image URL
+ * shape observed in ChatGPT's native file-download response. This remains a
+ * distinct parser: the generic transient URL allowlist deliberately does not
+ * accept this shape without the separate raw-observation and opaque-key
+ * bindings applied by the resolver pipeline.
+ */
+// eslint-disable-next-line complexity -- One strict parser keeps the image URL trust boundary auditable.
+export function getChatGptNumericImageFileId(value: unknown): string | undefined {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_MAX_LENGTH
+  ) {
+    return undefined;
+  }
+
+  const querySeparator = value.indexOf('?');
+  if (
+    querySeparator !== CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_BASE.length ||
+    value.slice(0, querySeparator) !== CHATGPT_TRANSIENT_ASSET_DOWNLOAD_URL_BASE
+  ) {
+    return undefined;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return undefined;
+  }
+  if (
+    !isExactEstuaryUrl(url) ||
+    !hasExactQueryKeys(url, CHATGPT_NUMERIC_IMAGE_DOWNLOAD_URL_QUERY_KEYS) ||
+    !hasBoundedQueryValues(url, CHATGPT_NUMERIC_IMAGE_DOWNLOAD_URL_QUERY_KEYS)
+  ) {
+    return undefined;
+  }
+
+  const fileId = url.searchParams.get('id');
+  if (typeof fileId !== 'string' || !CHATGPT_NUMERIC_IMAGE_FILE_ID_PATTERN.test(fileId)) {
+    return undefined;
+  }
+  return [
+    /^[1-9][0-9]{0,9}$/.test(url.searchParams.get('cid') ?? ''),
+    url.searchParams.get('p') === 'fs',
+    /^[a-f0-9]{64}$/i.test(url.searchParams.get('sig') ?? ''),
+    /^[0-9]{1,32}$/.test(url.searchParams.get('ts') ?? ''),
+    /^[0-9]{1,8}$/.test(url.searchParams.get('v') ?? ''),
+  ].every(Boolean)
+    ? fileId
+    : undefined;
+}
+
 export function isChatGptTransientDownloadUrl(
   value: unknown,
   expectedConversationId?: string
@@ -295,6 +354,28 @@ export function isChatGptTransientDownloadUrl(
   return isLegacySignedDownloadUrl(url, expectedConversationId);
 }
 
+/**
+ * Return the file identity for either numeric-cid resolver URL family. The
+ * strict six-key image shape remains outside the generic transient URL
+ * allowlist, while already-valid eight-key current URLs retain their existing
+ * generic admission. Callers that carry a resolver key must bind it to this
+ * identity before fetching either shape.
+ */
+export function getChatGptNumericResolverFileId(value: unknown): string | undefined {
+  const numericImageFileId = getChatGptNumericImageFileId(value);
+  if (numericImageFileId !== undefined) return numericImageFileId;
+  if (!isChatGptTransientDownloadUrl(value)) return undefined;
+  try {
+    const url = new URL(value);
+    const fileId = url.searchParams.get('id');
+    return /^[1-9][0-9]{0,9}$/.test(url.searchParams.get('cid') ?? '') && typeof fileId === 'string'
+      ? fileId
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Strict transient resolver boundary: opaque key plus one allowlisted URL only. */
 export function isChatGptTransientAssetResolver(
   value: unknown
@@ -305,7 +386,8 @@ export function isChatGptTransientAssetResolver(
   return (
     typeof record.resolverKey === 'string' &&
     /^[a-f0-9]{64}$/.test(record.resolverKey) &&
-    isChatGptTransientDownloadUrl(record.downloadUrl)
+    (isChatGptTransientDownloadUrl(record.downloadUrl) ||
+      getChatGptNumericResolverFileId(record.downloadUrl) !== undefined)
   );
 }
 

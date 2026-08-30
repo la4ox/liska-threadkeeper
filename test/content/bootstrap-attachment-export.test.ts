@@ -57,6 +57,10 @@ vi.mock('../../src/content/ui', () => ({
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 
 import { handleSync } from '../../src/content/bootstrap';
+import {
+  observeChatGptAssetResolversViaOpaqueSource,
+  observeChatGptInterpreterAssetResolvers,
+} from '../../src/content/capture/chatgpt-current-branch';
 
 const settings: ContentScriptSettings = {
   obsidianUrl: 'http://127.0.0.1:27123',
@@ -154,6 +158,7 @@ function mockSettingsAndSave(): void {
 describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    settings.enableChatGptOpaqueReplay = false;
     setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
     mockSettingsAndSave();
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
@@ -179,9 +184,10 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         ['file'],
         expect.objectContaining({
           persistArtifacts: expect.any(Function),
-          observeInterpreterResolvers: expect.any(Function),
+          observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         })
       );
+      expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'saveToOutputs', outputs: ['file'] })
       );
@@ -206,11 +212,25 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       ['file'],
       expect.objectContaining({
         persistArtifacts: expect.any(Function),
-        observeInterpreterResolvers: expect.any(Function),
-        observeResolvers: expect.any(Function),
+        observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+        observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
       })
     );
-    settings.enableChatGptOpaqueReplay = false;
+  });
+
+  it('uses the candidate observer, not the metric-only probe, for a selected replay branch', async () => {
+    settings.enableChatGptOpaqueReplay = true;
+    mocks.extract.mockResolvedValue(noteResult);
+
+    await handleSync('selected');
+
+    expect(mocks.setBranchExportMode).toHaveBeenCalledWith('selected');
+    expect(mocks.attachmentExport.mock.calls[0][4]).toEqual(
+      expect.objectContaining({
+        observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+        observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
+      })
+    );
   });
 
   it('writes the all-branches presentation only to attachment-complete destinations and retains caveats', async () => {
@@ -242,9 +262,10 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       ['file'],
       expect.objectContaining({
         persistArtifacts: expect.any(Function),
-        observeInterpreterResolvers: expect.any(Function),
+        observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
       })
     );
+    expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
     expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledWith(
       allBranchesResult.allBranches,
       companion,
@@ -277,6 +298,35 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     expect(mocks.showWarningToast).toHaveBeenCalledWith(
       'ChatGPT original raw archive companion could not be finalized.'
     );
+  });
+
+  it('uses the same passive candidate observer for an all-branches replay export', async () => {
+    settings.enableChatGptOpaqueReplay = true;
+    mocks.extract.mockResolvedValue({
+      success: true,
+      archiveCompanion: companion,
+      chatGptAssetExportContext: context,
+      allBranches: {} as AllBranchesPresentationPlan,
+    } satisfies ExtractionResult);
+    mocks.attachmentExport.mockResolvedValue({
+      rawSuccessfulDestinations: ['file'],
+      completeDestinations: [],
+      warnings: ['Synthetic destination failure after resolver composition.'],
+    });
+
+    await handleSync('selected');
+
+    expect(mocks.attachmentExport).toHaveBeenCalledWith(
+      context,
+      companion,
+      'chatgpt-all-branches.md',
+      ['file'],
+      expect.objectContaining({
+        observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+        observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
+      })
+    );
+    expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
   });
 
   it('fails closed when a successful extractor result has no presentation data', async () => {

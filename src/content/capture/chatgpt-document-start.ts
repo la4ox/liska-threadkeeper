@@ -564,6 +564,60 @@ function isSafeResolverFileId(primordials: PagePrimordials, value: string): bool
 }
 
 /**
+ * Accept the observed native image helper grammar in any of its 24 key
+ * orders, but only with each literal key-value pair exactly once. Parsing is
+ * deliberately primitive-only because this runs in the page's MAIN world.
+ */
+function isExactNativeImageResolverQuery(
+  primordials: PagePrimordials,
+  query: string,
+  conversationId: string
+): boolean {
+  if (query.length === 0 || query[0] !== '?') return false;
+  const conversation = `conversation_id=${conversationId}`;
+  const inline = 'inline=false';
+  const downloadIntent = 'download_intent=false';
+  const libraryState = 'include_library_file_state=true';
+  let seenConversation = false;
+  let seenInline = false;
+  let seenDownloadIntent = false;
+  let seenLibraryState = false;
+  let start = 1;
+
+  for (let count = 0; count < 4; count += 1) {
+    const separator = applyCaptured<number>(
+      primordials,
+      primordials.document.stringIndexOf,
+      query,
+      ['&', start]
+    );
+    const end = separator === -1 ? query.length : separator;
+    const component = applyCaptured<string>(primordials, primordials.document.stringSlice, query, [
+      start,
+      end,
+    ]);
+    if (component === conversation && !seenConversation) {
+      seenConversation = true;
+    } else if (component === inline && !seenInline) {
+      seenInline = true;
+    } else if (component === downloadIntent && !seenDownloadIntent) {
+      seenDownloadIntent = true;
+    } else if (component === libraryState && !seenLibraryState) {
+      seenLibraryState = true;
+    } else {
+      return false;
+    }
+    if (separator === -1) {
+      return (
+        count === 3 && seenConversation && seenInline && seenDownloadIntent && seenLibraryState
+      );
+    }
+    start = separator + 1;
+  }
+  return false;
+}
+
+/**
  * Return only the bounded path segment needed to bind a resolver observation.
  * URL/method are the sole request fields inspected; headers, cookies, and body
  * remain entirely page-private.
@@ -610,6 +664,10 @@ function resolverTargetFileId(
   }
   if (pathPrefix === CALPICO_RESOLVER_PATH_PREFIX) {
     return query === '' ? providerFileId : undefined;
+  }
+
+  if (isExactNativeImageResolverQuery(primordials, query, conversationId)) {
+    return providerFileId;
   }
 
   const conversation = `conversation_id=${conversationId}`;

@@ -7,6 +7,7 @@ import {
   captureChatGptInTemporaryTab,
   readChatGptTemporaryCaptureChunkState,
   readChatGptTemporaryCaptureState,
+  validateChatGptResolverObservations,
 } from '../../src/background/chatgpt-capture';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
@@ -22,6 +23,9 @@ const RESOLVER_RESPONSE_BASE64 =
   'eyJzdGF0dXMiOiJTdWNjZXNzIiwiZG93bmxvYWRfdXJsIjoiaHR0cHM6Ly9jaGF0Z3B0LmNvbS9iYWNrZW5kLWFwaS9lc3R1YXJ5L2NvbnRlbnQ/Y2lkPTAxMjM0NTY3LTg5YWItNGNkZS04ZjAxLTIzNDU2Nzg5YWJjZCZpZD1zaWduZWQtdHJhbnNwb3J0LWlkJnA9cGF0aCZzaWc9c2lnbmF0dXJlJnRzPTEyMyZ2PTEiLCJleHBpcmVzX2F0IjoiMjAyNi0wOC0yMVQxMjowMDowMFoifQ==';
 const RESOLVER_RESPONSE_HASH = '5a688d0bba29fa9cc48f23e6a0ff84adf037acc533137f25364ebc7e9e6f79aa';
 const RESOLVER_KEY = '7404723b52ebe964b6ac76965f76009f8edb166d7b5ebeb8619b05b0d53033ff';
+const NUMERIC_IMAGE_DOWNLOAD_URL =
+  'https://chatgpt.com/backend-api/estuary/content?' +
+  `cid=123456&id=${RESOLVER_FILE_ID}&p=fs&sig=${'a'.repeat(64)}&ts=123456&v=1`;
 
 type FakeTab = { status?: string; url?: string };
 type ScriptResult = { result?: unknown };
@@ -469,6 +473,46 @@ describe('captureChatGptInTemporaryTab', () => {
         })
       ).resolves.toMatchObject({ transientAssetResolvers: [] });
     }
+  });
+
+  it('admits the strict lowercase native image envelope only when its URL ID binds the opaque key', async () => {
+    const valid = await resolverObservation({
+      status: 'success',
+      download_url: NUMERIC_IMAGE_DOWNLOAD_URL,
+      metadata: { source: 'synthetic' },
+      file_name: 'synthetic-image.png',
+      creation_time: 1,
+      no_auth_user_upload: false,
+      mime_type: 'image/png',
+      file_size_bytes: 5,
+    });
+    const accepted = await validateChatGptResolverObservations(
+      [valid],
+      CONVERSATION_ID,
+      actualDigest
+    );
+    expect(accepted).toEqual([
+      {
+        resolverKey: await actualDigest(
+          new TextEncoder().encode(`liska-chatgpt-resolver/1\u0000${RESOLVER_FILE_ID}`)
+        ),
+        downloadUrl: NUMERIC_IMAGE_DOWNLOAD_URL,
+      },
+    ]);
+
+    const mismatchedId = { ...valid, providerFileId: 'file-other' };
+    const rejectedBodies = await Promise.all([
+      resolverObservation({ status: 'Retry', download_url: NUMERIC_IMAGE_DOWNLOAD_URL }),
+      resolverObservation({ status: 'error', download_url: NUMERIC_IMAGE_DOWNLOAD_URL }),
+      resolverObservation({ status: 'success' }),
+    ]);
+    await expect(
+      validateChatGptResolverObservations(
+        [mismatchedId, ...rejectedBodies],
+        CONVERSATION_ID,
+        actualDigest
+      )
+    ).resolves.toEqual([]);
   });
 
   it('drops resolver observations when response or opaque-key hashing is unavailable', async () => {

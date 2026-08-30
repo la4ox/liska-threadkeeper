@@ -30,6 +30,21 @@ function signedUrl(id = 'signed-id'): string {
   );
 }
 
+function numericImageUrl(id = 'file-image_123'): string {
+  return (
+    'https://chatgpt.com/backend-api/estuary/content?' +
+    `cid=123456&id=${id}&p=fs&sig=${'a'.repeat(64)}&ts=123456&v=1`
+  );
+}
+
+function numericEightKeyUrl(id = 'file-image_123'): string {
+  return (
+    'https://chatgpt.com/backend-api/estuary/content?' +
+    `cd=attachment&cid=123456&fn=synthetic-image.png&id=${id}` +
+    `&p=fs&sig=${'a'.repeat(64)}&ts=123456&v=1`
+  );
+}
+
 function ledger(id = 'a', mediaType: string | null = 'image/png'): RawCaptureAssetRecord {
   return {
     id: `chatgpt-asset-${id.repeat(64).slice(0, 64)}`,
@@ -109,6 +124,126 @@ describe('ChatGPT page-owned asset acquisition', () => {
     });
     expect(result.runtimeAssets).toHaveLength(1);
     expect([...result.runtimeAssets[0].bytes]).toEqual([...bytes]);
+  });
+
+  it('fetches a strict numeric image URL only after its runtime-only opaque key verifies', async () => {
+    const record = ledger();
+    const bytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
+    const url = numericImageUrl();
+    const resolverKey = await digest(
+      new TextEncoder().encode('liska-chatgpt-resolver/1\u0000file-image_123')
+    );
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes));
+
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: url, resolverKey }],
+      fetcher,
+      now: () => new Date('2026-08-21T12:00:00.000Z'),
+      sha256: digest,
+    });
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(result.records[0]).toMatchObject({
+      state: 'fetched',
+      detail: CHATGPT_ASSET_FETCHED_DETAIL,
+    });
+  });
+
+  it('retains numeric eight-key identity when a resolver key is present', async () => {
+    const record = ledger();
+    const bytes = new Uint8Array([1, 2, 3]);
+    const url = numericEightKeyUrl();
+    const resolverKey = await digest(
+      new TextEncoder().encode('liska-chatgpt-resolver/1\u0000file-image_123')
+    );
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes));
+
+    await expect(
+      acquireChatGptPageOwnedAssets({
+        conversationId: CONVERSATION_ID,
+        assets: [record],
+        candidates: [{ assetId: record.id, downloadUrl: url, resolverKey }],
+        fetcher,
+        now: () => new Date('2026-08-21T12:00:00.000Z'),
+        sha256: digest,
+      })
+    ).resolves.toMatchObject({ records: [{ state: 'fetched' }] });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('keeps valid unkeyed numeric eight-key URLs on the established generic route', async () => {
+    const record = ledger();
+    const url = numericEightKeyUrl();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, new Uint8Array([1])));
+
+    await expect(
+      acquireChatGptPageOwnedAssets({
+        conversationId: CONVERSATION_ID,
+        assets: [record],
+        candidates: [{ assetId: record.id, downloadUrl: url }],
+        fetcher,
+        now: () => new Date('2026-08-21T12:00:00.000Z'),
+        sha256: digest,
+      })
+    ).resolves.toMatchObject({ records: [{ state: 'fetched' }] });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('rejects numeric image URLs with missing or mismatched opaque keys before network fetch', async () => {
+    const missingKey = ledger('a');
+    const wrongKey = ledger('b');
+    const fetcher = vi.fn<typeof fetch>();
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [missingKey, wrongKey],
+      candidates: [
+        { assetId: missingKey.id, downloadUrl: numericImageUrl('file-missing') },
+        {
+          assetId: wrongKey.id,
+          downloadUrl: numericImageUrl('file-wrong'),
+          resolverKey: 'a'.repeat(64),
+        },
+      ],
+      fetcher,
+      now: () => new Date('2026-08-21T12:00:00.000Z'),
+      sha256: digest,
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.records.map(record => record.detail)).toEqual([
+      CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+      CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+    ]);
+  });
+
+  it('rejects a keyed numeric eight-key URL when its opaque key binds another file ID', async () => {
+    const record = ledger();
+    const fetcher = vi.fn<typeof fetch>();
+    const helperAKey = await digest(
+      new TextEncoder().encode('liska-chatgpt-resolver/1\u0000file-helper-a')
+    );
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [
+        {
+          assetId: record.id,
+          downloadUrl: numericEightKeyUrl('file-helper-b'),
+          resolverKey: helperAKey,
+        },
+      ],
+      fetcher,
+      now: () => new Date('2026-08-21T12:00:00.000Z'),
+      sha256: digest,
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.records[0]).toMatchObject({
+      state: 'failed',
+      detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+    });
   });
 
   it('rejects forged URLs, active MIME, and metadata MIME disagreement without leaking URLs', async () => {

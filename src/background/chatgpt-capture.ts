@@ -14,7 +14,9 @@ import {
   CHATGPT_CAPTURE_ERROR_MESSAGES,
   CHATGPT_CAPTURE_MAX_BYTES,
   CHATGPT_INLINE_CAPTURE_MAX_BYTES,
+  CHATGPT_RESOLVER_KEY_DOMAIN,
   CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT,
+  getChatGptNumericResolverFileId,
   isChatGptConversationId,
   isChatGptTransientDownloadUrl,
 } from '../lib/chatgpt-capture-contract';
@@ -57,7 +59,6 @@ const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
 const CHATGPT_RESOLVER_MAX_BYTES = 64 * 1024;
 const CHATGPT_RESOLVER_FILE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
-const CHATGPT_RESOLVER_KEY_DOMAIN = 'liska-chatgpt-resolver/1\u0000';
 
 /** A stable, intentionally non-diagnostic error safe to show at the UI boundary. */
 export class ChatGptTemporaryCaptureError extends Error {
@@ -401,7 +402,8 @@ function parseResolverDownloadUrl(bytes: Uint8Array): string | undefined {
       value === null ||
       Array.isArray(value) ||
       !Object.prototype.hasOwnProperty.call(value, 'status') ||
-      (value as { status?: unknown }).status !== 'Success' ||
+      ((value as { status?: unknown }).status !== 'Success' &&
+        (value as { status?: unknown }).status !== 'success') ||
       !Object.prototype.hasOwnProperty.call(value, 'download_url') ||
       typeof (value as { download_url?: unknown }).download_url !== 'string'
     ) {
@@ -433,7 +435,15 @@ async function validateResolverObservation(
   }
 
   const downloadUrl = parseResolverDownloadUrl(bytes);
-  if (downloadUrl === undefined || !isChatGptTransientDownloadUrl(downloadUrl, conversationId)) {
+  if (downloadUrl === undefined) {
+    return undefined;
+  }
+  const numericResolverFileId = getChatGptNumericResolverFileId(downloadUrl);
+  if (
+    (numericResolverFileId !== undefined && numericResolverFileId !== value.providerFileId) ||
+    (numericResolverFileId === undefined &&
+      !isChatGptTransientDownloadUrl(downloadUrl, conversationId))
+  ) {
     return undefined;
   }
 

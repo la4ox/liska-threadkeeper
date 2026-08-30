@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
   createChatGptCaptureFailure,
+  getChatGptNumericImageFileId,
+  getChatGptNumericResolverFileId,
   isChatGptCaptureResponse,
   isChatGptConversationId,
   isChatGptTransientDownloadUrl,
@@ -15,6 +17,13 @@ const TRANSIENT_RESOLVER = {
     `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
     '&id=file-abc_123&p=path&sig=signature&ts=123&v=1',
 };
+const NUMERIC_IMAGE_URL =
+  'https://chatgpt.com/backend-api/estuary/content?' +
+  `cid=123456&id=file-abc_123&p=fs&sig=${'a'.repeat(64)}&ts=123456&v=1`;
+const NUMERIC_EIGHT_KEY_URL =
+  'https://chatgpt.com/backend-api/estuary/content?' +
+  `cd=attachment&cid=123456&fn=synthetic-image.png&id=file.${'a'.repeat(500)}` +
+  `&p=fs&sig=${'a'.repeat(64)}&ts=123456&v=1`;
 
 function captureResponse() {
   return {
@@ -269,6 +278,49 @@ describe('ChatGPT capture runtime contract', () => {
     ]) {
       expect(isChatGptTransientDownloadUrl(invalid)).toBe(false);
     }
+  });
+
+  it('parses only the strict numeric-cid image URL shape without widening the generic URL validator', () => {
+    expect(getChatGptNumericImageFileId(NUMERIC_IMAGE_URL)).toBe('file-abc_123');
+    expect(isChatGptTransientDownloadUrl(NUMERIC_IMAGE_URL)).toBe(false);
+    expect(isChatGptTransientDownloadUrl(NUMERIC_IMAGE_URL, CONVERSATION_ID)).toBe(false);
+    expect(getChatGptNumericResolverFileId(NUMERIC_IMAGE_URL)).toBe('file-abc_123');
+    expect(
+      isChatGptTransientAssetResolver({ ...TRANSIENT_RESOLVER, downloadUrl: NUMERIC_IMAGE_URL })
+    ).toBe(true);
+
+    for (const invalid of [
+      NUMERIC_IMAGE_URL.replace('cid=123456', 'cid=0'),
+      NUMERIC_IMAGE_URL.replace('id=file-abc_123', 'id=file.with.dot'),
+      NUMERIC_IMAGE_URL.replace('p=fs', 'p=attachment'),
+      NUMERIC_IMAGE_URL.replace(`sig=${'a'.repeat(64)}`, 'sig=short'),
+      NUMERIC_IMAGE_URL.replace('ts=123456', 'ts=zero'),
+      NUMERIC_IMAGE_URL.replace('v=1', 'v=123456789'),
+      `${NUMERIC_IMAGE_URL}&extra=value`,
+      `${NUMERIC_IMAGE_URL}&id=file-abc_123`,
+      NUMERIC_IMAGE_URL.replace('?cid=', '?%63id='),
+      `${NUMERIC_IMAGE_URL}#fragment`,
+      NUMERIC_IMAGE_URL.replace('https://chatgpt.com', 'https://user@chatgpt.com'),
+      NUMERIC_IMAGE_URL.replace('/estuary/content?', '/estuary/x/../content?'),
+    ]) {
+      expect(getChatGptNumericImageFileId(invalid)).toBeUndefined();
+      expect(isChatGptTransientAssetResolver({ ...TRANSIENT_RESOLVER, downloadUrl: invalid })).toBe(
+        false
+      );
+    }
+  });
+
+  it('retains numeric file identity for every already-valid generic eight-key resolver URL', () => {
+    const numericEightFileId = `file.${'a'.repeat(500)}`;
+    expect(isChatGptTransientDownloadUrl(NUMERIC_EIGHT_KEY_URL)).toBe(true);
+    expect(getChatGptNumericImageFileId(NUMERIC_EIGHT_KEY_URL)).toBeUndefined();
+    expect(getChatGptNumericResolverFileId(NUMERIC_EIGHT_KEY_URL)).toBe(numericEightFileId);
+    expect(
+      isChatGptTransientAssetResolver({
+        ...TRANSIENT_RESOLVER,
+        downloadUrl: NUMERIC_EIGHT_KEY_URL,
+      })
+    ).toBe(true);
   });
 
   it('serializes failures from the stable error allowlist only', () => {
