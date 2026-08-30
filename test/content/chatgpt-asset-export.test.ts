@@ -72,7 +72,15 @@ function context(
       artifacts: [{ record: manifest.artifacts[0], bytes }],
       assets: [],
     },
-    rawBodyBase64: 'e30=',
+    rawArtifact: {
+      transport: 'inline',
+      kind: 'raw',
+      relativePath: 'responses/conversation.json',
+      mediaType: 'application/json',
+      byteLength: 2,
+      sha256: sha256(bytes),
+      bodyBase64: 'e30=',
+    },
   };
 }
 
@@ -82,6 +90,7 @@ function companion(): ArchiveCompanionBundle {
     conversationKey: sha256(new TextEncoder().encode(CONVERSATION_ID)),
     artifacts: [
       {
+        transport: 'inline',
         kind: 'raw',
         relativePath: 'responses/conversation.json',
         mediaType: 'application/json',
@@ -90,6 +99,7 @@ function companion(): ArchiveCompanionBundle {
         bodyBase64: 'e30=',
       },
       {
+        transport: 'inline',
         kind: 'manifest',
         relativePath: 'manifest.json',
         mediaType: 'application/json',
@@ -98,6 +108,7 @@ function companion(): ArchiveCompanionBundle {
         bodyBase64: 'e30=',
       },
       {
+        transport: 'inline',
         kind: 'canonical',
         relativePath: 'canonical/liska-thread-1.json',
         mediaType: 'application/json',
@@ -279,7 +290,11 @@ describe('destination-honest ChatGPT attachment export', () => {
   });
 
   it('fails closed when the runtime raw body is no longer its declared original capture', async () => {
-    const corruptedContext = { ...context(), rawBodyBase64: 'bm90LXRoZS1vcmlnaW5hbA==' };
+    const original = context();
+    const corruptedContext = {
+      ...original,
+      rawArtifact: { ...original.rawArtifact, bodyBase64: 'bm90LXRoZS1vcmlnaW5hbA==' },
+    };
 
     await expect(validateChatGptAssetExportBinding(corruptedContext, companion())).resolves.toBe(
       false

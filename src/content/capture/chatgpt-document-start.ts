@@ -19,7 +19,9 @@ const ACTIVE_RESOLVER_FRAGMENT_PATTERN =
 const INTERPRETER_RESOLVER_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})&liska-interpreter-resolver=1$/i;
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
+const INLINE_CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
+const STAGED_CAPTURE_MAX_BYTES = 64 * 1024 * 1024;
+const STAGED_CAPTURE_CHUNK_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
@@ -74,15 +76,38 @@ type HookResult =
   | {
       kind: 'captured';
       conversationId: string;
-      capture: {
-        bodyBase64: string;
-        byteLength: number;
-        sha256: string;
-        mediaType: string;
-      };
+      capture: ConversationCapture;
       resolverObservations: ResolverObservation[];
     }
   | { kind: 'error'; code: HookErrorCode };
+
+type InlineConversationCapture = {
+  transport: 'inline';
+  bodyBase64: string;
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+};
+
+type StagedConversationCapture = {
+  transport: 'staged';
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+  chunkCount: number;
+};
+
+type ConversationCapture = InlineConversationCapture | StagedConversationCapture;
+
+type CaptureChunk = {
+  kind: 'chunk';
+  index: number;
+  offset: number;
+  byteLength: number;
+  chunkBase64: string;
+};
+
+type CaptureChunkReader = (index: number) => CaptureChunk | { kind: 'missing' };
 
 type ResolverObservation = {
   providerFileId: string;
@@ -169,14 +194,8 @@ type PageState = {
   resolverDiscoveryActive: boolean;
   resolverDiscoveryExpired: boolean;
   resolverClaims: number;
-  conversationCapture:
-    | {
-        bodyBase64: string;
-        byteLength: number;
-        sha256: string;
-        mediaType: string;
-      }
-    | undefined;
+  conversationCapture: ConversationCapture | undefined;
+  stagedCaptureReader: CaptureChunkReader | undefined;
   resolverObservations: ResolverObservation[];
   result: HookResult;
 };
@@ -750,6 +769,85 @@ function stateKeyFor(nonce: string): string {
   return `__liskaChatGptCapture_${nonce}`;
 }
 
+function chunkReaderKeyFor(nonce: string): string {
+  return `__liskaChatGptCaptureChunkReader_${nonce}`;
+}
+
+function stagedCaptureReader(
+  primordials: PagePrimordials,
+  bytes: Uint8Array
+): { chunkCount: number; reader: CaptureChunkReader } {
+  let chunkCount = 0;
+  for (let offset = 0; offset < bytes.byteLength; offset += STAGED_CAPTURE_CHUNK_BYTES) {
+    chunkCount += 1;
+  }
+
+  return {
+    chunkCount,
+    reader: (index: number): CaptureChunk | { kind: 'missing' } => {
+      if (
+        typeof index !== 'number' ||
+        index !== index ||
+        index < 0 ||
+        index >= chunkCount ||
+        index % 1 !== 0
+      ) {
+        return { kind: 'missing' };
+      }
+      try {
+        const offset = index * STAGED_CAPTURE_CHUNK_BYTES;
+        const chunk = applyCaptured<Uint8Array>(
+          primordials,
+          primordials.document.uint8ArraySubarray,
+          bytes,
+          [offset, offset + STAGED_CAPTURE_CHUNK_BYTES]
+        );
+        return {
+          kind: 'chunk',
+          index,
+          offset,
+          byteLength: chunk.byteLength,
+          chunkBase64: base64FromBytes(primordials, chunk),
+        };
+      } catch {
+        return { kind: 'missing' };
+      }
+    },
+  };
+}
+
+function conversationCaptureFromBytes(
+  primordials: PagePrimordials,
+  bytes: Uint8Array,
+  sha256: string,
+  mediaType: string
+): { capture: ConversationCapture; stagedReader: CaptureChunkReader | undefined } {
+  if (bytes.byteLength <= INLINE_CAPTURE_MAX_BYTES) {
+    return {
+      capture: {
+        transport: 'inline',
+        bodyBase64: base64FromBytes(primordials, bytes),
+        byteLength: bytes.byteLength,
+        sha256,
+        mediaType,
+      },
+      stagedReader: undefined,
+    };
+  }
+
+  const staged = stagedCaptureReader(primordials, bytes);
+  return {
+    capture: {
+      transport: 'staged',
+      byteLength: bytes.byteLength,
+      sha256,
+      mediaType,
+      chunkCount: staged.chunkCount,
+    },
+    stagedReader: staged.reader,
+  };
+}
+
 function snapshotHookResult(result: HookResult): HookResult {
   if (result.kind === 'ready') return { kind: 'ready' };
   if (result.kind === 'error') return { kind: 'error', code: result.code };
@@ -764,15 +862,26 @@ function snapshotHookResult(result: HookResult): HookResult {
       mediaType: observation.mediaType,
     };
   }
+  const capture =
+    result.capture.transport === 'inline'
+      ? {
+          transport: 'inline' as const,
+          bodyBase64: result.capture.bodyBase64,
+          byteLength: result.capture.byteLength,
+          sha256: result.capture.sha256,
+          mediaType: result.capture.mediaType,
+        }
+      : {
+          transport: 'staged' as const,
+          byteLength: result.capture.byteLength,
+          sha256: result.capture.sha256,
+          mediaType: result.capture.mediaType,
+          chunkCount: result.capture.chunkCount,
+        };
   return {
     kind: 'captured',
     conversationId: result.conversationId,
-    capture: {
-      bodyBase64: result.capture.bodyBase64,
-      byteLength: result.capture.byteLength,
-      sha256: result.capture.sha256,
-      mediaType: result.capture.mediaType,
-    },
+    capture,
     resolverObservations,
   };
 }
@@ -781,11 +890,21 @@ function publishResultSnapshot(
   primordials: PagePrimordials,
   windowRecord: Record<string, unknown>,
   stateKey: string,
+  chunkReaderKey: string,
   state: PageState
 ): boolean {
   try {
     const defineProperty = primordials.document.objectDefineProperty;
     if (defineProperty === undefined) return false;
+    defineProperty(windowRecord, chunkReaderKey, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: (index: number): CaptureChunk | { kind: 'missing' } => {
+        const reader = state.stagedCaptureReader;
+        return reader === undefined ? { kind: 'missing' } : reader(index);
+      },
+    });
     defineProperty(windowRecord, stateKey, {
       configurable: false,
       enumerable: false,
@@ -816,6 +935,7 @@ function createPageState(
       resolverDiscoveryExpired: false,
       resolverClaims: 0,
       conversationCapture: undefined,
+      stagedCaptureReader: undefined,
       resolverObservations: [],
       result: { kind: 'ready' },
     };
@@ -948,10 +1068,12 @@ function beginResolverDiscovery(
   pageWindow: PageWindow,
   state: PageState,
   target: MarkerTarget,
-  capture: NonNullable<PageState['conversationCapture']>
+  capture: NonNullable<PageState['conversationCapture']>,
+  stagedReader: CaptureChunkReader | undefined
 ): void {
   if (state.settled) return;
   state.conversationCapture = capture;
+  state.stagedCaptureReader = stagedReader;
 
   if (state.timeoutId !== undefined) {
     try {
@@ -1030,12 +1152,8 @@ async function captureNativeResponse(
     );
     const bytes = await readBoundedClone(primordials, clone, maxBytes);
     const sha256 = await sha256FromBytes(primordials, bytes);
-    beginResolverDiscovery(pageWindow, state, target, {
-      bodyBase64: base64FromBytes(primordials, bytes),
-      byteLength: bytes.byteLength,
-      sha256,
-      mediaType,
-    });
+    const captured = conversationCaptureFromBytes(primordials, bytes, sha256, mediaType);
+    beginResolverDiscovery(pageWindow, state, target, captured.capture, captured.stagedReader);
   } catch (error) {
     finishCapture(pageWindow, state, {
       kind: 'error',
@@ -1120,7 +1238,7 @@ function observeNativeResponse(
       responsePromise,
       [
         (response: Response) =>
-          captureNativeResponse(pageWindow, state, response, DEFAULT_MAX_BYTES, target),
+          captureNativeResponse(pageWindow, state, response, STAGED_CAPTURE_MAX_BYTES, target),
         () => finishCapture(pageWindow, state, { kind: 'error', code: 'request-failed' }),
       ]
     );
@@ -2536,7 +2654,7 @@ async function captureOpaqueReplayResponse(
       []
     );
     discardOpaqueReplayOriginalBody(state.primordials, response);
-    const bytes = await readBoundedClone(state.primordials, clone, DEFAULT_MAX_BYTES);
+    const bytes = await readBoundedClone(state.primordials, clone, INLINE_CAPTURE_MAX_BYTES);
     const sha256 = await sha256FromBytes(state.primordials, bytes);
     if (state.settled) return;
     finishOpaqueReplay(pageWindow, state, {
@@ -4309,11 +4427,13 @@ export function startChatGptDocumentStartCapture(
   }
 
   const stateKey = stateKeyFor(target.nonce);
+  const chunkReaderKey = chunkReaderKeyFor(target.nonce);
   try {
     const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
     if (
       getOwnPropertyDescriptor === undefined ||
-      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined
+      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined ||
+      getOwnPropertyDescriptor(windowRecord, chunkReaderKey) !== undefined
     ) {
       return { kind: 'error', code: 'hook-state-failed' };
     }
@@ -4325,11 +4445,111 @@ export function startChatGptDocumentStartCapture(
   if (state === undefined) {
     return { kind: 'error', code: 'hook-state-failed' };
   }
-  if (!publishResultSnapshot(primordials, windowRecord, stateKey, state)) {
+  if (!publishResultSnapshot(primordials, windowRecord, stateKey, chunkReaderKey, state)) {
     return { kind: 'error', code: 'hook-state-failed' };
   }
   armNativeFetchObserver(pageWindow, state, target);
   return { kind: 'ready' };
+}
+
+/**
+ * Read one independently-encoded staged capture chunk from MAIN world. Chrome
+ * serializes this function without module scope, so every validation here is
+ * deliberately primitive-only and self-contained.
+ */
+export function readChatGptTemporaryCaptureChunk(
+  nonce: string,
+  index: number
+): CaptureChunk | { kind: 'missing' } {
+  const chunkBytes = 512 * 1024;
+  const inlineBytes = 16 * 1024 * 1024;
+  const stagedBytes = 64 * 1024 * 1024;
+  const maxChunkBase64Length = 4 * ((chunkBytes + 2) / 3);
+  try {
+    if (
+      typeof nonce !== 'string' ||
+      nonce.length < 16 ||
+      nonce.length > 128 ||
+      typeof index !== 'number' ||
+      index !== index ||
+      index < 0 ||
+      index % 1 !== 0
+    ) {
+      return { kind: 'missing' };
+    }
+    for (let nonceIndex = 0; nonceIndex < nonce.length; nonceIndex += 1) {
+      const character = nonce[nonceIndex];
+      if (
+        character !== '-' &&
+        !(
+          (character >= 'a' && character <= 'z') ||
+          (character >= 'A' && character <= 'Z') ||
+          (character >= '0' && character <= '9')
+        )
+      ) {
+        return { kind: 'missing' };
+      }
+    }
+
+    const pageWindow = window as unknown as Record<string, unknown>;
+    const state = pageWindow[`__liskaChatGptCapture_${nonce}`];
+    if (typeof state !== 'object' || state === null) return { kind: 'missing' };
+    const result = state as Record<string, unknown>;
+    if (
+      result.kind !== 'captured' ||
+      typeof result.capture !== 'object' ||
+      result.capture === null
+    ) {
+      return { kind: 'missing' };
+    }
+    const capture = result.capture as Record<string, unknown>;
+    const byteLength = capture.byteLength;
+    const chunkCount = capture.chunkCount;
+    if (
+      capture.transport !== 'staged' ||
+      typeof byteLength !== 'number' ||
+      byteLength <= inlineBytes ||
+      byteLength > stagedBytes ||
+      byteLength % 1 !== 0 ||
+      typeof chunkCount !== 'number' ||
+      chunkCount <= 0 ||
+      chunkCount % 1 !== 0
+    ) {
+      return { kind: 'missing' };
+    }
+    let expectedChunkCount = 0;
+    for (let offset = 0; offset < byteLength; offset += chunkBytes) expectedChunkCount += 1;
+    if (chunkCount !== expectedChunkCount || index >= chunkCount) return { kind: 'missing' };
+
+    const reader = pageWindow[`__liskaChatGptCaptureChunkReader_${nonce}`];
+    if (typeof reader !== 'function') return { kind: 'missing' };
+    const chunk = reader(index);
+    if (typeof chunk !== 'object' || chunk === null) return { kind: 'missing' };
+    const record = chunk as Record<string, unknown>;
+    const offset = index * chunkBytes;
+    const chunkLength = record.byteLength;
+    const chunkBase64 = record.chunkBase64;
+    if (
+      record.kind !== 'chunk' ||
+      record.index !== index ||
+      record.offset !== offset ||
+      typeof chunkLength !== 'number' ||
+      chunkLength <= 0 ||
+      chunkLength > chunkBytes ||
+      chunkLength % 1 !== 0 ||
+      chunkLength !== (index + 1 === chunkCount ? byteLength - offset : chunkBytes) ||
+      typeof chunkBase64 !== 'string' ||
+      chunkBase64.length > maxChunkBase64Length
+    ) {
+      return { kind: 'missing' };
+    }
+    const expectedBase64Length =
+      4 * (chunkLength % 3 === 0 ? chunkLength / 3 : (chunkLength + (3 - (chunkLength % 3))) / 3);
+    if (chunkBase64.length !== expectedBase64Length) return { kind: 'missing' };
+    return { kind: 'chunk', index, offset, byteLength: chunkLength, chunkBase64 };
+  } catch {
+    return { kind: 'missing' };
+  }
 }
 
 if (typeof window !== 'undefined') {

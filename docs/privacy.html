@@ -119,6 +119,13 @@
       <code>not-attempted</code>. This release does not make additional ChatGPT attachment download
       requests.
     </p>
+    <p>
+      When a ChatGPT raw or canonical JSON artifact is too large for the bounded inline extension
+      message, Liska temporarily stages it in the browser's extension-private local storage in
+      independently verified chunks. This staging area is not an additional export destination:
+      bytes leave it only for a durable local output you selected. Exact stages are removed after
+      confirmed output, while interrupted remnants are eligible for bounded cleanup after 24 hours.
+    </p>
 
     <h2>Output Options</h2>
     <p>Conversations can be exported to three destinations:</p>

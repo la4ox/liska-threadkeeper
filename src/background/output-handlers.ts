@@ -9,7 +9,7 @@ import { generateNoteContent } from '../lib/note-generator';
 import { handleSave, handleSaveArchiveCompanion } from './obsidian-handlers';
 import { resolveImagesForFile, stripImagePlaceholders } from '../lib/image-output';
 import { MAX_CONTENT_SIZE } from '../lib/constants';
-import { CHATGPT_CAPTURE_MAX_BYTES } from '../lib/chatgpt-capture-contract';
+import { CHATGPT_INLINE_CAPTURE_MAX_BYTES } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
 import type {
   ArchiveBlobCreateResponse,
@@ -163,6 +163,11 @@ export async function acquireOffscreenLeaseForStagedBinaryAsset(): Promise<Offsc
   return acquireOffscreenLease();
 }
 
+/** Share the same authoritative offscreen lifecycle with raw/canonical stages. */
+export async function acquireOffscreenLeaseForArchiveStage(): Promise<OffscreenLease> {
+  return acquireOffscreenLease();
+}
+
 /**
  * Save to Obsidian and return OutputResult with optional messagesAppended
  */
@@ -260,8 +265,9 @@ async function sha256Hex(bytes: Uint8Array): Promise<string | undefined> {
 async function verifyArchiveCompanion(
   artifact: ArchiveCompanionArtifact
 ): Promise<Uint8Array | null> {
+  if (artifact.transport !== 'inline') return null;
   const bytes = decodeCanonicalBase64(artifact.bodyBase64);
-  const maxBytes = artifact.kind === 'raw' ? CHATGPT_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
+  const maxBytes = artifact.kind === 'raw' ? CHATGPT_INLINE_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
   if (!bytes || bytes.byteLength !== artifact.byteLength || bytes.byteLength > maxBytes)
     return null;
   return (await sha256Hex(bytes)) === artifact.sha256 ? bytes : null;
@@ -309,6 +315,7 @@ interface ArchiveBlobCreateOutcome {
 async function createArchiveBlobUrl(
   artifact: ArchiveCompanionArtifact
 ): Promise<ArchiveBlobCreateOutcome> {
+  if (artifact.transport !== 'inline') return { url: null };
   const createResponse = chrome.runtime.sendMessage({
     action: 'archiveBlobCreate',
     target: 'offscreen',

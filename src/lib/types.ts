@@ -5,6 +5,7 @@
 import type { ArchiveBranchCatalog } from '../archive/branches';
 import type { RawCaptureBundle } from '../archive/capture';
 import type { LiskaThreadArchive } from '../archive/types';
+import type { ArchiveStageDescriptor } from './archive-stage-contract';
 
 /**
  * Supported AI platform identifiers
@@ -201,16 +202,33 @@ export const ARCHIVE_COMPANION_RELATIVE_PATHS: Readonly<Record<ArchiveCompanionK
   canonical: 'canonical/liska-thread-1.json',
 };
 
-/** One immutable JSON artifact in a structured archive snapshot. */
-export interface ArchiveCompanionArtifact {
+/** Shared immutable identity for one JSON artifact in a structured snapshot. */
+interface ArchiveCompanionArtifactBase {
   kind: ArchiveCompanionKind;
   relativePath: string;
   mediaType: 'application/json';
   byteLength: number;
   sha256: string;
+}
+
+/** Small archive artifacts keep the established inline runtime route. */
+export interface InlineArchiveCompanionArtifact extends ArchiveCompanionArtifactBase {
+  transport: 'inline';
   /** Canonical standard base64. Raw artifacts retain the captured text verbatim. */
   bodyBase64: string;
 }
+
+/** Large raw/canonical artifacts remain in an exact sealed OPFS stage. */
+export interface StagedArchiveCompanionArtifact extends ArchiveCompanionArtifactBase {
+  transport: 'staged';
+  kind: Exclude<ArchiveCompanionKind, 'manifest'>;
+  stageId: string;
+}
+
+/** Versioned runtime transport for one immutable archive companion. */
+export type ArchiveCompanionArtifact =
+  | InlineArchiveCompanionArtifact
+  | StagedArchiveCompanionArtifact;
 
 /**
  * Provider-neutral, runtime-only archive companion bundle.
@@ -229,14 +247,14 @@ export interface ArchiveCompanionBundle {
 
 /**
  * Runtime-only original ChatGPT capture retained for an optional attachment
- * export pass. It is never sent over an extension message or serialized into
- * Markdown/archive companions. The raw base64 is retained solely to bind a
- * later marker-gated resolver observation to these exact source bytes.
+ * export pass. It is never serialized into Markdown. The original raw artifact
+ * transport is retained solely to bind later marker-gated resolver work to the
+ * exact source bytes; staged handles contain no provider identifier or body.
  */
 export interface ChatGptAssetExportContext {
   conversationId: string;
   rawCaptureBundle: RawCaptureBundle;
-  rawBodyBase64: string;
+  rawArtifact: ArchiveCompanionArtifact;
 }
 
 /**
@@ -458,6 +476,41 @@ export type ExtensionMessage =
       outputs: PersistentOutputDestination[];
     }
   | {
+      action: 'beginStagedArchiveArtifact';
+      source: 'chatgpt';
+      descriptor: ArchiveStageDescriptor;
+    }
+  | {
+      action: 'appendStagedArchiveArtifact';
+      source: 'chatgpt';
+      stageId: string;
+      offset: number;
+      chunkBase64: string;
+    }
+  | {
+      action: 'sealStagedArchiveArtifact';
+      source: 'chatgpt';
+      stageId: string;
+      descriptor: ArchiveStageDescriptor;
+    }
+  | {
+      action: 'readStagedArchiveArtifact';
+      source: 'chatgpt';
+      stageId: string;
+      offset: number;
+      byteLength: number;
+    }
+  | {
+      action: 'commitStagedArchiveCompanion';
+      noteFileName: string;
+      source: 'chatgpt';
+      captureId: string;
+      conversationKey: string;
+      artifact: StagedArchiveCompanionArtifact;
+      outputs: PersistentOutputDestination[];
+    }
+  | { action: 'abortStagedArchiveArtifact'; source: 'chatgpt'; stageId: string }
+  | {
       action: 'beginStagedBinaryAsset';
       source: AIPlatform;
       stageId: string;
@@ -539,6 +592,56 @@ export interface OffscreenArchiveBlobRevokeMessage {
   url: string;
 }
 
+export interface OffscreenArchiveStageBeginMessage {
+  action: 'archiveStageBegin';
+  target: 'offscreen';
+  stageId: string;
+  descriptor: ArchiveStageDescriptor;
+}
+
+export interface OffscreenArchiveStageAppendMessage {
+  action: 'archiveStageAppend';
+  target: 'offscreen';
+  stageId: string;
+  offset: number;
+  chunkBase64: string;
+}
+
+export interface OffscreenArchiveStageSealMessage {
+  action: 'archiveStageSeal';
+  target: 'offscreen';
+  stageId: string;
+  descriptor: ArchiveStageDescriptor;
+}
+
+export interface OffscreenArchiveStageReadMessage {
+  action: 'archiveStageRead';
+  target: 'offscreen';
+  stageId: string;
+  offset: number;
+  byteLength: number;
+}
+
+export interface OffscreenArchiveStageCreateUrlMessage {
+  action: 'archiveStageCreateUrl';
+  target: 'offscreen';
+  stageId: string;
+  descriptor: ArchiveStageDescriptor;
+}
+
+export interface OffscreenArchiveStageReleaseMessage {
+  action: 'archiveStageRelease';
+  target: 'offscreen';
+  stageId: string;
+  url: string;
+}
+
+export interface OffscreenArchiveStageAbortMessage {
+  action: 'archiveStageAbort';
+  target: 'offscreen';
+  stageId: string;
+}
+
 /** Start one exact safe-named OPFS binary stage. */
 export interface OffscreenBinaryStageBeginMessage {
   action: 'binaryStageBegin';
@@ -590,9 +693,19 @@ export type OffscreenBinaryStageMessage =
   | OffscreenBinaryStageReleaseMessage
   | OffscreenBinaryStageAbortMessage;
 
+export type OffscreenArchiveStageMessage =
+  | OffscreenArchiveStageBeginMessage
+  | OffscreenArchiveStageAppendMessage
+  | OffscreenArchiveStageSealMessage
+  | OffscreenArchiveStageReadMessage
+  | OffscreenArchiveStageCreateUrlMessage
+  | OffscreenArchiveStageReleaseMessage
+  | OffscreenArchiveStageAbortMessage;
+
 export type OffscreenMessage =
   | OffscreenClipboardMessage
   | OffscreenArchiveBlobMessage
+  | OffscreenArchiveStageMessage
   | OffscreenBinaryStageMessage;
 
 export type ArchiveBlobCreateResponse =
@@ -604,6 +717,21 @@ export type ArchiveBlobRevokeResponse = { success: boolean; error?: string };
 export type BinaryStageResponse = { success: boolean; error?: string };
 
 export type BinaryStageFinalizeResponse =
+  | { success: true; url: string }
+  | { success: false; error: string };
+
+export type ArchiveStageResponse =
+  | { success: true; stageId?: string }
+  | { success: false; error: string };
+
+export type ArchiveStageReadResponse =
+  | {
+      success: true;
+      data: { stageId: string; offset: number; byteLength: number; chunkBase64: string };
+    }
+  | { success: false; error: string };
+
+export type ArchiveStageUrlResponse =
   | { success: true; url: string }
   | { success: false; error: string };
 

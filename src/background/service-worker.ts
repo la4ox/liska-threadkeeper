@@ -8,6 +8,7 @@ import { getSettings, migrateSettings, saveSettings } from '../lib/storage';
 import {
   validateChatGptCaptureSender,
   validateChatGptStandardConversationSender,
+  validateArchiveStageSender,
   validateMessageContent,
   validateSender,
   validateStagedBinaryAssetSender,
@@ -15,7 +16,9 @@ import {
 import { handleTestConnection } from './obsidian-handlers';
 import { handleMultiOutput, handlePersistArchiveCompanion } from './output-handlers';
 import { handleStagedBinaryAssetMessage } from './binary-asset-handlers';
+import { handleArchiveStageMessage } from './archive-stage-handlers';
 import { startStagedBinaryDownloadRecovery } from './binary-download-recovery';
+import { startArchiveStageDownloadRecovery } from './archive-stage-download-recovery';
 import { handleFetchImage } from './image-fetch';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
@@ -61,6 +64,7 @@ let outputOptionsOverride: OutputOptions | undefined;
 // Register durable Downloads recovery before any awaited startup work. A fresh
 // MV3 worker must observe terminal deltas and browser-startup reconciliation.
 startStagedBinaryDownloadRecovery();
+startArchiveStageDownloadRecovery();
 
 // Run settings migration on service worker startup (C-01)
 // Note: top-level await not available in service workers, use .catch() for error handling
@@ -143,6 +147,11 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (!isAuthorizedStagedBinaryAssetRequest(message, sender)) {
+      sendResponse({ success: false, error: 'Unauthorized' });
+      return false;
+    }
+
+    if (!isAuthorizedArchiveStageRequest(message, sender)) {
       sendResponse({ success: false, error: 'Unauthorized' });
       return false;
     }
@@ -240,6 +249,34 @@ function isAuthorizedOutputOptionsUpdate(
   );
 }
 
+type ArchiveStageContentMessage = Extract<
+  ExtensionMessage,
+  | { action: 'beginStagedArchiveArtifact' }
+  | { action: 'appendStagedArchiveArtifact' }
+  | { action: 'sealStagedArchiveArtifact' }
+  | { action: 'readStagedArchiveArtifact' }
+  | { action: 'commitStagedArchiveCompanion' }
+  | { action: 'abortStagedArchiveArtifact' }
+>;
+
+function isArchiveStageMessage(message: ExtensionMessage): message is ArchiveStageContentMessage {
+  return (
+    message.action === 'beginStagedArchiveArtifact' ||
+    message.action === 'appendStagedArchiveArtifact' ||
+    message.action === 'sealStagedArchiveArtifact' ||
+    message.action === 'readStagedArchiveArtifact' ||
+    message.action === 'commitStagedArchiveCompanion' ||
+    message.action === 'abortStagedArchiveArtifact'
+  );
+}
+
+function isAuthorizedArchiveStageRequest(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  return !isArchiveStageMessage(message) || validateArchiveStageSender(sender);
+}
+
 function isStagedBinaryAssetMessage(
   message: ExtensionMessage
 ): message is Extract<
@@ -316,10 +353,14 @@ async function handleChatGptCapture(conversationId: string, observeAssetResolver
   }
 
   try {
+    const payload =
+      capture.transport === 'inline'
+        ? { transport: 'inline' as const, bodyBase64: capture.bodyBase64 }
+        : { transport: 'staged' as const, stageId: capture.stageId };
     const response = {
       success: true as const,
       data: {
-        bodyBase64: capture.bodyBase64,
+        ...payload,
         byteLength: capture.byteLength,
         sha256: capture.sha256,
         mediaType: capture.mediaType,
@@ -486,6 +527,7 @@ function redactSettingsForContentScript(settings: ExtensionSettings): ContentScr
 /**
  * Route messages to appropriate handlers
  */
+// eslint-disable-next-line complexity -- The worker's validated action families remain visible in one routing table.
 async function handleMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
@@ -504,10 +546,16 @@ async function handleMessage(
     }
   }
 
+  if (isArchiveStageMessage(message) && message.action !== 'commitStagedArchiveCompanion') {
+    return handleArchiveStageMessage(message);
+  }
+
   const storedSettings = await getSettings();
   const settings = outputOptionsOverride
     ? { ...storedSettings, outputOptions: { ...outputOptionsOverride } }
     : storedSettings;
+
+  if (isArchiveStageMessage(message)) return handleArchiveStageMessage(message, settings);
 
   switch (message.action) {
     case 'saveToOutputs':

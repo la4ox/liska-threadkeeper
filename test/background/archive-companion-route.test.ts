@@ -33,6 +33,7 @@ function message() {
     captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
     conversationKey: 'a'.repeat(64),
     artifact: {
+      transport: 'inline' as const,
       kind: 'manifest' as const,
       relativePath: 'manifest.json',
       mediaType: 'application/json' as const,

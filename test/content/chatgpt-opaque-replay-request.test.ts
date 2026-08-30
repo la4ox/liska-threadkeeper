@@ -43,6 +43,13 @@ function replaySuccess() {
   };
 }
 
+function replayAsCaptureSuccess() {
+  return {
+    success: true,
+    data: { transport: 'inline', ...replaySuccess().data },
+  };
+}
+
 describe('ChatGPT opaque replay content bridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,7 +77,7 @@ describe('ChatGPT opaque replay content bridge', () => {
       async (_conversationId: string, _includeTools: boolean, dependencies: never) => {
         const requestCapture = (dependencies as { requestCapture: () => Promise<unknown> })
           .requestCapture;
-        expect(await requestCapture()).toEqual(replaySuccess());
+        expect(await requestCapture()).toEqual(replayAsCaptureSuccess());
         return projection;
       }
     );
@@ -92,7 +99,7 @@ describe('ChatGPT opaque replay content bridge', () => {
       async (_conversationId: string, dependencies: never) => {
         const requestCapture = (dependencies as { requestCapture: () => Promise<unknown> })
           .requestCapture;
-        expect(await requestCapture()).toEqual(replaySuccess());
+        expect(await requestCapture()).toEqual(replayAsCaptureSuccess());
         return archive;
       }
     );

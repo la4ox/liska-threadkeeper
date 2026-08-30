@@ -5,6 +5,7 @@ import {
   CHATGPT_CAPTURE_MAX_BYTES,
   ChatGptTemporaryCaptureError,
   captureChatGptInTemporaryTab,
+  readChatGptTemporaryCaptureChunkState,
   readChatGptTemporaryCaptureState,
 } from '../../src/background/chatgpt-capture';
 
@@ -35,6 +36,7 @@ function capturedResult() {
     kind: 'captured' as const,
     conversationId: CONVERSATION_ID,
     capture: {
+      transport: 'inline' as const,
       bodyBase64: 'AP8BgCo=',
       byteLength: 5,
       sha256: CAPTURE_HASH,
@@ -46,10 +48,12 @@ function capturedResult() {
 
 function fakeChrome(
   states: unknown[] = [capturedResult()],
-  readiness: FakeTab[] = [READY_TARGET_TAB]
+  readiness: FakeTab[] = [READY_TARGET_TAB],
+  chunks: unknown[] = []
 ) {
   const pendingStates = [...states];
   const pendingReadiness = [...readiness];
+  const pendingChunks = [...chunks];
   const tabs = {
     create: vi.fn().mockResolvedValue({ id: 73 }),
     get: vi.fn().mockImplementation(async () => pendingReadiness.shift() ?? READY_TARGET_TAB),
@@ -58,6 +62,9 @@ function fakeChrome(
   const executeScript = vi.fn().mockImplementation(async injection => {
     if (injection.func === readChatGptTemporaryCaptureState) {
       return [{ result: pendingStates.shift() ?? { kind: 'missing' } }] satisfies ScriptResult[];
+    }
+    if (injection.func === readChatGptTemporaryCaptureChunkState) {
+      return [{ result: pendingChunks.shift() ?? { kind: 'missing' } }] satisfies ScriptResult[];
     }
     return [] satisfies ScriptResult[];
   });
@@ -106,6 +113,208 @@ afterEach(() => {
 });
 
 describe('captureChatGptInTemporaryTab', () => {
+  it('reads only one nonce-scoped MAIN chunk and fails closed for bad or throwing state', () => {
+    const validWindow = {
+      [`__liskaChatGptCaptureChunkReader_${NONCE}`]: (index: number) => ({
+        kind: 'chunk',
+        index,
+      }),
+    };
+    vi.stubGlobal('window', validWindow);
+    expect(readChatGptTemporaryCaptureChunkState(NONCE, 2)).toEqual({
+      kind: 'chunk',
+      index: 2,
+    });
+    expect(readChatGptTemporaryCaptureChunkState('bad', 0)).toEqual({ kind: 'missing' });
+    expect(readChatGptTemporaryCaptureChunkState(NONCE, -1)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', {});
+    expect(readChatGptTemporaryCaptureChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
+    vi.stubGlobal(
+      'window',
+      new Proxy(
+        {},
+        {
+          get: () => {
+            throw new Error('synthetic getter failure');
+          },
+        }
+      )
+    );
+    expect(readChatGptTemporaryCaptureChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', {
+      [STATE_KEY]: {
+        kind: 'captured',
+        conversationId: CONVERSATION_ID,
+        capture: {
+          transport: 'inline',
+          byteLength: 'bad',
+          sha256: CAPTURE_HASH,
+          mediaType: 'application/json',
+          bodyBase64: 'AP8BgCo=',
+        },
+        resolverObservations: [],
+      },
+    });
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', {
+      [STATE_KEY]: {
+        kind: 'captured',
+        conversationId: CONVERSATION_ID,
+        capture: {
+          transport: 'staged',
+          byteLength: 10,
+          sha256: CAPTURE_HASH,
+          mediaType: 'application/json',
+          chunkCount: 1,
+        },
+        resolverObservations: [],
+      },
+    });
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', {
+      [STATE_KEY]: {
+        kind: 'captured',
+        conversationId: CONVERSATION_ID,
+        capture: {
+          transport: 'inline',
+          byteLength: 5,
+          sha256: CAPTURE_HASH,
+          mediaType: 'application/json',
+        },
+        resolverObservations: Array.from({ length: 33 }, () => null),
+      },
+    });
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', {
+      [STATE_KEY]: {
+        kind: 'captured',
+        conversationId: CONVERSATION_ID,
+        capture: {
+          transport: 'staged',
+          byteLength: 16 * 1024 * 1024 + 1,
+          sha256: CAPTURE_HASH,
+          mediaType: 'application/json',
+          chunkCount: 1,
+        },
+        resolverObservations: [],
+      },
+    });
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual({ kind: 'missing' });
+  });
+
+  it('stages a 16 MiB plus one-byte response in bounded ordered chunks without whole base64', async () => {
+    const byteLength = 16 * 1024 * 1024 + 1;
+    const chunkBytes = 512 * 1024;
+    const chunkCount = Math.ceil(byteLength / chunkBytes);
+    const chunks = Array.from({ length: chunkCount }, (_, index) => {
+      const offset = index * chunkBytes;
+      const length = Math.min(chunkBytes, byteLength - offset);
+      return {
+        kind: 'chunk',
+        index,
+        offset,
+        byteLength: length,
+        chunkBase64: base64Bytes(new Uint8Array(length)),
+      };
+    });
+    const chromeApi = fakeChrome(
+      [
+        {
+          kind: 'captured',
+          conversationId: CONVERSATION_ID,
+          capture: {
+            transport: 'staged',
+            byteLength,
+            sha256: 'a'.repeat(64),
+            mediaType: 'application/json',
+            chunkCount,
+          },
+          resolverObservations: [],
+        },
+      ],
+      [READY_TARGET_TAB],
+      chunks
+    );
+    const archiveStage = {
+      begin: vi.fn().mockResolvedValue(`archive-stage-${'A'.repeat(32)}`),
+      append: vi.fn().mockResolvedValue(true),
+      seal: vi.fn().mockResolvedValue(true),
+      abort: vi.fn().mockResolvedValue(true),
+    };
+
+    const result = await captureChatGptInTemporaryTab(CONVERSATION_ID, {
+      ...captureDependencies(chromeApi),
+      archiveStage,
+    });
+
+    expect(result).toEqual({
+      transport: 'staged',
+      stageId: `archive-stage-${'A'.repeat(32)}`,
+      byteLength,
+      sha256: 'a'.repeat(64),
+      mediaType: 'application/json',
+      endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      transientAssetResolvers: [],
+    });
+    expect(archiveStage.append).toHaveBeenCalledTimes(chunkCount);
+    expect(archiveStage.append.mock.calls.map(call => call[1])).toEqual(
+      chunks.map(chunk => chunk.offset)
+    );
+    expect(archiveStage.seal).toHaveBeenCalledOnce();
+    expect(archiveStage.abort).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('bodyBase64');
+
+    const stagedState = {
+      kind: 'captured',
+      conversationId: CONVERSATION_ID,
+      capture: {
+        transport: 'staged',
+        byteLength,
+        sha256: 'a'.repeat(64),
+        mediaType: 'application/json',
+        chunkCount,
+      },
+      resolverObservations: [],
+    };
+    const invalidChunkChrome = fakeChrome([stagedState], [READY_TARGET_TAB], [null]);
+    const invalidChunkStage = {
+      begin: vi.fn().mockResolvedValue(`archive-stage-${'B'.repeat(32)}`),
+      append: vi.fn().mockResolvedValue(true),
+      seal: vi.fn().mockResolvedValue(true),
+      abort: vi.fn().mockResolvedValue(true),
+    };
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(invalidChunkChrome),
+        archiveStage: invalidChunkStage,
+      })
+    ).rejects.toMatchObject({ code: 'response-processing-failed' });
+    expect(invalidChunkStage.abort).toHaveBeenCalledOnce();
+
+    const throwingChunkChrome = fakeChrome([stagedState]);
+    throwingChunkChrome.scripting.executeScript
+      .mockResolvedValueOnce([{ result: stagedState }])
+      .mockRejectedValueOnce(new Error('synthetic MAIN read failure'));
+    const throwingChunkStage = {
+      begin: vi.fn().mockResolvedValue(`archive-stage-${'C'.repeat(32)}`),
+      append: vi.fn().mockResolvedValue(true),
+      seal: vi.fn().mockResolvedValue(true),
+      abort: vi.fn().mockResolvedValue(true),
+    };
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, {
+        ...captureDependencies(throwingChunkChrome),
+        archiveStage: throwingChunkStage,
+      })
+    ).rejects.toMatchObject({ code: 'response-processing-failed' });
+    expect(throwingChunkStage.abort).toHaveBeenCalledOnce();
+  });
+
   it('creates a nonce-marked exact conversation tab and polls only the predeclared state', async () => {
     const chromeApi = fakeChrome();
     const extensionFetch = vi.fn();
@@ -139,12 +348,13 @@ describe('captureChatGptInTemporaryTab', () => {
       transientAssetResolvers: [],
     });
     expect(Object.keys(result)).toEqual([
+      'transport',
       'bodyBase64',
       'byteLength',
       'sha256',
       'mediaType',
-      'transientAssetResolvers',
       'endpoint',
+      'transientAssetResolvers',
     ]);
   });
 
@@ -481,7 +691,7 @@ describe('captureChatGptInTemporaryTab', () => {
     expect(chromeApi.tabs.remove).toHaveBeenCalledWith(73);
   });
 
-  it('maps a stable page error, re-verifies capture bytes, and strips extra page fields', async () => {
+  it('maps a stable page error, re-verifies capture bytes, and rejects unfiltered extra fields', async () => {
     const pageError = fakeChrome([{ kind: 'error', code: 'response-http-error' }]);
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(pageError))
@@ -492,6 +702,11 @@ describe('captureChatGptInTemporaryTab', () => {
     const captureChrome = fakeChrome([pageResult]);
     await expect(
       captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(captureChrome))
+    ).rejects.toMatchObject({ code: 'unexpected-capture-result' });
+
+    const cleanCaptureChrome = fakeChrome([capturedResult()]);
+    await expect(
+      captureChatGptInTemporaryTab(CONVERSATION_ID, captureDependencies(cleanCaptureChrome))
     ).resolves.toEqual({
       ...capturedResult().capture,
       endpoint: CHATGPT_CAPTURE_ENDPOINT,

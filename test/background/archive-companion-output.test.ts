@@ -66,6 +66,7 @@ async function artifact(kind: ArchiveCompanionArtifact['kind']): Promise<Archive
         ? 'manifest.json'
         : 'canonical/liska-thread-1.json';
   return {
+    transport: 'inline',
     kind,
     relativePath,
     mediaType: 'application/json',

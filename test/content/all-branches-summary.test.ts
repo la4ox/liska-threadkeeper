@@ -128,6 +128,7 @@ describe('all-branches user summary', () => {
       conversationKey: 'a'.repeat(64),
       artifacts: [
         {
+          transport: 'inline',
           kind: 'raw',
           relativePath: 'responses/conversation.json',
           mediaType: 'application/json',
@@ -136,6 +137,7 @@ describe('all-branches user summary', () => {
           bodyBase64: 'e30=',
         },
         {
+          transport: 'inline',
           kind: 'manifest',
           relativePath: 'manifest.json',
           mediaType: 'application/json',
@@ -144,6 +146,7 @@ describe('all-branches user summary', () => {
           bodyBase64: 'e30=',
         },
         {
+          transport: 'inline',
           kind: 'canonical',
           relativePath: 'canonical/liska-thread-1.json',
           mediaType: 'application/json',

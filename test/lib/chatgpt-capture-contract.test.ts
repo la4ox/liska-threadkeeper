@@ -20,6 +20,7 @@ function captureResponse() {
   return {
     success: true as const,
     data: {
+      transport: 'inline' as const,
       bodyBase64: 'AP8BgCo=',
       byteLength: 5,
       sha256: 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3',
@@ -45,6 +46,7 @@ describe('ChatGPT capture runtime contract', () => {
     expect(isChatGptCaptureResponse(response)).toBe(true);
     expect(Object.keys(response)).toEqual(['success', 'data']);
     expect(Object.keys(response.data)).toEqual([
+      'transport',
       'bodyBase64',
       'byteLength',
       'sha256',
@@ -99,6 +101,42 @@ describe('ChatGPT capture runtime contract', () => {
       })
     ).toBe(false);
     expect(isChatGptCaptureResponse({ success: 'unknown' })).toBe(false);
+  });
+
+  it('accepts a large capture only as an opaque staged descriptor', () => {
+    const byteLength = 16 * 1024 * 1024 + 1;
+    const staged = {
+      success: true,
+      data: {
+        transport: 'staged',
+        stageId: `archive-stage-${'A'.repeat(32)}`,
+        byteLength,
+        sha256: 'a'.repeat(64),
+        mediaType: 'application/json',
+        endpoint: { ...CHATGPT_CAPTURE_ENDPOINT },
+        transientAssetResolvers: [],
+      },
+    };
+    expect(isChatGptCaptureResponse(staged)).toBe(true);
+    expect(JSON.stringify(staged)).not.toContain('bodyBase64');
+    expect(
+      isChatGptCaptureResponse({
+        ...staged,
+        data: { ...staged.data, byteLength: 10 },
+      })
+    ).toBe(false);
+    expect(
+      isChatGptCaptureResponse({
+        ...staged,
+        data: { ...staged.data, bodyBase64: 'e30=' },
+      })
+    ).toBe(false);
+    expect(
+      isChatGptCaptureResponse({
+        ...captureResponse(),
+        data: { ...captureResponse().data, byteLength, bodyBase64: 'e30=' },
+      })
+    ).toBe(false);
   });
 
   it('accepts only exact, bounded transient resolver records', () => {

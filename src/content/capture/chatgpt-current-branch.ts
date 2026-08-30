@@ -31,11 +31,13 @@ import {
   CHATGPT_CAPTURE_ERROR_CODES,
   CHATGPT_CAPTURE_ERROR_MESSAGES,
   CHATGPT_CAPTURE_MAX_BYTES,
+  CHATGPT_INLINE_CAPTURE_MAX_BYTES,
   isChatGptCaptureResponse,
   isChatGptConversationId,
   type ChatGptCaptureResponse,
   type ChatGptTransientAssetResolver,
 } from '../../lib/chatgpt-capture-contract';
+import { MAX_CONTENT_SIZE } from '../../lib/constants';
 import { bytesToBase64 } from '../../lib/image-utils';
 import { canonicalBase64ByteLength } from '../../lib/base64';
 import {
@@ -43,7 +45,14 @@ import {
   type ArchiveCompanionArtifact,
   type ArchiveCompanionBundle,
   type ChatGptAssetExportContext,
+  type InlineArchiveCompanionArtifact,
+  type StagedArchiveCompanionArtifact,
 } from '../../lib/types';
+import {
+  abortStagedArchiveArtifact,
+  readStagedArchiveArtifactBytes,
+  stageArchiveArtifactBytes,
+} from '../archive-stage';
 import { hashCaptureManifest, sha256Hex } from './response';
 import { requestChatGptConversationCapture } from './chatgpt-request';
 import {
@@ -179,7 +188,7 @@ function strictCanonicalBase64Bytes(value: string): Uint8Array | undefined {
   const expectedLength = canonicalBase64ByteLength(value);
   if (
     expectedLength === undefined ||
-    expectedLength > CHATGPT_CAPTURE_MAX_BYTES ||
+    expectedLength > CHATGPT_INLINE_CAPTURE_MAX_BYTES ||
     typeof globalThis.atob !== 'function' ||
     typeof globalThis.btoa !== 'function'
   ) {
@@ -238,20 +247,50 @@ function captureId(createCaptureId: (() => string) | undefined): string {
 
 interface CapturedArtifact {
   artifact: RawCaptureArtifact;
-  /** The raw provider string is retained verbatim for eventual archive persistence. */
-  bodyBase64: string;
+  /** Inline bytes or an opaque sealed stage retained for durable raw persistence. */
+  rawArtifact: InlineArchiveCompanionArtifact | StagedArchiveCompanionArtifact;
   /** Validated by the runtime contract; consumed only by the transient matcher. */
   transientAssetResolvers: ChatGptTransientAssetResolver[];
 }
 
-function captureArtifact(response: ChatGptCaptureResponse): CapturedArtifact {
+// eslint-disable-next-line max-lines-per-function -- Inline and staged raw materialization share one exact integrity boundary.
+async function captureArtifact(response: ChatGptCaptureResponse): Promise<CapturedArtifact> {
   if (!isChatGptCaptureResponse(response)) {
     throw new ChatGptCurrentBranchError('capture-response-invalid');
   }
   if (!response.success) throw new ChatGptCurrentBranchError(response.code);
 
   const data = response.data;
-  const bytes = strictCanonicalBase64Bytes(data.bodyBase64);
+  let bytes: Uint8Array | undefined;
+  let rawArtifact: InlineArchiveCompanionArtifact | StagedArchiveCompanionArtifact;
+  if (data.transport === 'inline') {
+    bytes = strictCanonicalBase64Bytes(data.bodyBase64);
+    rawArtifact = {
+      transport: 'inline',
+      kind: 'raw',
+      relativePath: ARCHIVE_COMPANION_RELATIVE_PATHS.raw,
+      mediaType: 'application/json',
+      byteLength: data.byteLength,
+      sha256: data.sha256,
+      bodyBase64: data.bodyBase64,
+    };
+  } else {
+    rawArtifact = {
+      transport: 'staged',
+      kind: 'raw',
+      relativePath: ARCHIVE_COMPANION_RELATIVE_PATHS.raw,
+      mediaType: 'application/json',
+      byteLength: data.byteLength,
+      sha256: data.sha256,
+      stageId: data.stageId,
+    };
+    try {
+      bytes = await readStagedArchiveArtifactBytes(rawArtifact);
+    } catch {
+      await abortStagedArchiveArtifact(data.stageId);
+      bytes = undefined;
+    }
+  }
   if (
     !bytes ||
     bytes.byteLength !== data.byteLength ||
@@ -275,7 +314,7 @@ function captureArtifact(response: ChatGptCaptureResponse): CapturedArtifact {
   };
   return {
     artifact: { record, bytes },
-    bodyBase64: data.bodyBase64,
+    rawArtifact,
     transientAssetResolvers: data.transientAssetResolvers.map(resolver => ({ ...resolver })),
   };
 }
@@ -453,8 +492,12 @@ async function archiveCompanionArtifact(
   bytes: Uint8Array,
   bodyBase64?: string
 ): Promise<ArchiveCompanionArtifact> {
+  if (kind === 'canonical' && bytes.byteLength > MAX_CONTENT_SIZE) {
+    return stageArchiveArtifactBytes('canonical', bytes);
+  }
   const base64 = bodyBase64 ?? bytesToBase64(bytes);
   return {
+    transport: 'inline',
     kind,
     relativePath,
     mediaType: 'application/json',
@@ -471,7 +514,7 @@ async function archiveCompanionArtifact(
  */
 async function buildRawManifestCompanionBundle(
   bundle: RawCaptureBundle,
-  rawBodyBase64: string
+  rawArtifact: InlineArchiveCompanionArtifact | StagedArchiveCompanionArtifact
 ): Promise<ArchiveCompanionBundle> {
   const [raw] = bundle.artifacts;
   if (!raw) throw new ChatGptCurrentBranchError('capture-integrity-failed');
@@ -480,7 +523,7 @@ async function buildRawManifestCompanionBundle(
   const manifestBytes = serializeJsonBytes(bundle.manifest);
   const conversationKey = await sha256Hex(new TextEncoder().encode(bundle.manifest.conversationId));
   const artifacts = await Promise.all([
-    archiveCompanionArtifact('raw', ARCHIVE_COMPANION_RELATIVE_PATHS.raw, raw.bytes, rawBodyBase64),
+    Promise.resolve({ ...rawArtifact }),
     archiveCompanionArtifact('manifest', ARCHIVE_COMPANION_RELATIVE_PATHS.manifest, manifestBytes),
   ]);
 
@@ -546,6 +589,7 @@ function destinationAssetCompleteness(
   return assets.every(asset => asset.state !== 'not-attempted') ? 'complete' : 'partial';
 }
 
+// eslint-disable-next-line complexity -- Runtime raw bytes and two transport forms must be bound together before attachment work.
 async function verifiedOriginalRaw(
   context: ChatGptAssetExportContext
 ): Promise<RawCaptureArtifact> {
@@ -560,11 +604,20 @@ async function verifiedOriginalRaw(
     assertJsonOnlyArchiveCompanionSafe(context.rawCaptureBundle);
     if (context.rawCaptureBundle.artifacts.length !== 1) throw new Error('context artifact count');
     const raw = context.rawCaptureBundle.artifacts[0];
-    if (!raw || bytesToBase64(raw.bytes) !== context.rawBodyBase64) {
-      throw new Error('context raw body');
-    }
+    const companionRaw = context.rawArtifact;
+    if (!raw) throw new Error('context raw body');
     if (raw.record.id !== ARTIFACT_ID || raw.record.relativePath !== ARTIFACT_PATH) {
       throw new Error('context raw identity');
+    }
+    if (
+      companionRaw.kind !== 'raw' ||
+      companionRaw.relativePath !== raw.record.relativePath ||
+      companionRaw.mediaType !== raw.record.mediaType ||
+      companionRaw.byteLength !== raw.record.byteLength ||
+      companionRaw.sha256 !== raw.record.sha256 ||
+      (companionRaw.transport === 'inline' && bytesToBase64(raw.bytes) !== companionRaw.bodyBase64)
+    ) {
+      throw new Error('context raw companion');
     }
     await verifyCaptureBundleIntegrity(context.rawCaptureBundle, sha256Hex);
     return raw;
@@ -657,26 +710,31 @@ export async function observeChatGptAssetResolvers(
       dependencies.requestCapture,
       true
     );
-    const recaptured = captureArtifact(response);
-    await verifyCapturedArtifactIntegrity(recaptured.artifact);
-    if (
-      recaptured.artifact.record.byteLength !== original.record.byteLength ||
-      recaptured.artifact.record.sha256 !== original.record.sha256 ||
-      recaptured.bodyBase64 !== context.rawBodyBase64 ||
-      !bytesEqual(recaptured.artifact.bytes, original.bytes)
-    ) {
-      return { kind: 'recapture-mismatch', warning: CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING };
-    }
+    const recaptured = await captureArtifact(response);
+    try {
+      await verifyCapturedArtifactIntegrity(recaptured.artifact);
+      if (
+        recaptured.artifact.record.byteLength !== original.record.byteLength ||
+        recaptured.artifact.record.sha256 !== original.record.sha256 ||
+        !bytesEqual(recaptured.artifact.bytes, original.bytes)
+      ) {
+        return { kind: 'recapture-mismatch', warning: CHATGPT_ASSET_RECAPTURE_MISMATCH_WARNING };
+      }
 
-    return {
-      kind: 'matched',
-      candidates: await matchChatGptPageOwnedAssetResolvers({
-        raw: parseRawForInventory(original.bytes),
-        assets,
-        resolvers: recaptured.transientAssetResolvers,
-        sha256: sha256Hex,
-      }),
-    };
+      return {
+        kind: 'matched',
+        candidates: await matchChatGptPageOwnedAssetResolvers({
+          raw: parseRawForInventory(original.bytes),
+          assets,
+          resolvers: recaptured.transientAssetResolvers,
+          sha256: sha256Hex,
+        }),
+      };
+    } finally {
+      if (recaptured.rawArtifact.transport === 'staged') {
+        await abortStagedArchiveArtifact(recaptured.rawArtifact.stageId);
+      }
+    }
   } catch {
     return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
   }
@@ -842,7 +900,7 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
     const manifestSha256 = await captureManifestSha256(bundle);
     const rawManifest = await buildBinaryAwareRawManifestCompanionBundle(
       bundle,
-      context.rawBodyBase64
+      context.rawArtifact
     );
     const normalized = await normalizeChatGptCapture({
       bundle,
@@ -858,14 +916,14 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
 
 async function buildBinaryAwareRawManifestCompanionBundle(
   bundle: RawCaptureBundle,
-  rawBodyBase64: string
+  rawArtifact: ArchiveCompanionArtifact
 ): Promise<ArchiveCompanionBundle> {
   const raw = bundle.artifacts.find(artifact => artifact.record.id === ARTIFACT_ID);
   if (!raw) throw new Error('missing raw');
   const manifestBytes = serializeJsonBytes(bundle.manifest);
   const conversationKey = await sha256Hex(new TextEncoder().encode(bundle.manifest.conversationId));
   const artifacts = await Promise.all([
-    archiveCompanionArtifact('raw', ARCHIVE_COMPANION_RELATIVE_PATHS.raw, raw.bytes, rawBodyBase64),
+    Promise.resolve({ ...rawArtifact }),
     archiveCompanionArtifact('manifest', ARCHIVE_COMPANION_RELATIVE_PATHS.manifest, manifestBytes),
   ]);
   return {
@@ -893,56 +951,65 @@ export async function captureChatGptArchive(
     dependencies.requestCapture,
     dependencies.observeAssetResolvers === true
   );
-  const captured = captureArtifact(response);
-  await verifyCapturedArtifactIntegrity(captured.artifact);
-  const { bundle, transientAssetCandidates } = await buildCaptureBundle(
-    conversationId,
-    captured.artifact,
-    captured.transientAssetResolvers,
-    dependencies.createCaptureId,
-    dependencies.now,
-    dependencies.inventoryAssets,
-    dependencies.matchPageOwnedAssetResolvers
-  );
-  const manifestSha256 = await captureManifestSha256(bundle);
-  let archiveCompanion: ArchiveCompanionBundle;
+  const captured = await captureArtifact(response);
+  let stageTransferred = false;
   try {
-    archiveCompanion = await buildRawManifestCompanionBundle(bundle, captured.bodyBase64);
-  } catch {
-    throw new ChatGptCurrentBranchError('capture-integrity-failed');
-  }
-
-  let normalized: Awaited<ReturnType<typeof normalizeChatGptCapture>>;
-  try {
-    normalized = await (dependencies.normalizeCapture ?? normalizeChatGptCapture)({
-      bundle,
-      artifactId: ARTIFACT_ID,
-      manifestSha256,
-      sha256: sha256Hex,
-    });
-  } catch (error) {
-    throw new ChatGptCurrentBranchError('normalization-failed', {
-      archiveCompanion,
-      detailCode: safeNormalizerCode(error),
-    });
-  }
-
-  try {
-    archiveCompanion = await appendCanonicalCompanion(archiveCompanion, normalized.archive);
-  } catch {
-    throw new ChatGptCurrentBranchError('capture-integrity-failed', { archiveCompanion });
-  }
-
-  return {
-    archive: normalized.archive,
-    archiveCompanion,
-    assetExportContext: {
+    await verifyCapturedArtifactIntegrity(captured.artifact);
+    const { bundle, transientAssetCandidates } = await buildCaptureBundle(
       conversationId,
-      rawCaptureBundle: bundle,
-      rawBodyBase64: captured.bodyBase64,
-    },
-    transientAssetCandidates,
-  };
+      captured.artifact,
+      captured.transientAssetResolvers,
+      dependencies.createCaptureId,
+      dependencies.now,
+      dependencies.inventoryAssets,
+      dependencies.matchPageOwnedAssetResolvers
+    );
+    const manifestSha256 = await captureManifestSha256(bundle);
+    let archiveCompanion: ArchiveCompanionBundle;
+    try {
+      archiveCompanion = await buildRawManifestCompanionBundle(bundle, captured.rawArtifact);
+      stageTransferred = true;
+    } catch {
+      throw new ChatGptCurrentBranchError('capture-integrity-failed');
+    }
+
+    let normalized: Awaited<ReturnType<typeof normalizeChatGptCapture>>;
+    try {
+      normalized = await (dependencies.normalizeCapture ?? normalizeChatGptCapture)({
+        bundle,
+        artifactId: ARTIFACT_ID,
+        manifestSha256,
+        sha256: sha256Hex,
+      });
+    } catch (error) {
+      throw new ChatGptCurrentBranchError('normalization-failed', {
+        archiveCompanion,
+        detailCode: safeNormalizerCode(error),
+      });
+    }
+
+    try {
+      archiveCompanion = await appendCanonicalCompanion(archiveCompanion, normalized.archive);
+    } catch {
+      throw new ChatGptCurrentBranchError('capture-integrity-failed', { archiveCompanion });
+    }
+
+    return {
+      archive: normalized.archive,
+      archiveCompanion,
+      assetExportContext: {
+        conversationId,
+        rawCaptureBundle: bundle,
+        rawArtifact: captured.rawArtifact,
+      },
+      transientAssetCandidates,
+    };
+  } catch (error) {
+    if (!stageTransferred && captured.rawArtifact.transport === 'staged') {
+      await abortStagedArchiveArtifact(captured.rawArtifact.stageId);
+    }
+    throw error;
+  }
 }
 
 /**

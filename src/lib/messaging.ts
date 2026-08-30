@@ -15,6 +15,8 @@ import type {
   MultiOutputResponse,
   OutputOptionsUpdateResponse,
   BinaryStageResponse,
+  ArchiveStageReadResponse,
+  ArchiveStageResponse,
 } from './types';
 
 /** User-friendly message for extension context invalidation */
@@ -28,6 +30,12 @@ interface MessageResponseMap {
   testConnection: { success: boolean; error?: string };
   saveToOutputs: MultiOutputResponse;
   persistArchiveCompanion: MultiOutputResponse;
+  beginStagedArchiveArtifact: ArchiveStageResponse;
+  appendStagedArchiveArtifact: ArchiveStageResponse;
+  sealStagedArchiveArtifact: ArchiveStageResponse;
+  readStagedArchiveArtifact: ArchiveStageReadResponse;
+  commitStagedArchiveCompanion: MultiOutputResponse;
+  abortStagedArchiveArtifact: ArchiveStageResponse;
   updateOutputOptions: OutputOptionsUpdateResponse;
   captureChatGptConversation: ChatGptCaptureResponse;
   probeChatGptOpaqueRequest: ChatGptOpaqueProbeResponse;

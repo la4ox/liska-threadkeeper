@@ -61,6 +61,7 @@ import type {
 } from '../lib/types';
 import { platformForHost } from '../lib/platform-registry';
 import { throttle } from '../lib/throttle';
+import { abortStagedArchiveArtifact } from './archive-stage';
 
 /**
  * Platform-specific main content container selectors for optimized observation.
@@ -442,10 +443,20 @@ export async function persistArchiveCompanionArtifacts(
   artifactKinds?: readonly ArchiveCompanionKind[]
 ): Promise<ArchiveCompanionPersistenceOutcome> {
   if (!companion) return { activeOutputs: [], warnings: [] };
+  const unclaimedStages = new Set(
+    companion.artifacts
+      .filter(artifact => artifact.transport === 'staged')
+      .map(artifact => artifact.stageId)
+  );
+  const abortUnclaimedStages = async (): Promise<void> => {
+    await Promise.all([...unclaimedStages].map(stageId => abortStagedArchiveArtifact(stageId)));
+    unclaimedStages.clear();
+  };
   let activeOutputs = outputs.filter(
     (output): output is PersistentOutputDestination => output === 'file' || output === 'obsidian'
   );
   if (activeOutputs.length === 0) {
+    await abortUnclaimedStages();
     return {
       activeOutputs,
       warnings: ['ChatGPT raw/canonical archive was not saved because only Clipboard is enabled'],
@@ -455,6 +466,7 @@ export async function persistArchiveCompanionArtifacts(
   const warnings: string[] = [];
   const selected = requestedArchiveArtifacts(companion, artifactKinds);
   if (!selected) {
+    await abortUnclaimedStages();
     return {
       activeOutputs: [],
       warnings: archiveDestinationWarnings(
@@ -466,17 +478,31 @@ export async function persistArchiveCompanionArtifacts(
   }
   for (const artifact of selected) {
     if (activeOutputs.length === 0) break;
-    const message = {
-      action: 'persistArchiveCompanion' as const,
-      noteFileName,
-      source,
-      captureId: companion.captureId,
-      conversationKey: companion.conversationKey,
-      artifact,
-      outputs: activeOutputs,
-    };
+    const message =
+      artifact.transport === 'inline'
+        ? {
+            action: 'persistArchiveCompanion' as const,
+            noteFileName,
+            source,
+            captureId: companion.captureId,
+            conversationKey: companion.conversationKey,
+            artifact,
+            outputs: activeOutputs,
+          }
+        : {
+            action: 'commitStagedArchiveCompanion' as const,
+            noteFileName,
+            source: 'chatgpt' as const,
+            captureId: companion.captureId,
+            conversationKey: companion.conversationKey,
+            artifact,
+            outputs: activeOutputs,
+          };
     const label = archiveArtifactLabel(artifact.kind);
-    if (jsonUtf8ByteLength(message) > MAX_EXTENSION_MESSAGE_SIZE) {
+    if (
+      artifact.transport === 'inline' &&
+      jsonUtf8ByteLength(message) > MAX_EXTENSION_MESSAGE_SIZE
+    ) {
       warnings.push(
         ...archiveDestinationWarnings(label, activeOutputs, 'it exceeds the 60 MiB message limit')
       );
@@ -485,6 +511,7 @@ export async function persistArchiveCompanionArtifacts(
     }
 
     try {
+      if (artifact.transport === 'staged') unclaimedStages.delete(artifact.stageId);
       const response: unknown = await sendMessage(message);
       const outcome = archiveWriteOutcome(response, label, activeOutputs);
       warnings.push(...outcome.warnings);
@@ -497,6 +524,7 @@ export async function persistArchiveCompanionArtifacts(
       activeOutputs = [];
     }
   }
+  await abortUnclaimedStages();
   return { activeOutputs, warnings };
 }
 

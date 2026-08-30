@@ -43,7 +43,10 @@ async function replayAsCaptureResponse(conversationId: string): Promise<ChatGptC
     throw replayFailure('runtime-message-failed');
   }
   if (!replay.success) throw replayFailure(replay.code);
-  const response: ChatGptCaptureResponse = { success: true, data: replay.data };
+  const response: ChatGptCaptureResponse = {
+    success: true,
+    data: { transport: 'inline', ...replay.data },
+  };
   if (!isChatGptCaptureResponse(response)) throw replayFailure('capture-response-invalid');
   return response;
 }

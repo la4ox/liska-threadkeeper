@@ -11,6 +11,7 @@ const companion: ArchiveCompanionBundle = {
   conversationKey: 'a'.repeat(64),
   artifacts: [
     {
+      transport: 'inline',
       kind: 'raw',
       relativePath: 'responses/conversation.json',
       mediaType: 'application/json',
@@ -19,6 +20,7 @@ const companion: ArchiveCompanionBundle = {
       bodyBase64: 'e30=',
     },
     {
+      transport: 'inline',
       kind: 'manifest',
       relativePath: 'manifest.json',
       mediaType: 'application/json',
@@ -27,6 +29,7 @@ const companion: ArchiveCompanionBundle = {
       bodyBase64: 'e30=',
     },
     {
+      transport: 'inline',
       kind: 'canonical',
       relativePath: 'canonical/liska-thread-1.json',
       mediaType: 'application/json',
@@ -49,6 +52,44 @@ describe('content archive companion persistence', () => {
       'ChatGPT raw/canonical archive was not saved because only Clipboard is enabled',
     ]);
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('commits a staged raw companion without bodyBase64, then continues with inline manifest', async () => {
+    const staged: ArchiveCompanionBundle = {
+      ...companion,
+      artifacts: [
+        {
+          transport: 'staged',
+          stageId: `archive-stage-${'A'.repeat(32)}`,
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 20 * 1024 * 1024,
+          sha256: 'e'.repeat(64),
+        },
+        companion.artifacts[1],
+      ],
+    };
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [{ destination: 'file', success: true }],
+          allSuccessful: true,
+          anySuccessful: true,
+        });
+      }
+    );
+
+    await expect(
+      persistArchiveCompanionArtifacts(staged, 'note.md', 'chatgpt', ['file'])
+    ).resolves.toEqual({ activeOutputs: ['file'], warnings: [] });
+
+    const messages = vi.mocked(chrome.runtime.sendMessage).mock.calls.map(call => call[0]);
+    expect(messages.map(message => (message as { action: string }).action)).toEqual([
+      'commitStagedArchiveCompanion',
+      'persistArchiveCompanion',
+    ]);
+    expect(JSON.stringify(messages[0])).not.toContain('bodyBase64');
   });
 
   it('persists only raw and manifest when canonical normalization did not complete', async () => {

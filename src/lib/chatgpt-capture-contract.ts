@@ -6,9 +6,13 @@
  */
 
 import { canonicalBase64ByteLength } from './base64';
+import { ARCHIVE_STAGE_MAX_BYTES, isSafeArchiveStageId } from './archive-stage-contract';
 
-/** Hard byte ceiling for the exact response captured from ChatGPT. */
-export const CHATGPT_CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
+/** Inline capture retains the live-verified whole-base64 fast path only below 16 MiB. */
+export const CHATGPT_INLINE_CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
+
+/** Staged raw responses share the archive stage's explicit 64 MiB ceiling. */
+export const CHATGPT_CAPTURE_MAX_BYTES = ARCHIVE_STAGE_MAX_BYTES;
 
 /** A capture can surface at most this many transient, page-observed resolvers. */
 export const CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT = 32;
@@ -115,14 +119,26 @@ export const CHATGPT_CAPTURE_ERROR_MESSAGES: Readonly<Record<ChatGptCaptureError
   'unexpected-capture-result': 'The temporary ChatGPT capture returned an invalid result.',
 };
 
-export interface ChatGptCaptureArtifact {
-  bodyBase64: string;
+interface ChatGptCaptureArtifactBase {
+  transport: 'inline' | 'staged';
   byteLength: number;
   sha256: string;
   mediaType: string;
   endpoint: typeof CHATGPT_CAPTURE_ENDPOINT;
   transientAssetResolvers: ChatGptTransientAssetResolver[];
 }
+
+export interface ChatGptInlineCaptureArtifact extends ChatGptCaptureArtifactBase {
+  transport: 'inline';
+  bodyBase64: string;
+}
+
+export interface ChatGptStagedCaptureArtifact extends ChatGptCaptureArtifactBase {
+  transport: 'staged';
+  stageId: string;
+}
+
+export type ChatGptCaptureArtifact = ChatGptInlineCaptureArtifact | ChatGptStagedCaptureArtifact;
 
 /**
  * An ephemeral, page-observed resolver that is safe to pass onward without
@@ -310,33 +326,49 @@ function isChatGptTransientAssetResolvers(
 }
 
 /** Validate the exact, credential-free artifact shape allowed over runtime messaging. */
+// eslint-disable-next-line complexity -- Exact inline/staged union validation is the shared runtime boundary contract.
 export function isChatGptCaptureArtifact(value: unknown): value is ChatGptCaptureArtifact {
   if (typeof value !== 'object' || value === null) return false;
-  if (
-    !hasExactKeys(value, [
-      'bodyBase64',
+  const record = value as Record<string, unknown>;
+  const common =
+    Number.isSafeInteger(record.byteLength) &&
+    (record.byteLength as number) >= 0 &&
+    (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
+    typeof record.sha256 === 'string' &&
+    /^[a-f0-9]{64}$/i.test(record.sha256) &&
+    isJsonMediaType(record.mediaType) &&
+    isExactEndpoint(record.endpoint) &&
+    isChatGptTransientAssetResolvers(record.transientAssetResolvers);
+  if (!common) return false;
+  if (record.transport === 'inline') {
+    return (
+      hasExactKeys(value, [
+        'transport',
+        'bodyBase64',
+        'byteLength',
+        'sha256',
+        'mediaType',
+        'endpoint',
+        'transientAssetResolvers',
+      ]) &&
+      (record.byteLength as number) <= CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
+      typeof record.bodyBase64 === 'string' &&
+      canonicalBase64ByteLength(record.bodyBase64) === record.byteLength
+    );
+  }
+  return (
+    record.transport === 'staged' &&
+    hasExactKeys(value, [
+      'transport',
+      'stageId',
       'byteLength',
       'sha256',
       'mediaType',
       'endpoint',
       'transientAssetResolvers',
-    ])
-  ) {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.bodyBase64 === 'string' &&
-    Number.isSafeInteger(record.byteLength) &&
-    (record.byteLength as number) >= 0 &&
-    (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
-    canonicalBase64ByteLength(record.bodyBase64) === record.byteLength &&
-    typeof record.sha256 === 'string' &&
-    /^[a-f0-9]{64}$/i.test(record.sha256) &&
-    isJsonMediaType(record.mediaType) &&
-    isExactEndpoint(record.endpoint) &&
-    isChatGptTransientAssetResolvers(record.transientAssetResolvers)
+    ]) &&
+    (record.byteLength as number) > CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
+    isSafeArchiveStageId(record.stageId)
   );
 }
 

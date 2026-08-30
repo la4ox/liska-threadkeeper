@@ -10,7 +10,7 @@
 import { canonicalBase64ByteLength } from './base64';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
-  CHATGPT_CAPTURE_MAX_BYTES,
+  CHATGPT_INLINE_CAPTURE_MAX_BYTES,
   isChatGptConversationId,
 } from './chatgpt-capture-contract';
 
@@ -116,7 +116,7 @@ export function isChatGptOpaqueReplayCapture(value: unknown): value is ChatGptOp
     typeof record.bodyBase64 === 'string' &&
     Number.isSafeInteger(record.byteLength) &&
     (record.byteLength as number) >= 0 &&
-    (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
+    (record.byteLength as number) <= CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
     canonicalBase64ByteLength(record.bodyBase64) === record.byteLength &&
     typeof record.sha256 === 'string' &&
     /^[a-f0-9]{64}$/i.test(record.sha256) &&

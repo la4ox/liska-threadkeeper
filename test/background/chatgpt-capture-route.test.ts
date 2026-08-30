@@ -5,6 +5,7 @@ import {
 } from '../../src/lib/chatgpt-capture-contract';
 import { createChatGptOpaqueProbeResult } from '../../src/lib/chatgpt-opaque-probe-contract';
 import { createChatGptOpaqueReplayFailure } from '../../src/lib/chatgpt-opaque-replay-contract';
+import { createChatGptOpaqueResolverFailure } from '../../src/lib/chatgpt-opaque-resolver-contract';
 import { createChatGptActiveResolverFailure } from '../../src/lib/chatgpt-active-resolver-contract';
 import { createChatGptInterpreterResolverFailure } from '../../src/lib/chatgpt-interpreter-resolver-contract';
 
@@ -15,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   resolver: vi.fn(),
   activeResolver: vi.fn(),
   interpreterResolver: vi.fn(),
+  binaryStage: vi.fn(),
+  fetchImage: vi.fn(),
   getSettings: vi.fn(),
   migrateSettings: vi.fn(),
 }));
@@ -76,6 +79,14 @@ vi.mock('../../src/background/chatgpt-interpreter-resolver', async importOrigina
   };
 });
 
+vi.mock('../../src/background/binary-asset-handlers', () => ({
+  handleStagedBinaryAssetMessage: (...args: unknown[]) => mocks.binaryStage(...args),
+}));
+
+vi.mock('../../src/background/image-fetch', () => ({
+  handleFetchImage: (...args: unknown[]) => mocks.fetchImage(...args),
+}));
+
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 
 let capturedListener: (
@@ -86,6 +97,7 @@ let capturedListener: (
 
 function captureArtifact() {
   return {
+    transport: 'inline' as const,
     bodyBase64: 'AP8BgCo=',
     byteLength: 5,
     sha256: 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3',
@@ -93,6 +105,11 @@ function captureArtifact() {
     endpoint: CHATGPT_CAPTURE_ENDPOINT,
     transientAssetResolvers: [],
   };
+}
+
+function opaqueReplayArtifact() {
+  const { transport: _transport, ...artifact } = captureArtifact();
+  return artifact;
 }
 
 function invokeCapture(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
@@ -200,7 +217,7 @@ describe('ChatGPT capture service-worker route', () => {
     mocks.getSettings.mockResolvedValue({ obsidianApiKey: 'must-not-be-read' });
     mocks.capture.mockResolvedValue(captureArtifact());
     mocks.probe.mockResolvedValue(createChatGptOpaqueProbeResult('eligible'));
-    mocks.replay.mockResolvedValue({ success: true, data: captureArtifact() });
+    mocks.replay.mockResolvedValue({ success: true, data: opaqueReplayArtifact() });
     mocks.resolver.mockResolvedValue({ success: true, data: { transientAssetResolvers: [] } });
     mocks.activeResolver.mockResolvedValue({
       success: true,
@@ -225,6 +242,8 @@ describe('ChatGPT capture service-worker route', () => {
         ],
       },
     });
+    mocks.binaryStage.mockResolvedValue({ success: true });
+    mocks.fetchImage.mockResolvedValue({ success: true, data: 'AA==', mimeType: 'image/png' });
     setScriptingPermission(true);
     vi.mocked(chrome.runtime.onMessage.addListener).mockImplementation(listener => {
       capturedListener = listener;
@@ -248,6 +267,51 @@ describe('ChatGPT capture service-worker route', () => {
     });
     expect(mocks.getSettings).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
+  });
+
+  it('copies one validated transient resolver without exposing provider fields', async () => {
+    const resolver = {
+      resolverKey: 'a'.repeat(64),
+      downloadUrl:
+        `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+        '&id=opaque&p=fs&sig=signature&ts=1&v=1',
+    };
+    mocks.capture.mockResolvedValueOnce({
+      ...captureArtifact(),
+      transientAssetResolvers: [resolver],
+    });
+    const sendResponse = invokeCapture();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      data: { ...captureArtifact(), transientAssetResolvers: [resolver] },
+    });
+    expect(JSON.stringify(sendResponse.mock.calls[0][0])).not.toContain('providerFileId');
+  });
+
+  it('contains hostile property-descriptor hooks before rejecting the message', () => {
+    const message = new Proxy(
+      { action: 'getSettings' },
+      {
+        getOwnPropertyDescriptor: () => {
+          throw new Error('synthetic descriptor trap');
+        },
+      }
+    );
+    const sendResponse = vi.fn();
+    expect(
+      capturedListener(
+        message,
+        {
+          tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+        } as chrome.runtime.MessageSender,
+        sendResponse
+      )
+    ).toBe(false);
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      error: 'Invalid message content',
+    });
   });
 
   it('routes the exact opaque probe through the same sender and scripting checks without capture', async () => {
@@ -283,7 +347,7 @@ describe('ChatGPT capture service-worker route', () => {
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.probe).not.toHaveBeenCalled();
     expect(mocks.getSettings).not.toHaveBeenCalled();
-    expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
+    expect(sendResponse).toHaveBeenCalledWith({ success: true, data: opaqueReplayArtifact() });
   });
 
   it('fails opaque replay before dispatch when scripting is unavailable', async () => {
@@ -328,6 +392,127 @@ describe('ChatGPT capture service-worker route', () => {
       },
     });
     expect(JSON.stringify(sendResponse.mock.calls[0][0])).not.toContain('file_abc');
+  });
+
+  it('contains probe, replay, opaque-resolver, and active-resolver transport exceptions', async () => {
+    mocks.probe.mockRejectedValueOnce(new Error('synthetic probe failure'));
+    const probeResponse = invokeOpaqueProbe();
+    await vi.waitFor(() => expect(probeResponse).toHaveBeenCalledOnce());
+    expect(probeResponse).toHaveBeenCalledWith({
+      success: false,
+      data: createChatGptOpaqueProbeResult('probe-failed'),
+    });
+
+    mocks.replay.mockRejectedValueOnce(new Error('synthetic replay failure'));
+    const replayResponse = invokeOpaqueReplay();
+    await vi.waitFor(() => expect(replayResponse).toHaveBeenCalledOnce());
+    expect(replayResponse).toHaveBeenCalledWith(
+      createChatGptOpaqueReplayFailure('replay-result-invalid')
+    );
+
+    mocks.resolver.mockRejectedValueOnce(new Error('synthetic resolver failure'));
+    const resolverResponse = invokeOpaqueResolver();
+    await vi.waitFor(() => expect(resolverResponse).toHaveBeenCalledOnce());
+    expect(resolverResponse).toHaveBeenCalledWith(
+      createChatGptOpaqueResolverFailure('observer-result-invalid')
+    );
+
+    mocks.activeResolver.mockRejectedValueOnce(new Error('synthetic active failure'));
+    const activeResponse = invokeActiveResolver();
+    await vi.waitFor(() => expect(activeResponse).toHaveBeenCalledOnce());
+    expect(activeResponse).toHaveBeenCalledWith(
+      createChatGptActiveResolverFailure('resolver-result-invalid')
+    );
+    expect(JSON.stringify([probeResponse.mock.calls, replayResponse.mock.calls])).not.toContain(
+      'synthetic'
+    );
+  });
+
+  it('returns typed bridge failures for malformed probe and resolver messages', () => {
+    const sender = {
+      tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+    } as chrome.runtime.MessageSender;
+    const cases = [
+      {
+        message: {
+          action: 'probeChatGptOpaqueRequest',
+          conversationId: CONVERSATION_ID,
+          extra: true,
+        },
+        expected: { success: false, data: createChatGptOpaqueProbeResult('probe-failed') },
+      },
+      {
+        message: {
+          action: 'observeChatGptAssetResolversViaOpaqueSource',
+          conversationId: CONVERSATION_ID,
+          extra: true,
+        },
+        expected: createChatGptOpaqueResolverFailure('observer-result-invalid'),
+      },
+      {
+        message: {
+          action: 'probeChatGptActiveAssetResolvers',
+          conversationId: CONVERSATION_ID,
+          providerFileIds: ['file_abc'],
+          extra: true,
+        },
+        expected: createChatGptActiveResolverFailure('resolver-result-invalid'),
+      },
+    ];
+    for (const testCase of cases) {
+      const sendResponse = vi.fn();
+      expect(capturedListener(testCase.message, sender, sendResponse)).toBe(false);
+      expect(sendResponse).toHaveBeenCalledWith(testCase.expected);
+    }
+  });
+
+  it('rejects the opaque resolver before dispatch when scripting is unavailable', async () => {
+    setScriptingPermission(false);
+    const sendResponse = invokeOpaqueResolver();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.resolver).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(
+      createChatGptOpaqueResolverFailure('permission-unavailable')
+    );
+  });
+
+  it('routes validated staged-binary and allowlisted image messages through their handlers', async () => {
+    const sender = {
+      tab: { url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+    } as chrome.runtime.MessageSender;
+    const binaryMessage = {
+      action: 'beginStagedBinaryAsset' as const,
+      source: 'chatgpt' as const,
+      stageId: `stage-${'A'.repeat(32)}`,
+      descriptor: {
+        assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+        byteLength: 0,
+        sha256: 'b'.repeat(64),
+        mediaType: 'application/octet-stream',
+        relativePath: `assets/${'b'.repeat(64)}.bin`,
+      },
+    };
+    const binaryResponse = vi.fn();
+    expect(capturedListener(binaryMessage, sender, binaryResponse)).toBe(true);
+    await vi.waitFor(() => expect(binaryResponse).toHaveBeenCalledWith({ success: true }));
+    expect(mocks.binaryStage).toHaveBeenCalledWith(
+      binaryMessage,
+      expect.objectContaining({ obsidianApiKey: 'must-not-be-read' })
+    );
+
+    const imageResponse = vi.fn();
+    const imageUrl = 'https://lh3.googleusercontent.com/gg/AbC123=s1024-rj';
+    expect(capturedListener({ action: 'fetchImage', url: imageUrl }, sender, imageResponse)).toBe(
+      true
+    );
+    await vi.waitFor(() =>
+      expect(imageResponse).toHaveBeenCalledWith({
+        success: true,
+        data: 'AA==',
+        mimeType: 'image/png',
+      })
+    );
+    expect(mocks.fetchImage).toHaveBeenCalledWith(imageUrl);
   });
 
   it('rejects the active route before dispatch when scripting is unavailable', async () => {

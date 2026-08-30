@@ -6,12 +6,16 @@ import { readChatGptOpaqueProbeState } from '../../src/background/chatgpt-opaque
 import { readChatGptOpaqueReplayState } from '../../src/background/chatgpt-opaque-replay';
 import { readChatGptActiveResolverState } from '../../src/background/chatgpt-active-resolver';
 import { readChatGptInterpreterResolverState } from '../../src/background/chatgpt-interpreter-resolver';
-import { startChatGptDocumentStartCapture } from '../../src/content/capture/chatgpt-document-start';
+import {
+  readChatGptTemporaryCaptureChunk,
+  startChatGptDocumentStartCapture,
+} from '../../src/content/capture/chatgpt-document-start';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const OTHER_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555';
 const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
 const STATE_KEY = `__liskaChatGptCapture_${NONCE}`;
+const CHUNK_READER_KEY = `__liskaChatGptCaptureChunkReader_${NONCE}`;
 const OPAQUE_STATE_KEY = `__liskaChatGptOpaqueProbe_${NONCE}`;
 const OPAQUE_REPLAY_STATE_KEY = `__liskaChatGptOpaqueReplay_${NONCE}`;
 const OPAQUE_RESOLVER_STATE_KEY = `__liskaChatGptOpaqueResolver_${NONCE}`;
@@ -246,6 +250,22 @@ function responseWithCloneSpy(bytes: Uint8Array): {
   return { response, clone };
 }
 
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function sha256Hex(bytes: Uint8Array): Promise<string> {
+  return webcrypto.subtle
+    .digest('SHA-256', bytes)
+    .then(digest =>
+      Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+    );
+}
+
 afterEach(() => {
   for (const page of pages.splice(0)) releasePage(page);
   vi.useRealTimers();
@@ -325,6 +345,7 @@ describe('startChatGptDocumentStartCapture', () => {
           kind: 'captured',
           conversationId: CONVERSATION_ID,
           capture: {
+            transport: 'inline',
             bodyBase64: 'AP8BgCo=',
             byteLength: 5,
             sha256: CAPTURE_HASH,
@@ -686,7 +707,7 @@ describe('startChatGptDocumentStartCapture', () => {
 
     const first = snapshotOf(page) as {
       kind: string;
-      capture?: { bodyBase64: string; sha256: string };
+      capture?: { transport: string; bodyBase64?: string; sha256: string };
     };
     first.kind = 'error';
     if (first.capture !== undefined) {
@@ -710,6 +731,7 @@ describe('startChatGptDocumentStartCapture', () => {
       kind: 'captured',
       conversationId: CONVERSATION_ID,
       capture: {
+        transport: 'inline',
         bodyBase64: 'AP8BgCo=',
         byteLength: 5,
         sha256: CAPTURE_HASH,
@@ -769,6 +791,7 @@ describe('startChatGptDocumentStartCapture', () => {
         kind: 'captured',
         conversationId: CONVERSATION_ID,
         capture: {
+          transport: 'inline',
           bodyBase64: 'AP8BgCo=',
           byteLength: 5,
           sha256: CAPTURE_HASH,
@@ -808,8 +831,160 @@ describe('startChatGptDocumentStartCapture', () => {
     expect(snapshotOf(page)).toEqual({ kind: 'ready' });
   });
 
-  it('clones only the matching response and cancels its clone stream over the 16 MiB cap', async () => {
-    const maxBytes = 16 * 1024 * 1024;
+  it('keeps the exact 16 MiB boundary on the inline transport', async () => {
+    const byteLength = 16 * 1024 * 1024;
+    const bytes = new Uint8Array(byteLength);
+    bytes[0] = 1;
+    bytes[byteLength - 1] = 255;
+    const { response } = responseWithCloneSpy(bytes);
+    const page = fakePage(markedUrl(), async () => response);
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+    await vi.waitFor(
+      () =>
+        expect(snapshotOf(page)).toMatchObject({
+          kind: 'captured',
+          conversationId: CONVERSATION_ID,
+          capture: { transport: 'inline', byteLength },
+        }),
+      { timeout: 10_000 }
+    );
+
+    const snapshot = snapshotOf(page) as {
+      capture: { transport: string; byteLength: number; bodyBase64?: string };
+    };
+    expect(typeof snapshot.capture.bodyBase64).toBe('string');
+    expect(snapshot.capture.bodyBase64?.length).toBe(4 * Math.ceil(byteLength / 3));
+  });
+
+  it('stages 16 MiB plus one byte as independently readable, idempotent chunks', async () => {
+    const byteLength = 16 * 1024 * 1024 + 1;
+    const bytes = new Uint8Array(byteLength);
+    for (let index = 0; index < bytes.byteLength; index += 1) bytes[index] = index % 251;
+    const { response } = responseWithCloneSpy(bytes);
+    const page = fakePage(markedUrl(), async () => response);
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+    await vi.waitFor(
+      () =>
+        expect(snapshotOf(page)).toEqual({
+          kind: 'captured',
+          conversationId: CONVERSATION_ID,
+          capture: {
+            transport: 'staged',
+            byteLength,
+            sha256: expect.any(String),
+            mediaType: 'application/json; charset=utf-8',
+            chunkCount: 33,
+          },
+          resolverObservations: [],
+        }),
+      { timeout: 10_000 }
+    );
+
+    const snapshot = snapshotOf(page) as {
+      capture: {
+        transport: string;
+        byteLength: number;
+        sha256: string;
+        mediaType: string;
+        chunkCount: number;
+      };
+    };
+    expect(Object.keys(snapshot.capture)).toEqual([
+      'transport',
+      'byteLength',
+      'sha256',
+      'mediaType',
+      'chunkCount',
+    ]);
+    expect('bodyBase64' in snapshot.capture).toBe(false);
+    expect(JSON.stringify(snapshot)).not.toContain('bodyBase64');
+
+    const readerDescriptor = Object.getOwnPropertyDescriptor(page.pageWindow, CHUNK_READER_KEY);
+    expect(readerDescriptor).toMatchObject({
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    });
+    expect(typeof readerDescriptor?.value).toBe('function');
+    expect(Object.keys(readerDescriptor?.value ?? {})).toEqual([]);
+    expect(Object.keys(page.pageWindow)).not.toContain(CHUNK_READER_KEY);
+
+    vi.stubGlobal('window', page.pageWindow);
+    expect(readChatGptTemporaryCaptureState(NONCE)).toEqual(snapshot);
+    const firstChunk = readChatGptTemporaryCaptureChunk(NONCE, 0);
+    expect(readChatGptTemporaryCaptureChunk(NONCE, 0)).toEqual(firstChunk);
+    expect(readChatGptTemporaryCaptureChunk('invalid', 0)).toEqual({ kind: 'missing' });
+    expect(readChatGptTemporaryCaptureChunk('not-a-valid-capture-nonce', 0)).toEqual({
+      kind: 'missing',
+    });
+    expect(readChatGptTemporaryCaptureChunk(NONCE, -1)).toEqual({ kind: 'missing' });
+    expect(readChatGptTemporaryCaptureChunk(NONCE, 0.5)).toEqual({ kind: 'missing' });
+    expect(readChatGptTemporaryCaptureChunk(NONCE, snapshot.capture.chunkCount)).toEqual({
+      kind: 'missing',
+    });
+
+    const reassembled = new Uint8Array(byteLength);
+    for (let index = 0; index < snapshot.capture.chunkCount; index += 1) {
+      const chunk = readChatGptTemporaryCaptureChunk(NONCE, index);
+      expect(chunk.kind).toBe('chunk');
+      if (chunk.kind !== 'chunk') throw new Error('expected staged capture chunk');
+      expect(chunk.index).toBe(index);
+      expect(chunk.offset).toBe(index * 512 * 1024);
+      const binary = atob(chunk.chunkBase64);
+      const decoded = Uint8Array.from(binary, character => character.charCodeAt(0));
+      expect(decoded.byteLength).toBe(chunk.byteLength);
+      reassembled.set(decoded, chunk.offset);
+    }
+    expect(sameBytes(reassembled, bytes)).toBe(true);
+    expect(await sha256Hex(reassembled)).toBe(snapshot.capture.sha256);
+  });
+
+  it('fails closed for malformed staged snapshot and chunk-reader shapes', () => {
+    const validCapture = {
+      kind: 'captured',
+      capture: {
+        transport: 'staged',
+        byteLength: 16 * 1024 * 1024 + 1,
+        chunkCount: 33,
+      },
+    };
+    expect(readChatGptTemporaryCaptureChunk(`${NONCE}!`, 0)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', { [STATE_KEY]: { kind: 'ready' } });
+    expect(readChatGptTemporaryCaptureChunk(NONCE, 0)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', {
+      [STATE_KEY]: { ...validCapture, capture: { ...validCapture.capture, transport: 'inline' } },
+    });
+    expect(readChatGptTemporaryCaptureChunk(NONCE, 0)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal('window', {
+      [STATE_KEY]: validCapture,
+      [CHUNK_READER_KEY]: () => ({ kind: 'chunk', index: 0, offset: 1 }),
+    });
+    expect(readChatGptTemporaryCaptureChunk(NONCE, 0)).toEqual({ kind: 'missing' });
+
+    vi.stubGlobal(
+      'window',
+      new Proxy(
+        { [STATE_KEY]: validCapture },
+        {
+          get: (target, property) => {
+            if (property === CHUNK_READER_KEY) throw new Error('synthetic reader failure');
+            return Reflect.get(target, property);
+          },
+        }
+      )
+    );
+    expect(readChatGptTemporaryCaptureChunk(NONCE, 0)).toEqual({ kind: 'missing' });
+  });
+
+  it('clones only the matching response and cancels its clone stream over the 64 MiB cap', async () => {
+    const maxBytes = 64 * 1024 * 1024;
     let pullCount = 0;
     const stream = new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -849,6 +1024,7 @@ describe('startChatGptDocumentStartCapture', () => {
         kind: 'captured',
         conversationId: CONVERSATION_ID,
         capture: {
+          transport: 'inline',
           bodyBase64: '',
           byteLength: 0,
           sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',

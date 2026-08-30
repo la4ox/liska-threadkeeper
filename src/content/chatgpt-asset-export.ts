@@ -125,13 +125,17 @@ export async function validateChatGptAssetExportBinding(
     if (companion.conversationKey !== expectedConversationKey) return false;
     if (rawArtifacts.length !== 1) return false;
     const raw = rawArtifacts[0];
+    const contextRaw = context.rawArtifact;
     return (
       raw.relativePath === ARCHIVE_COMPANION_RELATIVE_PATHS.raw &&
       raw.relativePath === originalRaw.record.relativePath &&
       raw.mediaType === originalRaw.record.mediaType &&
       raw.byteLength === originalRaw.record.byteLength &&
       raw.sha256 === originalRaw.record.sha256 &&
-      raw.bodyBase64 === context.rawBodyBase64
+      raw.transport === contextRaw.transport &&
+      (raw.transport === 'inline'
+        ? contextRaw.transport === 'inline' && raw.bodyBase64 === contextRaw.bodyBase64
+        : contextRaw.transport === 'staged' && raw.stageId === contextRaw.stageId)
     );
   } catch {
     return false;

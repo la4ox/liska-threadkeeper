@@ -42,6 +42,7 @@ import {
   type ArchiveBranchPickerOption,
   type ArchiveBranchPickerSelection,
 } from '../ui';
+import { abortStagedArchiveArtifact } from '../archive-stage';
 
 import { SELECTORS } from './selectors/chatgpt';
 
@@ -68,6 +69,14 @@ const DEEP_RESEARCH_FRAME_SELECTORS = [
   'iframe[src*="deep-research"][src*="oaiusercontent.com"]',
   'iframe[src*="deep_research"][src*="oaiusercontent.com"]',
 ] as const;
+
+async function discardUncommittedArchiveStages(companion: ArchiveCompanionBundle): Promise<void> {
+  await Promise.all(
+    companion.artifacts
+      .filter(artifact => artifact.transport === 'staged')
+      .map(artifact => abortStagedArchiveArtifact(artifact.stageId))
+  );
+}
 
 /** Stable compatibility warning for a failed complete-graph capture fallback. */
 export const CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING = 'ChatGPT complete graph capture failed';
@@ -372,7 +381,10 @@ export class ChatGPTExtractor extends BaseExtractor {
       const selection = await this.selectBranch(
         buildArchiveBranchPickerOptions(capture.archive, catalog)
       );
-      if (selection === null) return { kind: 'cancelled' };
+      if (selection === null) {
+        await discardUncommittedArchiveStages(capture.archiveCompanion);
+        return { kind: 'cancelled' };
+      }
       if (selection === 'all') return { kind: 'all-branches', capture, catalog };
 
       const branch = catalog.branches.find(candidate => candidate.ordinal === selection);

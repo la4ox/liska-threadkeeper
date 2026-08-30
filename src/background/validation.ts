@@ -30,7 +30,7 @@ import type {
 } from '../lib/types';
 import { ARCHIVE_COMPANION_KINDS, ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
 import {
-  CHATGPT_CAPTURE_MAX_BYTES,
+  CHATGPT_INLINE_CAPTURE_MAX_BYTES,
   isChatGptConversationId,
 } from '../lib/chatgpt-capture-contract';
 import {
@@ -42,6 +42,11 @@ import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
 import { canonicalBase64ByteLength } from '../lib/base64';
 import { isSafeBinaryStageId, isStagedBinaryAssetDescriptor } from '../lib/binary-asset-contract';
+import {
+  ARCHIVE_STAGE_CHUNK_BYTES,
+  isArchiveStageDescriptor,
+  isSafeArchiveStageId,
+} from '../lib/archive-stage-contract';
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 import { platformOrigins } from '../lib/platform-registry';
@@ -128,6 +133,32 @@ export function validateStagedBinaryAssetSender(
       url.password === '' &&
       platformOrigins(source).includes(url.origin)
     );
+  } catch {
+    return false;
+  }
+}
+
+/** Archive stages are private ChatGPT-only capabilities. */
+export function validateArchiveStageSender(sender: chrome.runtime.MessageSender): boolean {
+  if (
+    !sender.tab?.url ||
+    sender.frameId !== 0 ||
+    typeof sender.url !== 'string' ||
+    !isExactChatGptDocumentUrl(sender.url)
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(sender.tab.url);
+    if (
+      !isExactChatGptConversationUrl(url) ||
+      (sender.frameId !== undefined && sender.frameId !== 0)
+    ) {
+      return false;
+    }
+    const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
+    const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(url.pathname);
+    return isChatGptConversationId(standard?.[1] ?? custom?.[1]);
   } catch {
     return false;
   }
@@ -325,7 +356,6 @@ function hasValidArchiveCompanionMetadata(artifact: Record<string, unknown>): bo
     isArchiveCompanionKind(kind) &&
     artifact.relativePath === ARCHIVE_COMPANION_RELATIVE_PATHS[kind] &&
     artifact.mediaType === 'application/json' &&
-    typeof artifact.bodyBase64 === 'string' &&
     typeof artifact.sha256 === 'string' &&
     /^[a-f0-9]{64}$/.test(artifact.sha256) &&
     Number.isSafeInteger(artifact.byteLength) &&
@@ -338,6 +368,7 @@ function validateArchiveCompanionArtifact(value: unknown): value is ArchiveCompa
   if (
     !hasExactOwnKeys(value, [
       'kind',
+      'transport',
       'relativePath',
       'mediaType',
       'byteLength',
@@ -349,12 +380,44 @@ function validateArchiveCompanionArtifact(value: unknown): value is ArchiveCompa
   }
 
   const artifact = value as Record<string, unknown>;
-  if (!hasValidArchiveCompanionMetadata(artifact)) return false;
+  if (!hasValidArchiveCompanionMetadata(artifact) || artifact.transport !== 'inline') return false;
 
   const bodyBase64 = artifact.bodyBase64 as string;
   const byteLength = canonicalBase64ByteLength(bodyBase64);
-  const maxBytes = artifact.kind === 'raw' ? CHATGPT_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
+  const maxBytes = artifact.kind === 'raw' ? CHATGPT_INLINE_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
   return byteLength === artifact.byteLength && byteLength !== undefined && byteLength <= maxBytes;
+}
+
+function validateStagedArchiveCompanionArtifact(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  if (
+    !hasExactOwnKeys(value, [
+      'kind',
+      'transport',
+      'relativePath',
+      'mediaType',
+      'byteLength',
+      'sha256',
+      'stageId',
+    ])
+  ) {
+    return false;
+  }
+  const artifact = value as Record<string, unknown>;
+  if (
+    !hasValidArchiveCompanionMetadata(artifact) ||
+    artifact.transport !== 'staged' ||
+    !isSafeArchiveStageId(artifact.stageId)
+  ) {
+    return false;
+  }
+  return isArchiveStageDescriptor({
+    kind: artifact.kind,
+    mediaType: artifact.mediaType,
+    relativePath: artifact.relativePath,
+    byteLength: artifact.byteLength,
+    sha256: artifact.sha256,
+  });
 }
 
 function validatePersistArchiveCompanionMessage(
@@ -380,6 +443,78 @@ function validatePersistArchiveCompanionMessage(
     message.outputs.length <= 2 &&
     new Set(message.outputs).size === message.outputs.length &&
     message.outputs.every(output => output === 'file' || output === 'obsidian')
+  );
+}
+
+// eslint-disable-next-line complexity, max-lines-per-function -- Every staged action's exact shape is explicit at the hostile message boundary.
+function validateArchiveStageMessage(
+  message: Extract<
+    ExtensionMessage,
+    | { action: 'beginStagedArchiveArtifact' }
+    | { action: 'appendStagedArchiveArtifact' }
+    | { action: 'sealStagedArchiveArtifact' }
+    | { action: 'readStagedArchiveArtifact' }
+    | { action: 'commitStagedArchiveCompanion' }
+    | { action: 'abortStagedArchiveArtifact' }
+  >
+): boolean {
+  if (message.source !== 'chatgpt') return false;
+  if (message.action === 'beginStagedArchiveArtifact') {
+    return (
+      hasExactOwnKeys(message, ['action', 'source', 'descriptor']) &&
+      isArchiveStageDescriptor(message.descriptor)
+    );
+  }
+  if (message.action === 'appendStagedArchiveArtifact') {
+    const byteLength = canonicalBase64ByteLength(message.chunkBase64);
+    return (
+      hasExactOwnKeys(message, ['action', 'source', 'stageId', 'offset', 'chunkBase64']) &&
+      isSafeArchiveStageId(message.stageId) &&
+      Number.isSafeInteger(message.offset) &&
+      message.offset >= 0 &&
+      byteLength !== undefined &&
+      byteLength <= ARCHIVE_STAGE_CHUNK_BYTES
+    );
+  }
+  if (message.action === 'sealStagedArchiveArtifact') {
+    return (
+      hasExactOwnKeys(message, ['action', 'source', 'stageId', 'descriptor']) &&
+      isSafeArchiveStageId(message.stageId) &&
+      isArchiveStageDescriptor(message.descriptor)
+    );
+  }
+  if (message.action === 'readStagedArchiveArtifact') {
+    return (
+      hasExactOwnKeys(message, ['action', 'source', 'stageId', 'offset', 'byteLength']) &&
+      isSafeArchiveStageId(message.stageId) &&
+      Number.isSafeInteger(message.offset) &&
+      message.offset >= 0 &&
+      Number.isSafeInteger(message.byteLength) &&
+      message.byteLength >= 0 &&
+      message.byteLength <= ARCHIVE_STAGE_CHUNK_BYTES
+    );
+  }
+  if (message.action === 'abortStagedArchiveArtifact') {
+    return (
+      hasExactOwnKeys(message, ['action', 'source', 'stageId']) &&
+      isSafeArchiveStageId(message.stageId)
+    );
+  }
+  return (
+    hasExactOwnKeys(message, [
+      'action',
+      'noteFileName',
+      'source',
+      'captureId',
+      'conversationKey',
+      'artifact',
+      'outputs',
+    ]) &&
+    isSafeNoteFileName(message.noteFileName) &&
+    SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
+    OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
+    validateStagedArchiveCompanionArtifact(message.artifact) &&
+    validatePersistentOutputs(message.outputs)
   );
 }
 
@@ -489,7 +624,7 @@ function validateSaveToOutputsMessage(
  * Security: Content scripts are less trustworthy.
  * Validate and sanitize all input per Chrome extension best practices.
  */
-// eslint-disable-next-line complexity -- Exact bridge action boundaries remain explicit at this untrusted input gate.
+// eslint-disable-next-line complexity, max-lines-per-function -- Every accepted message family remains explicit at this untrusted input gate.
 export function validateMessageContent(message: unknown): message is ExtensionMessage {
   if (typeof message !== 'object' || message === null || Array.isArray(message)) {
     return false;
@@ -517,6 +652,17 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
 
   if (extensionMessage.action === 'persistArchiveCompanion') {
     return validatePersistArchiveCompanionMessage(extensionMessage);
+  }
+
+  if (
+    extensionMessage.action === 'beginStagedArchiveArtifact' ||
+    extensionMessage.action === 'appendStagedArchiveArtifact' ||
+    extensionMessage.action === 'sealStagedArchiveArtifact' ||
+    extensionMessage.action === 'readStagedArchiveArtifact' ||
+    extensionMessage.action === 'commitStagedArchiveCompanion' ||
+    extensionMessage.action === 'abortStagedArchiveArtifact'
+  ) {
+    return validateArchiveStageMessage(extensionMessage);
   }
 
   const stagedBinaryValidation = validateStagedBinaryAssetMessage(extensionMessage);

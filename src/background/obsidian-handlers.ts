@@ -24,6 +24,10 @@ import { validateObsidianUrl } from '../lib/validation';
 import { extractTailMessages } from '../lib/message-counter';
 import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../lib/constants';
 import { isStagedBinaryAssetDescriptor } from '../lib/binary-asset-contract';
+import {
+  isArchiveStageDescriptor,
+  type ArchiveStageDescriptor,
+} from '../lib/archive-stage-contract';
 import type {
   AIPlatform,
   ArchiveCompanionArtifact,
@@ -72,6 +76,16 @@ export interface StagedBinaryAssetWriteRequest {
   captureId: string;
   conversationKey: string;
   descriptor: StagedBinaryAssetDescriptor;
+  blobUrl: string;
+}
+
+/** One sealed archive JSON stage consumed for an immutable vault write. */
+export interface StagedArchiveCompanionWriteRequest {
+  source: 'chatgpt';
+  captureId: string;
+  conversationKey: string;
+  stageId: string;
+  descriptor: ArchiveStageDescriptor;
   blobUrl: string;
 }
 
@@ -179,6 +193,23 @@ function stagedBinaryAssetVaultPath(
   return containsPathTraversal(path) ? undefined : path;
 }
 
+function stagedArchiveCompanionVaultPath(
+  settings: ExtensionSettings,
+  request: StagedArchiveCompanionWriteRequest
+): string | undefined {
+  if (!isArchiveStageDescriptor(request.descriptor)) return undefined;
+  const variables = { platform: request.source, ...getDateVariables(new Date()) };
+  const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
+  const path = [
+    ...(resolvedFolder ? [resolvedFolder] : []),
+    '_liska-archive',
+    request.conversationKey,
+    request.captureId,
+    ...request.descriptor.relativePath.split('/'),
+  ].join('/');
+  return containsPathTraversal(path) ? undefined : path;
+}
+
 /**
  * Persist one immutable structured-archive companion beside the note's
  * resolved vault folder. Existing snapshots are never overwritten, and a
@@ -275,6 +306,59 @@ async function readVerifiedStagedBlob(
   } catch {
     return { error: 'binary-obsidian-blob-read-failed' };
   }
+}
+
+async function readVerifiedArchiveStageBlob(
+  request: StagedArchiveCompanionWriteRequest
+): Promise<{ bytes?: Uint8Array; error?: string }> {
+  try {
+    const response = await fetch(request.blobUrl);
+    if (!response.ok) return { error: 'archive-obsidian-blob-read-failed' };
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (
+      bytes.byteLength !== request.descriptor.byteLength ||
+      (await sha256Hex(bytes)) !== request.descriptor.sha256
+    ) {
+      return { error: 'archive-obsidian-blob-integrity-failed' };
+    }
+    return { bytes };
+  } catch {
+    return { error: 'archive-obsidian-blob-read-failed' };
+  }
+}
+
+/** Persist one sealed raw/canonical stage through the existing exact vault contract. */
+export async function handleSaveStagedArchiveCompanion(
+  settings: ExtensionSettings,
+  request: StagedArchiveCompanionWriteRequest
+): Promise<SaveResponse> {
+  const client = createObsidianClient(settings);
+  if (isClientError(client)) return { success: false, error: 'archive-obsidian-preflight-failed' };
+  const path = stagedArchiveCompanionVaultPath(settings, request);
+  if (!path || !request.blobUrl.startsWith('blob:')) {
+    return { success: false, error: 'archive-obsidian-preflight-failed' };
+  }
+  try {
+    if ((await client.getFile(path)) !== null) {
+      return { success: false, error: 'archive-obsidian-preflight-existing' };
+    }
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('preflight', error) };
+  }
+
+  const staged = await readVerifiedArchiveStageBlob(request);
+  if (!staged.bytes) return { success: false, error: staged.error };
+  return handleSaveArchiveCompanion(settings, {
+    source: request.source,
+    captureId: request.captureId,
+    conversationKey: request.conversationKey,
+    artifact: {
+      transport: 'staged',
+      stageId: request.stageId,
+      ...request.descriptor,
+    },
+    bytes: staged.bytes,
+  });
 }
 
 async function writeAndVerifyStagedBinary(

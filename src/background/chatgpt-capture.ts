@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Disposable-tab capture keeps MAIN-state validation, chunk ingestion, and exact cleanup in one audit surface. */
 /**
  * Safe capture of ChatGPT's own conversation request in a disposable tab.
  *
@@ -12,6 +13,7 @@ import {
   CHATGPT_CAPTURE_ENDPOINT,
   CHATGPT_CAPTURE_ERROR_MESSAGES,
   CHATGPT_CAPTURE_MAX_BYTES,
+  CHATGPT_INLINE_CAPTURE_MAX_BYTES,
   CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT,
   isChatGptConversationId,
   isChatGptTransientDownloadUrl,
@@ -22,6 +24,17 @@ import type {
   ChatGptTransientAssetResolver,
 } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
+import {
+  ARCHIVE_STAGE_CHUNK_BYTES,
+  ARCHIVE_STAGE_RELATIVE_PATHS,
+  type ArchiveStageDescriptor,
+} from '../lib/archive-stage-contract';
+import {
+  abortArchiveStage,
+  appendArchiveStage,
+  beginArchiveStage,
+  sealArchiveStage,
+} from './archive-stage-handlers';
 
 export {
   CHATGPT_CAPTURE_ENDPOINT,
@@ -87,6 +100,13 @@ export interface ChatGptTemporaryCaptureDependencies {
   digestSha256?: (bytes: Uint8Array) => Promise<string>;
   /** Defaults to false so ordinary conversation capture stays on the fast path. */
   observeAssetResolvers?: boolean;
+  /** Injectable only for focused staged-ingress tests. */
+  archiveStage?: {
+    begin: typeof beginArchiveStage;
+    append: typeof appendArchiveStage;
+    seal: typeof sealArchiveStage;
+    abort: typeof abortArchiveStage;
+  };
 }
 
 type HookErrorCode =
@@ -106,11 +126,29 @@ type HookResult =
   | {
       kind: 'captured';
       conversationId: string;
-      capture: Omit<ChatGptCaptureArtifact, 'endpoint' | 'transientAssetResolvers'>;
+      capture: HookCapture;
       resolverObservations: RawResolverObservation[];
     }
   | { kind: 'error'; code: HookErrorCode }
   | { kind: 'missing' };
+
+type InlineHookCapture = {
+  transport: 'inline';
+  bodyBase64: string;
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+};
+
+type StagedHookCapture = {
+  transport: 'staged';
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+  chunkCount: number;
+};
+
+type HookCapture = InlineHookCapture | StagedHookCapture;
 
 type RawResolverObservation = {
   providerFileId: string;
@@ -276,7 +314,7 @@ function hasExactKeys(value: object, expected: readonly string[]): boolean {
   );
 }
 
-function isCaptureRecord(value: unknown, maxBytes: number): boolean {
+function isBase64CaptureRecord(value: unknown, maxBytes: number): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
   return (
@@ -291,6 +329,36 @@ function isCaptureRecord(value: unknown, maxBytes: number): boolean {
   );
 }
 
+// eslint-disable-next-line complexity -- Inline/staged exact-key validation is one external page-state boundary.
+function isHookCapture(value: unknown): value is HookCapture {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  const common =
+    Number.isSafeInteger(record.byteLength) &&
+    (record.byteLength as number) >= 0 &&
+    (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
+    typeof record.sha256 === 'string' &&
+    /^[a-f0-9]{64}$/i.test(record.sha256) &&
+    isJsonMediaType(record.mediaType);
+  if (!common) return false;
+  if (record.transport === 'inline') {
+    return (
+      hasExactKeys(value, ['transport', 'bodyBase64', 'byteLength', 'sha256', 'mediaType']) &&
+      (record.byteLength as number) <= CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
+      typeof record.bodyBase64 === 'string' &&
+      canonicalBase64ByteLength(record.bodyBase64) === record.byteLength
+    );
+  }
+  const expectedChunks = Math.ceil((record.byteLength as number) / ARCHIVE_STAGE_CHUNK_BYTES);
+  return (
+    record.transport === 'staged' &&
+    hasExactKeys(value, ['transport', 'byteLength', 'sha256', 'mediaType', 'chunkCount']) &&
+    (record.byteLength as number) > CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
+    Number.isSafeInteger(record.chunkCount) &&
+    record.chunkCount === expectedChunks
+  );
+}
+
 function isCapturedResult(value: unknown): value is Extract<HookResult, { kind: 'captured' }> {
   if (
     !isHookResult(value, 'captured') ||
@@ -300,9 +368,7 @@ function isCapturedResult(value: unknown): value is Extract<HookResult, { kind: 
   }
   const result = value as Record<string, unknown>;
   const capture = (value as { capture?: unknown }).capture;
-  return (
-    typeof result.conversationId === 'string' && isCaptureRecord(capture, CHATGPT_CAPTURE_MAX_BYTES)
-  );
+  return typeof result.conversationId === 'string' && isHookCapture(capture);
 }
 
 function isRawResolverObservation(value: unknown): value is RawResolverObservation {
@@ -314,7 +380,7 @@ function isRawResolverObservation(value: unknown): value is RawResolverObservati
   return (
     typeof record.providerFileId === 'string' &&
     CHATGPT_RESOLVER_FILE_ID_PATTERN.test(record.providerFileId) &&
-    isCaptureRecord(
+    isBase64CaptureRecord(
       {
         bodyBase64: record.bodyBase64,
         byteLength: record.byteLength,
@@ -407,22 +473,41 @@ export async function validateChatGptResolverObservations(
   return result;
 }
 
+interface ValidatedHookCapture {
+  capture: HookCapture;
+  transientAssetResolvers: ChatGptTransientAssetResolver[];
+}
+
+// eslint-disable-next-line max-lines-per-function -- Raw verification must precede optional resolver correlation in one linear boundary.
 async function validateCapturedResult(
   value: unknown,
   expectedConversationId: string,
   digestSha256: (bytes: Uint8Array) => Promise<string>
-): Promise<Omit<ChatGptCaptureArtifact, 'endpoint'> | undefined> {
+): Promise<ValidatedHookCapture | undefined> {
   if (!isCapturedResult(value)) return undefined;
   if (value.conversationId !== expectedConversationId) {
     throw new ChatGptTemporaryCaptureError('captured-conversation-id-mismatch');
   }
 
   const capture = value.capture;
+  const resolverObservations = Array.isArray(value.resolverObservations)
+    ? value.resolverObservations
+    : [];
+  if (capture.transport === 'staged') {
+    return {
+      capture: { ...capture, sha256: capture.sha256.toLowerCase() },
+      transientAssetResolvers: await validateChatGptResolverObservations(
+        resolverObservations,
+        expectedConversationId,
+        digestSha256
+      ),
+    };
+  }
   const bytes = strictBase64Bytes(capture.bodyBase64);
   if (
     bytes === undefined ||
     bytes.byteLength !== capture.byteLength ||
-    bytes.byteLength > CHATGPT_CAPTURE_MAX_BYTES
+    bytes.byteLength > CHATGPT_INLINE_CAPTURE_MAX_BYTES
   ) {
     return undefined;
   }
@@ -442,12 +527,9 @@ async function validateCapturedResult(
   }
 
   return {
-    bodyBase64: capture.bodyBase64,
-    byteLength: capture.byteLength,
-    sha256: normalizedSha256,
-    mediaType: capture.mediaType,
+    capture: { ...capture, sha256: normalizedSha256 },
     transientAssetResolvers: await validateChatGptResolverObservations(
-      Array.isArray(value.resolverObservations) ? value.resolverObservations : [],
+      resolverObservations,
       expectedConversationId,
       digestSha256
     ),
@@ -467,6 +549,12 @@ function makeDependencies(overrides: ChatGptTemporaryCaptureDependencies) {
     createNonce: overrides.createNonce ?? defaultNonce,
     digestSha256: overrides.digestSha256 ?? defaultDigestSha256,
     observeAssetResolvers: overrides.observeAssetResolvers === true,
+    archiveStage: overrides.archiveStage ?? {
+      begin: beginArchiveStage,
+      append: appendArchiveStage,
+      seal: sealArchiveStage,
+      abort: abortArchiveStage,
+    },
   };
 }
 
@@ -646,6 +734,135 @@ async function readHookState(
   }
 }
 
+/** Serialized into MAIN world; the extension-side validator remains authoritative. */
+export function readChatGptTemporaryCaptureChunkState(nonce: string, index: number): unknown {
+  try {
+    if (
+      typeof nonce !== 'string' ||
+      !/^[a-z0-9-]{16,128}$/i.test(nonce) ||
+      !Number.isSafeInteger(index) ||
+      index < 0
+    ) {
+      return { kind: 'missing' };
+    }
+    const pageWindow = window as unknown as Record<string, unknown>;
+    const reader = pageWindow[`__liskaChatGptCaptureChunkReader_${nonce}`];
+    return typeof reader === 'function' ? reader(index) : { kind: 'missing' };
+  } catch {
+    return { kind: 'missing' };
+  }
+}
+
+interface ValidatedHookChunk {
+  offset: number;
+  byteLength: number;
+  chunkBase64: string;
+}
+
+function validateHookChunk(
+  value: unknown,
+  capture: StagedHookCapture,
+  index: number
+): ValidatedHookChunk | undefined {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !hasExactKeys(value, ['kind', 'index', 'offset', 'byteLength', 'chunkBase64'])
+  ) {
+    return undefined;
+  }
+  const chunk = value as Record<string, unknown>;
+  const expectedOffset = index * ARCHIVE_STAGE_CHUNK_BYTES;
+  const expectedLength = Math.min(ARCHIVE_STAGE_CHUNK_BYTES, capture.byteLength - expectedOffset);
+  return chunk.kind === 'chunk' &&
+    chunk.index === index &&
+    chunk.offset === expectedOffset &&
+    chunk.byteLength === expectedLength &&
+    typeof chunk.chunkBase64 === 'string' &&
+    canonicalBase64ByteLength(chunk.chunkBase64) === expectedLength
+    ? { offset: expectedOffset, byteLength: expectedLength, chunkBase64: chunk.chunkBase64 }
+    : undefined;
+}
+
+async function readHookChunk(
+  chromeApi: ChatGptCaptureChromeApi,
+  tabId: number,
+  nonce: string,
+  capture: StagedHookCapture,
+  index: number
+): Promise<ValidatedHookChunk | undefined> {
+  try {
+    const results = await chromeApi.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: readChatGptTemporaryCaptureChunkState,
+      args: [nonce, index],
+    });
+    return validateHookChunk(firstScriptResult(results), capture, index);
+  } catch {
+    return undefined;
+  }
+}
+
+// eslint-disable-next-line max-lines-per-function -- OPEN-to-SEALED chunk transfer and exact abort ownership are intentionally linear.
+async function stageHookCapture(
+  dependencies: ResolvedCaptureDependencies,
+  tabId: number,
+  nonce: string,
+  capture: StagedHookCapture,
+  transientAssetResolvers: ChatGptTransientAssetResolver[],
+  deadline: number
+): Promise<ChatGptCaptureArtifact> {
+  const descriptor: ArchiveStageDescriptor = {
+    kind: 'raw',
+    mediaType: 'application/json',
+    relativePath: ARCHIVE_STAGE_RELATIVE_PATHS.raw,
+    byteLength: capture.byteLength,
+    sha256: capture.sha256,
+  };
+  let stageId: string | undefined;
+  let sealed = false;
+  try {
+    stageId = await withinTimeout(
+      dependencies.archiveStage.begin(descriptor),
+      remainingTimeout(deadline, dependencies.now),
+      'capture-result-timeout'
+    );
+    if (!stageId) throw new ChatGptTemporaryCaptureError('response-processing-failed');
+    for (let index = 0; index < capture.chunkCount; index += 1) {
+      const chunk = await withinTimeout(
+        readHookChunk(dependencies.chromeApi, tabId, nonce, capture, index),
+        remainingTimeout(deadline, dependencies.now),
+        'capture-result-timeout'
+      );
+      if (!chunk) throw new ChatGptTemporaryCaptureError('response-processing-failed');
+      const appended = await withinTimeout(
+        dependencies.archiveStage.append(stageId, chunk.offset, chunk.chunkBase64),
+        remainingTimeout(deadline, dependencies.now),
+        'capture-result-timeout'
+      );
+      if (!appended) throw new ChatGptTemporaryCaptureError('response-processing-failed');
+    }
+    sealed = await withinTimeout(
+      dependencies.archiveStage.seal(stageId, descriptor),
+      remainingTimeout(deadline, dependencies.now),
+      'capture-result-timeout'
+    );
+    if (!sealed) throw new ChatGptTemporaryCaptureError('response-integrity-invalid');
+    return {
+      transport: 'staged',
+      stageId,
+      byteLength: capture.byteLength,
+      sha256: capture.sha256,
+      mediaType: capture.mediaType,
+      endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      transientAssetResolvers,
+    };
+  } finally {
+    if (stageId && !sealed) await dependencies.archiveStage.abort(stageId);
+  }
+}
+
 async function waitForCapturedResult(
   dependencies: ResolvedCaptureDependencies,
   tabId: number,
@@ -659,9 +876,27 @@ async function waitForCapturedResult(
       remainingTimeout(deadline, dependencies.now),
       'capture-result-timeout'
     );
-    const capture = await validateCapturedResult(state, conversationId, dependencies.digestSha256);
-    if (capture !== undefined) {
-      return { ...capture, endpoint: CHATGPT_CAPTURE_ENDPOINT };
+    const validated = await validateCapturedResult(
+      state,
+      conversationId,
+      dependencies.digestSha256
+    );
+    if (validated !== undefined) {
+      if (validated.capture.transport === 'staged') {
+        return stageHookCapture(
+          dependencies,
+          tabId,
+          nonce,
+          validated.capture,
+          validated.transientAssetResolvers,
+          deadline
+        );
+      }
+      return {
+        ...validated.capture,
+        endpoint: CHATGPT_CAPTURE_ENDPOINT,
+        transientAssetResolvers: validated.transientAssetResolvers,
+      };
     }
     if (isHookErrorResult(state)) {
       throw new ChatGptTemporaryCaptureError(mapHookError(state.code));
@@ -782,8 +1017,8 @@ export function readChatGptTemporaryCaptureState(nonce: string): HookResult {
       return { kind: 'missing' };
     }
     const record = capture as Record<string, unknown>;
+    if (record.transport !== 'inline' && record.transport !== 'staged') return { kind: 'missing' };
     if (
-      typeof record.bodyBase64 !== 'string' ||
       typeof record.byteLength !== 'number' ||
       typeof record.sha256 !== 'string' ||
       typeof record.mediaType !== 'string'
@@ -814,14 +1049,42 @@ export function readChatGptTemporaryCaptureState(nonce: string): HookResult {
         };
       }
     }
+    const commonCapture = {
+      byteLength: record.byteLength,
+      sha256: record.sha256,
+      mediaType: record.mediaType,
+    };
+    if (record.transport === 'inline') {
+      if (typeof record.bodyBase64 !== 'string') return { kind: 'missing' };
+      return {
+        kind: 'captured',
+        conversationId,
+        capture: { transport: 'inline', bodyBase64: record.bodyBase64, ...commonCapture },
+        resolverObservations,
+      };
+    }
+    if (
+      record.byteLength <= 16 * 1024 * 1024 ||
+      record.byteLength > 64 * 1024 * 1024 ||
+      record.byteLength % 1 !== 0 ||
+      typeof record.chunkCount !== 'number' ||
+      record.chunkCount <= 0 ||
+      record.chunkCount % 1 !== 0
+    ) {
+      return { kind: 'missing' };
+    }
+    let expectedChunkCount = 0;
+    for (let offset = 0; offset < record.byteLength; offset += 512 * 1024) {
+      expectedChunkCount += 1;
+    }
+    if (record.chunkCount !== expectedChunkCount) return { kind: 'missing' };
     return {
       kind: 'captured',
       conversationId,
       capture: {
-        bodyBase64: record.bodyBase64,
-        byteLength: record.byteLength,
-        sha256: record.sha256,
-        mediaType: record.mediaType,
+        transport: 'staged',
+        ...commonCapture,
+        chunkCount: record.chunkCount,
       },
       resolverObservations,
     };

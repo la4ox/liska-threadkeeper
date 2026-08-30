@@ -101,6 +101,7 @@ async function successfulResponse(
   return {
     success: true,
     data: {
+      transport: 'inline',
       bodyBase64: base64(bytes),
       byteLength: bytes.byteLength,
       sha256: await sha256Hex(bytes),
@@ -143,6 +144,142 @@ function parseBase64Json(value: string): Record<string, unknown> {
 }
 
 describe('ChatGPT current-branch capture composition', () => {
+  it('materializes a staged response above 16 MiB in bounded chunks and retains staged raw', async () => {
+    const payload = JSON.parse(JSON.stringify(rawFixture)) as Record<string, unknown>;
+    payload.conversation_id = CONVERSATION_ID;
+    payload.url = `https://chatgpt.com/c/${CONVERSATION_ID}`;
+    payload.synthetic_padding = 'x'.repeat(20 * 1024 * 1024);
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    const digest = await sha256Hex(bytes);
+    const stageId = `archive-stage-${'A'.repeat(32)}`;
+    const chunkBytes = 512 * 1024;
+
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (message: unknown, callback?: (response: unknown) => void) => {
+        const request = message as {
+          action?: string;
+          offset?: number;
+          byteLength?: number;
+          stageId?: string;
+        };
+        if (request.action === 'readStagedArchiveArtifact') {
+          const offset = request.offset ?? -1;
+          const length = request.byteLength ?? -1;
+          callback?.({
+            success: true,
+            data: {
+              stageId,
+              offset,
+              byteLength: length,
+              chunkBase64: base64(bytes.subarray(offset, offset + length)),
+            },
+          });
+        } else if (request.action === 'abortStagedArchiveArtifact') {
+          callback?.({ success: true });
+        }
+        return undefined as unknown as ReturnType<typeof chrome.runtime.sendMessage>;
+      }
+    );
+
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: async () => ({
+        success: true,
+        data: {
+          transport: 'staged',
+          stageId,
+          byteLength: bytes.byteLength,
+          sha256: digest,
+          mediaType: 'application/json',
+          endpoint: CHATGPT_CAPTURE_ENDPOINT,
+          transientAssetResolvers: [],
+        },
+      }),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+
+    expect(bytes.byteLength).toBeGreaterThan(16 * 1024 * 1024);
+    expect(bytes.byteLength).toBeGreaterThan(20 * 1024 * 1024);
+    expect(capture.archiveCompanion.artifacts[0]).toMatchObject({
+      transport: 'staged',
+      stageId,
+      kind: 'raw',
+      byteLength: bytes.byteLength,
+      sha256: digest,
+    });
+    const readMessages = vi
+      .mocked(chrome.runtime.sendMessage)
+      .mock.calls.map(call => call[0] as { action?: string; byteLength?: number })
+      .filter(message => message.action === 'readStagedArchiveArtifact');
+    expect(readMessages).toHaveLength(Math.ceil(bytes.byteLength / chunkBytes));
+    expect(readMessages.every(message => (message.byteLength ?? 0) <= chunkBytes)).toBe(true);
+    expect(JSON.stringify(capture.archiveCompanion.artifacts[0])).not.toContain('bodyBase64');
+
+    const stagedResponse = async (): Promise<ChatGptCaptureResponse> => ({
+      success: true,
+      data: {
+        transport: 'staged',
+        stageId,
+        byteLength: bytes.byteLength,
+        sha256: digest,
+        mediaType: 'application/json',
+        endpoint: CHATGPT_CAPTURE_ENDPOINT,
+        transientAssetResolvers: [],
+      },
+    });
+    const abortsBeforeRecapture = vi
+      .mocked(chrome.runtime.sendMessage)
+      .mock.calls.filter(
+        call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
+      ).length;
+    await expect(
+      observeChatGptAssetResolvers(capture.assetExportContext!, {
+        requestCapture: stagedResponse,
+      })
+    ).resolves.toMatchObject({ kind: 'matched' });
+    expect(
+      vi
+        .mocked(chrome.runtime.sendMessage)
+        .mock.calls.filter(
+          call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
+        ).length
+    ).toBe(abortsBeforeRecapture + 1);
+
+    await expect(
+      captureChatGptArchive(CONVERSATION_ID, {
+        requestCapture: stagedResponse,
+        createCaptureId: () => 'unsafe/capture',
+        now: fixedNow,
+      })
+    ).rejects.toMatchObject({ code: 'capture-id-invalid' });
+    expect(
+      vi
+        .mocked(chrome.runtime.sendMessage)
+        .mock.calls.some(
+          call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
+        )
+    ).toBe(true);
+
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (message: unknown, callback?: (response: unknown) => void) => {
+        const action = (message as { action?: string }).action;
+        callback?.(
+          action === 'abortStagedArchiveArtifact'
+            ? { success: true }
+            : { success: false, error: 'synthetic read failure' }
+        );
+        return undefined as unknown as ReturnType<typeof chrome.runtime.sendMessage>;
+      }
+    );
+    await expect(
+      captureChatGptArchive(CONVERSATION_ID, {
+        requestCapture: stagedResponse,
+        createCaptureId: fixedCaptureId,
+        now: fixedNow,
+      })
+    ).rejects.toMatchObject({ code: 'capture-payload-invalid' });
+  });
+
   it('enables the structured bridge only when the static manifest declares scripting', () => {
     setManifestReader(() => ({ permissions: ['storage', 'scripting'] }));
     expect(manifestAllowsChatGptStructuredCapture()).toBe(true);
@@ -182,6 +319,45 @@ describe('ChatGPT current-branch capture composition', () => {
       'canonical',
     ]);
     expect(capture.transientAssetCandidates).toEqual([]);
+  });
+
+  it('keeps malformed raw JSON fail-closed after its exact bytes are verified', async () => {
+    const bytes = new TextEncoder().encode('{');
+    const response: ChatGptCaptureResponse = {
+      success: true,
+      data: {
+        transport: 'inline',
+        bodyBase64: base64(bytes),
+        byteLength: bytes.byteLength,
+        sha256: await sha256Hex(bytes),
+        mediaType: 'application/json',
+        endpoint: CHATGPT_CAPTURE_ENDPOINT,
+        transientAssetResolvers: [],
+      },
+    };
+    const error = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    }).catch(reason => reason);
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('normalization-failed');
+  });
+
+  it('fails closed when both enriched and fallback manifests contain credential text', async () => {
+    const error = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+      inventoryAssets: async () => ({
+        assets: [],
+        completeness: 'unknown',
+        warnings: ['Authorization: Bearer secret'],
+      }),
+    }).catch(reason => reason);
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-integrity-failed');
+    expect((error as ChatGptCurrentBranchError).detailCode).toBe('capture-manifest-build-failed');
   });
 
   it('preserves raw evidence with unknown asset completeness when inventory throws', async () => {
@@ -621,7 +797,10 @@ describe('ChatGPT current-branch capture composition', () => {
           manifest: { ...context.rawCaptureBundle.manifest, provider: 'gemini' as const },
         },
       },
-      { ...context, rawBodyBase64: 'bm90LXRoZS1vcmlnaW5hbA==' },
+      {
+        ...context,
+        rawArtifact: { ...context.rawArtifact, bodyBase64: 'bm90LXRoZS1vcmlnaW5hbA==' },
+      },
       {
         ...context,
         rawCaptureBundle: {
@@ -775,7 +954,10 @@ describe('ChatGPT current-branch capture composition', () => {
       now: fixedNow,
     });
     const context = capture.assetExportContext!;
-    const invalidContext = { ...context, rawBodyBase64: 'bm90LXRoZS1vcmlnaW5hbA==' };
+    const invalidContext = {
+      ...context,
+      rawArtifact: { ...context.rawArtifact, bodyBase64: 'bm90LXRoZS1vcmlnaW5hbA==' },
+    };
 
     await expect(observeChatGptActiveAssetResolvers(invalidContext)).resolves.toEqual({
       kind: 'recapture-failed',
@@ -1108,7 +1290,13 @@ describe('ChatGPT current-branch capture composition', () => {
       observeChatGptInterpreterAssetResolvers(capture.assetExportContext!)
     ).resolves.toEqual(expected);
 
-    const invalidContext = { ...capture.assetExportContext!, rawBodyBase64: 'bm90LXRoZS1yYXc=' };
+    const invalidContext = {
+      ...capture.assetExportContext!,
+      rawArtifact: {
+        ...capture.assetExportContext!.rawArtifact,
+        bodyBase64: 'bm90LXRoZS1yYXc=',
+      },
+    };
     await expect(observeChatGptInterpreterAssetResolvers(invalidContext)).resolves.toEqual(
       expected
     );
@@ -1336,12 +1524,62 @@ describe('ChatGPT current-branch capture composition', () => {
 
   it('fails closed when manifest hashing is unavailable', async () => {
     const response = await successfulResponse();
-    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} });
+    const realDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    let digestCalls = 0;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: {
+        subtle: {
+          digest: async (...args: Parameters<SubtleCrypto['digest']>) => {
+            digestCalls += 1;
+            if (digestCalls === 2) throw new Error('synthetic manifest hash failure');
+            return realDigest(...args);
+          },
+        },
+      },
+    });
 
     const error = await captureChatGptCurrentBranch(CONVERSATION_ID, false, {
       requestCapture: async () => response,
       createCaptureId: fixedCaptureId,
       now: fixedNow,
+      inventoryAssets: async () => ({
+        assets: [],
+        completeness: 'not-attempted',
+        warnings: [],
+      }),
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-integrity-failed');
+  });
+
+  it('fails closed when raw companion hashing becomes unavailable after manifest binding', async () => {
+    const response = await successfulResponse();
+    const realDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    let digestCalls = 0;
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: {
+        subtle: {
+          digest: async (...args: Parameters<SubtleCrypto['digest']>) => {
+            digestCalls += 1;
+            if (digestCalls === 3) throw new Error('synthetic companion hash failure');
+            return realDigest(...args);
+          },
+        },
+      },
+    });
+
+    const error = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+      inventoryAssets: async () => ({
+        assets: [],
+        completeness: 'not-attempted',
+        warnings: [],
+      }),
     }).catch(reason => reason);
 
     expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
@@ -1436,6 +1674,32 @@ describe('ChatGPT current-branch capture composition', () => {
     );
     expect(manifest.completeness).toMatchObject({ assets: 'unknown' });
     expect(manifest.warnings).toEqual(['chatgpt-asset-inventory-unavailable']);
+  });
+
+  it('preserves raw and manifest when canonical serialization fails after normalization', async () => {
+    const response = await successfulResponse();
+    const normalizeCapture: typeof normalizeChatGptCapture = async input => {
+      const normalized = await normalizeChatGptCapture(input);
+      const circular: Record<string, unknown> = {};
+      circular.self = circular;
+      (normalized.archive as unknown as Record<string, unknown>).syntheticCircular = circular;
+      return normalized;
+    };
+
+    const error = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: async () => response,
+      normalizeCapture,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('capture-integrity-failed');
+    expect(
+      (error as ChatGptCurrentBranchError).archiveCompanion?.artifacts.map(
+        artifact => artifact.kind
+      )
+    ).toEqual(['raw', 'manifest']);
   });
 
   it.each([

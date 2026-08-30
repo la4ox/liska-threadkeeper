@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  validateArchiveStageSender,
   validateChatGptCaptureSender,
   validateMessageContent,
   validateStagedBinaryAssetSender,
 } from '../../src/background/validation';
 import { BINARY_STAGE_CHUNK_BYTES } from '../../src/lib/constants';
 import { bytesToBase64 } from '../../src/lib/image-utils';
+import { ARCHIVE_STAGE_CHUNK_BYTES } from '../../src/lib/archive-stage-contract';
 
 function archiveMessage() {
   return {
@@ -15,6 +17,7 @@ function archiveMessage() {
     captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
     conversationKey: 'a'.repeat(64),
     artifact: {
+      transport: 'inline' as const,
       kind: 'raw' as const,
       relativePath: 'responses/conversation.json',
       mediaType: 'application/json' as const,
@@ -93,6 +96,125 @@ describe('structured archive companion message validation', () => {
     expect(validateMessageContent({ ...stagedBegin(), rawProviderId: 'must-not-cross' })).toBe(
       false
     );
+  });
+
+  it('accepts exact raw/canonical archive-stage messages and rejects asset or manifest semantics', () => {
+    const descriptor = {
+      kind: 'raw' as const,
+      mediaType: 'application/json' as const,
+      relativePath: 'responses/conversation.json',
+      byteLength: ARCHIVE_STAGE_CHUNK_BYTES,
+      sha256: 'c'.repeat(64),
+    };
+    const stageId = `archive-stage-${'A'.repeat(32)}`;
+    expect(
+      validateMessageContent({
+        action: 'beginStagedArchiveArtifact',
+        source: 'chatgpt',
+        descriptor,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'appendStagedArchiveArtifact',
+        source: 'chatgpt',
+        stageId,
+        offset: 0,
+        chunkBase64: bytesToBase64(new Uint8Array(ARCHIVE_STAGE_CHUNK_BYTES)),
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'appendStagedArchiveArtifact',
+        source: 'chatgpt',
+        stageId,
+        offset: 0,
+        chunkBase64: bytesToBase64(new Uint8Array(ARCHIVE_STAGE_CHUNK_BYTES + 1)),
+      })
+    ).toBe(false);
+    expect(
+      validateMessageContent({
+        action: 'sealStagedArchiveArtifact',
+        source: 'chatgpt',
+        stageId,
+        descriptor,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'readStagedArchiveArtifact',
+        source: 'chatgpt',
+        stageId,
+        offset: 0,
+        byteLength: ARCHIVE_STAGE_CHUNK_BYTES,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'commitStagedArchiveCompanion',
+        noteFileName: 'safe-note.md',
+        source: 'chatgpt',
+        captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+        conversationKey: 'a'.repeat(64),
+        artifact: { transport: 'staged', stageId, ...descriptor },
+        outputs: ['file', 'obsidian'],
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'commitStagedArchiveCompanion',
+        noteFileName: 'safe-note.md',
+        source: 'chatgpt',
+        captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+        conversationKey: 'a'.repeat(64),
+        artifact: {
+          transport: 'staged',
+          stageId,
+          ...descriptor,
+          kind: 'manifest',
+          relativePath: 'manifest.json',
+        },
+        outputs: ['file'],
+      })
+    ).toBe(false);
+  });
+
+  it('binds archive-stage capabilities to a ChatGPT content-script sender', () => {
+    expect(
+      validateArchiveStageSender({
+        tab: { url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd' },
+        frameId: 0,
+        url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd',
+      } as chrome.runtime.MessageSender)
+    ).toBe(true);
+    expect(
+      validateArchiveStageSender({
+        tab: { url: 'https://chatgpt.com.evil.test/c/01234567-89ab-4cde-8f01-23456789abcd' },
+        frameId: 0,
+        url: 'https://chatgpt.com.evil.test/c/01234567-89ab-4cde-8f01-23456789abcd',
+      } as chrome.runtime.MessageSender)
+    ).toBe(false);
+    expect(
+      validateArchiveStageSender({
+        tab: { url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd' },
+        frameId: 0,
+        url: 'https://gemini.google.com/app/example',
+      } as chrome.runtime.MessageSender)
+    ).toBe(false);
+    expect(
+      validateArchiveStageSender({
+        tab: { url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd' },
+        url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd',
+      } as chrome.runtime.MessageSender)
+    ).toBe(false);
+    expect(
+      validateArchiveStageSender({
+        tab: { url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd' },
+        frameId: 1,
+        url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd',
+      } as chrome.runtime.MessageSender)
+    ).toBe(false);
+    expect(validateArchiveStageSender({} as chrome.runtime.MessageSender)).toBe(false);
   });
 
   it('validates staged commit and abort outputs without allowing Clipboard or duplicates', () => {
