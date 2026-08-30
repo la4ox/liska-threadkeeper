@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ARCHIVE_STAGE_BEGIN_OFFSCREEN_FAILURES,
   ARCHIVE_STAGE_RELATIVE_PATHS,
   type ArchiveStageDescriptor,
 } from '../../src/lib/archive-stage-contract';
@@ -123,7 +124,10 @@ describe('archive-stage background handlers', () => {
         },
         settings
       )
-    ).resolves.toEqual({ success: false, error: 'archive-stage-begin-failed' });
+    ).resolves.toEqual({
+      success: false,
+      error: 'archive-stage-begin-failed:offscreen-invalid-response',
+    });
     await expect(
       handleArchiveStageMessage(
         {
@@ -144,6 +148,61 @@ describe('archive-stage background handlers', () => {
     ).resolves.toEqual({ success: false, error: 'archive-stage-abort-failed' });
 
     expect(release).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(ARCHIVE_STAGE_BEGIN_OFFSCREEN_FAILURES)(
+    'returns only the fixed begin diagnostic %s from offscreen',
+    async error => {
+      const release = installLease();
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: false, error });
+      await expect(
+        handleArchiveStageMessage({
+          action: 'beginStagedArchiveArtifact',
+          source: 'chatgpt',
+          descriptor: descriptorFor('raw'),
+        })
+      ).resolves.toEqual({ success: false, error: `archive-stage-begin-failed:${error}` });
+      expect(release).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('redacts unexpected begin errors instead of forwarding offscreen exception text', async () => {
+    const release = installLease();
+    vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({
+      success: false,
+      error: 'private/path/conversation.json?secret=not-for-output',
+    });
+    await expect(
+      handleArchiveStageMessage({
+        action: 'beginStagedArchiveArtifact',
+        source: 'chatgpt',
+        descriptor: descriptorFor('raw'),
+      })
+    ).resolves.toEqual({ success: false, error: 'archive-stage-begin-failed:offscreen-rejected' });
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('distinguishes a rejected message channel from unavailable offscreen creation', async () => {
+    const release = installLease();
+    const message = {
+      action: 'beginStagedArchiveArtifact',
+      source: 'chatgpt',
+      descriptor: descriptorFor('raw'),
+    } as const;
+    vi.mocked(chrome.runtime.sendMessage).mockRejectedValue(new Error('private channel details'));
+    await expect(handleArchiveStageMessage(message)).resolves.toEqual({
+      success: false,
+      error: 'archive-stage-begin-failed:offscreen-send-failed',
+    });
+    expect(release).toHaveBeenCalledOnce();
+
+    mocks.acquireLease.mockRejectedValue(new Error('private offscreen details'));
+    await expect(handleArchiveStageMessage(message)).resolves.toEqual({
+      success: false,
+      error: 'archive-stage-begin-failed:offscreen-unavailable',
+    });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it.each(['raw', 'canonical'] as const)(

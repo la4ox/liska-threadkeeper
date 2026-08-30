@@ -27,6 +27,7 @@ import {
 import { bytesToBase64 } from '../lib/image-utils';
 import { OpfsBinaryStageStore, type BinaryStageStore } from './binary-stage-store';
 import { OpfsArchiveStageStore, type ArchiveStageStore } from './archive-stage-store';
+import { createWorkerSenderCheck } from './worker-sender';
 import type {
   ArchiveBlobCreateResponse,
   ArchiveBlobRevokeResponse,
@@ -429,6 +430,28 @@ function isArchiveStageAction(message: OffscreenMessage): boolean {
   ].includes(message.action);
 }
 
+/** Classify only known exception kinds, never their possibly sensitive messages. */
+function archiveStageBeginFailure(error: unknown): string {
+  if (error instanceof DOMException) {
+    switch (error.name) {
+      case 'SecurityError':
+      case 'NotAllowedError':
+        return 'opfs-denied';
+      case 'QuotaExceededError':
+        return 'opfs-quota';
+      case 'NotFoundError':
+        return 'opfs-not-found';
+      case 'InvalidStateError':
+        return 'opfs-invalid-state';
+    }
+  }
+  if (error instanceof TypeError) return 'opfs-type-error';
+  if (error instanceof Error && error.message === 'OPFS is unavailable') {
+    return 'opfs-unavailable';
+  }
+  return 'opfs-operation-failed';
+}
+
 function handleArchiveStageRequest(
   message: OffscreenMessage,
   sendResponse: SendOffscreenResponse
@@ -436,9 +459,24 @@ function handleArchiveStageRequest(
   if (!isArchiveStageAction(message)) return false;
   void handleArchiveStageMessage(message).then(
     response => {
-      sendResponse(response ?? { success: false, error: 'Invalid archive stage request' });
+      sendResponse(
+        response ?? {
+          success: false,
+          error:
+            message.action === 'archiveStageBegin'
+              ? 'offscreen-invalid-request'
+              : 'Invalid archive stage request',
+        }
+      );
     },
-    () => sendResponse({ success: false, error: 'Archive stage operation failed' })
+    error =>
+      sendResponse({
+        success: false,
+        error:
+          message.action === 'archiveStageBegin'
+            ? archiveStageBeginFailure(error)
+            : 'Archive stage operation failed',
+      })
   );
   return true;
 }
@@ -457,26 +495,49 @@ function handleBinaryMessage(
   return true;
 }
 
-/** Accept only extension-owned non-content-script messages for this hidden page. */
-function onOffscreenMessage(
+const checkWorkerSender = createWorkerSenderCheck();
+
+function dispatchOffscreenMessage(
   message: OffscreenMessage,
-  sender: chrome.runtime.MessageSender,
   sendResponse: SendOffscreenResponse
 ): boolean {
-  if (
-    sender.id !== chrome.runtime.id ||
-    sender.tab !== undefined ||
-    sender.url !== undefined ||
-    sender.documentId !== undefined
-  ) {
-    return false;
-  }
   return (
     handleClipboardMessage(message, sendResponse) ||
     handleArchiveBlobMessage(message, sendResponse) ||
     handleArchiveStageRequest(message, sendResponse) ||
     handleBinaryMessage(message, sendResponse)
   );
+}
+
+/** Accept only the extension worker, never content scripts or extension documents. */
+function onOffscreenMessage(
+  message: OffscreenMessage,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: SendOffscreenResponse
+): boolean {
+  if (message?.target !== 'offscreen') return false;
+  const senderFailure = checkWorkerSender(sender);
+  if (senderFailure instanceof Promise) {
+    // Keep the channel open while the package-local manifest is read. No
+    // clipboard, Blob, or OPFS operation starts before the URL is verified.
+    void senderFailure.then(failure => {
+      if (failure) {
+        sendResponse({ success: false, error: failure });
+      } else if (!dispatchOffscreenMessage(message, sendResponse)) {
+        sendResponse({ success: false, error: 'Unknown offscreen request' });
+      }
+    });
+    return true;
+  }
+  if (senderFailure) {
+    // Rejection remains fail-closed. Only a valid begin from this extension
+    // receives a value-free reason; no storage operation is attempted.
+    if (sender.id === chrome.runtime.id && isArchiveStageBeginMessage(message)) {
+      sendResponse({ success: false, error: senderFailure });
+    }
+    return false;
+  }
+  return dispatchOffscreenMessage(message, sendResponse);
 }
 
 chrome.runtime.onMessage.addListener(onOffscreenMessage);

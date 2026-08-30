@@ -75,7 +75,20 @@ contract in this checkpoint. It is not an oversized fallback.
   bearer capability; provider conversation IDs and response bytes are absent
   from stage metadata and diagnostics.
 - Offscreen accepts stage operations only from the extension background, never
-  directly from a content-script tab.
+  directly from a content-script tab. A worker sender has no tab or document ID;
+  its URL may be absent or exactly the worker entry declared by this extension's
+  own manifest. Popup/options/document URLs remain rejected. Offscreen reads
+  that entry once from `runtime.getURL('manifest.json')` using a package-local
+  fetch with a three-second deadline, omitted credentials, and redirects
+  rejected. It keeps the message channel open while checking the URL and starts
+  no storage/clipboard operation before verification. `runtime.getManifest`
+  itself is unavailable in offscreen contexts, as specified by
+  [Chromium's API context restrictions](https://chromium.googlesource.com/chromium/src/+/a39e8b410b94fa34e0aa099620a5a2ac0e335aa2/extensions/common/api/_api_features.json).
+- Stage begin failures expose only fixed diagnostic codes for offscreen
+  availability, message transport, sender rejection, and known storage exception
+  classes. Native error messages, sender URLs, stage IDs, and archive contents
+  are never forwarded as diagnostics. A rejection diagnostic does not authorize
+  a storage operation.
 - A suspended or failed worker cannot publish an incomplete stage. An
   unfinished stage remains quarantined for bounded stale cleanup. A lost append
   or seal acknowledgement can be repeated only under the exact idempotence
@@ -110,6 +123,16 @@ Synthetic checks cover:
   and cancellation of uncommitted stages;
 - unchanged inline and opaque-replay behavior.
 
-A live smoke must still prove a real response above 16 MiB, exact raw/manifest/
+Live Comet checks on 2026-08-31 confirm zero-byte begin/abort and a 16,777,264-byte
+synthetic stage written/read in 33 independently encoded chunks. The latter
+completed in 3.792 seconds with an exact SHA-256 round trip and acknowledged
+abort. A 131-byte UTF-8 synthetic JSON also passed staged File output and a
+filesystem length/hash check; the control read before commit succeeded and the
+read after terminal output was rejected. No personal content entered these
+synthetic checks.
+
+A real provider response above 16 MiB remains unverified. That canary must still
+prove the complete native capture-to-normalization path, exact raw/manifest/
 canonical destination bytes, no whole-base64 runtime payload, no leftover marker
-tab, and no orphaned stage after terminal output.
+tab, and no orphaned stage after terminal output. The explicit replay cap is
+unchanged.

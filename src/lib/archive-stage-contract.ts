@@ -10,6 +10,22 @@ import { canonicalBase64ByteLength } from './base64';
 export const ARCHIVE_STAGE_MAX_BYTES = 64 * 1024 * 1024;
 export const ARCHIVE_STAGE_CHUNK_BYTES = 512 * 1024;
 
+/** Fixed, value-free begin diagnostics; never forward native error text. */
+export const ARCHIVE_STAGE_BEGIN_OFFSCREEN_FAILURES = [
+  'offscreen-sender-tab',
+  'offscreen-sender-document',
+  'offscreen-sender-url',
+  'offscreen-worker-entry-unavailable',
+  'offscreen-invalid-request',
+  'opfs-unavailable',
+  'opfs-denied',
+  'opfs-quota',
+  'opfs-not-found',
+  'opfs-invalid-state',
+  'opfs-type-error',
+  'opfs-operation-failed',
+] as const;
+
 export const ARCHIVE_STAGE_RELATIVE_PATHS = {
   raw: 'responses/conversation.json',
   canonical: 'canonical/liska-thread-1.json',

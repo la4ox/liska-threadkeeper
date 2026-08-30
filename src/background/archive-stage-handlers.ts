@@ -1,6 +1,7 @@
 /** Background orchestration for sealed raw/canonical OPFS archive stages. */
 
 import {
+  ARCHIVE_STAGE_BEGIN_OFFSCREEN_FAILURES,
   ARCHIVE_STAGE_CHUNK_BYTES,
   isArchiveStageDescriptor,
   isSafeArchiveStageId,
@@ -49,6 +50,11 @@ type ArchiveStageContentMessage = Extract<
 >;
 
 const ARCHIVE_STAGE_MESSAGE_TIMEOUT_MS = 10_000;
+type OffscreenTransportFailure =
+  | 'offscreen-timeout'
+  | 'offscreen-send-failed'
+  | 'offscreen-invalid-response';
+const beginOffscreenFailures = new Set<string>(ARCHIVE_STAGE_BEGIN_OFFSCREEN_FAILURES);
 
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
   const keys = Object.keys(value).sort();
@@ -111,18 +117,26 @@ function isStageUrlResponse(value: unknown): value is ArchiveStageUrlResponse {
 
 async function sendOffscreen<T>(
   message: object,
-  validate: (value: unknown) => value is T
+  validate: (value: unknown) => value is T,
+  onFailure?: (reason: OffscreenTransportFailure) => void
 ): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   try {
     const response: unknown = await Promise.race([
       chrome.runtime.sendMessage(message),
       new Promise<undefined>(resolve => {
-        timer = setTimeout(() => resolve(undefined), ARCHIVE_STAGE_MESSAGE_TIMEOUT_MS);
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve(undefined);
+        }, ARCHIVE_STAGE_MESSAGE_TIMEOUT_MS);
       }),
     ]);
-    return validate(response) ? response : undefined;
+    if (validate(response)) return response;
+    onFailure?.(timedOut ? 'offscreen-timeout' : 'offscreen-invalid-response');
+    return undefined;
   } catch {
+    onFailure?.('offscreen-send-failed');
     return undefined;
   } finally {
     if (timer) clearTimeout(timer);
@@ -141,7 +155,16 @@ async function withShortLease<T>(operation: () => Promise<T>): Promise<T> {
 export async function beginArchiveStage(
   descriptor: ArchiveStageDescriptor
 ): Promise<string | undefined> {
-  if (!isArchiveStageDescriptor(descriptor)) return undefined;
+  const response = await beginArchiveStageWithResponse(descriptor);
+  return response.success ? response.stageId : undefined;
+}
+
+async function beginArchiveStageWithResponse(
+  descriptor: ArchiveStageDescriptor
+): Promise<ArchiveStageResponse> {
+  if (!isArchiveStageDescriptor(descriptor)) {
+    return { success: false, error: 'archive-stage-begin-failed:invalid-descriptor' };
+  }
   const stageId = safeStageId();
   const message: OffscreenArchiveStageBeginMessage = {
     action: 'archiveStageBegin',
@@ -149,8 +172,21 @@ export async function beginArchiveStage(
     stageId,
     descriptor,
   };
-  const response = await withShortLease(() => sendOffscreen(message, isStageResponse));
-  return response?.success ? stageId : undefined;
+  let failure = 'offscreen-invalid-response';
+  try {
+    const response = await withShortLease(() =>
+      sendOffscreen(message, isStageResponse, reason => {
+        failure = reason;
+      })
+    );
+    if (response?.success) return { success: true, stageId };
+    if (response && !response.success) {
+      failure = beginOffscreenFailures.has(response.error) ? response.error : 'offscreen-rejected';
+    }
+  } catch {
+    failure = 'offscreen-unavailable';
+  }
+  return { success: false, error: `archive-stage-begin-failed:${failure}` };
 }
 
 export async function appendArchiveStage(
@@ -463,10 +499,7 @@ export async function handleArchiveStageMessage(
   settings?: ExtensionSettings
 ): Promise<ArchiveStageResponse | ArchiveStageReadResponse | MultiOutputResponse> {
   if (message.action === 'beginStagedArchiveArtifact') {
-    const stageId = await beginArchiveStage(message.descriptor);
-    return stageId
-      ? { success: true, stageId }
-      : { success: false, error: 'archive-stage-begin-failed' };
+    return beginArchiveStageWithResponse(message.descriptor);
   }
   if (message.action === 'appendStagedArchiveArtifact') {
     return (await appendArchiveStage(message.stageId, message.offset, message.chunkBase64))

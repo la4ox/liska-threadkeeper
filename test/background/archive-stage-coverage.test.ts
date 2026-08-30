@@ -223,7 +223,7 @@ describe('archive-stage background handler coverage', () => {
         source: 'chatgpt',
         descriptor: invalidDescriptor,
       } as Extract<ExtensionMessage, { action: 'beginStagedArchiveArtifact' }>)
-    ).resolves.toEqual({ success: false, error: 'archive-stage-begin-failed' });
+    ).resolves.toEqual({ success: false, error: 'archive-stage-begin-failed:invalid-descriptor' });
     await expect(
       handlers.handleArchiveStageMessage({
         action: 'abortStagedArchiveArtifact',
@@ -350,7 +350,7 @@ describe('archive-stage background handler coverage', () => {
 
     await expect(pending[0]).resolves.toEqual({
       success: false,
-      error: 'archive-stage-begin-failed',
+      error: 'archive-stage-begin-failed:offscreen-timeout',
     });
     await expect(pending[1]).resolves.toEqual({
       success: false,
