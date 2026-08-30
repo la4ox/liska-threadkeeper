@@ -20,7 +20,7 @@ Liska extracts conversations from Google Gemini (gemini.google.com), Claude AI (
 • Web search results saved as collapsible callouts (Claude)
 • Append mode - only new messages are added to existing notes
 • Optional `## ` question headers for TOC navigation in long conversations
-• Auto-scroll for long conversations, including virtualized (windowed) Claude and ChatGPT threads
+• Bounded auto-scroll for virtualized Claude threads; ChatGPT captures its complete current branch from the page-native response without scrolling
 • Filename schemes - choose title-id (default) or title-date naming, with collision-safe overwrite protection
 • Large-callout flattening - very long messages are saved as plain text so Obsidian stays responsive
 • Platform organization with {platform} template variable

@@ -22,7 +22,16 @@ import { base64ToBytes } from '../lib/image-utils';
 import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
 import { extractTailMessages } from '../lib/message-counter';
-import type { ExtensionSettings, ObsidianNote, SaveResponse } from '../lib/types';
+import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../lib/constants';
+import { isStagedBinaryAssetDescriptor } from '../lib/binary-asset-contract';
+import type {
+  AIPlatform,
+  ArchiveCompanionArtifact,
+  ExtensionSettings,
+  ObsidianNote,
+  SaveResponse,
+  StagedBinaryAssetDescriptor,
+} from '../lib/types';
 
 /**
  * Create an ObsidianApiClient if API key is configured.
@@ -47,6 +56,290 @@ function createObsidianClient(settings: ExtensionSettings): ObsidianApiClient | 
  */
 function isClientError(client: ObsidianApiClient | { error: string }): client is { error: string } {
   return 'error' in client;
+}
+
+export interface ArchiveCompanionWriteRequest {
+  source: AIPlatform;
+  captureId: string;
+  conversationKey: string;
+  artifact: ArchiveCompanionArtifact;
+  bytes: Uint8Array;
+}
+
+/** A finalized extension Blob URL, consumed exactly once for one asset write. */
+export interface StagedBinaryAssetWriteRequest {
+  source: AIPlatform;
+  captureId: string;
+  conversationKey: string;
+  descriptor: StagedBinaryAssetDescriptor;
+  blobUrl: string;
+}
+
+type ArchiveObsidianFailureCode =
+  | 'archive-obsidian-preflight-failed'
+  | 'archive-obsidian-preflight-timeout'
+  | 'archive-obsidian-preflight-existing'
+  | 'archive-obsidian-put-failed'
+  | 'archive-obsidian-put-timeout'
+  | 'archive-obsidian-readback-failed'
+  | 'archive-obsidian-readback-timeout'
+  | 'archive-obsidian-readback-missing'
+  | 'archive-obsidian-readback-size-mismatch'
+  | 'archive-obsidian-readback-hash-mismatch'
+  | 'archive-obsidian-readback-hash-failed';
+
+type StagedBinaryObsidianFailureCode =
+  | 'binary-obsidian-preflight-failed'
+  | 'binary-obsidian-preflight-timeout'
+  | 'binary-obsidian-preflight-existing'
+  | 'binary-obsidian-blob-read-failed'
+  | 'binary-obsidian-blob-integrity-failed'
+  | 'binary-obsidian-put-failed'
+  | 'binary-obsidian-put-timeout'
+  | 'binary-obsidian-readback-failed'
+  | 'binary-obsidian-readback-timeout'
+  | 'binary-obsidian-readback-missing'
+  | 'binary-obsidian-readback-size-mismatch'
+  | 'binary-obsidian-readback-hash-mismatch'
+  | 'binary-obsidian-readback-hash-failed';
+
+const OBSIDIAN_TIMEOUT_MESSAGE = 'Request timed out. Please check your connection.';
+/**
+ * Local REST API parses `application/json` request bodies and serializes them
+ * again before writing. Archive companions require byte-for-byte preservation,
+ * so transport the JSON bytes as opaque binary while retaining their `.json`
+ * filenames and manifest media type.
+ */
+const ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE = 'application/octet-stream';
+
+/** Return only a fixed local diagnostic code; never surface API details. */
+function archiveObsidianFailureCode(
+  stage: 'preflight' | 'put' | 'readback',
+  error?: unknown
+): ArchiveObsidianFailureCode {
+  const timedOut =
+    (error instanceof DOMException && error.name === 'TimeoutError') ||
+    (error instanceof Error &&
+      error.name === 'ObsidianApiError' &&
+      error.message === OBSIDIAN_TIMEOUT_MESSAGE);
+  if (stage === 'preflight') {
+    return timedOut ? 'archive-obsidian-preflight-timeout' : 'archive-obsidian-preflight-failed';
+  }
+  if (stage === 'put') {
+    return timedOut ? 'archive-obsidian-put-timeout' : 'archive-obsidian-put-failed';
+  }
+  return timedOut ? 'archive-obsidian-readback-timeout' : 'archive-obsidian-readback-failed';
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const exact = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', exact);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function archiveCompanionVaultPath(
+  settings: ExtensionSettings,
+  request: ArchiveCompanionWriteRequest
+): string | undefined {
+  const variables = {
+    platform: request.source,
+    ...getDateVariables(new Date()),
+  };
+  const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
+  const path = [
+    ...(resolvedFolder ? [resolvedFolder] : []),
+    '_liska-archive',
+    request.conversationKey,
+    request.captureId,
+    ...request.artifact.relativePath.split('/'),
+  ].join('/');
+  return containsPathTraversal(path) ? undefined : path;
+}
+
+function stagedBinaryAssetVaultPath(
+  settings: ExtensionSettings,
+  request: StagedBinaryAssetWriteRequest
+): string | undefined {
+  if (!isStagedBinaryAssetDescriptor(request.descriptor)) return undefined;
+  const variables = {
+    platform: request.source,
+    ...getDateVariables(new Date()),
+  };
+  const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
+  const path = [
+    ...(resolvedFolder ? [resolvedFolder] : []),
+    '_liska-archive',
+    request.conversationKey,
+    request.captureId,
+    request.descriptor.relativePath,
+  ].join('/');
+  return containsPathTraversal(path) ? undefined : path;
+}
+
+/**
+ * Persist one immutable structured-archive companion beside the note's
+ * resolved vault folder. Existing snapshots are never overwritten, and a
+ * binary readback/hash check prevents a successful request from being reported
+ * as a verified archive write when the vault did not retain the exact bytes.
+ */
+export async function handleSaveArchiveCompanion(
+  settings: ExtensionSettings,
+  request: ArchiveCompanionWriteRequest
+): Promise<SaveResponse> {
+  const client = createObsidianClient(settings);
+  if (isClientError(client)) {
+    return { success: false, error: 'archive-obsidian-preflight-failed' };
+  }
+
+  const path = archiveCompanionVaultPath(settings, request);
+  if (!path) return { success: false, error: 'archive-obsidian-preflight-failed' };
+
+  let existing: string | null;
+  try {
+    existing = await client.getFile(path);
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('preflight', error) };
+  }
+  if (existing !== null) {
+    return { success: false, error: 'archive-obsidian-preflight-existing' };
+  }
+
+  try {
+    await client.putBinaryFile(
+      path,
+      request.bytes,
+      ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('put', error) };
+  }
+
+  let readBack: Uint8Array | null;
+  try {
+    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('readback', error) };
+  }
+  if (!readBack) return { success: false, error: 'archive-obsidian-readback-missing' };
+  if (readBack.byteLength !== request.bytes.byteLength) {
+    return { success: false, error: 'archive-obsidian-readback-size-mismatch' };
+  }
+
+  let readBackSha256: string;
+  try {
+    readBackSha256 = await sha256Hex(readBack);
+  } catch {
+    return { success: false, error: 'archive-obsidian-readback-hash-failed' };
+  }
+  if (readBackSha256 !== request.artifact.sha256) {
+    return { success: false, error: 'archive-obsidian-readback-hash-mismatch' };
+  }
+  return { success: true };
+}
+
+function stagedBinaryFailureCode(
+  stage: 'preflight' | 'put' | 'readback',
+  error?: unknown
+): StagedBinaryObsidianFailureCode {
+  const timedOut =
+    (error instanceof DOMException && error.name === 'TimeoutError') ||
+    (error instanceof Error &&
+      error.name === 'ObsidianApiError' &&
+      error.message === OBSIDIAN_TIMEOUT_MESSAGE);
+  if (stage === 'preflight') {
+    return timedOut ? 'binary-obsidian-preflight-timeout' : 'binary-obsidian-preflight-failed';
+  }
+  if (stage === 'put')
+    return timedOut ? 'binary-obsidian-put-timeout' : 'binary-obsidian-put-failed';
+  return timedOut ? 'binary-obsidian-readback-timeout' : 'binary-obsidian-readback-failed';
+}
+
+async function readVerifiedStagedBlob(
+  request: StagedBinaryAssetWriteRequest
+): Promise<{ bytes?: Uint8Array; error?: string }> {
+  try {
+    const response = await fetch(request.blobUrl);
+    if (!response.ok) return { error: 'binary-obsidian-blob-read-failed' };
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (
+      bytes.byteLength !== request.descriptor.byteLength ||
+      (await sha256Hex(bytes)) !== request.descriptor.sha256
+    ) {
+      return { error: 'binary-obsidian-blob-integrity-failed' };
+    }
+    return { bytes };
+  } catch {
+    return { error: 'binary-obsidian-blob-read-failed' };
+  }
+}
+
+async function writeAndVerifyStagedBinary(
+  client: ObsidianApiClient,
+  path: string,
+  bytes: Uint8Array,
+  descriptor: StagedBinaryAssetDescriptor
+): Promise<SaveResponse> {
+  try {
+    await client.putBinaryFile(
+      path,
+      bytes,
+      ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+  } catch (error) {
+    return { success: false, error: stagedBinaryFailureCode('put', error) };
+  }
+
+  let readBack: Uint8Array | null;
+  try {
+    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+  } catch (error) {
+    return { success: false, error: stagedBinaryFailureCode('readback', error) };
+  }
+  if (!readBack) return { success: false, error: 'binary-obsidian-readback-missing' };
+  if (readBack.byteLength !== descriptor.byteLength) {
+    return { success: false, error: 'binary-obsidian-readback-size-mismatch' };
+  }
+  try {
+    return (await sha256Hex(readBack)) === descriptor.sha256
+      ? { success: true }
+      : { success: false, error: 'binary-obsidian-readback-hash-mismatch' };
+  } catch {
+    return { success: false, error: 'binary-obsidian-readback-hash-failed' };
+  }
+}
+
+/**
+ * Persist one OPFS-verified staged asset without ever putting its bytes in an
+ * extension message. Blob URL fetch is one asset at a time; the request and
+ * readback use opaque binary transport and never overwrite an existing path.
+ */
+export async function handleSaveStagedBinaryAsset(
+  settings: ExtensionSettings,
+  request: StagedBinaryAssetWriteRequest
+): Promise<SaveResponse> {
+  const client = createObsidianClient(settings);
+  if (isClientError(client)) return { success: false, error: 'binary-obsidian-preflight-failed' };
+  const path = stagedBinaryAssetVaultPath(settings, request);
+  if (!path || !request.blobUrl.startsWith('blob:')) {
+    return { success: false, error: 'binary-obsidian-preflight-failed' };
+  }
+
+  try {
+    if ((await client.getFile(path)) !== null) {
+      return { success: false, error: 'binary-obsidian-preflight-existing' };
+    }
+  } catch (error) {
+    return { success: false, error: stagedBinaryFailureCode('preflight', error) };
+  }
+
+  const staged = await readVerifiedStagedBlob(request);
+  if (!staged.bytes) return { success: false, error: staged.error };
+  return writeAndVerifyStagedBinary(client, path, staged.bytes, request.descriptor);
 }
 
 /**
@@ -91,7 +384,11 @@ async function tryAppendMode(
   resolvedPath: string,
   searchBasePath: string
 ): Promise<SaveResponse | null> {
-  if (!settings.enableAppendMode || note.frontmatter.type === 'deep-research') {
+  if (
+    !settings.enableAppendMode ||
+    note.frontmatter.type === 'deep-research' ||
+    note.frontmatter.presentation_mode !== undefined
+  ) {
     return null;
   }
 
@@ -105,10 +402,8 @@ async function tryAppendMode(
       // A miss is what sends the save down the fork path, so name the negative
       // rather than letting it vanish (issue #365).
       console.info('[G2O Background] Append lookup found no existing note', {
-        id: note.frontmatter.id,
         missReason: lookup.missReason,
-        directProbe: lookup.directProbe,
-        searched: { direct: fullPath, base: searchBasePath },
+        directProbeState: lookup.directProbe?.state ?? 'unknown',
       });
       return null;
     }
@@ -227,23 +522,26 @@ async function saveFreshNote(
     // This is the moment a duplicate note is born, so say exactly what each
     // rejected candidate held (issue #365).
     console.warn('[G2O Background] Filename collision: saved under an alternative name', {
-      expectedId: note.frontmatter.id,
-      savedAs: target.fileName,
-      probes: target.probes,
+      probes: target.probes.map(({ attempt, state }) => ({ attempt, state })),
     });
   }
 
-  const { note: saveNote, failedImages } = await prepareNoteImages(
+  // Collision resolution owns the durable filename. Companion image names
+  // and wikilinks must use that same resolved namespace or a renamed note can
+  // overwrite the earlier note's images.
+  const resolvedNote =
+    target.fileName === note.fileName ? note : { ...note, fileName: target.fileName };
+  const { note: saveNote, failedImageCount } = await prepareNoteImages(
     client,
     settings,
-    note,
+    resolvedNote,
     templateVariables
   );
   const flattenedBody = maybeFlatten(saveNote.body, settings);
   const content = generateNoteContent({ ...saveNote, body: flattenedBody }, settings);
   await client.putFile(target.path, content);
 
-  const warning = imageWarning(failedImages);
+  const warning = imageWarning(failedImageCount);
   return {
     success: true,
     isNewFile: target.isNewFile,
@@ -255,18 +553,18 @@ async function saveFreshNote(
 /** Outcome of the image-writing pass: the note to save, plus any images lost. */
 interface PreparedNote {
   note: ObsidianNote;
-  /** File names of images that could not be written (issue #376) */
-  failedImages: readonly string[];
+  /** Count of image writes that could not be completed (issue #376). */
+  failedImageCount: number;
 }
 
 /**
  * Build the user-facing warning for images that could not be written, or
  * undefined when every image succeeded.
  */
-function imageWarning(failedImages: readonly string[]): string | undefined {
-  if (failedImages.length === 0) return undefined;
-  const noun = failedImages.length === 1 ? 'image' : 'images';
-  return `${failedImages.length} ${noun} could not be saved: ${failedImages.join(', ')}`;
+function imageWarning(failedImageCount: number): string | undefined {
+  if (failedImageCount === 0) return undefined;
+  const noun = failedImageCount === 1 ? 'image' : 'images';
+  return `${failedImageCount} ${noun} could not be saved`;
 }
 
 /**
@@ -275,8 +573,8 @@ function imageWarning(failedImages: readonly string[]): string | undefined {
  * export is disabled or there are no images, image placeholders are stripped.
  *
  * Image-write failures never block the note (ADR-008, ADR-021, ADR-027), but they are
- * no longer silent: the failed file names are returned so the caller can
- * surface them to the user (issue #376).
+ * no longer silent: only a count is returned so title-derived attachment
+ * names never enter console logs or user-facing toasts (issue #376).
  */
 async function prepareNoteImages(
   client: ObsidianApiClient,
@@ -289,29 +587,29 @@ async function prepareNoteImages(
     const stripped = note.body.includes('g2o-image://')
       ? { ...note, body: stripImagePlaceholders(note.body) }
       : note;
-    return { note: stripped, failedImages: [] };
+    return { note: stripped, failedImageCount: 0 };
   }
 
   const baseName = note.fileName.replace(/\.md$/i, '');
   const { body, files } = resolveImagesForObsidian(note.body, images, baseName);
 
   const imageDir = resolvePathTemplate(settings.imageVaultPath, templateVariables);
-  const failedImages: string[] = [];
+  let failedImageCount = 0;
   for (const file of files) {
     const path = imageDir ? `${imageDir}/${file.fileName}` : file.fileName;
     if (containsPathTraversal(path)) {
-      failedImages.push(file.fileName);
+      failedImageCount += 1;
       continue;
     }
     try {
       await client.putBinaryFile(path, base64ToBytes(file.data), file.mimeType);
-    } catch (error) {
-      console.warn('[G2O Background] Image write failed:', file.fileName, error);
-      failedImages.push(file.fileName);
+    } catch {
+      console.warn('[G2O Background] Image write failed');
+      failedImageCount += 1;
     }
   }
 
-  return { note: { ...note, body }, failedImages };
+  return { note: { ...note, body }, failedImageCount };
 }
 
 /** Probe attempts: original + hash suffix + a few counters for hash collisions */
@@ -375,15 +673,12 @@ async function resolveCollisionFreePath(
     // duplicate reported from the field can be traced back to its cause.
   }
 
-  console.warn('[G2O Background] Filename collision: no free name found', {
-    expectedId: note.frontmatter.id,
-    fileName: note.fileName,
-    probes,
-  });
+  console.warn(
+    '[G2O Background] Filename collision: no free name found',
+    probes.map(({ attempt, state }) => ({ attempt, state }))
+  );
   return {
-    error:
-      `filename collision: could not find a free name for '${note.fileName}' ` +
-      `after ${MAX_COLLISION_ATTEMPTS} attempts`,
+    error: `filename collision: could not find a free name after ${MAX_COLLISION_ATTEMPTS} attempts`,
   };
 }
 

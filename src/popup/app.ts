@@ -99,6 +99,8 @@ function queryElements() {
     enableAppendMode: getElement<HTMLInputElement>('enableAppendMode'),
     enableToolContent: getElement<HTMLInputElement>('enableToolContent'),
     enableImageExport: getElement<HTMLInputElement>('enableImageExport'),
+    enableChatGptOpaqueProbe: getElement<HTMLInputElement>('enableChatGptOpaqueProbe'),
+    enableChatGptOpaqueReplay: getElement<HTMLInputElement>('enableChatGptOpaqueReplay'),
     imageVaultPath: getElement<HTMLInputElement>('imageVaultPath'),
     flattenLargeCallouts: getElement<HTMLInputElement>('flattenLargeCallouts'),
     maxCalloutLines: getElement<HTMLInputElement>('maxCalloutLines'),
@@ -114,6 +116,11 @@ type PopupElements = ReturnType<typeof queryElements>;
 
 // Assigned by initPopup() before any UI handler can run
 let elements: PopupElements;
+let outputSaveChain: Promise<void> = Promise.resolve();
+
+function isOpaqueReplaySettingActive(settings: ExtensionSettings): boolean {
+  return settings.enableChatGptOpaqueReplay === true && settings.enableChatGptOpaqueProbe !== true;
+}
 
 /**
  * Initialize popup — queries the DOM and wires the UI.
@@ -148,6 +155,9 @@ function populateForm(settings: ExtensionSettings): void {
   elements.enableAppendMode.checked = settings.enableAppendMode ?? false;
   elements.enableToolContent.checked = settings.enableToolContent ?? false;
   elements.enableImageExport.checked = settings.enableImageExport ?? true;
+  const enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe === true;
+  elements.enableChatGptOpaqueProbe.checked = enableChatGptOpaqueProbe;
+  elements.enableChatGptOpaqueReplay.checked = isOpaqueReplaySettingActive(settings);
   elements.imageVaultPath.value = settings.imageVaultPath || '';
   elements.flattenLargeCallouts.checked = settings.flattenLargeCallouts ?? true;
   elements.maxCalloutLines.value = String(settings.maxCalloutLines ?? DEFAULT_MAX_CALLOUT_LINES);
@@ -206,7 +216,25 @@ function setupEventListeners(): void {
   elements.testBtn.addEventListener('click', handleTest);
 
   // Output destination checkbox listeners
-  elements.outputObsidian.addEventListener('change', updateObsidianSettingsVisibility);
+  elements.outputObsidian.addEventListener('change', () => {
+    updateObsidianSettingsVisibility();
+    queueOutputOptionsSave();
+  });
+  elements.outputFile.addEventListener('change', queueOutputOptionsSave);
+  elements.outputClipboard.addEventListener('change', queueOutputOptionsSave);
+
+  elements.enableChatGptOpaqueProbe.addEventListener('change', () => {
+    if (elements.enableChatGptOpaqueProbe.checked) {
+      elements.enableChatGptOpaqueReplay.checked = false;
+      elements.enableChatGptOpaqueReplay.setAttribute('aria-checked', 'false');
+    }
+  });
+  elements.enableChatGptOpaqueReplay.addEventListener('change', () => {
+    if (elements.enableChatGptOpaqueReplay.checked) {
+      elements.enableChatGptOpaqueProbe.checked = false;
+      elements.enableChatGptOpaqueProbe.setAttribute('aria-checked', 'false');
+    }
+  });
 
   // Show/hide timezone when includeDates changes
   elements.includeDates.addEventListener('change', updateTimezoneVisibility);
@@ -216,6 +244,21 @@ function setupEventListeners(): void {
 
   // Setup API key visibility toggle
   setupApiKeyToggle();
+}
+
+/** Persist destination switches immediately and serialize rapid changes. */
+function queueOutputOptionsSave(): void {
+  const outputOptions = collectOutputOptions();
+  outputSaveChain = outputSaveChain
+    .then(async () => {
+      const response = await sendMessage({ action: 'updateOutputOptions', outputOptions });
+      if (!response.success) throw new Error(response.error ?? 'Output settings save failed');
+    })
+    .then(() => showStatus(getMessage('status_settingsSaved'), 'success'))
+    .catch(error => {
+      showStatus(getMessage('toast_error_saveFailed', 'Unknown error'), 'error');
+      console.error('[G2O Popup] Output settings save error:', error);
+    });
 }
 
 /**
@@ -378,6 +421,8 @@ function collectSettings(): ExtensionSettings {
     enableAppendMode: elements.enableAppendMode.checked,
     enableToolContent: elements.enableToolContent.checked,
     enableImageExport: elements.enableImageExport.checked,
+    enableChatGptOpaqueProbe: elements.enableChatGptOpaqueProbe.checked,
+    enableChatGptOpaqueReplay: elements.enableChatGptOpaqueReplay.checked,
     imageVaultPath: elements.imageVaultPath.value.trim() || 'AI/{platform}/images',
     flattenLargeCallouts: elements.flattenLargeCallouts.checked,
     maxCalloutLines: parseCalloutLines(elements.maxCalloutLines.value),
@@ -481,6 +526,7 @@ async function handleSave(): Promise<void> {
   clearStatus();
 
   try {
+    await outputSaveChain;
     const settings = collectSettings();
 
     // Validate output options - at least one must be selected
@@ -519,6 +565,7 @@ async function handleTest(): Promise<void> {
   showStatus(getMessage('status_testing'), 'info');
 
   try {
+    await outputSaveChain;
     // First save current settings
     const settings = collectSettings();
 

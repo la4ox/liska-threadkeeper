@@ -604,6 +604,37 @@ describe('conversationToNote', () => {
     expect(note.images).toEqual([]);
   });
 
+  it('persists ChatGPT capture metadata only for ChatGPT', () => {
+    const chatgpt = {
+      ...mockData,
+      id: '01234567-89ab-4cde-8f01-23456789abcd',
+      source: 'chatgpt' as const,
+      capture: { mode: 'structured-api' as const, completeness: 'complete' as const },
+    };
+
+    const note = conversationToNote(chatgpt, defaultOptions);
+
+    expect(note.frontmatter).toMatchObject({
+      capture_mode: 'structured-api',
+      capture_completeness: 'complete',
+    });
+    expect(conversationToNote(mockData, defaultOptions).frontmatter).not.toHaveProperty(
+      'capture_mode'
+    );
+
+    const fallback = conversationToNote(
+      {
+        ...chatgpt,
+        capture: { mode: 'dom-fallback', completeness: 'partial' },
+      },
+      defaultOptions
+    );
+    expect(fallback.frontmatter).toMatchObject({
+      capture_mode: 'dom-fallback',
+      capture_completeness: 'partial',
+    });
+  });
+
   it('uses the title-id filename scheme by default (#328)', () => {
     const note = conversationToNote(mockData, defaultOptions);
     expect(note.fileName).toBe('test-conversation-conv123.md');
@@ -612,6 +643,104 @@ describe('conversationToNote', () => {
   it('uses the title-date filename scheme when configured (#328)', () => {
     const note = conversationToNote(mockData, { ...defaultOptions, filenameScheme: 'title-date' });
     expect(note.fileName).toMatch(/^test-conversation-\d{4}-\d{2}-\d{2}\.md$/);
+  });
+
+  it('gives a selected branch a capture-scoped filename without changing conversation identity', () => {
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'chatgpt',
+        presentation: {
+          mode: 'selected-branch',
+          captureId: 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd',
+          branchOrdinal: 2,
+          branchCount: 17,
+          branchPointCount: 8,
+        },
+      },
+      defaultOptions
+    );
+
+    expect(note.fileName).toBe(
+      'test-conversation-conv123--branch-002--01234567-89ab-4cde-8f01-23456789abcd.md'
+    );
+    expect(note.frontmatter).toMatchObject({
+      id: 'chatgpt_conv123',
+      presentation_mode: 'selected-branch',
+      branch_ordinal: 2,
+      branch_count: 17,
+      branch_point_count: 8,
+      archive_capture_id: 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd',
+    });
+  });
+
+  it('gives an all-branches index its own capture-scoped filename', () => {
+    const note = conversationToNote(
+      {
+        ...mockData,
+        presentation: {
+          mode: 'all-branches-index',
+          captureId: 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd',
+          branchCount: 17,
+          branchPointCount: 8,
+        },
+      },
+      defaultOptions
+    );
+
+    expect(note.fileName).toBe(
+      'test-conversation-conv123--branches--01234567-89ab-4cde-8f01-23456789abcd.md'
+    );
+    expect(note.frontmatter).not.toHaveProperty('branch_ordinal');
+  });
+
+  it('fails closed on unsafe or inconsistent branch presentation metadata', () => {
+    expect(() =>
+      conversationToNote(
+        {
+          ...mockData,
+          presentation: {
+            mode: 'selected-branch',
+            captureId: '../unsafe',
+            branchOrdinal: 2,
+            branchCount: 1,
+            branchPointCount: 1,
+          },
+        },
+        defaultOptions
+      )
+    ).toThrow('Invalid archive presentation capture ID.');
+
+    expect(() =>
+      conversationToNote(
+        {
+          ...mockData,
+          presentation: {
+            mode: 'selected-branch',
+            captureId: 'capture-safe',
+            branchOrdinal: 2,
+            branchCount: 1,
+            branchPointCount: 1,
+          },
+        },
+        defaultOptions
+      )
+    ).toThrow('Invalid archive presentation branch ordinal.');
+
+    expect(() =>
+      conversationToNote(
+        {
+          ...mockData,
+          presentation: {
+            mode: 'all-branches-index',
+            captureId: 'capture-safe',
+            branchCount: -1,
+            branchPointCount: 0,
+          },
+        },
+        defaultOptions
+      )
+    ).toThrow('Invalid archive presentation branch count.');
   });
 
   it('never leaks a DOM-derived per-message id into the filename or frontmatter id', () => {

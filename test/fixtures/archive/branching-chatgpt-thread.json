@@ -1,0 +1,376 @@
+{
+  "schema": "liska-thread/1",
+  "archiveId": "chatgpt:synthetic-branching-thread",
+  "inputs": [
+    {
+      "captureId": "capture-synthetic-001",
+      "manifestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "normalizer": "chatgpt-web/1",
+      "capturedAt": "2026-08-17T10:00:00.000Z",
+      "sourceRefs": [
+        {
+          "format": "chatgpt.web.history",
+          "kind": "conversation",
+          "id": "synthetic-branching-thread",
+          "artifactId": "conversation",
+          "rawPointer": "/"
+        }
+      ],
+      "extensions": {
+        "openai": {
+          "captureMethod": "synthetic"
+        }
+      }
+    }
+  ],
+  "conversation": {
+    "id": "synthetic-branching-thread",
+    "title": "Synthetic branch fixture",
+    "provider": "chatgpt",
+    "url": "https://chatgpt.com/c/synthetic-branching-thread",
+    "currentNodeId": "node-current",
+    "createdAt": "2026-08-17T09:00:00.000Z",
+    "updatedAt": "2026-08-17T10:00:00.000Z",
+    "metadata": {
+      "synthetic": true,
+      "purpose": "archive-core-test"
+    },
+    "sourceRefs": [
+      {
+        "format": "chatgpt.web.history",
+        "kind": "conversation",
+        "id": "synthetic-branching-thread",
+        "artifactId": "conversation",
+        "rawPointer": "/"
+      }
+    ],
+    "extensions": {
+      "openai": {
+        "isVisible": true
+      }
+    }
+  },
+  "graph": {
+    "rootIds": ["node-root"],
+    "nodes": {
+      "node-root": {
+        "id": "node-root",
+        "parentId": null,
+        "childIds": ["node-user"],
+        "sourceRefs": [
+          {
+            "format": "chatgpt.web.history",
+            "kind": "node",
+            "id": "node-root",
+            "artifactId": "conversation",
+            "rawPointer": "/mapping/node-root"
+          }
+        ],
+        "extensions": {
+          "openai": {
+            "structural": true
+          }
+        }
+      },
+      "node-user": {
+        "id": "node-user",
+        "parentId": "node-root",
+        "childIds": ["node-current", "node-alternate"],
+        "message": {
+          "id": "message-user",
+          "author": {
+            "role": "user",
+            "name": "Synthetic User"
+          },
+          "recipient": "all",
+          "channel": "final",
+          "createdAt": "2026-08-17T09:01:00.000Z",
+          "updatedAt": null,
+          "status": "finished_successfully",
+          "model": null,
+          "visibility": "visible",
+          "blocks": [
+            {
+              "id": "block-user-text",
+              "type": "text",
+              "text": "Please preserve both answers.",
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "content-part",
+                  "id": "message-user",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-user/message/content/parts/0"
+                }
+              ],
+              "extensions": {}
+            }
+          ],
+          "sourceRefs": [
+            {
+              "format": "chatgpt.web.history",
+              "kind": "message",
+              "id": "message-user",
+              "artifactId": "conversation",
+              "rawPointer": "/mapping/node-user/message"
+            }
+          ],
+          "extensions": {}
+        },
+        "sourceRefs": [
+          {
+            "format": "chatgpt.web.history",
+            "kind": "node",
+            "id": "node-user",
+            "artifactId": "conversation",
+            "rawPointer": "/mapping/node-user"
+          }
+        ],
+        "extensions": {}
+      },
+      "node-current": {
+        "id": "node-current",
+        "parentId": "node-user",
+        "childIds": [],
+        "message": {
+          "id": "message-current",
+          "author": {
+            "role": "assistant",
+            "name": null
+          },
+          "recipient": "user",
+          "channel": "final",
+          "createdAt": "2026-08-17T09:02:00.000Z",
+          "updatedAt": "2026-08-17T09:02:01.000Z",
+          "status": "finished_successfully",
+          "model": "synthetic-model",
+          "visibility": "visible",
+          "blocks": [
+            {
+              "id": "block-current-text",
+              "type": "text",
+              "text": "Current answer starts here.",
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "content-part",
+                  "id": "message-current",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-current/message/content/parts/0"
+                }
+              ],
+              "extensions": {}
+            },
+            {
+              "id": "block-current-reasoning",
+              "type": "reasoning",
+              "text": "Synthetic hidden reasoning retained as data.",
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "reasoning",
+                  "id": "message-current",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-current/message/metadata/reasoning"
+                }
+              ],
+              "extensions": {
+                "openai": {
+                  "visibility": "hidden"
+                }
+              }
+            },
+            {
+              "id": "block-current-tool-call",
+              "type": "tool_call",
+              "toolName": "synthetic_search",
+              "arguments": {
+                "query": "archive graph"
+              },
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "tool-call",
+                  "id": "tool-call-1",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-current/message/content/tool_calls/0"
+                }
+              ],
+              "extensions": {}
+            },
+            {
+              "id": "block-current-tool-result",
+              "type": "tool_result",
+              "toolName": "synthetic_search",
+              "result": {
+                "items": ["result-one"]
+              },
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "tool-result",
+                  "id": "tool-result-1",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-current/message/content/tool_results/0"
+                }
+              ],
+              "extensions": {}
+            },
+            {
+              "id": "block-current-attachment",
+              "type": "attachment",
+              "assetId": "asset-synthetic-image",
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "attachment",
+                  "id": "attachment-1",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-current/message/metadata/attachments/0"
+                }
+              ],
+              "extensions": {}
+            },
+            {
+              "id": "block-current-unknown",
+              "type": "unknown",
+              "providerType": "future_content_part",
+              "raw": {
+                "kind": "synthetic",
+                "version": 1
+              },
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "content-part",
+                  "id": "message-current",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-current/message/content/parts/1"
+                }
+              ],
+              "extensions": {}
+            }
+          ],
+          "sourceRefs": [
+            {
+              "format": "chatgpt.web.history",
+              "kind": "message",
+              "id": "message-current",
+              "artifactId": "conversation",
+              "rawPointer": "/mapping/node-current/message"
+            }
+          ],
+          "extensions": {
+            "openai": {
+              "requestId": "synthetic-request-current"
+            }
+          }
+        },
+        "sourceRefs": [
+          {
+            "format": "chatgpt.web.history",
+            "kind": "node",
+            "id": "node-current",
+            "artifactId": "conversation",
+            "rawPointer": "/mapping/node-current"
+          }
+        ],
+        "extensions": {}
+      },
+      "node-alternate": {
+        "id": "node-alternate",
+        "parentId": "node-user",
+        "childIds": [],
+        "message": {
+          "id": "message-alternate",
+          "author": {
+            "role": "assistant",
+            "name": null
+          },
+          "recipient": "user",
+          "channel": "final",
+          "createdAt": "2026-08-17T09:03:00.000Z",
+          "updatedAt": null,
+          "status": "finished_successfully",
+          "model": "synthetic-model",
+          "visibility": "visible",
+          "blocks": [
+            {
+              "id": "block-alternate-markdown",
+              "type": "markdown",
+              "markdown": "Alternate **answer** remains a separate leaf.",
+              "sourceRefs": [
+                {
+                  "format": "chatgpt.web.history",
+                  "kind": "content-part",
+                  "id": "message-alternate",
+                  "artifactId": "conversation",
+                  "rawPointer": "/mapping/node-alternate/message/content/parts/0"
+                }
+              ],
+              "extensions": {}
+            }
+          ],
+          "sourceRefs": [
+            {
+              "format": "chatgpt.web.history",
+              "kind": "message",
+              "id": "message-alternate",
+              "artifactId": "conversation",
+              "rawPointer": "/mapping/node-alternate/message"
+            }
+          ],
+          "extensions": {}
+        },
+        "sourceRefs": [
+          {
+            "format": "chatgpt.web.history",
+            "kind": "node",
+            "id": "node-alternate",
+            "artifactId": "conversation",
+            "rawPointer": "/mapping/node-alternate"
+          }
+        ],
+        "extensions": {}
+      }
+    }
+  },
+  "assets": {
+    "asset-synthetic-image": {
+      "id": "asset-synthetic-image",
+      "filename": "synthetic-image.png",
+      "mimeType": "image/png",
+      "byteLength": 42,
+      "dimensions": {
+        "width": 2,
+        "height": 2
+      },
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "localArtifactRef": "assets/synthetic-image.png",
+      "acquisition": {
+        "state": "fetched",
+        "attemptedAt": "2026-08-17T10:00:01.000Z",
+        "detail": null
+      },
+      "sourceRefs": [
+        {
+          "format": "chatgpt.web.history",
+          "kind": "attachment",
+          "id": "attachment-1",
+          "artifactId": "conversation",
+          "rawPointer": "/mapping/node-current/message/metadata/attachments/0"
+        }
+      ],
+      "extensions": {}
+    }
+  },
+  "diagnostics": {
+    "entries": [],
+    "extensions": {}
+  },
+  "extensions": {
+    "openai": {
+      "fixture": true
+    }
+  }
+}

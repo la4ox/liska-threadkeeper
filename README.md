@@ -9,6 +9,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 ## Why Liska
 
 - **Fast DeepSeek export:** signed-in conversations use DeepSeek's same-origin history response and reconstruct the active branch without scrolling through the page.
+- **Fast ChatGPT export:** after a trusted click, an inactive disposable tab observes ChatGPT's page-native conversation response at document start and reconstructs the complete graph without scrolling. The default view follows the current branch; a local chooser can export one explicit branch or every leaf plus an index. A marked DOM fallback remains available for the default view.
 - **Local outputs:** download Markdown, copy it, or write to Obsidian. Liska has no analytics, telemetry, account, or operated server.
 - **Long-thread support:** the text pipeline accepts large notes up to 32 MiB of UTF-8; other supported sites can accumulate virtualized conversations with bounded auto-scroll.
 - **Readable archives:** YAML frontmatter, citations, math, configurable callouts, thinking/tool content, question headings, and collision-safe filenames.
@@ -22,7 +23,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 | DeepSeek        | Yes                 | Active branch; same-origin API first, DOM fallback; optional Thinking |
 | Gemini          | Yes                 | Deep Research and generated images                                    |
 | Claude          | Yes                 | Extended Thinking, artifacts, tool and search content                 |
-| ChatGPT         | Yes                 | Regular and custom GPT conversations                                  |
+| ChatGPT         | Yes                 | Complete graph capture; current, selected, or every leaf plus index   |
 | Perplexity      | Yes                 | Regular threads and Deep Research                                     |
 | Gemini Notebook | Yes                 | Chat citations as footnotes; legacy NotebookLM URLs supported         |
 
@@ -31,6 +32,8 @@ Supported page origins: `gemini.google.com`, `claude.ai`, `chatgpt.com`, `www.pe
 ## Install from source
 
 Liska is not published in the Chrome Web Store yet.
+
+Building and loading the current source requires Chromium 111 or later.
 
 ```bash
 git clone https://github.com/la4ox/liska-threadkeeper.git
@@ -60,9 +63,10 @@ The bearer key is stored in `chrome.storage.local`, is never exposed to supporte
 
 ## Important limits
 
-- Liska exports the **currently selected branch**, not every alternative branch in a conversation graph.
+- The main button exports the provider-selected current branch. ChatGPT also offers a local chooser for one explicit branch or every leaf plus an index.
 - Automatic scheduled backups are not implemented yet; every export begins with a real click.
 - DeepSeek images are not captured yet. Its text, Markdown, active branch, and optional Thinking are supported.
+- ChatGPT structured archives currently retain attachment references and metadata, but do not yet acquire the binary files. Discovered assets are marked `not-attempted`, not falsely reported as unavailable or fetched.
 - Image export is bounded to 20 images, 10 MiB per image, and 48 MiB of combined base64 data per note.
 - Append mode adds new text messages, but images in newly appended messages are skipped with a visible warning. A fresh file export can save supported images normally.
 - Auto-scroll is bounded to five minutes for DOM-only providers. When a provider changes its page structure, Liska fails with a warning instead of claiming a complete export.

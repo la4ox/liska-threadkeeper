@@ -15,6 +15,7 @@ import type {
   ConversationData,
   ObsidianNote,
   NoteFrontmatter,
+  ConversationPresentationMetadata,
   TemplateOptions,
   FilenameScheme,
   ConversationMessage,
@@ -74,6 +75,75 @@ export function generateContentHash(content: string): string {
   return generateHash(content);
 }
 
+function captureEvidenceFrontmatter(
+  data: ConversationData
+): Pick<NoteFrontmatter, 'capture_mode' | 'capture_completeness'> {
+  if (data.source !== 'chatgpt' || !data.capture) return {};
+  return {
+    capture_mode: data.capture.mode,
+    capture_completeness: data.capture.completeness,
+  };
+}
+
+function requirePresentationInteger(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid archive presentation ${field}.`);
+  }
+  return value;
+}
+
+function presentationFrontmatter(
+  presentation: ConversationPresentationMetadata | undefined
+): Pick<
+  NoteFrontmatter,
+  | 'presentation_mode'
+  | 'branch_ordinal'
+  | 'branch_count'
+  | 'branch_point_count'
+  | 'archive_capture_id'
+> {
+  if (!presentation) return {};
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,239}$/.test(presentation.captureId)) {
+    throw new Error('Invalid archive presentation capture ID.');
+  }
+
+  const branchCount = requirePresentationInteger(presentation.branchCount, 'branch count');
+  const branchPointCount = requirePresentationInteger(
+    presentation.branchPointCount,
+    'branch-point count'
+  );
+  const branchOrdinal =
+    'branchOrdinal' in presentation
+      ? requirePresentationInteger(presentation.branchOrdinal, 'branch ordinal')
+      : undefined;
+  if (branchOrdinal !== undefined && (branchOrdinal < 1 || branchOrdinal > branchCount)) {
+    throw new Error('Invalid archive presentation branch ordinal.');
+  }
+
+  return {
+    presentation_mode: presentation.mode,
+    ...(branchOrdinal === undefined ? {} : { branch_ordinal: branchOrdinal }),
+    branch_count: branchCount,
+    branch_point_count: branchPointCount,
+    archive_capture_id: presentation.captureId,
+  };
+}
+
+function presentationFileName(
+  baseFileName: string,
+  presentation: ConversationPresentationMetadata | undefined
+): string {
+  if (!presentation) return baseFileName;
+  const captureSuffix = presentation.captureId.slice(-36).toLowerCase();
+  const stem = baseFileName.endsWith('.md') ? baseFileName.slice(0, -3) : baseFileName;
+  if (presentation.mode === 'all-branches-index') {
+    return `${stem}--branches--${captureSuffix}.md`;
+  }
+  const width = Math.max(3, String(presentation.branchCount).length);
+  const ordinal = String(presentation.branchOrdinal).padStart(width, '0');
+  return `${stem}--branch-${ordinal}--${captureSuffix}.md`;
+}
+
 /**
  * Convert conversation data to Obsidian note
  */
@@ -95,6 +165,8 @@ export function conversationToNote(data: ConversationData, options: TemplateOpti
         ? ['ai-research', 'deep-research', data.source]
         : ['ai-conversation', data.source],
     message_count: data.messages.length,
+    ...captureEvidenceFrontmatter(data),
+    ...presentationFrontmatter(data.presentation),
   };
 
   // Generate body - different format for Deep Research vs normal conversation
@@ -124,7 +196,10 @@ export function conversationToNote(data: ConversationData, options: TemplateOpti
   }
 
   // Generate filename and content hash
-  const fileName = generateFileName(data.title, data.id, options.filenameScheme);
+  const fileName = presentationFileName(
+    generateFileName(data.title, data.id, options.filenameScheme),
+    data.presentation
+  );
   const contentHash = generateContentHash(body);
 
   return {

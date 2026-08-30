@@ -98,6 +98,13 @@ export const MAX_PORT = 65535;
 export const DEFAULT_API_TIMEOUT = 5000;
 
 /**
+ * Archive companions can legitimately be tens of MiB and require a binary
+ * readback before their write is acknowledged. Keep their longer local API
+ * budget isolated from ordinary note and image requests.
+ */
+export const ARCHIVE_COMPANION_API_TIMEOUT_MS = 60_000;
+
+/**
  * Maximum text body accepted from a content script (32 MiB).
  *
  * Long provider histories can legitimately exceed 1 MiB before images: a
@@ -112,6 +119,32 @@ export const MAX_CONTENT_SIZE = 32 * 1024 * 1024;
  * implementation overhead so oversized notes fail locally with a useful error.
  */
 export const MAX_EXTENSION_MESSAGE_SIZE = 60 * 1024 * 1024;
+
+/**
+ * Maximum size of one fetched binary archive companion (64 MiB).
+ *
+ * Binary assets are staged in OPFS and released one at a time. This first
+ * slice bounds the one-asset Blob/readback/hash working set at 64 MiB; the
+ * 512 KiB message chunks remain far below Chrome's JSON message ceiling and
+ * are intentionally independent of this limit. Larger assets are deferred
+ * until a later fully streaming output path can keep the same memory bound.
+ */
+export const MAX_STAGED_BINARY_ASSET_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Raw bytes carried by one binary-stage append message (512 KiB).
+ *
+ * Standard base64 expands this to under 700 KiB, leaving a very large margin
+ * below Chrome 111's 64 MiB JSON extension-message limit. Chunks are encoded
+ * independently and are never concatenated into an asset-sized message.
+ */
+export const BINARY_STAGE_CHUNK_BYTES = 512 * 1024;
+
+/** One stale-stage sweep is intentionally small and bounded per later begin. */
+export const BINARY_STAGE_PRUNE_LIMIT = 20;
+
+/** Stages left by a suspended worker are eligible for exact-entry cleanup after 24 hours. */
+export const BINARY_STAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** Maximum number of images accepted per note (DoS guard). */
 export const MAX_IMAGES_PER_NOTE = 20;
@@ -183,6 +216,18 @@ export const VALID_MESSAGE_ACTIONS = [
   'testConnection',
   'saveToOutputs',
   'fetchImage',
+  'captureChatGptConversation',
+  'probeChatGptOpaqueRequest',
+  'captureChatGptConversationViaOpaqueReplay',
+  'observeChatGptAssetResolversViaOpaqueSource',
+  'probeChatGptActiveAssetResolvers',
+  'resolveChatGptInterpreterAssets',
+  'updateOutputOptions',
+  'persistArchiveCompanion',
+  'beginStagedBinaryAsset',
+  'appendStagedBinaryAsset',
+  'commitStagedBinaryAsset',
+  'abortStagedBinaryAsset',
 ] as const;
 
 /**

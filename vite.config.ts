@@ -19,6 +19,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Comet reports Vite's speculative extension-URL preloads as cross-world
+    // mismatches. Native module imports still load the same local chunks.
+    modulePreload: false,
     rollupOptions: {
       input: {
         offscreen: resolve(__dirname, 'src/offscreen/offscreen.html'),

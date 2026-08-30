@@ -4,6 +4,9 @@
  * Tests sender validation and clipboard operations
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { bytesToBase64 } from '../../src/lib/image-utils';
+import { BINARY_STAGE_CHUNK_BYTES } from '../../src/lib/constants';
+import type { BinaryStageStore } from '../../src/offscreen/binary-stage-store';
 
 // Capture the message listener
 let capturedListener: (
@@ -11,6 +14,7 @@ let capturedListener: (
   sender: chrome.runtime.MessageSender,
   sendResponse: (response: unknown) => void
 ) => boolean | undefined;
+let offscreenModule: typeof import('../../src/offscreen/offscreen');
 
 // Mock the textarea element for clipboard operations
 const mockTextarea = {
@@ -46,7 +50,7 @@ describe('offscreen/offscreen', () => {
 
     // Import fresh
     vi.resetModules();
-    await import('../../src/offscreen/offscreen');
+    offscreenModule = await import('../../src/offscreen/offscreen');
   });
 
   it('registers message listener', () => {
@@ -123,6 +127,281 @@ describe('offscreen/offscreen', () => {
     expect(mockTextarea.select).toHaveBeenCalled();
     expect(document.execCommand).toHaveBeenCalledWith('copy');
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
+  });
+
+  it('creates and revokes an exact archive Blob URL without a data URL', async () => {
+    const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/archive');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    const createResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'AP8=',
+        mediaType: 'application/json',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      createResponse
+    );
+
+    expect(createResponse).toHaveBeenCalledWith({
+      success: true,
+      url: 'blob:chrome-extension://test/archive',
+    });
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(blob.type).toBe('application/json');
+    expect(blob.size).toBe(2);
+
+    const revokeResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobRevoke',
+        target: 'offscreen',
+        url: 'blob:chrome-extension://test/archive',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      revokeResponse
+    );
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:chrome-extension://test/archive');
+    expect(revokeResponse).toHaveBeenCalledWith({ success: true });
+  });
+
+  it('rejects non-canonical archive bytes before creating a Blob URL', () => {
+    const sendResponse = vi.fn();
+
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'not-base64',
+        mediaType: 'application/json',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      error: 'Could not prepare archive download',
+    });
+  });
+
+  it('rejects an archive whose base64 decoder does not round-trip canonically', () => {
+    const btoa = vi.spyOn(globalThis, 'btoa').mockReturnValue('AAAA');
+    const sendResponse = vi.fn();
+
+    try {
+      capturedListener(
+        {
+          action: 'archiveBlobCreate',
+          target: 'offscreen',
+          bodyBase64: 'AP8=',
+          mediaType: 'application/json',
+        },
+        { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Could not prepare archive download',
+      });
+    } finally {
+      btoa.mockRestore();
+    }
+  });
+
+  it('rejects archive Blob creation for non-JSON media types', () => {
+    const sendResponse = vi.fn();
+
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'e30=',
+        mediaType: 'text/plain',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      error: 'Could not prepare archive download',
+    });
+  });
+
+  it('does not report a revoked archive URL when URL release throws', () => {
+    const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/release-error');
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    const createResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'e30=',
+        mediaType: 'application/json',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      createResponse
+    );
+    expect(createResponse).toHaveBeenCalledWith({
+      success: true,
+      url: 'blob:chrome-extension://test/release-error',
+    });
+
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {
+      throw new Error('release denied');
+    });
+    const revokeResponse = vi.fn();
+    try {
+      capturedListener(
+        {
+          action: 'archiveBlobRevoke',
+          target: 'offscreen',
+          url: 'blob:chrome-extension://test/release-error',
+        },
+        { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+        revokeResponse
+      );
+
+      expect(revokeResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Could not release archive download',
+      });
+    } finally {
+      revokeObjectURL.mockRestore();
+    }
+  });
+
+  it('gates OPFS stage messages, enforces canonical chunk caps, and releases only its exact stage', async () => {
+    const descriptor = {
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      byteLength: 2,
+      sha256: 'b'.repeat(64),
+      mediaType: 'application/octet-stream',
+      relativePath: `assets/${'b'.repeat(64)}.bin`,
+    };
+    const store: BinaryStageStore = {
+      begin: vi.fn(),
+      append: vi.fn(),
+      finalize: vi.fn(async () => new File([new Uint8Array([0, 255])], 'stage.bin')),
+      abort: vi.fn(),
+      pruneStale: vi.fn(),
+    };
+    const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/binary-stage');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+    offscreenModule.setBinaryStageStoreForTesting(store);
+    const sender = { id: chrome.runtime.id } as chrome.runtime.MessageSender;
+
+    const beginResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'binaryStageBegin',
+        target: 'offscreen',
+        stageId: `stage-${'A'.repeat(32)}`,
+        descriptor,
+      },
+      sender,
+      beginResponse
+    );
+    await vi.waitFor(() => expect(beginResponse).toHaveBeenCalledWith({ success: true }));
+
+    const oversizedResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'binaryStageAppend',
+        target: 'offscreen',
+        stageId: `stage-${'A'.repeat(32)}`,
+        offset: 0,
+        chunkBase64: bytesToBase64(new Uint8Array(BINARY_STAGE_CHUNK_BYTES + 1)),
+      },
+      sender,
+      oversizedResponse
+    );
+    await vi.waitFor(() =>
+      expect(oversizedResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Invalid binary stage chunk',
+      })
+    );
+    expect(store.append).not.toHaveBeenCalled();
+
+    const appendResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'binaryStageAppend',
+        target: 'offscreen',
+        stageId: `stage-${'A'.repeat(32)}`,
+        offset: 0,
+        chunkBase64: 'AP8=',
+      },
+      sender,
+      appendResponse
+    );
+    await vi.waitFor(() => expect(appendResponse).toHaveBeenCalledWith({ success: true }));
+    expect(store.append).toHaveBeenCalledWith(
+      `stage-${'A'.repeat(32)}`,
+      0,
+      new Uint8Array([0, 255])
+    );
+
+    const finalizeResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'binaryStageFinalize',
+        target: 'offscreen',
+        stageId: `stage-${'A'.repeat(32)}`,
+        descriptor,
+      },
+      sender,
+      finalizeResponse
+    );
+    await vi.waitFor(() =>
+      expect(finalizeResponse).toHaveBeenCalledWith({
+        success: true,
+        url: 'blob:chrome-extension://test/binary-stage',
+      })
+    );
+
+    const foreignResponse = vi.fn();
+    capturedListener(
+      { action: 'binaryStageAbort', target: 'offscreen', stageId: `stage-${'A'.repeat(32)}` },
+      { id: 'other' } as chrome.runtime.MessageSender,
+      foreignResponse
+    );
+    expect(foreignResponse).not.toHaveBeenCalled();
+
+    const releaseResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'binaryStageRelease',
+        target: 'offscreen',
+        stageId: `stage-${'A'.repeat(32)}`,
+        url: 'blob:chrome-extension://test/binary-stage',
+      },
+      sender,
+      releaseResponse
+    );
+    await vi.waitFor(() => expect(releaseResponse).toHaveBeenCalledWith({ success: true }));
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:chrome-extension://test/binary-stage');
+    expect(store.abort).toHaveBeenCalledWith(`stage-${'A'.repeat(32)}`);
   });
 
   it('responds with error when execCommand copy fails', () => {

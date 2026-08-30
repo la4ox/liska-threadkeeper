@@ -3,7 +3,19 @@
  * Promise-based wrapper for chrome.runtime.sendMessage
  */
 
-import type { ExtensionMessage, ContentScriptSettings, MultiOutputResponse } from './types';
+import type { ChatGptCaptureResponse } from './chatgpt-capture-contract';
+import type { ChatGptOpaqueProbeResponse } from './chatgpt-opaque-probe-contract';
+import type { ChatGptOpaqueReplayResponse } from './chatgpt-opaque-replay-contract';
+import type { ChatGptOpaqueResolverResponse } from './chatgpt-opaque-resolver-contract';
+import type { ChatGptActiveResolverResponse } from './chatgpt-active-resolver-contract';
+import type { ChatGptInterpreterResolverResponse } from './chatgpt-interpreter-resolver-contract';
+import type {
+  ExtensionMessage,
+  ContentScriptSettings,
+  MultiOutputResponse,
+  OutputOptionsUpdateResponse,
+  BinaryStageResponse,
+} from './types';
 
 /** User-friendly message for extension context invalidation */
 const CONTEXT_INVALIDATED_MESSAGE = 'Extension context invalidated. Please reload the page.';
@@ -15,6 +27,18 @@ interface MessageResponseMap {
   getSettings: ContentScriptSettings;
   testConnection: { success: boolean; error?: string };
   saveToOutputs: MultiOutputResponse;
+  persistArchiveCompanion: MultiOutputResponse;
+  updateOutputOptions: OutputOptionsUpdateResponse;
+  captureChatGptConversation: ChatGptCaptureResponse;
+  probeChatGptOpaqueRequest: ChatGptOpaqueProbeResponse;
+  captureChatGptConversationViaOpaqueReplay: ChatGptOpaqueReplayResponse;
+  observeChatGptAssetResolversViaOpaqueSource: ChatGptOpaqueResolverResponse;
+  probeChatGptActiveAssetResolvers: ChatGptActiveResolverResponse;
+  resolveChatGptInterpreterAssets: ChatGptInterpreterResolverResponse;
+  beginStagedBinaryAsset: BinaryStageResponse;
+  appendStagedBinaryAsset: BinaryStageResponse;
+  commitStagedBinaryAsset: MultiOutputResponse;
+  abortStagedBinaryAsset: BinaryStageResponse;
 }
 
 /**

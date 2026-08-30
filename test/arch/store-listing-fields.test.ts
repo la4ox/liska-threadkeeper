@@ -48,7 +48,8 @@ interface Field {
 }
 
 function parseFields(markdown: string): Field[] {
-  return [...markdown.matchAll(FIELD_BLOCK)].map(m => ({
+  const normalized = markdown.replace(/\r\n/g, '\n');
+  return [...normalized.matchAll(FIELD_BLOCK)].map(m => ({
     name: m[1],
     limit: Number(m[2]),
     text: m[3],

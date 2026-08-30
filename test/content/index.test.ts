@@ -11,13 +11,17 @@ import {
   loadFixture,
   clearFixture,
   createGeminiConversationDOM,
+  createChatGPTPage,
+  setChatGPTLocation,
   setGeminiLocation,
   setNonGeminiLocation,
   resetLocation,
 } from '../fixtures/dom-helpers';
 
 vi.mock('../../src/content/ui', () => ({
+  injectBranchExportButton: vi.fn(),
   injectSyncButton: vi.fn(),
+  showArchiveBranchPicker: vi.fn(),
   setButtonLoading: vi.fn(),
   showSuccessToast: vi.fn(),
   showErrorToast: vi.fn(),
@@ -30,6 +34,7 @@ vi.mock('../../src/lib/messaging', () => ({
 }));
 
 import {
+  injectBranchExportButton,
   injectSyncButton,
   setButtonLoading,
   showSuccessToast,
@@ -52,6 +57,8 @@ const baseSettings: ContentScriptSettings = {
   enableAutoScroll: false,
   enableAppendMode: false,
   enableToolContent: false,
+  enableChatGptOpaqueProbe: false,
+  enableChatGptOpaqueReplay: false,
   outputOptions: { obsidian: true, file: false, clipboard: false },
   templateOptions: {
     includeId: true,
@@ -88,6 +95,22 @@ function mockMessaging(overrides: {
         return Promise.resolve({ ...baseSettings, ...overrides.settings });
       case 'testConnection':
         return Promise.resolve(overrides.connection ?? { success: true });
+      case 'probeChatGptOpaqueRequest':
+        return Promise.resolve({
+          success: true,
+          data: {
+            observedTargetRequest: true,
+            sourceIsNativeRequest: true,
+            initAbsent: true,
+            exactTarget: true,
+            authorizationPresent: true,
+            credentialsAccepted: true,
+            sourceStatus: 200,
+            sourceJson: true,
+            singularDispatchCount: 0,
+            outcome: 'eligible',
+          },
+        });
       case 'saveToOutputs':
         return Promise.resolve(overrides.save ?? okSave);
       default:
@@ -145,6 +168,19 @@ describe('content/bootstrap', () => {
       await initialize();
       expect(injectSyncButton).toHaveBeenCalledTimes(1);
       expect(injectSyncButton).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('adds the explicit branch entry point only on ChatGPT', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      createChatGPTPage('01234567-89ab-4cde-8f01-23456789abcd', [
+        { role: 'user', content: 'Question' },
+        { role: 'assistant', content: '<p>Answer</p>' },
+      ]);
+
+      await initialize();
+
+      expect(injectSyncButton).toHaveBeenCalledWith(expect.any(Function));
+      expect(injectBranchExportButton).toHaveBeenCalledWith(expect.any(Function));
     });
   });
 
@@ -278,10 +314,62 @@ describe('content/bootstrap', () => {
       expect(showErrorToast).toHaveBeenCalledWith('Obsidian is not running');
     });
 
+    it('runs the ChatGPT metadata-only probe without output or Obsidian preflight', async () => {
+      const conversationId = '01234567-89ab-4cde-8f01-23456789abcd';
+      setChatGPTLocation(conversationId);
+      createChatGPTPage(conversationId, [
+        { role: 'user', content: 'Question' },
+        { role: 'assistant', content: '<p>Answer</p>' },
+      ]);
+      mockMessaging({
+        settings: { enableChatGptOpaqueProbe: true },
+        connection: { success: false, error: 'Obsidian is not running' },
+      });
+
+      await handleSync();
+
+      const actions = vi
+        .mocked(sendMessage)
+        .mock.calls.map(call => (call[0] as { action: string }).action);
+      expect(actions).toContain('probeChatGptOpaqueRequest');
+      expect(actions).not.toContain('testConnection');
+      expect(actions).not.toContain('saveToOutputs');
+      expect(showErrorToast).toHaveBeenCalledWith(
+        'ChatGPT experimental metadata-only probe: eligible. No conversation was exported.'
+      );
+    });
+
+    it('keeps ordinary output and Obsidian preflight for the active replay experiment', async () => {
+      const conversationId = '01234567-89ab-4cde-8f01-23456789abcd';
+      setChatGPTLocation(conversationId);
+      createChatGPTPage(conversationId, [
+        { role: 'user', content: 'Question' },
+        { role: 'assistant', content: '<p>Answer</p>' },
+      ]);
+      mockMessaging({
+        settings: { enableChatGptOpaqueReplay: true },
+        connection: { success: false, error: 'Obsidian is not running' },
+      });
+
+      await handleSync();
+
+      const actions = vi
+        .mocked(sendMessage)
+        .mock.calls.map(call => (call[0] as { action: string }).action);
+      expect(actions).toContain('testConnection');
+      expect(actions).not.toContain('captureChatGptConversationViaOpaqueReplay');
+      expect(showErrorToast).toHaveBeenCalledWith('Obsidian is not running');
+    });
+
     it('skips the connection test when Obsidian output is disabled', async () => {
       loadGeminiConversation();
       mockMessaging({
         settings: { outputOptions: { obsidian: false, file: true, clipboard: false } },
+        save: {
+          results: [{ destination: 'file', success: true }],
+          allSuccessful: true,
+          anySuccessful: true,
+        },
       });
 
       await handleSync();
@@ -290,7 +378,7 @@ describe('content/bootstrap', () => {
         .mocked(sendMessage)
         .mock.calls.map(call => (call[0] as { action: string }).action);
       expect(actions).not.toContain('testConnection');
-      expect(showSuccessToast).toHaveBeenCalled();
+      expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
     });
 
     it('shows an error on unsupported pages', async () => {
@@ -328,12 +416,12 @@ describe('content/bootstrap', () => {
           data: expect.objectContaining({ fileName: expect.stringMatching(/\.md$/) }),
         })
       );
-      expect(showSuccessToast).toHaveBeenCalledWith(expect.stringMatching(/\.md$/), true);
+      expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
       expect(setButtonLoading).toHaveBeenNthCalledWith(1, true);
       expect(setButtonLoading).toHaveBeenLastCalledWith(false);
     });
 
-    it('shows the ACTUAL file name when a collision forced a rename (issue #327)', async () => {
+    it('keeps a collision-resolved filename out of the generic success toast', async () => {
       loadGeminiConversation();
       mockMessaging({
         save: {
@@ -345,7 +433,8 @@ describe('content/bootstrap', () => {
 
       await handleSync();
 
-      expect(showSuccessToast).toHaveBeenCalledWith('hello-a1b2c3d4.md', true);
+      expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
+      expect(showSuccessToast).not.toHaveBeenCalled();
     });
 
     it('shows the appended-message toast when messages were appended', async () => {
@@ -373,6 +462,7 @@ describe('content/bootstrap', () => {
     it('shows a warning when only some outputs succeed', async () => {
       loadGeminiConversation();
       mockMessaging({
+        settings: { outputOptions: { obsidian: true, file: false, clipboard: true } },
         save: {
           results: [
             { destination: 'obsidian', success: true },
@@ -400,7 +490,7 @@ describe('content/bootstrap', () => {
               {
                 destination: 'obsidian',
                 success: true,
-                warning: '1 image could not be saved: img-note-img-1.png',
+                warning: '1 image could not be saved',
               },
             ],
             allSuccessful: true,
@@ -412,10 +502,8 @@ describe('content/bootstrap', () => {
         await vi.advanceTimersByTimeAsync(10_000);
         await pending;
 
-        expect(showSuccessToast).toHaveBeenCalled();
-        expect(showWarningToast).toHaveBeenCalledWith(
-          '1 image could not be saved: img-note-img-1.png'
-        );
+        expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
+        expect(showWarningToast).toHaveBeenCalledWith('1 image could not be saved');
       } finally {
         vi.useRealTimers();
       }

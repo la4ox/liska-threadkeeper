@@ -12,6 +12,8 @@ tags:
   - ai-conversation
   - chatgpt
 message_count: 11
+capture_mode: dom-fallback
+capture_completeness: partial
 ---
 
 > [!QUESTION] User
@@ -151,6 +153,8 @@ tags:
   - ai-conversation
   - chatgpt
 message_count: 2
+capture_mode: dom-fallback
+capture_completeness: partial
 ---
 
 > [!QUESTION] User

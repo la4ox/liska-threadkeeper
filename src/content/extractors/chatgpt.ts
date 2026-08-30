@@ -16,10 +16,32 @@ import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
 import type {
   AIPlatform,
+  ArchiveCompanionBundle,
   ConversationMessage,
   ExtractionResult,
   SyncSettings,
 } from '../../lib/types';
+import { getArchiveBranchCatalog, type ArchiveBranchCatalog } from '../../archive';
+import { isChatGptConversationId } from '../../lib/chatgpt-capture-contract';
+import {
+  ChatGptCurrentBranchError,
+  captureChatGptArchive,
+  captureChatGptCurrentBranch,
+  manifestAllowsChatGptStructuredCapture,
+  type ChatGptArchiveCapture,
+} from '../capture/chatgpt-current-branch';
+import { requestChatGptOpaqueProbe } from '../capture/chatgpt-opaque-probe-request';
+import {
+  captureChatGptArchiveViaOpaqueReplay,
+  captureChatGptCurrentBranchViaOpaqueReplay,
+} from '../capture/chatgpt-opaque-replay-request';
+import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
+import { buildArchiveBranchPickerOptions } from '../archive-branch-options';
+import {
+  showArchiveBranchPicker,
+  type ArchiveBranchPickerOption,
+  type ArchiveBranchPickerSelection,
+} from '../ui';
 
 import { SELECTORS } from './selectors/chatgpt';
 
@@ -47,6 +69,89 @@ const DEEP_RESEARCH_FRAME_SELECTORS = [
   'iframe[src*="deep_research"][src*="oaiusercontent.com"]',
 ] as const;
 
+/** Stable compatibility warning for a failed complete-graph capture fallback. */
+export const CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING = 'ChatGPT complete graph capture failed';
+
+function structuredFallbackWarning(error: unknown): string {
+  const code = error instanceof ChatGptCurrentBranchError ? error.code : 'capture-failed';
+  const detail =
+    error instanceof ChatGptCurrentBranchError && error.detailCode ? `:${error.detailCode}` : '';
+  const artifacts =
+    error instanceof ChatGptCurrentBranchError ? error.archiveCompanion?.artifacts : undefined;
+  const hasCanonical = artifacts?.some(artifact => artifact.kind === 'canonical') === true;
+  const archiveStatus = hasCanonical
+    ? 'raw/manifest/canonical companions were preserved for local saving.'
+    : artifacts
+      ? 'raw capture and manifest were preserved for local saving; canonical archive was not created.'
+      : 'raw/canonical archive was not saved.';
+  return `${CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING} (${code}${detail}); partial rendered current branch exported; ${archiveStatus}`;
+}
+
+function selectedBranchFailure(error: unknown, fallbackCode: string): ExtractionResult {
+  const code = error instanceof ChatGptCurrentBranchError ? error.code : fallbackCode;
+  const detail =
+    error instanceof ChatGptCurrentBranchError && error.detailCode ? `:${error.detailCode}` : '';
+  const archiveCompanion =
+    error instanceof ChatGptCurrentBranchError ? error.archiveCompanion : undefined;
+  return {
+    success: false,
+    error: `ChatGPT complete graph is unavailable for branch selection (${code}${detail}).`,
+    ...(archiveCompanion ? { archiveCompanion } : {}),
+  };
+}
+
+function opaqueReplayFailure(error: unknown): ExtractionResult {
+  const code = error instanceof ChatGptCurrentBranchError ? error.code : 'capture-failed';
+  const detail =
+    error instanceof ChatGptCurrentBranchError && error.detailCode ? `:${error.detailCode}` : '';
+  const archiveCompanion =
+    error instanceof ChatGptCurrentBranchError ? error.archiveCompanion : undefined;
+  return {
+    success: false,
+    error: `ChatGPT experimental A-strict replay failed (${code}${detail}); no fallback export was created.`,
+    ...(archiveCompanion ? { archiveCompanion } : {}),
+  };
+}
+
+function isPassiveRequestTimeout(error: unknown): boolean {
+  return (
+    error instanceof ChatGptCurrentBranchError && error.code === 'conversation-request-timeout'
+  );
+}
+
+export interface ChatGPTExtractorDependencies {
+  captureCurrentBranch?: (
+    conversationId: string,
+    includeToolContent: boolean
+  ) => Promise<ArchiveProjectionResult>;
+  captureArchive?: (conversationId: string) => Promise<ChatGptArchiveCapture>;
+  selectBranch?: (options: ArchiveBranchPickerOption[]) => Promise<ArchiveBranchPickerSelection>;
+  manifestAllowsStructuredCapture?: () => boolean;
+  requestOpaqueProbe?: (conversationId: string) => ReturnType<typeof requestChatGptOpaqueProbe>;
+  captureReplayCurrentBranch?: (
+    conversationId: string,
+    includeToolContent: boolean
+  ) => Promise<ArchiveProjectionResult>;
+  captureReplayArchive?: (conversationId: string) => Promise<ChatGptArchiveCapture>;
+}
+
+export type ChatGptBranchExportMode = 'current' | 'selected';
+
+type ProjectionSelection =
+  | { kind: 'projection'; projection: ArchiveProjectionResult }
+  | { kind: 'cancelled' }
+  | { kind: 'selection-failed'; archiveCompanion: ArchiveCompanionBundle }
+  | {
+      kind: 'all-branches';
+      capture: ChatGptArchiveCapture;
+      catalog: ArchiveBranchCatalog;
+    };
+
+type ChatGptStructuredRoute =
+  | { kind: 'valid'; conversationId: string }
+  | { kind: 'invalid-conversation-id' }
+  | { kind: 'unsupported' };
+
 /**
  * ChatGPT conversation extractor
  *
@@ -56,11 +161,271 @@ const DEEP_RESEARCH_FRAME_SELECTORS = [
 export class ChatGPTExtractor extends BaseExtractor {
   readonly platform = 'chatgpt';
 
+  /** Include projected reasoning and tool blocks from the verified archive. */
+  enableToolContent = false;
+  private enableChatGptOpaqueProbe = false;
+  private enableChatGptOpaqueReplay = false;
+  private branchExportMode: ChatGptBranchExportMode = 'current';
+
+  private readonly captureCurrentBranch: NonNullable<
+    ChatGPTExtractorDependencies['captureCurrentBranch']
+  >;
+  private readonly manifestAllowsStructuredCapture: NonNullable<
+    ChatGPTExtractorDependencies['manifestAllowsStructuredCapture']
+  >;
+  private readonly captureArchive: NonNullable<ChatGPTExtractorDependencies['captureArchive']>;
+  private readonly selectBranch: NonNullable<ChatGPTExtractorDependencies['selectBranch']>;
+  private readonly requestOpaqueProbe: NonNullable<
+    ChatGPTExtractorDependencies['requestOpaqueProbe']
+  >;
+  private readonly captureReplayCurrentBranch: NonNullable<
+    ChatGPTExtractorDependencies['captureReplayCurrentBranch']
+  >;
+  private readonly captureReplayArchive: NonNullable<
+    ChatGPTExtractorDependencies['captureReplayArchive']
+  >;
+
+  constructor(dependencies: ChatGPTExtractorDependencies = {}) {
+    super();
+    this.captureCurrentBranch = dependencies.captureCurrentBranch ?? captureChatGptCurrentBranch;
+    this.captureArchive = dependencies.captureArchive ?? captureChatGptArchive;
+    this.selectBranch = dependencies.selectBranch ?? showArchiveBranchPicker;
+    this.manifestAllowsStructuredCapture =
+      dependencies.manifestAllowsStructuredCapture ?? manifestAllowsChatGptStructuredCapture;
+    this.requestOpaqueProbe = dependencies.requestOpaqueProbe ?? requestChatGptOpaqueProbe;
+    this.captureReplayCurrentBranch =
+      dependencies.captureReplayCurrentBranch ?? captureChatGptCurrentBranchViaOpaqueReplay;
+    this.captureReplayArchive =
+      dependencies.captureReplayArchive ?? captureChatGptArchiveViaOpaqueReplay;
+  }
+
+  /** Select a transient presentation without changing persisted extraction settings. */
+  setBranchExportMode(mode: ChatGptBranchExportMode): void {
+    this.branchExportMode = mode;
+  }
+
   /**
-   * Apply user settings: enable/disable auto-scroll for virtualized history.
+   * Apply user settings for virtualized history and canonical tool-content projection.
    */
   applySettings(settings: SyncSettings): void {
     this.enableAutoScroll = settings.enableAutoScroll ?? false;
+    this.enableToolContent = settings.enableToolContent ?? false;
+    this.enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe ?? false;
+    this.enableChatGptOpaqueReplay = settings.enableChatGptOpaqueReplay ?? false;
+  }
+
+  /**
+   * Use the verified full graph where the manifest permits the background
+   * bridge, otherwise retain the established rendered-DOM behavior. A failed
+   * graph path is deliberately non-diagnostic: no provider response, error,
+   * or conversation identifier is written to the console.
+   */
+  async extract(): Promise<ExtractionResult> {
+    const route = this.structuredCaptureRoute();
+    if (route.kind === 'unsupported') {
+      return this.branchExportMode === 'selected'
+        ? selectedBranchFailure(undefined, 'route-unavailable')
+        : super.extract();
+    }
+
+    if (route.kind === 'invalid-conversation-id') {
+      return this.handlePreSelectionFailure(
+        new ChatGptCurrentBranchError('invalid-conversation-id'),
+        'invalid-conversation-id'
+      );
+    }
+    const { conversationId } = route;
+
+    if (this.enableChatGptOpaqueProbe) {
+      return this.runOpaqueProbe(conversationId);
+    }
+
+    if (!this.allowsStructuredCapture()) {
+      return this.handlePreSelectionFailure(
+        new ChatGptCurrentBranchError('permission-unavailable'),
+        'permission-unavailable'
+      );
+    }
+
+    try {
+      return this.finalizeProjectionSelection(
+        await this.captureRequestedProjection(conversationId)
+      );
+    } catch (error) {
+      if (this.enableChatGptOpaqueReplay) return opaqueReplayFailure(error);
+      return this.handlePreSelectionFailure(error, 'capture-failed');
+    }
+  }
+
+  private async runOpaqueProbe(conversationId: string): Promise<ExtractionResult> {
+    try {
+      const result = await this.requestOpaqueProbe(conversationId);
+      return {
+        success: false,
+        error: `ChatGPT experimental metadata-only probe: ${result.data.outcome}. No conversation was exported.`,
+      };
+    } catch {
+      return {
+        success: false,
+        error:
+          'ChatGPT experimental metadata-only probe did not complete. No conversation was exported.',
+      };
+    }
+  }
+
+  private handlePreSelectionFailure(
+    error: unknown,
+    fallbackCode: string
+  ): Promise<ExtractionResult> | ExtractionResult {
+    return this.branchExportMode === 'selected'
+      ? selectedBranchFailure(error, fallbackCode)
+      : this.extractRenderedFallback(error);
+  }
+
+  private finalizeProjectionSelection(selection: ProjectionSelection): ExtractionResult {
+    if (selection.kind === 'cancelled') return { success: false, cancelled: true };
+    if (selection.kind === 'all-branches') {
+      return {
+        success: true,
+        archiveCompanion: selection.capture.archiveCompanion,
+        chatGptAssetExportContext: selection.capture.assetExportContext,
+        allBranches: {
+          archive: selection.capture.archive,
+          catalog: selection.catalog,
+        },
+      };
+    }
+    if (selection.kind === 'selection-failed') {
+      return {
+        success: false,
+        error: 'Selected ChatGPT branch could not be projected from the complete archive.',
+        archiveCompanion: selection.archiveCompanion,
+      };
+    }
+    return this.finalizeStructuredProjection(selection.projection);
+  }
+
+  private finalizeStructuredProjection(projection: ArchiveProjectionResult): ExtractionResult {
+    const { data } = projection;
+    const guarded =
+      this.branchExportMode === 'selected'
+        ? super.buildConversationResult(data.messages, data.id, data.title, data.source)
+        : this.buildConversationResult(data.messages, data.id, data.title, data.source);
+    if (!guarded.success) {
+      return {
+        ...guarded,
+        ...(projection.archiveCompanion ? { archiveCompanion: projection.archiveCompanion } : {}),
+      };
+    }
+
+    const warnings = [...new Set([...projection.warnings, ...(guarded.warnings ?? [])])];
+    return {
+      success: true,
+      data: { ...data, capture: { mode: 'structured-api', completeness: 'complete' } },
+      ...(projection.archiveCompanion && { archiveCompanion: projection.archiveCompanion }),
+      ...(projection.chatGptAssetExportContext && {
+        chatGptAssetExportContext: projection.chatGptAssetExportContext,
+      }),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
+  }
+
+  private async captureRequestedProjection(conversationId: string): Promise<ProjectionSelection> {
+    if (this.branchExportMode === 'current') {
+      if (this.enableChatGptOpaqueReplay) {
+        return {
+          kind: 'projection',
+          projection: await this.captureReplayCurrentBranch(conversationId, this.enableToolContent),
+        };
+      }
+      try {
+        return {
+          kind: 'projection',
+          projection: await this.captureCurrentBranch(conversationId, this.enableToolContent),
+        };
+      } catch (error) {
+        if (!isPassiveRequestTimeout(error)) throw error;
+        return {
+          kind: 'projection',
+          projection: await this.captureReplayCurrentBranch(conversationId, this.enableToolContent),
+        };
+      }
+    }
+    return this.captureSelectedBranch(conversationId);
+  }
+
+  private async captureSelectedBranch(conversationId: string): Promise<ProjectionSelection> {
+    let capture: ChatGptArchiveCapture;
+    if (this.enableChatGptOpaqueReplay) {
+      capture = await this.captureReplayArchive(conversationId);
+    } else {
+      try {
+        capture = await this.captureArchive(conversationId);
+      } catch (error) {
+        if (!isPassiveRequestTimeout(error)) throw error;
+        capture = await this.captureReplayArchive(conversationId);
+      }
+    }
+    try {
+      const catalog = getArchiveBranchCatalog(capture.archive);
+      const selection = await this.selectBranch(
+        buildArchiveBranchPickerOptions(capture.archive, catalog)
+      );
+      if (selection === null) return { kind: 'cancelled' };
+      if (selection === 'all') return { kind: 'all-branches', capture, catalog };
+
+      const branch = catalog.branches.find(candidate => candidate.ordinal === selection);
+      if (!branch) throw new Error('invalid local branch selection');
+      const projection = projectArchiveBranch(capture.archive, {
+        targetNodeId: branch.targetNodeId,
+        includeToolContent: this.enableToolContent,
+      });
+      return {
+        kind: 'projection',
+        projection: {
+          ...projection,
+          data: {
+            ...projection.data,
+            presentation: {
+              mode: 'selected-branch',
+              captureId: capture.archiveCompanion.captureId,
+              branchOrdinal: branch.ordinal,
+              branchCount: catalog.branches.length,
+              branchPointCount: catalog.branchPointCount,
+            },
+          },
+          archiveCompanion: capture.archiveCompanion,
+          chatGptAssetExportContext: capture.assetExportContext,
+        },
+      };
+    } catch {
+      return { kind: 'selection-failed', archiveCompanion: capture.archiveCompanion };
+    }
+  }
+
+  private async extractRenderedFallback(error: unknown): Promise<ExtractionResult> {
+    const fallback = await super.extract();
+    const archiveCompanion =
+      error instanceof ChatGptCurrentBranchError ? error.archiveCompanion : undefined;
+    const warnings = [...(fallback.warnings ?? []), structuredFallbackWarning(error)];
+    if (!fallback.success) {
+      return {
+        ...fallback,
+        ...(archiveCompanion ? { archiveCompanion } : {}),
+        warnings,
+      };
+    }
+    return {
+      ...fallback,
+      ...(archiveCompanion ? { archiveCompanion } : {}),
+      data: fallback.data
+        ? {
+            ...fallback.data,
+            capture: { mode: 'dom-fallback', completeness: 'partial' },
+          }
+        : undefined,
+      warnings,
+    };
   }
 
   // ========== ID & Title Extraction ==========
@@ -77,6 +442,29 @@ export class ChatGPTExtractor extends BaseExtractor {
     // Match /c/{uuid} pattern (works for both regular and custom GPT URLs)
     const match = window.location.pathname.match(/\/c\/([a-f0-9-]+)/i);
     return match ? match[1] : null;
+  }
+
+  /** Match supported ChatGPT conversation routes and distinguish malformed IDs. */
+  private structuredCaptureRoute(): ChatGptStructuredRoute {
+    if (window.location.origin !== 'https://chatgpt.com') return { kind: 'unsupported' };
+
+    const standard = /^\/c\/([^/]+)\/?$/.exec(window.location.pathname);
+    const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(
+      window.location.pathname
+    );
+    const conversationId = standard?.[1] ?? custom?.[1];
+    if (conversationId === undefined) return { kind: 'unsupported' };
+    return isChatGptConversationId(conversationId)
+      ? { kind: 'valid', conversationId }
+      : { kind: 'invalid-conversation-id' };
+  }
+
+  private allowsStructuredCapture(): boolean {
+    try {
+      return this.manifestAllowsStructuredCapture();
+    } catch {
+      return false;
+    }
   }
 
   /**

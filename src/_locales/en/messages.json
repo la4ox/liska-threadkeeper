@@ -365,12 +365,28 @@
     "description": "Help text for tool content toggle"
   },
   "settings_enableImageExport": {
-    "message": "Export images",
-    "description": "Label for image export toggle"
+    "message": "Export images & attachments",
+    "description": "Label for image and attachment export toggle"
+  },
+  "settings_enableChatGptOpaqueProbe": {
+    "message": "Experimental ChatGPT metadata probe",
+    "description": "Label for the disabled-by-default ChatGPT opaque request probe"
+  },
+  "settings_chatGptOpaqueProbeHelp": {
+    "message": "Metadata only: no conversation is exported while enabled",
+    "description": "Explains that the experimental probe never exports conversation content"
+  },
+  "settings_enableChatGptOpaqueReplay": {
+    "message": "Experimental ChatGPT full graph replay",
+    "description": "Label for forcing the one-shot A-strict replay directly"
+  },
+  "settings_chatGptOpaqueReplayHelp": {
+    "message": "Forces direct replay; normal mode also tries it once after a passive request timeout",
+    "description": "Explains direct replay and the bounded automatic request-timeout fallback"
   },
   "settings_imageExportHelp": {
-    "message": "Save generated images (Obsidian vault and file download)",
-    "description": "Help text for image export toggle"
+    "message": "Save generated images and supported ChatGPT attachments",
+    "description": "Help text for image and attachment export toggle"
   },
   "settings_imageVaultPath": {
     "message": "Image Folder",
@@ -414,5 +430,67 @@
   "toast_noNewMessages": {
     "message": "No new messages to append",
     "description": "Toast when no new messages found"
+  },
+  "ui_branchButton": {
+    "message": "Choose branch",
+    "description": "Text on the optional branch export button"
+  },
+  "ui_branchButtonTitle": {
+    "message": "Choose which conversation branch to bring home",
+    "description": "Accessible label for the branch export button"
+  },
+  "ui_branchPickerHeading": {
+    "message": "Choose a conversation branch",
+    "description": "Heading for the local branch picker dialog"
+  },
+  "ui_branchPickerHelp": {
+    "message": "The full graph remains in the local archive. Select one branch for a reading export, or export all branches.",
+    "description": "Explanation below the branch picker heading"
+  },
+  "ui_branchPickerBranch": {
+    "message": "Branch $ORDINAL$",
+    "description": "Label for an exportable branch",
+    "placeholders": {
+      "ordinal": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "ui_branchPickerCurrent": {
+    "message": "Current",
+    "description": "Badge for the branch currently displayed by the provider"
+  },
+  "ui_branchPickerMessageCount": {
+    "message": "$COUNT$ messages",
+    "description": "Total messages in a branch",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "42"
+      }
+    }
+  },
+  "ui_branchPickerUniqueMessageCount": {
+    "message": "$COUNT$ unique",
+    "description": "Messages unique to a branch",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "17"
+      }
+    }
+  },
+  "ui_branchPickerCancel": {
+    "message": "Cancel",
+    "description": "Dismisses the branch picker without selecting a branch"
+  },
+  "ui_branchPickerExportAll": {
+    "message": "Export all branches",
+    "description": "Exports a local Markdown file for every exportable branch"
+  },
+  "ui_branchPickerExportAllHelp": {
+    "message": "Exporting all branches creates multiple local Markdown files. The full graph remains in one canonical archive.",
+    "description": "Clarifies the local outputs created by the export-all branch picker action"
   }
 }
