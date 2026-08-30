@@ -26,16 +26,15 @@ export function manifestAssetsById(manifestAssets: unknown): ProviderAssetIndex 
   if (!Array.isArray(manifestAssets))
     fail('invalid-manifest', 'Capture manifest assets must be an array.');
   const byId = new Map<string, ProviderAssetRecord>();
-  const bySourceRef = new Map<string, ProviderAssetRecord>();
+  const bySourceRef = new Map<string, ProviderAssetRecord[]>();
   const records: ProviderAssetRecord[] = [];
   for (const asset of manifestAssets) {
     const record = readManifestAsset(asset, byId);
     for (const sourceRef of record.sourceRefs) {
       const key = sourceRefKey(sourceRef.artifactId, sourceRef.rawPointer);
-      if (bySourceRef.has(key)) {
-        fail('invalid-manifest', 'Capture asset raw source references must be unique.');
-      }
-      bySourceRef.set(key, record);
+      const records = bySourceRef.get(key) ?? [];
+      records.push(record);
+      bySourceRef.set(key, records);
     }
     byId.set(record.id, record);
     records.push(record);
@@ -317,10 +316,9 @@ function matchingManifestAsset(
   pointer: string,
   context: AssetContext
 ): ProviderAssetRecord | undefined {
-  const byPointer = context.manifestAssets.bySourceRef.get(
-    sourceRefKey(context.artifactId, pointer)
-  );
-  if (byPointer) return byPointer;
+  const byPointer =
+    context.manifestAssets.bySourceRef.get(sourceRefKey(context.artifactId, pointer)) ?? [];
+  if (byPointer.length === 1) return byPointer[0];
   const identifier = firstProviderId(attachment);
   return identifier ? context.manifestAssets.byId.get(identifier) : undefined;
 }

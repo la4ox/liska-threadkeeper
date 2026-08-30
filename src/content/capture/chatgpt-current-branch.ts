@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Keep capture verification and privacy invariants in one auditable trust-boundary module. */
 /**
  * Content-side composition of a verified ChatGPT capture into the legacy
  * current-branch renderer contract.
@@ -20,7 +21,10 @@ import {
   type RawCaptureBundle,
   type LiskaThreadArchive,
 } from '../../archive';
-import { inventoryChatGptRawAssets } from '../../archive/normalizers/chatgpt/inventory';
+import {
+  CHATGPT_ASSET_INVENTORY_WARNING,
+  inventoryChatGptRawAssets,
+} from '../../archive/normalizers/chatgpt/inventory';
 import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
@@ -132,6 +136,10 @@ export interface ChatGptCurrentBranchDependencies {
   now?: () => Date;
   /** Injectable only for focused tests; production uses the ChatGPT normalizer. */
   normalizeCapture?: typeof normalizeChatGptCapture;
+  /** Injectable only for focused fail-soft tests. */
+  inventoryAssets?: typeof inventoryChatGptRawAssets;
+  /** Injectable only for focused fail-soft tests. */
+  matchPageOwnedAssetResolvers?: typeof matchChatGptPageOwnedAssetResolvers;
 }
 
 /** A verified complete canonical archive plus its durable raw companions. */
@@ -322,49 +330,108 @@ function parseRawForInventory(bytes: Uint8Array): unknown {
   }
 }
 
+async function captureAssetInventory(
+  raw: unknown,
+  inventoryAssets: typeof inventoryChatGptRawAssets
+): Promise<Awaited<ReturnType<typeof inventoryChatGptRawAssets>>> {
+  return inventoryAssets({ raw, artifactId: ARTIFACT_ID, sha256: sha256Hex }).catch(() => {
+    return {
+      assets: [],
+      completeness: 'unknown' as const,
+      warnings: [CHATGPT_ASSET_INVENTORY_WARNING],
+    };
+  });
+}
+
+function captureManifest(
+  conversationId: string,
+  artifact: RawCaptureArtifact,
+  createCaptureId: (() => string) | undefined,
+  now: (() => Date) | undefined,
+  inventory: Awaited<ReturnType<typeof inventoryChatGptRawAssets>>
+): RawCaptureBundle['manifest'] {
+  const identity = {
+    captureId: captureId(createCaptureId),
+    provider: 'chatgpt' as const,
+    conversationId,
+    capturedAt: captureTimestamp(now),
+    method: 'same-origin-api' as const,
+    artifacts: [artifact.record],
+  };
+  try {
+    return buildCaptureManifest({
+      ...identity,
+      assets: inventory.assets,
+      completeness: {
+        graph: 'complete',
+        messages: 'complete',
+        branches: 'complete',
+        assets: inventory.completeness,
+      },
+      warnings: inventory.warnings,
+    });
+  } catch {
+    try {
+      return buildCaptureManifest({
+        ...identity,
+        assets: [],
+        completeness: {
+          graph: 'complete',
+          messages: 'complete',
+          branches: 'complete',
+          assets: 'unknown',
+        },
+        warnings: [...new Set([...inventory.warnings, CHATGPT_ASSET_INVENTORY_WARNING])],
+      });
+    } catch (error) {
+      if (error instanceof ChatGptCurrentBranchError) throw error;
+      throw new ChatGptCurrentBranchError('capture-integrity-failed', {
+        detailCode: 'capture-manifest-build-failed',
+      });
+    }
+  }
+}
+
+async function captureTransientAssetCandidates(
+  raw: unknown,
+  manifest: RawCaptureBundle['manifest'],
+  transientAssetResolvers: readonly ChatGptTransientAssetResolver[],
+  matchPageOwnedAssetResolvers: typeof matchChatGptPageOwnedAssetResolvers
+): Promise<ChatGptPageOwnedAssetCandidate[]> {
+  return matchPageOwnedAssetResolvers({
+    raw,
+    assets: manifest.assets,
+    resolvers: transientAssetResolvers,
+    sha256: sha256Hex,
+  }).catch(() => []);
+}
+
 async function buildCaptureBundle(
   conversationId: string,
   artifact: RawCaptureArtifact,
   transientAssetResolvers: readonly ChatGptTransientAssetResolver[],
   createCaptureId: (() => string) | undefined,
-  now: (() => Date) | undefined
+  now: (() => Date) | undefined,
+  inventoryAssets: typeof inventoryChatGptRawAssets = inventoryChatGptRawAssets,
+  matchPageOwnedAssetResolvers: typeof matchChatGptPageOwnedAssetResolvers = matchChatGptPageOwnedAssetResolvers
 ): Promise<{
   bundle: RawCaptureBundle;
   transientAssetCandidates: ChatGptPageOwnedAssetCandidate[];
 }> {
   const raw = parseRawForInventory(artifact.bytes);
-  const inventory = await inventoryChatGptRawAssets({
-    raw,
-    artifactId: ARTIFACT_ID,
-    sha256: sha256Hex,
-  });
-  const manifest = buildCaptureManifest({
-    captureId: captureId(createCaptureId),
-    provider: 'chatgpt',
-    conversationId,
-    capturedAt: captureTimestamp(now),
-    method: 'same-origin-api',
-    artifacts: [artifact.record],
-    assets: inventory.assets,
-    completeness: {
-      graph: 'complete',
-      messages: 'complete',
-      branches: 'complete',
-      assets: inventory.completeness,
-    },
-    warnings: inventory.warnings,
-  });
+  const inventory = await captureAssetInventory(raw, inventoryAssets);
+  const manifest = captureManifest(conversationId, artifact, createCaptureId, now, inventory);
   const bundle: RawCaptureBundle = {
     manifest,
     artifacts: [{ record: manifest.artifacts[0], bytes: artifact.bytes }],
     assets: [],
   };
-  const transientAssetCandidates = await matchChatGptPageOwnedAssetResolvers({
+  const transientAssetCandidates = await captureTransientAssetCandidates(
     raw,
-    assets: manifest.assets,
-    resolvers: transientAssetResolvers,
-    sha256: sha256Hex,
-  });
+    manifest,
+    transientAssetResolvers,
+    matchPageOwnedAssetResolvers
+  );
   return { bundle, transientAssetCandidates };
 }
 
@@ -833,7 +900,9 @@ export async function captureChatGptArchive(
     captured.artifact,
     captured.transientAssetResolvers,
     dependencies.createCaptureId,
-    dependencies.now
+    dependencies.now,
+    dependencies.inventoryAssets,
+    dependencies.matchPageOwnedAssetResolvers
   );
   const manifestSha256 = await captureManifestSha256(bundle);
   let archiveCompanion: ArchiveCompanionBundle;

@@ -298,6 +298,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
 
   it('fails explicit replay closed without rendered fallback and retains available evidence', async () => {
     renderedConversation();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const partialCompanion = completeCompanion();
     partialCompanion.artifacts = partialCompanion.artifacts.filter(
       artifact => artifact.kind !== 'canonical'
@@ -326,6 +327,10 @@ describe('ChatGPTExtractor API-first bridge', () => {
       archiveCompanion: partialCompanion,
     });
     expect(result.data).toBeUndefined();
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[G2O] ChatGPT strict replay stopped before output: normalization-failed:opaque-replay-missing-graph'
+    );
+    warn.mockRestore();
   });
 
   it('uses the replay archive once for explicit selected-branch mode', async () => {

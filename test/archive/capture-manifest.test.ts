@@ -313,7 +313,7 @@ describe('raw capture manifest', () => {
     }
   );
 
-  it('requires canonical, unique exact raw source references for every asset', () => {
+  it('requires canonical, internally unique exact raw source references for every asset', () => {
     const value = input();
     value.assets = [
       {
@@ -356,8 +356,19 @@ describe('raw capture manifest', () => {
     expect(() => buildCaptureManifest(value)).toThrow(/name a capture artifact/);
     value.assets[0].sourceRefs = [{ artifactId: 'conversation', rawPointer: 'not-a-pointer' }];
     expect(() => buildCaptureManifest(value)).toThrow(/exact non-empty JSON Pointer/);
-    value.assets[0].sourceRefs = [{ artifactId: 'conversation', rawPointer: '/b' }];
-    expect(() => buildCaptureManifest(value)).toThrow(/raw source references must be unique/);
+    value.assets[0].sourceRefs = [
+      { artifactId: 'conversation', rawPointer: '/b' },
+      { artifactId: 'conversation', rawPointer: '/b' },
+    ];
+    expect(() => buildCaptureManifest(value)).toThrow(/source references must be unique/);
+
+    value.assets[0].sourceRefs = [{ artifactId: 'conversation', rawPointer: '/shared' }];
+    value.assets[1].sourceRefs = [{ artifactId: 'conversation', rawPointer: '/shared' }];
+    const shared = buildCaptureManifest(value);
+    expect(shared.assets.map(asset => asset.sourceRefs[0]?.rawPointer)).toEqual([
+      '/shared',
+      '/shared',
+    ]);
   });
 
   it('verifies runtime payload byte lengths against the manifest', () => {

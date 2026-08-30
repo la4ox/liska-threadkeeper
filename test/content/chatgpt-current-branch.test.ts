@@ -184,6 +184,113 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(capture.transientAssetCandidates).toEqual([]);
   });
 
+  it('preserves raw evidence with unknown asset completeness when inventory throws', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+      inventoryAssets: async () => {
+        throw new Error('private provider detail');
+      },
+    });
+    const manifestArtifact = capture.archiveCompanion.artifacts.find(
+      artifact => artifact.kind === 'manifest'
+    );
+    if (!manifestArtifact) throw new Error('manifest companion missing');
+    const manifest = parseBase64Json(manifestArtifact.bodyBase64);
+    expect(manifest.assets).toEqual([]);
+    expect(manifest.completeness).toMatchObject({ assets: 'unknown' });
+    expect(manifest.warnings).toContain('chatgpt-asset-inventory-unavailable');
+    expect(capture.archiveCompanion.artifacts.map(artifact => artifact.kind)).toEqual([
+      'raw',
+      'manifest',
+      'canonical',
+    ]);
+  });
+
+  it('preserves raw evidence with unknown asset completeness when the enriched manifest is invalid', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+      inventoryAssets: async () => ({
+        assets: [{} as never],
+        completeness: 'not-attempted',
+        warnings: [],
+      }),
+    });
+
+    const manifestArtifact = capture.archiveCompanion.artifacts.find(
+      artifact => artifact.kind === 'manifest'
+    );
+    if (!manifestArtifact) throw new Error('manifest companion missing');
+    const manifest = parseBase64Json(manifestArtifact.bodyBase64);
+    expect(manifest.assets).toEqual([]);
+    expect(manifest.completeness).toMatchObject({ assets: 'unknown' });
+    expect(manifest.warnings).toContain('chatgpt-asset-inventory-unavailable');
+    expect(capture.archiveCompanion.artifacts.map(artifact => artifact.kind)).toEqual([
+      'raw',
+      'manifest',
+      'canonical',
+    ]);
+  });
+
+  it('preserves distinct sandbox assets that share one assistant text-part source pointer', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () =>
+        successfulResponse(payload => {
+          const mapping = payload.mapping as Record<string, Record<string, unknown>>;
+          const message = mapping['node/current']?.message as Record<string, unknown>;
+          message.id = 'message_shared_sandbox_part';
+          message.author = { role: 'assistant' };
+          message.content = {
+            content_type: 'text',
+            parts: [
+              '[First](sandbox:/mnt/data/first.pdf) and [Second](sandbox:/mnt/data/second.docx)',
+            ],
+          };
+          message.metadata = { attachments: [], files: [] };
+        }),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+
+    const manifestArtifact = capture.archiveCompanion.artifacts.find(
+      artifact => artifact.kind === 'manifest'
+    );
+    if (!manifestArtifact) throw new Error('manifest companion missing');
+    const manifest = parseBase64Json(manifestArtifact.bodyBase64);
+    const assets = manifest.assets as Array<{
+      sourceRefs: Array<{ artifactId: string; rawPointer: string }>;
+    }>;
+    const pointerCounts = new Map<string, number>();
+    for (const asset of assets) {
+      for (const sourceRef of asset.sourceRefs) {
+        const key = `${sourceRef.artifactId}\u0000${sourceRef.rawPointer}`;
+        pointerCounts.set(key, (pointerCounts.get(key) ?? 0) + 1);
+      }
+    }
+    expect([...pointerCounts.values()]).toContain(2);
+    expect(manifest.completeness).toMatchObject({ assets: 'not-attempted' });
+  });
+
+  it('preserves the archive and returns no transient candidates when correlation throws', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+      matchPageOwnedAssetResolvers: async () => {
+        throw new Error('private resolver detail');
+      },
+    });
+    expect(capture.transientAssetCandidates).toEqual([]);
+    expect(capture.archiveCompanion.artifacts.map(artifact => artifact.kind)).toEqual([
+      'raw',
+      'manifest',
+      'canonical',
+    ]);
+  });
+
   it('builds a not-attempted attachment ledger without upgrading asset acquisition completeness', async () => {
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: () => successfulResponse(),

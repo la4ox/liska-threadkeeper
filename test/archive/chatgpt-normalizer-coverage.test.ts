@@ -906,12 +906,13 @@ describe('ChatGPT normalizer coverage contracts', () => {
         },
       ])
     ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
-    expect(() =>
-      manifestAssetsById([
-        validAsset('first', '/attachments/0'),
-        validAsset('second', '/attachments/0'),
-      ])
-    ).toThrow(expect.objectContaining({ code: 'invalid-manifest' }));
+    const sharedPointer = manifestAssetsById([
+      validAsset('first', '/attachments/0'),
+      validAsset('second', '/attachments/0'),
+    ]);
+    expect(
+      [...sharedPointer.bySourceRef.values()].map(records => records.map(record => record.id))
+    ).toContainEqual(['first', 'second']);
   });
 
   it('guards repeated assets against corrupted acquisition state and invalid dimensions', async () => {
@@ -948,6 +949,41 @@ describe('ChatGPT normalizer coverage contracts', () => {
     await expect(errorCode(() => normalizeRaw(negativeDimensions))).resolves.toBe(
       'malformed-attachment'
     );
+  });
+
+  it('does not bind an ambiguous shared pointer arbitrarily and still permits an exact ID match', () => {
+    const sharedAsset = (id: string) => ({
+      id,
+      state: 'unavailable',
+      attemptedAt: null,
+      relativePath: null,
+      mediaType: null,
+      byteLength: null,
+      sha256: null,
+      detail: null,
+      sourceRefs: [{ artifactId: 'conversation', rawPointer: '/attachments/0' }],
+    });
+    const context = (): AssetContext => ({
+      assets: {},
+      assetIdsByIdentity: new Map(),
+      manifestAssets: manifestAssetsById([sharedAsset('first'), sharedAsset('second')]),
+      artifactId: 'conversation',
+      format: 'synthetic',
+      privacy: { redactions: [] },
+    });
+    const unmatchedContext = context();
+    const unmatchedId = upsertAsset(
+      { content_type: 'file', file_id: 'unmatched' },
+      '/attachments/0',
+      unmatchedContext
+    );
+    expect(unmatchedId).not.toBe('first');
+    expect(unmatchedId).not.toBe('second');
+
+    const exactContext = context();
+    expect(
+      upsertAsset({ content_type: 'file', file_id: 'second' }, '/attachments/0', exactContext)
+    ).toBe('second');
   });
 
   it('truncates deep, oversized provider residuals and records redacted signed values', () => {

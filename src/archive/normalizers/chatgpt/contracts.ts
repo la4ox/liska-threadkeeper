@@ -53,7 +53,7 @@ export interface ProviderAssetRecord {
 
 export interface ProviderAssetIndex {
   byId: Map<string, ProviderAssetRecord>;
-  bySourceRef: Map<string, ProviderAssetRecord>;
+  bySourceRef: Map<string, ProviderAssetRecord[]>;
   records: ProviderAssetRecord[];
 }
 

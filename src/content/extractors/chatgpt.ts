@@ -106,6 +106,7 @@ function opaqueReplayFailure(error: unknown): ExtractionResult {
     error instanceof ChatGptCurrentBranchError && error.detailCode ? `:${error.detailCode}` : '';
   const archiveCompanion =
     error instanceof ChatGptCurrentBranchError ? error.archiveCompanion : undefined;
+  console.warn(`[G2O] ChatGPT strict replay stopped before output: ${code}${detail}`);
   return {
     success: false,
     error: `ChatGPT experimental A-strict replay failed (${code}${detail}); no fallback export was created.`,
@@ -217,8 +218,8 @@ export class ChatGPTExtractor extends BaseExtractor {
   /**
    * Use the verified full graph where the manifest permits the background
    * bridge, otherwise retain the established rendered-DOM behavior. A failed
-   * graph path is deliberately non-diagnostic: no provider response, error,
-   * or conversation identifier is written to the console.
+   * graph path emits only a stable value-free terminal code: no provider
+   * response, exception text, or conversation identifier reaches the console.
    */
   async extract(): Promise<ExtractionResult> {
     const route = this.structuredCaptureRoute();

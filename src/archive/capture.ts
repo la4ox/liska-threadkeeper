@@ -363,12 +363,10 @@ function validateCaptureBundleUniqueness(
     ],
     'Capture bundle paths'
   );
-  assertUnique(
-    assets.flatMap(asset =>
-      asset.sourceRefs.map(sourceRef => `${sourceRef.artifactId}\u0000${sourceRef.rawPointer}`)
-    ),
-    'Capture asset raw source references'
-  );
+  // One raw scalar may legitimately encode several distinct assets (for
+  // example, multiple sandbox links in one assistant Markdown text part).
+  // Source refs remain unique inside each asset via normalizeAssetSourceRefs;
+  // asset IDs preserve the distinct identities across records.
 }
 
 /** Build a deterministic, credential-free capture manifest. */

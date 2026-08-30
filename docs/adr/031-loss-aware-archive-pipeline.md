@@ -79,6 +79,14 @@ The capture manifest records:
   failed;
 - completeness claims, warnings, and observed unknown content types.
 
+An exact raw JSON pointer identifies the evidence container, not necessarily a
+single asset. One scalar text part can encode several distinct links, so source
+references must be unique within each asset record but may be shared by assets
+with different opaque IDs. Asset IDs and persisted bundle paths remain globally
+unique. If optional asset enrichment still cannot produce a canonical manifest,
+capture preserves the verified raw bytes with asset completeness `unknown` and
+an explicit warning instead of discarding the conversation.
+
 When possible, response bodies are retained byte-for-byte and hashed before
 parsing. Raw snapshots are never overwritten; a later capture creates a new
 capture ID.
