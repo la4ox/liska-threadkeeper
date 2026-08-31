@@ -131,21 +131,37 @@ plus DOCX 404, all-item failures, global run failure, independent File/Obsidian
 write outcomes, untouched original raw/ledger, strict identity/shape rejection,
 and terminal-newline rejection for durable reason codes.
 
-The last pre-diagnostic File-only live comparison preserved the complete 36-node,
-35-edge graph and fetched PNG plus PDF, but not DOCX. A 38,340-byte manual DOCX
-control remains local, with verified ZIP structure and required XML parts.
-One earlier native message-link helper returned 404. The user's client-block
-screenshots also occurred after Download; the exported Comet policy groups were
-empty. These observations do not prove expiration, corporate management, or a
-single browser fault. Do not bind a Library file to an archive asset by filename.
+The first post-reload diagnostic File-only canary is now live-verified. One
+trusted click produced a new raw response (112,121 bytes), manifest (4,507 bytes),
+canonical (218,455 bytes), Markdown, and the same valid PNG/PDF binary pair.
+Raw length/SHA-256 agrees with the manifest; canonical input hashes the exact
+final manifest. Both graphs contain 36 nodes. All six asset records remain;
+two are fetched and four are not-attempted. Both fetched binaries match their
+declared length/hash and canonical evidence.
 
-Next: after the user reloads Liska and the selected chat, run exactly one
-File-only canary and inspect the DOCX reason in the new manifest/canonical.
-Keep current settings (attachments on; scroll/append/probe off; explicit replay
-on) unless the user changes them. Browser settings remain manual. This diagnostic
-build has NOT been live-tested; the current download fault is not claimed fixed.
-No browser connection, private archive mutation, Obsidian write, or public push
-was made for this implementation checkpoint.
+The exact current interpreter planner binds one DOCX and one PDF candidate to
+their committed raw links. The DOCX now has `interpreter-resolver-http-404` in
+both manifest and canonical, with null attemptedAt and no acquired hash or local
+artifact reference. Its resolver failed before binary acquisition; expiration
+or deletion is NOT established. The final manifest retains the fixed incomplete
+interpreter-resolution warning. This fixes diagnostic loss, not DOCX acquisition.
+The four prior capture directories' 17 files still match pre-click SHA-256
+fingerprints. The separately retained 38,340-byte manual DOCX also remains
+unchanged; it is not one of the two fetched binaries.
+
+One earlier native message-link helper also returned 404. The user's client-block
+screenshots occurred after Download, and the supplied Comet policy groups were
+empty. These observations still do not prove corporate management or a single
+browser fault. No protection settings, archive schemas, or request budgets were
+changed, and no public push was made for this checkpoint.
+
+Next: a separately agreed native Library-download comparison should establish
+the actual working route and exact provider identity before any fallback is
+implemented. Do not bind a Library file by filename, retry the unchanged 404
+helper, or relabel 404 as expired. Keep current settings (File-only, attachments
+on; scroll/append/probe off; explicit replay on) unless the user changes them.
+Browser settings remain manual. The single diagnostic export is complete;
+no further live click is pending within this canary.
 
 Current built entries: `chatgpt-document-start.ts-DYY8Dh9C.js`,
 `service-worker.ts-Du0af7ZB.js`, `index.ts-DrquZ7ih.js`, and
