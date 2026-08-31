@@ -24,7 +24,10 @@ import {
   type RawCaptureBundle,
 } from '../../src/archive';
 import { sha256Hex } from '../../src/content/capture/response';
-import { extractChatGptActiveResolverPlan } from '../../src/content/capture/chatgpt-asset-resolver';
+import {
+  extractChatGptActiveResolverPlan,
+  extractChatGptInterpreterAssetPlan,
+} from '../../src/content/capture/chatgpt-asset-resolver';
 
 const activeResolverMocks = vi.hoisted(() => ({ probe: vi.fn() }));
 const interpreterResolverMocks = vi.hoisted(() => ({ resolve: vi.fn() }));
@@ -1210,7 +1213,10 @@ describe('ChatGPT current-branch capture composition', () => {
       '&id=private&p=p&sig=s&ts=1&v=1';
     interpreterResolverMocks.resolve.mockResolvedValue({
       success: true,
-      data: { resolved: [{ assetId: interpreterAsset.id, downloadUrl }] },
+      data: {
+        resolved: [{ assetId: interpreterAsset.id, downloadUrl }],
+        diagnostics: [{ assetId: interpreterAsset.id, code: 'resolved' }],
+      },
     });
 
     const observed = await observeChatGptInterpreterAssetResolvers(capture.assetExportContext!);
@@ -1232,7 +1238,7 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(serialized).not.toContain('provider-id-remains-raw-only');
   });
 
-  it('keeps incomplete interpreter resolution honest without exposing candidate diagnostics', async () => {
+  it('keeps fixed per-item failure reasons without exposing raw message/path data', async () => {
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: () =>
         successfulResponse(payload => {
@@ -1251,7 +1257,23 @@ describe('ChatGPT current-branch capture composition', () => {
       createCaptureId: fixedCaptureId,
       now: fixedNow,
     });
-    interpreterResolverMocks.resolve.mockResolvedValue({ success: true, data: { resolved: [] } });
+    const plan = await extractChatGptInterpreterAssetPlan(
+      JSON.parse(
+        new TextDecoder().decode(capture.assetExportContext!.rawCaptureBundle.artifacts[0].bytes)
+      ),
+      capture.assetExportContext!.rawCaptureBundle.manifest.assets
+    );
+    interpreterResolverMocks.resolve.mockResolvedValue({
+      success: true,
+      data: {
+        resolved: [],
+        diagnostics: plan.map(candidate => ({
+          assetId: candidate.assetId,
+          code: 'http-error',
+          httpStatus: 404,
+        })),
+      },
+    });
 
     const observed = await observeChatGptInterpreterAssetResolvers(capture.assetExportContext!);
 
@@ -1260,6 +1282,10 @@ describe('ChatGPT current-branch capture composition', () => {
       candidates: [],
       warning:
         'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.',
+      interpreterDetails: plan.map(candidate => ({
+        assetId: candidate.assetId,
+        detail: 'interpreter-resolver-http-404',
+      })),
     });
     expect(JSON.stringify(observed)).not.toContain('message_interpreter_2');
     expect(JSON.stringify(observed)).not.toContain('/mnt/data/');
@@ -1276,6 +1302,12 @@ describe('ChatGPT current-branch capture composition', () => {
       warning:
         'ChatGPT interpreter attachment resolution was incomplete; final attachment states are recorded in the archive manifest.',
     };
+    const plan = await extractChatGptInterpreterAssetPlan(
+      JSON.parse(
+        new TextDecoder().decode(capture.assetExportContext!.rawCaptureBundle.artifacts[0].bytes)
+      ),
+      capture.assetExportContext!.rawCaptureBundle.manifest.assets
+    );
 
     interpreterResolverMocks.resolve.mockResolvedValue({
       success: false,
@@ -1283,12 +1315,24 @@ describe('ChatGPT current-branch capture composition', () => {
     });
     await expect(
       observeChatGptInterpreterAssetResolvers(capture.assetExportContext!)
-    ).resolves.toEqual(expected);
+    ).resolves.toEqual({
+      ...expected,
+      interpreterDetails: plan.map(candidate => ({
+        assetId: candidate.assetId,
+        detail: 'interpreter-resolver-run-source-http-error',
+      })),
+    });
 
     interpreterResolverMocks.resolve.mockRejectedValue(new Error('synthetic bridge rejection'));
     await expect(
       observeChatGptInterpreterAssetResolvers(capture.assetExportContext!)
-    ).resolves.toEqual(expected);
+    ).resolves.toEqual({
+      ...expected,
+      interpreterDetails: plan.map(candidate => ({
+        assetId: candidate.assetId,
+        detail: 'interpreter-resolver-run-interpreter-result-invalid',
+      })),
+    });
 
     const invalidContext = {
       ...capture.assetExportContext!,

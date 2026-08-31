@@ -44,6 +44,24 @@ export const CHATGPT_INTERPRETER_RESOLVER_ERROR_CODES = [
 export type ChatGptInterpreterResolverErrorCode =
   (typeof CHATGPT_INTERPRETER_RESOLVER_ERROR_CODES)[number];
 
+export const CHATGPT_INTERPRETER_RESOLVER_DIAGNOSTIC_CODES = [
+  'resolved',
+  'http-error',
+  'fetch-rejected',
+  'response-processing-rejected',
+  'non-json',
+  'oversized',
+  'timed-out',
+  'not-dispatched',
+  'payload-integrity-rejected',
+  'payload-invalid-json',
+  'download-url-missing',
+  'download-url-binding-rejected',
+] as const;
+
+export type ChatGptInterpreterResolverDiagnosticCode =
+  (typeof CHATGPT_INTERPRETER_RESOLVER_DIAGNOSTIC_CODES)[number];
+
 export interface ChatGptInterpreterAssetCandidate {
   assetId: string;
   messageId: string;
@@ -55,6 +73,13 @@ export interface ChatGptInterpreterResolvedAsset {
   downloadUrl: string;
 }
 
+/** Content-safe ordinal result. It intentionally contains no provider detail. */
+export interface ChatGptInterpreterResolverDiagnostic {
+  assetId: string;
+  code: ChatGptInterpreterResolverDiagnosticCode;
+  httpStatus?: number;
+}
+
 export interface ChatGptInterpreterResolverCapture {
   bodyBase64: string;
   byteLength: number;
@@ -64,9 +89,9 @@ export interface ChatGptInterpreterResolverCapture {
 
 export type ChatGptInterpreterResolverOutcome =
   | { state: 'observed'; capture: ChatGptInterpreterResolverCapture }
+  | { state: 'http-error'; httpStatus?: number }
   | {
       state:
-        | 'http-error'
         | 'fetch-rejected'
         | 'response-processing-rejected'
         | 'non-json'
@@ -88,19 +113,42 @@ export type ChatGptInterpreterResolverHookResult =
   | { kind: 'error'; code: ChatGptInterpreterResolverErrorCode };
 
 export type ChatGptInterpreterResolverResponse =
-  | { success: true; data: { resolved: ChatGptInterpreterResolvedAsset[] } }
+  | {
+      success: true;
+      data: {
+        resolved: ChatGptInterpreterResolvedAsset[];
+        diagnostics: ChatGptInterpreterResolverDiagnostic[];
+      };
+    }
   | { success: false; code: ChatGptInterpreterResolverErrorCode };
 
 function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
   try {
     const keys = Reflect.ownKeys(value);
-    return (
-      keys.length === expected.length &&
-      expected.every(key => keys.some(valueKey => valueKey === key))
-    );
+    if (keys.length !== expected.length) return false;
+    for (const expectedKey of expected) {
+      if (!keys.some(key => key === expectedKey)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, expectedKey);
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor))
+        return false;
+    }
+    return true;
   } catch {
     return false;
   }
+}
+
+function isNativeHttpErrorStatus(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    value === value &&
+    value !== Infinity &&
+    value !== -Infinity &&
+    value % 1 === 0 &&
+    value >= 100 &&
+    value <= 599 &&
+    value !== 200
+  );
 }
 
 export function isChatGptInterpreterAssetCandidate(
@@ -162,23 +210,23 @@ export function isChatGptInterpreterResolverCapture(
 function isOutcome(value: unknown): value is ChatGptInterpreterResolverOutcome {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  if (record.state === 'observed') {
-    return (
-      hasExactOwnKeys(value, ['state', 'capture']) &&
-      isChatGptInterpreterResolverCapture(record.capture)
-    );
+  if (hasExactOwnKeys(value, ['state', 'capture'])) {
+    return record.state === 'observed' && isChatGptInterpreterResolverCapture(record.capture);
+  }
+  if (hasExactOwnKeys(value, ['state', 'httpStatus'])) {
+    return record.state === 'http-error' && isNativeHttpErrorStatus(record.httpStatus);
   }
   return (
     hasExactOwnKeys(value, ['state']) &&
     typeof record.state === 'string' &&
     [
-      'http-error',
       'fetch-rejected',
       'response-processing-rejected',
       'non-json',
       'oversized',
       'timed-out',
       'not-dispatched',
+      'http-error',
     ].includes(record.state)
   );
 }
@@ -189,16 +237,15 @@ export function isChatGptInterpreterResolverHookResult(
 ): value is ChatGptInterpreterResolverHookResult {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  if (record.kind === 'ready') return hasExactOwnKeys(value, ['kind']);
-  if (record.kind === 'error') {
+  if (hasExactOwnKeys(value, ['kind'])) return record.kind === 'ready';
+  if (hasExactOwnKeys(value, ['kind', 'code'])) {
     return (
-      hasExactOwnKeys(value, ['kind', 'code']) &&
+      record.kind === 'error' &&
       typeof record.code === 'string' &&
       (CHATGPT_INTERPRETER_RESOLVER_ERROR_CODES as readonly string[]).includes(record.code)
     );
   }
   if (
-    record.kind !== 'complete' ||
     !hasExactOwnKeys(value, [
       'kind',
       'conversationId',
@@ -206,6 +253,7 @@ export function isChatGptInterpreterResolverHookResult(
       'dispatchCount',
       'outcomes',
     ]) ||
+    record.kind !== 'complete' ||
     !isChatGptConversationId(record.conversationId) ||
     !Number.isSafeInteger(record.requestedCount) ||
     !Number.isSafeInteger(record.dispatchCount) ||
@@ -240,41 +288,98 @@ export function isChatGptInterpreterResolvedAsset(
   );
 }
 
+export function isChatGptInterpreterResolverDiagnostic(
+  value: unknown
+): value is ChatGptInterpreterResolverDiagnostic {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (hasExactOwnKeys(value, ['assetId', 'code'])) {
+    return (
+      isSafeStagedBinaryAssetId(record.assetId) &&
+      typeof record.code === 'string' &&
+      (CHATGPT_INTERPRETER_RESOLVER_DIAGNOSTIC_CODES as readonly string[]).includes(record.code)
+    );
+  }
+  return (
+    hasExactOwnKeys(value, ['assetId', 'code', 'httpStatus']) &&
+    isSafeStagedBinaryAssetId(record.assetId) &&
+    record.code === 'http-error' &&
+    isNativeHttpErrorStatus(record.httpStatus)
+  );
+}
+
 export function createChatGptInterpreterResolverFailure(
   code: ChatGptInterpreterResolverErrorCode
 ): ChatGptInterpreterResolverResponse {
   return { success: false, code };
 }
 
+// eslint-disable-next-line complexity, max-lines-per-function -- Exact untrusted response reconciliation is intentionally linear.
 export function isChatGptInterpreterResolverResponse(
   value: unknown
 ): value is ChatGptInterpreterResolverResponse {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  if (record.success === false) {
+  if (hasExactOwnKeys(value, ['success', 'code'])) {
     return (
-      hasExactOwnKeys(value, ['success', 'code']) &&
+      record.success === false &&
       typeof record.code === 'string' &&
       (CHATGPT_INTERPRETER_RESOLVER_ERROR_CODES as readonly string[]).includes(record.code)
     );
   }
   if (
-    record.success !== true ||
     !hasExactOwnKeys(value, ['success', 'data']) ||
+    record.success !== true ||
     typeof record.data !== 'object' ||
     record.data === null ||
     Array.isArray(record.data) ||
-    !hasExactOwnKeys(record.data, ['resolved'])
+    !hasExactOwnKeys(record.data, ['resolved', 'diagnostics'])
   ) {
     return false;
   }
-  const resolved = (record.data as Record<string, unknown>).resolved;
-  if (!Array.isArray(resolved) || resolved.length > CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT)
+  const data = record.data as Record<string, unknown>;
+  const resolved = data.resolved;
+  const diagnostics = data.diagnostics;
+  if (
+    !Array.isArray(resolved) ||
+    resolved.length > CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT ||
+    !Array.isArray(diagnostics) ||
+    diagnostics.length === 0 ||
+    diagnostics.length > CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT
+  ) {
     return false;
-  const assetIds = new Set<string>();
-  return resolved.every(asset => {
-    if (!isChatGptInterpreterResolvedAsset(asset) || assetIds.has(asset.assetId)) return false;
-    assetIds.add(asset.assetId);
-    return true;
-  });
+  }
+  const resolvedAssetIds = new Set<string>();
+  if (
+    !resolved.every(asset => {
+      if (!isChatGptInterpreterResolvedAsset(asset) || resolvedAssetIds.has(asset.assetId))
+        return false;
+      resolvedAssetIds.add(asset.assetId);
+      return true;
+    })
+  ) {
+    return false;
+  }
+  const diagnosticAssetIds = new Set<string>();
+  const diagnosticResolvedIds: string[] = [];
+  for (const diagnostic of diagnostics) {
+    if (
+      !isChatGptInterpreterResolverDiagnostic(diagnostic) ||
+      diagnosticAssetIds.has(diagnostic.assetId)
+    ) {
+      return false;
+    }
+    diagnosticAssetIds.add(diagnostic.assetId);
+    if (diagnostic.code === 'resolved') diagnosticResolvedIds.push(diagnostic.assetId);
+  }
+  if (diagnosticResolvedIds.length !== resolved.length) return false;
+  for (let index = 0; index < resolved.length; index += 1) {
+    if (
+      diagnosticResolvedIds[index] !== resolved[index].assetId ||
+      !diagnosticAssetIds.has(resolved[index].assetId)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

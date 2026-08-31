@@ -5,6 +5,7 @@ import {
   isChatGptInterpreterCandidates,
   isChatGptInterpreterResolverResponse,
   type ChatGptInterpreterAssetCandidate,
+  type ChatGptInterpreterResolverDiagnostic,
   type ChatGptInterpreterResolverResponse,
 } from '../../lib/chatgpt-interpreter-resolver-contract';
 import {
@@ -12,6 +13,16 @@ import {
   isChatGptTransientDownloadUrl,
 } from '../../lib/chatgpt-capture-contract';
 import { sendMessage } from '../../lib/messaging';
+
+function diagnosticsMatchPlan(
+  diagnostics: readonly ChatGptInterpreterResolverDiagnostic[],
+  candidates: readonly ChatGptInterpreterAssetCandidate[]
+): boolean {
+  return (
+    diagnostics.length === candidates.length &&
+    diagnostics.every((diagnostic, index) => diagnostic.assetId === candidates[index].assetId)
+  );
+}
 
 /**
  * Resolve only the exact caller-supplied candidate plan. This bridge rechecks
@@ -42,6 +53,9 @@ export async function resolveChatGptInterpreterAssets(
       return createChatGptInterpreterResolverFailure('interpreter-result-invalid');
     }
     if (!response.success) return response;
+    if (!diagnosticsMatchPlan(response.data.diagnostics, exactCandidates)) {
+      return createChatGptInterpreterResolverFailure('interpreter-result-invalid');
+    }
     const positions = new Map(
       exactCandidates.map((candidate, index) => [candidate.assetId, index])
     );

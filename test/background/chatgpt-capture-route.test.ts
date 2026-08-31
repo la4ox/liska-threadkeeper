@@ -240,6 +240,7 @@ describe('ChatGPT capture service-worker route', () => {
               '&id=private&p=p&sig=s&ts=1&v=1',
           },
         ],
+        diagnostics: [{ assetId: `chatgpt-asset-${'a'.repeat(64)}`, code: 'resolved' }],
       },
     });
     mocks.binaryStage.mockResolvedValue({ success: true });
@@ -548,7 +549,18 @@ describe('ChatGPT capture service-worker route', () => {
               '&id=private&p=p&sig=s&ts=1&v=1',
           },
         ],
+        diagnostics: [{ assetId: `chatgpt-asset-${'a'.repeat(64)}`, code: 'resolved' }],
       },
+    });
+  });
+
+  it('rejects an interpreter response missing the new per-item diagnostics', async () => {
+    mocks.interpreterResolver.mockResolvedValue({ success: true, data: { resolved: [] } });
+    const sendResponse = invokeInterpreterResolver();
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      code: 'interpreter-result-invalid',
     });
   });
 

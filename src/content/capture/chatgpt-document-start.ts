@@ -3618,7 +3618,21 @@ function armActiveResolver(
  * candidate grammar, endpoint, and response contract. Only the closure-local
  * source Request Headers/credentials preparation is shared.
  */
-type InterpreterResolverOutcome = ActiveResolverOutcome;
+type InterpreterResolverOutcome =
+  | {
+      state:
+        | 'fetch-rejected'
+        | 'response-processing-rejected'
+        | 'non-json'
+        | 'oversized'
+        | 'timed-out'
+        | 'not-dispatched';
+    }
+  | { state: 'http-error'; httpStatus?: number }
+  | {
+      state: 'observed';
+      capture: { bodyBase64: string; byteLength: number; sha256: string; mediaType: string };
+    };
 
 type InterpreterResolverHookResult =
   | { kind: 'ready' }
@@ -3704,7 +3718,9 @@ function snapshotInterpreterResolverResult(
               mediaType: outcome.capture.mediaType,
             },
           }
-        : { state: outcome.state };
+        : outcome.state === 'http-error' && isCapturedHttpErrorStatus(outcome.httpStatus)
+          ? { state: 'http-error', httpStatus: outcome.httpStatus }
+          : { state: outcome.state };
     applyCaptured<void>(primordials, primordials.document.arrayPush, outcomes, [snapshot]);
   }
   return {
@@ -4029,6 +4045,12 @@ function interpreterResolverRequestUrl(
   }
 }
 
+function isCapturedHttpErrorStatus(value: unknown): value is number {
+  return (
+    typeof value === 'number' && value % 1 === 0 && value >= 100 && value <= 599 && value !== 200
+  );
+}
+
 async function captureInterpreterResolverResponse(
   state: InterpreterResolverPageState,
   response: Response
@@ -4040,7 +4062,11 @@ async function captureInterpreterResolverResponse(
       response,
       []
     );
-    if (status !== 200) return { state: 'http-error' };
+    if (status !== 200) {
+      return isCapturedHttpErrorStatus(status)
+        ? { state: 'http-error', httpStatus: status }
+        : { state: 'http-error' };
+    }
     const headers = applyCaptured<Headers>(
       state.primordials,
       state.primordials.document.responseHeaders,

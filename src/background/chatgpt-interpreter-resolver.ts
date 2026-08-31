@@ -16,6 +16,8 @@ import {
   isChatGptInterpreterResolverHookResult,
   type ChatGptInterpreterAssetCandidate,
   type ChatGptInterpreterResolverCapture,
+  type ChatGptInterpreterResolverDiagnostic,
+  type ChatGptInterpreterResolverDiagnosticCode,
   type ChatGptInterpreterResolverHookResult,
   type ChatGptInterpreterResolverResponse,
 } from '../lib/chatgpt-interpreter-resolver-contract';
@@ -315,22 +317,43 @@ function isJsonResolverMediaType(value: unknown): value is string {
  * discarding its descriptive metadata. Legacy minimal envelopes remain
  * supported for captured conversations that still emit them.
  */
-function downloadUrlFromInterpreterBody(bytes: Uint8Array): string | undefined {
+type CapturedDownloadUrlResult =
+  | { kind: 'resolved'; downloadUrl: string }
+  | { kind: 'payload-invalid-json' }
+  | { kind: 'download-url-missing' };
+
+function ownDataValue(record: object, key: string): unknown {
   try {
-    const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    return descriptor !== undefined && 'value' in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function downloadUrlFromInterpreterBody(bytes: Uint8Array): CapturedDownloadUrlResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return { kind: 'payload-invalid-json' };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { kind: 'download-url-missing' };
+  }
+  try {
     const record = parsed as Record<string, unknown>;
     const keys = Reflect.ownKeys(parsed);
     const exactDownload = keys.length === 1 && keys[0] === 'download_url';
+    const downloadUrl = ownDataValue(record, 'download_url');
+    const status = ownDataValue(record, 'status');
     const successfulEnvelope =
-      Object.prototype.hasOwnProperty.call(record, 'status') &&
-      Object.prototype.hasOwnProperty.call(record, 'download_url') &&
-      (record.status === 'Success' || record.status === 'success');
-    return (exactDownload || successfulEnvelope) && typeof record.download_url === 'string'
-      ? record.download_url
-      : undefined;
+      (status === 'Success' || status === 'success') && typeof downloadUrl === 'string';
+    return (exactDownload || successfulEnvelope) && typeof downloadUrl === 'string'
+      ? { kind: 'resolved', downloadUrl }
+      : { kind: 'download-url-missing' };
   } catch {
-    return undefined;
+    return { kind: 'download-url-missing' };
   }
 }
 
@@ -338,18 +361,55 @@ async function validatedDownloadUrl(
   capture: ChatGptInterpreterResolverCapture,
   conversationId: string,
   digestSha256: (bytes: Uint8Array) => Promise<string>
-): Promise<string | undefined> {
-  if (!isJsonResolverMediaType(capture.mediaType)) return undefined;
+): Promise<
+  | { kind: 'resolved'; downloadUrl: string }
+  | {
+      kind:
+        | 'payload-integrity-rejected'
+        | 'payload-invalid-json'
+        | 'download-url-missing'
+        | 'download-url-binding-rejected';
+    }
+> {
+  if (!isJsonResolverMediaType(capture.mediaType)) return { kind: 'payload-integrity-rejected' };
   const bytes = strictBase64Bytes(capture.bodyBase64);
-  if (bytes === undefined || bytes.byteLength !== capture.byteLength) return undefined;
+  if (bytes === undefined || bytes.byteLength !== capture.byteLength) {
+    return { kind: 'payload-integrity-rejected' };
+  }
   try {
     const digest = (await digestSha256(bytes)).toLowerCase();
-    if (!/^[a-f0-9]{64}$/.test(digest) || digest !== capture.sha256.toLowerCase()) return undefined;
+    if (!/^[a-f0-9]{64}$/.test(digest) || digest !== capture.sha256.toLowerCase()) {
+      return { kind: 'payload-integrity-rejected' };
+    }
   } catch {
-    return undefined;
+    return { kind: 'payload-integrity-rejected' };
   }
-  const url = downloadUrlFromInterpreterBody(bytes);
-  return isChatGptTransientDownloadUrl(url, conversationId) ? url : undefined;
+  const parsed = downloadUrlFromInterpreterBody(bytes);
+  if (parsed.kind !== 'resolved') return parsed;
+  return isChatGptTransientDownloadUrl(parsed.downloadUrl, conversationId)
+    ? parsed
+    : { kind: 'download-url-binding-rejected' };
+}
+
+function diagnosticForOutcome(
+  assetId: string,
+  outcome: Exclude<
+    ChatGptInterpreterResolverHookResult,
+    { kind: 'ready' | 'error' }
+  >['outcomes'][number]
+): ChatGptInterpreterResolverDiagnostic {
+  if (outcome.state === 'http-error') {
+    return outcome.httpStatus === undefined
+      ? { assetId, code: 'http-error' }
+      : { assetId, code: 'http-error', httpStatus: outcome.httpStatus };
+  }
+  return {
+    assetId,
+    code: outcome.state as Exclude<
+      ChatGptInterpreterResolverDiagnosticCode,
+      'resolved' | 'http-error'
+    >,
+  };
 }
 
 async function responseFromState(
@@ -367,15 +427,23 @@ async function responseFromState(
     return undefined;
   }
   const resolved: Array<{ assetId: string; downloadUrl: string }> = [];
+  const diagnostics: ChatGptInterpreterResolverDiagnostic[] = [];
   for (let ordinal = 0; ordinal < state.outcomes.length; ordinal += 1) {
     const outcome = state.outcomes[ordinal];
-    if (ordinal >= state.dispatchCount || outcome.state !== 'observed') continue;
-    const downloadUrl = await validatedDownloadUrl(outcome.capture, conversationId, digestSha256);
-    if (downloadUrl !== undefined) {
-      resolved.push({ assetId: candidates[ordinal].assetId, downloadUrl });
+    const assetId = candidates[ordinal].assetId;
+    if (outcome.state !== 'observed') {
+      diagnostics.push(diagnosticForOutcome(assetId, outcome));
+      continue;
+    }
+    const download = await validatedDownloadUrl(outcome.capture, conversationId, digestSha256);
+    if (download.kind === 'resolved') {
+      resolved.push({ assetId, downloadUrl: download.downloadUrl });
+      diagnostics.push({ assetId, code: 'resolved' });
+    } else {
+      diagnostics.push({ assetId, code: download.kind });
     }
   }
-  return { success: true, data: { resolved } };
+  return { success: true, data: { resolved, diagnostics } };
 }
 
 /**
@@ -546,6 +614,10 @@ export function readChatGptInterpreterResolverState(nonce: string): HookState {
           }
         }
         if (!found) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, expected[expectedIndex]);
+        if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+          return false;
+        }
       }
       return true;
     };
@@ -555,6 +627,8 @@ export function readChatGptInterpreterResolverState(nonce: string): HookState {
       }
       return false;
     };
+    const nativeHttpErrorStatus = (value: unknown): value is number =>
+      typeof value === 'number' && value % 1 === 0 && value >= 100 && value <= 599 && value !== 200;
     if (typeof nonce !== 'string' || !/^[a-z0-9-]{16,128}$/i.test(nonce))
       return { kind: 'missing' };
     const snapshot = (window as unknown as Record<string, unknown>)[
@@ -640,6 +714,12 @@ export function readChatGptInterpreterResolverState(nonce: string): HookState {
             mediaType: capture.mediaType,
           },
         };
+      } else if (
+        exact(value, ['state', 'httpStatus']) &&
+        value.state === 'http-error' &&
+        nativeHttpErrorStatus(value.httpStatus)
+      ) {
+        outcomes[outcomes.length] = { state: 'http-error', httpStatus: value.httpStatus };
       } else if (
         exact(value, ['state']) &&
         typeof value.state === 'string' &&

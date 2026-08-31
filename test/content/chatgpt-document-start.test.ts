@@ -4497,17 +4497,17 @@ describe('startChatGptDocumentStartCapture', () => {
     [
       'HTTP helper failure',
       () => new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } }),
-      'http-error',
+      { state: 'http-error', httpStatus: 404 },
     ],
     [
       'non-JSON helper',
       () => new Response('{}', { status: 200, headers: { 'content-type': 'text/plain' } }),
-      'non-json',
+      { state: 'non-json' },
     ],
     [
       'rejected helper',
       () => Promise.reject(new Error('synthetic helper rejection')),
-      'fetch-rejected',
+      { state: 'fetch-rejected' },
     ],
     [
       'oversized helper',
@@ -4516,11 +4516,11 @@ describe('startChatGptDocumentStartCapture', () => {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
-      'oversized',
+      { state: 'oversized' },
     ],
   ])(
     'records the bounded interpreter outcome for %s',
-    async (_label, helperResult, expectedState) => {
+    async (_label, helperResult, expectedOutcome) => {
       const sourceUrl =
         `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
         '?include_has_versions=true&num_turns=10';
@@ -4557,7 +4557,7 @@ describe('startChatGptDocumentStartCapture', () => {
           kind: 'complete',
           requestedCount: 1,
           dispatchCount: 1,
-          outcomes: [{ state: expectedState }],
+          outcomes: [expectedOutcome],
         })
       );
     }
@@ -4660,7 +4660,7 @@ describe('startChatGptDocumentStartCapture', () => {
         kind: 'complete',
         requestedCount: 2,
         dispatchCount: 1,
-        outcomes: [{ state: 'http-error' }, { state: 'not-dispatched' }],
+        outcomes: [{ state: 'http-error', httpStatus: 404 }, { state: 'not-dispatched' }],
       })
     );
     expect(helperCalls).toBe(1);

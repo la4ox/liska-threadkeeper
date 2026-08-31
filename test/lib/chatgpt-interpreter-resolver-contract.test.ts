@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
+  CHATGPT_INTERPRETER_RESOLVER_DIAGNOSTIC_CODES,
   createChatGptInterpreterResolverFailure,
   isChatGptInterpreterAssetCandidate,
   isChatGptInterpreterCandidates,
+  isChatGptInterpreterResolverDiagnostic,
   isChatGptInterpreterResolverHookResult,
   isChatGptInterpreterResolverResponse,
   isChatGptInterpreterSandboxPath,
@@ -86,20 +88,49 @@ describe('ChatGPT interpreter resolver contract', () => {
     ).toBe(false);
   });
 
-  it('accepts the exact resolved response envelope and rejects extra or malformed signed URLs', () => {
+  it('allows a legacy unknown HTTP outcome but rejects malformed status placement', () => {
+    const complete = (outcome: unknown) => ({
+      kind: 'complete',
+      conversationId: CONVERSATION_ID,
+      requestedCount: 1,
+      dispatchCount: 1,
+      outcomes: [outcome],
+    });
+    expect(isChatGptInterpreterResolverHookResult(complete({ state: 'http-error' }))).toBe(true);
+    expect(
+      isChatGptInterpreterResolverHookResult(complete({ state: 'http-error', httpStatus: 404 }))
+    ).toBe(true);
+    for (const malformed of [
+      { state: 'http-error', httpStatus: 200 },
+      { state: 'http-error', httpStatus: 404.5 },
+      { state: 'http-error', httpStatus: 700 },
+      { state: 'fetch-rejected', httpStatus: 503 },
+      { state: 'http-error', httpStatus: 404, extra: true },
+    ]) {
+      expect(isChatGptInterpreterResolverHookResult(complete(malformed))).toBe(false);
+    }
+  });
+
+  it('accepts exact, reconciled diagnostics and rejects malformed response envelopes', () => {
     const downloadUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
       '&id=private&p=p&sig=s&ts=1&v=1';
     const response = {
       success: true as const,
-      data: { resolved: [{ assetId: ASSET_ID, downloadUrl }] },
+      data: {
+        resolved: [{ assetId: ASSET_ID, downloadUrl }],
+        diagnostics: [{ assetId: ASSET_ID, code: 'resolved' }],
+      },
     };
     expect(isChatGptInterpreterResolverResponse(response)).toBe(true);
     expect(isChatGptInterpreterResolverResponse({ ...response, detail: 'private' })).toBe(false);
     expect(
       isChatGptInterpreterResolverResponse({
         success: true,
-        data: { resolved: [{ assetId: ASSET_ID, downloadUrl: 'https://example.test/private' }] },
+        data: {
+          resolved: [{ assetId: ASSET_ID, downloadUrl: 'https://example.test/private' }],
+          diagnostics: [{ assetId: ASSET_ID, code: 'resolved' }],
+        },
       })
     ).toBe(false);
     expect(createChatGptInterpreterResolverFailure('source-http-error')).toEqual({
@@ -117,6 +148,7 @@ describe('ChatGPT interpreter resolver contract', () => {
             { assetId: ASSET_ID, downloadUrl },
             { assetId: ASSET_ID, downloadUrl },
           ],
+          diagnostics: [{ assetId: ASSET_ID, code: 'resolved' }],
         },
       })
     ).toBe(false);
@@ -130,5 +162,85 @@ describe('ChatGPT interpreter resolver contract', () => {
     );
     expect(isChatGptInterpreterAssetCandidate(hostile)).toBe(false);
     expect(isChatGptInterpreterResolverResponse(hostile)).toBe(false);
+  });
+
+  it('keeps diagnostic codes and optional HTTP statuses exact and content-safe', () => {
+    const httpStatus = { assetId: ASSET_ID, code: 'http-error', httpStatus: 404 };
+    expect(isChatGptInterpreterResolverDiagnostic(httpStatus)).toBe(true);
+    expect(isChatGptInterpreterResolverDiagnostic({ assetId: ASSET_ID, code: 'http-error' })).toBe(
+      true
+    );
+    expect(CHATGPT_INTERPRETER_RESOLVER_DIAGNOSTIC_CODES).toContain('payload-invalid-json');
+    for (const malformed of [
+      { assetId: ASSET_ID, code: 'http-error', httpStatus: 200 },
+      { assetId: ASSET_ID, code: 'http-error', httpStatus: 99 },
+      { assetId: ASSET_ID, code: 'http-error', httpStatus: 600 },
+      { assetId: ASSET_ID, code: 'http-error', httpStatus: 404.5 },
+      { assetId: ASSET_ID, code: 'http-error', httpStatus: Number.NaN },
+      { assetId: ASSET_ID, code: 'fetch-rejected', httpStatus: 503 },
+      { assetId: ASSET_ID, code: 'provider-private-detail' },
+      { assetId: ASSET_ID, code: 'resolved', extra: 'forbidden' },
+    ]) {
+      expect(isChatGptInterpreterResolverDiagnostic(malformed)).toBe(false);
+    }
+  });
+
+  it('rejects contradictory, cross-ID, non-enumerable, and symbolic diagnostics', () => {
+    const downloadUrl =
+      `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
+      '&id=private&p=p&sig=s&ts=1&v=1';
+    const secondAssetId = `chatgpt-asset-${'b'.repeat(64)}`;
+    const valid = {
+      success: true,
+      data: {
+        resolved: [{ assetId: ASSET_ID, downloadUrl }],
+        diagnostics: [{ assetId: ASSET_ID, code: 'resolved' }],
+      },
+    };
+    expect(
+      isChatGptInterpreterResolverResponse({
+        ...valid,
+        data: { ...valid.data, diagnostics: [{ assetId: ASSET_ID, code: 'http-error' }] },
+      })
+    ).toBe(false);
+    expect(
+      isChatGptInterpreterResolverResponse({
+        ...valid,
+        data: {
+          ...valid.data,
+          diagnostics: [{ assetId: secondAssetId, code: 'resolved' }],
+        },
+      })
+    ).toBe(false);
+    expect(
+      isChatGptInterpreterResolverResponse({
+        success: true,
+        data: {
+          resolved: [
+            { assetId: ASSET_ID, downloadUrl },
+            { assetId: secondAssetId, downloadUrl },
+          ],
+          diagnostics: [
+            { assetId: secondAssetId, code: 'resolved' },
+            { assetId: ASSET_ID, code: 'resolved' },
+          ],
+        },
+      })
+    ).toBe(false);
+    const nonEnumerable = structuredClone(valid);
+    Object.defineProperty(nonEnumerable.data, 'diagnostics', {
+      enumerable: false,
+      value: nonEnumerable.data.diagnostics,
+    });
+    expect(isChatGptInterpreterResolverResponse(nonEnumerable)).toBe(false);
+    const symbolic = {
+      ...valid,
+      data: { ...valid.data, diagnostics: [{ assetId: ASSET_ID, code: 'resolved' }] },
+    };
+    Object.defineProperty(symbolic.data.diagnostics[0], Symbol('extra'), {
+      enumerable: true,
+      value: true,
+    });
+    expect(isChatGptInterpreterResolverResponse(symbolic)).toBe(false);
   });
 });

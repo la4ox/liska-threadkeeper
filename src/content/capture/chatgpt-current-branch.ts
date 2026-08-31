@@ -74,6 +74,13 @@ import {
 } from './chatgpt-active-resolver-audit';
 import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver-request';
 import { resolveChatGptInterpreterAssets } from './chatgpt-interpreter-resolver-request';
+import {
+  CHATGPT_INTERPRETER_DIAGNOSTIC_WARNING,
+  hasInterpreterResolverFailure,
+  interpreterResolverFailureDetails,
+  interpreterResolverRunFailureDetails,
+  type ChatGptInterpreterAssetDetail,
+} from './chatgpt-interpreter-resolver-diagnostics';
 
 const ARTIFACT_ID = 'conversation';
 const ARTIFACT_PATH = 'responses/conversation.json';
@@ -638,6 +645,7 @@ export type ChatGptAssetResolverObservation =
       kind: 'matched';
       candidates: ChatGptPageOwnedAssetCandidate[];
       warning?: typeof CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING;
+      interpreterDetails?: ChatGptInterpreterAssetDetail[];
     }
   | {
       kind: 'probe-only';
@@ -649,6 +657,7 @@ export type ChatGptAssetResolverObservation =
   | {
       kind: 'interpreter-failed';
       warning: typeof CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING;
+      interpreterDetails?: ChatGptInterpreterAssetDetail[];
     };
 
 export interface ChatGptAssetResolverObservationDependencies {
@@ -828,11 +837,14 @@ export async function observeChatGptInterpreterAssetResolvers(
       return {
         kind: 'interpreter-failed',
         warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
+        interpreterDetails: interpreterResolverRunFailureDetails(plan, response.code),
       };
     }
+    const interpreterDetails = interpreterResolverFailureDetails(response.data.diagnostics);
     return {
       kind: 'matched',
       candidates: response.data.resolved.map(candidate => ({ ...candidate })),
+      ...(interpreterDetails.length > 0 && { interpreterDetails }),
       ...(response.data.resolved.length < plan.length && {
         warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
       }),
@@ -841,6 +853,7 @@ export async function observeChatGptInterpreterAssetResolvers(
     return {
       kind: 'interpreter-failed',
       warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
+      interpreterDetails: interpreterResolverRunFailureDetails(plan, 'interpreter-result-invalid'),
     };
   }
 }
@@ -862,6 +875,11 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
   try {
     const originalManifest = context.rawCaptureBundle.manifest;
     const metricWarning = chatGptActiveResolverAuditWarning(activeResolverMetric);
+    const warnings = [...originalManifest.warnings];
+    if (metricWarning !== undefined) warnings.push(metricWarning);
+    if (hasInterpreterResolverFailure(assetRecords)) {
+      warnings.push(CHATGPT_INTERPRETER_DIAGNOSTIC_WARNING);
+    }
     const manifest = buildCaptureManifest({
       captureId: originalManifest.captureId,
       provider: originalManifest.provider,
@@ -874,10 +892,7 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
         ...originalManifest.completeness,
         assets: destinationAssetCompleteness(originalManifest.completeness.assets, assetRecords),
       },
-      warnings:
-        metricWarning === undefined
-          ? originalManifest.warnings
-          : [...new Set([...originalManifest.warnings, metricWarning])],
+      warnings: [...new Set(warnings)],
       observedUnknownContentTypes: originalManifest.observedUnknownContentTypes,
     });
     const destinationRecords = new Map(manifest.assets.map(asset => [asset.id, asset]));

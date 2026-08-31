@@ -28,7 +28,13 @@ describe('ChatGPT interpreter resolver content bridge', () => {
   it('sends only the exact plan and preserves a validated deterministic input subset', async () => {
     const response = {
       success: true as const,
-      data: { resolved: [{ assetId: SECOND_ASSET_ID, downloadUrl: signedUrl() }] },
+      data: {
+        resolved: [{ assetId: SECOND_ASSET_ID, downloadUrl: signedUrl() }],
+        diagnostics: [
+          { assetId: FIRST_ASSET_ID, code: 'http-error', httpStatus: 404 },
+          { assetId: SECOND_ASSET_ID, code: 'resolved' },
+        ],
+      },
     };
     mocks.sendMessage.mockResolvedValue(response);
 
@@ -62,6 +68,10 @@ describe('ChatGPT interpreter resolver content bridge', () => {
       success: true,
       data: {
         resolved: [{ assetId: `chatgpt-asset-${'c'.repeat(64)}`, downloadUrl: signedUrl() }],
+        diagnostics: [
+          { assetId: `chatgpt-asset-${'c'.repeat(64)}`, code: 'resolved' },
+          { assetId: SECOND_ASSET_ID, code: 'timed-out' },
+        ],
       },
     });
     await expect(resolveChatGptInterpreterAssets(CONVERSATION_ID, candidates)).resolves.toEqual(
@@ -78,6 +88,10 @@ describe('ChatGPT interpreter resolver content bridge', () => {
               'https://chatgpt.com/backend-api/estuary/content?cid=11111111-2222-3333-4444-555555555555&id=private&p=p&sig=s&ts=1&v=1',
           },
         ],
+        diagnostics: [
+          { assetId: FIRST_ASSET_ID, code: 'resolved' },
+          { assetId: SECOND_ASSET_ID, code: 'timed-out' },
+        ],
       },
     });
     await expect(resolveChatGptInterpreterAssets(CONVERSATION_ID, candidates)).resolves.toEqual(
@@ -90,6 +104,10 @@ describe('ChatGPT interpreter resolver content bridge', () => {
         resolved: [
           { assetId: SECOND_ASSET_ID, downloadUrl: signedUrl() },
           { assetId: FIRST_ASSET_ID, downloadUrl: signedUrl() },
+        ],
+        diagnostics: [
+          { assetId: SECOND_ASSET_ID, code: 'resolved' },
+          { assetId: FIRST_ASSET_ID, code: 'resolved' },
         ],
       },
     });
@@ -112,5 +130,30 @@ describe('ChatGPT interpreter resolver content bridge', () => {
     await expect(resolveChatGptInterpreterAssets(CONVERSATION_ID, candidates)).resolves.toEqual(
       createChatGptInterpreterResolverFailure('interpreter-result-invalid')
     );
+  });
+
+  it('requires exact diagnostic coverage even when no binary URL was resolved', async () => {
+    const diagnostics = candidates.map(candidate => ({
+      assetId: candidate.assetId,
+      code: 'timed-out',
+    }));
+    mocks.sendMessage.mockResolvedValue({ success: true, data: { resolved: [], diagnostics } });
+    await expect(resolveChatGptInterpreterAssets(CONVERSATION_ID, candidates)).resolves.toEqual({
+      success: true,
+      data: { resolved: [], diagnostics },
+    });
+    for (const changed of [
+      diagnostics.slice(0, 1),
+      [...diagnostics].reverse(),
+      [...diagnostics, { assetId: `chatgpt-asset-${'c'.repeat(64)}`, code: 'timed-out' }],
+    ]) {
+      mocks.sendMessage.mockResolvedValue({
+        success: true,
+        data: { resolved: [], diagnostics: changed },
+      });
+      await expect(resolveChatGptInterpreterAssets(CONVERSATION_ID, candidates)).resolves.toEqual(
+        createChatGptInterpreterResolverFailure('interpreter-result-invalid')
+      );
+    }
   });
 });

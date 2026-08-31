@@ -23,6 +23,7 @@ import {
 } from './capture/chatgpt-current-branch';
 import type { ChatGptActiveResolverMetric } from './capture/chatgpt-active-resolver-audit';
 import type { ChatGptPageOwnedAssetCandidate } from './capture/chatgpt-asset-resolver';
+import { applyInterpreterResolverDetails } from './capture/chatgpt-interpreter-resolver-diagnostics';
 import { sha256Hex } from './capture/response';
 import { persistVerifiedBinaryAssets } from './staged-binary-persistence';
 import { ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
@@ -409,7 +410,17 @@ async function resolveAndAcquireAssetCandidates(
   resolution.candidates = [...candidates.values()].sort((left, right) =>
     left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
   );
-  return { resolution, acquired, acquisitionFailed };
+  return {
+    resolution,
+    acquired: {
+      ...acquired,
+      records: applyInterpreterResolverDetails(
+        acquired.records,
+        interpreter && 'interpreterDetails' in interpreter ? interpreter.interpreterDetails : []
+      ),
+    },
+    acquisitionFailed,
+  };
 }
 
 async function persistAcquiredBinaries(
@@ -446,7 +457,6 @@ async function attemptAssets(
     dependencies
   );
   if (!resolution.matched) {
-    const acquired = acquisitionFailure(context);
     return {
       acquired,
       binaryResults: [],

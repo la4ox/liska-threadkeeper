@@ -257,7 +257,10 @@ describe('ChatGPT interpreter resolver coverage', () => {
     fixture.remove.mockRejectedValue(new Error('synthetic cleanup rejection'));
     await expect(resolveFixture(fixture, [CANDIDATES[0]])).resolves.toEqual({
       success: true,
-      data: { resolved: [] },
+      data: {
+        resolved: [],
+        diagnostics: [{ assetId: CANDIDATES[0].assetId, code: 'http-error' }],
+      },
     });
     expect(fixture.remove).toHaveBeenCalledWith(TAB_ID);
   });
@@ -522,7 +525,7 @@ describe('ChatGPT interpreter resolver coverage', () => {
     });
   });
 
-  it('returns a partial or empty success while rejecting payload integrity and URL binding failures', async () => {
+  it('returns a partial or empty success with distinct payload diagnostics', async () => {
     const valid = captureFor(JSON.stringify({ download_url: VALID_DOWNLOAD_URL }));
     const invalidBase64 = {
       ...valid,
@@ -544,44 +547,62 @@ describe('ChatGPT interpreter resolver coverage', () => {
       label: string;
       capture: ReturnType<typeof captureFor>;
       digestSha256?: (bytes: Uint8Array) => Promise<string>;
-      expected: string[];
+      expectedDownloadUrl?: string;
+      expectedCode: string;
     }> = [
       {
         label: 'non-JSON media type',
         capture: { ...valid, mediaType: 'text/plain' },
-        expected: [],
+        expectedCode: 'payload-integrity-rejected',
       },
       {
         label: 'JSON suffix media type',
         capture: { ...valid, mediaType: 'application/vnd.synthetic+json; charset=utf-8' },
-        expected: [VALID_DOWNLOAD_URL],
+        expectedDownloadUrl: VALID_DOWNLOAD_URL,
+        expectedCode: 'resolved',
       },
       {
         label: 'media control character',
         capture: { ...valid, mediaType: 'application/json\u0001' },
-        expected: [],
+        expectedCode: 'payload-integrity-rejected',
       },
-      { label: 'noncanonical base64', capture: invalidBase64, expected: [] },
-      { label: 'invalid UTF-8 JSON', capture: invalidUtf8, expected: [] },
-      { label: 'malformed JSON', capture: invalidJson, expected: [] },
-      { label: 'wrong conversation URL', capture: wrongConversation, expected: [] },
+      {
+        label: 'noncanonical base64',
+        capture: invalidBase64,
+        expectedCode: 'payload-integrity-rejected',
+      },
+      {
+        label: 'invalid UTF-8 JSON',
+        capture: invalidUtf8,
+        expectedCode: 'payload-invalid-json',
+      },
+      {
+        label: 'malformed JSON',
+        capture: invalidJson,
+        expectedCode: 'payload-invalid-json',
+      },
+      {
+        label: 'wrong conversation URL',
+        capture: wrongConversation,
+        expectedCode: 'download-url-binding-rejected',
+      },
       {
         label: 'digest rejection',
         capture: valid,
         digestSha256: () => Promise.reject(new Error('synthetic digest rejection')),
-        expected: [],
+        expectedCode: 'payload-integrity-rejected',
       },
       {
         label: 'digest format rejection',
         capture: valid,
         digestSha256: () => Promise.resolve('not-a-sha256'),
-        expected: [],
+        expectedCode: 'payload-integrity-rejected',
       },
       {
         label: 'digest mismatch',
         capture: valid,
         digestSha256: () => Promise.resolve('0'.repeat(64)),
-        expected: [],
+        expectedCode: 'payload-integrity-rejected',
       },
     ];
     for (const testCase of cases) {
@@ -598,10 +619,11 @@ describe('ChatGPT interpreter resolver coverage', () => {
       ).resolves.toEqual({
         success: true,
         data: {
-          resolved: testCase.expected.map(downloadUrl => ({
-            assetId: CANDIDATES[0].assetId,
-            downloadUrl,
-          })),
+          resolved:
+            testCase.expectedDownloadUrl === undefined
+              ? []
+              : [{ assetId: CANDIDATES[0].assetId, downloadUrl: testCase.expectedDownloadUrl }],
+          diagnostics: [{ assetId: CANDIDATES[0].assetId, code: testCase.expectedCode }],
         },
       });
     }
@@ -617,7 +639,10 @@ describe('ChatGPT interpreter resolver coverage', () => {
     vi.stubGlobal('atob', undefined);
     await expect(resolveFixture(rejectedAtob, [CANDIDATES[0]])).resolves.toEqual({
       success: true,
-      data: { resolved: [] },
+      data: {
+        resolved: [],
+        diagnostics: [{ assetId: CANDIDATES[0].assetId, code: 'payload-integrity-rejected' }],
+      },
     });
     vi.stubGlobal('atob', originalAtob);
 
@@ -630,7 +655,10 @@ describe('ChatGPT interpreter resolver coverage', () => {
     vi.stubGlobal('btoa', undefined);
     await expect(resolveFixture(rejectedBtoa, [CANDIDATES[0]])).resolves.toEqual({
       success: true,
-      data: { resolved: [] },
+      data: {
+        resolved: [],
+        diagnostics: [{ assetId: CANDIDATES[0].assetId, code: 'payload-integrity-rejected' }],
+      },
     });
     vi.stubGlobal('btoa', originalBtoa);
 
@@ -645,7 +673,10 @@ describe('ChatGPT interpreter resolver coverage', () => {
     });
     await expect(resolveFixture(throwingAtob, [CANDIDATES[0]])).resolves.toEqual({
       success: true,
-      data: { resolved: [] },
+      data: {
+        resolved: [],
+        diagnostics: [{ assetId: CANDIDATES[0].assetId, code: 'payload-integrity-rejected' }],
+      },
     });
     vi.stubGlobal('atob', originalAtob);
 
@@ -657,17 +688,29 @@ describe('ChatGPT interpreter resolver coverage', () => {
     });
     await expect(resolveFixture(partial)).resolves.toEqual({
       success: true,
-      data: { resolved: [] },
+      data: {
+        resolved: [],
+        diagnostics: [
+          { assetId: CANDIDATES[0].assetId, code: 'http-error' },
+          { assetId: CANDIDATES[1].assetId, code: 'not-dispatched' },
+        ],
+      },
     });
   });
 
   it.each([
-    ['only download_url', { download_url: VALID_DOWNLOAD_URL }, true],
-    ['legacy success envelope', { status: 'Success', download_url: VALID_DOWNLOAD_URL }, true],
+    ['only download_url', { download_url: VALID_DOWNLOAD_URL }, true, 'resolved'],
+    [
+      'legacy success envelope',
+      { status: 'Success', download_url: VALID_DOWNLOAD_URL },
+      true,
+      'resolved',
+    ],
     [
       'legacy status with ignored metadata',
       { status: 'Success', download_url: VALID_DOWNLOAD_URL, metadata: { synthetic: true } },
       true,
+      'resolved',
     ],
     [
       'live success envelope with ignored metadata',
@@ -682,20 +725,32 @@ describe('ChatGPT interpreter resolver coverage', () => {
         no_auth_user_upload: false,
       },
       true,
+      'resolved',
     ],
-    ['extra envelope key', { download_url: VALID_DOWNLOAD_URL, extra: true }, false],
-    ['non-success status', { status: 'error', download_url: VALID_DOWNLOAD_URL }, false],
+    [
+      'extra envelope key',
+      { download_url: VALID_DOWNLOAD_URL, extra: true },
+      false,
+      'download-url-missing',
+    ],
+    [
+      'non-success status',
+      { status: 'error', download_url: VALID_DOWNLOAD_URL },
+      false,
+      'download-url-missing',
+    ],
     [
       'wrong download URL',
       { status: 'success', download_url: 'https://example.test/not-an-estuary-url' },
       false,
+      'download-url-binding-rejected',
     ],
-    ['missing URL', { status: 'Success' }, false],
-    ['array body', [VALID_DOWNLOAD_URL], false],
-    ['null body', null, false],
+    ['missing URL', { status: 'Success' }, false, 'download-url-missing'],
+    ['array body', [VALID_DOWNLOAD_URL], false, 'download-url-missing'],
+    ['null body', null, false, 'download-url-missing'],
   ] as const)(
     'accepts supported interpreter JSON envelopes: %s',
-    async (_label, value, accepted) => {
+    async (_label, value, accepted, diagnosticCode) => {
       const expectedUrl =
         accepted &&
         typeof value === 'object' &&
@@ -716,6 +771,7 @@ describe('ChatGPT interpreter resolver coverage', () => {
         success: true,
         data: {
           resolved: accepted ? [{ assetId: CANDIDATES[0].assetId, downloadUrl: expectedUrl }] : [],
+          diagnostics: [{ assetId: CANDIDATES[0].assetId, code: diagnosticCode }],
         },
       });
     }
@@ -756,6 +812,7 @@ describe('ChatGPT interpreter resolver coverage', () => {
       success: true,
       data: {
         resolved: [{ assetId: CANDIDATES[0].assetId, downloadUrl: VALID_DOWNLOAD_URL }],
+        diagnostics: [{ assetId: CANDIDATES[0].assetId, code: 'resolved' }],
       },
     });
     expect(subtleDigest).toHaveBeenCalledWith('SHA-256', expect.any(ArrayBuffer));
@@ -813,6 +870,13 @@ describe('ChatGPT interpreter resolver coverage', () => {
     );
     vi.stubGlobal('window', { [key]: complete });
     expect(readChatGptInterpreterResolverState(NONCE)).toEqual(complete);
+
+    const completeWithHttpStatus = completeState([{ state: 'http-error', httpStatus: 404 }], {
+      requestedCount: 1,
+      dispatchCount: 1,
+    });
+    vi.stubGlobal('window', { [key]: completeWithHttpStatus });
+    expect(readChatGptInterpreterResolverState(NONCE)).toEqual(completeWithHttpStatus);
 
     const allNonObserved = [
       'http-error',
@@ -888,6 +952,9 @@ describe('ChatGPT interpreter resolver coverage', () => {
       { ...base, outcomes: [{ state: 'observed', capture: null }] },
       { ...base, outcomes: [{ state: 'unknown-state' }] },
       { ...base, outcomes: [{ state: 'http-error', extra: true }] },
+      { ...base, outcomes: [{ state: 'http-error', httpStatus: 200 }] },
+      { ...base, outcomes: [{ state: 'http-error', httpStatus: 404.5 }] },
+      { ...base, outcomes: [{ state: 'fetch-rejected', httpStatus: 503 }] },
       { ...base, dispatchCount: 0, outcomes: [{ state: 'http-error' }] },
       { ...base, outcomes: [{ state: 'not-dispatched' }] },
       { ...base, outcomes: [{ state: 'observed', capture: { ...capture, extra: true } }] },

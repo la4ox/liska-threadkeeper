@@ -13,12 +13,12 @@ const CANDIDATES = [
   {
     assetId: `chatgpt-asset-${'a'.repeat(64)}`,
     messageId: 'msg_one',
-    sandboxPath: '/mnt/data/one.txt',
+    sandboxPath: '/mnt/data/report.pdf',
   },
   {
     assetId: `chatgpt-asset-${'b'.repeat(64)}`,
     messageId: 'msg_two',
-    sandboxPath: '/mnt/data/two.txt',
+    sandboxPath: '/mnt/data/appendix.docx',
   },
 ];
 const MARKER = `#liska-capture=${NONCE}&liska-interpreter-resolver=1`;
@@ -54,7 +54,7 @@ function chromeApi(result: unknown) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ChatGPT interpreter resolver background transport', () => {
-  it('pins the separate marker/document and correlates ordinal captures to deterministic input assets', async () => {
+  it('keeps a resolved PDF alongside a 404 DOCX diagnostic in plan order', async () => {
     const url =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
       '&id=private&p=p&sig=s&ts=1&v=1';
@@ -74,7 +74,7 @@ describe('ChatGPT interpreter resolver background transport', () => {
             mediaType: 'application/json',
           },
         },
-        { state: 'http-error' },
+        { state: 'http-error', httpStatus: 404 },
       ],
     };
     const chrome = chromeApi(result);
@@ -87,7 +87,13 @@ describe('ChatGPT interpreter resolver background transport', () => {
       })
     ).resolves.toEqual({
       success: true,
-      data: { resolved: [{ assetId: CANDIDATES[0].assetId, downloadUrl: url }] },
+      data: {
+        resolved: [{ assetId: CANDIDATES[0].assetId, downloadUrl: url }],
+        diagnostics: [
+          { assetId: CANDIDATES[0].assetId, code: 'resolved' },
+          { assetId: CANDIDATES[1].assetId, code: 'http-error', httpStatus: 404 },
+        ],
+      },
     });
     expect(chrome.api.tabs.create).toHaveBeenCalledWith({
       url: `https://chatgpt.com/c/${CONVERSATION_ID}${MARKER}`,
@@ -103,7 +109,7 @@ describe('ChatGPT interpreter resolver background transport', () => {
     expect(chrome.remove).toHaveBeenCalledWith(123);
   });
 
-  it('omits malformed/helper-invalid items while retaining completed partial success', async () => {
+  it('diagnoses malformed/helper-invalid items while retaining completed partial success', async () => {
     const invalid = new TextEncoder().encode(
       JSON.stringify({
         status: 'error',
@@ -137,7 +143,16 @@ describe('ChatGPT interpreter resolver background transport', () => {
         createNonce: () => NONCE,
         digestSha256: digest,
       })
-    ).resolves.toEqual({ success: true, data: { resolved: [] } });
+    ).resolves.toEqual({
+      success: true,
+      data: {
+        resolved: [],
+        diagnostics: [
+          { assetId: CANDIDATES[0].assetId, code: 'download-url-missing' },
+          { assetId: CANDIDATES[1].assetId, code: 'fetch-rejected' },
+        ],
+      },
+    });
   });
 
   it('rejects a document change between the pinned command and completion read', async () => {

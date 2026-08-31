@@ -33,7 +33,7 @@
 - Legacy Markdown warnings now distinguish retained attachment references/metadata from binary files. They no longer imply that omitted attachment bytes were saved merely because canonical JSON succeeded.
 - Obsidian archive companions are transported to Local REST API as `application/octet-stream` while retaining `.json` filenames and manifest media types. This avoids the plugin's `application/json` parser/re-serializer and preserves exact bytes for binary readback. Obsidian-only and immediate File+Obsidian live smokes produced Markdown plus raw/manifest/canonical companions; each raw matched its manifest byte length and SHA-256, and all three archive files were byte-identical across Downloads and Obsidian. Fixed allowlisted stage codes report preflight/PUT/readback failures without exposing paths, identifiers, API responses, or exception text.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
-- The maintained test suite passes across 118 test files (2,394 tests) with 95.03% statement, 89.26% branch, 97.99% function, and 97.79% line coverage. Active-resolver coverage includes both latch orders, exact download-mode construction, one-ID enforcement at every boundary, pre-fetch setup failure, fetch rejection, response-processing rejection, background-only integrity/missing-URL/binding rejection, Success-envelope validation in active/passive paths, per-ID/global timeout, route drift before source readiness, immutable late completion, exact `documentId`/href binding, poisoned page iterators and MAIN snapshots, cleanup races, raw-first probe-only orchestration, explicit zero acquisition/binary writes, exact aggregate persistence, and fail-closed audit validation. Interpreter-plan coverage adds exact metadata pointers, same-node message binding, Unicode/space paths, pointer/path/ID rejection, conflict skipping, pair dedupe, reverse stability, and cap20 alongside the existing passive observer, archive, branch, binary persistence, replay, provider, and worker-frontmatter boundary checks.
+- The maintained test suite passes across 136 test files (2,683 tests) with 95.07% statement, 89.98% branch, 97.91% function, and 97.78% line coverage. Active-resolver coverage includes both latch orders, exact download-mode construction, one-ID enforcement at every boundary, pre-fetch setup failure, fetch rejection, response-processing rejection, background-only integrity/missing-URL/binding rejection, Success-envelope validation in active/passive paths, per-ID/global timeout, route drift before source readiness, immutable late completion, exact `documentId`/href binding, poisoned page iterators and MAIN snapshots, cleanup races, raw-first probe-only orchestration, explicit zero acquisition/binary writes, exact aggregate persistence, and fail-closed audit validation. Interpreter-plan coverage adds exact metadata pointers, same-node message binding, Unicode/space paths, pointer/path/ID rejection, conflict skipping, pair dedupe, reverse stability, and cap20 alongside the existing passive observer, archive, branch, binary persistence, replay, provider, and worker-frontmatter boundary checks.
 - Draft PR [#7](https://github.com/la4ox/liska-threadkeeper/pull/7) remains the remote review surface and contains the four pushed stage/exact-download checkpoints through `56f0cd1`. Its first Ubuntu coverage run passed all 2,371 then-current tests but reported 94.99% statements versus Windows' 95.00%, so the threshold—not functionality—failed. Two direct worker-frontmatter fail-closed assertions now provide a platform margin at 95.02%; this fix and the later real-UI attachment-flow evidence remain local until re-pushed. Keep the PR in draft; do not merge or enable replay-mode binary acquisition. Actions use `actions/checkout@v7` and `actions/setup-node@v7`, both running on Node 24; the earlier Node 20 deprecation annotation is gone.
 
 ## Important limits and risks
@@ -67,7 +67,7 @@
 - The post-image-fix File-only mixed-attachment canary is live-verified, with **partial overall attachment coverage**. One trusted click after extension/page reload saved a 2,313,476-byte PNG and a 51,741-byte PDF, plus raw (112,121 bytes), manifest (4,377 bytes), canonical (218,453 bytes), and Markdown (15,669 bytes / 16 presentation messages). The PNG is byte-for-byte identical to the separately retained native ChatGPT download, including SHA-256 and its 1448 by 1086 PNG dimensions. Both binaries match actual length/hash/path claims in manifest and canonical; PDF header/EOF passes, without a semantic or visual PDF-review claim. Raw length/SHA-256 matches manifest, and canonical input hashes the exact manifest. Raw and canonical retain identical 36-node / 35-edge graphs, ordered child links, single root/leaf, and current node; all nodes are reachable, with no dangling references or cycles. All six asset IDs, states, and seven raw pointers reconcile across layers. Two assets are `fetched`; the PNG combines two exact raw pointers without duplicate bytes. The prior DOCX and three PNG metadata records remain `not-attempted`, with no attempt timestamps, acquired hashes, or local paths. Their references are preserved; availability or expiration is not established. Manifest warnings are empty, Markdown remains `structured-api / complete`, and the scoped manifest/canonical scan found zero checked runtime resolver/credential keys or signed estuary URLs. Exactly one new capture and one Markdown were added, both older snapshots remain, and no marker tab remains. No Obsidian or clipboard output was requested.
 - A long branch-heavy ordinary-chat canary exposed a loss-order bug before attachment acquisition: 267 individually valid asset records included five assistant text parts containing 2, 2, 3, 3, and 4 distinct sandbox links, so the old global one-pointer/one-asset invariant rejected the enriched manifest and discarded an already verified raw response. Source refs now remain unique within each asset, while distinct opaque assets may share one exact raw scalar pointer; ambiguous matching never selects an arbitrary record. The latest post-offscreen-fix strict replay, with acquisition/scroll/append disabled and File-only output, produced raw 9,834,958 bytes, manifest 137,507 bytes, canonical 20,261,613 bytes, and Markdown 2,090,849 bytes. Independent local verification plus parent raw-hash readback confirmed raw length/SHA-256 against manifest and canonical input linkage to the manifest. Raw/canonical have identical node IDs, parent/child edges, roots, and current node: 2,285 reachable nodes, 2,284 edges, 239 leaves, 68 branch points, max fan-out 10, no missing references or cycles. Both retain 267 assets as `not-attempted`, with no acquired binaries and zero manifest warnings. Markdown reports `structured-api`, `complete`, and 927 presentation messages. All outputs are new snapshots; no older export was replaced and no marker tab remained. Canonical has 7,259 diagnostic entries whose message semantics were not audited in this transport checkpoint; their presentation remains separate work. Canonical byte lengths on 243 unacquired assets are permitted provider metadata (`resolvedAssetFields`), not evidence of fetched files; all lack a local artifact reference and acquired hash.
 - ChatGPT complete-graph transport now has an explicit `inline | staged` boundary. Responses up to 16 MiB keep the live-verified inline route; larger raw responses up to 64 MiB remain closure-private in the disposable page and cross MAIN/background/offscreen only as independently canonical 512 KiB chunks. Background creates a random 192-bit `archive-stage-*` capability in the separate `liska-archive-stages` OPFS namespace, accepts only sequential offsets (or an exact byte-identical acknowledged retry), and seals only after final length/SHA-256 verification. Content reassembles and rehashes raw solely for the existing non-streaming normalizer. Raw remains staged until its selected durable outputs finish; canonical JSON above the old 32 MiB inline limit uses the same staged route, while manifest remains inline and never records the stage ID. File/Obsidian paths remain append-only; Obsidian retains binary readback/hash verification. File ownership survives MV3 suspension in a bounded local registry containing only download ID, random stage ID, extension Blob URL, and timestamp. Null callback IDs are never guessed and quarantine exact cleanup for at most 24 hours. Archive-stage messages require the exact top-frame ChatGPT document, while offscreen accepts only the same-extension worker without tab/document metadata. Fresh Terra and Sol reviews found no residual P0-P2 issue after recovery and sender hardening.
-- Synthetic staged-graph evidence covers the exact 16 MiB boundary, a complete 20 MiB raw capture, canonical JSON above 32 MiB, UTF-8 split boundaries, duplicate/gap/overlap/conflict handling, OPEN/SEALED retries, exact sender/offscreen gates, cancellation, File/Obsidian release, and fresh-worker terminal recovery without a whole-payload runtime message. Current full validation, including native image compatibility, passes 134 test files / 2,651 tests with two workers. Coverage passes at 95.05% statements, 89.82% branches, 97.88% functions, and 97.80% lines. Production build, changed-file formatting, and lint pass; lint retains only three older unrelated warnings. A real-provider response above 16 MiB remains unverified. Explicit opaque replay deliberately remains on its existing 16 MiB inline cap rather than becoming an oversized fallback.
+- Synthetic staged-graph evidence covers the exact 16 MiB boundary, a complete 20 MiB raw capture, canonical JSON above 32 MiB, UTF-8 split boundaries, duplicate/gap/overlap/conflict handling, OPEN/SEALED retries, exact sender/offscreen gates, cancellation, File/Obsidian release, and fresh-worker terminal recovery without a whole-payload runtime message. Current full validation, including native image compatibility, passes 136 test files / 2,683 tests with two workers. Coverage passes at 95.07% statements, 89.98% branches, 97.91% functions, and 97.78% lines. Production build, changed-file formatting, and lint pass; lint retains only three older unrelated warnings. A real-provider response above 16 MiB remains unverified. Explicit opaque replay deliberately remains on its existing 16 MiB inline cap rather than becoming an oversized fallback.
 - The staged path is now live-verified in Comet after correcting an offscreen-only API mismatch. A zero-byte diagnostic returned `offscreen-worker-entry-unavailable`: Chromium does not expose `runtime.getManifest` to offscreen pages. The exact worker URL is now read once from the installed package's own manifest with a three-second, no-credentials/no-redirect fetch; content tabs and extension documents remain rejected, and no storage operation begins before sender verification. Live zero-byte begin/abort passes. A 16,777,264-byte synthetic stage crossed 33 bounded chunks in 3.792 seconds with an exact SHA-256 readback and acknowledged abort. Two 131-byte synthetic JSON File outputs matched filesystem length/hash; the refined control also proved readable bytes before commit and an unavailable stage after output. No chat data entered those synthetic probes. New live offscreen entrypoint: `offscreen-DFZtwxPD.js`; worker entrypoint: `service-worker.ts-DkgHGaUn.js`.
 - Three scan-derived hardening items remain outside this checkpoint: fail-closed cleanup of a legacy Obsidian key retained in `chrome.storage.sync` after migration failure; shared structural work budgets for recursive ChatGPT/DeepSeek normalization; and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
 - One earlier settings run attempted an Obsidian archive write after the user had visually disabled that output without a confirmed persisted update. Destination toggles now send an acknowledged popup-only background update, apply an in-memory override before `chrome.storage.sync` completes, and serialize rapid changes. Live Obsidian-only followed immediately by File+Obsidian smokes confirmed the toggle/readback path.
@@ -107,45 +107,48 @@
 
 ## Next step
 
-Keep PR #7 in draft. The offscreen blocker is resolved; the mixed canary now
-confirms both PDF persistence and byte-exact native PNG acquisition.
-The native image route is now established: the normal page requests exact
-`/backend-api/files/download/{fileId}` with `conversation_id` equal to the current
-chat, `inline=false`, `download_intent=false`, and `include_library_file_state=true`.
-Its 200 JSON response has lowercase `status: "success"`; the six-key estuary URL
-has numeric `cid`, `p=fs`, and `id` equal to that helper's file ID. Native Save
-produced a 2,313,476-byte PNG, 1448 by 1086, matching two raw image pointers; its
-local checksum is retained as a live control. This image is available, so its
-previous omission is not evidence of expiration.
+Keep PR #7 in draft. Per-attachment interpreter resolver diagnostics are now
+implemented, independently reviewed, and built locally. A complete response
+contains exactly one fixed-code diagnostic per original planned opaque asset ID,
+in order. Content rejects missing, reordered, duplicate, or foreign coverage.
+Native non-200 responses expose only a bounded numeric HTTP status; error bodies,
+headers, provider strings, and signed URLs are never copied into diagnostics.
 
-The compatibility patch is implemented, reviewed, and live-verified on this sample.
-Current, selected, and all-branches replay exports use the existing raw-first
-passive opaque observer instead of the closed active diagnostic. It recognizes
-only the exact four-key native helper request (all 24 key orders). Numeric
-file-ID URLs are bound to the observed helper ID, then to exact committed raw
-evidence; a runtime-only resolver key is retained and reverified before fetch.
-This identity check covers both six- and eight-key numeric forms, closing the
-independently reproduced format-downgrade bypass. The generic interpreter
-validator remains unchanged: eight-key support stays, numeric six-key URLs
-remain rejected outside the dedicated keyed path. Independent reviewer recheck
-confirmed zero fetches for mismatched IDs and no remaining material finding.
-No new permissions, active resolver requests, retries, or resource-limit changes
-were added. The observer can only acquire files whose native helper responses
-it actually sees; unobserved assets must remain honestly `not-attempted`.
+Unresolved records retain reasons in the existing manifest `detail` and canonical
+`acquisition.detail` fields, for example `interpreter-resolver-http-404`.
+Resolver failures keep `not-attempted` and a null attempt timestamp until binary
+acquisition actually happens. Global failures use distinct `interpreter-resolver-run-*`
+codes without inventing individual dispatch evidence. Later acquisition or
+destination-write outcomes take precedence. All-failure runs preserve the reasons;
+final manifests include a fixed warning when unresolved diagnostic details remain.
+No route, permission, retry policy, resource cap, or archive schema was widened.
 
-Next: investigate the remaining DOCX on the same chosen sample as a separate
-bounded case. The saved raw retains its exact link and the pure planner recognizes
-it, but no bytes or expiration evidence have been obtained. Inspect the native
-download outcome before changing acquisition behavior; do not rerun the whole
-export or classify metadata-only records as lost files without new evidence.
-Current build entrypoints: `chatgpt-document-start.ts-j2wkFLpM.js`,
-`service-worker.ts-BL1L_dUJ.js`, and `index.ts-cLR1UYDd.js`; offscreen stays
-`offscreen-DFZtwxPD.js`. Implementation commit `b2a41ec` is local; no public push
-was made for this checkpoint. The user confirmed extension reload and enabled
-attachments for the completed File-only canary. Scroll/append/probe remain off
-and explicit replay on by the agreed manual setup; settings were not read or
-changed through a blocked extension page. Browser policy requires manual
-extension-settings changes. No Obsidian write occurred. A real native provider
-graph above 16 MiB remains a
-separate evidence gap; do not raise its cap or turn opaque replay into an
-oversized fallback.
+Final validation: 136 test files / 2,683 tests pass with two workers. Coverage:
+95.07% statements, 89.98% branches, 97.91% functions, 97.78% lines.
+Typecheck, scoped formatting, lint, production build, and reviewer recheck pass;
+lint has only the three pre-existing unrelated warnings. Tests include PDF success
+plus DOCX 404, all-item failures, global run failure, independent File/Obsidian
+write outcomes, untouched original raw/ledger, strict identity/shape rejection,
+and terminal-newline rejection for durable reason codes.
+
+The last pre-diagnostic File-only live comparison preserved the complete 36-node,
+35-edge graph and fetched PNG plus PDF, but not DOCX. A 38,340-byte manual DOCX
+control remains local, with verified ZIP structure and required XML parts.
+One earlier native message-link helper returned 404. The user's client-block
+screenshots also occurred after Download; the exported Comet policy groups were
+empty. These observations do not prove expiration, corporate management, or a
+single browser fault. Do not bind a Library file to an archive asset by filename.
+
+Next: after the user reloads Liska and the selected chat, run exactly one
+File-only canary and inspect the DOCX reason in the new manifest/canonical.
+Keep current settings (attachments on; scroll/append/probe off; explicit replay
+on) unless the user changes them. Browser settings remain manual. This diagnostic
+build has NOT been live-tested; the current download fault is not claimed fixed.
+No browser connection, private archive mutation, Obsidian write, or public push
+was made for this implementation checkpoint.
+
+Current built entries: `chatgpt-document-start.ts-DYY8Dh9C.js`,
+`service-worker.ts-Du0af7ZB.js`, `index.ts-DrquZ7ih.js`, and
+`index.ts-loader-Blqd8M5t.js`; offscreen stays `offscreen-DFZtwxPD.js`.
+A real native provider raw graph above 16 MiB remains a separate evidence gap;
+do not raise its cap or turn opaque replay into an oversized fallback.
