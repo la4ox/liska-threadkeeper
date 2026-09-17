@@ -143,8 +143,8 @@ source, not a filename-based fallback; its message-level identity bridge is not
 proven. Official-export import and cross-source reconciliation remain later
 phases.
 
-This checkpoint is published to draft PR #7; fresh Ubuntu CI passed after both
-publication pushes, and the required post-reload browser smoke passed. The
+This checkpoint is published to draft PR #7; fresh Ubuntu CI is green on the
+final published head, and the required post-reload browser smoke passed. The
 technical merge-readiness gate for this bounded checkpoint is satisfied. Keep
 the PR in draft until the maintainer explicitly decides to mark it ready, merge,
 or release; none of those publication decisions is automatic.
