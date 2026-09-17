@@ -10,6 +10,7 @@
 - Live DeepSeek export was verified on a 2,803,334-byte conversation: 1,382 messages (691 user + 691 assistant), 690 reasoning blocks, correct first/last roles, and no alternation breaks. It completed in seconds without scrolling.
 - DeepSeek now has a provider-specific `liska-capture/1` → `liska-thread/1` adapter on `codex/deepseek-canonical-core`. It preserves exact non-delta history-response bytes, every validated parent/child node, ordered text/Markdown/reasoning/unknown blocks, manifest unknown-type evidence, and a current-node Markdown projection. Durable File/Obsidian outputs receive raw/manifest/canonical companions through provider-bound inline or staged transport; DOM fallback remains explicitly partial and can retain verified raw/manifest evidence after a post-capture normalization failure. DeepSeek assets are honestly `not-attempted`; acquisition is not implemented. A post-reload live File smoke on 2026-09-18 preserved a 40,585-byte raw response, a 955-byte manifest, a 67,220-byte canonical archive, and Markdown marked `structured-api / complete`. Raw and manifest hashes linked exactly; all 12 nodes and 11 edges were reachable from one root with no cycle, dangling, or asymmetric link; three reasoning and three unknown blocks remained typed; credential/signed-URL scans of manifest/canonical were clean. The live provider omitted `cache_control`; Liska accepted the self-contained graph while continuing to reject explicit cache deltas.
 - A content-free field-shape probe of that same live raw found a `files` array on every message and two populated file records. Each record had only metadata fields (`id`, `file_name`, `file_size`, timestamps, status/error, previewability, and token usage); no URL, URI, download path, or transport string was present. The implemented metadata ledger hashes provider IDs into opaque manifest/canonical asset IDs, deduplicates only exact IDs, retains exact raw pointers, and appends attachment blocks while keeping acquisition `not-attempted`. A post-reload live smoke retained exactly two raw file records as two manifest records, two canonical assets, and two attachment blocks. Provider IDs were absent from manifest and occurred only in local canonical source references; both assets had null MIME/hash/local paths, no binary files were created, and the capture directory still contained exactly raw/manifest/canonical JSON. Binary acquisition requires a separately observed resolver contract and must not guess a URL from the raw file ID.
+- The public DeepSeek frontend bundle identifies the page-owned metadata resolver as exact same-origin `GET /api/v0/file/fetch_files` with the query key `file_ids`; successful records may carry `signed_path`. Its URL builder accepts an absolute path or binds a relative path to the configured file-service base under `/api`, then adds the resource-mode query key `ty` and optional format key `fmt`. The live old-attachment sample had already issued the same 41-character-ID query; both the browser resource record and one bounded diagnostic request returned HTTP 200 JSON with an empty `files` list, so no signed path or binary action was available. No credential, ID value, response body, filename, or conversation text was retained by the probe. This proves the resolver shape and this snapshot's empty outcome, not binary availability or acquisition support.
 - Exports require a trusted user click. Programmatic page clicks cannot trigger file, clipboard, or authenticated Obsidian operations.
 - Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
@@ -131,10 +132,9 @@ Fresh local validation on 2026-09-18:
   frontmatter facts recorded above. Conversation text was not reviewed during
   filesystem verification.
 
-The next bounded step is to observe one real DeepSeek attachment action and the
-public client route that serves it, retaining only endpoint shape, method,
-status/media class, and identity-binding rules. Do not retain credentials,
-provider values, response bodies, filenames, or conversation text. Acquisition
-code remains out of scope until that resolver contract is independently
-repeatable. Commit and push the verified metadata-ledger first; keep PR #8 in
-draft and release/tag creation as an explicit maintainer action.
+The next attachment gate requires a fresh positive DeepSeek sample whose exact
+page-owned `fetch_files` response contains one validated record and signed path.
+Until then, do not add binary acquisition, retries, guessed URLs, or an
+`unavailable` claim for every empty response. Keep PR #8 in draft while its
+updated Ubuntu CI runs; release/tag creation remains an explicit maintainer
+action.
