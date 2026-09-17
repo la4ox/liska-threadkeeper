@@ -13,9 +13,25 @@ import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
 import type { ConversationMessage, ExtractionResult, SyncSettings } from '../../lib/types';
 import { SELECTORS } from './selectors/deepseek';
-import { fetchDeepSeekConversation } from './deepseek-api';
+import {
+  DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
+  DeepSeekStructuredCaptureError,
+  fetchDeepSeekConversation,
+} from './deepseek-api';
+import { abortStagedArchiveArtifact } from '../archive-stage';
 
 type MessageRole = 'user' | 'assistant';
+
+async function discardDeepSeekArchiveStages(
+  companion: DeepSeekStructuredCaptureError['archiveCompanion']
+): Promise<void> {
+  if (!companion) return;
+  await Promise.all(
+    companion.artifacts
+      .filter(artifact => artifact.transport === 'staged')
+      .map(artifact => abortStagedArchiveArtifact(artifact.stageId, 'deepseek'))
+  );
+}
 
 /**
  * DeepSeek conversation extractor.
@@ -53,12 +69,12 @@ export class DeepSeekExtractor extends BaseExtractor {
         if (apiConversation) {
           if (conversationId) {
             console.info('[G2O] Extracted DeepSeek conversation from local session history');
-            return this.buildConversationResult(
-              apiConversation.messages,
-              conversationId,
-              apiConversation.title ?? this.getTitle(),
-              this.platform
-            );
+            return {
+              success: true,
+              data: apiConversation.data,
+              archiveCompanion: apiConversation.archiveCompanion,
+              warnings: apiConversation.warnings.length > 0 ? apiConversation.warnings : undefined,
+            };
           }
         }
       } catch (error) {
@@ -66,6 +82,28 @@ export class DeepSeekExtractor extends BaseExtractor {
           '[G2O] DeepSeek history API unavailable; falling back to rendered conversation:',
           error instanceof Error ? error.message : 'unknown error'
         );
+        const fallback = await super.extract();
+        if (
+          fallback.success &&
+          error instanceof DeepSeekStructuredCaptureError &&
+          error.archiveCompanion
+        ) {
+          return {
+            ...fallback,
+            data: fallback.data
+              ? {
+                  ...fallback.data,
+                  capture: { mode: 'dom-fallback', completeness: 'partial' },
+                }
+              : fallback.data,
+            archiveCompanion: error.archiveCompanion,
+            warnings: [...(fallback.warnings ?? []), DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING],
+          };
+        }
+        if (error instanceof DeepSeekStructuredCaptureError) {
+          await discardDeepSeekArchiveStages(error.archiveCompanion);
+        }
+        return fallback;
       }
     }
 

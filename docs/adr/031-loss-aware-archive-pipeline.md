@@ -3,10 +3,10 @@
 ## Status
 
 Accepted as the architectural direction on 2026-08-13. The canonical wire
-schema has now been validated against synthetic fixtures and multiple live
-ChatGPT graph captures. It remains versioned as experimental until the first
-second-provider migration and official-export reconciliation establish which
-provider-neutral fields are stable across sources.
+schema has now been validated against synthetic fixtures, multiple live
+ChatGPT graph captures, and the first live DeepSeek canonical capture. It
+remains versioned as experimental until official-export reconciliation tests
+the same provider-neutral fields across another source format.
 
 ## Context
 
@@ -677,11 +677,14 @@ later staged begin.
 
 ## ChatGPT-first implementation plan
 
-Progress as of 2026-09-17: steps 1–6 are implemented and live-verified for
+Progress as of 2026-09-18: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images and
 interpreter/sandbox documents with explicit completeness diagnostics; custom-GPT,
 Library-ID, Calpico fallback, and general Deep Research binary acquisition remain
-outside the current checkpoint. Steps 8–9 remain separate future phases.
+outside the current checkpoint. Step 8 is implemented and live-verified for
+DeepSeek exact history bytes, complete graph normalization, current-branch
+projection, and raw/manifest/canonical persistence. Step 9 remains a separate
+future phase.
 
 1. Define TypeScript types, JSON Schema, graph validators, and small synthetic
    fixtures for old/new ChatGPT graph variants.
@@ -698,6 +701,10 @@ outside the current checkpoint. Steps 8–9 remain separate future phases.
 7. Acquire and package attachments with explicit completeness diagnostics; then
    cover tool/system nodes, reasoning, citations, Canvas, and Deep Research.
 8. Move DeepSeek onto the same canonical core after ChatGPT proves the schema.
+   The first bounded slice is implemented: exact `REPLACE` history bytes retain
+   all graph nodes and ordered text/Markdown/reasoning/unknown blocks, while the
+   legacy view follows `current_message_id`. DeepSeek assets remain explicitly
+   not attempted.
 9. Add official-export importers and cross-format reconciliation later, using
    source IDs and raw pointers instead of field-name guesses.
 

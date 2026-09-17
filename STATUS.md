@@ -8,6 +8,8 @@
 - File and clipboard exports work without Obsidian. Obsidian remains an optional output through Local REST API 5.1.0 on exact loopback host `127.0.0.1`. HTTPS health, certificate, and bearer authentication were verified independently on port `27124`. Because Comet's extension service worker did not inherit the tab's self-signed-certificate exception, the browser integration uses the plugin's HTTP compatibility endpoint on `127.0.0.1:27123`. End-to-end DeepSeek sync produced a 2,854,272-byte note with frontmatter `message_count: 1408` and exactly 1,408 rendered role markers.
 - DeepSeek signed-in exports use the same-origin history response, reconstruct the selected active branch, preserve Markdown, and optionally include Thinking. DOM/scroll fallback remains available.
 - Live DeepSeek export was verified on a 2,803,334-byte conversation: 1,382 messages (691 user + 691 assistant), 690 reasoning blocks, correct first/last roles, and no alternation breaks. It completed in seconds without scrolling.
+- DeepSeek now has a provider-specific `liska-capture/1` → `liska-thread/1` adapter on `codex/deepseek-canonical-core`. It preserves exact non-delta history-response bytes, every validated parent/child node, ordered text/Markdown/reasoning/unknown blocks, manifest unknown-type evidence, and a current-node Markdown projection. Durable File/Obsidian outputs receive raw/manifest/canonical companions through provider-bound inline or staged transport; DOM fallback remains explicitly partial and can retain verified raw/manifest evidence after a post-capture normalization failure. DeepSeek assets are honestly `not-attempted`; acquisition is not implemented. A post-reload live File smoke on 2026-09-18 preserved a 40,585-byte raw response, a 955-byte manifest, a 67,220-byte canonical archive, and Markdown marked `structured-api / complete`. Raw and manifest hashes linked exactly; all 12 nodes and 11 edges were reachable from one root with no cycle, dangling, or asymmetric link; three reasoning and three unknown blocks remained typed; credential/signed-URL scans of manifest/canonical were clean. The live provider omitted `cache_control`; Liska accepted the self-contained graph while continuing to reject explicit cache deltas.
+- A content-free field-shape probe of that same live raw found a `files` array on every message and two populated file records. Each record had only metadata fields (`id`, `file_name`, `file_size`, timestamps, status/error, previewability, and token usage); no URL, URI, download path, or transport string was present. The next safe attachment slice is therefore metadata inventory only: derive opaque asset IDs, retain exact raw pointers, and mark acquisition `not-attempted`. Binary acquisition requires a separately observed resolver contract and must not guess a URL from the raw file ID.
 - Exports require a trusted user click. Programmatic page clicks cannot trigger file, clipboard, or authenticated Obsidian operations.
 - Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
@@ -66,7 +68,7 @@
 - The interpreter adapter is live-verified behind the trusted-click `Export images & attachments` gate on standard `/c/{conversationId}` DOCX and PDF outputs. The pinned helper accepts own-field `status` values `Success` or `success`, ignores extra descriptive fields, and returns only a validated signed URL. Legacy URLs retain UUID `cid` binding; current exact `id,fn,cd,ts,p,cid,sig,v` URLs use numeric `cid` and are bound by the exact same-conversation helper route, pinned document, and committed-raw message/path pair. Content performs one immediate same-origin GET with browser-managed `credentials: include`, `redirect: error`, `no-referrer`, and `no-store`; it never reads or serializes cookies/headers, adds no cookie permission, and never retries. Interpreter bytes are acquired before the remaining-only legacy audit; both families share one 20-attempt/128 MiB budget and persist once. The earlier DOCX canary saved 38,620 verified bytes with valid ZIP entries and exact manifest/canonical evidence. Custom-GPT, library-ID, Calpico fallback, retries, and broad raw/DOM scanning remain unsupported.
 - The post-image-fix File-only mixed-attachment canary is live-verified, with **partial overall attachment coverage**. One trusted click after extension/page reload saved a 2,313,476-byte PNG and a 51,741-byte PDF, plus raw (112,121 bytes), manifest (4,377 bytes), canonical (218,453 bytes), and Markdown (15,669 bytes / 16 presentation messages). The PNG is byte-for-byte identical to the separately retained native ChatGPT download, including SHA-256 and its 1448 by 1086 PNG dimensions. Both binaries match actual length/hash/path claims in manifest and canonical; PDF header/EOF passes, without a semantic or visual PDF-review claim. Raw length/SHA-256 matches manifest, and canonical input hashes the exact manifest. Raw and canonical retain identical 36-node / 35-edge graphs, ordered child links, single root/leaf, and current node; all nodes are reachable, with no dangling references or cycles. All six asset IDs, states, and seven raw pointers reconcile across layers. Two assets are `fetched`; the PNG combines two exact raw pointers without duplicate bytes. The prior DOCX and three PNG metadata records remain `not-attempted`, with no attempt timestamps, acquired hashes, or local paths. Their references are preserved; availability or expiration is not established. Manifest warnings are empty, Markdown remains `structured-api / complete`, and the scoped manifest/canonical scan found zero checked runtime resolver/credential keys or signed estuary URLs. Exactly one new capture and one Markdown were added, both older snapshots remain, and no marker tab remains. No Obsidian or clipboard output was requested.
 - A long branch-heavy ordinary-chat canary exposed a loss-order bug before attachment acquisition: 267 individually valid asset records included five assistant text parts containing 2, 2, 3, 3, and 4 distinct sandbox links, so the old global one-pointer/one-asset invariant rejected the enriched manifest and discarded an already verified raw response. Source refs now remain unique within each asset, while distinct opaque assets may share one exact raw scalar pointer; ambiguous matching never selects an arbitrary record. The latest post-offscreen-fix strict replay, with acquisition/scroll/append disabled and File-only output, produced raw 9,834,958 bytes, manifest 137,507 bytes, canonical 20,261,613 bytes, and Markdown 2,090,849 bytes. Independent local verification plus parent raw-hash readback confirmed raw length/SHA-256 against manifest and canonical input linkage to the manifest. Raw/canonical have identical node IDs, parent/child edges, roots, and current node: 2,285 reachable nodes, 2,284 edges, 239 leaves, 68 branch points, max fan-out 10, no missing references or cycles. Both retain 267 assets as `not-attempted`, with no acquired binaries and zero manifest warnings. Markdown reports `structured-api`, `complete`, and 927 presentation messages. All outputs are new snapshots; no older export was replaced and no marker tab remained. Canonical has 7,259 diagnostic entries whose message semantics were not audited in this transport checkpoint; their presentation remains separate work. Canonical byte lengths on 243 unacquired assets are permitted provider metadata (`resolvedAssetFields`), not evidence of fetched files; all lack a local artifact reference and acquired hash.
-- ChatGPT complete-graph transport now has an explicit `inline | staged` boundary. Responses up to 16 MiB keep the live-verified inline route; larger raw responses up to 64 MiB remain closure-private in the disposable page and cross MAIN/background/offscreen only as independently canonical 512 KiB chunks. Background creates a random 192-bit `archive-stage-*` capability in the separate `liska-archive-stages` OPFS namespace, accepts only sequential offsets (or an exact byte-identical acknowledged retry), and seals only after final length/SHA-256 verification. Content reassembles and rehashes raw solely for the existing non-streaming normalizer. Raw remains staged until its selected durable outputs finish; canonical JSON above the old 32 MiB inline limit uses the same staged route, while manifest remains inline and never records the stage ID. File/Obsidian paths remain append-only; Obsidian retains binary readback/hash verification. File ownership survives MV3 suspension in a bounded local registry containing only download ID, random stage ID, extension Blob URL, and timestamp. Null callback IDs are never guessed and quarantine exact cleanup for at most 24 hours. Archive-stage messages require the exact top-frame ChatGPT document, while offscreen accepts only the same-extension worker without tab/document metadata. Fresh Terra and Sol reviews found no residual P0-P2 issue after recovery and sender hardening.
+- Structured graph transport now has an explicit `inline | staged` boundary. ChatGPT responses up to 16 MiB keep the live-verified inline route; larger ChatGPT raw responses up to 64 MiB and DeepSeek raw responses above 16 MiB use independently canonical 512 KiB chunks. Background creates a random 192-bit `archive-stage-*` capability in the separate `liska-archive-stages` OPFS namespace, accepts only sequential offsets (or an exact byte-identical acknowledged retry), and seals only after final length/SHA-256 verification. Content reassembles and rehashes raw solely for the existing non-streaming normalizer. Raw remains staged until its selected durable outputs finish; canonical JSON above the 32 MiB inline limit uses the same staged route, while manifest remains inline and never records the stage ID. File/Obsidian paths remain append-only; Obsidian retains binary readback/hash verification. File ownership survives MV3 suspension in a bounded local registry containing only download ID, random stage ID, extension Blob URL, and timestamp. Null callback IDs are never guessed and quarantine exact cleanup for at most 24 hours. Archive-stage messages require the exact top-frame conversation document for their declared ChatGPT or DeepSeek source, while offscreen accepts only the same-extension worker without tab/document metadata. Fresh independent review found no residual P0-P2 issue after source binding, cleanup propagation, and privacy hardening.
 - Synthetic staged-graph evidence covers the exact 16 MiB boundary, a complete 20 MiB raw capture, canonical JSON above 32 MiB, UTF-8 split boundaries, duplicate/gap/overlap/conflict handling, OPEN/SEALED retries, exact sender/offscreen gates, cancellation, File/Obsidian release, and fresh-worker terminal recovery without a whole-payload runtime message. Current full validation, including native image compatibility, passes 136 test files / 2,683 tests with two workers. Coverage passes at 95.07% statements, 89.98% branches, 97.91% functions, and 97.78% lines. Production build, changed-file formatting, and lint pass; lint retains only three older unrelated warnings. A real-provider response above 16 MiB remains unverified. Explicit opaque replay deliberately remains on its existing 16 MiB inline cap rather than becoming an oversized fallback.
 - The staged path is now live-verified in Comet after correcting an offscreen-only API mismatch. A zero-byte diagnostic returned `offscreen-worker-entry-unavailable`: Chromium does not expose `runtime.getManifest` to offscreen pages. The exact worker URL is now read once from the installed package's own manifest with a three-second, no-credentials/no-redirect fetch; content tabs and extension documents remain rejected, and no storage operation begins before sender verification. Live zero-byte begin/abort passes. A 16,777,264-byte synthetic stage crossed 33 bounded chunks in 3.792 seconds with an exact SHA-256 readback and acknowledged abort. Two 131-byte synthetic JSON File outputs matched filesystem length/hash; the refined control also proved readable bytes before commit and an unavailable stage after output. No chat data entered those synthetic probes. New live offscreen entrypoint: `offscreen-DFZtwxPD.js`; worker entrypoint: `service-worker.ts-DkgHGaUn.js`.
 - Three scan-derived hardening items remain outside this checkpoint: fail-closed cleanup of a legacy Obsidian key retained in `chrome.storage.sync` after migration failure; shared structural work budgets for recursive ChatGPT/DeepSeek normalization; and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
@@ -85,6 +87,8 @@
 - Loadable unpacked extension: `dist/`
 - Current local package: `liska-threadkeeper-3.0.0.zip`, 200,822 bytes, SHA-256 `6DEFA3DDBA4375555A5DB5096B31A39CDFBD05E318B413795B6022869237BB76`; all 29 packaged files exactly match the final `dist/` tree.
 - DeepSeek history client/parser: `src/content/extractors/deepseek-api.ts`
+- DeepSeek canonical normalizer and synthetic fixture: `src/archive/normalizers/deepseek.ts`, `src/archive/normalizers/deepseek/`, and `test/fixtures/archive/deepseek-raw/branching-replace.json`
+- Provider-neutral inline/staged JSON companion builder: `src/content/capture/json-archive-companion.ts`
 - Privacy policy source: `docs/privacy.html`
 - Current product and setup guide: `README.md`
 - Documentation index: `docs/README.md`
@@ -107,44 +111,30 @@
 
 ## Next step
 
-The current ChatGPT web checkpoint is ready for publication to draft PR #7.
-It includes complete-graph capture, current/selected/all-branch presentations,
-raw/manifest/canonical companions, staged large-graph transport, and bounded
-partial acquisition for ordinary-chat file-ID images and interpreter/sandbox
-documents.
+The ChatGPT checkpoint was merged to `main` as merge commit `588d390`. Current
+work continues on `codex/deepseek-canonical-core` as an independent bounded
+provider migration.
 
-Fresh local validation on 2026-09-17:
+Fresh local validation on 2026-09-18:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 136 test files / 2,683 tests pass with two workers;
-- coverage passes at 95.07% statements, 89.98% branches, 97.91% functions,
-  and 97.78% lines;
-- lint passes with only three pre-existing advisory warnings;
-- formatting, typecheck, production build, ZIP packaging, and a two-build
-  determinism comparison pass;
-- the final ZIP contains 29 packaged files that exactly match `dist/`, with
-  no traversal/absolute/duplicate paths, sourcemaps, tests, coverage, env files,
-  high-confidence secrets, or personal-data patterns;
-- a fresh independent review found no P0-P2 issue.
-- one post-reload live Comet smoke on 2026-09-18 completed structured capture
-  on the packaged build: raw/manifest/canonical hashes link exactly; all 36 graph nodes and 35
-  edges are reachable with no cycle, dangling, or asymmetric link; two fetched
-  PDF/PNG assets match their byte/hash/signature claims; four unresolved assets
-  remain honestly `not-attempted`; all seven raw pointers resolve; and the
-  Markdown frontmatter reports `structured-api`, `complete`, and 16 messages.
-  The conversation body was not reviewed.
+- 139 test files / 2,722 tests pass with two workers;
+- coverage passes at 95.06% statements, 90.01% branches, 98.10% functions,
+  and 97.73% lines;
+- typecheck and the production build pass;
+- lint passes with only three pre-existing advisory warnings, and repository
+  formatting passes;
+- a fresh independent review found no residual P0-P2 issue after two fix/review
+  cycles;
+- a post-reload live Comet smoke produced exact raw/manifest/canonical and
+  Markdown outputs with the verified graph, provenance, privacy, and
+  frontmatter facts recorded above. Conversation text was not reviewed during
+  filesystem verification.
 
-Release scope remains deliberately bounded. Attachment acquisition is partial:
-custom-GPT, Library-ID, Calpico fallback, retries, broad raw/DOM scans, and
-general Deep Research binary acquisition are unsupported. The staged transport
-is synthetic-live verified up to 64 MiB, but a native provider response above
-16 MiB remains an explicit evidence gap. Library is a possible complementary
-source, not a filename-based fallback; its message-level identity bridge is not
-proven. Official-export import and cross-source reconciliation remain later
-phases.
-
-This checkpoint is published to draft PR #7; fresh Ubuntu CI is green on the
-final published head, and the required post-reload browser smoke passed. The
-technical merge-readiness gate for this bounded checkpoint is satisfied. Keep
-the PR in draft until the maintainer explicitly decides to mark it ready, merge,
-or release; none of those publication decisions is automatic.
+The next bounded step is a metadata-only DeepSeek attachment ledger derived
+from the verified `chat_messages/*/files/*` records above. It must preserve exact
+raw pointers, use opaque canonical asset IDs, deduplicate only exact provider
+identities, and keep every record `not-attempted`; no acquisition route, URL
+template, or availability claim may be added. Publish this branch as a new
+draft PR after that independently tested commit, and keep release/tag creation
+as an explicit maintainer action.

@@ -58,6 +58,7 @@ import type {
   OutputResult,
   MultiOutputResponse,
   PersistentOutputDestination,
+  StructuredArchiveSource,
 } from '../lib/types';
 import { platformForHost } from '../lib/platform-registry';
 import { throttle } from '../lib/throttle';
@@ -375,6 +376,10 @@ const ARCHIVE_COMPANION_WRITE_ORDER: readonly ArchiveCompanionKind[] = [
   'canonical',
 ];
 
+function isStructuredArchiveSource(source: AIPlatform): source is StructuredArchiveSource {
+  return source === 'chatgpt' || source === 'deepseek';
+}
+
 function requestedArchiveArtifacts(
   companion: ArchiveCompanionBundle,
   artifactKinds: readonly ArchiveCompanionKind[] | undefined
@@ -448,8 +453,13 @@ export async function persistArchiveCompanionArtifacts(
       .filter(artifact => artifact.transport === 'staged')
       .map(artifact => artifact.stageId)
   );
+  const stageSource = isStructuredArchiveSource(source) ? source : undefined;
   const abortUnclaimedStages = async (): Promise<void> => {
-    await Promise.all([...unclaimedStages].map(stageId => abortStagedArchiveArtifact(stageId)));
+    if (stageSource) {
+      await Promise.all(
+        [...unclaimedStages].map(stageId => abortStagedArchiveArtifact(stageId, stageSource))
+      );
+    }
     unclaimedStages.clear();
   };
   let activeOutputs = outputs.filter(
@@ -459,7 +469,9 @@ export async function persistArchiveCompanionArtifacts(
     await abortUnclaimedStages();
     return {
       activeOutputs,
-      warnings: ['ChatGPT raw/canonical archive was not saved because only Clipboard is enabled'],
+      warnings: [
+        'Structured raw/canonical archive was not saved because only Clipboard is enabled',
+      ],
     };
   }
 
@@ -478,6 +490,17 @@ export async function persistArchiveCompanionArtifacts(
   }
   for (const artifact of selected) {
     if (activeOutputs.length === 0) break;
+    if (artifact.transport === 'staged' && !stageSource) {
+      warnings.push(
+        ...archiveDestinationWarnings(
+          archiveArtifactLabel(artifact.kind),
+          activeOutputs,
+          'its provider cannot use the staged archive transport'
+        )
+      );
+      activeOutputs = [];
+      break;
+    }
     const message =
       artifact.transport === 'inline'
         ? {
@@ -492,7 +515,7 @@ export async function persistArchiveCompanionArtifacts(
         : {
             action: 'commitStagedArchiveCompanion' as const,
             noteFileName,
-            source: 'chatgpt' as const,
+            source: stageSource!,
             captureId: companion.captureId,
             conversationKey: companion.conversationKey,
             artifact,

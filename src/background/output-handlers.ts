@@ -22,6 +22,7 @@ import type {
   OutputResult,
   MultiOutputResponse,
   OffscreenClipboardMessage,
+  StructuredArchiveSource,
 } from '../lib/types';
 
 /** Note filename without its `.md` extension — the base for image filenames. */
@@ -263,11 +264,15 @@ async function sha256Hex(bytes: Uint8Array): Promise<string | undefined> {
 
 /** Verify the independently validated envelope immediately before persistence. */
 async function verifyArchiveCompanion(
-  artifact: ArchiveCompanionArtifact
+  artifact: ArchiveCompanionArtifact,
+  source: StructuredArchiveSource
 ): Promise<Uint8Array | null> {
   if (artifact.transport !== 'inline') return null;
   const bytes = decodeCanonicalBase64(artifact.bodyBase64);
-  const maxBytes = artifact.kind === 'raw' ? CHATGPT_INLINE_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
+  const maxBytes =
+    artifact.kind === 'raw' && source === 'chatgpt'
+      ? CHATGPT_INLINE_CAPTURE_MAX_BYTES
+      : MAX_CONTENT_SIZE;
   if (!bytes || bytes.byteLength !== artifact.byteLength || bytes.byteLength > maxBytes)
     return null;
   return (await sha256Hex(bytes)) === artifact.sha256 ? bytes : null;
@@ -616,7 +621,15 @@ export async function handlePersistArchiveCompanion(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>,
   settings: ExtensionSettings
 ): Promise<MultiOutputResponse> {
-  const bytes = await verifyArchiveCompanion(message.artifact);
+  if (message.source !== 'chatgpt' && message.source !== 'deepseek') {
+    const results = message.outputs.map(destination => ({
+      destination,
+      success: false,
+      error: 'Archive companion source is unsupported',
+    })) as OutputResult[];
+    return { results, allSuccessful: false, anySuccessful: false };
+  }
+  const bytes = await verifyArchiveCompanion(message.artifact, message.source);
   if (!bytes) {
     const results = message.outputs.map(destination => ({
       destination,

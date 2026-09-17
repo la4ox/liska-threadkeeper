@@ -76,12 +76,17 @@ async function artifact(kind: ArchiveCompanionArtifact['kind']): Promise<Archive
   };
 }
 
-async function message(kind: ArchiveCompanionArtifact['kind'], outputs: ('file' | 'obsidian')[]) {
+async function message(
+  kind: ArchiveCompanionArtifact['kind'],
+  outputs: ('file' | 'obsidian')[],
+  source: 'chatgpt' | 'deepseek' = 'chatgpt'
+) {
   return {
     action: 'persistArchiveCompanion' as const,
     noteFileName: 'local-note.md',
-    source: 'chatgpt' as const,
-    captureId: CAPTURE_ID,
+    source,
+    captureId:
+      source === 'chatgpt' ? CAPTURE_ID : 'capture-deepseek-11111111-2222-4333-8444-555555555555',
     conversationKey: CONVERSATION_KEY,
     artifact: await artifact(kind),
     outputs,
@@ -455,6 +460,21 @@ describe('archive companion durable outputs', () => {
       })
     );
     expect(chrome.downloads.download).toHaveBeenCalledOnce();
+  });
+
+  it('persists a verified DeepSeek companion through the provider-neutral handler', async () => {
+    const request = await message('raw', ['obsidian'], 'deepseek');
+    const result = await handlePersistArchiveCompanion(request, settings);
+
+    expect(result.allSuccessful).toBe(true);
+    expect(mocks.saveArchive).toHaveBeenCalledWith(
+      settings,
+      expect.objectContaining({
+        source: 'deepseek',
+        captureId: request.captureId,
+        artifact: request.artifact,
+      })
+    );
   });
 
   it('keeps a successful destination when its sibling companion write fails', async () => {

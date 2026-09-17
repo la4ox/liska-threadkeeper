@@ -27,6 +27,7 @@ import type {
   ExtractedImage,
   ObsidianNote,
   OutputOptions,
+  StructuredArchiveSource,
 } from '../lib/types';
 import { ARCHIVE_COMPANION_KINDS, ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
 import {
@@ -50,6 +51,12 @@ import {
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 import { platformOrigins } from '../lib/platform-registry';
+
+const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
+
+function isStructuredArchiveSource(value: unknown): value is StructuredArchiveSource {
+  return STRUCTURED_ARCHIVE_SOURCES.includes(value as StructuredArchiveSource);
+}
 
 /**
  * Validate message sender (M-02)
@@ -138,27 +145,44 @@ export function validateStagedBinaryAssetSender(
   }
 }
 
-/** Archive stages are private ChatGPT-only capabilities. */
-export function validateArchiveStageSender(sender: chrome.runtime.MessageSender): boolean {
-  if (
-    !sender.tab?.url ||
-    sender.frameId !== 0 ||
-    typeof sender.url !== 'string' ||
-    !isExactChatGptDocumentUrl(sender.url)
-  ) {
+/** Archive stages are private capabilities bound to the exact provider conversation tab. */
+export function validateArchiveStageSender(
+  sender: chrome.runtime.MessageSender,
+  source: StructuredArchiveSource = 'chatgpt'
+): boolean {
+  if (!sender.tab?.url || sender.frameId !== 0 || typeof sender.url !== 'string') {
     return false;
   }
   try {
     const url = new URL(sender.tab.url);
-    if (
-      !isExactChatGptConversationUrl(url) ||
-      (sender.frameId !== undefined && sender.frameId !== 0)
-    ) {
-      return false;
+    if (source === 'deepseek') {
+      return isExactDeepSeekConversationUrl(url) && isExactDeepSeekDocumentUrl(sender.url);
     }
+    if (!isExactChatGptDocumentUrl(sender.url)) return false;
+    if (!isExactChatGptConversationUrl(url)) return false;
     const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
     const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(url.pathname);
     return isChatGptConversationId(standard?.[1] ?? custom?.[1]);
+  } catch {
+    return false;
+  }
+}
+
+function isExactDeepSeekConversationUrl(url: URL): boolean {
+  return (
+    url.origin === 'https://chat.deepseek.com' &&
+    url.username === '' &&
+    url.password === '' &&
+    url.search === '' &&
+    url.hash === '' &&
+    /^\/a\/chat\/s\/[a-z0-9-]+\/?$/i.test(url.pathname)
+  );
+}
+
+function isExactDeepSeekDocumentUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.origin === 'https://chat.deepseek.com' && url.username === '' && url.password === '';
   } catch {
     return false;
   }
@@ -350,6 +374,15 @@ function isArchiveCompanionKind(value: unknown): value is ArchiveCompanionArtifa
   );
 }
 
+function archiveCompanionMaxBytes(
+  kind: ArchiveCompanionArtifact['kind'],
+  source: StructuredArchiveSource
+): number {
+  return kind === 'raw' && source === 'chatgpt'
+    ? CHATGPT_INLINE_CAPTURE_MAX_BYTES
+    : MAX_CONTENT_SIZE;
+}
+
 function hasValidArchiveCompanionMetadata(artifact: Record<string, unknown>): boolean {
   const kind = artifact.kind;
   return (
@@ -363,7 +396,10 @@ function hasValidArchiveCompanionMetadata(artifact: Record<string, unknown>): bo
   );
 }
 
-function validateArchiveCompanionArtifact(value: unknown): value is ArchiveCompanionArtifact {
+function validateArchiveCompanionArtifact(
+  value: unknown,
+  source: StructuredArchiveSource
+): value is ArchiveCompanionArtifact {
   if (typeof value !== 'object' || value === null) return false;
   if (
     !hasExactOwnKeys(value, [
@@ -384,7 +420,10 @@ function validateArchiveCompanionArtifact(value: unknown): value is ArchiveCompa
 
   const bodyBase64 = artifact.bodyBase64 as string;
   const byteLength = canonicalBase64ByteLength(bodyBase64);
-  const maxBytes = artifact.kind === 'raw' ? CHATGPT_INLINE_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
+  const maxBytes = archiveCompanionMaxBytes(
+    artifact.kind as ArchiveCompanionArtifact['kind'],
+    source
+  );
   return byteLength === artifact.byteLength && byteLength !== undefined && byteLength <= maxBytes;
 }
 
@@ -423,6 +462,7 @@ function validateStagedArchiveCompanionArtifact(value: unknown): boolean {
 function validatePersistArchiveCompanionMessage(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
 ): boolean {
+  if (!isStructuredArchiveSource(message.source)) return false;
   return (
     hasExactOwnKeys(message, [
       'action',
@@ -434,10 +474,9 @@ function validatePersistArchiveCompanionMessage(
       'outputs',
     ]) &&
     isSafeNoteFileName(message.noteFileName) &&
-    message.source === 'chatgpt' &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
-    validateArchiveCompanionArtifact(message.artifact) &&
+    validateArchiveCompanionArtifact(message.artifact, message.source) &&
     Array.isArray(message.outputs) &&
     message.outputs.length > 0 &&
     message.outputs.length <= 2 &&
@@ -458,7 +497,7 @@ function validateArchiveStageMessage(
     | { action: 'abortStagedArchiveArtifact' }
   >
 ): boolean {
-  if (message.source !== 'chatgpt') return false;
+  if (!isStructuredArchiveSource(message.source)) return false;
   if (message.action === 'beginStagedArchiveArtifact') {
     return (
       hasExactOwnKeys(message, ['action', 'source', 'descriptor']) &&

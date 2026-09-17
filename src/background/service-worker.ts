@@ -146,12 +146,11 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    if (!isAuthorizedStagedBinaryAssetRequest(message, sender)) {
-      sendResponse({ success: false, error: 'Unauthorized' });
-      return false;
-    }
-
-    if (!isAuthorizedArchiveStageRequest(message, sender)) {
+    if (
+      !isAuthorizedStagedBinaryAssetRequest(message, sender) ||
+      !isAuthorizedArchiveCompanionRequest(message, sender) ||
+      !isAuthorizedArchiveStageRequest(message, sender)
+    ) {
       sendResponse({ success: false, error: 'Unauthorized' });
       return false;
     }
@@ -274,7 +273,16 @@ function isAuthorizedArchiveStageRequest(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): boolean {
-  return !isArchiveStageMessage(message) || validateArchiveStageSender(sender);
+  return !isArchiveStageMessage(message) || validateArchiveStageSender(sender, message.source);
+}
+
+function isAuthorizedArchiveCompanionRequest(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (message.action !== 'persistArchiveCompanion') return true;
+  if (message.source !== 'chatgpt' && message.source !== 'deepseek') return false;
+  return validateArchiveStageSender(sender, message.source);
 }
 
 function isStagedBinaryAssetMessage(

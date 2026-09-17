@@ -78,7 +78,7 @@ export function generateContentHash(content: string): string {
 function captureEvidenceFrontmatter(
   data: ConversationData
 ): Pick<NoteFrontmatter, 'capture_mode' | 'capture_completeness'> {
-  if (data.source !== 'chatgpt' || !data.capture) return {};
+  if (!data.capture) return {};
   return {
     capture_mode: data.capture.mode,
     capture_completeness: data.capture.completeness,

@@ -1,35 +1,64 @@
+import {
+  buildCaptureManifest,
+  normalizeDeepSeekCapture,
+  preflightDeepSeekHistoryArtifact,
+  type DeepSeekNormalizationInput,
+  type LiskaThreadArchive,
+  type RawCaptureBundle,
+} from '../../archive';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
-import type { ConversationMessage } from '../../lib/types';
-
-type JsonRecord = Record<string, unknown>;
-type MessageRole = 'user' | 'assistant';
+import type { ArchiveCompanionBundle, ConversationData } from '../../lib/types';
+import { projectArchiveBranch } from '../archive-projection';
+import {
+  appendJsonCanonicalCompanion,
+  buildJsonRawManifestCompanion,
+} from '../capture/json-archive-companion';
+import { captureResponseArtifact, hashCaptureManifest, sha256Hex } from '../capture/response';
 
 const HISTORY_ENDPOINT = 'https://chat.deepseek.com/api/v0/chat/history_messages';
+const HISTORY_PATH_PATTERN = '/api/v0/chat/history_messages';
 const HISTORY_TIMEOUT_MS = 15_000;
 const HISTORY_MAX_BYTES = 32 * 1024 * 1024;
+const ARTIFACT_ID = 'conversation';
 
-interface ApiMessage {
-  id: string;
-  parentId: string | null;
-  role: MessageRole;
-  content: string;
-  thinking: string;
-}
-
-interface HistoryEnvelope {
-  session: JsonRecord;
-  rawMessages: unknown[];
-}
+export const DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING =
+  'DeepSeek assets were not inventoried or acquired in this capture.';
+export const DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING =
+  'DeepSeek structured history could not be normalized or projected; the readable note uses the rendered page and preserves verified raw capture evidence.';
 
 export interface DeepSeekApiConversation {
-  title: string | null;
-  messages: ConversationMessage[];
+  data: ConversationData;
+  archive: LiskaThreadArchive;
+  archiveCompanion: ArchiveCompanionBundle;
+  warnings: string[];
 }
 
-/** Fetch the complete active branch from the authenticated DeepSeek tab. */
+export interface DeepSeekApiDependencies {
+  createCaptureId?: () => string;
+  now?: () => Date;
+  normalizeCapture?: (
+    input: DeepSeekNormalizationInput
+  ) => ReturnType<typeof normalizeDeepSeekCapture>;
+}
+
+export class DeepSeekStructuredCaptureError extends Error {
+  readonly code: string;
+  readonly archiveCompanion?: ArchiveCompanionBundle;
+
+  constructor(code: string, archiveCompanion?: ArchiveCompanionBundle) {
+    super(`DeepSeek structured capture failed (${code}).`);
+    this.name = 'DeepSeekStructuredCaptureError';
+    this.code = code;
+    this.archiveCompanion = archiveCompanion;
+  }
+}
+
+/** Fetch, preserve, normalize, and project a complete non-delta DeepSeek response. */
+// eslint-disable-next-line max-lines-per-function -- Capture, manifest, normalization, and projection must stay in evidence order.
 export async function fetchDeepSeekConversation(
   conversationId: string,
-  includeThinking: boolean
+  includeThinking: boolean,
+  dependencies: DeepSeekApiDependencies = {}
 ): Promise<DeepSeekApiConversation | null> {
   const token = readAuthToken();
   if (!token) return null;
@@ -37,22 +66,138 @@ export async function fetchDeepSeekConversation(
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), HISTORY_TIMEOUT_MS);
   try {
-    const url = new URL(HISTORY_ENDPOINT);
-    // cache_version/cache_reset_at can make DeepSeek return only a cache delta.
-    url.searchParams.set('chat_session_id', conversationId);
-    const response = await fetch(url.href, {
-      method: 'GET',
-      cache: 'no-store',
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-      signal: controller.signal,
+    const response = await requestHistory(conversationId, token, controller.signal);
+    const artifact = await captureResponseArtifact(response, {
+      artifactId: ARTIFACT_ID,
+      relativePath: 'responses/conversation.json',
+      endpoint: { method: 'GET', pathPattern: HISTORY_PATH_PATTERN },
+      maxBytes: HISTORY_MAX_BYTES,
+      mediaType: 'application/json',
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const observedUnknownContentTypes = preflightDeepSeekHistoryArtifact(
+      artifact.bytes,
+      conversationId
+    );
+    const bundle = buildCaptureBundle(
+      conversationId,
+      artifact,
+      dependencies,
+      observedUnknownContentTypes
+    );
+    const manifestSha256 = await hashCaptureManifest(bundle.manifest);
+    let archiveCompanion: ArchiveCompanionBundle;
+    try {
+      archiveCompanion = await buildJsonRawManifestCompanion(bundle, sha256Hex, 'deepseek');
+    } catch {
+      throw new DeepSeekStructuredCaptureError('companion-build-failed');
+    }
 
-    const body = await readBoundedBody(response);
-    return parseHistoryResponse(JSON.parse(body) as unknown, conversationId, includeThinking);
+    let archive: LiskaThreadArchive;
+    try {
+      const normalized = await (dependencies.normalizeCapture ?? normalizeDeepSeekCapture)({
+        bundle,
+        artifactId: ARTIFACT_ID,
+        manifestSha256,
+        sha256: sha256Hex,
+      });
+      archive = normalized.archive;
+    } catch {
+      throw new DeepSeekStructuredCaptureError('normalization-failed', archiveCompanion);
+    }
+
+    try {
+      const projected = projectArchiveBranch(archive, { includeToolContent: includeThinking });
+      archiveCompanion = await appendJsonCanonicalCompanion(
+        archiveCompanion,
+        archive,
+        sha256Hex,
+        'deepseek'
+      );
+      return {
+        archive,
+        archiveCompanion,
+        warnings: projected.warnings,
+        data: {
+          ...projected.data,
+          title: projected.data.title.substring(0, MAX_CONVERSATION_TITLE_LENGTH),
+          messages: projected.data.messages.map(message => ({
+            ...message,
+            toolContent: message.toolContent?.replace(
+              /\*\*Reasoning\*\*/g,
+              '**DeepSeek reasoning**'
+            ),
+          })),
+          capture: { mode: 'structured-api', completeness: 'complete' },
+        },
+      };
+    } catch (error) {
+      if (error instanceof DeepSeekStructuredCaptureError) throw error;
+      throw new DeepSeekStructuredCaptureError('projection-failed', archiveCompanion);
+    }
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+async function requestHistory(
+  conversationId: string,
+  token: string,
+  signal: AbortSignal
+): Promise<Response> {
+  const url = new URL(HISTORY_ENDPOINT);
+  url.searchParams.set('chat_session_id', conversationId);
+  return fetch(url.href, {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    signal,
+  });
+}
+
+function buildCaptureBundle(
+  conversationId: string,
+  artifact: RawCaptureBundle['artifacts'][number],
+  dependencies: DeepSeekApiDependencies,
+  observedUnknownContentTypes: string[]
+): RawCaptureBundle {
+  const manifest = buildCaptureManifest({
+    captureId: captureId(dependencies.createCaptureId),
+    provider: 'deepseek',
+    conversationId,
+    capturedAt: captureTimestamp(dependencies.now),
+    method: 'same-origin-api',
+    artifacts: [artifact.record],
+    assets: [],
+    completeness: {
+      graph: 'complete',
+      messages: 'complete',
+      branches: 'complete',
+      assets: 'not-attempted',
+    },
+    warnings: [DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING],
+    observedUnknownContentTypes,
+  });
+  return {
+    manifest,
+    artifacts: [{ record: manifest.artifacts[0], bytes: artifact.bytes }],
+    assets: [],
+  };
+}
+
+function captureId(createCaptureId: (() => string) | undefined): string {
+  const value = (createCaptureId ?? (() => `capture-deepseek-${crypto.randomUUID()}`))();
+  if (!/^capture-deepseek-[A-Za-z0-9][A-Za-z0-9_-]{0,235}$/.test(value)) {
+    throw new DeepSeekStructuredCaptureError('capture-id-invalid');
+  }
+  return value;
+}
+
+function captureTimestamp(now: (() => Date) | undefined): string {
+  try {
+    return (now ?? (() => new Date()))().toISOString();
+  } catch {
+    throw new DeepSeekStructuredCaptureError('capture-time-invalid');
   }
 }
 
@@ -66,249 +211,16 @@ function readAuthToken(): string | null {
       const parsed = JSON.parse(stored) as unknown;
       value = isRecord(parsed) && 'value' in parsed ? parsed.value : parsed;
     } catch {
-      // Older builds can store the token as an unquoted string.
+      // Older builds can store the value as an unquoted string.
     }
-
     if (typeof value !== 'string') return null;
     const token = value.trim();
-    return token && token.length <= 16_384 && !token.includes('\n') && !token.includes('\r')
-      ? token
-      : null;
+    return token && token.length <= 16_384 && !/[\r\n]/.test(token) ? token : null;
   } catch {
     return null;
   }
 }
 
-/** Enforce the response limit while streaming, not after allocation. */
-async function readBoundedBody(response: Response): Promise<string> {
-  const declaredLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > HISTORY_MAX_BYTES) {
-    throw new Error('history response exceeds the 32 MiB safety limit');
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) return readBoundedTextFallback(response);
-
-  const decoder = new TextDecoder();
-  let totalBytes = 0;
-  let body = '';
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    totalBytes += chunk.value.byteLength;
-    if (totalBytes > HISTORY_MAX_BYTES) {
-      await reader.cancel();
-      throw new Error('history response exceeds the 32 MiB safety limit');
-    }
-    body += decoder.decode(chunk.value, { stream: true });
-  }
-  return body + decoder.decode();
-}
-
-async function readBoundedTextFallback(response: Response): Promise<string> {
-  const body = await response.text();
-  if (new TextEncoder().encode(body).byteLength > HISTORY_MAX_BYTES) {
-    throw new Error('history response exceeds the 32 MiB safety limit');
-  }
-  return body;
-}
-
-function parseHistoryResponse(
-  payload: unknown,
-  expectedSessionId: string,
-  includeThinking: boolean
-): DeepSeekApiConversation | null {
-  const envelope = parseEnvelope(payload, expectedSessionId);
-  if (!envelope) return null;
-  const messageMap = buildMessageMap(envelope.rawMessages);
-  if (!messageMap || messageMap.size === 0) return null;
-
-  const currentMessageId = resolveCurrentMessageId(envelope.session, messageMap);
-  if (!currentMessageId) return null;
-  const activeMessages = buildActiveChain(messageMap, currentMessageId);
-  return activeMessages
-    ? buildConversation(envelope.session, activeMessages, includeThinking)
-    : null;
-}
-
-function parseEnvelope(payload: unknown, expectedSessionId: string): HistoryEnvelope | null {
-  if (!isRecord(payload)) return null;
-  assertSuccessCode(payload.code, 'API');
-  const data = childRecord(payload, 'data');
-  assertSuccessCode(data?.biz_code, 'business');
-  const bizData = childRecord(data, 'biz_data');
-  const session = childRecord(bizData, 'chat_session');
-  const rawMessages = bizData?.chat_messages;
-  if (!session || !Array.isArray(rawMessages)) return null;
-
-  const responseSessionId = toIdentifier(session.id);
-  if (responseSessionId !== expectedSessionId) return null;
-  const cacheControl = uppercaseString(bizData?.cache_control);
-  // MERGE/APPEND are deltas and cannot prove that the oldest parent is present.
-  if (cacheControl && cacheControl !== 'REPLACE') return null;
-  return { session, rawMessages };
-}
-
-function childRecord(parent: JsonRecord | null, key: string): JsonRecord | null {
-  const value = parent?.[key];
-  return isRecord(value) ? value : null;
-}
-
-function uppercaseString(value: unknown): string | null {
-  return typeof value === 'string' ? value.toUpperCase() : null;
-}
-
-function assertSuccessCode(value: unknown, label: string): void {
-  if (typeof value === 'number' && value !== 0) {
-    throw new Error(`DeepSeek ${label} code ${value}`);
-  }
-}
-
-function buildMessageMap(rawMessages: unknown[]): Map<string, ApiMessage> | null {
-  const messages = new Map<string, ApiMessage>();
-  for (const value of rawMessages) {
-    const message = parseApiMessage(value);
-    if (!message) continue;
-    if (messages.has(message.id)) return null;
-    messages.set(message.id, message);
-  }
-  return messages;
-}
-
-function resolveCurrentMessageId(
-  session: JsonRecord,
-  messages: Map<string, ApiMessage>
-): string | null {
-  if (session.current_message_id != null) {
-    return toIdentifier(session.current_message_id);
-  }
-  return findOnlyLeafMessageId(messages);
-}
-
-function buildActiveChain(
-  messages: Map<string, ApiMessage>,
-  currentMessageId: string
-): ApiMessage[] | null {
-  const active: ApiMessage[] = [];
-  const seen = new Set<string>();
-  let messageId: string | null = currentMessageId;
-  while (messageId) {
-    if (seen.has(messageId)) return null;
-    seen.add(messageId);
-    const message = messages.get(messageId);
-    if (!message) return null;
-    active.push(message);
-    messageId = message.parentId;
-  }
-  return active.reverse();
-}
-
-function buildConversation(
-  session: JsonRecord,
-  activeMessages: ApiMessage[],
-  includeThinking: boolean
-): DeepSeekApiConversation | null {
-  const messages = activeMessages
-    .filter(message => message.content.length > 0)
-    .map<ConversationMessage>((message, index) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      contentFormat: message.role === 'assistant' ? 'markdown' : undefined,
-      toolContent:
-        message.role === 'assistant' && includeThinking && message.thinking
-          ? `**DeepSeek reasoning**\n${message.thinking}`
-          : undefined,
-      index,
-    }));
-  if (messages.length === 0) return null;
-
-  const rawTitle =
-    typeof session.title === 'string' ? session.title.replace(/\s+/g, ' ').trim() : '';
-  return {
-    title: rawTitle ? rawTitle.substring(0, MAX_CONVERSATION_TITLE_LENGTH) : null,
-    messages,
-  };
-}
-
-function parseApiMessage(value: unknown): ApiMessage | null {
-  if (!isRecord(value)) return null;
-  const id = toIdentifier(value.message_id ?? value.id);
-  const role = normalizeRole(value.role);
-  if (!id || !role) return null;
-
-  const contentTypes = role === 'user' ? ['REQUEST'] : ['RESPONSE', 'TEMPLATE_RESPONSE'];
-  const content = fragmentText(value.fragments, contentTypes) || normalizeApiText(value.content);
-  const thinking =
-    role === 'assistant'
-      ? fragmentText(value.fragments, ['THINK']) || normalizeApiText(value.thinking_content)
-      : '';
-  const parentId = value.parent_id == null ? null : toIdentifier(value.parent_id);
-  if (value.parent_id != null && !parentId) return null;
-  return {
-    id,
-    parentId,
-    role,
-    content,
-    thinking,
-  };
-}
-
-function normalizeRole(value: unknown): MessageRole | null {
-  if (typeof value !== 'string') return null;
-  const role = value.toLowerCase();
-  if (role === 'user' || role === 'human') return 'user';
-  if (role === 'assistant' || role === 'ai' || role === 'bot') return 'assistant';
-  return null;
-}
-
-function fragmentText(value: unknown, preferredTypes: readonly string[]): string {
-  if (!Array.isArray(value)) return '';
-  for (const preferredType of preferredTypes) {
-    const parts = value
-      .filter(isRecord)
-      .filter(fragment => String(fragment.type ?? '').toUpperCase() === preferredType)
-      .map(fragment => normalizeApiText(fragment.content))
-      .filter(Boolean);
-    if (parts.length > 0) return parts.join('\n\n');
-  }
-  return '';
-}
-
-function findOnlyLeafMessageId(messages: Map<string, ApiMessage>): string | null {
-  const parentIds = new Set(
-    [...messages.values()]
-      .map(message => message.parentId)
-      .filter((parentId): parentId is string => parentId !== null)
-  );
-  const leaves = [...messages.keys()].filter(id => !parentIds.has(id));
-  return leaves.length === 1 ? leaves[0] : null;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function toIdentifier(value: unknown): string | null {
-  if (typeof value === 'string') return value.trim() || null;
-  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
-  return null;
-}
-
-function normalizeApiText(value: unknown): string {
-  let text = '';
-  if (typeof value === 'string') {
-    text = value;
-  } else if (Array.isArray(value)) {
-    text = value
-      .map(item => normalizeApiText(item))
-      .filter(Boolean)
-      .join('\n');
-  } else if (isRecord(value)) {
-    text =
-      normalizeApiText(value.text) ||
-      normalizeApiText(value.content) ||
-      normalizeApiText(value.parts);
-  }
-  return text.split(String.fromCharCode(0)).join('').replace(/\r\n?/g, '\n').trim();
 }
