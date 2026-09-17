@@ -136,8 +136,8 @@ source, not a filename-based fallback; its message-level identity bridge is not
 proven. Official-export import and cross-source reconciliation remain later
 phases.
 
-Push this checkpoint to draft PR #7 and wait for fresh Ubuntu CI. Keep the PR in
-draft until one post-reload authorized browser smoke confirms the packaged build
-on a current ChatGPT branch and one supported binary attachment path. Do not
-merge or release from this checkpoint without that smoke and an explicit
-maintainer decision.
+This checkpoint is published to draft PR #7, and the first fresh Ubuntu CI run
+passed. Keep the PR in draft until one post-reload authorized browser smoke
+confirms the packaged build on a current ChatGPT branch and one supported binary
+attachment path. Do not merge or release from this checkpoint without that
+smoke and an explicit maintainer decision.
