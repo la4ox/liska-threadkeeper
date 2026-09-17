@@ -2,9 +2,11 @@
 
 ## Status
 
-Accepted for the experimental ChatGPT complete-graph path. Live browser
-verification is still required before this checkpoint is considered ready for
-the draft PR.
+Accepted and implemented for the experimental ChatGPT complete-graph path.
+Synthetic live-browser verification covers staging, exact byte round trips,
+durable File output, cleanup, and the 16 MiB boundary, so the implementation is
+ready to remain in the draft PR. A native provider response above 16 MiB is
+still required before claiming that full real-world path as live-verified.
 
 ## Context
 

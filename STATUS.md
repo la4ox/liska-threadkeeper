@@ -13,7 +13,7 @@
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
 - The experimental `liska-capture/1` and `liska-thread/1` archive layers now preserve exact raw artifact bytes separately from a credential-free manifest, verify artifact and manifest SHA-256 provenance, validate/traverse complete branch graphs, and project either `currentNodeId` or an explicit leaf into the existing flat Markdown contract while reporting legacy omissions.
 - ChatGPT's live web-history route was confirmed as `GET /backend-api/conversation/{conversationId}`. A local structural probe observed a direct `mapping` graph with a structural root, a current node, and sibling branches; no personal response body, title, conversation ID, cookie, header, or credential remains in the worktree or was committed. The pure normalizer consumes only hash-verified exact bytes, retains all graph nodes and ordered typed blocks, scrubs signed URLs and account/correlation identifiers from the canonical layer with diagnostics, and uses synthetic fixtures only.
-- ChatGPT no-scroll capture is enabled for Chromium 111+ behind a trusted click and the narrow `scripting` permission. A marker-gated MAIN-world script runs at document start only in an inactive disposable conversation tab, observes the page-native exact GET response, clones only that response under a 16 MiB cap, and never reads or serializes request headers, cookies, account data, or unrelated traffic. Its control state remains closure-private; background receives an immutable primitive snapshot, re-verifies base64 and SHA-256 in extension context, and closes only the created tab.
+- ChatGPT no-scroll capture is enabled for Chromium 111+ behind a trusted click and the narrow `scripting` permission. A marker-gated MAIN-world script runs at document start only in an inactive disposable conversation tab, observes the page-native exact GET response, and never reads or serializes request headers, cookies, account data, or unrelated traffic. Responses up to 16 MiB use the inline verified path; larger responses up to 64 MiB use the staged transport described below. Control state remains closure-private, background re-verifies bytes and SHA-256 in extension context, and only the created tab is closed.
 - The ChatGPT bridge normalizes the complete captured graph transiently, projects the selected current branch through the existing Deep Research safety guard, and falls back to marked DOM/scroll extraction on any capture, integrity, normalization, or projection failure. Personal raw response bytes are persisted only to the user's selected durable outputs, never the repository or clipboard. A live Comet smoke exported 28 current-branch messages (5 user + 23 assistant role markers) while only 5 turn elements were rendered in the DOM, wrote a 31,187-byte Obsidian note, emitted no fallback warning or capture failure code, and left zero marker tabs open.
 - ChatGPT capture authorization now treats `sender.tab.url` as the exact current conversation capability while allowing `MessageSender.url` to retain an older same-origin document path after ChatGPT `history.pushState` navigation. Live Comet smokes passed in both directions between ordinary and custom-GPT chats without reload, and a legacy loss-test that redirected from `/c/...` into a project/custom-GPT route completed structured capture without a capture-failure code.
 - The fresh private-corpus pass completed structured capture for a branch-heavy conversation and the largest current positive sample. The latter preserved a 13,117,554-byte raw response with matching manifest length/SHA-256, complete graph/branch claims, and a 29,201,569-byte canonical archive.
@@ -83,7 +83,7 @@
 ## Artifacts
 
 - Loadable unpacked extension: `dist/`
-- Packaged extension: `liska-threadkeeper-3.0.0.zip`, 192,440 bytes, SHA-256 `78F17F107B3653168CFAAB987AD64A7E6729EDB81588CA6796743AF48A67CCB1`
+- Current local package: `liska-threadkeeper-3.0.0.zip`, 200,822 bytes, SHA-256 `6DEFA3DDBA4375555A5DB5096B31A39CDFBD05E318B413795B6022869237BB76`; all 29 packaged files exactly match the final `dist/` tree.
 - DeepSeek history client/parser: `src/content/extractors/deepseek-api.ts`
 - Privacy policy source: `docs/privacy.html`
 - Current product and setup guide: `README.md`
@@ -107,64 +107,37 @@
 
 ## Next step
 
-Keep PR #7 in draft. Per-attachment interpreter resolver diagnostics are now
-implemented, independently reviewed, and built locally. A complete response
-contains exactly one fixed-code diagnostic per original planned opaque asset ID,
-in order. Content rejects missing, reordered, duplicate, or foreign coverage.
-Native non-200 responses expose only a bounded numeric HTTP status; error bodies,
-headers, provider strings, and signed URLs are never copied into diagnostics.
+The current ChatGPT web checkpoint is ready for publication to draft PR #7.
+It includes complete-graph capture, current/selected/all-branch presentations,
+raw/manifest/canonical companions, staged large-graph transport, and bounded
+partial acquisition for ordinary-chat file-ID images and interpreter/sandbox
+documents.
 
-Unresolved records retain reasons in the existing manifest `detail` and canonical
-`acquisition.detail` fields, for example `interpreter-resolver-http-404`.
-Resolver failures keep `not-attempted` and a null attempt timestamp until binary
-acquisition actually happens. Global failures use distinct `interpreter-resolver-run-*`
-codes without inventing individual dispatch evidence. Later acquisition or
-destination-write outcomes take precedence. All-failure runs preserve the reasons;
-final manifests include a fixed warning when unresolved diagnostic details remain.
-No route, permission, retry policy, resource cap, or archive schema was widened.
+Fresh local validation on 2026-09-17:
 
-Final validation: 136 test files / 2,683 tests pass with two workers. Coverage:
-95.07% statements, 89.98% branches, 97.91% functions, 97.78% lines.
-Typecheck, scoped formatting, lint, production build, and reviewer recheck pass;
-lint has only the three pre-existing unrelated warnings. Tests include PDF success
-plus DOCX 404, all-item failures, global run failure, independent File/Obsidian
-write outcomes, untouched original raw/ledger, strict identity/shape rejection,
-and terminal-newline rejection for durable reason codes.
+- Node 24.18.0 and npm 11.16.0 match the project/CI contract;
+- 136 test files / 2,683 tests pass with two workers;
+- coverage passes at 95.07% statements, 89.98% branches, 97.91% functions,
+  and 97.78% lines;
+- lint passes with only three pre-existing advisory warnings;
+- formatting, typecheck, production build, ZIP packaging, and a two-build
+  determinism comparison pass;
+- the final ZIP contains 29 packaged files that exactly match `dist/`, with
+  no traversal/absolute/duplicate paths, sourcemaps, tests, coverage, env files,
+  high-confidence secrets, or personal-data patterns;
+- a fresh independent review found no P0-P2 issue.
 
-The first post-reload diagnostic File-only canary is now live-verified. One
-trusted click produced a new raw response (112,121 bytes), manifest (4,507 bytes),
-canonical (218,455 bytes), Markdown, and the same valid PNG/PDF binary pair.
-Raw length/SHA-256 agrees with the manifest; canonical input hashes the exact
-final manifest. Both graphs contain 36 nodes. All six asset records remain;
-two are fetched and four are not-attempted. Both fetched binaries match their
-declared length/hash and canonical evidence.
+Release scope remains deliberately bounded. Attachment acquisition is partial:
+custom-GPT, Library-ID, Calpico fallback, retries, broad raw/DOM scans, and
+general Deep Research binary acquisition are unsupported. The staged transport
+is synthetic-live verified up to 64 MiB, but a native provider response above
+16 MiB remains an explicit evidence gap. Library is a possible complementary
+source, not a filename-based fallback; its message-level identity bridge is not
+proven. Official-export import and cross-source reconciliation remain later
+phases.
 
-The exact current interpreter planner binds one DOCX and one PDF candidate to
-their committed raw links. The DOCX now has `interpreter-resolver-http-404` in
-both manifest and canonical, with null attemptedAt and no acquired hash or local
-artifact reference. Its resolver failed before binary acquisition; expiration
-or deletion is NOT established. The final manifest retains the fixed incomplete
-interpreter-resolution warning. This fixes diagnostic loss, not DOCX acquisition.
-The four prior capture directories' 17 files still match pre-click SHA-256
-fingerprints. The separately retained 38,340-byte manual DOCX also remains
-unchanged; it is not one of the two fetched binaries.
-
-One earlier native message-link helper also returned 404. The user's client-block
-screenshots occurred after Download, and the supplied Comet policy groups were
-empty. These observations still do not prove corporate management or a single
-browser fault. No protection settings, archive schemas, or request budgets were
-changed, and no public push was made for this checkpoint.
-
-Next: a separately agreed native Library-download comparison should establish
-the actual working route and exact provider identity before any fallback is
-implemented. Do not bind a Library file by filename, retry the unchanged 404
-helper, or relabel 404 as expired. Keep current settings (File-only, attachments
-on; scroll/append/probe off; explicit replay on) unless the user changes them.
-Browser settings remain manual. The single diagnostic export is complete;
-no further live click is pending within this canary.
-
-Current built entries: `chatgpt-document-start.ts-DYY8Dh9C.js`,
-`service-worker.ts-Du0af7ZB.js`, `index.ts-DrquZ7ih.js`, and
-`index.ts-loader-Blqd8M5t.js`; offscreen stays `offscreen-DFZtwxPD.js`.
-A real native provider raw graph above 16 MiB remains a separate evidence gap;
-do not raise its cap or turn opaque replay into an oversized fallback.
+Push this checkpoint to draft PR #7 and wait for fresh Ubuntu CI. Keep the PR in
+draft until one post-reload authorized browser smoke confirms the packaged build
+on a current ChatGPT branch and one supported binary attachment path. Do not
+merge or release from this checkpoint without that smoke and an explicit
+maintainer decision.

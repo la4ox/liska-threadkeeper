@@ -66,7 +66,8 @@ The bearer key is stored in `chrome.storage.local`, is never exposed to supporte
 - The main button exports the provider-selected current branch. ChatGPT also offers a local chooser for one explicit branch or every leaf plus an index.
 - Automatic scheduled backups are not implemented yet; every export begins with a real click.
 - DeepSeek images are not captured yet. Its text, Markdown, active branch, and optional Thinking are supported.
-- ChatGPT structured archives currently retain attachment references and metadata, but do not yet acquire the binary files. Discovered assets are marked `not-attempted`, not falsely reported as unavailable or fetched.
+- ChatGPT structured archives always retain attachment references and metadata. With **Export images & attachments** enabled, Liska can also acquire a bounded subset of ordinary-chat image/file-ID assets and interpreter/sandbox documents after the raw archive is durably saved. Every asset remains honestly marked as `fetched`, `not-attempted`, or failed; custom-GPT, Library-ID, and Calpico fallback routes are not supported yet.
+- ChatGPT graph responses up to 16 MiB use the inline verified path. Larger responses up to 64 MiB use chunked extension-owned staging; this staged path is synthetic-live verified, while a real provider response above 16 MiB remains an explicit evidence gap.
 - Image export is bounded to 20 images, 10 MiB per image, and 48 MiB of combined base64 data per note.
 - Append mode adds new text messages, but images in newly appended messages are skipped with a visible warning. A fresh file export can save supported images normally.
 - Auto-scroll is bounded to five minutes for DOM-only providers. When a provider changes its page structure, Liska fails with a warning instead of claiming a complete export.

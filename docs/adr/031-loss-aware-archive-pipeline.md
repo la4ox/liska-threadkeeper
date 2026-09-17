@@ -3,8 +3,10 @@
 ## Status
 
 Accepted as the architectural direction on 2026-08-13. The canonical wire
-schema remains experimental until it is validated against real and synthetic
-ChatGPT graph fixtures.
+schema has now been validated against synthetic fixtures and multiple live
+ChatGPT graph captures. It remains versioned as experimental until the first
+second-provider migration and official-export reconciliation establish which
+provider-neutral fields are stable across sources.
 
 ## Context
 
@@ -155,7 +157,8 @@ but observed no resolver in representative live samples. Passive observation is
 therefore a closed experiment; its exact code remains as evidence, not as the
 current opaque-replay route.
 
-The next checkpoint is a separate **active metric-only** resolver. After an
+The following section records the now-completed **active metric-only** resolver
+checkpoint that preceded bounded binary acquisition. After an
 original raw companion is durably written and reverified, a pure plan inventories
 at most 20 unique IDs deterministically from exact attachment-ledger pointers,
 while the live diagnostic selects only the first. Content bridge, message
@@ -483,6 +486,9 @@ The raw boundary is deliberately narrow:
 - treat signed and temporary asset URLs as sensitive source data;
 - keep raw output local and do not send it to Obsidian, clipboard, Drive, or any
   other destination by default;
+- when the user explicitly selects Obsidian as a durable output, allow the raw,
+  manifest, and canonical companions to travel only to the configured loopback
+  Local REST API and verify their exact bytes after the write;
 - use an exact provider-host allowlist and require a trusted user action.
 
 An API response is preferred because it can preserve the graph without virtual
@@ -670,6 +676,12 @@ durable output, and stale exact stages are eligible for bounded cleanup on a
 later staged begin.
 
 ## ChatGPT-first implementation plan
+
+Progress as of 2026-09-17: steps 1–6 are implemented and live-verified for
+ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images and
+interpreter/sandbox documents with explicit completeness diagnostics; custom-GPT,
+Library-ID, Calpico fallback, and general Deep Research binary acquisition remain
+outside the current checkpoint. Steps 8–9 remain separate future phases.
 
 1. Define TypeScript types, JSON Schema, graph validators, and small synthetic
    fixtures for old/new ChatGPT graph variants.
