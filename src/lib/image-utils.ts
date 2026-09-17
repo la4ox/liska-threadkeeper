@@ -6,6 +6,8 @@
  * Blob/FileReader-based capture lives in the content layer (image-capture.ts).
  */
 
+import { isCanonicalBase64 } from './base64';
+
 /** Maximum accepted image size in bytes (10MB safety guard). */
 export const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
@@ -93,16 +95,13 @@ export function isAllowedImageSourceUrl(url: string): boolean {
   return host === IMAGE_CDN_DOMAIN || host.endsWith(`.${IMAGE_CDN_DOMAIN}`);
 }
 
-/** Base64 character set with optional `=` padding (0–2 chars). */
-const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
-
 /**
  * Cheap structural check that a string is well-formed standard base64
  * (no `data:` prefix): valid charset and a length that is a multiple of 4.
  * The empty string is treated as a valid zero-length payload.
  */
 export function isLikelyBase64(data: string): boolean {
-  return data.length % 4 === 0 && BASE64_PATTERN.test(data);
+  return isCanonicalBase64(data);
 }
 
 /** Chunk size for base64 encoding — bounds the String.fromCharCode arg count. */

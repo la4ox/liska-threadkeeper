@@ -33,6 +33,8 @@ const storedSettings: ExtensionSettings = {
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
+  enableChatGptOpaqueProbe: false,
+  enableChatGptOpaqueReplay: false,
   flattenLargeCallouts: true,
   outputOptions: { obsidian: true, file: false, clipboard: true },
   templateOptions: {
@@ -65,6 +67,8 @@ const SWITCH_IDS = [
   'enableAppendMode',
   'enableToolContent',
   'enableImageExport',
+  'enableChatGptOpaqueProbe',
+  'enableChatGptOpaqueReplay',
   'flattenLargeCallouts',
 ];
 
@@ -123,6 +127,7 @@ async function initWithDefaults(): Promise<void> {
 describe('popup/app', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(sendMessage).mockResolvedValue({ success: true } as never);
   });
 
   describe('initPopup', () => {
@@ -136,8 +141,33 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('outputClipboard').checked).toBe(true);
       expect(el<HTMLInputElement>('outputFile').checked).toBe(false);
       expect(el<HTMLInputElement>('enableAutoScroll').checked).toBe(true);
+      expect(el<HTMLInputElement>('enableChatGptOpaqueProbe').checked).toBe(false);
+      expect(el<HTMLInputElement>('enableChatGptOpaqueReplay').checked).toBe(false);
       expect(el<HTMLInputElement>('includeTags').checked).toBe(false);
       expect(el<HTMLSelectElement>('messageFormat').value).toBe('callout');
+    });
+
+    it('canonicalizes stale dual experiment settings to probe-only before saving', async () => {
+      buildPopupDom();
+      vi.mocked(getSettings).mockResolvedValue({
+        ...storedSettings,
+        enableChatGptOpaqueProbe: true,
+        enableChatGptOpaqueReplay: true,
+      });
+      vi.mocked(saveSettings).mockResolvedValue(undefined);
+      await initPopup();
+
+      expect(el<HTMLInputElement>('enableChatGptOpaqueProbe').checked).toBe(true);
+      expect(el<HTMLInputElement>('enableChatGptOpaqueReplay').checked).toBe(false);
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
+      expect(saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enableChatGptOpaqueProbe: true,
+          enableChatGptOpaqueReplay: false,
+        })
+      );
     });
 
     it('populates the timezone dropdown with IANA zones', async () => {
@@ -316,6 +346,99 @@ describe('popup/app', () => {
   });
 
   describe('save flow', () => {
+    it('saves the experimental opaque-probe switch with an explicit default-off value', async () => {
+      await initWithDefaults();
+      vi.mocked(saveSettings).mockResolvedValue(undefined);
+
+      const probe = el<HTMLInputElement>('enableChatGptOpaqueProbe');
+      probe.checked = true;
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
+      expect(saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ enableChatGptOpaqueProbe: true })
+      );
+    });
+
+    it('saves the experimental opaque-replay switch with an explicit default-off value', async () => {
+      await initWithDefaults();
+      vi.mocked(saveSettings).mockResolvedValue(undefined);
+
+      const replay = el<HTMLInputElement>('enableChatGptOpaqueReplay');
+      replay.checked = true;
+      replay.dispatchEvent(new Event('change'));
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
+      expect(saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enableChatGptOpaqueProbe: false,
+          enableChatGptOpaqueReplay: true,
+        })
+      );
+    });
+
+    it('keeps metadata probe and active replay mutually exclusive', async () => {
+      await initWithDefaults();
+      const probe = el<HTMLInputElement>('enableChatGptOpaqueProbe');
+      const replay = el<HTMLInputElement>('enableChatGptOpaqueReplay');
+
+      probe.checked = true;
+      probe.dispatchEvent(new Event('change'));
+      replay.checked = true;
+      replay.dispatchEvent(new Event('change'));
+      expect(probe.checked).toBe(false);
+      expect(replay.checked).toBe(true);
+
+      probe.checked = true;
+      probe.dispatchEvent(new Event('change'));
+      expect(probe.checked).toBe(true);
+      expect(replay.checked).toBe(false);
+    });
+
+    it('persists output destination switches immediately', async () => {
+      await initWithDefaults();
+
+      const obsidian = el<HTMLInputElement>('outputObsidian');
+      obsidian.checked = false;
+      obsidian.dispatchEvent(new Event('change'));
+
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'updateOutputOptions',
+          outputOptions: { obsidian: false, file: false, clipboard: true },
+        })
+      );
+      expect(statusEl().textContent).toBe('status_settingsSaved');
+    });
+
+    it('serializes rapid output changes so the final selection wins', async () => {
+      await initWithDefaults();
+
+      const obsidian = el<HTMLInputElement>('outputObsidian');
+      const file = el<HTMLInputElement>('outputFile');
+      obsidian.checked = false;
+      obsidian.dispatchEvent(new Event('change'));
+      file.checked = true;
+      file.dispatchEvent(new Event('change'));
+
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(sendMessage).mock.calls).toEqual([
+        [
+          {
+            action: 'updateOutputOptions',
+            outputOptions: { obsidian: false, file: false, clipboard: true },
+          },
+        ],
+        [
+          {
+            action: 'updateOutputOptions',
+            outputOptions: { obsidian: false, file: true, clipboard: true },
+          },
+        ],
+      ]);
+    });
+
     it('saves collected settings and shows a success status', async () => {
       await initWithDefaults();
       vi.mocked(saveSettings).mockResolvedValue(undefined);

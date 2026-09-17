@@ -17,6 +17,7 @@ const tsconfigPath = path.resolve(import.meta.dirname, '../../tsconfig.json');
 const p = project(tsconfigPath);
 
 const subsystems = {
+  archive: '**/archive/**',
   lib: '**/lib/**',
   content: '**/content/**',
   background: '**/background/**',

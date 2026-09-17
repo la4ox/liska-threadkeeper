@@ -5,9 +5,14 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
+  injectBranchExportButton,
   injectSyncButton,
+  handleTrustedBranchClick,
   handleTrustedSyncClick,
+  handleTrustedBranchPickerAction,
   setButtonLoading,
+  settleArchiveBranchPickerForTest,
+  showArchiveBranchPicker,
   showToast,
   showSuccessToast,
   showErrorToast,
@@ -23,6 +28,7 @@ describe('ui', () => {
   });
 
   afterEach(() => {
+    settleArchiveBranchPickerForTest(null);
     document.body.innerHTML = '';
     document.head.innerHTML = '';
   });
@@ -129,13 +135,16 @@ describe('ui', () => {
     beforeEach(() => {
       const onClick = vi.fn();
       injectSyncButton(onClick);
+      injectBranchExportButton(onClick);
     });
 
     it('disables button when loading', () => {
       setButtonLoading(true);
 
       const button = document.getElementById('g2o-sync-button') as HTMLButtonElement;
+      const branchButton = document.getElementById('g2o-branch-button') as HTMLButtonElement;
       expect(button.disabled).toBe(true);
+      expect(branchButton.disabled).toBe(true);
     });
 
     it('enables button when not loading', () => {
@@ -143,7 +152,9 @@ describe('ui', () => {
       setButtonLoading(false);
 
       const button = document.getElementById('g2o-sync-button') as HTMLButtonElement;
+      const branchButton = document.getElementById('g2o-branch-button') as HTMLButtonElement;
       expect(button.disabled).toBe(false);
+      expect(branchButton.disabled).toBe(false);
     });
 
     it('shows spinner when loading', () => {
@@ -173,6 +184,197 @@ describe('ui', () => {
       // Should not throw
       expect(() => setButtonLoading(true)).not.toThrow();
       expect(() => setButtonLoading(false)).not.toThrow();
+    });
+  });
+
+  describe('branch picker', () => {
+    const options = [
+      {
+        ordinal: 1,
+        messageCount: 18,
+        uniqueMessageCount: 4,
+        isCurrent: true,
+        preview: 'Current branch preview',
+      },
+      {
+        ordinal: 2,
+        messageCount: 15,
+        uniqueMessageCount: 2,
+        isCurrent: false,
+        preview: 'Alternate branch preview',
+      },
+    ];
+
+    it('injects the localized branch button above the main export button', () => {
+      injectSyncButton(vi.fn());
+      const button = injectBranchExportButton(vi.fn());
+
+      expect(button.id).toBe('g2o-branch-button');
+      expect(button.getAttribute('aria-label')).toBe('ui_branchButtonTitle');
+      expect(button.title).toBe('ui_branchButtonTitle');
+      expect(button.compareDocumentPosition(document.getElementById('g2o-sync-button')!)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+    });
+
+    it('replaces the old branch button and ignores programmatic clicks', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      injectBranchExportButton(first);
+      const replacement = injectBranchExportButton(second);
+
+      replacement.click();
+      expect(document.querySelectorAll('#g2o-branch-button')).toHaveLength(1);
+      expect(first).not.toHaveBeenCalled();
+      expect(second).not.toHaveBeenCalled();
+
+      handleTrustedBranchClick({ isTrusted: true } as Event, second);
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects untrusted picker actions but accepts the trusted test seam', () => {
+      const action = vi.fn();
+      handleTrustedBranchPickerAction({ isTrusted: false } as Event, action);
+      expect(action).not.toHaveBeenCalled();
+
+      handleTrustedBranchPickerAction({ isTrusted: true } as Event, action);
+      expect(action).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders a current marker and treats previews as text, not HTML', async () => {
+      const result = showArchiveBranchPicker([
+        { ...options[0], preview: '<img src=x onerror="alert(1)">' },
+      ]);
+
+      const picker = document.getElementById('g2o-branch-picker-backdrop');
+      const preview = picker?.querySelector('.g2o-branch-picker-preview');
+      const current = picker?.querySelector('.g2o-branch-picker-current');
+      const exportAll = picker?.querySelector<HTMLButtonElement>('.g2o-branch-picker-export-all');
+      const exportAllHelp = picker?.querySelector('.g2o-branch-picker-export-all-help');
+      expect(preview?.innerHTML).not.toContain('<img');
+      expect(preview?.textContent).toContain('<img');
+      expect(current?.textContent).toBe('ui_branchPickerCurrent');
+      expect(picker?.querySelector('[aria-current="true"]')).not.toBeNull();
+      expect(document.activeElement).toBe(picker?.querySelector('[aria-current="true"]'));
+      expect(exportAll?.textContent).toBe('ui_branchPickerExportAll');
+      expect(exportAllHelp?.textContent).toBe('ui_branchPickerExportAllHelp');
+      expect(exportAll?.getAttribute('aria-describedby')).toBe(exportAllHelp?.id);
+
+      settleArchiveBranchPickerForTest(null);
+      await expect(result).resolves.toBeNull();
+    });
+
+    it('returns only the selected ordinal and cleans up the picker', async () => {
+      const result = showArchiveBranchPicker(options);
+      let settled = false;
+      void result.then(() => {
+        settled = true;
+      });
+
+      const firstOption = document.querySelector<HTMLButtonElement>('.g2o-branch-picker-option');
+      firstOption?.click();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      settleArchiveBranchPickerForTest(2);
+      await expect(result).resolves.toBe(2);
+      expect(document.getElementById('g2o-branch-picker-backdrop')).toBeNull();
+    });
+
+    it('ignores programmatic all-branches clicks and resolves all through the trusted seam', async () => {
+      const result = showArchiveBranchPicker(options);
+      let settled = false;
+      void result.then(() => {
+        settled = true;
+      });
+
+      const exportAll = document.querySelector<HTMLButtonElement>('.g2o-branch-picker-export-all')!;
+      exportAll.click();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(document.getElementById('g2o-branch-picker-backdrop')).not.toBeNull();
+
+      handleTrustedBranchPickerAction({ isTrusted: true } as Event, () =>
+        settleArchiveBranchPickerForTest('all')
+      );
+      await expect(result).resolves.toBe('all');
+      expect(document.getElementById('g2o-branch-picker-backdrop')).toBeNull();
+    });
+
+    it('ignores a programmatic Escape and cleans up through the trusted seam', async () => {
+      const result = showArchiveBranchPicker(options);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(document.getElementById('g2o-branch-picker-backdrop')).not.toBeNull();
+
+      handleTrustedBranchPickerAction({ isTrusted: true } as Event, () =>
+        settleArchiveBranchPickerForTest(null)
+      );
+      await expect(result).resolves.toBeNull();
+      expect(document.getElementById('g2o-branch-picker-backdrop')).toBeNull();
+    });
+
+    it('replaces an existing picker and resolves the earlier request as canceled', async () => {
+      const first = showArchiveBranchPicker(options);
+      const second = showArchiveBranchPicker([{ ...options[1], ordinal: 9 }]);
+
+      await expect(first).resolves.toBeNull();
+      expect(document.querySelectorAll('#g2o-branch-picker-backdrop')).toHaveLength(1);
+      settleArchiveBranchPickerForTest(9);
+      await expect(second).resolves.toBe(9);
+    });
+
+    it('keeps keyboard Tab focus inside the local picker', async () => {
+      const result = showArchiveBranchPicker(options);
+      const picker = document.querySelector<HTMLElement>('.g2o-branch-picker')!;
+      const first = picker.querySelector<HTMLButtonElement>('.g2o-branch-picker-option')!;
+      const exportAll = picker.querySelector<HTMLButtonElement>('.g2o-branch-picker-export-all')!;
+      const cancel = picker.querySelector<HTMLButtonElement>('.g2o-branch-picker-cancel')!;
+
+      const buttons = Array.from(
+        picker.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+      );
+      expect(buttons.at(-2)).toBe(exportAll);
+      expect(buttons.at(-1)).toBe(cancel);
+
+      exportAll.focus();
+      expect(document.activeElement).toBe(exportAll);
+
+      cancel.focus();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      expect(document.activeElement).toBe(first);
+
+      first.focus();
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })
+      );
+      expect(document.activeElement).toBe(cancel);
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(document.activeElement).toBe(cancel);
+
+      settleArchiveBranchPickerForTest(null);
+      await expect(result).resolves.toBeNull();
+    });
+
+    it('restores the prior focus after the trusted all-branches selection cleans up', async () => {
+      const trigger = document.createElement('button');
+      document.body.appendChild(trigger);
+      trigger.focus();
+
+      const result = showArchiveBranchPicker(options);
+      expect(document.activeElement).not.toBe(trigger);
+
+      handleTrustedBranchPickerAction({ isTrusted: true } as Event, () =>
+        settleArchiveBranchPickerForTest('all')
+      );
+      await expect(result).resolves.toBe('all');
+      expect(document.getElementById('g2o-branch-picker-backdrop')).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('returns null without rendering UI for an empty branch list', async () => {
+      await expect(showArchiveBranchPicker([])).resolves.toBeNull();
+      expect(document.getElementById('g2o-branch-picker-backdrop')).toBeNull();
     });
   });
 

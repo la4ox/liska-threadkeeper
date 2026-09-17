@@ -1,0 +1,134 @@
+{
+  "conversation_id": "synthetic-chatgpt-branch",
+  "title": "Synthetic ChatGPT archive fixture",
+  "create_time": 1786963200,
+  "update_time": 1786963500,
+  "url": "https://chatgpt.com/c/synthetic-chatgpt-branch",
+  "current_node": "node/current",
+  "is_archived": false,
+  "default_model_slug": "synthetic-model",
+  "mapping": {
+    "node/root~structural": {
+      "id": "node/root~structural",
+      "parent": null,
+      "children": ["node/user"],
+      "message": null
+    },
+    "node/user": {
+      "id": "node/user",
+      "parent": "node/root~structural",
+      "children": ["node/current", "node/alternate"],
+      "message": {
+        "id": "message/user",
+        "author": { "role": "user", "name": "Synthetic User" },
+        "recipient": "all",
+        "channel": "final",
+        "create_time": 1786963260,
+        "status": "finished_successfully",
+        "content": {
+          "content_type": "text",
+          "parts": ["Please preserve every branch and typed block."]
+        },
+        "metadata": { "is_visible": true }
+      }
+    },
+    "node/current": {
+      "id": "node/current",
+      "parent": "node/user",
+      "children": [],
+      "message": {
+        "id": "message/current",
+        "author": { "role": "assistant", "name": null },
+        "recipient": "user",
+        "channel": "final",
+        "create_time": 1786963320.5,
+        "update_time": 1786963330,
+        "status": "finished_successfully",
+        "content": {
+          "content_type": "multimodal_text",
+          "response_format_name": "synthetic-response-format",
+          "parts": [
+            "First text part.",
+            { "content_type": "text", "text": "Second text part." },
+            { "content_type": "code", "code": "const branch = 'current';", "language": "ts" },
+            { "content_type": "reasoning_recap", "content": "Synthetic recap." },
+            {
+              "content_type": "tool_calls",
+              "tool_calls": [
+                { "name": "synthetic.search", "arguments": { "query": "archive graph" } }
+              ]
+            },
+            {
+              "content_type": "tool_results",
+              "tool_results": [
+                { "name": "synthetic.search", "result": { "items": ["result-one"] } }
+              ]
+            },
+            { "content_type": "execution_output", "output": ["command output"] },
+            {
+              "content_type": "content_reference",
+              "title": "Synthetic source",
+              "url": "https://example.invalid/synthetic-source",
+              "content": { "quote": "A small synthetic citation." }
+            },
+            {
+              "content_type": "image_asset_pointer",
+              "asset_id": "synthetic-image-1",
+              "filename": "synthetic-image.png",
+              "mime_type": "image/png",
+              "width": 2,
+              "height": 2,
+              "url": "https://cdn.example.invalid/file?signature=not-retained",
+              "inline_data": "data:image/png;base64,synthetic-not-retained"
+            },
+            { "content_type": "canvas_event", "revision": 7, "operation": "synthetic-update" },
+            {
+              "content_type": "provider_error",
+              "message": "Synthetic recoverable error.",
+              "code": "synthetic_error"
+            },
+            { "content_type": "future_rich_part", "payload": { "version": 1, "kind": "synthetic" } }
+          ]
+        },
+        "metadata": {
+          "model_slug": "synthetic-model",
+          "request_id": "synthetic-request-1",
+          "is_visually_hidden": false,
+          "attachments": [
+            {
+              "file_id": "synthetic-file-2",
+              "filename": "synthetic-notes.txt",
+              "mime_type": "text/plain",
+              "size_bytes": 12
+            }
+          ],
+          "citations": [
+            {
+              "label": "Metadata citation",
+              "url": "https://example.invalid/metadata-citation",
+              "text": "Synthetic metadata citation."
+            }
+          ]
+        }
+      }
+    },
+    "node/alternate": {
+      "id": "node/alternate",
+      "parent": "node/user",
+      "children": [],
+      "message": {
+        "id": "message/alternate",
+        "author": { "role": "assistant", "name": null },
+        "recipient": "user",
+        "channel": "final",
+        "create_time": 1786963400,
+        "status": "finished_successfully",
+        "content": {
+          "content_type": "thoughts",
+          "thoughts": [{ "summary": "Synthetic alternate reasoning." }]
+        },
+        "metadata": { "model_slug": "synthetic-model" }
+      }
+    }
+  }
+}

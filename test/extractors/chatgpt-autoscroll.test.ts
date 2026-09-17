@@ -138,7 +138,10 @@ describe('ChatGPTExtractor auto-scroll (virtualization)', () => {
       'A4',
     ]);
     expect(result.data?.messages.map(m => m.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(result.warnings).toBeUndefined();
+    expect(result.warnings).toEqual([
+      'ChatGPT complete graph capture failed (permission-unavailable); partial rendered current branch exported; raw/canonical archive was not saved.',
+    ]);
+    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
   });
 
   it('extracts only the mounted window when auto-scroll is disabled', async () => {

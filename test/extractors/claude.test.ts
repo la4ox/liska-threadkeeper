@@ -488,7 +488,7 @@ describe('ClaudeExtractor', () => {
       expect(sources).toEqual([]);
     });
 
-    it('generates deterministic ID from title', async () => {
+    it('generates a deterministic content-addressed ID for the same report', async () => {
       setClaudeLocation('test-123');
       createClaudeDeepResearchPage('test-123', 'Unique Report Title', '<p>Content</p>');
       const result1 = await extractor.extract();
@@ -499,7 +499,7 @@ describe('ClaudeExtractor', () => {
       const result2 = await extractor.extract();
 
       expect(result1.data?.id).toBe(result2.data?.id);
-      expect(result1.data?.id).toMatch(/^deep-research-/);
+      expect(result1.data?.id).toMatch(/^deep-research-[a-f0-9]{64}$/);
     });
 
     it('sets type to deep-research', async () => {

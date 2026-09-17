@@ -10,8 +10,35 @@
  * See: https://github.com/GoogleChrome/developer.chrome.com/issues/4660
  */
 
+import { BINARY_STAGE_CHUNK_BYTES, MAX_CONTENT_SIZE } from '../lib/constants';
+import { canonicalBase64ByteLength } from '../lib/base64';
 import { extractErrorMessage } from '../lib/error-utils';
-import type { ClipboardWriteResponse, OffscreenClipboardMessage } from '../lib/types';
+import {
+  decodeCanonicalBinaryChunk,
+  isSafeBinaryStageId,
+  isStagedBinaryAssetDescriptor,
+} from '../lib/binary-asset-contract';
+import {
+  ARCHIVE_STAGE_CHUNK_BYTES,
+  decodeCanonicalArchiveStageChunk,
+  isArchiveStageDescriptor,
+  isSafeArchiveStageId,
+} from '../lib/archive-stage-contract';
+import { bytesToBase64 } from '../lib/image-utils';
+import { OpfsBinaryStageStore, type BinaryStageStore } from './binary-stage-store';
+import { OpfsArchiveStageStore, type ArchiveStageStore } from './archive-stage-store';
+import { createWorkerSenderCheck } from './worker-sender';
+import type {
+  ArchiveBlobCreateResponse,
+  ArchiveBlobRevokeResponse,
+  ArchiveStageReadResponse,
+  ArchiveStageResponse,
+  ArchiveStageUrlResponse,
+  BinaryStageFinalizeResponse,
+  BinaryStageResponse,
+  ClipboardWriteResponse,
+  OffscreenMessage,
+} from '../lib/types';
 
 /**
  * Handle clipboard write request using document.execCommand
@@ -39,43 +66,480 @@ function handleClipboardWrite(content: string): boolean {
   return success;
 }
 
-/**
- * Message listener for clipboard operations
- */
-chrome.runtime.onMessage.addListener(
-  (
-    message: OffscreenClipboardMessage,
-    sender: chrome.runtime.MessageSender,
-    sendResponse: (response: ClipboardWriteResponse) => void
-  ) => {
-    // Security: only accept messages from this extension's own non-content-script
-    // contexts (service worker or popup). `sender.tab` is undefined for those and
-    // defined for content scripts, so this rejects any page-injected sender. In
-    // practice only the background worker sends `clipboardWrite`; the action +
-    // `target === 'offscreen'` gate below scopes it further.
-    if (sender.id !== chrome.runtime.id || sender.tab !== undefined) {
-      return false;
-    }
+const archiveBlobUrls = new Set<string>();
+const archiveStageBlobUrls = new Map<string, string>();
+const binaryStageBlobUrls = new Map<string, string>();
+let archiveStageStore: ArchiveStageStore = new OpfsArchiveStageStore();
+let binaryStageStore: BinaryStageStore = new OpfsBinaryStageStore();
 
-    // Only handle messages targeted at offscreen document
-    if (message.action === 'clipboardWrite' && message.target === 'offscreen') {
-      try {
-        const success = handleClipboardWrite(message.content);
-        if (success) {
-          sendResponse({ success: true });
-        } else {
-          sendResponse({ success: false, error: 'execCommand copy failed' });
-        }
-      } catch (error) {
-        sendResponse({
+/** @internal Inject an exact archive-stage fake in jsdom tests. */
+export function setArchiveStageStoreForTesting(store: ArchiveStageStore | undefined): void {
+  archiveStageStore = store ?? new OpfsArchiveStageStore();
+  archiveStageBlobUrls.clear();
+}
+
+/** @internal Inject an exact OPFS fake in jsdom tests without changing production storage. */
+export function setBinaryStageStoreForTesting(store: BinaryStageStore | undefined): void {
+  binaryStageStore = store ?? new OpfsBinaryStageStore();
+  binaryStageBlobUrls.clear();
+}
+
+function decodeArchiveBytes(base64: string): Uint8Array {
+  const expectedLength = canonicalBase64ByteLength(base64);
+  if (expectedLength === undefined) throw new Error('invalid archive bytes');
+  if (expectedLength > MAX_CONTENT_SIZE) {
+    throw new Error('archive bytes exceed the safety limit');
+  }
+  const binary = atob(base64);
+  if (binary.length !== expectedLength || btoa(binary) !== base64) {
+    throw new Error('invalid archive bytes');
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function createArchiveBlobUrl(bodyBase64: string, mediaType: string): string {
+  if (mediaType !== 'application/json') throw new Error('invalid archive media type');
+  const bytes = decodeArchiveBytes(bodyBase64);
+  const exact = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+  const url = URL.createObjectURL(new Blob([exact], { type: mediaType }));
+  archiveBlobUrls.add(url);
+  return url;
+}
+
+function revokeArchiveBlobUrl(url: string): boolean {
+  if (!archiveBlobUrls.delete(url)) return false;
+  URL.revokeObjectURL(url);
+  return true;
+}
+
+function isBinaryStageBeginMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'binaryStageBegin' }> {
+  return (
+    message.action === 'binaryStageBegin' &&
+    message.target === 'offscreen' &&
+    isSafeBinaryStageId(message.stageId) &&
+    isStagedBinaryAssetDescriptor(message.descriptor)
+  );
+}
+
+function isArchiveStageBeginMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'archiveStageBegin' }> {
+  return (
+    message.action === 'archiveStageBegin' &&
+    message.target === 'offscreen' &&
+    isSafeArchiveStageId(message.stageId) &&
+    isArchiveStageDescriptor(message.descriptor)
+  );
+}
+
+function isArchiveStageAppendMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'archiveStageAppend' }> {
+  return (
+    message.action === 'archiveStageAppend' &&
+    message.target === 'offscreen' &&
+    isSafeArchiveStageId(message.stageId) &&
+    Number.isSafeInteger(message.offset) &&
+    message.offset >= 0 &&
+    typeof message.chunkBase64 === 'string'
+  );
+}
+
+function isArchiveStageSealMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'archiveStageSeal' }> {
+  return (
+    message.action === 'archiveStageSeal' &&
+    message.target === 'offscreen' &&
+    isSafeArchiveStageId(message.stageId) &&
+    isArchiveStageDescriptor(message.descriptor)
+  );
+}
+
+function isArchiveStageReadMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'archiveStageRead' }> {
+  return (
+    message.action === 'archiveStageRead' &&
+    message.target === 'offscreen' &&
+    isSafeArchiveStageId(message.stageId) &&
+    Number.isSafeInteger(message.offset) &&
+    message.offset >= 0 &&
+    Number.isSafeInteger(message.byteLength) &&
+    message.byteLength >= 0 &&
+    message.byteLength <= ARCHIVE_STAGE_CHUNK_BYTES
+  );
+}
+
+function isArchiveStageCreateUrlMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'archiveStageCreateUrl' }> {
+  return (
+    message.action === 'archiveStageCreateUrl' &&
+    message.target === 'offscreen' &&
+    isSafeArchiveStageId(message.stageId) &&
+    isArchiveStageDescriptor(message.descriptor)
+  );
+}
+
+function isArchiveStageReleaseMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'archiveStageRelease' }> {
+  return (
+    message.action === 'archiveStageRelease' &&
+    message.target === 'offscreen' &&
+    isSafeArchiveStageId(message.stageId) &&
+    typeof message.url === 'string' &&
+    message.url.startsWith('blob:')
+  );
+}
+
+function isArchiveStageAbortMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'archiveStageAbort' }> {
+  return (
+    message.action === 'archiveStageAbort' &&
+    message.target === 'offscreen' &&
+    isSafeArchiveStageId(message.stageId)
+  );
+}
+
+// eslint-disable-next-line max-lines-per-function -- OPFS state transitions remain a single explicit offscreen dispatch table.
+async function handleArchiveStageMessage(
+  message: OffscreenMessage
+): Promise<ArchiveStageResponse | ArchiveStageReadResponse | ArchiveStageUrlResponse | undefined> {
+  if (isArchiveStageBeginMessage(message)) {
+    await archiveStageStore.begin(message.stageId, message.descriptor);
+    return { success: true };
+  }
+  if (isArchiveStageAppendMessage(message)) {
+    const bytes = decodeCanonicalArchiveStageChunk(message.chunkBase64);
+    if (!bytes) return { success: false, error: 'Invalid archive stage chunk' };
+    await archiveStageStore.append(message.stageId, message.offset, bytes);
+    return { success: true };
+  }
+  if (isArchiveStageSealMessage(message)) {
+    await archiveStageStore.seal(message.stageId, message.descriptor);
+    return { success: true };
+  }
+  if (isArchiveStageReadMessage(message)) {
+    const bytes = await archiveStageStore.read(message.stageId, message.offset, message.byteLength);
+    return {
+      success: true,
+      data: {
+        stageId: message.stageId,
+        offset: message.offset,
+        byteLength: bytes.byteLength,
+        chunkBase64: bytesToBase64(bytes),
+      },
+    };
+  }
+  if (isArchiveStageCreateUrlMessage(message)) {
+    const file = await archiveStageStore.openSealed(message.stageId, message.descriptor);
+    const url = URL.createObjectURL(file);
+    archiveStageBlobUrls.set(url, message.stageId);
+    return { success: true, url };
+  }
+  if (isArchiveStageReleaseMessage(message)) {
+    if (archiveStageBlobUrls.get(message.url) !== message.stageId) {
+      return { success: false, error: 'Unknown archive stage' };
+    }
+    try {
+      URL.revokeObjectURL(message.url);
+    } finally {
+      archiveStageBlobUrls.delete(message.url);
+      await archiveStageStore.abort(message.stageId);
+    }
+    return { success: true };
+  }
+  if (isArchiveStageAbortMessage(message)) {
+    await archiveStageStore.abort(message.stageId);
+    return { success: true };
+  }
+  return undefined;
+}
+
+function isBinaryStageAppendMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'binaryStageAppend' }> {
+  return (
+    message.action === 'binaryStageAppend' &&
+    message.target === 'offscreen' &&
+    isSafeBinaryStageId(message.stageId) &&
+    Number.isSafeInteger(message.offset) &&
+    message.offset >= 0 &&
+    typeof message.chunkBase64 === 'string'
+  );
+}
+
+function isBinaryStageFinalizeMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'binaryStageFinalize' }> {
+  return (
+    message.action === 'binaryStageFinalize' &&
+    message.target === 'offscreen' &&
+    isSafeBinaryStageId(message.stageId) &&
+    isStagedBinaryAssetDescriptor(message.descriptor)
+  );
+}
+
+function isBinaryStageReleaseMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'binaryStageRelease' }> {
+  return (
+    message.action === 'binaryStageRelease' &&
+    message.target === 'offscreen' &&
+    isSafeBinaryStageId(message.stageId) &&
+    typeof message.url === 'string' &&
+    message.url.startsWith('blob:')
+  );
+}
+
+function isBinaryStageAbortMessage(
+  message: OffscreenMessage
+): message is Extract<OffscreenMessage, { action: 'binaryStageAbort' }> {
+  return (
+    message.action === 'binaryStageAbort' &&
+    message.target === 'offscreen' &&
+    isSafeBinaryStageId(message.stageId)
+  );
+}
+
+async function handleBinaryStageMessage(
+  message: OffscreenMessage
+): Promise<BinaryStageResponse | BinaryStageFinalizeResponse | undefined> {
+  if (isBinaryStageBeginMessage(message)) {
+    await binaryStageStore.begin(message.stageId, message.descriptor);
+    return { success: true };
+  }
+  if (isBinaryStageAppendMessage(message)) {
+    const bytes = decodeCanonicalBinaryChunk(message.chunkBase64);
+    if (!bytes || bytes.byteLength > BINARY_STAGE_CHUNK_BYTES) {
+      return { success: false, error: 'Invalid binary stage chunk' };
+    }
+    await binaryStageStore.append(message.stageId, message.offset, bytes);
+    return { success: true };
+  }
+  if (isBinaryStageFinalizeMessage(message)) {
+    const file = await binaryStageStore.finalize(message.stageId, message.descriptor);
+    const url = URL.createObjectURL(file);
+    binaryStageBlobUrls.set(url, message.stageId);
+    return { success: true, url };
+  }
+  if (isBinaryStageReleaseMessage(message)) {
+    if (binaryStageBlobUrls.get(message.url) !== message.stageId) {
+      return { success: false, error: 'Unknown binary stage' };
+    }
+    try {
+      URL.revokeObjectURL(message.url);
+    } finally {
+      binaryStageBlobUrls.delete(message.url);
+      await binaryStageStore.abort(message.stageId);
+    }
+    return { success: true };
+  }
+  if (isBinaryStageAbortMessage(message)) {
+    await binaryStageStore.abort(message.stageId);
+    return { success: true };
+  }
+  return undefined;
+}
+
+type OffscreenResponse =
+  | ClipboardWriteResponse
+  | ArchiveBlobCreateResponse
+  | ArchiveBlobRevokeResponse
+  | ArchiveStageResponse
+  | ArchiveStageReadResponse
+  | ArchiveStageUrlResponse
+  | BinaryStageResponse
+  | BinaryStageFinalizeResponse;
+type SendOffscreenResponse = (response: OffscreenResponse) => void;
+
+function handleClipboardMessage(
+  message: OffscreenMessage,
+  sendResponse: SendOffscreenResponse
+): boolean {
+  if (message.action !== 'clipboardWrite' || message.target !== 'offscreen') return false;
+  try {
+    const success = handleClipboardWrite(message.content);
+    sendResponse(
+      success ? { success: true } : { success: false, error: 'execCommand copy failed' }
+    );
+  } catch (error) {
+    sendResponse({ success: false, error: extractErrorMessage(error) });
+  }
+  return true;
+}
+
+function handleArchiveBlobMessage(
+  message: OffscreenMessage,
+  sendResponse: SendOffscreenResponse
+): boolean {
+  if (message.action === 'archiveBlobCreate' && message.target === 'offscreen') {
+    try {
+      sendResponse({
+        success: true,
+        url: createArchiveBlobUrl(message.bodyBase64, message.mediaType),
+      });
+    } catch {
+      sendResponse({ success: false, error: 'Could not prepare archive download' });
+    }
+    return true;
+  }
+  if (message.action !== 'archiveBlobRevoke' || message.target !== 'offscreen') return false;
+  try {
+    const revoked = revokeArchiveBlobUrl(message.url);
+    sendResponse(
+      revoked ? { success: true } : { success: false, error: 'Unknown archive Blob URL' }
+    );
+  } catch {
+    sendResponse({ success: false, error: 'Could not release archive download' });
+  }
+  return true;
+}
+
+function isBinaryStageAction(message: OffscreenMessage): boolean {
+  return [
+    'binaryStageBegin',
+    'binaryStageAppend',
+    'binaryStageFinalize',
+    'binaryStageRelease',
+    'binaryStageAbort',
+  ].includes(message.action);
+}
+
+function isArchiveStageAction(message: OffscreenMessage): boolean {
+  return [
+    'archiveStageBegin',
+    'archiveStageAppend',
+    'archiveStageSeal',
+    'archiveStageRead',
+    'archiveStageCreateUrl',
+    'archiveStageRelease',
+    'archiveStageAbort',
+  ].includes(message.action);
+}
+
+/** Classify only known exception kinds, never their possibly sensitive messages. */
+function archiveStageBeginFailure(error: unknown): string {
+  if (error instanceof DOMException) {
+    switch (error.name) {
+      case 'SecurityError':
+      case 'NotAllowedError':
+        return 'opfs-denied';
+      case 'QuotaExceededError':
+        return 'opfs-quota';
+      case 'NotFoundError':
+        return 'opfs-not-found';
+      case 'InvalidStateError':
+        return 'opfs-invalid-state';
+    }
+  }
+  if (error instanceof TypeError) return 'opfs-type-error';
+  if (error instanceof Error && error.message === 'OPFS is unavailable') {
+    return 'opfs-unavailable';
+  }
+  return 'opfs-operation-failed';
+}
+
+function handleArchiveStageRequest(
+  message: OffscreenMessage,
+  sendResponse: SendOffscreenResponse
+): boolean {
+  if (!isArchiveStageAction(message)) return false;
+  void handleArchiveStageMessage(message).then(
+    response => {
+      sendResponse(
+        response ?? {
           success: false,
-          error: extractErrorMessage(error),
-        });
+          error:
+            message.action === 'archiveStageBegin'
+              ? 'offscreen-invalid-request'
+              : 'Invalid archive stage request',
+        }
+      );
+    },
+    error =>
+      sendResponse({
+        success: false,
+        error:
+          message.action === 'archiveStageBegin'
+            ? archiveStageBeginFailure(error)
+            : 'Archive stage operation failed',
+      })
+  );
+  return true;
+}
+
+function handleBinaryMessage(
+  message: OffscreenMessage,
+  sendResponse: SendOffscreenResponse
+): boolean {
+  if (!isBinaryStageAction(message)) return false;
+  void handleBinaryStageMessage(message).then(
+    response => {
+      sendResponse(response ?? { success: false, error: 'Invalid binary stage request' });
+    },
+    () => sendResponse({ success: false, error: 'Binary stage operation failed' })
+  );
+  return true;
+}
+
+const checkWorkerSender = createWorkerSenderCheck();
+
+function dispatchOffscreenMessage(
+  message: OffscreenMessage,
+  sendResponse: SendOffscreenResponse
+): boolean {
+  return (
+    handleClipboardMessage(message, sendResponse) ||
+    handleArchiveBlobMessage(message, sendResponse) ||
+    handleArchiveStageRequest(message, sendResponse) ||
+    handleBinaryMessage(message, sendResponse)
+  );
+}
+
+/** Accept only the extension worker, never content scripts or extension documents. */
+function onOffscreenMessage(
+  message: OffscreenMessage,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: SendOffscreenResponse
+): boolean {
+  if (message?.target !== 'offscreen') return false;
+  const senderFailure = checkWorkerSender(sender);
+  if (senderFailure instanceof Promise) {
+    // Keep the channel open while the package-local manifest is read. No
+    // clipboard, Blob, or OPFS operation starts before the URL is verified.
+    void senderFailure.then(failure => {
+      if (failure) {
+        sendResponse({ success: false, error: failure });
+      } else if (!dispatchOffscreenMessage(message, sendResponse)) {
+        sendResponse({ success: false, error: 'Unknown offscreen request' });
       }
-      return true; // Indicates async response
+    });
+    return true;
+  }
+  if (senderFailure) {
+    // Rejection remains fail-closed. Only a valid begin from this extension
+    // receives a value-free reason; no storage operation is attempted.
+    if (sender.id === chrome.runtime.id && isArchiveStageBeginMessage(message)) {
+      sendResponse({ success: false, error: senderFailure });
     }
     return false;
   }
-);
+  return dispatchOffscreenMessage(message, sendResponse);
+}
+
+chrome.runtime.onMessage.addListener(onOffscreenMessage);
 
 console.info('[G2O Offscreen] Document loaded');

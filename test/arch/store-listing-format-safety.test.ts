@@ -38,10 +38,11 @@ interface Field {
 }
 
 function parseFields(markdown: string): Field[] {
-  return [...markdown.matchAll(FIELD_BLOCK)].map(match => {
+  const normalized = markdown.replace(/\r\n/g, '\n');
+  return [...normalized.matchAll(FIELD_BLOCK)].map(match => {
     // Look only as far as the next section or field, so a later count cannot
     // be mistaken for this field's.
-    const rest = markdown.slice(match.index + match[0].length);
+    const rest = normalized.slice(match.index + match[0].length);
     const scope = rest.split(/\n(?:#{2,3} |<!--\s*field:)/)[0];
     const counted = /(\d+)\s+characters/.exec(scope);
     return {

@@ -175,6 +175,33 @@ describe('BaseExtractor', () => {
       expect(validation.warnings.some(w => w.includes('Unbalanced'))).toBe(true);
     });
 
+    it('does not apply the DOM imbalance heuristic to a complete structured capture', () => {
+      const result: ExtractionResult = {
+        success: true,
+        data: {
+          id: 'test',
+          title: 'Test',
+          url: 'https://example.com',
+          source: 'gemini',
+          messages: [
+            { id: '1', role: 'user', content: 'Hello', index: 0 },
+            { id: '2', role: 'user', content: 'Hello again', index: 1 },
+            { id: '3', role: 'user', content: 'Hello once more', index: 2 },
+          ],
+          extractedAt: new Date(),
+          metadata: {
+            messageCount: 3,
+            userMessageCount: 3,
+            assistantMessageCount: 0,
+            hasCodeBlocks: false,
+          },
+          capture: { mode: 'structured-api', completeness: 'complete' },
+        },
+      };
+      const validation = extractor.validate(result);
+      expect(validation.warnings.some(w => w.includes('Unbalanced'))).toBe(false);
+    });
+
     it('warns on empty content', () => {
       const result: ExtractionResult = {
         success: true,

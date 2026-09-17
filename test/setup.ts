@@ -46,12 +46,20 @@ const chromeMock = {
         return 1;
       }
     ),
+    // Archive Blob downloads use these to confirm a terminal state before
+    // their private Blob URL may be released.
+    search: vi.fn(() => Promise.resolve([])),
+    cancel: vi.fn(() => Promise.resolve()),
+    onChanged: {
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    },
   },
   // For clipboard operations via offscreen document
   offscreen: {
     createDocument: vi.fn(() => Promise.resolve()),
     closeDocument: vi.fn(() => Promise.resolve()),
-    Reason: { CLIPBOARD: 'CLIPBOARD' },
+    Reason: { CLIPBOARD: 'CLIPBOARD', BLOBS: 'BLOBS' },
   },
 };
 

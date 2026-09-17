@@ -5,7 +5,8 @@
  *
  *     Content Script -> Background -> Obsidian REST API
  *
- * `lib/` is the shared base layer; `popup/` and `offscreen/` are leaves.
+ * `lib/` is the shared base layer; `archive/` is the provider-neutral core;
+ * `popup/` and `offscreen/` are leaves.
  * Cross-layer talk between content and background happens via the Chrome
  * messaging API at runtime, NOT via static imports, so importing across
  * those folders is forbidden.
@@ -23,6 +24,16 @@ const tsconfigPath = path.resolve(import.meta.dirname, '../../tsconfig.json');
 const p = project(tsconfigPath);
 
 describe('architecture: layering', () => {
+  it('archive must not import browser or destination layers', () => {
+    modules(p)
+      .that()
+      .resideInFolder('**/archive/**')
+      .should()
+      .notImportFrom('**/content/**', '**/background/**', '**/popup/**', '**/offscreen/**')
+      .because('canonical archive logic must remain browser- and destination-independent')
+      .check();
+  });
+
   it('lib must not import content / background / popup / offscreen', () => {
     modules(p)
       .that()

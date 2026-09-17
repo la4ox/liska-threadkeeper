@@ -42,6 +42,8 @@ export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
+  enableChatGptOpaqueProbe: false,
+  enableChatGptOpaqueReplay: false,
   imageVaultPath: 'AI/{platform}/images',
   flattenLargeCallouts: true,
   maxCalloutLines: DEFAULT_MAX_CALLOUT_LINES,
@@ -139,6 +141,13 @@ export function normalizeSyncSettings(raw: unknown): SyncSettings {
       outputOptions: { ...DEFAULT_OUTPUT_OPTIONS },
     };
   }
+  const enableChatGptOpaqueProbe = asBoolean(
+    raw.enableChatGptOpaqueProbe,
+    d.enableChatGptOpaqueProbe
+  );
+  const enableChatGptOpaqueReplay =
+    !enableChatGptOpaqueProbe &&
+    asBoolean(raw.enableChatGptOpaqueReplay, d.enableChatGptOpaqueReplay);
   return {
     obsidianUrl: resolveObsidianUrl(raw),
     vaultPath: asString(raw.vaultPath, d.vaultPath),
@@ -148,6 +157,8 @@ export function normalizeSyncSettings(raw: unknown): SyncSettings {
     enableAppendMode: asBoolean(raw.enableAppendMode, d.enableAppendMode),
     enableToolContent: asBoolean(raw.enableToolContent, d.enableToolContent),
     enableImageExport: asBoolean(raw.enableImageExport, d.enableImageExport),
+    enableChatGptOpaqueProbe,
+    enableChatGptOpaqueReplay,
     imageVaultPath: asString(raw.imageVaultPath, d.imageVaultPath),
     flattenLargeCallouts: asBoolean(raw.flattenLargeCallouts, d.flattenLargeCallouts),
     maxCalloutLines: asPositiveInt(raw.maxCalloutLines, d.maxCalloutLines),

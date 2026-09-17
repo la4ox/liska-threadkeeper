@@ -1,0 +1,551 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liska-threadkeeper.local/schema/liska-thread/1.json",
+  "title": "Liska Thread Archive v1",
+  "description": "Experimental, loss-aware canonical archive for one conversation graph.",
+  "type": "object",
+  "required": [
+    "schema",
+    "archiveId",
+    "inputs",
+    "conversation",
+    "graph",
+    "assets",
+    "diagnostics",
+    "extensions"
+  ],
+  "properties": {
+    "schema": { "const": "liska-thread/1" },
+    "archiveId": { "$ref": "#/$defs/nonEmptyString" },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/archiveInput" }
+    },
+    "conversation": { "$ref": "#/$defs/conversation" },
+    "graph": { "$ref": "#/$defs/graph" },
+    "assets": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/asset" }
+    },
+    "diagnostics": { "$ref": "#/$defs/diagnostics" },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": ["string", "null"], "format": "date-time" },
+    "jsonValue": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/jsonValue" } }
+      ]
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "sourceReference": {
+      "type": "object",
+      "required": ["format", "kind", "id", "artifactId", "rawPointer"],
+      "properties": {
+        "format": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": { "$ref": "#/$defs/nonEmptyString" },
+        "id": { "type": ["string", "null"] },
+        "artifactId": { "type": ["string", "null"] },
+        "rawPointer": {
+          "type": ["string", "null"],
+          "pattern": "^(|/.*)$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sourceReferences": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/sourceReference" }
+    },
+    "archiveInput": {
+      "type": "object",
+      "required": [
+        "captureId",
+        "manifestSha256",
+        "normalizer",
+        "capturedAt",
+        "sourceRefs",
+        "extensions"
+      ],
+      "properties": {
+        "captureId": { "$ref": "#/$defs/nonEmptyString" },
+        "manifestSha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        },
+        "normalizer": { "$ref": "#/$defs/nonEmptyString" },
+        "capturedAt": { "$ref": "#/$defs/timestamp" },
+        "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "conversation": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "provider",
+        "url",
+        "currentNodeId",
+        "createdAt",
+        "updatedAt",
+        "metadata",
+        "sourceRefs",
+        "extensions"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "title": { "type": ["string", "null"] },
+        "provider": { "$ref": "#/$defs/nonEmptyString" },
+        "url": { "type": ["string", "null"], "format": "uri" },
+        "currentNodeId": { "type": ["string", "null"] },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" },
+        "metadata": { "$ref": "#/$defs/metadata" },
+        "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "graph": {
+      "type": "object",
+      "required": ["rootIds", "nodes"],
+      "properties": {
+        "rootIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "nodes": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/node" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "parentId", "childIds", "sourceRefs", "extensions"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "parentId": { "type": ["string", "null"] },
+        "childIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "message": { "$ref": "#/$defs/message" },
+        "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "messageAuthor": {
+      "type": "object",
+      "required": ["role", "name"],
+      "properties": {
+        "role": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "message": {
+      "type": "object",
+      "required": [
+        "id",
+        "author",
+        "recipient",
+        "channel",
+        "createdAt",
+        "updatedAt",
+        "status",
+        "model",
+        "visibility",
+        "blocks",
+        "sourceRefs",
+        "extensions"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "author": { "$ref": "#/$defs/messageAuthor" },
+        "recipient": { "type": ["string", "null"] },
+        "channel": { "type": ["string", "null"] },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" },
+        "status": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "visibility": { "type": ["string", "null"] },
+        "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } },
+        "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "blockBase": {
+      "type": "object",
+      "required": ["id", "type", "sourceRefs", "extensions"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "type": "string" },
+        "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      }
+    },
+    "textBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["text"],
+          "properties": { "type": { "const": "text" }, "text": { "type": "string" } }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "markdownBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["markdown"],
+          "properties": {
+            "type": { "const": "markdown" },
+            "markdown": { "type": "string" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "htmlBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["html"],
+          "properties": { "type": { "const": "html" }, "html": { "type": "string" } }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "codeBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["code", "language"],
+          "properties": {
+            "type": { "const": "code" },
+            "code": { "type": "string" },
+            "language": { "type": ["string", "null"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "reasoningBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["text"],
+          "properties": { "type": { "const": "reasoning" }, "text": { "type": "string" } }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "toolCallBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["toolName", "arguments"],
+          "properties": {
+            "type": { "const": "tool_call" },
+            "toolName": { "$ref": "#/$defs/nonEmptyString" },
+            "arguments": { "$ref": "#/$defs/jsonValue" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "toolResultBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["toolName", "result"],
+          "properties": {
+            "type": { "const": "tool_result" },
+            "toolName": { "type": ["string", "null"] },
+            "result": { "$ref": "#/$defs/jsonValue" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "executionOutputBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["output"],
+          "properties": {
+            "type": { "const": "execution_output" },
+            "output": { "$ref": "#/$defs/jsonValue" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "citationBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["label", "url", "content"],
+          "properties": {
+            "type": { "const": "citation" },
+            "label": { "type": ["string", "null"] },
+            "url": { "type": ["string", "null"] },
+            "content": { "anyOf": [{ "$ref": "#/$defs/jsonValue" }, { "type": "null" }] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "quoteBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["text", "attribution"],
+          "properties": {
+            "type": { "const": "quote" },
+            "text": { "type": "string" },
+            "attribution": { "type": ["string", "null"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "attachmentBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["assetId"],
+          "properties": {
+            "type": { "const": "attachment" },
+            "assetId": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "canvasEventBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["event"],
+          "properties": {
+            "type": { "const": "canvas_event" },
+            "event": { "$ref": "#/$defs/jsonValue" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "errorBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["message", "code"],
+          "properties": {
+            "type": { "const": "error" },
+            "message": { "type": "string" },
+            "code": { "type": ["string", "null"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "unknownBlock": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/blockBase" },
+        {
+          "type": "object",
+          "required": ["providerType", "raw"],
+          "properties": {
+            "type": { "const": "unknown" },
+            "providerType": { "$ref": "#/$defs/nonEmptyString" },
+            "raw": { "anyOf": [{ "$ref": "#/$defs/jsonValue" }, { "type": "null" }] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "block": {
+      "oneOf": [
+        { "$ref": "#/$defs/textBlock" },
+        { "$ref": "#/$defs/markdownBlock" },
+        { "$ref": "#/$defs/htmlBlock" },
+        { "$ref": "#/$defs/codeBlock" },
+        { "$ref": "#/$defs/reasoningBlock" },
+        { "$ref": "#/$defs/toolCallBlock" },
+        { "$ref": "#/$defs/toolResultBlock" },
+        { "$ref": "#/$defs/executionOutputBlock" },
+        { "$ref": "#/$defs/citationBlock" },
+        { "$ref": "#/$defs/quoteBlock" },
+        { "$ref": "#/$defs/attachmentBlock" },
+        { "$ref": "#/$defs/canvasEventBlock" },
+        { "$ref": "#/$defs/errorBlock" },
+        { "$ref": "#/$defs/unknownBlock" }
+      ]
+    },
+    "acquisition": {
+      "type": "object",
+      "required": ["state", "attemptedAt", "detail"],
+      "properties": {
+        "state": {
+          "enum": ["not-attempted", "fetched", "unavailable", "declined", "expired", "failed"]
+        },
+        "attemptedAt": { "$ref": "#/$defs/timestamp" },
+        "detail": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "state": { "enum": ["fetched", "expired", "failed"] } },
+            "required": ["state"]
+          },
+          "then": { "properties": { "attemptedAt": { "type": "string" } } }
+        },
+        {
+          "if": {
+            "properties": { "state": { "enum": ["not-attempted", "declined"] } },
+            "required": ["state"]
+          },
+          "then": { "properties": { "attemptedAt": { "type": "null" } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "dimensions": {
+      "type": ["object", "null"],
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "number", "minimum": 0 },
+        "height": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "asset": {
+      "type": "object",
+      "required": [
+        "id",
+        "filename",
+        "mimeType",
+        "byteLength",
+        "dimensions",
+        "sha256",
+        "localArtifactRef",
+        "acquisition",
+        "sourceRefs",
+        "extensions"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "filename": { "type": ["string", "null"] },
+        "mimeType": { "type": ["string", "null"] },
+        "byteLength": { "type": ["number", "null"], "minimum": 0 },
+        "dimensions": { "$ref": "#/$defs/dimensions" },
+        "sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[a-fA-F0-9]{64}$"
+        },
+        "localArtifactRef": { "type": ["string", "null"] },
+        "acquisition": { "$ref": "#/$defs/acquisition" },
+        "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "acquisition": {
+                "properties": { "state": { "const": "fetched" } },
+                "required": ["state"]
+              }
+            },
+            "required": ["acquisition"]
+          },
+          "then": {
+            "properties": {
+              "localArtifactRef": { "type": "string", "minLength": 1 },
+              "byteLength": { "type": "number", "minimum": 0 },
+              "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["severity", "code", "message", "path", "sourceRefs", "extensions"],
+      "properties": {
+        "severity": { "enum": ["info", "warning", "error"] },
+        "code": { "$ref": "#/$defs/nonEmptyString" },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "path": { "type": ["string", "null"] },
+        "sourceRefs": { "$ref": "#/$defs/sourceReferences" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "diagnostics": {
+      "type": "object",
+      "required": ["entries", "extensions"],
+      "properties": {
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

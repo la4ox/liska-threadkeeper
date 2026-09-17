@@ -40,6 +40,35 @@ describe('normalizeSyncSettings', () => {
     expect(result.enableImageExport).toBe(false); // valid → preserved
   });
 
+  it('keeps the opaque probe disabled by default and preserves an explicit boolean opt-in', () => {
+    expect(DEFAULT_SYNC_SETTINGS.enableChatGptOpaqueProbe).toBe(false);
+    expect(normalizeSyncSettings({ enableChatGptOpaqueProbe: true }).enableChatGptOpaqueProbe).toBe(
+      true
+    );
+    expect(
+      normalizeSyncSettings({ enableChatGptOpaqueProbe: 'yes' }).enableChatGptOpaqueProbe
+    ).toBe(false);
+  });
+
+  it('keeps opaque replay disabled by default and preserves only an explicit boolean opt-in', () => {
+    expect(DEFAULT_SYNC_SETTINGS.enableChatGptOpaqueReplay).toBe(false);
+    expect(
+      normalizeSyncSettings({ enableChatGptOpaqueReplay: true }).enableChatGptOpaqueReplay
+    ).toBe(true);
+    expect(
+      normalizeSyncSettings({ enableChatGptOpaqueReplay: 'yes' }).enableChatGptOpaqueReplay
+    ).toBe(false);
+    expect(
+      normalizeSyncSettings({
+        enableChatGptOpaqueProbe: true,
+        enableChatGptOpaqueReplay: true,
+      })
+    ).toMatchObject({
+      enableChatGptOpaqueProbe: true,
+      enableChatGptOpaqueReplay: false,
+    });
+  });
+
   it('resets an out-of-range or non-integer maxCalloutLines to default', () => {
     expect(normalizeSyncSettings({ maxCalloutLines: 'abc' }).maxCalloutLines).toBe(200);
     expect(normalizeSyncSettings({ maxCalloutLines: -5 }).maxCalloutLines).toBe(200);

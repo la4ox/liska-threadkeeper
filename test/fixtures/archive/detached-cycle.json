@@ -1,0 +1,98 @@
+{
+  "schema": "liska-thread/1",
+  "archiveId": "chatgpt:synthetic-detached-cycle",
+  "inputs": [
+    {
+      "captureId": "capture-detached-cycle",
+      "manifestSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "normalizer": "chatgpt-web/1",
+      "capturedAt": null,
+      "sourceRefs": [
+        {
+          "format": "synthetic/1",
+          "kind": "conversation",
+          "id": "synthetic-detached-cycle",
+          "artifactId": "conversation",
+          "rawPointer": ""
+        }
+      ],
+      "extensions": {}
+    }
+  ],
+  "conversation": {
+    "id": "synthetic-detached-cycle",
+    "title": "Detached cycle",
+    "provider": "chatgpt",
+    "url": "https://chatgpt.com/c/synthetic-detached-cycle",
+    "currentNodeId": "node-root",
+    "createdAt": null,
+    "updatedAt": null,
+    "metadata": {},
+    "sourceRefs": [
+      {
+        "format": "synthetic/1",
+        "kind": "conversation",
+        "id": "synthetic-detached-cycle",
+        "artifactId": "conversation",
+        "rawPointer": ""
+      }
+    ],
+    "extensions": {}
+  },
+  "graph": {
+    "rootIds": ["node-root"],
+    "nodes": {
+      "node-root": {
+        "id": "node-root",
+        "parentId": null,
+        "childIds": [],
+        "sourceRefs": [
+          {
+            "format": "synthetic/1",
+            "kind": "node",
+            "id": "node-root",
+            "artifactId": "conversation",
+            "rawPointer": "/mapping/node-root"
+          }
+        ],
+        "extensions": {}
+      },
+      "node-detached-a": {
+        "id": "node-detached-a",
+        "parentId": "node-detached-b",
+        "childIds": ["node-detached-b"],
+        "sourceRefs": [
+          {
+            "format": "synthetic/1",
+            "kind": "node",
+            "id": "node-detached-a",
+            "artifactId": "conversation",
+            "rawPointer": "/mapping/node-detached-a"
+          }
+        ],
+        "extensions": {}
+      },
+      "node-detached-b": {
+        "id": "node-detached-b",
+        "parentId": "node-detached-a",
+        "childIds": ["node-detached-a"],
+        "sourceRefs": [
+          {
+            "format": "synthetic/1",
+            "kind": "node",
+            "id": "node-detached-b",
+            "artifactId": "conversation",
+            "rawPointer": "/mapping/node-detached-b"
+          }
+        ],
+        "extensions": {}
+      }
+    }
+  },
+  "assets": {},
+  "diagnostics": {
+    "entries": [],
+    "extensions": {}
+  },
+  "extensions": {}
+}

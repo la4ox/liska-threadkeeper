@@ -621,7 +621,7 @@ describe('GeminiExtractor', () => {
         expect(result.error).toContain('content not found');
       });
 
-      it('generates consistent ID from title for overwrite', async () => {
+      it('does not treat different same-title reports as the same durable object', async () => {
         setGeminiLocation('test123');
         loadFixture(createDeepResearchDOM('Same Title', '<p>Content 1</p>'));
         const result1 = await extractor.extract();
@@ -630,7 +630,9 @@ describe('GeminiExtractor', () => {
         loadFixture(createDeepResearchDOM('Same Title', '<p>Content 2</p>'));
         const result2 = await extractor.extract();
 
-        expect(result1.data?.id).toBe(result2.data?.id);
+        expect(result1.data?.id).not.toBe(result2.data?.id);
+        expect(result1.data?.id).toMatch(/^deep-research-[a-f0-9]{64}$/);
+        expect(result2.data?.id).toMatch(/^deep-research-[a-f0-9]{64}$/);
       });
     });
 

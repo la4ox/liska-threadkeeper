@@ -114,11 +114,15 @@ export class ObsidianApiClient {
    *
    * Not used by testConnection (which returns a result object instead of throwing).
    */
-  private async fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+    timeoutMs = DEFAULT_API_TIMEOUT
+  ): Promise<Response> {
     try {
       return await fetch(url, {
         ...options,
-        signal: createTimeoutSignal(DEFAULT_API_TIMEOUT),
+        signal: createTimeoutSignal(timeoutMs),
       });
     } catch (error) {
       const errorType = classifyNetworkError(error);
@@ -217,6 +221,31 @@ export class ObsidianApiClient {
   }
 
   /**
+   * Read exact binary bytes from a vault file. Archive companions use this
+   * after a PUT so success means the vault returned the expected byte hash,
+   * not merely that it accepted the request.
+   */
+  async getBinaryFile(path: string, timeoutMs = DEFAULT_API_TIMEOUT): Promise<Uint8Array | null> {
+    const encodedPath = encodeVaultPath(path);
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/vault/${encodedPath}`,
+      {
+        method: 'GET',
+        headers: this.getHeaders(),
+      },
+      timeoutMs
+    );
+
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw this.createError(response.status, `Failed to get file: ${response.statusText}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  /**
    * Create or update file in vault
    * @param path - Path relative to vault root
    * @param content - File content (markdown)
@@ -243,18 +272,27 @@ export class ObsidianApiClient {
    * @param data - Raw bytes to write
    * @param contentType - MIME type (e.g. "image/png")
    */
-  async putBinaryFile(path: string, data: Uint8Array, contentType: string): Promise<void> {
+  async putBinaryFile(
+    path: string,
+    data: Uint8Array,
+    contentType: string,
+    timeoutMs = DEFAULT_API_TIMEOUT
+  ): Promise<void> {
     const encodedPath = encodeVaultPath(path);
-    const response = await this.fetchWithTimeout(`${this.baseUrl}/vault/${encodedPath}`, {
-      method: 'PUT',
-      headers: {
-        ...this.getHeaders(),
-        'Content-Type': contentType,
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/vault/${encodedPath}`,
+      {
+        method: 'PUT',
+        headers: {
+          ...this.getHeaders(),
+          'Content-Type': contentType,
+        },
+        // Uint8Array is a valid BufferSource body; the cast placates the DOM
+        // lib's narrower BodyInit typing across ArrayBufferLike variants.
+        body: data as BodyInit,
       },
-      // Uint8Array is a valid BufferSource body; the cast placates the DOM
-      // lib's narrower BodyInit typing across ArrayBufferLike variants.
-      body: data as BodyInit,
-    });
+      timeoutMs
+    );
 
     if (!response.ok) {
       throw this.createError(response.status, `Failed to save image: ${response.statusText}`);

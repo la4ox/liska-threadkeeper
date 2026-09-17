@@ -46,6 +46,8 @@ describe('storage', () => {
       expect(settings.vaultPath).toBe('AI/{platform}');
       expect(settings.templateOptions.messageFormat).toBe('callout');
       expect(settings.enableImageExport).toBe(true);
+      expect(settings.enableChatGptOpaqueProbe).toBe(false);
+      expect(settings.enableChatGptOpaqueReplay).toBe(false);
       expect(settings.imageVaultPath).toBe('AI/{platform}/images');
       expect(settings.flattenLargeCallouts).toBe(true);
       expect(settings.maxCalloutLines).toBe(200);
@@ -181,6 +183,20 @@ describe('storage', () => {
       const settings = await getSettings();
       expect(settings.obsidianApiKey).toBe('');
       expect(settings.obsidianUrl).toBe('http://127.0.0.1:27123');
+    });
+  });
+
+  it('persists the non-sensitive opaque probe switch via saveSettings', async () => {
+    await saveSettings({ enableChatGptOpaqueProbe: true });
+    expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ enableChatGptOpaqueProbe: true }),
+    });
+  });
+
+  it('persists the non-sensitive opaque replay switch via saveSettings', async () => {
+    await saveSettings({ enableChatGptOpaqueReplay: true });
+    expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ enableChatGptOpaqueReplay: true }),
     });
   });
 

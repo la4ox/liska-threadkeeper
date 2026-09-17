@@ -9,6 +9,7 @@ Liska は、AI との会話を読みやすい Markdown としてローカルに�
 ## 主な特徴
 
 - **高速な DeepSeek 書き出し:** ログイン中の会話では同一オリジンの履歴レスポンスから現在の分岐を復元し、ページ全体のスクロールを避けます。
+- **高速な ChatGPT 書き出し:** 実際のクリック後、非アクティブな一時タブが document start から ChatGPT 自身の会話レスポンスを監視し、ページをスクロールせずに会話グラフ全体を復元します。既定では現在の分岐を使い、ローカル選択画面から特定の分岐、または全 leaf と索引も書き出せます。既定表示には明示的な DOM フォールバックも残ります。
 - **ローカル出力:** Markdown ダウンロード、クリップボード、Obsidian に対応。解析、テレメトリ、Liska 独自のサーバーはありません。
 - **長い会話:** 最大 32 MiB（UTF-8）のテキストノートを処理し、他の対応サイトでは仮想化された会話を制限付き自動スクロールで収集します。
 - **整理された記録:** YAML フロントマター、引用、数式、コールアウト、Thinking／ツール内容、質問見出し、衝突しないファイル名。
@@ -17,13 +18,15 @@ Liska は、AI との会話を読みやすい Markdown としてローカルに�
 
 ## 対応サービス
 
-Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook（旧 NotebookLM URL を含む）に対応します。DeepSeek は現在選択中の分岐、Markdown、オプションの Thinking を保存します。
+Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook（旧 NotebookLM URL を含む）に対応します。DeepSeek は現在選択中の分岐、Markdown、オプションの Thinking を保存します。ChatGPT は通常／カスタム GPT のグラフ全体をスクロールなしで取得し、現在の分岐、選択した分岐、または全 leaf と索引を書き出せます。既定表示の取得に失敗した場合は警告付き DOM フォールバックを使用します。
 
 対応ページ: `gemini.google.com`、`claude.ai`、`chatgpt.com`、`www.perplexity.ai`、`chat.deepseek.com`、`notebook.google.com`、旧リダイレクトの `notebooklm.google.com`。
 
 ## ソースからインストール
 
 Liska はまだ Chrome ウェブストアでは公開されていません。
+
+現在のソースをビルドして読み込むには Chromium 111 以降が必要です。
 
 ```bash
 git clone https://github.com/la4ox/liska-threadkeeper.git
@@ -53,9 +56,11 @@ API キーは `chrome.storage.local` にのみ保存され、対応 AI ページ
 
 ## 現在の制限
 
-- 会話グラフ全体ではなく、**現在選択されている分岐**を書き出します。
+- メインボタンはプロバイダーが選択した現在の分岐を書き出します。ChatGPT では、ローカル選択画面から特定の分岐、または全 leaf と索引も書き出せます。
 - 自動スケジュールバックアップはまだありません。各書き出しは実際のクリックから始まります。
 - DeepSeek の画像取得は未対応です。テキスト、Markdown、現在の分岐、Thinking は対応済みです。
+- ChatGPT の構造化アーカイブは、添付ファイルの参照とメタデータを常に保持します。**画像と添付ファイルをエクスポート**を有効にすると、raw アーカイブの保存後に、通常チャットの image/file-ID asset と interpreter/sandbox document のうち対応するものを上限付きで取得できます。各 asset は `fetched`、`not-attempted`、または失敗として正確に記録されます。custom-GPT、Library-ID、Calpico fallback はまだ対応していません。
+- 16 MiB 以下の ChatGPT graph response は検証済みの inline path を使用します。16 MiB を超え 64 MiB 以下の response は extension-owned staging を使って分割転送されます。この staged path は synthetic live test 済みですが、16 MiB を超える実際の provider response はまだ明示的な検証課題です。
 - 画像の書き出しは 20 枚まで、1 枚あたり 10 MiB、1 ノートあたり base64 データ合計 48 MiB に制限されます。
 - 追記モードでは新しいテキストを追加できますが、新しいメッセージ内の画像は警告を表示してスキップします。
 - DOM ベースの自動スクロールは最大 5 分です。

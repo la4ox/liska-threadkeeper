@@ -61,7 +61,7 @@ export class GeminiExtractor extends BaseExtractor {
       if (!this.canExtract()) {
         return { success: false, error: `Not on a ${this.platformLabel} page` };
       }
-      const deepResearchResult = this.tryExtractDeepResearch();
+      const deepResearchResult = await this.tryExtractDeepResearch();
       if (deepResearchResult) return deepResearchResult;
 
       // Reset per-extraction image state before extractMessages() populates it.

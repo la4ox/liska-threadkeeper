@@ -123,11 +123,13 @@
                   </span>
                 </label>
                 <label class="toggle-row">
-                  <span class="toggle-icon">🖼️</span>
+                  <span class="toggle-icon">📎</span>
                   <span class="toggle-label">
-                    <span data-i18n="settings_enableImageExport">Export images</span>
+                    <span data-i18n="settings_enableImageExport"
+                      >Export images &amp; attachments</span
+                    >
                     <span class="toggle-sublabel" data-i18n="settings_imageExportHelp">
-                      Save generated images (Obsidian vault and file download)
+                      Save generated images and supported ChatGPT attachments
                     </span>
                   </span>
                   <span class="toggle-switch">
@@ -137,6 +139,46 @@
                       role="switch"
                       aria-checked="true"
                       checked
+                    />
+                    <span class="slider" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <label class="toggle-row">
+                  <span class="toggle-icon">🧪</span>
+                  <span class="toggle-label">
+                    <span data-i18n="settings_enableChatGptOpaqueProbe"
+                      >Experimental ChatGPT metadata probe</span
+                    >
+                    <span class="toggle-sublabel" data-i18n="settings_chatGptOpaqueProbeHelp">
+                      Metadata only: no conversation is exported while enabled
+                    </span>
+                  </span>
+                  <span class="toggle-switch">
+                    <input
+                      type="checkbox"
+                      id="enableChatGptOpaqueProbe"
+                      role="switch"
+                      aria-checked="false"
+                    />
+                    <span class="slider" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <label class="toggle-row">
+                  <span class="toggle-icon">🛡️</span>
+                  <span class="toggle-label">
+                    <span data-i18n="settings_enableChatGptOpaqueReplay"
+                      >Experimental ChatGPT full graph replay</span
+                    >
+                    <span class="toggle-sublabel" data-i18n="settings_chatGptOpaqueReplayHelp">
+                      One strict same-origin request; disabled by default
+                    </span>
+                  </span>
+                  <span class="toggle-switch">
+                    <input
+                      type="checkbox"
+                      id="enableChatGptOpaqueReplay"
+                      role="switch"
+                      aria-checked="false"
                     />
                     <span class="slider" aria-hidden="true"></span>
                   </span>
