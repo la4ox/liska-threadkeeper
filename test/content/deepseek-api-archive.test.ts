@@ -55,13 +55,35 @@ describe('DeepSeek structured archive composition', () => {
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as {
       artifacts: Array<{ sha256: string }>;
       completeness: Record<string, string>;
-      assets: unknown[];
+      assets: Array<{
+        id: string;
+        state: string;
+        attemptedAt: null;
+        relativePath: null;
+        mediaType: null;
+        byteLength: null;
+        sha256: null;
+        sourceRefs: Array<{ artifactId: string; rawPointer: string }>;
+      }>;
       warnings: string[];
       observedUnknownContentTypes: string[];
     };
     const canonical = JSON.parse(new TextDecoder().decode(inlineBytes(artifacts[2]))) as {
       inputs: Array<{ manifestSha256: string }>;
       graph: { nodes: Record<string, unknown> };
+      assets: Record<
+        string,
+        {
+          filename: string | null;
+          mimeType: null;
+          byteLength: number | null;
+          sha256: null;
+          localArtifactRef: null;
+          acquisition: { state: string; attemptedAt: null };
+          sourceRefs: Array<{ id: string | null; rawPointer: string }>;
+          extensions: { deepseek: Record<string, unknown> };
+        }
+      >;
     };
     expect(manifest.artifacts[0].sha256).toBe(hash(fixtureBytes));
     expect(canonical.inputs[0].manifestSha256).toBe(hash(manifestBytes));
@@ -71,16 +93,92 @@ describe('DeepSeek structured archive composition', () => {
       branches: 'complete',
       assets: 'not-attempted',
     });
-    expect(manifest.assets).toEqual([]);
+    expect(manifest.assets).toHaveLength(2);
+    expect(manifest.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.stringMatching(/^deepseek-asset-[a-f0-9]{64}$/),
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          mediaType: null,
+          byteLength: null,
+          sha256: null,
+          sourceRefs: [
+            {
+              artifactId: 'conversation',
+              rawPointer: '/data/biz_data/chat_messages/0/files/0',
+            },
+            {
+              artifactId: 'conversation',
+              rawPointer: '/data/biz_data/chat_messages/4/files/0',
+            },
+          ],
+        }),
+        expect.objectContaining({
+          id: expect.stringMatching(/^deepseek-asset-[a-f0-9]{64}$/),
+          sourceRefs: [
+            {
+              artifactId: 'conversation',
+              rawPointer: '/data/biz_data/chat_messages/2/files/0',
+            },
+          ],
+        }),
+      ])
+    );
+    expect(JSON.stringify(manifest)).not.toContain('deepseek-file-alpha');
+    expect(JSON.stringify(manifest)).not.toContain('deepseek-file-beta');
     expect(manifest.warnings).toEqual([
-      'DeepSeek assets were not inventoried or acquired in this capture.',
+      'DeepSeek attachment metadata was inventoried; binary acquisition was not attempted.',
     ]);
     expect(manifest.observedUnknownContentTypes).toEqual(['FUTURE_WIDGET']);
     expect(Object.keys(canonical.graph.nodes)).toContain('inactive-answer');
+    expect(Object.keys(canonical.assets)).toHaveLength(2);
+    expect(Object.values(canonical.assets)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          filename: 'shared-report.txt',
+          mimeType: null,
+          byteLength: 2048,
+          sha256: null,
+          localArtifactRef: null,
+          acquisition: expect.objectContaining({ state: 'not-attempted', attemptedAt: null }),
+          extensions: {
+            deepseek: expect.objectContaining({
+              inserted_at: '2026-09-18T05:00:00.000Z',
+              updated_at: '2026-09-18T05:01:00.000Z',
+              status: 'ready',
+              error_code: null,
+              previewable: true,
+              token_usage: 512,
+            }),
+          },
+        }),
+      ])
+    );
+    const canonicalSourceIds = Object.values(canonical.assets)
+      .flatMap(asset => asset.sourceRefs)
+      .map(source => source.id);
+    expect(canonicalSourceIds).toEqual(
+      expect.arrayContaining(['deepseek-file-alpha', 'deepseek-file-beta'])
+    );
+    expect(Object.keys(canonical.assets)).not.toContain('deepseek-file-alpha');
+    expect(Object.keys(canonical.assets)).not.toContain('deepseek-file-beta');
+    expect(
+      JSON.stringify(Object.values(canonical.assets).map(asset => asset.extensions.deepseek))
+    ).not.toContain('deepseek-file-alpha');
+    expect(
+      JSON.stringify(Object.values(canonical.assets).map(asset => asset.extensions.deepseek))
+    ).not.toContain('deepseek-file-beta');
     expect(JSON.stringify({ manifest, canonical })).not.toContain('transient-local-token');
     expect(result!.data.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
     expect(result!.data.messages.map(message => message.content).join('\n')).not.toContain(
       'Inactive sibling answer'
+    );
+    expect(result!.warnings).toEqual(
+      expect.arrayContaining([
+        'Legacy Markdown omitted 3 attachment block(s); the canonical archive retains their references and metadata. Binary files are preserved only for assets marked fetched when their selected output write succeeds.',
+      ])
     );
   });
 

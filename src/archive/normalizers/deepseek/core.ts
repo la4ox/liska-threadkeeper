@@ -22,6 +22,14 @@ import {
   type DeepSeekNormalizationResult,
 } from './contracts';
 import {
+  deepSeekAttachmentBlock,
+  deepSeekManifestAssetsBySourceRef,
+  verifyDeepSeekAssetInventory,
+  type DeepSeekAttachmentContext,
+} from './assets';
+import { inventoryDeepSeekRawAssets, type DeepSeekAssetInventory } from './inventory';
+import { deepSeekDiagnostics } from './diagnostics';
+import {
   hasOwn,
   isPlainRecord,
   normalizeTimestamp,
@@ -30,8 +38,8 @@ import {
   requireSafeIdentifier,
   sanitizeJson,
   sourceRef,
-  type DeepSeekPrivacyTracker,
 } from './privacy';
+import { deepSeekResidualFields } from './extensions';
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const ENVELOPE_POINTER = '/data/biz_data';
@@ -70,11 +78,9 @@ interface ParsedMessage {
   value: DeepSeekJsonRecord;
 }
 
-interface NormalizationContext {
-  artifactId: string;
-  format: string;
-  privacy: DeepSeekPrivacyTracker;
+interface NormalizationContext extends DeepSeekAttachmentContext {
   unknownTypes: Set<string>;
+  assetInventory: DeepSeekAssetInventory;
 }
 
 /**
@@ -102,6 +108,12 @@ export async function normalizeDeepSeekCapture(
     const { manifest, artifact } = await verifyInputProvenance(input);
     const raw = parseArtifactJson(artifact.bytes);
     const envelope = extractEnvelope(raw);
+    const assetInventory = await inventoryDeepSeekRawAssets({
+      raw,
+      artifactId: input.artifactId,
+      sha256: input.sha256,
+    });
+    verifyDeepSeekAssetInventory(manifest, assetInventory);
     const conversationId = sessionConversationId(envelope.session);
     if (conversationId !== manifest.conversationId) {
       deepSeekFail(
@@ -109,7 +121,7 @@ export async function normalizeDeepSeekCapture(
         'DeepSeek response session does not match the capture manifest.'
       );
     }
-    const context = createContext(input);
+    const context = createContext(input, assetInventory);
     const archive = buildArchive(input, manifest, envelope, conversationId, context);
     const observedUnknownContentTypes = [...context.unknownTypes].sort();
     if (
@@ -312,7 +324,10 @@ function sessionConversationId(session: DeepSeekJsonRecord): string {
   );
 }
 
-function createContext(input: DeepSeekNormalizationInput): NormalizationContext {
+function createContext(
+  input: DeepSeekNormalizationInput,
+  assetInventory: DeepSeekAssetInventory
+): NormalizationContext {
   const format = input.sourceFormat ?? DEEPSEEK_SOURCE_FORMAT;
   if (typeof format !== 'string' || !format || format.length > 255) {
     deepSeekFail('invalid-source-format', 'sourceFormat must be bounded and non-empty.');
@@ -322,6 +337,9 @@ function createContext(input: DeepSeekNormalizationInput): NormalizationContext 
     format,
     privacy: { redactions: [] },
     unknownTypes: new Set(),
+    assetInventory,
+    manifestAssetsBySourceRef: deepSeekManifestAssetsBySourceRef(assetInventory.assets),
+    assets: {},
   };
 }
 
@@ -365,7 +383,7 @@ function buildArchive(
       metadata: {},
       sourceRefs: [conversationSource],
       extensions: {
-        deepseek: residualFields(
+        deepseek: deepSeekResidualFields(
           envelope.session,
           new Set([
             'id',
@@ -377,14 +395,25 @@ function buildArchive(
             'updated_at',
             'update_time',
           ]),
-          context,
+          context.privacy,
+          false,
           SESSION_POINTER
         ),
       },
     },
     graph: { rootIds: graph.rootIds, nodes: graph.nodes },
-    assets: {},
-    diagnostics: { entries: diagnostics(manifest, context, conversationSource), extensions: {} },
+    assets: context.assets,
+    diagnostics: {
+      entries: deepSeekDiagnostics(manifest, {
+        artifactId: context.artifactId,
+        format: context.format,
+        unknownTypes: context.unknownTypes,
+        privacy: context.privacy,
+        assetInventory: context.assetInventory,
+        conversationSource,
+      }),
+      extensions: {},
+    },
     extensions: {
       deepseek: { normalizer: DEEPSEEK_NORMALIZER_ID, sourceFormat: context.format },
     },
@@ -496,7 +525,16 @@ function normalizeMessage(
     blocks,
     sourceRefs: [messageSource],
     extensions: {
-      deepseek: residualFields(value, MAPPED_MESSAGE_FIELDS, context, pointer),
+      deepseek: deepSeekResidualFields(
+        value,
+        context.assetInventory.completeness === 'not-attempted'
+          ? new Set([...MAPPED_MESSAGE_FIELDS, 'files'])
+          : MAPPED_MESSAGE_FIELDS,
+        context.privacy,
+        context.assetInventory.completeness === 'unknown',
+        pointer,
+        context.assetInventory.providerIds
+      ),
     },
   };
 }
@@ -567,6 +605,18 @@ function normalizeBlocks(
             context
           )
     );
+  }
+  if (context.assetInventory.completeness === 'not-attempted' && hasOwn(message, 'files')) {
+    if (!Array.isArray(message.files)) {
+      deepSeekFail(
+        'asset-inventory-mismatch',
+        'DeepSeek attachment inventory changed during normalization.'
+      );
+    }
+    message.files.forEach((value, fileIndex) => {
+      const filePointer = pointerAt(pointer, 'files', String(fileIndex));
+      blocks.push(deepSeekAttachmentBlock(value, messageId, blocks.length, filePointer, context));
+    });
   }
   return blocks;
 }
@@ -681,10 +731,11 @@ function stringBlock(
   const canonicalValue = redactSensitiveText(value, context.privacy, pointer);
   const extensions: NamespacedExtensions = container
     ? {
-        deepseek: residualFields(
+        deepseek: deepSeekResidualFields(
           container,
           new Set(['type', 'content']),
-          context,
+          context.privacy,
+          false,
           containerPointer ?? pointer
         ),
       }
@@ -721,28 +772,6 @@ function normalizeRole(value: unknown, pointer: string): string {
   if (role === 'human') return 'user';
   if (role === 'ai' || role === 'bot') return 'assistant';
   return role;
-}
-
-function residualFields(
-  record: DeepSeekJsonRecord,
-  excluded: ReadonlySet<string>,
-  context: NormalizationContext,
-  pointer: string
-): Record<string, import('../../types').JsonValue> {
-  const selected: DeepSeekJsonRecord = {};
-  for (const key of Object.keys(record)) {
-    if (excluded.has(key)) continue;
-    Object.defineProperty(selected, key, {
-      configurable: true,
-      enumerable: true,
-      writable: true,
-      value: record[key],
-    });
-  }
-  return sanitizeJson(selected, context.privacy, pointer) as Record<
-    string,
-    import('../../types').JsonValue
-  >;
 }
 
 function aliasedIdentifier(
@@ -790,43 +819,6 @@ function firstTimestamp(
     if (hasOwn(record, field)) return normalizeTimestamp(record[field], pointerAt(pointer, field));
   }
   return null;
-}
-
-function diagnostics(
-  manifest: RawCaptureManifest,
-  context: NormalizationContext,
-  conversationSource: ReturnType<typeof sourceRef>
-): LiskaThreadArchive['diagnostics']['entries'] {
-  const completeness = (['graph', 'messages', 'branches', 'assets'] as const)
-    .filter(aspect => manifest.completeness[aspect] !== 'complete')
-    .map(aspect => ({
-      severity:
-        manifest.completeness[aspect] === 'partial' ? ('warning' as const) : ('info' as const),
-      code: `capture-${aspect}-${manifest.completeness[aspect]}`,
-      message: `Raw capture marked ${aspect} as ${manifest.completeness[aspect]}.`,
-      path: null,
-      sourceRefs: [conversationSource],
-      extensions: {},
-    }));
-  const unknown = [...context.unknownTypes].sort().map(type => ({
-    severity: 'info' as const,
-    code: 'unknown-content-type',
-    message: `Retained DeepSeek fragment type ${type} as an unknown block.`,
-    path: null,
-    sourceRefs: [conversationSource],
-    extensions: { deepseek: { contentType: type } },
-  }));
-  const privacy = context.privacy.redactions.map(redaction => ({
-    severity: 'warning' as const,
-    code: redaction.code,
-    message: redaction.message,
-    path: null,
-    sourceRefs: [
-      sourceRef(context.artifactId, 'privacy-redaction', null, redaction.pointer, context.format),
-    ],
-    extensions: {},
-  }));
-  return [...completeness, ...unknown, ...privacy];
 }
 
 function assertArchiveValidity(archive: LiskaThreadArchive): void {

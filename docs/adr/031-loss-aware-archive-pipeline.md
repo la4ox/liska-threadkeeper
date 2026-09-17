@@ -701,10 +701,11 @@ future phase.
 7. Acquire and package attachments with explicit completeness diagnostics; then
    cover tool/system nodes, reasoning, citations, Canvas, and Deep Research.
 8. Move DeepSeek onto the same canonical core after ChatGPT proves the schema.
-   The first bounded slice is implemented: exact `REPLACE` history bytes retain
+   The first bounded slice is implemented: exact non-delta history bytes retain
    all graph nodes and ordered text/Markdown/reasoning/unknown blocks, while the
-   legacy view follows `current_message_id`. DeepSeek assets remain explicitly
-   not attempted.
+   legacy view follows `current_message_id`. In-band DeepSeek `files` metadata
+   is inventoried into opaque canonical attachment references; binary
+   acquisition remains explicitly not attempted.
 9. Add official-export importers and cross-format reconciliation later, using
    source IDs and raw pointers instead of field-name guesses.
 

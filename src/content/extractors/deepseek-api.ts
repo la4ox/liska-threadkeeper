@@ -1,7 +1,9 @@
 import {
   buildCaptureManifest,
+  inventoryDeepSeekRawAssets,
   normalizeDeepSeekCapture,
   preflightDeepSeekHistoryArtifact,
+  type DeepSeekAssetInventory,
   type DeepSeekNormalizationInput,
   type LiskaThreadArchive,
   type RawCaptureBundle,
@@ -22,7 +24,7 @@ const HISTORY_MAX_BYTES = 32 * 1024 * 1024;
 const ARTIFACT_ID = 'conversation';
 
 export const DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING =
-  'DeepSeek assets were not inventoried or acquired in this capture.';
+  'DeepSeek attachment metadata was inventoried; binary acquisition was not attempted.';
 export const DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING =
   'DeepSeek structured history could not be normalized or projected; the readable note uses the rendered page and preserves verified raw capture evidence.';
 
@@ -78,11 +80,20 @@ export async function fetchDeepSeekConversation(
       artifact.bytes,
       conversationId
     );
+    const raw = JSON.parse(
+      new TextDecoder('utf-8', { fatal: true }).decode(artifact.bytes)
+    ) as unknown;
+    const assetInventory = await inventoryDeepSeekRawAssets({
+      raw,
+      artifactId: ARTIFACT_ID,
+      sha256: sha256Hex,
+    });
     const bundle = buildCaptureBundle(
       conversationId,
       artifact,
       dependencies,
-      observedUnknownContentTypes
+      observedUnknownContentTypes,
+      assetInventory
     );
     const manifestSha256 = await hashCaptureManifest(bundle.manifest);
     let archiveCompanion: ArchiveCompanionBundle;
@@ -159,7 +170,8 @@ function buildCaptureBundle(
   conversationId: string,
   artifact: RawCaptureBundle['artifacts'][number],
   dependencies: DeepSeekApiDependencies,
-  observedUnknownContentTypes: string[]
+  observedUnknownContentTypes: string[],
+  assetInventory: DeepSeekAssetInventory
 ): RawCaptureBundle {
   const manifest = buildCaptureManifest({
     captureId: captureId(dependencies.createCaptureId),
@@ -168,14 +180,17 @@ function buildCaptureBundle(
     capturedAt: captureTimestamp(dependencies.now),
     method: 'same-origin-api',
     artifacts: [artifact.record],
-    assets: [],
+    assets: assetInventory.assets,
     completeness: {
       graph: 'complete',
       messages: 'complete',
       branches: 'complete',
-      assets: 'not-attempted',
+      assets: assetInventory.completeness,
     },
-    warnings: [DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING],
+    warnings:
+      assetInventory.completeness === 'not-attempted'
+        ? [DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING]
+        : assetInventory.warnings,
     observedUnknownContentTypes,
   });
   return {

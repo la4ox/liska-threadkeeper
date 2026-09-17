@@ -15,7 +15,20 @@
           "message_id": "root-question",
           "parent_id": null,
           "role": "USER",
-          "fragments": [{ "type": "REQUEST", "content": "First question" }]
+          "fragments": [{ "type": "REQUEST", "content": "First question" }],
+          "files": [
+            {
+              "id": "deepseek-file-alpha",
+              "file_name": "shared-report.txt",
+              "file_size": 2048,
+              "inserted_at": "2026-09-18T05:00:00.000Z",
+              "updated_at": "2026-09-18T05:01:00.000Z",
+              "status": "ready",
+              "error_code": null,
+              "previewable": true,
+              "token_usage": 512
+            }
+          ]
         },
         {
           "message_id": "first-answer",
@@ -24,19 +37,34 @@
           "fragments": [
             { "type": "THINK", "content": "Private reasoning retained canonically" },
             { "type": "RESPONSE", "content": "**First answer**" }
-          ]
+          ],
+          "files": []
         },
         {
           "message_id": "follow-up",
           "parent_id": "first-answer",
           "role": "USER",
-          "fragments": [{ "type": "REQUEST", "content": "Follow-up question" }]
+          "fragments": [{ "type": "REQUEST", "content": "Follow-up question" }],
+          "files": [
+            {
+              "id": "deepseek-file-beta",
+              "file_name": "shared-report.txt",
+              "file_size": 2048,
+              "inserted_at": "2026-09-18T05:02:00.000Z",
+              "updated_at": "2026-09-18T05:03:00.000Z",
+              "status": "ready",
+              "error_code": null,
+              "previewable": true,
+              "token_usage": 512
+            }
+          ]
         },
         {
           "message_id": "inactive-answer",
           "parent_id": "follow-up",
           "role": "ASSISTANT",
-          "fragments": [{ "type": "RESPONSE", "content": "Inactive sibling answer" }]
+          "fragments": [{ "type": "RESPONSE", "content": "Inactive sibling answer" }],
+          "files": []
         },
         {
           "message_id": "current-answer",
@@ -52,6 +80,19 @@
                 "api_key": "must-not-enter-canonical",
                 "note": "Authorization: Bearer must-also-stay-raw-only"
               }
+            }
+          ],
+          "files": [
+            {
+              "id": "deepseek-file-alpha",
+              "file_name": "shared-report.txt",
+              "file_size": 2048,
+              "inserted_at": "2026-09-18T05:00:00.000Z",
+              "updated_at": "2026-09-18T05:01:00.000Z",
+              "status": "ready",
+              "error_code": null,
+              "previewable": true,
+              "token_usage": 512
             }
           ]
         }

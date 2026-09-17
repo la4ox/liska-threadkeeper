@@ -58,7 +58,7 @@ API キーは `chrome.storage.local` にのみ保存され、対応 AI ページ
 
 - メインボタンはプロバイダーが選択した現在の分岐を書き出します。ChatGPT では、ローカル選択画面から特定の分岐、または全 leaf と索引も書き出せます。
 - 自動スケジュールバックアップはまだありません。各書き出しは実際のクリックから始まります。
-- DeepSeek の構造化書き出しは、永続的な Markdown 出力の横に raw／manifest／canonical companion を保存します。テキスト、Markdown、現在の分岐、Thinking は対応済みですが、asset は正確な raw response にのみ残り、inventory や取得はまだ行いません。
+- DeepSeek の構造化書き出しは、永続的な Markdown 出力の横に raw／manifest／canonical companion を保存します。テキスト、Markdown、現在の分岐、Thinking に対応し、response 内の file metadata は `not-attempted` の canonical attachment reference として保持します。binary の取得はまだ行いません。
 - ChatGPT の構造化アーカイブは、添付ファイルの参照とメタデータを常に保持します。**画像と添付ファイルをエクスポート**を有効にすると、raw アーカイブの保存後に、通常チャットの image/file-ID asset と interpreter/sandbox document のうち対応するものを上限付きで取得できます。各 asset は `fetched`、`not-attempted`、または失敗として正確に記録されます。custom-GPT、Library-ID、Calpico fallback はまだ対応していません。
 - 16 MiB 以下の ChatGPT graph response は検証済みの inline path を使用します。16 MiB を超え 64 MiB 以下の response は extension-owned staging を使って分割転送されます。この staged path は synthetic live test 済みですが、16 MiB を超える実際の provider response はまだ明示的な検証課題です。
 - 画像の書き出しは 20 枚まで、1 枚あたり 10 MiB、1 ノートあたり base64 データ合計 48 MiB に制限されます。

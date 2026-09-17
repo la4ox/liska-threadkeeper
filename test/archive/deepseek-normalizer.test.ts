@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCaptureManifest,
   DeepSeekNormalizationError,
+  inventoryDeepSeekRawAssets,
   normalizeDeepSeekCapture,
   preflightDeepSeekHistoryArtifact,
   type RawCaptureBundle,
@@ -43,7 +44,21 @@ function observedUnknownTypes(bytes: Uint8Array, conversationId: string): string
   }
 }
 
-function bundleFor(bytes: Uint8Array, conversationId = 'deepseek-branching-1'): RawCaptureBundle {
+async function bundleFor(
+  bytes: Uint8Array,
+  conversationId = 'deepseek-branching-1'
+): Promise<RawCaptureBundle> {
+  let raw: unknown = null;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    // The normalizer remains responsible for reporting malformed raw bytes.
+  }
+  const assetInventory = await inventoryDeepSeekRawAssets({
+    raw,
+    artifactId: 'conversation',
+    sha256,
+  });
   const manifest = buildCaptureManifest({
     captureId: 'capture-deepseek-normalizer-001',
     provider: 'deepseek',
@@ -60,21 +75,24 @@ function bundleFor(bytes: Uint8Array, conversationId = 'deepseek-branching-1'): 
         endpoint: { method: 'GET', pathPattern: '/api/v0/chat/history_messages' },
       },
     ],
-    assets: [],
+    assets: assetInventory.assets,
     completeness: {
       graph: 'complete',
       messages: 'complete',
       branches: 'complete',
-      assets: 'not-attempted',
+      assets: assetInventory.completeness,
     },
-    warnings: ['DeepSeek assets were not inventoried or acquired in this capture.'],
+    warnings:
+      assetInventory.completeness === 'not-attempted'
+        ? ['DeepSeek attachment metadata was inventoried; binary acquisition was not attempted.']
+        : assetInventory.warnings,
     observedUnknownContentTypes: observedUnknownTypes(bytes, conversationId),
   });
   return { manifest, artifacts: [{ record: manifest.artifacts[0], bytes }], assets: [] };
 }
 
 async function normalizeBytes(bytes: Uint8Array = fixtureBytes) {
-  const bundle = bundleFor(bytes);
+  const bundle = await bundleFor(bytes);
   const manifestSha256 = hash(new TextEncoder().encode(JSON.stringify(bundle.manifest, null, 2)));
   return normalizeDeepSeekCapture({
     bundle,
@@ -117,7 +135,9 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     ]);
     expect(archive.conversation.currentNodeId).toBe('current-answer');
     expect(archive.inputs[0].manifestSha256).toBe(
-      hash(new TextEncoder().encode(JSON.stringify(bundleFor(fixtureBytes).manifest, null, 2)))
+      hash(
+        new TextEncoder().encode(JSON.stringify((await bundleFor(fixtureBytes)).manifest, null, 2))
+      )
     );
     expect(archive.graph.nodes['current-answer'].message?.sourceRefs[0].rawPointer).toBe(
       '/data/biz_data/chat_messages/4'
@@ -137,6 +157,154 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(archive.conversation.id).toBe('deepseek-branching-1');
     expect(archive.graph.nodes['root-question'].message?.author.role).toBe('user');
     expect(archive.graph.nodes['first-answer'].message?.author.role).toBe('assistant');
+  });
+
+  it('reconciles a metadata-only attachment ledger before appending deterministic blocks', async () => {
+    const { archive } = await normalizeBytes();
+    const rootBlocks = archive.graph.nodes['root-question'].message?.blocks ?? [];
+    const currentBlocks = archive.graph.nodes['current-answer'].message?.blocks ?? [];
+    const attachments = Object.values(archive.graph.nodes).flatMap(
+      node => node.message?.blocks.filter(block => block.type === 'attachment') ?? []
+    );
+    const blockIds = Object.values(archive.graph.nodes).flatMap(
+      node => node.message?.blocks.map(block => block.id) ?? []
+    );
+
+    expect(Object.keys(archive.assets)).toHaveLength(2);
+    expect(rootBlocks.at(-1)).toMatchObject({
+      type: 'attachment',
+      sourceRefs: [
+        {
+          id: 'deepseek-file-alpha',
+          rawPointer: '/data/biz_data/chat_messages/0/files/0',
+        },
+      ],
+    });
+    expect(currentBlocks.at(-1)).toMatchObject({
+      type: 'attachment',
+      sourceRefs: [
+        {
+          id: 'deepseek-file-alpha',
+          rawPointer: '/data/biz_data/chat_messages/4/files/0',
+        },
+      ],
+    });
+    expect(attachments).toHaveLength(3);
+    expect(new Set(blockIds).size).toBe(blockIds.length);
+    expect(
+      Object.values(archive.assets).find(asset => asset.sourceRefs.length === 2)
+    ).toMatchObject({
+      filename: 'shared-report.txt',
+      mimeType: null,
+      byteLength: 2048,
+      sha256: null,
+      localArtifactRef: null,
+      acquisition: { state: 'not-attempted', attemptedAt: null },
+      sourceRefs: [
+        expect.objectContaining({ id: 'deepseek-file-alpha' }),
+        expect.objectContaining({ id: 'deepseek-file-alpha' }),
+      ],
+      extensions: {
+        deepseek: expect.objectContaining({
+          inserted_at: '2026-09-18T05:00:00.000Z',
+          updated_at: '2026-09-18T05:01:00.000Z',
+          status: 'ready',
+          error_code: null,
+          previewable: true,
+          token_usage: 512,
+        }),
+      },
+    });
+    expect(archive.graph.nodes['root-question'].message?.extensions.deepseek).not.toHaveProperty(
+      'files'
+    );
+    expect(
+      JSON.stringify(Object.values(archive.assets).map(asset => asset.extensions.deepseek))
+    ).not.toContain('deepseek-file-alpha');
+  });
+
+  it('degrades a malformed attachment ledger without fabricating asset blocks', async () => {
+    const bytes = encodedRaw(raw => {
+      raw.data.biz_data.chat_messages[0].files = { malformed: true };
+    });
+    const { archive } = await normalizeBytes(bytes);
+
+    expect(archive.assets).toEqual({});
+    expect(archive.graph.nodes['root-question'].message?.extensions.deepseek).toMatchObject({
+      files: { malformed: true },
+    });
+    expect(
+      Object.values(archive.graph.nodes).flatMap(
+        node => node.message?.blocks.filter(block => block.type === 'attachment') ?? []
+      )
+    ).toEqual([]);
+    expect(archive.diagnostics.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'deepseek-attachment-inventory-unavailable',
+          severity: 'warning',
+        }),
+      ])
+    );
+  });
+
+  it('keeps degraded file metadata sanitized without retaining a provider ID', async () => {
+    const bytes = encodedRaw(raw => {
+      raw.data.biz_data.chat_messages[4].files[0].file_size = 2049;
+      raw.data.biz_data.chat_messages[0].files[0].error_code =
+        'Authorization: Bearer synthetic-file-secret';
+      raw.data.biz_data.chat_messages[0].files[0].metadata = {
+        file_id: 'nested-provider-id',
+        nested: [{ id: 'deep-provider-id' }],
+        alias: 'deepseek-file-alpha',
+      };
+    });
+    const { archive } = await normalizeBytes(bytes);
+    const serialized = JSON.stringify(archive);
+
+    expect(archive.assets).toEqual({});
+    expect(archive.graph.nodes['root-question'].message?.extensions.deepseek).toMatchObject({
+      files: [
+        expect.objectContaining({
+          error_code: '[redacted-credential]',
+        }),
+      ],
+    });
+    expect(serialized).not.toContain('deepseek-file-alpha');
+    expect(serialized).not.toContain('deepseek-file-beta');
+    expect(serialized).not.toContain('nested-provider-id');
+    expect(serialized).not.toContain('deep-provider-id');
+    expect(serialized).not.toContain('synthetic-file-secret');
+  });
+
+  it('does not retain ignored synthetic file transport fields in a successful ledger', async () => {
+    const bytes = encodedRaw(raw => {
+      raw.data.biz_data.chat_messages[0].files[0].download_url =
+        'https://files.invalid/download?access_token=synthetic-transport-secret';
+    });
+    const { archive } = await normalizeBytes(bytes);
+    const serialized = JSON.stringify(archive);
+
+    expect(Object.keys(archive.assets)).toHaveLength(2);
+    expect(serialized).not.toContain('files.invalid');
+    expect(serialized).not.toContain('synthetic-transport-secret');
+  });
+
+  it('rejects a manifest whose attachment IDs or raw pointers no longer match the raw artifact', async () => {
+    const bundle = await bundleFor(fixtureBytes);
+    bundle.manifest.assets = [];
+    const manifestSha256 = hash(new TextEncoder().encode(JSON.stringify(bundle.manifest, null, 2)));
+
+    await expect(
+      normalizeDeepSeekCapture({
+        bundle,
+        artifactId: 'conversation',
+        manifestSha256,
+        sha256,
+      })
+    ).rejects.toMatchObject<Partial<DeepSeekNormalizationError>>({
+      code: 'asset-inventory-mismatch',
+    });
   });
 
   it('projects only the selected branch while retaining reasoning and inactive siblings canonically', async () => {
@@ -319,7 +487,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
   });
 
   it('fails closed when the manifest omits observed unknown content types', async () => {
-    const bundle = bundleFor(fixtureBytes);
+    const bundle = await bundleFor(fixtureBytes);
     bundle.manifest.observedUnknownContentTypes = [];
     const manifestSha256 = hash(new TextEncoder().encode(JSON.stringify(bundle.manifest, null, 2)));
 
@@ -350,6 +518,16 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
       'duplicate ids',
       (raw: DeepSeekRaw) => (raw.data.biz_data.chat_messages[4].message_id = 'inactive-answer'),
       'duplicate-message-id',
+    ],
+    [
+      'non-string role',
+      (raw: DeepSeekRaw) => (raw.data.biz_data.chat_messages[4].role = 1),
+      'invalid-role',
+    ],
+    [
+      'unsafe role',
+      (raw: DeepSeekRaw) => (raw.data.biz_data.chat_messages[4].role = 'assistant role'),
+      'invalid-role',
     ],
     [
       'missing parent',
@@ -393,7 +571,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
   });
 
   it('fails closed on raw and manifest integrity drift', async () => {
-    const rawBundle = bundleFor(fixtureBytes);
+    const rawBundle = await bundleFor(fixtureBytes);
     rawBundle.artifacts[0].bytes = new Uint8Array(
       fixtureBytes.map((byte, index) => (index === 0 ? byte ^ 1 : byte))
     );
@@ -409,7 +587,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
       })
     ).rejects.toMatchObject({ code: 'artifact-integrity-failed' });
 
-    const cleanBundle = bundleFor(fixtureBytes);
+    const cleanBundle = await bundleFor(fixtureBytes);
     await expect(
       normalizeDeepSeekCapture({
         bundle: cleanBundle,

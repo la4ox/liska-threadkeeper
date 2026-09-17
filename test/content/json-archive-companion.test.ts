@@ -63,28 +63,53 @@ describe('provider-neutral JSON archive companions', () => {
       'JSON archive raw artifact path is not canonical',
     ],
     [
-      'an unacquired asset inventory',
+      'an attempted asset inventory',
       bundleFor({
         assets: [
           {
             id: 'asset-1',
-            state: 'not-attempted',
-            attemptedAt: null,
+            state: 'failed',
+            attemptedAt: '2026-09-18T06:01:00.000Z',
             relativePath: null,
             mediaType: null,
             byteLength: null,
             sha256: null,
-            detail: null,
+            detail: 'fetch-failed',
             sourceRefs: [{ artifactId: 'conversation', rawPointer: '/data/asset' }],
           },
         ],
       }),
-      'JSON archive companion requires one raw artifact and no acquired assets',
+      'JSON archive companion requires one raw artifact and only metadata-only asset inventory records',
     ],
   ] as const)('rejects %s before creating a companion pair', async (_label, bundle, message) => {
     await expect(buildJsonRawManifestCompanion(bundle, sha256, 'deepseek')).rejects.toThrow(
       message
     );
+  });
+
+  it('keeps a metadata-only asset ledger with raw and manifest evidence', async () => {
+    const bundle = bundleFor({
+      assets: [
+        {
+          id: 'asset-1',
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          mediaType: null,
+          byteLength: null,
+          sha256: null,
+          detail: 'metadata-only',
+          sourceRefs: [{ artifactId: 'conversation', rawPointer: '/data/asset' }],
+        },
+      ],
+    });
+
+    await expect(buildJsonRawManifestCompanion(bundle, sha256, 'deepseek')).resolves.toMatchObject({
+      artifacts: [
+        expect.objectContaining({ kind: 'raw' }),
+        expect.objectContaining({ kind: 'manifest' }),
+      ],
+    });
   });
 
   it('rejects canonical append unless the existing pair is exactly raw then manifest', async () => {

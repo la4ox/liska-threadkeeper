@@ -58,9 +58,11 @@ export async function buildJsonRawManifestCompanion(
   if (
     bundle.artifacts.length !== 1 ||
     bundle.assets.length > 0 ||
-    bundle.manifest.assets.length > 0
+    bundle.manifest.assets.some(asset => asset.state !== 'not-attempted')
   ) {
-    throw new Error('JSON archive companion requires one raw artifact and no acquired assets.');
+    throw new Error(
+      'JSON archive companion requires one raw artifact and only metadata-only asset inventory records.'
+    );
   }
   const raw = bundle.artifacts[0];
   if (raw.record.relativePath !== ARCHIVE_COMPANION_RELATIVE_PATHS.raw) {
