@@ -126,6 +126,13 @@ Fresh local validation on 2026-09-17:
   no traversal/absolute/duplicate paths, sourcemaps, tests, coverage, env files,
   high-confidence secrets, or personal-data patterns;
 - a fresh independent review found no P0-P2 issue.
+- one post-reload live Comet smoke on 2026-09-18 completed structured capture
+  on the packaged build: raw/manifest/canonical hashes link exactly; all 36 graph nodes and 35
+  edges are reachable with no cycle, dangling, or asymmetric link; two fetched
+  PDF/PNG assets match their byte/hash/signature claims; four unresolved assets
+  remain honestly `not-attempted`; all seven raw pointers resolve; and the
+  Markdown frontmatter reports `structured-api`, `complete`, and 16 messages.
+  The conversation body was not reviewed.
 
 Release scope remains deliberately bounded. Attachment acquisition is partial:
 custom-GPT, Library-ID, Calpico fallback, retries, broad raw/DOM scans, and
@@ -136,8 +143,8 @@ source, not a filename-based fallback; its message-level identity bridge is not
 proven. Official-export import and cross-source reconciliation remain later
 phases.
 
-This checkpoint is published to draft PR #7, and the first fresh Ubuntu CI run
-passed. Keep the PR in draft until one post-reload authorized browser smoke
-confirms the packaged build on a current ChatGPT branch and one supported binary
-attachment path. Do not merge or release from this checkpoint without that
-smoke and an explicit maintainer decision.
+This checkpoint is published to draft PR #7; fresh Ubuntu CI passed after both
+publication pushes, and the required post-reload browser smoke passed. The
+technical merge-readiness gate for this bounded checkpoint is satisfied. Keep
+the PR in draft until the maintainer explicitly decides to mark it ready, merge,
+or release; none of those publication decisions is automatic.
