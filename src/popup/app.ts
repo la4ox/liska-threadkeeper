@@ -7,7 +7,7 @@
  * inside initPopup() rather than at module scope.
  */
 
-import { getSettings, saveSettings } from '../lib/storage';
+import { getSettings } from '../lib/storage';
 import type { ExtensionSettings, TemplateOptions, OutputOptions } from '../lib/types';
 import {
   validateCalloutType,
@@ -546,11 +546,14 @@ async function handleSave(): Promise<void> {
       settingsToSave = result.settings;
     }
 
-    await saveSettings(settingsToSave);
+    const response = await sendMessage({ action: 'saveSettings', settings: settingsToSave });
+    if (!response.success) {
+      showStatus(response.error ?? getMessage('toast_error_saveFailed', 'Unknown error'), 'error');
+      return;
+    }
     showStatus(getMessage('status_settingsSaved'), 'success');
-  } catch (error) {
+  } catch {
     showStatus(getMessage('toast_error_saveFailed', 'Unknown error'), 'error');
-    console.error('[G2O Popup] Save error:', error);
   } finally {
     elements.saveBtn.disabled = false;
   }
@@ -583,8 +586,16 @@ async function handleTest(): Promise<void> {
       return;
     }
 
-    // Save validated and normalized settings for the test
-    await saveSettings(result.settings);
+    // Save validated and normalized settings through the background worker so
+    // this update shares the worker's serialized storage mutation queue.
+    const saveResponse = await sendMessage({ action: 'saveSettings', settings: result.settings });
+    if (!saveResponse.success) {
+      showStatus(
+        saveResponse.error ?? getMessage('toast_error_saveFailed', 'Unknown error'),
+        'error'
+      );
+      return;
+    }
 
     // Send test connection message to background script
     const response = await sendMessage({ action: 'testConnection' });
@@ -594,11 +605,8 @@ async function handleTest(): Promise<void> {
     } else {
       showStatus(response.error ?? getMessage('toast_error_connectionFailed'), 'error');
     }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : getMessage('toast_error_connectionFailed');
-    showStatus(message, 'error');
-    console.error('[G2O Popup] Test error:', error);
+  } catch {
+    showStatus(getMessage('toast_error_connectionFailed'), 'error');
   } finally {
     elements.testBtn.disabled = false;
   }

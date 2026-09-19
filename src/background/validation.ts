@@ -18,11 +18,13 @@ import {
   MAX_TOTAL_IMAGE_DATA_LENGTH,
   ALLOWED_ORIGINS,
   VALID_MESSAGE_ACTIONS,
+  VALID_MESSAGE_FORMATS,
   VALID_OUTPUT_DESTINATIONS,
   VALID_SOURCES,
 } from '../lib/constants';
 import type {
   ArchiveCompanionArtifact,
+  ExtensionSettings,
   ExtensionMessage,
   ExtractedImage,
   ObsidianNote,
@@ -326,6 +328,114 @@ function validateOutputOptions(value: unknown): value is OutputOptions {
     typeof (value as Record<string, unknown>).obsidian === 'boolean' &&
     typeof (value as Record<string, unknown>).file === 'boolean' &&
     typeof (value as Record<string, unknown>).clipboard === 'boolean'
+  );
+}
+
+const SETTINGS_UPDATE_KEYS = [
+  'obsidianApiKey',
+  'obsidianUrl',
+  'vaultPath',
+  'templateOptions',
+  'outputOptions',
+  'enableAutoScroll',
+  'enableAppendMode',
+  'enableToolContent',
+  'enableImageExport',
+  'enableChatGptOpaqueProbe',
+  'enableChatGptOpaqueReplay',
+  'imageVaultPath',
+  'flattenLargeCallouts',
+  'maxCalloutLines',
+] as const;
+
+const REQUIRED_TEMPLATE_OPTION_KEYS = [
+  'includeId',
+  'includeTitle',
+  'includeTags',
+  'includeSource',
+  'includeDates',
+  'includeMessageCount',
+  'messageFormat',
+  'userCalloutType',
+  'assistantCalloutType',
+] as const;
+
+const OPTIONAL_TEMPLATE_OPTION_KEYS = [
+  'includeQuestionHeaders',
+  'timezone',
+  'filenameScheme',
+] as const;
+
+function hasRequiredAndAllowedOwnKeys(
+  value: object,
+  required: readonly string[],
+  optional: readonly string[]
+): boolean {
+  const keys = Reflect.ownKeys(value);
+  return (
+    required.every(requiredKey => keys.some(key => key === requiredKey)) &&
+    keys.every(key => typeof key === 'string' && (required.includes(key) || optional.includes(key)))
+  );
+}
+
+// eslint-disable-next-line complexity -- Keep the full settings transport shape explicit at the message boundary.
+function validateTemplateOptionsForSettingsUpdate(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (
+    !hasRequiredAndAllowedOwnKeys(
+      value,
+      REQUIRED_TEMPLATE_OPTION_KEYS,
+      OPTIONAL_TEMPLATE_OPTION_KEYS
+    )
+  ) {
+    return false;
+  }
+
+  const options = value as Record<string, unknown>;
+  return (
+    typeof options.includeId === 'boolean' &&
+    typeof options.includeTitle === 'boolean' &&
+    typeof options.includeTags === 'boolean' &&
+    typeof options.includeSource === 'boolean' &&
+    typeof options.includeDates === 'boolean' &&
+    typeof options.includeMessageCount === 'boolean' &&
+    typeof options.messageFormat === 'string' &&
+    VALID_MESSAGE_FORMATS.includes(
+      options.messageFormat as (typeof VALID_MESSAGE_FORMATS)[number]
+    ) &&
+    typeof options.userCalloutType === 'string' &&
+    typeof options.assistantCalloutType === 'string' &&
+    (options.includeQuestionHeaders === undefined ||
+      typeof options.includeQuestionHeaders === 'boolean') &&
+    (options.timezone === undefined || typeof options.timezone === 'string') &&
+    (options.filenameScheme === undefined ||
+      options.filenameScheme === 'title-id' ||
+      options.filenameScheme === 'title-date')
+  );
+}
+
+// eslint-disable-next-line complexity -- Keep the full settings transport shape explicit at the message boundary.
+function validateSettingsUpdate(value: unknown): value is ExtensionSettings {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (!hasExactOwnKeys(value, SETTINGS_UPDATE_KEYS)) return false;
+
+  const settings = value as Record<string, unknown>;
+  return (
+    typeof settings.obsidianApiKey === 'string' &&
+    typeof settings.obsidianUrl === 'string' &&
+    typeof settings.vaultPath === 'string' &&
+    validateTemplateOptionsForSettingsUpdate(settings.templateOptions) &&
+    validateOutputOptions(settings.outputOptions) &&
+    typeof settings.enableAutoScroll === 'boolean' &&
+    typeof settings.enableAppendMode === 'boolean' &&
+    typeof settings.enableToolContent === 'boolean' &&
+    typeof settings.enableImageExport === 'boolean' &&
+    typeof settings.enableChatGptOpaqueProbe === 'boolean' &&
+    typeof settings.enableChatGptOpaqueReplay === 'boolean' &&
+    typeof settings.imageVaultPath === 'string' &&
+    typeof settings.flattenLargeCallouts === 'boolean' &&
+    Number.isSafeInteger(settings.maxCalloutLines) &&
+    (settings.maxCalloutLines as number) > 0
   );
 }
 
@@ -648,6 +758,13 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
 
   if (extensionMessage.action === 'saveToOutputs') {
     return validateSaveToOutputsMessage(extensionMessage);
+  }
+
+  if (extensionMessage.action === 'saveSettings') {
+    return (
+      hasExactOwnKeys(extensionMessage, ['action', 'settings']) &&
+      validateSettingsUpdate(extensionMessage.settings)
+    );
   }
 
   if (extensionMessage.action === 'persistArchiveCompanion') {

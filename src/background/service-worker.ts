@@ -68,8 +68,8 @@ startArchiveStageDownloadRecovery();
 
 // Run settings migration on service worker startup (C-01)
 // Note: top-level await not available in service workers, use .catch() for error handling
-migrateSettings().catch(error => {
-  console.error('[G2O Background] Settings migration failed:', error);
+migrateSettings().catch(() => {
+  console.warn('[G2O Background] Settings migration deferred');
 });
 
 function dispatchMessage(
@@ -99,6 +99,7 @@ function dispatchMessage(
  * Handle incoming messages from content script and popup
  */
 chrome.runtime.onMessage.addListener(
+  // eslint-disable-next-line max-lines-per-function -- Sender, content, and action authorization intentionally stay at this single message boundary.
   (
     message: unknown,
     sender: chrome.runtime.MessageSender,
@@ -142,6 +143,11 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (!isAuthorizedOutputOptionsUpdate(message, sender)) {
+      sendResponse({ success: false, error: 'Unauthorized' });
+      return false;
+    }
+
+    if (!isAuthorizedSettingsSave(message, sender)) {
       sendResponse({ success: false, error: 'Unauthorized' });
       return false;
     }
@@ -246,6 +252,19 @@ function isAuthorizedOutputOptionsUpdate(
     sender.tab === undefined &&
     sender.id === chrome.runtime.id &&
     sender.url === chrome.runtime.getURL('src/popup/index.html')
+  );
+}
+
+function isAuthorizedSettingsSave(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (message.action !== 'saveSettings') return true;
+  return (
+    sender.tab === undefined &&
+    sender.id === chrome.runtime.id &&
+    typeof sender.url === 'string' &&
+    sender.url.startsWith(chrome.runtime.getURL(''))
   );
 }
 
@@ -527,7 +546,7 @@ function redactSettingsForContentScript(settings: ExtensionSettings): ContentScr
 /**
  * Route messages to appropriate handlers
  */
-// eslint-disable-next-line complexity -- The worker's validated action families remain visible in one routing table.
+// eslint-disable-next-line complexity, max-lines-per-function -- The worker's validated action families remain visible in one routing table.
 async function handleMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
@@ -543,6 +562,15 @@ async function handleMessage(
       return { success: true };
     } catch {
       return { success: false, error: 'Could not save output settings' };
+    }
+  }
+
+  if (message.action === 'saveSettings') {
+    try {
+      await saveSettings(message.settings);
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Could not save settings' };
     }
   }
 

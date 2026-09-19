@@ -4,7 +4,7 @@
  * Tests the message handling, validation, and API integration of the background script.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import type { MultiOutputResponse, ObsidianNote } from '../../src/lib/types';
+import type { ExtensionSettings, MultiOutputResponse, ObsidianNote } from '../../src/lib/types';
 import { generateHash } from '../../src/lib/hash';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
@@ -42,6 +42,7 @@ const defaultSettings = {
 };
 
 let mockGetSettings = vi.fn(() => Promise.resolve(defaultSettings));
+let mockSaveSettings = vi.fn((_settings: Partial<ExtensionSettings>) => Promise.resolve());
 
 // Capture the message listener
 let capturedListener: (
@@ -69,6 +70,7 @@ vi.mock('../../src/lib/obsidian-api', () => ({
 
 vi.mock('../../src/lib/storage', () => ({
   getSettings: () => mockGetSettings(),
+  saveSettings: (settings: Partial<ExtensionSettings>) => mockSaveSettings(settings),
   migrateSettings: vi.fn(() => Promise.resolve()),
 }));
 
@@ -84,6 +86,7 @@ describe('background/index', () => {
     mockClient.listFiles.mockReset();
     mockClientConstructor.mockReset();
     mockGetSettings = vi.fn(() => Promise.resolve(defaultSettings));
+    mockSaveSettings = vi.fn((_settings: Partial<ExtensionSettings>) => Promise.resolve());
 
     // Capture message listener when addListener is called
     vi.mocked(chrome.runtime.onMessage.addListener).mockImplementation(listener => {
@@ -114,6 +117,7 @@ describe('background/index', () => {
 
     vi.doMock('../../src/lib/storage', () => ({
       getSettings: () => mockGetSettings(),
+      saveSettings: (settings: Partial<ExtensionSettings>) => mockSaveSettings(settings),
       migrateSettings: vi.fn(() => Promise.resolve()),
     }));
 
@@ -189,6 +193,96 @@ describe('background/index', () => {
       );
 
       expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
+    });
+  });
+
+  describe('full settings save route', () => {
+    const settings: ExtensionSettings = {
+      obsidianApiKey: 'test-api-key',
+      obsidianUrl: 'http://127.0.0.1:27123',
+      vaultPath: 'AI/Gemini',
+      imageVaultPath: 'AI/Gemini/images',
+      maxCalloutLines: 200,
+      enableAutoScroll: true,
+      enableAppendMode: false,
+      enableToolContent: false,
+      enableImageExport: true,
+      enableChatGptOpaqueProbe: false,
+      enableChatGptOpaqueReplay: false,
+      flattenLargeCallouts: true,
+      outputOptions: { obsidian: true, file: false, clipboard: false },
+      templateOptions: {
+        includeId: true,
+        includeTitle: true,
+        includeTags: true,
+        includeSource: true,
+        includeDates: true,
+        includeMessageCount: true,
+        includeQuestionHeaders: false,
+        messageFormat: 'callout',
+        userCalloutType: 'QUESTION',
+        assistantCalloutType: 'NOTE',
+        timezone: 'UTC',
+        filenameScheme: 'title-id',
+      },
+    };
+    const popupSender = {
+      id: chrome.runtime.id,
+      url: chrome.runtime.getURL('src/popup/index.html'),
+    } as chrome.runtime.MessageSender;
+
+    it('accepts a complete popup settings update and routes it to worker storage', async () => {
+      const sendResponse = vi.fn();
+      capturedListener({ action: 'saveSettings', settings }, popupSender, sendResponse);
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(mockSaveSettings).toHaveBeenCalledWith(settings);
+      expect(sendResponse).toHaveBeenCalledWith({ success: true });
+    });
+
+    it('rejects a complete settings update from a content script', () => {
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveSettings', settings },
+        { tab: { url: 'https://gemini.google.com/app/123' } } as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      expect(mockSaveSettings).not.toHaveBeenCalled();
+      expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
+    });
+
+    it('rejects a settings update with an unbounded shape before saving', () => {
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveSettings',
+          settings: { ...settings, maxCalloutLines: '200' },
+        },
+        popupSender,
+        sendResponse
+      );
+
+      expect(mockSaveSettings).not.toHaveBeenCalled();
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Invalid message content',
+      });
+    });
+
+    it('returns a fixed non-secret error when worker storage rejects', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockSaveSettings.mockRejectedValue(new Error('test-api-key must not be logged'));
+      const sendResponse = vi.fn();
+      capturedListener({ action: 'saveSettings', settings }, popupSender, sendResponse);
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Could not save settings',
+      });
+      expect(errorSpy).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
     });
   });
 
@@ -2855,8 +2949,8 @@ describe('background/index migrateSettings failure', () => {
     vi.doUnmock('../../src/lib/obsidian-api');
   });
 
-  it('logs an error when migrateSettings rejects at startup', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('logs a fixed non-secret warning when migrateSettings rejects at startup', async () => {
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     vi.resetModules();
     vi.doMock('../../src/lib/obsidian-api', () => ({
@@ -2878,9 +2972,7 @@ describe('background/index migrateSettings failure', () => {
     // The .catch() handler schedules a microtask — flush it.
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[G2O Background] Settings migration failed:',
-      expect.any(Error)
-    );
+    expect(warningSpy).toHaveBeenCalledWith('[G2O Background] Settings migration deferred');
+    expect(warningSpy.mock.calls[0]).toHaveLength(1);
   });
 });

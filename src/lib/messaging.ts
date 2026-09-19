@@ -13,6 +13,7 @@ import type {
   ExtensionMessage,
   ContentScriptSettings,
   MultiOutputResponse,
+  SettingsSaveResponse,
   OutputOptionsUpdateResponse,
   BinaryStageResponse,
   ArchiveStageReadResponse,
@@ -27,6 +28,7 @@ const CONTEXT_INVALIDATED_MESSAGE = 'Extension context invalidated. Please reloa
  */
 interface MessageResponseMap {
   getSettings: ContentScriptSettings;
+  saveSettings: SettingsSaveResponse;
   testConnection: { success: boolean; error?: string };
   saveToOutputs: MultiOutputResponse;
   persistArchiveCompanion: MultiOutputResponse;

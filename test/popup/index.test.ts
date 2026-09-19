@@ -10,14 +10,13 @@ import type { ExtensionSettings } from '../../src/lib/types';
 
 vi.mock('../../src/lib/storage', () => ({
   getSettings: vi.fn(),
-  saveSettings: vi.fn(),
 }));
 
 vi.mock('../../src/lib/messaging', () => ({
   sendMessage: vi.fn(),
 }));
 
-import { getSettings, saveSettings } from '../../src/lib/storage';
+import { getSettings } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
 import { initPopup } from '../../src/popup/app';
 
@@ -154,18 +153,19 @@ describe('popup/app', () => {
         enableChatGptOpaqueProbe: true,
         enableChatGptOpaqueReplay: true,
       });
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
       await initPopup();
 
       expect(el<HTMLInputElement>('enableChatGptOpaqueProbe').checked).toBe(true);
       expect(el<HTMLInputElement>('enableChatGptOpaqueReplay').checked).toBe(false);
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enableChatGptOpaqueProbe: true,
-          enableChatGptOpaqueReplay: false,
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({
+            enableChatGptOpaqueProbe: true,
+            enableChatGptOpaqueReplay: false,
+          }),
         })
       );
     });
@@ -348,32 +348,34 @@ describe('popup/app', () => {
   describe('save flow', () => {
     it('saves the experimental opaque-probe switch with an explicit default-off value', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
 
       const probe = el<HTMLInputElement>('enableChatGptOpaqueProbe');
       probe.checked = true;
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ enableChatGptOpaqueProbe: true })
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({ enableChatGptOpaqueProbe: true }),
+        })
       );
     });
 
     it('saves the experimental opaque-replay switch with an explicit default-off value', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
 
       const replay = el<HTMLInputElement>('enableChatGptOpaqueReplay');
       replay.checked = true;
       replay.dispatchEvent(new Event('change'));
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enableChatGptOpaqueProbe: false,
-          enableChatGptOpaqueReplay: true,
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({
+            enableChatGptOpaqueProbe: false,
+            enableChatGptOpaqueReplay: true,
+          }),
         })
       );
     });
@@ -441,17 +443,23 @@ describe('popup/app', () => {
 
     it('saves collected settings and shows a success status', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
 
       el<HTMLInputElement>('vaultPath').value = '  AI/Claude  ';
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          obsidianApiKey: VALID_API_KEY,
-          vaultPath: 'AI/Claude',
-          outputOptions: { obsidian: true, file: false, clipboard: true },
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: {
+            ...storedSettings,
+            obsidianApiKey: VALID_API_KEY,
+            vaultPath: 'AI/Claude',
+            outputOptions: { obsidian: true, file: false, clipboard: true },
+            templateOptions: {
+              ...storedSettings.templateOptions,
+              filenameScheme: 'title-id',
+            },
+          },
         })
       );
       expect(statusEl().textContent).toBe('status_settingsSaved');
@@ -461,15 +469,16 @@ describe('popup/app', () => {
 
     it('collects the selected filename scheme into templateOptions (#328)', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
 
       el<HTMLSelectElement>('filenameScheme').value = 'title-date';
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          templateOptions: expect.objectContaining({ filenameScheme: 'title-date' }),
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({
+            templateOptions: expect.objectContaining({ filenameScheme: 'title-date' }),
+          }),
         })
       );
     });
@@ -483,7 +492,7 @@ describe('popup/app', () => {
       el<HTMLButtonElement>('saveBtn').click();
 
       await vi.waitFor(() => expect(statusEl().textContent).toBe('error_noOutputSelected'));
-      expect(saveSettings).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
     });
 
     it('rejects an API key shorter than the security minimum', async () => {
@@ -494,7 +503,7 @@ describe('popup/app', () => {
 
       await vi.waitFor(() => expect(statusEl().className).toBe('status error'));
       expect(statusEl().textContent).toContain('too short');
-      expect(saveSettings).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
     });
 
     it('skips Obsidian validation when Obsidian output is disabled', async () => {
@@ -504,52 +513,76 @@ describe('popup/app', () => {
         obsidianApiKey: '',
         outputOptions: { obsidian: false, file: true, clipboard: false },
       });
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
       await initPopup();
 
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'saveSettings' })
+        )
+      );
       expect(statusEl().textContent).toBe('status_settingsSaved');
     });
 
     it('shows an error status when persisting settings fails', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockRejectedValue(new Error('quota exceeded'));
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(sendMessage).mockResolvedValue({ success: false } as never);
 
       el<HTMLButtonElement>('saveBtn').click();
 
       await vi.waitFor(() => expect(statusEl().className).toBe('status error'));
       expect(statusEl().textContent).toBe('toast_error_saveFailed');
       expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
-      errorSpy.mockRestore();
     });
   });
 
   describe('test connection flow', () => {
     it('saves settings then reports a successful connection', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
       vi.mocked(sendMessage).mockResolvedValue({ success: true });
 
       el<HTMLButtonElement>('testBtn').click();
 
       await vi.waitFor(() => expect(statusEl().textContent).toBe('status_connectionSuccess'));
-      expect(saveSettings).toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledWith({
+        action: 'saveSettings',
+        settings: expect.objectContaining({ obsidianApiKey: VALID_API_KEY }),
+      });
       expect(sendMessage).toHaveBeenCalledWith({ action: 'testConnection' });
       expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
     });
 
     it('reports the backend error when the connection test fails', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
-      vi.mocked(sendMessage).mockResolvedValue({ success: false, error: 'Invalid API key' });
+      vi.mocked(sendMessage)
+        .mockResolvedValueOnce({ success: true })
+        .mockResolvedValueOnce({ success: false, error: 'Invalid API key' });
 
       el<HTMLButtonElement>('testBtn').click();
 
       await vi.waitFor(() => expect(statusEl().textContent).toBe('Invalid API key'));
       expect(statusEl().className).toBe('status error');
+    });
+
+    it('does not test the connection after the settings route rejects the save', async () => {
+      await initWithDefaults();
+      vi.mocked(sendMessage).mockResolvedValue({
+        success: false,
+        error: 'Could not save settings',
+      } as never);
+
+      el<HTMLButtonElement>('testBtn').click();
+
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('Could not save settings'));
+      expect(vi.mocked(sendMessage).mock.calls).toEqual([
+        [
+          {
+            action: 'saveSettings',
+            settings: expect.objectContaining({ obsidianApiKey: VALID_API_KEY }),
+          },
+        ],
+      ]);
     });
 
     it('warns and skips the test when no API key is entered', async () => {
@@ -575,15 +608,14 @@ describe('popup/app', () => {
 
     it('shows the thrown message when the test itself errors', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
-      vi.mocked(sendMessage).mockRejectedValue(new Error('port closed'));
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(sendMessage)
+        .mockResolvedValueOnce({ success: true })
+        .mockRejectedValueOnce(new Error('port closed'));
 
       el<HTMLButtonElement>('testBtn').click();
 
-      await vi.waitFor(() => expect(statusEl().textContent).toBe('port closed'));
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('toast_error_connectionFailed'));
       expect(statusEl().className).toBe('status error');
-      errorSpy.mockRestore();
     });
   });
 });
