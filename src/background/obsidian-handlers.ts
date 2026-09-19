@@ -35,6 +35,7 @@ import type {
   ObsidianNote,
   SaveResponse,
   StagedBinaryAssetDescriptor,
+  StructuredArchiveSource,
 } from '../lib/types';
 
 /**
@@ -81,7 +82,7 @@ export interface StagedBinaryAssetWriteRequest {
 
 /** One sealed archive JSON stage consumed for an immutable vault write. */
 export interface StagedArchiveCompanionWriteRequest {
-  source: 'chatgpt';
+  source: StructuredArchiveSource;
   captureId: string;
   conversationKey: string;
   stageId: string;

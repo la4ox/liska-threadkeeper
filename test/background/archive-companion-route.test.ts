@@ -25,12 +25,12 @@ let listener: (
   sendResponse: (response: unknown) => void
 ) => boolean | undefined;
 
-function message() {
+function message(source: 'chatgpt' | 'deepseek' = 'chatgpt') {
   return {
     action: 'persistArchiveCompanion' as const,
     noteFileName: 'note.md',
-    source: 'chatgpt' as const,
-    captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+    source,
+    captureId: `capture-${source}-11111111-2222-4333-8444-555555555555`,
     conversationKey: 'a'.repeat(64),
     artifact: {
       transport: 'inline' as const,
@@ -76,8 +76,9 @@ describe('archive companion service-worker route', () => {
     const returned = listener(
       request,
       {
-        id: chrome.runtime.id,
-        url: chrome.runtime.getURL('src/popup/index.html'),
+        tab: { url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd' },
+        frameId: 0,
+        url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd',
       } as chrome.runtime.MessageSender,
       sendResponse
     );
@@ -91,6 +92,36 @@ describe('archive companion service-worker route', () => {
       })
     );
     expect(mocks.multiOutput).not.toHaveBeenCalled();
+  });
+
+  it('routes a DeepSeek companion only from the matching signed-in conversation tab', async () => {
+    const request = message('deepseek');
+    const sendResponse = vi.fn();
+    const sender = {
+      tab: { url: 'https://chat.deepseek.com/a/chat/s/deepseek-chat-123' },
+      frameId: 0,
+      url: 'https://chat.deepseek.com/a/chat/s/deepseek-chat-123',
+    } as chrome.runtime.MessageSender;
+
+    expect(listener(request, sender, sendResponse)).toBe(true);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(mocks.persist).toHaveBeenCalledWith(request, expect.any(Object));
+
+    vi.clearAllMocks();
+    const rejected = vi.fn();
+    expect(
+      listener(
+        request,
+        {
+          tab: { url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd' },
+          frameId: 0,
+          url: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd',
+        } as chrome.runtime.MessageSender,
+        rejected
+      )
+    ).toBe(false);
+    expect(rejected).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
+    expect(mocks.persist).not.toHaveBeenCalled();
   });
 
   it('applies a popup output update immediately while storage persistence is pending', async () => {

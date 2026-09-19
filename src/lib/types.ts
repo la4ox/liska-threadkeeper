@@ -185,6 +185,9 @@ export interface NoteFrontmatter {
  */
 export type OutputDestination = 'obsidian' | 'file' | 'clipboard';
 
+/** Providers currently able to create structured raw/canonical archive stages. */
+export type StructuredArchiveSource = Extract<AIPlatform, 'chatgpt' | 'deepseek'>;
+
 /** Destinations that can retain private archive companion bytes. */
 export type PersistentOutputDestination = Exclude<OutputDestination, 'clipboard'>;
 
@@ -253,6 +256,16 @@ export interface ArchiveCompanionBundle {
  */
 export interface ChatGptAssetExportContext {
   conversationId: string;
+  rawCaptureBundle: RawCaptureBundle;
+  rawArtifact: ArchiveCompanionArtifact;
+}
+
+/**
+ * Runtime-only DeepSeek evidence retained for an optional attachment pass.
+ * Signed paths and provider file IDs remain solely inside the exact raw bytes;
+ * this context is never serialized into Markdown or an archive companion.
+ */
+export interface DeepSeekAssetExportContext {
   rawCaptureBundle: RawCaptureBundle;
   rawArtifact: ArchiveCompanionArtifact;
 }
@@ -477,25 +490,25 @@ export type ExtensionMessage =
     }
   | {
       action: 'beginStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       descriptor: ArchiveStageDescriptor;
     }
   | {
       action: 'appendStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       stageId: string;
       offset: number;
       chunkBase64: string;
     }
   | {
       action: 'sealStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       stageId: string;
       descriptor: ArchiveStageDescriptor;
     }
   | {
       action: 'readStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       stageId: string;
       offset: number;
       byteLength: number;
@@ -503,13 +516,17 @@ export type ExtensionMessage =
   | {
       action: 'commitStagedArchiveCompanion';
       noteFileName: string;
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       captureId: string;
       conversationKey: string;
       artifact: StagedArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
-  | { action: 'abortStagedArchiveArtifact'; source: 'chatgpt'; stageId: string }
+  | {
+      action: 'abortStagedArchiveArtifact';
+      source: StructuredArchiveSource;
+      stageId: string;
+    }
   | {
       action: 'beginStagedBinaryAsset';
       source: AIPlatform;
@@ -771,6 +788,8 @@ export interface ExtractionResult {
   archiveCompanion?: ArchiveCompanionBundle;
   /** Runtime-only source evidence for optional destination-honest ChatGPT attachment export. */
   chatGptAssetExportContext?: ChatGptAssetExportContext;
+  /** Runtime-only source evidence for optional destination-honest DeepSeek attachment export. */
+  deepSeekAssetExportContext?: DeepSeekAssetExportContext;
   /** Complete graph retained for sequential per-leaf presentation writes. */
   allBranches?: AllBranchesPresentationPlan;
 }

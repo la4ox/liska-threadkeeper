@@ -385,7 +385,7 @@
     "description": "Explains direct replay and the bounded automatic request-timeout fallback"
   },
   "settings_imageExportHelp": {
-    "message": "Save generated images and supported ChatGPT attachments",
+    "message": "Save supported conversation images and attachments",
     "description": "Help text for image and attachment export toggle"
   },
   "settings_imageVaultPath": {

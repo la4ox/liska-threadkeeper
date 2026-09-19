@@ -392,6 +392,73 @@ describe('DeepSeekExtractor', () => {
       }
     );
 
+    it('attaches verified raw and manifest evidence to a successful DOM fallback', async () => {
+      createDeepSeekPage('chat-123', [
+        { role: 'user', content: 'Fallback question' },
+        { role: 'assistant', content: '<p>Fallback answer</p>' },
+      ]);
+      localStorage.setItem('userToken', JSON.stringify({ value: 'local-test-token' }));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              biz_data: {
+                cache_control: 'REPLACE',
+                chat_session: { id: 'chat-123', current_message_id: '2' },
+                chat_messages: [
+                  { message_id: '1', parent_id: null, role: 'USER', content: 'API question' },
+                  { message_id: '2', parent_id: '1', role: 'ASSISTANT', content: 'API answer' },
+                  { message_id: '2', parent_id: '1', role: 'ASSISTANT', content: 'Duplicate' },
+                ],
+              },
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+      expect(result.archiveCompanion?.artifacts.map(artifact => artifact.kind)).toEqual([
+        'raw',
+        'manifest',
+      ]);
+      expect(result.warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining('preserves verified raw capture evidence')])
+      );
+    });
+
+    it('does not attach DeepSeek evidence to the ChatGPT-only failed-extraction route', async () => {
+      createDeepSeekPage('chat-123', []);
+      localStorage.setItem('userToken', JSON.stringify({ value: 'local-test-token' }));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              biz_data: {
+                cache_control: 'REPLACE',
+                chat_session: { id: 'chat-123', current_message_id: '1' },
+                chat_messages: [
+                  { message_id: '1', parent_id: null, role: 'USER', content: 'API question' },
+                  { message_id: '1', parent_id: null, role: 'USER', content: 'Duplicate' },
+                ],
+              },
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(false);
+      expect(result.archiveCompanion).toBeUndefined();
+    });
+
     it('extracts rendered user and assistant messages in DOM order', async () => {
       createDeepSeekPage('chat-123', [
         { role: 'user', content: 'Explain virtual scrolling.' },

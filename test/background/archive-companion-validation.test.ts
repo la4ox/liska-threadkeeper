@@ -9,12 +9,12 @@ import { BINARY_STAGE_CHUNK_BYTES } from '../../src/lib/constants';
 import { bytesToBase64 } from '../../src/lib/image-utils';
 import { ARCHIVE_STAGE_CHUNK_BYTES } from '../../src/lib/archive-stage-contract';
 
-function archiveMessage() {
+function archiveMessage(source: 'chatgpt' | 'deepseek' = 'chatgpt') {
   return {
     action: 'persistArchiveCompanion' as const,
     noteFileName: 'safe-note.md',
-    source: 'chatgpt' as const,
-    captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
+    source,
+    captureId: `capture-${source}-11111111-2222-4333-8444-555555555555`,
     conversationKey: 'a'.repeat(64),
     artifact: {
       transport: 'inline' as const,
@@ -71,6 +71,7 @@ describe('structured archive companion message validation', () => {
 
   it('accepts the exact one-artifact durable-output contract', () => {
     expect(validateMessageContent(archiveMessage())).toBe(true);
+    expect(validateMessageContent(archiveMessage('deepseek'))).toBe(true);
   });
 
   it('accepts exact staged binary messages and rejects oversized or extra chunks', () => {
@@ -111,6 +112,13 @@ describe('structured archive companion message validation', () => {
       validateMessageContent({
         action: 'beginStagedArchiveArtifact',
         source: 'chatgpt',
+        descriptor,
+      })
+    ).toBe(true);
+    expect(
+      validateMessageContent({
+        action: 'beginStagedArchiveArtifact',
+        source: 'deepseek',
         descriptor,
       })
     ).toBe(true);
@@ -215,6 +223,25 @@ describe('structured archive companion message validation', () => {
       } as chrome.runtime.MessageSender)
     ).toBe(false);
     expect(validateArchiveStageSender({} as chrome.runtime.MessageSender)).toBe(false);
+  });
+
+  it('binds DeepSeek archive stages to an exact signed-in conversation document', () => {
+    const sender = {
+      tab: { url: 'https://chat.deepseek.com/a/chat/s/deepseek-chat-123' },
+      frameId: 0,
+      url: 'https://chat.deepseek.com/a/chat/s/deepseek-chat-123',
+    } as chrome.runtime.MessageSender;
+    expect(validateArchiveStageSender(sender, 'deepseek')).toBe(true);
+    expect(
+      validateArchiveStageSender(
+        {
+          ...sender,
+          tab: { url: 'https://chat.deepseek.com/share/deepseek-chat-123' },
+        } as chrome.runtime.MessageSender,
+        'deepseek'
+      )
+    ).toBe(false);
+    expect(validateArchiveStageSender(sender, 'chatgpt')).toBe(false);
   });
 
   it('validates staged commit and abort outputs without allowing Clipboard or duplicates', () => {

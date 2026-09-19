@@ -49,7 +49,7 @@ describe('content archive companion persistence', () => {
     const warnings = await persistArchiveCompanions(companion, 'note.md', 'chatgpt', ['clipboard']);
 
     expect(warnings).toEqual([
-      'ChatGPT raw/canonical archive was not saved because only Clipboard is enabled',
+      'Structured raw/canonical archive was not saved because only Clipboard is enabled',
     ]);
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -90,6 +90,44 @@ describe('content archive companion persistence', () => {
       'persistArchiveCompanion',
     ]);
     expect(JSON.stringify(messages[0])).not.toContain('bodyBase64');
+  });
+
+  it('keeps the DeepSeek source on staged commit and cleanup messages', async () => {
+    const staged: ArchiveCompanionBundle = {
+      ...companion,
+      captureId: 'capture-deepseek-11111111-2222-4333-8444-555555555555',
+      artifacts: [
+        {
+          transport: 'staged',
+          stageId: `archive-stage-${'D'.repeat(32)}`,
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 20 * 1024 * 1024,
+          sha256: 'e'.repeat(64),
+        },
+        companion.artifacts[1],
+      ],
+    };
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [{ destination: 'file', success: true }],
+          allSuccessful: true,
+          anySuccessful: true,
+        });
+      }
+    );
+
+    await persistArchiveCompanionArtifacts(staged, 'note.md', 'deepseek', ['file']);
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'commitStagedArchiveCompanion',
+        source: 'deepseek',
+      }),
+      expect.any(Function)
+    );
   });
 
   it('persists only raw and manifest when canonical normalization did not complete', async () => {

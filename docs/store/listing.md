@@ -117,18 +117,20 @@ manifest.
 <!-- field: host_permissions, limit: 1000 -->
 
 ```text
-Nine host groups are required:
+Ten host groups are required:
 
-1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com (Gemini Notebook), and notebooklm.google.com (legacy redirect) - inject the Bring thread home button and read only the conversation shown on that supported site.
+1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com, and legacy notebooklm.google.com - show the export button and read the displayed conversation.
 
-8. *.googleusercontent.com - download only AI-generated images already present in the exported conversation, and only when image export is enabled. No conversation text is sent there.
+8. files.deepseeksvc.com - download a DeepSeek attachment only from an exact verified history signed path, after raw local preservation and only when attachment export is enabled. No conversation text or browser credential is sent.
 
-9. 127.0.0.1 (HTTP and HTTPS) - connect to Obsidian Local REST API on the user's own machine and save the requested export.
+9. *.googleusercontent.com - download AI-generated conversation images only when image export is enabled. No conversation text is sent.
 
-Conversation content goes only to selected local outputs: the user's Obsidian vault, a downloaded Markdown file, or the clipboard. No analytics, telemetry, or developer-operated server.
+10. 127.0.0.1 (HTTP and HTTPS) - save the requested export through the user's local Obsidian REST API.
+
+Conversation content goes only to selected local outputs. No analytics, telemetry, or developer-operated server.
 ```
 
-796 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
+820 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ---
 
