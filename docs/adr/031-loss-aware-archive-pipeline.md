@@ -677,7 +677,7 @@ later staged begin.
 
 ## ChatGPT-first implementation plan
 
-Progress as of 2026-09-18: steps 1–6 are implemented and live-verified for
+Progress as of 2026-09-19: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images and
 interpreter/sandbox documents with explicit completeness diagnostics; custom-GPT,
 Library-ID, Calpico fallback, and general Deep Research binary acquisition remain
@@ -704,8 +704,26 @@ future phase.
    The first bounded slice is implemented: exact non-delta history bytes retain
    all graph nodes and ordered text/Markdown/reasoning/unknown blocks, while the
    legacy view follows `current_message_id`. In-band DeepSeek `files` metadata
-   is inventoried into opaque canonical attachment references; binary
-   acquisition remains explicitly not attempted.
+   is inventoried into opaque canonical attachment references. A fresh
+   synthetic 93-byte text attachment established that a successful file record
+   nested under a history `FILE` fragment can carry a sufficient relative
+   `signed_path`: the page directly
+   requested `https://files.deepseeksvc.com/api${signed_path}&ty=r` and received
+   exact `200 application/octet-stream` bytes without a `fetch_files` call.
+   Liska now admits only that exact bound grammar, saves raw first, performs
+   credential-free bounded sequential GETs, hashes returned bytes itself, and
+   finalizes manifest/canonical evidence separately per successful destination.
+   Signed paths and provider IDs remain raw-only. Missing or expired paths remain
+   unresolved unless the page has already exposed a matching passive observation;
+   `fetch_files` is not used as a product fallback.
+   A later canary showed that some successful legacy message-level records omit
+   `signed_path`, while a page-native card preview still leaves the exact strict
+   file-service GET in the current document's ResourceTiming buffer. After raw
+   persistence, Liska may therefore inspect only the newest 512 resource entries,
+   accept only `initiatorType=fetch`, and bind the exact URL `file_id` uniquely to
+   current verified raw sourceRefs and its recomputed opaque asset ID. An in-band
+   signed path wins. This passive fallback never clicks a card, clears timing,
+   calls `fetch_files`, copies provider headers, or persists the observed URL.
 9. Add official-export importers and cross-format reconciliation later, using
    source IDs and raw pointers instead of field-name guesses.
 

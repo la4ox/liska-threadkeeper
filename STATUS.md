@@ -8,9 +8,10 @@
 - File and clipboard exports work without Obsidian. Obsidian remains an optional output through Local REST API 5.1.0 on exact loopback host `127.0.0.1`. HTTPS health, certificate, and bearer authentication were verified independently on port `27124`. Because Comet's extension service worker did not inherit the tab's self-signed-certificate exception, the browser integration uses the plugin's HTTP compatibility endpoint on `127.0.0.1:27123`. End-to-end DeepSeek sync produced a 2,854,272-byte note with frontmatter `message_count: 1408` and exactly 1,408 rendered role markers.
 - DeepSeek signed-in exports use the same-origin history response, reconstruct the selected active branch, preserve Markdown, and optionally include Thinking. DOM/scroll fallback remains available.
 - Live DeepSeek export was verified on a 2,803,334-byte conversation: 1,382 messages (691 user + 691 assistant), 690 reasoning blocks, correct first/last roles, and no alternation breaks. It completed in seconds without scrolling.
-- DeepSeek now has a provider-specific `liska-capture/1` → `liska-thread/1` adapter on `codex/deepseek-canonical-core`. It preserves exact non-delta history-response bytes, every validated parent/child node, ordered text/Markdown/reasoning/unknown blocks, manifest unknown-type evidence, and a current-node Markdown projection. Durable File/Obsidian outputs receive raw/manifest/canonical companions through provider-bound inline or staged transport; DOM fallback remains explicitly partial and can retain verified raw/manifest evidence after a post-capture normalization failure. DeepSeek assets are honestly `not-attempted`; acquisition is not implemented. A post-reload live File smoke on 2026-09-18 preserved a 40,585-byte raw response, a 955-byte manifest, a 67,220-byte canonical archive, and Markdown marked `structured-api / complete`. Raw and manifest hashes linked exactly; all 12 nodes and 11 edges were reachable from one root with no cycle, dangling, or asymmetric link; three reasoning and three unknown blocks remained typed; credential/signed-URL scans of manifest/canonical were clean. The live provider omitted `cache_control`; Liska accepted the self-contained graph while continuing to reject explicit cache deltas.
-- A content-free field-shape probe of that same live raw found a `files` array on every message and two populated file records. Each record had only metadata fields (`id`, `file_name`, `file_size`, timestamps, status/error, previewability, and token usage); no URL, URI, download path, or transport string was present. The implemented metadata ledger hashes provider IDs into opaque manifest/canonical asset IDs, deduplicates only exact IDs, retains exact raw pointers, and appends attachment blocks while keeping acquisition `not-attempted`. A post-reload live smoke retained exactly two raw file records as two manifest records, two canonical assets, and two attachment blocks. Provider IDs were absent from manifest and occurred only in local canonical source references; both assets had null MIME/hash/local paths, no binary files were created, and the capture directory still contained exactly raw/manifest/canonical JSON. Binary acquisition requires a separately observed resolver contract and must not guess a URL from the raw file ID.
-- The public DeepSeek frontend bundle identifies the page-owned metadata resolver as exact same-origin `GET /api/v0/file/fetch_files` with the query key `file_ids`; successful records may carry `signed_path`. Its URL builder accepts an absolute path or binds a relative path to the configured file-service base under `/api`, then adds the resource-mode query key `ty` and optional format key `fmt`. The live old-attachment sample had already issued the same 41-character-ID query; both the browser resource record and one bounded diagnostic request returned HTTP 200 JSON with an empty `files` list, so no signed path or binary action was available. No credential, ID value, response body, filename, or conversation text was retained by the probe. This proves the resolver shape and this snapshot's empty outcome, not binary availability or acquisition support.
+- DeepSeek now has a provider-specific `liska-capture/1` → `liska-thread/1` adapter on `codex/deepseek-canonical-core`. It preserves exact non-delta history-response bytes, every validated parent/child node, ordered text/Markdown/reasoning/unknown blocks, manifest unknown-type evidence, and a current-node Markdown projection. Durable File/Obsidian outputs receive raw/manifest/canonical companions through provider-bound inline or staged transport; DOM fallback remains explicitly partial and can retain verified raw/manifest evidence after a post-capture normalization failure. The initial metadata-only checkpoint kept every DeepSeek asset honestly `not-attempted`; the later bounded direct-history acquisition path is described below. A post-reload live File smoke on 2026-09-18 preserved a 40,585-byte raw response, a 955-byte manifest, a 67,220-byte canonical archive, and Markdown marked `structured-api / complete`. Raw and manifest hashes linked exactly; all 12 nodes and 11 edges were reachable from one root with no cycle, dangling, or asymmetric link; three reasoning and three unknown blocks remained typed; credential/signed-URL scans of manifest/canonical were clean. The live provider omitted `cache_control`; Liska accepted the self-contained graph while continuing to reject explicit cache deltas.
+- A content-free field-shape probe of an older live raw found a `files` array on every message and two populated metadata-only records. The ledger hashes provider IDs into opaque asset IDs, deduplicates only exact IDs, and retains exact raw pointers. Canonical attachment source references now use null provider IDs, so provider IDs and signed transport remain raw-only.
+- The public DeepSeek frontend bundle identifies the page-owned metadata resolver as exact same-origin `GET /api/v0/file/fetch_files` with the query key `file_ids`. Bounded live calls for both an older and the fresh synthetic attachment returned metadata but no usable `signed_path`; product code does not call this route and does not copy its bearer, `x-client`, or `x-device` headers. Its URL builder accepts a path under the configured file-service `/api` base and adds resource mode `ty`; this informed validation but does not authorize an active resolver.
+- A fresh synthetic 93-byte text attachment supplied `signed_path` in a verified history `FILE` fragment record (`chat_messages[].fragments[].files[]`); the live message-level `files` field was absent. Clicking its card issued no `fetch_files` request; the page performed one direct `GET https://files.deepseeksvc.com/api${signed_path}&ty=r` and received `200 application/octet-stream`, content length 93, and exact source bytes. A later reloaded canary exposed the complementary legacy shape: `message.files` had SUCCESS/id/size but no `signed_path`; after a page-native card click, current-document ResourceTiming contained the exact file-service URL with `initiatorType=fetch` and exact `file_id,state,ty` keys. Liska now inventories both raw locations and, only after raw persistence, merges valid in-band candidates with the newest 512 already-observed timing entries. Every passive URL must pass the full fixed-host grammar, bind its `file_id` uniquely to current verified raw sourceRefs and a recomputed asset ID, and remain runtime-only; in-band wins. The fallback never clicks a card, clears performance entries, or installs an observer, so an attachment not already previewed remains unresolved. Credential-free GETs remain sequential and bounded to 20 attempts, 64 MiB per asset, and 128 MiB total; exact nonempty response URL, passive MIME, declared size, and locally computed SHA-256 are required. Destination results independently govern regenerated manifest/canonical `fetched` claims. Relative `signed_path`, observed URLs, state tokens, and provider file IDs are removed even from degraded canonical blocks and privacy diagnostics.
 - Exports require a trusted user click. Programmatic page clicks cannot trigger file, clipboard, or authenticated Obsidian operations.
 - Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
 - Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
@@ -116,25 +117,36 @@ The ChatGPT checkpoint was merged to `main` as merge commit `588d390`. Current
 work continues on `codex/deepseek-canonical-core` as an independent bounded
 provider migration.
 
-Fresh local validation on 2026-09-18:
+Fresh local validation on 2026-09-19:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 140 test files / 2,737 tests pass with two workers;
-- coverage passes at 95.01% statements, 89.96% branches, 98.09% functions,
+- 144 test files / 2,803 tests pass with two workers;
+- coverage passes at 95.01% statements, 89.97% branches, 98.15% functions,
   and 97.76% lines;
 - typecheck and the production build pass;
 - lint passes with only three pre-existing advisory warnings, and repository
   formatting passes;
 - fresh independent reviews found no residual P0-P2 issue in either the
   canonical migration or metadata-ledger slice;
+- the post-reload synthetic passive File canary is complete. After one
+  page-native preview, Liska made its own credential-free exact file-service
+  GET and received `200 application/octet-stream`. The new capture preserved a
+  1,743-byte raw response, 1,480-byte manifest, 8,713-byte canonical archive,
+  702-byte Markdown note, and one 93-byte content-addressed `.bin`. Raw length
+  and SHA-256 match the manifest; canonical input SHA-256 matches the exact
+  manifest; manifest and canonical both mark the single asset `fetched` with
+  the binary's exact length, SHA-256, and local path. The binary is byte-identical
+  to the synthetic source. Provider file ID, `signed_path`, state token, and
+  file-service host are absent from manifest/canonical output;
 - a post-reload live Comet smoke produced exact raw/manifest/canonical and
   Markdown outputs with the verified graph, provenance, privacy, and
   frontmatter facts recorded above. Conversation text was not reviewed during
   filesystem verification.
 
-The next attachment gate requires a fresh positive DeepSeek sample whose exact
-page-owned `fetch_files` response contains one validated record and signed path.
-Until then, do not add binary acquisition, retries, guessed URLs, or an
-`unavailable` claim for every empty response. Keep PR #8 in draft while its
-updated Ubuntu CI runs; release/tag creation remains an explicit maintainer
-action.
+The passive timing fallback is live-verified for File output. Obsidian was not
+re-run in this checkpoint because the app/server was inactive; it uses the same
+already live-verified provider-neutral staged binary persistence boundary. The
+fallback can act only after the page has already previewed the current raw
+attachment; automatic card activation, active observers, `fetch_files`, retries,
+guessed URLs, and blanket `unavailable` claims remain unsupported. Keep PR #8
+in draft; release/tag creation remains an explicit maintainer action.
