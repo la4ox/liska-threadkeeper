@@ -9,7 +9,11 @@ import {
   type RawCaptureBundle,
 } from '../../archive';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
-import type { ArchiveCompanionBundle, ConversationData } from '../../lib/types';
+import type {
+  ArchiveCompanionBundle,
+  ConversationData,
+  DeepSeekAssetExportContext,
+} from '../../lib/types';
 import { projectArchiveBranch } from '../archive-projection';
 import {
   appendJsonCanonicalCompanion,
@@ -32,6 +36,7 @@ export interface DeepSeekApiConversation {
   data: ConversationData;
   archive: LiskaThreadArchive;
   archiveCompanion: ArchiveCompanionBundle;
+  assetExportContext: DeepSeekAssetExportContext;
   warnings: string[];
 }
 
@@ -124,9 +129,12 @@ export async function fetchDeepSeekConversation(
         sha256Hex,
         'deepseek'
       );
+      const rawArtifact = archiveCompanion.artifacts.find(candidate => candidate.kind === 'raw');
+      if (!rawArtifact) throw new DeepSeekStructuredCaptureError('companion-build-failed');
       return {
         archive,
         archiveCompanion,
+        assetExportContext: { rawCaptureBundle: bundle, rawArtifact },
         warnings: projected.warnings,
         data: {
           ...projected.data,

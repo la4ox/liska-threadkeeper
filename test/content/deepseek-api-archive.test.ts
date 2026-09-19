@@ -159,9 +159,7 @@ describe('DeepSeek structured archive composition', () => {
     const canonicalSourceIds = Object.values(canonical.assets)
       .flatMap(asset => asset.sourceRefs)
       .map(source => source.id);
-    expect(canonicalSourceIds).toEqual(
-      expect.arrayContaining(['deepseek-file-alpha', 'deepseek-file-beta'])
-    );
+    expect(canonicalSourceIds).toEqual([null, null, null]);
     expect(Object.keys(canonical.assets)).not.toContain('deepseek-file-alpha');
     expect(Object.keys(canonical.assets)).not.toContain('deepseek-file-beta');
     expect(
@@ -170,8 +168,14 @@ describe('DeepSeek structured archive composition', () => {
     expect(
       JSON.stringify(Object.values(canonical.assets).map(asset => asset.extensions.deepseek))
     ).not.toContain('deepseek-file-beta');
+    expect(JSON.stringify(canonical)).not.toContain('deepseek-file-alpha');
+    expect(JSON.stringify(canonical)).not.toContain('deepseek-file-beta');
     expect(JSON.stringify({ manifest, canonical })).not.toContain('transient-local-token');
     expect(result!.data.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
+    expect(result!.assetExportContext).toMatchObject({
+      rawCaptureBundle: { manifest: { captureId: 'capture-deepseek-fixed-001' } },
+      rawArtifact: { kind: 'raw', sha256: hash(fixtureBytes) },
+    });
     expect(result!.data.messages.map(message => message.content).join('\n')).not.toContain(
       'Inactive sibling answer'
     );

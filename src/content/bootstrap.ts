@@ -27,6 +27,11 @@ import {
   type AllBranchesPersistenceSummary,
 } from './archive-branch-persistence';
 import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-export';
+import { persistDeepSeekDestinationHonestAttachments } from './deepseek-asset-export';
+import {
+  canExportChatGptAttachments,
+  canExportDeepSeekAttachments,
+} from './attachment-export-gates';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
   observeChatGptInterpreterAssetResolvers,
@@ -773,27 +778,6 @@ export async function persistAllBranchesBundle(
   displayAllBranchesSummary(summary, archiveWarnings);
 }
 
-function hasDurableOutput(outputs: readonly OutputDestination[]): boolean {
-  return outputs.some(output => output === 'file' || output === 'obsidian');
-}
-
-function canExportChatGptAttachments(
-  result: ExtractionResult,
-  settings: ContentScriptSettings,
-  outputs: readonly OutputDestination[]
-): result is ExtractionResult & {
-  archiveCompanion: ArchiveCompanionBundle;
-  chatGptAssetExportContext: NonNullable<ExtractionResult['chatGptAssetExportContext']>;
-} {
-  return (
-    settings.enableImageExport === true &&
-    hasDurableOutput(outputs) &&
-    result.archiveCompanion !== undefined &&
-    result.chatGptAssetExportContext !== undefined &&
-    (result.allBranches !== undefined || result.data?.source === 'chatgpt')
-  );
-}
-
 async function persistNote(
   note: ObsidianNote,
   outputs: OutputDestination[],
@@ -928,7 +912,24 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       ]);
       return;
     }
-    stage = 'formatting and saving the ChatGPT archive companions and note';
+    if (canExportDeepSeekAttachments(result, settings, enabledOutputs)) {
+      const note = conversationToNote(result.data, settings.templateOptions);
+      stage = 'saving the original DeepSeek raw archive companion';
+      const attachmentExport = await persistDeepSeekDestinationHonestAttachments(
+        result.deepSeekAssetExportContext,
+        result.archiveCompanion,
+        note.fileName,
+        enabledOutputs,
+        { persistArtifacts: persistArchiveCompanionArtifacts }
+      );
+      stage = 'saving the DeepSeek note';
+      await persistNote(note, enabledOutputs, result.data.messages.length, [
+        ...(result.warnings ?? []),
+        ...attachmentExport.warnings,
+      ]);
+      return;
+    }
+    stage = 'formatting and saving the structured archive companions and note';
     await persistExtractedNote(
       result.data,
       result.archiveCompanion,

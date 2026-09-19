@@ -1,5 +1,6 @@
 import type { RawCaptureAssetRecord } from '../../capture';
 import type { JsonValue } from '../../types';
+import type { DeepSeekJsonRecord } from './contracts';
 import { hasOwn, isPlainRecord, pointerAt } from './privacy';
 
 /** Stable, content-free evidence when provider attachment metadata is ambiguous. */
@@ -11,7 +12,11 @@ const MAX_DISCOVERED_FILES = 50_000;
 const FILE_METADATA_FIELDS = [
   'file_name',
   'file_size',
+  'audit_result',
+  'from_share',
   'inserted_at',
+  'is_image',
+  'model_kind',
   'updated_at',
   'status',
   'error_code',
@@ -19,7 +24,11 @@ const FILE_METADATA_FIELDS = [
   'token_usage',
 ] as const;
 const ASSET_EXTENSION_FIELDS = [
+  'audit_result',
+  'from_share',
   'inserted_at',
+  'is_image',
+  'model_kind',
   'updated_at',
   'status',
   'error_code',
@@ -91,22 +100,42 @@ function collectPotentialProviderIds(raw: unknown): string[] {
   try {
     const messages = messagesFromRaw(raw);
     for (const message of messages) {
-      if (!isPlainRecord(message) || !Array.isArray(message.files)) continue;
-      for (const file of message.files) {
-        if (!isPlainRecord(file) || typeof file.id !== 'string') continue;
-        if (
-          file.id.length > 0 &&
-          file.id.length <= 4_096 &&
-          !Array.from(file.id).some(character => (character.codePointAt(0) ?? 0) <= 0x1f)
-        ) {
-          collected.add(file.id);
-        }
-      }
+      if (!isPlainRecord(message)) continue;
+      for (const file of potentialFileArrays(message).flat())
+        addPotentialProviderId(file, collected);
     }
   } catch {
     // Best-effort privacy inventory must never replace the stable degraded result.
   }
   return [...collected].sort(compareStrings);
+}
+
+function potentialFileArrays(message: DeepSeekJsonRecord): unknown[][] {
+  const arrays: unknown[][] = [];
+  if (Array.isArray(message.files)) arrays.push(message.files);
+  if (!Array.isArray(message.fragments)) return arrays;
+  for (const fragment of message.fragments) {
+    if (
+      isPlainRecord(fragment) &&
+      typeof fragment.type === 'string' &&
+      fragment.type.trim().toUpperCase() === 'FILE' &&
+      Array.isArray(fragment.files)
+    ) {
+      arrays.push(fragment.files);
+    }
+  }
+  return arrays;
+}
+
+function addPotentialProviderId(file: unknown, collected: Set<string>): void {
+  if (!isPlainRecord(file) || typeof file.id !== 'string') return;
+  if (
+    file.id.length > 0 &&
+    file.id.length <= 4_096 &&
+    !Array.from(file.id).some(character => (character.codePointAt(0) ?? 0) <= 0x1f)
+  ) {
+    collected.add(file.id);
+  }
 }
 
 /** Parse one provider file record without persisting the provider ID as metadata. */
@@ -154,23 +183,47 @@ function collectCandidates(raw: unknown, artifactId: string): Candidate[] {
   const candidates: Candidate[] = [];
   messages.forEach((message, messageIndex) => {
     if (!isPlainRecord(message)) throw new Error();
-    if (!hasOwn(message, 'files')) return;
-    if (!Array.isArray(message.files)) throw new Error();
-    message.files.forEach((file, fileIndex) => {
-      if (candidates.length >= MAX_DISCOVERED_FILES) throw new Error();
-      const rawPointer = pointerAt(
-        '/data/biz_data/chat_messages',
-        String(messageIndex),
-        'files',
-        String(fileIndex)
+    const messagePointer = pointerAt('/data/biz_data/chat_messages', String(messageIndex));
+    if (hasOwn(message, 'files')) {
+      if (!Array.isArray(message.files)) throw new Error();
+      collectFileCandidates(
+        message.files,
+        pointerAt(messagePointer, 'files'),
+        artifactId,
+        candidates
       );
-      candidates.push({
-        ...readDeepSeekRawFileRecord(file),
-        sourceRef: { artifactId, rawPointer },
-      });
+    }
+    if (!hasOwn(message, 'fragments')) return;
+    if (!Array.isArray(message.fragments)) throw new Error();
+    message.fragments.forEach((fragment, fragmentIndex) => {
+      if (!isPlainRecord(fragment) || typeof fragment.type !== 'string') return;
+      if (fragment.type.trim().toUpperCase() !== 'FILE') return;
+      if (!hasOwn(fragment, 'files') || !Array.isArray(fragment.files)) throw new Error();
+      collectFileCandidates(
+        fragment.files,
+        pointerAt(messagePointer, 'fragments', String(fragmentIndex), 'files'),
+        artifactId,
+        candidates
+      );
     });
   });
   return candidates;
+}
+
+function collectFileCandidates(
+  files: unknown[],
+  pointer: string,
+  artifactId: string,
+  candidates: Candidate[]
+): void {
+  files.forEach((file, fileIndex) => {
+    if (candidates.length >= MAX_DISCOVERED_FILES) throw new Error();
+    const rawPointer = pointerAt(pointer, String(fileIndex));
+    candidates.push({
+      ...readDeepSeekRawFileRecord(file),
+      sourceRef: { artifactId, rawPointer },
+    });
+  });
 }
 
 function messagesFromRaw(raw: unknown): unknown[] {

@@ -1,6 +1,6 @@
 import type { RawCaptureAssetRecord, RawCaptureManifest } from '../../capture';
 import type { ArchiveAsset, ArchiveBlock, ArchiveDiagnostic, SourceReference } from '../../types';
-import { deepSeekFail } from './contracts';
+import { deepSeekFail, type DeepSeekJsonRecord } from './contracts';
 import {
   DEEPSEEK_ATTACHMENT_INVENTORY_WARNING,
   readDeepSeekRawFileRecord,
@@ -27,10 +27,19 @@ export function verifyDeepSeekAssetInventory(
   manifest: RawCaptureManifest,
   inventory: DeepSeekAssetInventory
 ): void {
-  if (
-    manifest.completeness.assets !== inventory.completeness ||
-    JSON.stringify(manifest.assets) !== JSON.stringify(inventory.assets)
-  ) {
+  const manifestAssets = new Map(manifest.assets.map(asset => [asset.id, asset]));
+  const sourceInventoryMatches =
+    manifestAssets.size === manifest.assets.length &&
+    manifest.assets.length === inventory.assets.length &&
+    inventory.assets.every(expected => {
+      const actual = manifestAssets.get(expected.id);
+      return actual && JSON.stringify(actual.sourceRefs) === JSON.stringify(expected.sourceRefs);
+    });
+  const completenessMatches =
+    inventory.completeness === 'unknown'
+      ? manifest.completeness.assets === 'unknown'
+      : manifest.completeness.assets !== 'unknown';
+  if (!sourceInventoryMatches || !completenessMatches) {
     deepSeekFail(
       'asset-inventory-mismatch',
       'DeepSeek attachment inventory does not match the verified raw artifact.'
@@ -93,9 +102,7 @@ export function deepSeekAttachmentBlock(
     id: `${messageId}:block:${index}`,
     type: 'attachment',
     assetId: manifestAsset.id,
-    sourceRefs: [
-      sourceRef(context.artifactId, 'attachment', file.providerId, pointer, context.format),
-    ],
+    sourceRefs: [sourceRef(context.artifactId, 'attachment', null, pointer, context.format)],
     extensions: {},
   };
 }
@@ -125,41 +132,88 @@ export function deepSeekAssetInventoryDiagnostics(
   ];
 }
 
+/** Map the current provider FILE fragment without retaining its transport fields. */
+export function deepSeekFileFragmentBlocks(
+  fragment: DeepSeekJsonRecord,
+  messageId: string,
+  startIndex: number,
+  pointer: string,
+  context: DeepSeekAttachmentContext,
+  inventory: DeepSeekAssetInventory
+): ArchiveBlock[] {
+  if (inventory.completeness === 'unknown') {
+    return [
+      {
+        id: `${messageId}:block:${startIndex}`,
+        type: 'unknown',
+        providerType: 'FILE',
+        raw: sanitizeJson(
+          degradedDeepSeekFilesExtension(fragment, inventory.providerIds),
+          context.privacy,
+          pointer
+        ),
+        sourceRefs: [
+          sourceRef(context.artifactId, 'content-part', messageId, pointer, context.format),
+        ],
+        extensions: {},
+      },
+    ];
+  }
+  if (!Array.isArray(fragment.files)) {
+    deepSeekFail(
+      'asset-inventory-mismatch',
+      'DeepSeek attachment inventory changed during normalization.'
+    );
+  }
+  return fragment.files.map((value, fileIndex) =>
+    deepSeekAttachmentBlock(
+      value,
+      messageId,
+      startIndex + fileIndex,
+      pointerAt(pointer, 'files', String(fileIndex)),
+      context
+    )
+  );
+}
+
 function upsertAttachmentAsset(
   manifestAsset: RawCaptureAssetRecord,
   file: ReturnType<typeof readDeepSeekRawFileRecord>,
   pointer: string,
   context: DeepSeekAttachmentContext
 ): void {
+  const candidate = attachmentAsset(manifestAsset, file, pointer, context);
   const existing = context.assets[manifestAsset.id];
   if (existing) {
-    if (
-      existing.filename !== sanitizedAttachmentFilename(file, pointer, context) ||
-      existing.byteLength !== file.byteLength ||
-      existing.mimeType !== null ||
-      existing.sha256 !== null ||
-      existing.localArtifactRef !== null ||
-      existing.acquisition.state !== 'not-attempted'
-    ) {
+    if (JSON.stringify(existing) !== JSON.stringify(candidate)) {
       deepSeekFail('asset-inventory-mismatch', 'Repeated DeepSeek attachment metadata disagrees.');
     }
     return;
   }
-  context.assets[manifestAsset.id] = {
+  context.assets[manifestAsset.id] = candidate;
+}
+
+function attachmentAsset(
+  manifestAsset: RawCaptureAssetRecord,
+  file: ReturnType<typeof readDeepSeekRawFileRecord>,
+  pointer: string,
+  context: DeepSeekAttachmentContext
+): ArchiveAsset {
+  return {
     id: manifestAsset.id,
     filename: sanitizedAttachmentFilename(file, pointer, context),
-    mimeType: null,
-    byteLength: file.byteLength,
+    mimeType: manifestAsset.mediaType,
+    byteLength: manifestAsset.state === 'fetched' ? manifestAsset.byteLength : file.byteLength,
     dimensions: null,
-    sha256: null,
-    localArtifactRef: null,
+    sha256: manifestAsset.sha256,
+    localArtifactRef: manifestAsset.relativePath,
     acquisition: {
-      state: 'not-attempted',
-      attemptedAt: null,
-      detail: 'Binary acquisition was not attempted for this provider attachment.',
+      state: manifestAsset.state,
+      attemptedAt: manifestAsset.attemptedAt,
+      detail: manifestAsset.detail,
     },
     sourceRefs: manifestAsset.sourceRefs.map(ref =>
-      sourceRef(context.artifactId, 'attachment', file.providerId, ref.rawPointer, context.format)
+      sourceRef(context.artifactId, 'attachment', null, ref.rawPointer, context.format)
     ),
     extensions: {
       deepseek: sanitizeJson(file.extensionMetadata, context.privacy, pointer),

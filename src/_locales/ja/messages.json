@@ -283,7 +283,7 @@
     "message": "直接再取得を強制します。通常モードでも、受動取得でリクエストを観測できずタイムアウトした場合に限り 1 回だけ試行します"
   },
   "settings_imageExportHelp": {
-    "message": "生成画像と対応する ChatGPT の添付ファイルを保存する"
+    "message": "対応する会話の画像と添付ファイルを保存する"
   },
   "settings_imageVaultPath": {
     "message": "画像フォルダ"

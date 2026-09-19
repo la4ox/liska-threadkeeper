@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Provider graph and ordered fragment normalization stay together for one auditable raw-to-canonical boundary. */
 import {
   buildCaptureManifest,
   validateCaptureBundleShape,
@@ -23,6 +24,7 @@ import {
 } from './contracts';
 import {
   deepSeekAttachmentBlock,
+  deepSeekFileFragmentBlocks,
   deepSeekManifestAssetsBySourceRef,
   verifyDeepSeekAssetInventory,
   type DeepSeekAttachmentContext,
@@ -45,7 +47,7 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const ENVELOPE_POINTER = '/data/biz_data';
 const SESSION_POINTER = `${ENVELOPE_POINTER}/chat_session`;
 const MESSAGES_POINTER = `${ENVELOPE_POINTER}/chat_messages`;
-const KNOWN_FRAGMENT_TYPES = new Set(['REQUEST', 'RESPONSE', 'TEMPLATE_RESPONSE', 'THINK']);
+const KNOWN_FRAGMENT_TYPES = new Set(['REQUEST', 'RESPONSE', 'TEMPLATE_RESPONSE', 'THINK', 'FILE']);
 const MAPPED_MESSAGE_FIELDS = new Set([
   'message_id',
   'id',
@@ -100,7 +102,6 @@ export function preflightDeepSeekHistoryArtifact(
   return observedUnknownFragmentTypes(envelope);
 }
 
-/** Normalize verified exact DeepSeek history bytes into liska-thread/1. */
 export async function normalizeDeepSeekCapture(
   input: DeepSeekNormalizationInput
 ): Promise<DeepSeekNormalizationResult> {
@@ -121,7 +122,7 @@ export async function normalizeDeepSeekCapture(
         'DeepSeek response session does not match the capture manifest.'
       );
     }
-    const context = createContext(input, assetInventory);
+    const context = createContext(input, assetInventory, manifest);
     const archive = buildArchive(input, manifest, envelope, conversationId, context);
     const observedUnknownContentTypes = [...context.unknownTypes].sort();
     if (
@@ -281,7 +282,9 @@ function classifyUnknownBlockTypes(message: DeepSeekJsonRecord, normalizedRole?:
         hasVisibleFragment = true;
       }
       if (!KNOWN_FRAGMENT_TYPES.has(type)) unknown.add(type);
-      else if (typeof fragment.content !== 'string') unknown.add(`${type}:non-text`);
+      else if (type === 'FILE') {
+        if (!Array.isArray(fragment.files)) unknown.add('FILE:malformed-files');
+      } else if (typeof fragment.content !== 'string') unknown.add(`${type}:non-text`);
     });
   }
   if (!hasVisibleFragment && hasOwn(message, 'content') && typeof message.content !== 'string') {
@@ -326,7 +329,8 @@ function sessionConversationId(session: DeepSeekJsonRecord): string {
 
 function createContext(
   input: DeepSeekNormalizationInput,
-  assetInventory: DeepSeekAssetInventory
+  assetInventory: DeepSeekAssetInventory,
+  manifest: RawCaptureManifest
 ): NormalizationContext {
   const format = input.sourceFormat ?? DEEPSEEK_SOURCE_FORMAT;
   if (typeof format !== 'string' || !format || format.length > 255) {
@@ -338,7 +342,7 @@ function createContext(
     privacy: { redactions: [] },
     unknownTypes: new Set(),
     assetInventory,
-    manifestAssetsBySourceRef: deepSeekManifestAssetsBySourceRef(assetInventory.assets),
+    manifestAssetsBySourceRef: deepSeekManifestAssetsBySourceRef(manifest.assets),
     assets: {},
   };
 }
@@ -563,9 +567,22 @@ function normalizeBlocks(
       if (type === 'REQUEST' || type === 'RESPONSE' || type === 'TEMPLATE_RESPONSE') {
         hasVisibleFragment = true;
       }
-      blocks.push(
-        fragmentBlock(fragment, type, messageId, blocks.length, fragmentPointer, context)
-      );
+      if (type === 'FILE') {
+        blocks.push(
+          ...deepSeekFileFragmentBlocks(
+            fragment,
+            messageId,
+            blocks.length,
+            fragmentPointer,
+            context,
+            context.assetInventory
+          )
+        );
+      } else {
+        blocks.push(
+          fragmentBlock(fragment, type, messageId, blocks.length, fragmentPointer, context)
+        );
+      }
     });
   }
   if (!hasVisibleFragment && hasOwn(message, 'content')) {

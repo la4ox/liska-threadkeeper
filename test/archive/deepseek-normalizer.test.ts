@@ -108,6 +108,24 @@ function encodedRaw(mutator: (raw: DeepSeekRaw) => void): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(raw));
 }
 
+function liveFragmentFile(): Record<string, unknown> {
+  return {
+    audit_result: null,
+    error_code: null,
+    file_name: 'synthetic-live.txt',
+    file_size: 93,
+    from_share: false,
+    id: 'file-11111111-2222-4333-8444-555555555555',
+    inserted_at: '2026-09-19T06:00:00.000Z',
+    is_image: false,
+    model_kind: 'document',
+    signed_path: '/file?file_id=11111111-2222-4333-8444-555555555555&state=synthetic-live-state',
+    status: 'SUCCESS',
+    token_usage: 7,
+    updated_at: '2026-09-19T06:00:00.000Z',
+  };
+}
+
 async function expectCode(bytes: Uint8Array, code: string): Promise<void> {
   await expect(normalizeBytes(bytes)).rejects.toMatchObject<Partial<DeepSeekNormalizationError>>({
     code,
@@ -175,7 +193,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
       type: 'attachment',
       sourceRefs: [
         {
-          id: 'deepseek-file-alpha',
+          id: null,
           rawPointer: '/data/biz_data/chat_messages/0/files/0',
         },
       ],
@@ -184,7 +202,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
       type: 'attachment',
       sourceRefs: [
         {
-          id: 'deepseek-file-alpha',
+          id: null,
           rawPointer: '/data/biz_data/chat_messages/4/files/0',
         },
       ],
@@ -200,10 +218,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
       sha256: null,
       localArtifactRef: null,
       acquisition: { state: 'not-attempted', attemptedAt: null },
-      sourceRefs: [
-        expect.objectContaining({ id: 'deepseek-file-alpha' }),
-        expect.objectContaining({ id: 'deepseek-file-alpha' }),
-      ],
+      sourceRefs: [expect.objectContaining({ id: null }), expect.objectContaining({ id: null })],
       extensions: {
         deepseek: expect.objectContaining({
           inserted_at: '2026-09-18T05:00:00.000Z',
@@ -221,6 +236,61 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(
       JSON.stringify(Object.values(archive.assets).map(asset => asset.extensions.deepseek))
     ).not.toContain('deepseek-file-alpha');
+  });
+
+  it('maps current FILE fragment files into ordered attachment blocks without transport leakage', async () => {
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [
+        { files: [liveFragmentFile()], id: 'synthetic-fragment-id', type: 'FILE' },
+        ...message.fragments,
+      ];
+      delete message.files;
+    });
+    const bundle = await bundleFor(bytes);
+    const normalized = await normalizeDeepSeekCapture({
+      bundle,
+      artifactId: 'conversation',
+      manifestSha256: hash(new TextEncoder().encode(JSON.stringify(bundle.manifest, null, 2))),
+      sha256,
+    });
+    const blocks = normalized.archive.graph.nodes['root-question'].message?.blocks ?? [];
+    const serializedManifest = JSON.stringify(bundle.manifest);
+    const serializedCanonical = JSON.stringify(normalized.archive);
+
+    expect(blocks[0]).toMatchObject({
+      type: 'attachment',
+      sourceRefs: [
+        {
+          id: null,
+          rawPointer: '/data/biz_data/chat_messages/0/fragments/0/files/0',
+        },
+      ],
+    });
+    expect(blocks[1]).toMatchObject({ type: 'text', text: 'First question' });
+    expect(bundle.manifest.observedUnknownContentTypes).not.toContain('FILE');
+    expect(Object.values(normalized.archive.assets)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          filename: 'synthetic-live.txt',
+          byteLength: 93,
+          extensions: {
+            deepseek: expect.objectContaining({
+              audit_result: null,
+              from_share: false,
+              is_image: false,
+              model_kind: 'document',
+            }),
+          },
+        }),
+      ])
+    );
+    expect(new TextDecoder().decode(bytes)).toContain('synthetic-live-state');
+    for (const durable of [serializedManifest, serializedCanonical]) {
+      expect(durable).not.toContain('signed_path');
+      expect(durable).not.toContain('synthetic-live-state');
+      expect(durable).not.toContain('file-11111111-2222-4333-8444-555555555555');
+    }
   });
 
   it('degrades a malformed attachment ledger without fabricating asset blocks', async () => {
@@ -275,6 +345,33 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(serialized).not.toContain('nested-provider-id');
     expect(serialized).not.toContain('deep-provider-id');
     expect(serialized).not.toContain('synthetic-file-secret');
+  });
+
+  it('sanitizes relative signed paths and provider ids in a degraded FILE fragment', async () => {
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [
+        { files: [liveFragmentFile()], id: 'synthetic-fragment-id', type: 'FILE' },
+        ...message.fragments,
+      ];
+      delete message.files;
+      raw.data.biz_data.chat_messages[1].files = { malformed: true };
+    });
+    const { archive } = await normalizeBytes(bytes);
+    const serialized = JSON.stringify(archive);
+    const fileBlock = archive.graph.nodes['root-question'].message?.blocks.find(
+      block => block.type === 'unknown' && block.providerType === 'FILE'
+    );
+
+    expect(fileBlock).toMatchObject({ type: 'unknown', providerType: 'FILE' });
+    expect(serialized).not.toContain('signed_path');
+    expect(serialized).not.toContain('synthetic-live-state');
+    expect(serialized).not.toContain('file-11111111-2222-4333-8444-555555555555');
+    expect(archive.diagnostics.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'privacy-redacted-sensitive-extension-field' }),
+      ])
+    );
   });
 
   it('does not retain ignored synthetic file transport fields in a successful ledger', async () => {
@@ -481,6 +578,16 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(redactSensitiveText('Use http://[invalid', tracker, '/url')).toBe(
       'Use [redacted-sensitive-url]'
     );
+    expect(
+      sanitizeJson(
+        {
+          signed_path:
+            '/file?file_id=11111111-2222-4333-8444-555555555555&state=synthetic-relative-state',
+        },
+        tracker,
+        '/relative-file'
+      )
+    ).not.toHaveProperty('signed_path');
     expect(tracker.redactions).toEqual(
       expect.arrayContaining([expect.objectContaining({ pointer: '/url' })])
     );

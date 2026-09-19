@@ -73,6 +73,7 @@ export class DeepSeekExtractor extends BaseExtractor {
               success: true,
               data: apiConversation.data,
               archiveCompanion: apiConversation.archiveCompanion,
+              deepSeekAssetExportContext: apiConversation.assetExportContext,
               warnings: apiConversation.warnings.length > 0 ? apiConversation.warnings : undefined,
             };
           }

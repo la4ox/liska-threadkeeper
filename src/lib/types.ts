@@ -261,6 +261,16 @@ export interface ChatGptAssetExportContext {
 }
 
 /**
+ * Runtime-only DeepSeek evidence retained for an optional attachment pass.
+ * Signed paths and provider file IDs remain solely inside the exact raw bytes;
+ * this context is never serialized into Markdown or an archive companion.
+ */
+export interface DeepSeekAssetExportContext {
+  rawCaptureBundle: RawCaptureBundle;
+  rawArtifact: ArchiveCompanionArtifact;
+}
+
+/**
  * Provider-neutral description of one verified binary archive asset.
  *
  * `assetId` is an opaque runtime correlation key only. The persisted name is
@@ -778,6 +788,8 @@ export interface ExtractionResult {
   archiveCompanion?: ArchiveCompanionBundle;
   /** Runtime-only source evidence for optional destination-honest ChatGPT attachment export. */
   chatGptAssetExportContext?: ChatGptAssetExportContext;
+  /** Runtime-only source evidence for optional destination-honest DeepSeek attachment export. */
+  deepSeekAssetExportContext?: DeepSeekAssetExportContext;
   /** Complete graph retained for sequential per-leaf presentation writes. */
   allBranches?: AllBranchesPresentationPlan;
 }

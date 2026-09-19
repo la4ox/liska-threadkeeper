@@ -7,7 +7,7 @@ const MAX_ENTRIES = 512;
 const MAX_STRING_LENGTH = 32_768;
 const UNSAFE_IDS = new Set(['__proto__', 'constructor', 'prototype']);
 const SENSITIVE_FIELD =
-  /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|api[_-]?key|x[_-]?api[_-]?key|secret|client[_-]?secret|private[_-]?key|password|signature|credential|credentials)$/i;
+  /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|api[_-]?key|x[_-]?api[_-]?key|secret|client[_-]?secret|private[_-]?key|password|signature|signed[_-]?path|credential|credentials)$/i;
 const SENSITIVE_QUERY =
   /^(?:token|access[_-]?token|session[_-]?token|api[_-]?key|auth|authorization|jwt|credential|signature|sig|x-amz-.+|x-goog-.+)$/i;
 const URL_CANDIDATE = /https?:\/\/[^\s<>"']+/gi;
@@ -150,7 +150,7 @@ function cloneJson(
     state.entries += 1;
     if (isSensitiveField(key)) {
       state.redacted = true;
-      recordRedaction(tracker, pointerAt(pointer, key));
+      recordRedaction(tracker, isSignedPathField(key) ? pointer : pointerAt(pointer, key));
       continue;
     }
     if (UNSAFE_IDS.has(key)) {
@@ -177,9 +177,14 @@ function isSensitiveField(key: string): boolean {
     compact.endsWith('secret') ||
     compact.endsWith('password') ||
     compact.endsWith('signature') ||
+    compact.endsWith('signedpath') ||
     compact.endsWith('url') ||
     compact.endsWith('uri')
   );
+}
+
+function isSignedPathField(key: string): boolean {
+  return key.replace(/[-_]/g, '').toLowerCase().endsWith('signedpath');
 }
 
 function sanitizeString(
