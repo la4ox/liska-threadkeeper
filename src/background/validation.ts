@@ -51,6 +51,7 @@ import {
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 import { platformOrigins } from '../lib/platform-registry';
+import { validateSettingsUpdate } from './settings-validation';
 
 const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
 
@@ -687,6 +688,13 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
 
   if (extensionMessage.action === 'saveToOutputs') {
     return validateSaveToOutputsMessage(extensionMessage);
+  }
+
+  if (extensionMessage.action === 'saveSettings') {
+    return (
+      hasExactOwnKeys(extensionMessage, ['action', 'settings']) &&
+      validateSettingsUpdate(extensionMessage.settings)
+    );
   }
 
   if (extensionMessage.action === 'persistArchiveCompanion') {

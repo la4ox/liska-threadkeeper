@@ -132,18 +132,18 @@ describe('storage', () => {
       expect(settings.templateOptions.messageFormat).toBe('callout');
     });
 
-    it('falls back to the legacy sync API key before migration completes (L-2)', async () => {
-      // Simulate the race: migration has not yet moved the key to local storage.
+    it('does not use the legacy sync API key before migration completes', async () => {
+      // The legacy sync value is migration input only, never a runtime credential.
       vi.mocked(chrome.storage.local.get).mockResolvedValue({ secureSettings: undefined });
       vi.mocked(chrome.storage.sync.get).mockResolvedValue({
         settings: { obsidianApiKey: 'legacy-sync-key' },
       });
 
       const settings = await getSettings();
-      expect(settings.obsidianApiKey).toBe('legacy-sync-key');
+      expect(settings.obsidianApiKey).toBe('');
     });
 
-    it('prefers the migrated local API key over any legacy sync value (L-2)', async () => {
+    it('uses the local API key even when sync contains a different legacy value', async () => {
       vi.mocked(chrome.storage.local.get).mockResolvedValue({
         secureSettings: { obsidianApiKey: 'local-key' },
       });
@@ -243,6 +243,98 @@ describe('storage', () => {
       expect(chrome.storage.sync.set).not.toHaveBeenCalled();
     });
 
+    it('removes a legacy sync key after explicitly saving an empty local key', async () => {
+      let localWriteCompleted = false;
+      let savedKey: string | undefined;
+      vi.mocked(chrome.storage.local.set).mockImplementation(items => {
+        localWriteCompleted = true;
+        savedKey = (items.secureSettings as { obsidianApiKey: string }).obsidianApiKey;
+        return Promise.resolve();
+      });
+      vi.mocked(chrome.storage.local.get).mockImplementation(() =>
+        Promise.resolve({ secureSettings: { obsidianApiKey: savedKey } })
+      );
+      vi.mocked(chrome.storage.sync.get).mockImplementation(() => {
+        expect(localWriteCompleted).toBe(true);
+        return Promise.resolve({
+          settings: { obsidianApiKey: 'legacy-key', vaultPath: 'Existing/Path' },
+        });
+      });
+
+      await saveSettings({ obsidianApiKey: '' });
+
+      expect(chrome.storage.local.set).toHaveBeenCalledWith({
+        secureSettings: { obsidianApiKey: '' },
+      });
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: { vaultPath: 'Existing/Path' },
+      });
+    });
+
+    it('reads the freshest sync state only after checking local legacy-key authority', async () => {
+      let syncSettings: Record<string, unknown> = {
+        obsidianApiKey: 'legacy-key',
+        vaultPath: 'AI/Before',
+      };
+      vi.mocked(chrome.storage.local.get).mockImplementation(() => {
+        syncSettings = {
+          obsidianApiKey: 'legacy-key',
+          vaultPath: 'AI/After',
+          enableImageExport: false,
+        };
+        return Promise.resolve({ secureSettings: { obsidianApiKey: '' } });
+      });
+      vi.mocked(chrome.storage.sync.get).mockImplementation(() =>
+        Promise.resolve({ settings: { ...syncSettings } })
+      );
+
+      await saveSettings({ imageVaultPath: 'AI/{platform}/assets' });
+
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: {
+          vaultPath: 'AI/After',
+          enableImageExport: false,
+          imageVaultPath: 'AI/{platform}/assets',
+        },
+      });
+    });
+
+    it('preserves a legacy sync key during a non-secret save when local storage is unavailable', async () => {
+      vi.mocked(chrome.storage.sync.get).mockResolvedValue({
+        settings: { obsidianApiKey: 'legacy-key', obsidianUrl: 'http://127.0.0.1:27123' },
+      });
+      vi.mocked(chrome.storage.local.get).mockRejectedValue(new Error('local unavailable'));
+
+      await saveSettings({ vaultPath: 'Updated/Path' });
+
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: {
+          obsidianApiKey: 'legacy-key',
+          obsidianUrl: 'http://127.0.0.1:27123',
+          vaultPath: 'Updated/Path',
+        },
+      });
+    });
+
+    it('removes a legacy sync key during a non-secret save only after finding it locally', async () => {
+      vi.mocked(chrome.storage.sync.get).mockResolvedValue({
+        settings: { obsidianApiKey: 'legacy-key', obsidianUrl: 'http://127.0.0.1:27123' },
+      });
+      vi.mocked(chrome.storage.local.get).mockResolvedValue({
+        secureSettings: { obsidianApiKey: 'local-key' },
+      });
+
+      await saveSettings({ vaultPath: 'Updated/Path' });
+
+      expect(chrome.storage.local.get).toHaveBeenCalledWith('secureSettings');
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: {
+          obsidianUrl: 'http://127.0.0.1:27123',
+          vaultPath: 'Updated/Path',
+        },
+      });
+    });
+
     it('throws error on save failure', async () => {
       vi.mocked(chrome.storage.local.set).mockRejectedValue(new Error('Save failed'));
 
@@ -279,37 +371,110 @@ describe('storage', () => {
   });
 
   describe('migrateSettings', () => {
-    it('migrates API key from sync to local storage', async () => {
-      vi.mocked(chrome.storage.sync.get).mockResolvedValue({
-        settings: { obsidianApiKey: 'old-key', obsidianUrl: 'http://127.0.0.1:27123' },
-      });
-      vi.mocked(chrome.storage.local.get).mockResolvedValue({
-        secureSettings: { obsidianApiKey: 'old-key' },
-      });
+    it('writes the legacy key locally, verifies it, and then removes only the sync copy', async () => {
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.mocked(chrome.storage.sync.get)
+        .mockResolvedValueOnce({
+          settings: { obsidianApiKey: 'old-key', obsidianUrl: 'http://127.0.0.1:27123' },
+        })
+        .mockResolvedValueOnce({
+          settings: { obsidianApiKey: 'old-key', obsidianUrl: 'http://127.0.0.1:27123' },
+        });
+      vi.mocked(chrome.storage.local.get)
+        .mockResolvedValueOnce({ secureSettings: undefined })
+        .mockResolvedValueOnce({ secureSettings: { obsidianApiKey: 'old-key' } });
 
       await migrateSettings();
 
       expect(chrome.storage.local.set).toHaveBeenCalledWith({
         secureSettings: { obsidianApiKey: 'old-key' },
       });
+      expect(chrome.storage.local.get).toHaveBeenCalledTimes(2);
+      expect(chrome.storage.sync.get).toHaveBeenCalledTimes(2);
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: { obsidianUrl: 'http://127.0.0.1:27123' },
+      });
+      expect(infoSpy).toHaveBeenCalledWith('[G2O] Secure settings migration completed');
+      expect(infoSpy.mock.calls[0]).toHaveLength(1);
+      infoSpy.mockRestore();
     });
 
-    it('removes API key from sync after successful migration', async () => {
-      vi.mocked(chrome.storage.sync.get).mockResolvedValue({
-        settings: { obsidianApiKey: 'old-key', obsidianUrl: 'http://127.0.0.1:27123' },
-      });
+    it('keeps the local key authoritative when sync contains a different legacy value', async () => {
+      vi.mocked(chrome.storage.sync.get)
+        .mockResolvedValueOnce({ settings: { obsidianApiKey: 'legacy-key', vaultPath: 'AI/Old' } })
+        .mockResolvedValueOnce({ settings: { obsidianApiKey: 'legacy-key', vaultPath: 'AI/Old' } });
+      vi.mocked(chrome.storage.local.get)
+        .mockResolvedValueOnce({ secureSettings: { obsidianApiKey: 'local-key' } })
+        .mockResolvedValueOnce({ secureSettings: { obsidianApiKey: 'local-key' } });
+
+      await migrateSettings();
+
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({ settings: { vaultPath: 'AI/Old' } });
+    });
+
+    it('treats a present empty local key as authoritative and never resurrects sync legacy data', async () => {
+      vi.mocked(chrome.storage.sync.get)
+        .mockResolvedValueOnce({ settings: { obsidianApiKey: 'legacy-key', vaultPath: 'AI/Old' } })
+        .mockResolvedValueOnce({ settings: { obsidianApiKey: 'legacy-key', vaultPath: 'AI/Old' } });
       vi.mocked(chrome.storage.local.get).mockResolvedValue({
-        secureSettings: { obsidianApiKey: 'old-key' },
+        secureSettings: { obsidianApiKey: '' },
       });
 
       await migrateSettings();
 
-      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
-        settings: { obsidianUrl: 'http://127.0.0.1:27123' },
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({ settings: { vaultPath: 'AI/Old' } });
+    });
+
+    it('serializes a queued save behind migration so the new popup key wins', async () => {
+      let releaseInitialLocalRead: (() => void) | undefined;
+      let initialReadReleased = false;
+      let localKey: string | undefined;
+      let syncSettings: Record<string, unknown> = { obsidianApiKey: 'legacy-key' };
+      vi.mocked(chrome.storage.local.get).mockImplementation(async () => {
+        if (!initialReadReleased) {
+          await new Promise<void>(resolve => {
+            releaseInitialLocalRead = () => {
+              initialReadReleased = true;
+              resolve();
+            };
+          });
+        }
+        return {
+          secureSettings: localKey === undefined ? undefined : { obsidianApiKey: localKey },
+        };
+      });
+      vi.mocked(chrome.storage.local.set).mockImplementation(items => {
+        localKey = (items.secureSettings as { obsidianApiKey: string }).obsidianApiKey;
+        return Promise.resolve();
+      });
+      vi.mocked(chrome.storage.sync.get).mockImplementation(() =>
+        Promise.resolve({ settings: { ...syncSettings } })
+      );
+      vi.mocked(chrome.storage.sync.set).mockImplementation(items => {
+        syncSettings = items.settings as Record<string, unknown>;
+        return Promise.resolve();
+      });
+
+      const migration = migrateSettings();
+      const save = saveSettings({ obsidianApiKey: 'new-popup-key' });
+      await vi.waitFor(() => expect(releaseInitialLocalRead).toBeTypeOf('function'));
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      releaseInitialLocalRead?.();
+      await Promise.all([migration, save]);
+
+      expect(localKey).toBe('new-popup-key');
+      expect(syncSettings).not.toHaveProperty('obsidianApiKey');
+      expect(chrome.storage.local.set).toHaveBeenNthCalledWith(1, {
+        secureSettings: { obsidianApiKey: 'legacy-key' },
+      });
+      expect(chrome.storage.local.set).toHaveBeenNthCalledWith(2, {
+        secureSettings: { obsidianApiKey: 'new-popup-key' },
       });
     });
 
-    it('does nothing if no API key in sync storage', async () => {
+    it('does nothing if no API key exists in sync storage', async () => {
       vi.mocked(chrome.storage.sync.get).mockResolvedValue({
         settings: { obsidianUrl: 'http://127.0.0.1:27123' },
       });
@@ -317,31 +482,158 @@ describe('storage', () => {
       await migrateSettings();
 
       expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
     });
 
-    it('does not throw on migration failure', async () => {
+    it('keeps the sync copy and emits a fixed warning when the local write fails', async () => {
+      const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       vi.mocked(chrome.storage.sync.get).mockResolvedValue({
-        settings: { obsidianApiKey: 'old-key' },
+        settings: { obsidianApiKey: 'legacy-key' },
       });
-      vi.mocked(chrome.storage.local.set).mockRejectedValue(new Error('Write failed'));
+      vi.mocked(chrome.storage.local.set).mockRejectedValue(
+        new Error('local write rejected for legacy-key')
+      );
 
-      // Should not throw
       await expect(migrateSettings()).resolves.toBeUndefined();
+
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+      expect(warningSpy).toHaveBeenCalledWith('[G2O] Secure settings migration deferred');
+      expect(warningSpy.mock.calls[0]).toHaveLength(1);
+      warningSpy.mockRestore();
     });
 
-    it('does not remove from sync if verification fails', async () => {
+    it('keeps the sync copy when local readback does not match the verified target', async () => {
+      const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       vi.mocked(chrome.storage.sync.get).mockResolvedValue({
         settings: { obsidianApiKey: 'old-key' },
       });
-      vi.mocked(chrome.storage.local.set).mockResolvedValue(undefined);
-      vi.mocked(chrome.storage.local.get).mockResolvedValue({
-        secureSettings: { obsidianApiKey: 'different-key' },
+      vi.mocked(chrome.storage.local.get)
+        .mockResolvedValueOnce({ secureSettings: undefined })
+        .mockResolvedValueOnce({ secureSettings: { obsidianApiKey: 'different-key' } });
+
+      await migrateSettings();
+
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+      expect(warningSpy).toHaveBeenCalledWith('[G2O] Secure settings migration deferred');
+      expect(warningSpy.mock.calls[0]).toHaveLength(1);
+      warningSpy.mockRestore();
+    });
+
+    it('retries successfully after a local write failure', async () => {
+      const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      let localKey: string | undefined;
+      let localWriteFails = true;
+      let syncSettings: Record<string, unknown> = { obsidianApiKey: 'legacy-key' };
+      vi.mocked(chrome.storage.local.get).mockImplementation(() =>
+        Promise.resolve({
+          secureSettings: localKey === undefined ? undefined : { obsidianApiKey: localKey },
+        })
+      );
+      vi.mocked(chrome.storage.local.set).mockImplementation(items => {
+        if (localWriteFails) {
+          localWriteFails = false;
+          return Promise.reject(new Error('first write failed'));
+        }
+        localKey = (items.secureSettings as { obsidianApiKey: string }).obsidianApiKey;
+        return Promise.resolve();
+      });
+      vi.mocked(chrome.storage.sync.get).mockImplementation(() =>
+        Promise.resolve({ settings: { ...syncSettings } })
+      );
+      vi.mocked(chrome.storage.sync.set).mockImplementation(items => {
+        syncSettings = items.settings as Record<string, unknown>;
+        return Promise.resolve();
+      });
+
+      await migrateSettings();
+      expect(syncSettings).toHaveProperty('obsidianApiKey', 'legacy-key');
+
+      await migrateSettings();
+
+      expect(localKey).toBe('legacy-key');
+      expect(syncSettings).not.toHaveProperty('obsidianApiKey');
+      expect(chrome.storage.local.set).toHaveBeenCalledTimes(2);
+      expect(warningSpy).toHaveBeenCalledWith('[G2O] Secure settings migration deferred');
+      warningSpy.mockRestore();
+    });
+
+    it('retries sync cleanup after a cleanup failure without rewriting the local key', async () => {
+      const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      let localKey: string | undefined;
+      let cleanupFails = true;
+      let syncSettings: Record<string, unknown> = {
+        obsidianApiKey: 'legacy-key',
+        vaultPath: 'AI/Existing',
+      };
+      vi.mocked(chrome.storage.local.get).mockImplementation(() =>
+        Promise.resolve({
+          secureSettings: localKey === undefined ? undefined : { obsidianApiKey: localKey },
+        })
+      );
+      vi.mocked(chrome.storage.local.set).mockImplementation(items => {
+        localKey = (items.secureSettings as { obsidianApiKey: string }).obsidianApiKey;
+        return Promise.resolve();
+      });
+      vi.mocked(chrome.storage.sync.get).mockImplementation(() =>
+        Promise.resolve({ settings: { ...syncSettings } })
+      );
+      vi.mocked(chrome.storage.sync.set).mockImplementation(items => {
+        if (cleanupFails) {
+          cleanupFails = false;
+          return Promise.reject(new Error('cleanup failed'));
+        }
+        syncSettings = items.settings as Record<string, unknown>;
+        return Promise.resolve();
+      });
+
+      await migrateSettings();
+      expect(syncSettings).toHaveProperty('obsidianApiKey', 'legacy-key');
+
+      await migrateSettings();
+
+      expect(chrome.storage.local.set).toHaveBeenCalledTimes(1);
+      expect(syncSettings).toEqual({ vaultPath: 'AI/Existing' });
+      expect(chrome.storage.sync.set).toHaveBeenCalledTimes(2);
+      expect(warningSpy).toHaveBeenCalledWith('[G2O] Secure settings migration deferred');
+      warningSpy.mockRestore();
+    });
+
+    it('preserves fresh concurrent sync settings when removing the legacy key', async () => {
+      vi.mocked(chrome.storage.sync.get)
+        .mockResolvedValueOnce({
+          settings: { obsidianApiKey: 'legacy-key', vaultPath: 'AI/Before' },
+        })
+        .mockResolvedValueOnce({
+          settings: {
+            obsidianApiKey: 'legacy-key',
+            vaultPath: 'AI/After',
+            enableImageExport: false,
+          },
+        });
+      vi.mocked(chrome.storage.local.get)
+        .mockResolvedValueOnce({ secureSettings: undefined })
+        .mockResolvedValueOnce({ secureSettings: { obsidianApiKey: 'legacy-key' } });
+
+      await migrateSettings();
+
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: { vaultPath: 'AI/After', enableImageExport: false },
+      });
+    });
+
+    it('defers malformed legacy values without overwriting local or sync storage', async () => {
+      const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.mocked(chrome.storage.sync.get).mockResolvedValue({
+        settings: { obsidianApiKey: { malformed: true }, vaultPath: 'AI/Existing' },
       });
 
       await migrateSettings();
 
-      // Should not remove from sync if verification fails
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
       expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+      expect(warningSpy).toHaveBeenCalledWith('[G2O] Secure settings migration deferred');
+      expect(warningSpy.mock.calls[0]).toHaveLength(1);
+      warningSpy.mockRestore();
     });
   });
 });

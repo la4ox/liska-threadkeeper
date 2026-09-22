@@ -37,8 +37,8 @@
 - Legacy Markdown warnings now distinguish retained attachment references/metadata from binary files. They no longer imply that omitted attachment bytes were saved merely because canonical JSON succeeded.
 - Obsidian archive companions are transported to Local REST API as `application/octet-stream` while retaining `.json` filenames and manifest media types. This avoids the plugin's `application/json` parser/re-serializer and preserves exact bytes for binary readback. Obsidian-only and immediate File+Obsidian live smokes produced Markdown plus raw/manifest/canonical companions; each raw matched its manifest byte length and SHA-256, and all three archive files were byte-identical across Downloads and Obsidian. Fixed allowlisted stage codes report preflight/PUT/readback failures without exposing paths, identifiers, API responses, or exception text.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
-- The maintained suite passes 140 test files / 2,737 tests with 95.01% statement, 89.96% branch, 98.09% function, and 97.76% line coverage. It includes the earlier ChatGPT graph/branch/archive/attachment/staging coverage plus the DeepSeek exact-byte normalizer, provider-bound persistence, metadata-only attachment inventory, conflict degradation, and provider-ID privacy cases.
-- ChatGPT PR [#7](https://github.com/la4ox/liska-threadkeeper/pull/7) is merged at `588d390`. DeepSeek canonical work is published separately in draft PR [#8](https://github.com/la4ox/liska-threadkeeper/pull/8); its first commit passed Ubuntu CI, and the metadata-ledger follow-up remains local until this checkpoint is committed and pushed. Release/tag creation remains explicit.
+- The DeepSeek archive and synthetic attachment canary are verified in draft PR [#8](https://github.com/la4ox/liska-threadkeeper/pull/8). The Obsidian API-key migration is fail-closed and serialized in the service worker in draft PR [#9](https://github.com/la4ox/liska-threadkeeper/pull/9): runtime reads never fall back to the legacy sync secret, and popup saves use a validated worker route. Their local integration preserves both sender gates; combined validation and live File+Obsidian smoke are pending.
+- ChatGPT checkpoint PR [#7](https://github.com/la4ox/liska-threadkeeper/pull/7) is merged at `588d390`. PR #8 and PR #9 are separate draft review surfaces; neither is merged or released. Release and merge decisions remain explicit.
 
 ## Important limits and risks
 
@@ -73,7 +73,7 @@
 - Structured graph transport now has an explicit `inline | staged` boundary. ChatGPT responses up to 16 MiB keep the live-verified inline route; larger ChatGPT raw responses up to 64 MiB and DeepSeek raw responses above 16 MiB use independently canonical 512 KiB chunks. Background creates a random 192-bit `archive-stage-*` capability in the separate `liska-archive-stages` OPFS namespace, accepts only sequential offsets (or an exact byte-identical acknowledged retry), and seals only after final length/SHA-256 verification. Content reassembles and rehashes raw solely for the existing non-streaming normalizer. Raw remains staged until its selected durable outputs finish; canonical JSON above the 32 MiB inline limit uses the same staged route, while manifest remains inline and never records the stage ID. File/Obsidian paths remain append-only; Obsidian retains binary readback/hash verification. File ownership survives MV3 suspension in a bounded local registry containing only download ID, random stage ID, extension Blob URL, and timestamp. Null callback IDs are never guessed and quarantine exact cleanup for at most 24 hours. Archive-stage messages require the exact top-frame conversation document for their declared ChatGPT or DeepSeek source, while offscreen accepts only the same-extension worker without tab/document metadata. Fresh independent review found no residual P0-P2 issue after source binding, cleanup propagation, and privacy hardening.
 - Synthetic staged-graph evidence covers the exact 16 MiB boundary, a complete 20 MiB raw capture, canonical JSON above 32 MiB, UTF-8 split boundaries, duplicate/gap/overlap/conflict handling, OPEN/SEALED retries, exact sender/offscreen gates, cancellation, File/Obsidian release, and fresh-worker terminal recovery without a whole-payload runtime message. A real-provider response above 16 MiB remains unverified. Explicit opaque replay deliberately remains on its existing 16 MiB inline cap rather than becoming an oversized fallback.
 - The staged path is now live-verified in Comet after correcting an offscreen-only API mismatch. A zero-byte diagnostic returned `offscreen-worker-entry-unavailable`: Chromium does not expose `runtime.getManifest` to offscreen pages. The exact worker URL is now read once from the installed package's own manifest with a three-second, no-credentials/no-redirect fetch; content tabs and extension documents remain rejected, and no storage operation begins before sender verification. Live zero-byte begin/abort passes. A 16,777,264-byte synthetic stage crossed 33 bounded chunks in 3.792 seconds with an exact SHA-256 readback and acknowledged abort. Two 131-byte synthetic JSON File outputs matched filesystem length/hash; the refined control also proved readable bytes before commit and an unavailable stage after output. No chat data entered those synthetic probes. New live offscreen entrypoint: `offscreen-DFZtwxPD.js`; worker entrypoint: `service-worker.ts-DkgHGaUn.js`.
-- Three scan-derived hardening items remain outside this checkpoint: fail-closed cleanup of a legacy Obsidian key retained in `chrome.storage.sync` after migration failure; shared structural work budgets for recursive ChatGPT/DeepSeek normalization; and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
+- Two scan-derived hardening items remain outside this checkpoint: shared structural work budgets for recursive ChatGPT/DeepSeek normalization, and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
 - One earlier settings run attempted an Obsidian archive write after the user had visually disabled that output without a confirmed persisted update. Destination toggles now send an acknowledged popup-only background update, apply an in-memory override before `chrome.storage.sync` completes, and serialize rapid changes. Live Obsidian-only followed immediately by File+Obsidian smokes confirmed the toggle/readback path.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
@@ -113,22 +113,23 @@
 
 ## Next step
 
-The ChatGPT checkpoint was merged to `main` as merge commit `588d390`. Current
-work continues on `codex/deepseek-canonical-core` as an independent bounded
-provider migration.
+The ChatGPT checkpoint is merged at `588d390`. The local
+`codex/deepseek-obsidian-integration` branch combines draft PR #8 (DeepSeek
+archives and verified attachments) with draft PR #9 (Obsidian key migration)
+without changing the installed Comet build or either remote draft.
 
-Fresh local validation on 2026-09-19:
+Fresh local validation on 2026-09-22:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 144 test files / 2,803 tests pass with two workers;
-- coverage passes at 95.01% statements, 89.97% branches, 98.15% functions,
+- 145 test files / 2,858 tests pass with two workers;
+- coverage passes at 95.03% statements, 90.05% branches, 98.17% functions,
   and 97.76% lines;
 - typecheck and the production build pass;
 - lint passes with only three pre-existing advisory warnings, and repository
   formatting passes;
-- fresh independent reviews found no residual P0-P2 issue in either the
-  canonical migration or metadata-ledger slice;
-- the post-reload synthetic passive File canary is complete. After one
+- a fresh independent integration review found and then rechecked a fixed
+  destination-override race; no residual P0-P2 issue was found;
+- the prior PR #8 post-reload synthetic passive File canary is complete. After one
   page-native preview, Liska made its own credential-free exact file-service
   GET and received `200 application/octet-stream`. The new capture preserved a
   1,743-byte raw response, 1,480-byte manifest, 8,713-byte canonical archive,
@@ -143,10 +144,13 @@ Fresh local validation on 2026-09-19:
   frontmatter facts recorded above. Conversation text was not reviewed during
   filesystem verification.
 
-The passive timing fallback is live-verified for File output. Obsidian was not
-re-run in this checkpoint because the app/server was inactive; it uses the same
-already live-verified provider-neutral staged binary persistence boundary. The
-fallback can act only after the page has already previewed the current raw
-attachment; automatic card activation, active observers, `fetch_files`, retries,
-guessed URLs, and blanket `unavailable` claims remain unsupported. Keep PR #8
-in draft; release/tag creation remains an explicit maintainer action.
+The passive timing fallback is live-verified for File output only. On
+2026-09-22 the local Obsidian REST endpoint answered HTTP 200, but an
+authenticated File+Obsidian canary for this DeepSeek asset and the combined
+build is still pending. Next: after the user saves Obsidian and File outputs in
+the popup, perform one synthetic append-only capture and verify each
+destination's raw/manifest/canonical/binary hashes without reading private
+chat contents. The fallback requires a page-native preview first; automatic
+card activation, active observers, `fetch_files`, retries, and guessed URLs
+remain unsupported. Keep PR #8 and PR #9 draft until an explicit integration
+and merge decision; no release/tag is automatic.
