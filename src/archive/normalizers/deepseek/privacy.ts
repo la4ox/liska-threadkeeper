@@ -10,8 +10,7 @@ const SENSITIVE_FIELD =
   /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|api[_-]?key|x[_-]?api[_-]?key|secret|client[_-]?secret|private[_-]?key|password|signature|signed[_-]?path|credential|credentials)$/i;
 const SENSITIVE_QUERY =
   /^(?:token|access[_-]?token|session[_-]?token|api[_-]?key|auth|authorization|jwt|credential|signature|sig|x-amz-.+|x-goog-.+)$/i;
-const URL_CANDIDATE = /https?:\/\/[^\s<>"']+/gi;
-const DEEPSEEK_SIGNED_PATH_CANDIDATE = /(?<![A-Za-z0-9/:])\/file\?[^\s<>"']+/gi;
+const SENSITIVE_TEXT_CANDIDATE = /(?:https?:)?\/\/[^\s<>"']+|(?:^|[\s(\[{"'])\/file\?[^\s<>"']+/gi;
 const DEEPSEEK_FILE_SERVICE_ORIGIN = 'https://files.deepseeksvc.com';
 const CREDENTIAL_TEXT =
   /\bauthorization\s*:\s*(?:bearer\s+)?[A-Za-z0-9._~+/=-]+|\bcookie\s*:\s*[^\s,;}]+|\bbearer\s+[A-Za-z0-9._~+/=-]+/gi;
@@ -215,18 +214,32 @@ export function redactSensitiveText(
     recordRedaction(tracker, pointer);
     return '[redacted-credential]';
   });
-  const withoutSensitiveUrls = withoutCredentials.replace(URL_CANDIDATE, candidate => {
-    if (!isSensitiveUrl(candidate)) return candidate;
+  return withoutCredentials.replace(SENSITIVE_TEXT_CANDIDATE, candidate => {
+    const { prefix, token } = splitSensitiveTextCandidate(candidate);
+    if (!isSensitiveTextCandidate(token)) return candidate;
     onRedaction?.();
     recordRedaction(tracker, pointer);
-    return '[redacted-sensitive-url]';
+    return `${prefix}[redacted-sensitive-url]`;
   });
-  return withoutSensitiveUrls.replace(DEEPSEEK_SIGNED_PATH_CANDIDATE, candidate => {
-    if (!isSensitiveDeepSeekSignedPath(candidate)) return candidate;
-    onRedaction?.();
-    recordRedaction(tracker, pointer);
-    return '[redacted-sensitive-url]';
-  });
+}
+
+function splitSensitiveTextCandidate(value: string): { prefix: string; token: string } {
+  if (/^(?:https?:)?\/\//i.test(value) || value.startsWith('/file?')) {
+    return { prefix: '', token: value };
+  }
+  const signedPathOffset = value.indexOf('/file?');
+  if (signedPathOffset < 0) return { prefix: '', token: value };
+  return {
+    prefix: value.slice(0, signedPathOffset),
+    token: value.slice(signedPathOffset),
+  };
+}
+
+function isSensitiveTextCandidate(value: string): boolean {
+  if (/^(?:https?:)?\/\//i.test(value)) {
+    return isSensitiveUrl(value.startsWith('//') ? `https:${value}` : value);
+  }
+  return isSensitiveDeepSeekSignedPath(value);
 }
 
 function isSensitiveUrl(value: string): boolean {
