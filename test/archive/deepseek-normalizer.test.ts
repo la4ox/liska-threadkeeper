@@ -529,7 +529,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     const state = 'synthetic-typed-transport-state';
     const bytes = encodedRaw(raw => {
       raw.data.biz_data.chat_session.title =
-        'Safe reference https://example.invalid/page?state=public';
+        'Safe reference https://example.invalid/file?state=public';
       raw.data.biz_data.chat_messages[4].fragments = [
         {
           type: 'RESPONSE',
@@ -546,7 +546,7 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     const { archive } = await normalizeBytes(bytes);
     const serialized = JSON.stringify(archive);
 
-    expect(archive.conversation.title).toContain('https://example.invalid/page?state=public');
+    expect(archive.conversation.title).toContain('https://example.invalid/file?state=public');
     expect(serialized).toContain('[redacted-sensitive-url]');
     expect(serialized).not.toContain(fileId);
     expect(serialized).not.toContain(state);

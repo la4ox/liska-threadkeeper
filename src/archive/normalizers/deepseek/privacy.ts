@@ -11,7 +11,7 @@ const SENSITIVE_FIELD =
 const SENSITIVE_QUERY =
   /^(?:token|access[_-]?token|session[_-]?token|api[_-]?key|auth|authorization|jwt|credential|signature|sig|x-amz-.+|x-goog-.+)$/i;
 const URL_CANDIDATE = /https?:\/\/[^\s<>"']+/gi;
-const DEEPSEEK_SIGNED_PATH_CANDIDATE = /\/file\?[^\s<>"']+/gi;
+const DEEPSEEK_SIGNED_PATH_CANDIDATE = /(?<![A-Za-z0-9/:])\/file\?[^\s<>"']+/gi;
 const DEEPSEEK_FILE_SERVICE_ORIGIN = 'https://files.deepseeksvc.com';
 const CREDENTIAL_TEXT =
   /\bauthorization\s*:\s*(?:bearer\s+)?[A-Za-z0-9._~+/=-]+|\bcookie\s*:\s*[^\s,;}]+|\bbearer\s+[A-Za-z0-9._~+/=-]+/gi;
