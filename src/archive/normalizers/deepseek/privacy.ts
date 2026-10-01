@@ -11,6 +11,8 @@ const SENSITIVE_FIELD =
 const SENSITIVE_QUERY =
   /^(?:token|access[_-]?token|session[_-]?token|api[_-]?key|auth|authorization|jwt|credential|signature|sig|x-amz-.+|x-goog-.+)$/i;
 const URL_CANDIDATE = /https?:\/\/[^\s<>"']+/gi;
+const DEEPSEEK_SIGNED_PATH_CANDIDATE = /\/file\?[^\s<>"']+/gi;
+const DEEPSEEK_FILE_SERVICE_ORIGIN = 'https://files.deepseeksvc.com';
 const CREDENTIAL_TEXT =
   /\bauthorization\s*:\s*(?:bearer\s+)?[A-Za-z0-9._~+/=-]+|\bcookie\s*:\s*[^\s,;}]+|\bbearer\s+[A-Za-z0-9._~+/=-]+/gi;
 
@@ -213,8 +215,14 @@ export function redactSensitiveText(
     recordRedaction(tracker, pointer);
     return '[redacted-credential]';
   });
-  return withoutCredentials.replace(URL_CANDIDATE, candidate => {
+  const withoutSensitiveUrls = withoutCredentials.replace(URL_CANDIDATE, candidate => {
     if (!isSensitiveUrl(candidate)) return candidate;
+    onRedaction?.();
+    recordRedaction(tracker, pointer);
+    return '[redacted-sensitive-url]';
+  });
+  return withoutSensitiveUrls.replace(DEEPSEEK_SIGNED_PATH_CANDIDATE, candidate => {
+    if (!isSensitiveDeepSeekSignedPath(candidate)) return candidate;
     onRedaction?.();
     recordRedaction(tracker, pointer);
     return '[redacted-sensitive-url]';
@@ -226,7 +234,29 @@ function isSensitiveUrl(value: string): boolean {
     const parsed = new URL(value);
     return (
       Boolean(parsed.username || parsed.password) ||
+      isDeepSeekFileTransportUrl(parsed) ||
       [...parsed.searchParams.keys()].some(key => SENSITIVE_QUERY.test(key))
+    );
+  } catch {
+    return true;
+  }
+}
+
+function isDeepSeekFileTransportUrl(parsed: URL): boolean {
+  return (
+    parsed.origin === DEEPSEEK_FILE_SERVICE_ORIGIN &&
+    parsed.pathname === '/api/file' &&
+    (parsed.searchParams.has('file_id') || parsed.searchParams.has('state'))
+  );
+}
+
+function isSensitiveDeepSeekSignedPath(value: string): boolean {
+  try {
+    const parsed = new URL(value, DEEPSEEK_FILE_SERVICE_ORIGIN);
+    return (
+      parsed.origin === DEEPSEEK_FILE_SERVICE_ORIGIN &&
+      parsed.pathname === '/file' &&
+      (parsed.searchParams.has('file_id') || parsed.searchParams.has('state'))
     );
   } catch {
     return true;

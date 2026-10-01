@@ -524,6 +524,39 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(serialized).not.toContain('message-secret');
   });
 
+  it('keeps DeepSeek file transport URLs and relative signed paths raw-only', async () => {
+    const fileId = '11111111-2222-4333-8444-555555555555';
+    const state = 'synthetic-typed-transport-state';
+    const bytes = encodedRaw(raw => {
+      raw.data.biz_data.chat_session.title =
+        'Safe reference https://example.invalid/page?state=public';
+      raw.data.biz_data.chat_messages[4].fragments = [
+        {
+          type: 'RESPONSE',
+          content:
+            `Download https://files.deepseeksvc.com/api/file?file_id=${fileId}` +
+            `&state=${state}&ty=r or /file?file_id=${fileId}&state=${state}`,
+        },
+      ];
+      raw.data.biz_data.chat_messages[4].extension_data = {
+        transport: `https://files.deepseeksvc.com/api/file?file_id=${fileId}&state=${state}&ty=r`,
+      };
+    });
+
+    const { archive } = await normalizeBytes(bytes);
+    const serialized = JSON.stringify(archive);
+
+    expect(archive.conversation.title).toContain('https://example.invalid/page?state=public');
+    expect(serialized).toContain('[redacted-sensitive-url]');
+    expect(serialized).not.toContain(fileId);
+    expect(serialized).not.toContain(state);
+    expect(archive.diagnostics.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'privacy-redacted-sensitive-extension-field' }),
+      ])
+    );
+  });
+
   it('retains safe extension values while omitting sensitive and unsafe extension fields', async () => {
     const bytes = encodedRaw(raw => {
       raw.data.biz_data.chat_messages[4].extension_data = JSON.parse(
@@ -578,6 +611,13 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(redactSensitiveText('Use http://[invalid', tracker, '/url')).toBe(
       'Use [redacted-sensitive-url]'
     );
+    expect(
+      redactSensitiveText(
+        'Use /file?file_id=11111111-2222-4333-8444-555555555555&state=relative-state',
+        tracker,
+        '/relative-url'
+      )
+    ).toBe('Use [redacted-sensitive-url]');
     expect(
       sanitizeJson(
         {

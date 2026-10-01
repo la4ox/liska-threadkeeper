@@ -117,8 +117,8 @@ The ChatGPT checkpoint is merged at `588d390`. The local
 `codex/deepseek-obsidian-integration` branch combines draft PR #8 (DeepSeek
 archives and verified attachments) with draft PR #9 (Obsidian key migration)
 at merge commit `d5cbe8a`. The exact 30-file integration build is now loaded in
-Comet. Its previous PR #8 build is retained outside the repository at
-`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\dist-pr8-20261001`.
+Comet. Its previous PR #8 build is retained outside the repository under
+`%LOCALAPPDATA%\CodexTools\liska-rollbacks\dist-pr8-20261001`.
 Neither remote draft was changed.
 
 Fresh local validation on 2026-09-22:
