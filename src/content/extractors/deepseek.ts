@@ -11,27 +11,21 @@ import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
-import type { ConversationMessage, ExtractionResult, SyncSettings } from '../../lib/types';
+import type {
+  ArchiveCompanionBundle,
+  ConversationMessage,
+  ExtractionResult,
+  SyncSettings,
+} from '../../lib/types';
 import { SELECTORS } from './selectors/deepseek';
 import {
+  DEEPSEEK_DOM_FALLBACK_WARNING,
   DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
   DeepSeekStructuredCaptureError,
   fetchDeepSeekConversation,
 } from './deepseek-api';
-import { abortStagedArchiveArtifact } from '../archive-stage';
 
 type MessageRole = 'user' | 'assistant';
-
-async function discardDeepSeekArchiveStages(
-  companion: DeepSeekStructuredCaptureError['archiveCompanion']
-): Promise<void> {
-  if (!companion) return;
-  await Promise.all(
-    companion.artifacts
-      .filter(artifact => artifact.transport === 'staged')
-      .map(artifact => abortStagedArchiveArtifact(artifact.stageId, 'deepseek'))
-  );
-}
 
 /**
  * DeepSeek conversation extractor.
@@ -71,7 +65,9 @@ export class DeepSeekExtractor extends BaseExtractor {
             console.info('[G2O] Extracted DeepSeek conversation from local session history');
             return {
               success: true,
-              data: apiConversation.data,
+              data: apiConversation.data.title.trim()
+                ? apiConversation.data
+                : { ...apiConversation.data, title: this.getTitle() },
               archiveCompanion: apiConversation.archiveCompanion,
               deepSeekAssetExportContext: apiConversation.assetExportContext,
               warnings: apiConversation.warnings.length > 0 ? apiConversation.warnings : undefined,
@@ -83,32 +79,37 @@ export class DeepSeekExtractor extends BaseExtractor {
           '[G2O] DeepSeek history API unavailable; falling back to rendered conversation:',
           error instanceof Error ? error.message : 'unknown error'
         );
-        const fallback = await super.extract();
-        if (
-          fallback.success &&
-          error instanceof DeepSeekStructuredCaptureError &&
-          error.archiveCompanion
-        ) {
-          return {
-            ...fallback,
-            data: fallback.data
-              ? {
-                  ...fallback.data,
-                  capture: { mode: 'dom-fallback', completeness: 'partial' },
-                }
-              : fallback.data,
-            archiveCompanion: error.archiveCompanion,
-            warnings: [...(fallback.warnings ?? []), DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING],
-          };
-        }
-        if (error instanceof DeepSeekStructuredCaptureError) {
-          await discardDeepSeekArchiveStages(error.archiveCompanion);
-        }
-        return fallback;
+        return this.extractDomFallback(
+          error instanceof DeepSeekStructuredCaptureError ? error.archiveCompanion : undefined
+        );
       }
     }
 
-    return super.extract();
+    return this.extractDomFallback();
+  }
+
+  /** Rendered content cannot certify complete history, even after auto-scroll. */
+  private async extractDomFallback(
+    archiveCompanion?: ArchiveCompanionBundle
+  ): Promise<ExtractionResult> {
+    const fallback = await super.extract();
+    if (!fallback.success) {
+      // Bootstrap owns persistence/cleanup of any already-verified evidence.
+      return archiveCompanion ? { ...fallback, archiveCompanion } : fallback;
+    }
+    return {
+      ...fallback,
+      data: fallback.data
+        ? { ...fallback.data, capture: { mode: 'dom-fallback', completeness: 'partial' } }
+        : fallback.data,
+      ...(archiveCompanion ? { archiveCompanion } : {}),
+      warnings: [
+        ...(fallback.warnings ?? []),
+        archiveCompanion
+          ? DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING
+          : DEEPSEEK_DOM_FALLBACK_WARNING,
+      ],
+    };
   }
 
   // ========== ID & Title Extraction ==========

@@ -111,61 +111,53 @@
 - Synthetic ChatGPT raw fixture and end-to-end projection test: `test/fixtures/archive/chatgpt-raw/branching-mixed-content.json` and `test/content/chatgpt-archive-pipeline.test.ts`
 - Canonical-to-legacy branch adapter: `src/content/archive-projection.ts`
 
-## Next step
+## Current integration checkpoint
 
-The ChatGPT checkpoint is merged at `588d390`. The local
-`codex/deepseek-obsidian-integration` branch combines draft PR #8 (DeepSeek
-archives and verified attachments) with draft PR #9 (Obsidian key migration)
-at merge commit `d5cbe8a`. The exact 30-file integration build is now loaded in
-Comet. Its previous PR #8 build is retained outside the repository under
-`%LOCALAPPDATA%\CodexTools\liska-rollbacks\dist-pr8-20261001`.
-Neither remote draft was changed.
+The ChatGPT checkpoint is merged at `588d390`. Branch
+`codex/deepseek-obsidian-integration` combines focused draft PR #8 (DeepSeek
+archives and verified attachments) with focused draft PR #9 (Obsidian key
+migration). Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10)
+is Ready for review but is not merged; #8 and #9 remain open and unchanged.
 
-Fresh local validation on 2026-09-22:
+The current 2026-10-02 review-fix tree addresses all five automated P2 comments:
+
+- an unchanged popup key is omitted from a full settings save, so a deferred
+  legacy migration cannot be overwritten by an accidental empty value;
+- Save and Test Connection cannot race, and any unacknowledged explicit key
+  write remains uncertain until a later explicit write succeeds;
+- every readable DeepSeek DOM fallback is marked partial, while verified
+  raw/manifest evidence survives even when the DOM fallback also fails and is
+  persisted with the correct provider route;
+- blank structured DeepSeek presentation titles fall back locally without
+  mutating raw/canonical evidence;
+- optional attachment candidate derivation is bounded before pointer/hash work
+  to 64 whole assets and 256 source refs with one shared binding pass. If that
+  budget truncates the ledger, passive ResourceTiming fallback is disabled
+  because global file-ID uniqueness cannot be proven; verified in-band paths
+  inside the admitted prefix remain usable and all other assets stay
+  `not-attempted`.
+
+Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 145 test files / 2,858 tests pass with two workers;
-- coverage passes at 95.03% statements, 90.05% branches, 98.17% functions,
-  and 97.76% lines;
+- 145 test files / 2,920 tests pass with two workers;
+- coverage passes at 95.05% statements, 90.10% branches, 98.22% functions,
+  and 97.78% lines;
 - typecheck and the production build pass;
 - lint passes with only three pre-existing advisory warnings, and repository
   formatting passes;
-- a fresh independent integration review found and then rechecked a fixed
-  destination-override race; no residual P0-P2 issue was found;
-- the prior PR #8 post-reload synthetic passive File canary is complete. After one
-  page-native preview, Liska made its own credential-free exact file-service
-  GET and received `200 application/octet-stream`. The new capture preserved a
-  1,743-byte raw response, 1,480-byte manifest, 8,713-byte canonical archive,
-  702-byte Markdown note, and one 93-byte content-addressed `.bin`. Raw length
-  and SHA-256 match the manifest; canonical input SHA-256 matches the exact
-  manifest; manifest and canonical both mark the single asset `fetched` with
-  the binary's exact length, SHA-256, and local path. The binary is byte-identical
-  to the synthetic source. Provider file ID, `signed_path`, state token, and
-  file-service host are absent from manifest/canonical output;
-- a post-reload live Comet smoke produced exact raw/manifest/canonical and
-  Markdown outputs with the verified graph, provenance, privacy, and
-  frontmatter facts recorded above. Conversation text was not reviewed during
-  filesystem verification.
+- an independent review reproduced and fixed two additional popup credential
+  races, then found no residual P0-P3 issue.
 
-The combined build passed a post-reload File+Obsidian canary on 2026-10-01.
-After a page-native preview, one trusted click created the same immutable
-`capture-deepseek-ce607c0c-713d-4d23-9e06-00379b638de4` in Downloads and the
-configured vault. Each destination contains exactly one 2,500-byte raw, one
-1,492-byte manifest, one 9,259-byte canonical archive, and one 93-byte binary;
-all four corresponding files are byte-identical across destinations. The two
-702-byte Markdown notes are also byte-identical. Raw length/SHA-256 and
-canonical manifest linkage verify exactly; the fetched asset matches the
-synthetic source SHA-256
-`7ff02bb32d2f4eaec0062870a0bd7afd77eb6e9f348c7e058306f3f67d3d9b96`.
-Manifest reports complete messages/assets with zero warnings. Provider file ID,
-signed path/key, file-service host, and state token are absent from manifest and
-canonical output. The popup's saved File+Obsidian destinations survived the
-integration reload, and Liska reported `Saved locally`.
+The prior combined File+Obsidian synthetic canary remains valid evidence for the
+unchanged successful one-file path: both destinations received byte-identical
+raw/manifest/canonical/binary artifacts and Markdown, with exact hashes and no
+provider transport leakage. The 2026-10-02 review-fix tree has not yet been
+reloaded for a new live browser canary. A page-native preview is still required
+for the passive attachment fallback; automatic card activation, active
+observers, `fetch_files`, retries, guessed URLs, a real provider response above
+16 MiB, and official-export reconciliation remain explicit evidence gaps.
 
-The fallback still requires a page-native preview first; automatic card
-activation, active observers, `fetch_files`, retries, and guessed URLs remain
-unsupported. The combined branch is published as draft PR
-[#10](https://github.com/la4ox/liska-threadkeeper/pull/10); focused draft PRs
-#8 and #9 remain open and unchanged. Next: review #10 as the integration
-surface, then explicitly decide whether it supersedes the focused drafts and
-when it is ready. No merge, release, or tag is automatic.
+Next: commit and push the review fixes, wait for exact-head CI/re-review, then
+make a separate merge decision. No merge, release, tag, or closure of #8/#9 is
+automatic.

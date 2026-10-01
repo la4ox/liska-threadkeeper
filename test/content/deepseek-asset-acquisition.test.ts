@@ -319,6 +319,34 @@ describe('DeepSeek signed asset acquisition', () => {
     expect(result.records.filter(record => record.state === 'not-attempted')).toHaveLength(1);
   });
 
+  it('stops iterating a large candidate tail after its fixed attempt ceiling', async () => {
+    const records = Array.from({ length: 50_000 }, (_, index) => ({
+      ...ledger(),
+      id: `deepseek-asset-${index.toString(16).padStart(64, '0')}`,
+    }));
+    const candidates = records.map(record => candidate(record, 1));
+    const iterator = candidates[Symbol.iterator]();
+    const next = vi.fn(() => iterator.next());
+    Object.defineProperty(candidates, Symbol.iterator, { value: () => ({ next }) });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(url => Promise.resolve(response(String(url), new Uint8Array([1]))));
+    const result = await acquireDeepSeekSignedAssets({
+      assets: records,
+      candidates,
+      fetcher,
+      now: () => new Date('2026-09-19T10:00:00.000Z'),
+      sha256: digest,
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(20);
+    expect(next).toHaveBeenCalledTimes(21);
+    expect(result.records).toHaveLength(50_000);
+    expect(result.records.filter(record => record.state === 'not-attempted')).toHaveLength(49_980);
+    expect(result.records.at(-1)).toEqual(records.at(-1));
+    expect(records.every(record => record.state === 'not-attempted')).toBe(true);
+  });
+
   it('aborts a stalled request and records a stable timeout state', async () => {
     vi.useFakeTimers();
     try {

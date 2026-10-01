@@ -155,33 +155,53 @@ describe('content archive companion persistence', () => {
     ).toEqual(['raw', 'manifest']);
   });
 
-  it('preserves raw evidence when the rendered fallback also fails', async () => {
-    const partial: ArchiveCompanionBundle = {
-      ...companion,
-      artifacts: [companion.artifacts[0], companion.artifacts[1]],
-    };
-    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
-      (_message: unknown, callback?: (response: unknown) => void) => {
-        callback?.({
-          results: [{ destination: 'file', success: true }],
-          allSuccessful: true,
-          anySuccessful: true,
-        });
-      }
-    );
+  it.each(['chatgpt', 'deepseek'] as const)(
+    'preserves %s raw evidence when the rendered fallback also fails',
+    async source => {
+      const partial: ArchiveCompanionBundle = {
+        ...companion,
+        captureId: `capture-${source}-11111111-2222-4333-8444-555555555555`,
+        artifacts: [companion.artifacts[0], companion.artifacts[1]],
+      };
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+        (_message: unknown, callback?: (response: unknown) => void) => {
+          callback?.({
+            results: [{ destination: 'file', success: true }],
+            allSuccessful: true,
+            anySuccessful: true,
+          });
+        }
+      );
 
-    const status = await persistFailedExtractionArchive(
-      {
-        success: false,
-        error: 'Rendered fallback had no messages',
-        archiveCompanion: partial,
-      },
-      ['file']
-    );
+      const status = await persistFailedExtractionArchive(
+        {
+          success: false,
+          error: 'Rendered fallback had no messages',
+          archiveCompanion: partial,
+        },
+        ['file'],
+        source
+      );
 
-    expect(status).toBe('Verified raw capture evidence was saved locally');
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
-  });
+      expect(status).toBe('Verified raw capture evidence was saved locally');
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
+      const messages = vi.mocked(chrome.runtime.sendMessage).mock.calls.map(call => call[0]);
+      expect(messages).toEqual([
+        expect.objectContaining({
+          action: 'persistArchiveCompanion',
+          source,
+          noteFileName: `${source}-capture.md`,
+          artifact: expect.objectContaining({ kind: 'raw' }),
+        }),
+        expect.objectContaining({
+          action: 'persistArchiveCompanion',
+          source,
+          noteFileName: `${source}-capture.md`,
+          artifact: expect.objectContaining({ kind: 'manifest' }),
+        }),
+      ]);
+    }
+  );
 
   it('stops later companions for a destination after its manifest write fails', async () => {
     let calls = 0;

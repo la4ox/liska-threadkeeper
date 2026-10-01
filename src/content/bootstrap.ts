@@ -574,13 +574,14 @@ export async function persistArchiveCompanions(
 /** Preserve verified source evidence even when no readable Markdown can be built. */
 export async function persistFailedExtractionArchive(
   result: ExtractionResult,
-  outputs: OutputDestination[]
+  outputs: OutputDestination[],
+  source: StructuredArchiveSource
 ): Promise<string | undefined> {
   if (result.success || !result.archiveCompanion) return undefined;
   const warnings = await persistArchiveCompanions(
     result.archiveCompanion,
-    'chatgpt-capture.md',
-    'chatgpt',
+    `${source}-capture.md`,
+    source,
     outputs
   );
   return warnings.length === 0
@@ -874,7 +875,9 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       return;
     }
     stage = 'preserving failed extraction evidence';
-    const failedArchiveStatus = await persistFailedExtractionArchive(result, enabledOutputs);
+    const failedArchiveStatus = isStructuredArchiveSource(extractor.platform)
+      ? await persistFailedExtractionArchive(result, enabledOutputs, extractor.platform)
+      : undefined;
     stage = 'validating the extracted conversation';
     const validation = extractor.validate(result);
     if (!validation.isValid) {

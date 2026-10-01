@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildCaptureManifest,
   inventoryDeepSeekRawAssets,
@@ -6,12 +6,14 @@ import {
 } from '../../src/archive';
 import { deepSeekAttachmentIdForProviderId } from '../../src/archive/normalizers/deepseek/inventory';
 import {
+  DEEPSEEK_ASSET_DERIVATION_BUDGET,
   deepSeekDownloadUrl,
   deriveDeepSeekAssetCandidates,
   deriveDeepSeekPageOwnedAssetCandidates,
   deriveDeepSeekSignedAssetCandidates,
   isExactDeepSeekDownloadUrl,
 } from '../../src/content/capture/deepseek-asset-resolver';
+import { acquireDeepSeekSignedAssets } from '../../src/content/capture/deepseek-asset-acquisition';
 import { sha256Hex } from '../../src/content/capture/response';
 
 const PROVIDER_ID = 'file-11111111-2222-4333-8444-555555555555';
@@ -116,6 +118,33 @@ async function bundleForFragmentFile(): Promise<RawCaptureBundle> {
     completeness: { ...legacy.manifest.completeness, assets: inventory.completeness },
   });
   return { manifest, artifacts: [{ record: artifact, bytes }], assets: [] };
+}
+
+async function bundleForSyntheticFiles(count: number): Promise<RawCaptureBundle> {
+  const bundle = await bundleForFile();
+  const files = Array.from({ length: count }, (_, index) => ({
+    id: `file-synthetic-${index}`,
+    file_name: 'synthetic.txt',
+    file_size: 1,
+    status: 'SUCCESS',
+    signed_path: `/file?file_id=synthetic-${index}&state=${STATE}`,
+  }));
+  const bytes = new TextEncoder().encode(JSON.stringify({ files }));
+  const artifact = {
+    ...bundle.manifest.artifacts[0],
+    byteLength: bytes.byteLength,
+    sha256: await sha256Hex(bytes),
+  };
+  bundle.manifest.artifacts = [artifact];
+  bundle.artifacts = [{ record: artifact, bytes }];
+  bundle.manifest.assets = await Promise.all(
+    files.map(async (file, index) => ({
+      ...bundle.manifest.assets[0],
+      id: await deepSeekAttachmentIdForProviderId(file.id, sha256Hex),
+      sourceRefs: [{ artifactId: 'conversation', rawPointer: `/files/${index}` }],
+    }))
+  );
+  return bundle;
 }
 
 describe('DeepSeek signed-path resolver', () => {
@@ -238,6 +267,191 @@ describe('DeepSeek signed-path resolver', () => {
     expect(merged[0].downloadUrl).not.toContain(PERFORMANCE_STATE);
   });
 
+  it('shares one raw parse and one binding digest per source ref across both routes', async () => {
+    const bundle = await bundleForFile();
+    bundle.manifest.assets[0].sourceRefs.push({ ...bundle.manifest.assets[0].sourceRefs[0] });
+    const digest = vi.fn(sha256Hex);
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      const candidates = await deriveDeepSeekAssetCandidates(bundle, 'conversation', digest, () => [
+        resource(performanceUrl()),
+      ]);
+      expect(parse).toHaveBeenCalledOnce();
+      expect(digest).toHaveBeenCalledTimes(2);
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0].downloadUrl).toContain(`state=${STATE}`);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it.each([
+    deriveDeepSeekSignedAssetCandidates,
+    deriveDeepSeekPageOwnedAssetCandidates,
+    deriveDeepSeekAssetCandidates,
+  ])(
+    'short-circuits an empty ledger before raw parsing, digests, or resource reads: %s',
+    async derive => {
+      const bundle = await bundleForFile();
+      bundle.manifest.assets = [];
+      const digest = vi.fn(sha256Hex);
+      const readEntries = vi.fn(() => [resource(performanceUrl())]);
+      const parse = vi.spyOn(JSON, 'parse');
+      try {
+        await expect(derive(bundle, 'conversation', digest, readEntries)).resolves.toEqual([]);
+        expect(parse).not.toHaveBeenCalled();
+        expect(digest).not.toHaveBeenCalled();
+        expect(readEntries).not.toHaveBeenCalled();
+      } finally {
+        parse.mockRestore();
+      }
+    }
+  );
+
+  it('bounds a 50,000-asset ledger before hashing and leaves its full inventory intact', async () => {
+    const bundle = await bundleForSyntheticFiles(DEEPSEEK_ASSET_DERIVATION_BUDGET.assets + 1);
+    const prefix = [...bundle.manifest.assets];
+    const tail = prefix.at(-1)!;
+    bundle.manifest.assets.push(
+      ...Array.from({ length: 50_000 - prefix.length }, (_, index) => ({
+        ...tail,
+        id: `deepseek-asset-${(index + prefix.length).toString(16).padStart(64, '0')}`,
+      }))
+    );
+    const digest = vi.fn(sha256Hex);
+    const readEntries = vi.fn(() => [resource(performanceUrl('synthetic-0'))]);
+    const candidates = await deriveDeepSeekAssetCandidates(
+      bundle,
+      'conversation',
+      digest,
+      readEntries
+    );
+
+    expect(digest).toHaveBeenCalledTimes(DEEPSEEK_ASSET_DERIVATION_BUDGET.assets);
+    expect(candidates).toHaveLength(DEEPSEEK_ASSET_DERIVATION_BUDGET.assets);
+    expect(candidates.some(candidate => candidate.assetId === tail.id)).toBe(false);
+    expect(readEntries).not.toHaveBeenCalled();
+    expect(bundle.manifest.assets).toHaveLength(50_000);
+    expect(bundle.manifest.assets.every(asset => asset.state === 'not-attempted')).toBe(true);
+
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 403 }));
+    const acquired = await acquireDeepSeekSignedAssets({
+      assets: bundle.manifest.assets,
+      candidates,
+      fetcher,
+      now: () => new Date('2026-09-19T10:00:00.000Z'),
+    });
+    expect(fetcher).toHaveBeenCalledTimes(20);
+    expect(acquired.records).toHaveLength(50_000);
+    expect(acquired.records.find(record => record.id === tail.id)).toEqual(tail);
+    expect(acquired.records.filter(record => record.state === 'not-attempted')).toHaveLength(
+      49_980
+    );
+  });
+
+  it.each([
+    deriveDeepSeekSignedAssetCandidates,
+    deriveDeepSeekPageOwnedAssetCandidates,
+    deriveDeepSeekAssetCandidates,
+  ])('rejects a 50,000-ref asset before any pointer work or hashing: %s', async derive => {
+    const bundle = await bundleForFile();
+    const readPointer = vi.fn(() => '/data/biz_data/chat_messages/0/files/0');
+    const sourceRef = {
+      artifactId: 'conversation',
+      get rawPointer() {
+        return readPointer();
+      },
+    };
+    bundle.manifest.assets[0].sourceRefs = Array.from({ length: 50_000 }, () => sourceRef);
+    const digest = vi.fn(sha256Hex);
+    const readEntries = vi.fn(() => [resource(performanceUrl())]);
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      await expect(derive(bundle, 'conversation', digest, readEntries)).resolves.toEqual([]);
+      expect(parse).not.toHaveBeenCalled();
+      expect(readPointer).not.toHaveBeenCalled();
+      expect(digest).not.toHaveBeenCalled();
+      expect(readEntries).not.toHaveBeenCalled();
+      expect(bundle.manifest.assets[0].sourceRefs).toHaveLength(50_000);
+      expect(bundle.manifest.assets[0].state).toBe('not-attempted');
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it('applies the source-ref budget across whole assets without trusting a partial binding', async () => {
+    const bundle = await bundleForSyntheticFiles(3);
+    const first = bundle.manifest.assets[0];
+    const skipped = bundle.manifest.assets[1];
+    first.sourceRefs = Array.from(
+      { length: DEEPSEEK_ASSET_DERIVATION_BUDGET.sourceRefs - 1 },
+      () => ({ ...first.sourceRefs[0] })
+    );
+    skipped.sourceRefs.push({ artifactId: 'conversation', rawPointer: '/files/2' });
+    const digest = vi.fn(sha256Hex);
+    const readEntries = vi.fn(() => [resource(performanceUrl('synthetic-0'))]);
+    const candidates = await deriveDeepSeekAssetCandidates(
+      bundle,
+      'conversation',
+      digest,
+      readEntries
+    );
+
+    expect(digest).toHaveBeenCalledTimes(DEEPSEEK_ASSET_DERIVATION_BUDGET.sourceRefs - 1);
+    expect(candidates.map(candidate => candidate.assetId)).toEqual([first.id]);
+    expect(readEntries).not.toHaveBeenCalled();
+    expect(bundle.manifest.assets).toHaveLength(3);
+    expect(bundle.manifest.assets.every(asset => asset.state === 'not-attempted')).toBe(true);
+  });
+
+  it('allows both routes when the complete ledger exactly fits the source-ref ceiling', async () => {
+    const bundle = await bundleForSyntheticFiles(2);
+    const first = bundle.manifest.assets[0];
+    first.sourceRefs = Array.from(
+      { length: DEEPSEEK_ASSET_DERIVATION_BUDGET.sourceRefs - 1 },
+      () => ({ ...first.sourceRefs[0] })
+    );
+    const raw = JSON.parse(new TextDecoder().decode(bundle.artifacts[0].bytes)) as any;
+    delete raw.files[1].signed_path;
+    bundle.artifacts[0].bytes = new TextEncoder().encode(JSON.stringify(raw));
+    const digest = vi.fn(sha256Hex);
+    const readEntries = vi.fn(() => [
+      resource(performanceUrl('synthetic-0')),
+      resource(performanceUrl('synthetic-1')),
+    ]);
+    const candidates = await deriveDeepSeekAssetCandidates(
+      bundle,
+      'conversation',
+      digest,
+      readEntries
+    );
+
+    expect(digest).toHaveBeenCalledTimes(DEEPSEEK_ASSET_DERIVATION_BUDGET.sourceRefs);
+    expect(readEntries).toHaveBeenCalledOnce();
+    expect(candidates).toHaveLength(2);
+    expect(candidates.find(candidate => candidate.assetId === first.id)?.downloadUrl).toContain(
+      `state=${STATE}`
+    );
+    expect(
+      candidates.find(candidate => candidate.assetId === bundle.manifest.assets[1].id)?.downloadUrl
+    ).toBe(performanceUrl('synthetic-1'));
+  });
+
+  it('still rejects conflicting exact refs when the whole binding fits the budget', async () => {
+    const bundle = await bundleForSyntheticFiles(2);
+    bundle.manifest.assets[0].sourceRefs.push({ ...bundle.manifest.assets[1].sourceRefs[0] });
+    const digest = vi.fn(sha256Hex);
+    const candidates = await deriveDeepSeekAssetCandidates(
+      bundle,
+      'conversation',
+      digest,
+      () => []
+    );
+
+    expect(digest).toHaveBeenCalledTimes(3);
+    expect(candidates.map(candidate => candidate.assetId)).toEqual([bundle.manifest.assets[1].id]);
+  });
+
   it('fails soft for unavailable or poisoned performance APIs and entry getters', async () => {
     const bundle = await bundleForFile({ signed_path: undefined });
     const poisoned = Object.defineProperty({ initiatorType: 'fetch' }, 'name', {
@@ -295,6 +509,42 @@ describe('DeepSeek signed-path resolver', () => {
         resource(performanceUrl()),
       ])
     ).resolves.toEqual([]);
+  });
+
+  it('never makes an ambiguous normalized ID unique by truncating its competing asset', async () => {
+    const bundle = await bundleForFile({ signed_path: undefined });
+    const original = bundle.manifest.assets[0];
+    const raw = JSON.parse(new TextDecoder().decode(bundle.artifacts[0].bytes)) as any;
+    raw.data.biz_data.chat_messages[0].files.push({
+      ...raw.data.biz_data.chat_messages[0].files[0],
+      id: FILE_ID,
+    });
+    bundle.artifacts[0].bytes = new TextEncoder().encode(JSON.stringify(raw));
+    const competing = {
+      ...original,
+      id: await deepSeekAttachmentIdForProviderId(FILE_ID, sha256Hex),
+      sourceRefs: [
+        { artifactId: 'conversation', rawPointer: '/data/biz_data/chat_messages/0/files/1' },
+      ],
+    };
+    bundle.manifest.assets = [
+      original,
+      ...Array.from({ length: DEEPSEEK_ASSET_DERIVATION_BUDGET.assets - 1 }, (_, index) => ({
+        ...original,
+        id: `deepseek-asset-${index.toString(16).padStart(64, '0')}`,
+        sourceRefs: [],
+      })),
+      competing,
+    ];
+    const digest = vi.fn(sha256Hex);
+    const readEntries = vi.fn(() => [resource(performanceUrl())]);
+    await expect(
+      deriveDeepSeekAssetCandidates(bundle, 'conversation', digest, readEntries)
+    ).resolves.toEqual([]);
+    expect(digest).toHaveBeenCalledOnce();
+    expect(readEntries).not.toHaveBeenCalled();
+    expect(bundle.manifest.assets.at(-1)).toEqual(competing);
+    expect(competing.state).toBe('not-attempted');
   });
 
   it.each([

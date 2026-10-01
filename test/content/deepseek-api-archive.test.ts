@@ -214,6 +214,31 @@ describe('DeepSeek structured archive composition', () => {
     expect(withoutThinking?.archive).toEqual(withThinking?.archive);
   });
 
+  it.each(['', ' \t '])(
+    'leaves a blank source title %j unchanged in API canonical/raw evidence',
+    async title => {
+      const raw = JSON.parse(new TextDecoder().decode(fixtureBytes));
+      raw.data.biz_data.chat_session.title = title;
+      const rawBytes = new TextEncoder().encode(JSON.stringify(raw));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(rawBytes, { status: 200 }));
+
+      const result = await fetchDeepSeekConversation('deepseek-branching-1', false, {
+        createCaptureId: () => 'capture-deepseek-blank-title',
+        now: () => new Date('2026-09-18T06:00:00.000Z'),
+      });
+
+      expect(result?.archive.conversation.title).toBe(title);
+      expect(result?.data.title).toBe(title);
+      const artifacts = result!.archiveCompanion
+        .artifacts as readonly InlineArchiveCompanionArtifact[];
+      expect(new TextDecoder().decode(inlineBytes(artifacts[0]))).toBe(JSON.stringify(raw));
+      expect(artifacts[0].sha256).toBe(hash(rawBytes));
+      expect(
+        JSON.parse(new TextDecoder().decode(inlineBytes(artifacts[2]))).conversation.title
+      ).toBe(title);
+    }
+  );
+
   it('retains raw and manifest companions when normalization fails after capture', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(fixtureResponse());
     const promise = fetchDeepSeekConversation('deepseek-branching-1', false, {

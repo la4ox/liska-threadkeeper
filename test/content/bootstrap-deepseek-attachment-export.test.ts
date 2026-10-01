@@ -151,7 +151,11 @@ function mockMessages(): void {
         anySuccessful: true,
       });
     }
-    if (message.action === 'persistArchiveCompanion') return Promise.resolve(successfulSave);
+    if (
+      message.action === 'persistArchiveCompanion' ||
+      message.action === 'commitStagedArchiveCompanion'
+    )
+      return Promise.resolve(successfulSave);
     return Promise.reject(new Error(`unexpected background message: ${message.action}`));
   });
 }
@@ -234,6 +238,66 @@ describe('DeepSeek attachment bootstrap gate', () => {
     await handleSync();
     expect(mocks.attachmentExport).not.toHaveBeenCalled();
   });
+
+  it.each(['inline', 'staged'] as const)(
+    'persists %s failed-extraction evidence as DeepSeek before validation, without Markdown/binary',
+    async transport => {
+      const raw =
+        transport === 'inline'
+          ? companion.artifacts[0]
+          : {
+              transport: 'staged' as const,
+              kind: 'raw' as const,
+              stageId: `archive-stage-${'D'.repeat(32)}`,
+              relativePath: 'responses/conversation.json',
+              mediaType: 'application/json' as const,
+              byteLength: 20 * 1024 * 1024,
+              sha256: 'b'.repeat(64),
+            };
+      const partial: ArchiveCompanionBundle = {
+        ...companion,
+        artifacts: [raw, companion.artifacts[1]],
+      };
+      mocks.extract.mockResolvedValue({
+        success: false,
+        error: 'No messages found in conversation',
+        archiveCompanion: partial,
+      } satisfies ExtractionResult);
+      mocks.validate.mockReturnValue({
+        isValid: false,
+        warnings: [],
+        errors: ['No messages found in conversation'],
+      });
+
+      await handleSync();
+
+      expect(mocks.sendMessage.mock.calls.map(call => call[0])).toEqual([
+        { action: 'getSettings' },
+        expect.objectContaining({
+          action:
+            transport === 'staged' ? 'commitStagedArchiveCompanion' : 'persistArchiveCompanion',
+          source: 'deepseek',
+          noteFileName: 'deepseek-capture.md',
+          artifact: raw,
+          outputs: ['file'],
+        }),
+        expect.objectContaining({
+          action: 'persistArchiveCompanion',
+          source: 'deepseek',
+          noteFileName: 'deepseek-capture.md',
+          artifact: companion.artifacts[1],
+          outputs: ['file'],
+        }),
+      ]);
+      expect(mocks.sendMessage.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        mocks.validate.mock.invocationCallOrder[0]
+      );
+      expect(mocks.attachmentExport).not.toHaveBeenCalled();
+      expect(mocks.showErrorToast).toHaveBeenCalledWith(
+        'No messages found in conversation. Verified raw capture evidence was saved locally.'
+      );
+    }
+  );
 });
 
 afterAll(() => resetLocation());

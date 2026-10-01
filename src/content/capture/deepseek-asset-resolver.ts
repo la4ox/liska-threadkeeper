@@ -14,6 +14,9 @@ const MAX_OPAQUE_STATE_LENGTH = 4_096;
 const MAX_RESOURCE_TIMING_ENTRIES = 512;
 const SAFE_FILE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
+/** CPU work ceiling, independent of the acquisition network-attempt ceiling. */
+export const DEEPSEEK_ASSET_DERIVATION_BUDGET = Object.freeze({ assets: 64, sourceRefs: 256 });
+
 export interface DeepSeekSignedAssetCandidate {
   assetId: string;
   /** Runtime-only. It must never enter a manifest, canonical archive, or log. */
@@ -158,6 +161,27 @@ interface DeepSeekRawAssetBinding {
   files: Array<ReturnType<typeof readDeepSeekRawFileRecord> & { signedPath: unknown }>;
 }
 
+interface DeepSeekRawAssetBindings {
+  bindings: DeepSeekRawAssetBinding[];
+  ledgerFullyExamined: boolean;
+}
+
+/** Admit whole assets before any raw parse, pointer walk, or binding digest. */
+function boundedAssetPrefix(
+  assets: RawCaptureBundle['manifest']['assets']
+): RawCaptureBundle['manifest']['assets'] {
+  const prefix: RawCaptureBundle['manifest']['assets'] = [];
+  let sourceRefs = 0;
+  const assetLimit = Math.min(assets.length, DEEPSEEK_ASSET_DERIVATION_BUDGET.assets);
+  for (let index = 0; index < assetLimit; index += 1) {
+    const asset = assets[index];
+    if (asset.sourceRefs.length > DEEPSEEK_ASSET_DERIVATION_BUDGET.sourceRefs - sourceRefs) break;
+    prefix.push(asset);
+    sourceRefs += asset.sourceRefs.length;
+  }
+  return prefix;
+}
+
 function parseRawArtifact(bundle: RawCaptureBundle, artifactId: string): unknown | undefined {
   const artifact = bundle.artifacts.find(value => value.record.id === artifactId);
   if (!artifact || bundle.artifacts.length !== 1) return undefined;
@@ -206,15 +230,20 @@ async function rawAssetBindings(
   bundle: RawCaptureBundle,
   artifactId: string,
   sha256: (bytes: Uint8Array) => Promise<string>
-): Promise<DeepSeekRawAssetBinding[]> {
+): Promise<DeepSeekRawAssetBindings> {
+  const assets = boundedAssetPrefix(bundle.manifest.assets);
+  const result: DeepSeekRawAssetBindings = {
+    bindings: [],
+    ledgerFullyExamined: assets.length === bundle.manifest.assets.length,
+  };
+  if (assets.length === 0) return result;
   const raw = parseRawArtifact(bundle, artifactId);
-  if (raw === undefined) return [];
-  const bindings: DeepSeekRawAssetBinding[] = [];
-  for (const asset of bundle.manifest.assets) {
+  if (raw === undefined) return result;
+  for (const asset of assets) {
     const binding = await rawAssetBinding(raw, asset, artifactId, sha256);
-    if (binding) bindings.push(binding);
+    if (binding) result.bindings.push(binding);
   }
-  return bindings;
+  return result;
 }
 
 /**
@@ -227,8 +256,15 @@ export async function deriveDeepSeekSignedAssetCandidates(
   artifactId = 'conversation',
   sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex
 ): Promise<DeepSeekSignedAssetCandidate[]> {
+  const { bindings } = await rawAssetBindings(bundle, artifactId, sha256);
+  return signedCandidatesFromBindings(bindings);
+}
+
+function signedCandidatesFromBindings(
+  bindings: readonly DeepSeekRawAssetBinding[]
+): DeepSeekSignedAssetCandidate[] {
   const candidates: DeepSeekSignedAssetCandidate[] = [];
-  for (const binding of await rawAssetBindings(bundle, artifactId, sha256)) {
+  for (const binding of bindings) {
     let downloadUrl: string | undefined;
     for (const file of binding.files) {
       const next = deepSeekDownloadUrl(file.providerId, file.signedPath);
@@ -297,9 +333,20 @@ export async function deriveDeepSeekPageOwnedAssetCandidates(
   sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex,
   readResourceEntries: () => readonly unknown[] = defaultResourceEntries
 ): Promise<DeepSeekSignedAssetCandidate[]> {
-  const bindings = await rawAssetBindings(bundle, artifactId, sha256);
+  const derived = await rawAssetBindings(bundle, artifactId, sha256);
+  return pageOwnedCandidatesFromBindings(derived, readResourceEntries);
+}
+
+function pageOwnedCandidatesFromBindings(
+  derived: DeepSeekRawAssetBindings,
+  readResourceEntries: () => readonly unknown[]
+): DeepSeekSignedAssetCandidate[] {
+  // Truncation cannot prove global file_id uniqueness: an unexamined asset may
+  // normalize to the same ID. Fail closed for the passive fallback, while exact
+  // in-band paths remain usable for fully verified bindings within the budget.
+  if (!derived.ledgerFullyExamined || derived.bindings.length === 0) return [];
   const byFileId = new Map<string, DeepSeekRawAssetBinding[]>();
-  for (const binding of bindings) {
+  for (const binding of derived.bindings) {
     const existing = byFileId.get(binding.fileId) ?? [];
     existing.push(binding);
     byFileId.set(binding.fileId, existing);
@@ -337,13 +384,9 @@ export async function deriveDeepSeekAssetCandidates(
   sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex,
   readResourceEntries: () => readonly unknown[] = defaultResourceEntries
 ): Promise<DeepSeekSignedAssetCandidate[]> {
-  const pageOwned = await deriveDeepSeekPageOwnedAssetCandidates(
-    bundle,
-    artifactId,
-    sha256,
-    readResourceEntries
-  );
-  const inBand = await deriveDeepSeekSignedAssetCandidates(bundle, artifactId, sha256);
+  const derived = await rawAssetBindings(bundle, artifactId, sha256);
+  const pageOwned = pageOwnedCandidatesFromBindings(derived, readResourceEntries);
+  const inBand = signedCandidatesFromBindings(derived.bindings);
   const merged = new Map(pageOwned.map(candidate => [candidate.assetId, candidate]));
   for (const candidate of inBand) merged.set(candidate.assetId, candidate);
   return sortCandidates([...merged.values()]);

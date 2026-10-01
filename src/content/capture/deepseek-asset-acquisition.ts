@@ -266,7 +266,8 @@ export async function acquireDeepSeekSignedAssets(
   let totalReadBytes = 0;
 
   for (const candidate of input.candidates) {
-    if (attempts >= MAX_DEEPSEEK_ASSET_ATTEMPTS || seen.has(candidate.assetId)) continue;
+    if (attempts >= MAX_DEEPSEEK_ASSET_ATTEMPTS) break;
+    if (seen.has(candidate.assetId)) continue;
     seen.add(candidate.assetId);
     const index = byId.get(candidate.assetId);
     if (index === undefined || records[index].state !== 'not-attempted') continue;

@@ -29,8 +29,10 @@ const ARTIFACT_ID = 'conversation';
 
 export const DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING =
   'DeepSeek attachment metadata was inventoried; binary acquisition was not attempted.';
+export const DEEPSEEK_DOM_FALLBACK_WARNING =
+  'DeepSeek readable note uses only the rendered page; this capture is partial and earlier messages or branches may be missing.';
 export const DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING =
-  'DeepSeek structured history could not be normalized or projected; the readable note uses the rendered page and preserves verified raw capture evidence.';
+  'DeepSeek structured history could not be normalized or projected; the partial readable note uses the rendered page and preserves verified raw capture evidence.';
 
 export interface DeepSeekApiConversation {
   data: ConversationData;

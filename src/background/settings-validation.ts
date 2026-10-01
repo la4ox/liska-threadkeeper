@@ -1,10 +1,9 @@
 /** Exact popup settings transport validation before the worker accepts a save. */
 
 import { VALID_MESSAGE_FORMATS } from '../lib/constants';
-import type { ExtensionSettings } from '../lib/types';
+import type { PopupSettingsUpdate } from '../lib/types';
 
-const SETTINGS_UPDATE_KEYS = [
-  'obsidianApiKey',
+const REQUIRED_SETTINGS_UPDATE_KEYS = [
   'obsidianUrl',
   'vaultPath',
   'templateOptions',
@@ -19,6 +18,8 @@ const SETTINGS_UPDATE_KEYS = [
   'flattenLargeCallouts',
   'maxCalloutLines',
 ] as const;
+
+const OPTIONAL_SETTINGS_UPDATE_KEYS = ['obsidianApiKey'] as const;
 
 const REQUIRED_TEMPLATE_OPTION_KEYS = [
   'includeId',
@@ -104,13 +105,22 @@ function validateTemplateOptionsForSettingsUpdate(value: unknown): boolean {
 }
 
 // eslint-disable-next-line complexity -- Keep the transport shape explicit at the message boundary.
-export function validateSettingsUpdate(value: unknown): value is ExtensionSettings {
+export function validateSettingsUpdate(value: unknown): value is PopupSettingsUpdate {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  if (!hasExactOwnKeys(value, SETTINGS_UPDATE_KEYS)) return false;
+  if (
+    !hasRequiredAndAllowedOwnKeys(
+      value,
+      REQUIRED_SETTINGS_UPDATE_KEYS,
+      OPTIONAL_SETTINGS_UPDATE_KEYS
+    )
+  ) {
+    return false;
+  }
 
   const settings = value as Record<string, unknown>;
   return (
-    typeof settings.obsidianApiKey === 'string' &&
+    (!Object.prototype.hasOwnProperty.call(settings, 'obsidianApiKey') ||
+      typeof settings.obsidianApiKey === 'string') &&
     typeof settings.obsidianUrl === 'string' &&
     typeof settings.vaultPath === 'string' &&
     validateTemplateOptionsForSettingsUpdate(settings.templateOptions) &&

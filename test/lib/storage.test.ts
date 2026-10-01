@@ -243,6 +243,33 @@ describe('storage', () => {
       expect(chrome.storage.sync.set).not.toHaveBeenCalled();
     });
 
+    it.each([false, true])(
+      'preserves credential authority for a full popup save after a blank read (migration completed: %s)',
+      async migrationCompleted => {
+        await chrome.storage.sync.set({
+          settings: { obsidianApiKey: 'legacy-key', vaultPath: 'AI/Before' },
+        });
+        const { obsidianApiKey: popupKey, ...settingsUpdate } = await getSettings();
+        expect(popupKey).toBe('');
+
+        if (migrationCompleted) await migrateSettings();
+        vi.mocked(chrome.storage.local.set).mockClear();
+
+        await saveSettings({ ...settingsUpdate, vaultPath: 'AI/After' });
+
+        expect(chrome.storage.local.set).not.toHaveBeenCalled();
+        const { settings } = await chrome.storage.sync.get('settings');
+        expect(settings.vaultPath).toBe('AI/After');
+        if (migrationCompleted) {
+          expect(settings).not.toHaveProperty('obsidianApiKey');
+          expect((await getSettings()).obsidianApiKey).toBe('legacy-key');
+        } else {
+          expect(settings).toHaveProperty('obsidianApiKey', 'legacy-key');
+          expect((await getSettings()).obsidianApiKey).toBe('');
+        }
+      }
+    );
+
     it('removes a legacy sync key after explicitly saving an empty local key', async () => {
       let localWriteCompleted = false;
       let savedKey: string | undefined;

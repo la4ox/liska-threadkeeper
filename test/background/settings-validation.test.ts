@@ -46,15 +46,31 @@ describe('popup settings transport validation', () => {
     ).toBe(true);
   });
 
+  it('accepts an omitted API key without making other settings optional', () => {
+    const { obsidianApiKey: _unchangedKey, ...settings } = validSettings;
+    expect(validateSettingsUpdate(settings)).toBe(true);
+  });
+
   it.each([null, undefined, false, [], 'settings'])('rejects a non-record root: %s', value => {
     expect(validateSettingsUpdate(value)).toBe(false);
   });
 
-  it('rejects missing, extra, and symbol keys at the root', () => {
-    const { vaultPath: _removed, ...missing } = validSettings;
-    expect(validateSettingsUpdate(missing)).toBe(false);
+  it.each(Object.keys(validSettings).filter(key => key !== 'obsidianApiKey'))(
+    'rejects a missing required root setting: %s',
+    missingKey => {
+      const settings = Object.fromEntries(
+        Object.entries(validSettings).filter(([key]) => key !== missingKey)
+      );
+      expect(validateSettingsUpdate(settings)).toBe(false);
+    }
+  );
+
+  it('rejects extra and symbol keys at the root even when the API key is omitted', () => {
+    const { obsidianApiKey: _unchangedKey, ...settings } = validSettings;
     expect(validateSettingsUpdate({ ...validSettings, unexpected: true })).toBe(false);
     expect(validateSettingsUpdate({ ...validSettings, [Symbol('extra')]: true })).toBe(false);
+    expect(validateSettingsUpdate({ ...settings, unexpected: true })).toBe(false);
+    expect(validateSettingsUpdate({ ...settings, [Symbol('extra')]: true })).toBe(false);
   });
 
   it.each([
@@ -89,6 +105,11 @@ describe('popup settings transport validation', () => {
 
   it.each([
     ['obsidianApiKey', 123],
+    ['obsidianApiKey', undefined],
+    ['obsidianApiKey', null],
+    ['obsidianApiKey', false],
+    ['obsidianApiKey', []],
+    ['obsidianApiKey', {}],
     ['obsidianUrl', false],
     ['vaultPath', null],
     ['enableAutoScroll', 'false'],

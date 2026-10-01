@@ -422,6 +422,14 @@ export interface SyncSettings {
 export interface ExtensionSettings extends SecureSettings, SyncSettings {}
 
 /**
+ * Exact popup settings-save transport: every non-secret setting is required.
+ * Omitting the API key preserves the credential; an explicit empty string clears it.
+ */
+export interface PopupSettingsUpdate extends SyncSettings {
+  obsidianApiKey?: string;
+}
+
+/**
  * Settings returned to content scripts (API key redacted)
  *
  * Security: Content scripts run inside third-party pages and should
@@ -478,7 +486,7 @@ export interface TemplateOptions {
  */
 export type ExtensionMessage =
   | { action: 'saveToOutputs'; data: ObsidianNote; outputs: OutputDestination[] }
-  | { action: 'saveSettings'; settings: ExtensionSettings }
+  | { action: 'saveSettings'; settings: PopupSettingsUpdate }
   | { action: 'updateOutputOptions'; outputOptions: OutputOptions }
   | {
       action: 'persistArchiveCompanion';

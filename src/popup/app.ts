@@ -8,7 +8,12 @@
  */
 
 import { getSettings } from '../lib/storage';
-import type { ExtensionSettings, TemplateOptions, OutputOptions } from '../lib/types';
+import type {
+  ExtensionSettings,
+  PopupSettingsUpdate,
+  TemplateOptions,
+  OutputOptions,
+} from '../lib/types';
 import {
   validateCalloutType,
   validateVaultPath,
@@ -117,6 +122,14 @@ type PopupElements = ReturnType<typeof queryElements>;
 // Assigned by initPopup() before any UI handler can run
 let elements: PopupElements;
 let outputSaveChain: Promise<void> = Promise.resolve();
+let settingsActionInFlight = false;
+// Only an edited field may replace the credential, including when migration
+// finishes in the background after this popup was populated with a blank key.
+let savedApiKeyValue = '';
+// A rejected response can follow a successful local key write and a failed
+// sync-settings write. Until an explicit retry succeeds, the UI baseline is
+// not authoritative and every ordinary save must resend the displayed key.
+let apiKeySaveUncertain = false;
 
 function isOpaqueReplaySettingActive(settings: ExtensionSettings): boolean {
   return settings.enableChatGptOpaqueReplay === true && settings.enableChatGptOpaqueProbe !== true;
@@ -167,6 +180,8 @@ function populateForm(settings: ExtensionSettings): void {
 
   // Obsidian API settings
   elements.apiKey.value = settings.obsidianApiKey || '';
+  savedApiKeyValue = elements.apiKey.value.trim();
+  apiKeySaveUncertain = false;
   elements.obsidianUrl.value = settings.obsidianUrl || DEFAULT_OBSIDIAN_URL;
   elements.vaultPath.value = settings.vaultPath || '';
 
@@ -517,16 +532,32 @@ function normalizeObsidianSettings(
   };
 }
 
+/** Save and connection-test flows share credential state and cannot overlap. */
+function beginSettingsAction(): boolean {
+  if (settingsActionInFlight) return false;
+  settingsActionInFlight = true;
+  elements.saveBtn.disabled = true;
+  elements.testBtn.disabled = true;
+  return true;
+}
+
+function endSettingsAction(): void {
+  settingsActionInFlight = false;
+  elements.saveBtn.disabled = false;
+  elements.testBtn.disabled = false;
+}
+
 /**
  * Handle save button click
  * Input validation using security utilities (NEW-03)
  */
 async function handleSave(): Promise<void> {
-  elements.saveBtn.disabled = true;
+  if (!beginSettingsAction()) return;
   clearStatus();
 
   try {
     await outputSaveChain;
+    const apiKeyValue = elements.apiKey.value.trim();
     const settings = collectSettings();
 
     // Validate output options - at least one must be selected
@@ -546,16 +577,26 @@ async function handleSave(): Promise<void> {
       settingsToSave = result.settings;
     }
 
-    const response = await sendMessage({ action: 'saveSettings', settings: settingsToSave });
+    const { obsidianApiKey, ...syncSettings } = settingsToSave;
+    const settingsUpdate: PopupSettingsUpdate =
+      apiKeyValue === savedApiKeyValue && !apiKeySaveUncertain
+        ? syncSettings
+        : { ...syncSettings, obsidianApiKey };
+    if (settingsUpdate.obsidianApiKey !== undefined) apiKeySaveUncertain = true;
+    const response = await sendMessage({ action: 'saveSettings', settings: settingsUpdate });
     if (!response.success) {
       showStatus(response.error ?? getMessage('toast_error_saveFailed', 'Unknown error'), 'error');
       return;
+    }
+    if (settingsUpdate.obsidianApiKey !== undefined) {
+      savedApiKeyValue = apiKeyValue;
+      apiKeySaveUncertain = false;
     }
     showStatus(getMessage('status_settingsSaved'), 'success');
   } catch {
     showStatus(getMessage('toast_error_saveFailed', 'Unknown error'), 'error');
   } finally {
-    elements.saveBtn.disabled = false;
+    endSettingsAction();
   }
 }
 
@@ -563,18 +604,18 @@ async function handleSave(): Promise<void> {
  * Handle test connection button click
  */
 async function handleTest(): Promise<void> {
-  elements.testBtn.disabled = true;
+  if (!beginSettingsAction()) return;
   clearStatus();
   showStatus(getMessage('status_testing'), 'info');
 
   try {
     await outputSaveChain;
     // First save current settings
+    const apiKeyValue = elements.apiKey.value.trim();
     const settings = collectSettings();
 
     if (!settings.obsidianApiKey) {
       showStatus(getMessage('toast_error_noApiKey'), 'warning');
-      elements.testBtn.disabled = false;
       return;
     }
 
@@ -582,12 +623,12 @@ async function handleTest(): Promise<void> {
     const result = normalizeObsidianSettings(settings);
     if (!result.ok) {
       showStatus(result.error, 'error');
-      elements.testBtn.disabled = false;
       return;
     }
 
     // Save validated and normalized settings through the background worker so
     // this update shares the worker's serialized storage mutation queue.
+    apiKeySaveUncertain = true;
     const saveResponse = await sendMessage({ action: 'saveSettings', settings: result.settings });
     if (!saveResponse.success) {
       showStatus(
@@ -596,6 +637,8 @@ async function handleTest(): Promise<void> {
       );
       return;
     }
+    savedApiKeyValue = apiKeyValue;
+    apiKeySaveUncertain = false;
 
     // Send test connection message to background script
     const response = await sendMessage({ action: 'testConnection' });
@@ -608,7 +651,7 @@ async function handleTest(): Promise<void> {
   } catch {
     showStatus(getMessage('toast_error_connectionFailed'), 'error');
   } finally {
-    elements.testBtn.disabled = false;
+    endSettingsAction();
   }
 }
 
