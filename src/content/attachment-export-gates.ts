@@ -41,6 +41,7 @@ export function canExportDeepSeekAttachments(
     hasDurableOutput(outputs) &&
     result.archiveCompanion !== undefined &&
     result.deepSeekAssetExportContext !== undefined &&
+    result.deepSeekAssetExportContext.rawCaptureBundle.manifest.assets.length > 0 &&
     result.data?.source === 'deepseek' &&
     result.data.capture?.mode === 'structured-api'
   );

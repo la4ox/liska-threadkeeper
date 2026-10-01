@@ -119,7 +119,8 @@ archives and verified attachments) with focused draft PR #9 (Obsidian key
 migration). Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10)
 is Ready for review but is not merged; #8 and #9 remain open and unchanged.
 
-The current 2026-10-02 review-fix tree addresses all five automated P2 comments:
+The current 2026-10-02 review-fix tree addresses all eight automated P2 comments
+from two review passes:
 
 - an unchanged popup key is omitted from a full settings save, so a deferred
   legacy migration cannot be overwritten by an accidental empty value;
@@ -135,19 +136,27 @@ The current 2026-10-02 review-fix tree addresses all five automated P2 comments:
   budget truncates the ledger, passive ResourceTiming fallback is disabled
   because global file-ID uniqueness cannot be proven; verified in-band paths
   inside the admitted prefix remain usable and all other assets stay
-  `not-attempted`.
+  `not-attempted`;
+- repeated records for one DeepSeek file may omit `signed_path` without erasing
+  another verified path, while present malformed or conflicting paths still
+  invalidate the in-band candidate;
+- an empty asset ledger bypasses binary-aware finalization and preserves the
+  original companion/Markdown sequence without a second full normalization;
+- empty, missing, or non-text typed fragments no longer suppress usable
+  message-level content/reasoning fallbacks; classifier and normalizer share
+  the same non-empty-string rule.
 
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 145 test files / 2,920 tests pass with two workers;
-- coverage passes at 95.05% statements, 90.10% branches, 98.22% functions,
+- 145 test files / 2,997 tests pass with two workers;
+- coverage passes at 95.06% statements, 90.14% branches, 98.22% functions,
   and 97.78% lines;
 - typecheck and the production build pass;
 - lint passes with only three pre-existing advisory warnings, and repository
   formatting passes;
-- an independent review reproduced and fixed two additional popup credential
-  races, then found no residual P0-P3 issue.
+- independent reviews reproduced and fixed two additional popup credential
+  races and found no residual P0-P3 issue after either review-fix layer.
 
 The prior combined File+Obsidian synthetic canary remains valid evidence for the
 unchanged successful one-file path: both destinations received byte-identical

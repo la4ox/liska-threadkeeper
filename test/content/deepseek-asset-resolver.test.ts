@@ -21,6 +21,10 @@ const FILE_ID = '11111111-2222-4333-8444-555555555555';
 const STATE = 'synthetic-opaque-state';
 const PERFORMANCE_STATE = 'synthetic-performance-state';
 
+interface DeepSeekFileRawFixture {
+  data: { biz_data: { chat_messages: Array<{ files: Array<Record<string, unknown>> }> } };
+}
+
 function performanceUrl(fileId = FILE_ID, state = PERFORMANCE_STATE): string {
   return (
     'https://files.deepseeksvc.com/api/file?' +
@@ -93,12 +97,56 @@ async function bundleForFile(overrides: Record<string, unknown> = {}): Promise<R
   return { manifest, artifacts: [{ record: artifact, bytes }], assets: [] };
 }
 
+async function bundleForRepeatedFiles(signedPaths: readonly unknown[]): Promise<RawCaptureBundle> {
+  const bundle = await bundleForFile();
+  const raw = {
+    data: {
+      biz_data: {
+        chat_messages: [
+          {
+            files: signedPaths.map(signedPath => ({
+              id: PROVIDER_ID,
+              file_name: 'synthetic.txt',
+              file_size: 93,
+              status: 'SUCCESS',
+              signed_path: signedPath,
+            })),
+          },
+        ],
+      },
+    },
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(raw));
+  const artifact = {
+    ...bundle.manifest.artifacts[0],
+    byteLength: bytes.byteLength,
+    sha256: await sha256Hex(bytes),
+  };
+  const inventory = await inventoryDeepSeekRawAssets({
+    raw,
+    artifactId: 'conversation',
+    sha256: sha256Hex,
+  });
+  bundle.manifest.artifacts = [artifact];
+  bundle.manifest.assets = inventory.assets;
+  bundle.artifacts = [{ record: artifact, bytes }];
+  return bundle;
+}
+
 async function bundleForFragmentFile(): Promise<RawCaptureBundle> {
   const legacy = await bundleForFile();
-  const raw = JSON.parse(new TextDecoder().decode(legacy.artifacts[0].bytes)) as any;
-  const file = raw.data.biz_data.chat_messages[0].files[0];
-  raw.data.biz_data.chat_messages[0] = {
-    fragments: [{ files: [file], id: 'synthetic-fragment-id', type: 'FILE' }],
+  const legacyRaw = JSON.parse(
+    new TextDecoder().decode(legacy.artifacts[0].bytes)
+  ) as DeepSeekFileRawFixture;
+  const file = legacyRaw.data.biz_data.chat_messages[0].files[0];
+  const raw = {
+    data: {
+      biz_data: {
+        chat_messages: [
+          { fragments: [{ files: [file], id: 'synthetic-fragment-id', type: 'FILE' }] },
+        ],
+      },
+    },
   };
   const bytes = new TextEncoder().encode(JSON.stringify(raw));
   const artifact = {
@@ -184,6 +232,106 @@ describe('DeepSeek signed-path resolver', () => {
       },
     ]);
   });
+
+  it.each(['valid-first', 'absent-first'] as const)(
+    'retains a verified in-band path when a repeated record omits signed_path: %s',
+    async order => {
+      const signedPath = `/file?file_id=${FILE_ID}&state=${STATE}`;
+      const paths = order === 'valid-first' ? [signedPath, undefined] : [undefined, signedPath];
+      const bundle = await bundleForRepeatedFiles(paths);
+
+      expect(bundle.manifest.assets).toHaveLength(1);
+      expect(bundle.manifest.assets[0].sourceRefs).toHaveLength(2);
+      await expect(deriveDeepSeekSignedAssetCandidates(bundle)).resolves.toEqual([
+        {
+          assetId: bundle.manifest.assets[0].id,
+          downloadUrl: performanceUrl(FILE_ID, STATE),
+          declaredByteLength: 93,
+        },
+      ]);
+      await expect(
+        deriveDeepSeekAssetCandidates(bundle, 'conversation', sha256Hex, () => [
+          resource(performanceUrl()),
+        ])
+      ).resolves.toEqual([
+        {
+          assetId: bundle.manifest.assets[0].id,
+          downloadUrl: performanceUrl(FILE_ID, STATE),
+          declaredByteLength: 93,
+        },
+      ]);
+      expect(JSON.stringify(bundle.manifest)).not.toContain(STATE);
+      expect(JSON.stringify(bundle.manifest)).not.toContain(PROVIDER_ID);
+    }
+  );
+
+  it('leaves repeated records with only absent signed_path values unresolved in-band', async () => {
+    const bundle = await bundleForRepeatedFiles([undefined, undefined]);
+
+    expect(bundle.manifest.assets).toHaveLength(1);
+    expect(bundle.manifest.assets[0].sourceRefs).toHaveLength(2);
+    await expect(deriveDeepSeekSignedAssetCandidates(bundle)).resolves.toEqual([]);
+    await expect(
+      deriveDeepSeekAssetCandidates(bundle, 'conversation', sha256Hex, () => [
+        resource(performanceUrl()),
+      ])
+    ).resolves.toEqual([
+      {
+        assetId: bundle.manifest.assets[0].id,
+        downloadUrl: performanceUrl(),
+        declaredByteLength: 93,
+      },
+    ]);
+  });
+
+  it('accepts identical valid signed paths in repeated raw records', async () => {
+    const signedPath = `/file?file_id=${FILE_ID}&state=${STATE}`;
+    const bundle = await bundleForRepeatedFiles([signedPath, signedPath]);
+
+    expect(bundle.manifest.assets[0].sourceRefs).toHaveLength(2);
+    await expect(deriveDeepSeekSignedAssetCandidates(bundle)).resolves.toEqual([
+      {
+        assetId: bundle.manifest.assets[0].id,
+        downloadUrl: performanceUrl(FILE_ID, STATE),
+        declaredByteLength: 93,
+      },
+    ]);
+  });
+
+  it.each([
+    null,
+    '',
+    17,
+    `https://evil.example/file?file_id=${FILE_ID}&state=${STATE}`,
+    `/file?file_id=other-file&state=${STATE}`,
+    `/file?file_id=${FILE_ID}&state=conflicting-state`,
+  ])(
+    'rejects present malformed or conflicting repeated paths in both orders: %o',
+    async invalid => {
+      const valid = `/file?file_id=${FILE_ID}&state=${STATE}`;
+      for (const paths of [
+        [valid, invalid],
+        [invalid, valid],
+      ]) {
+        const bundle = await bundleForRepeatedFiles(paths);
+
+        expect(bundle.manifest.assets).toHaveLength(1);
+        expect(bundle.manifest.assets[0].sourceRefs).toHaveLength(2);
+        await expect(deriveDeepSeekSignedAssetCandidates(bundle)).resolves.toEqual([]);
+        await expect(
+          deriveDeepSeekAssetCandidates(bundle, 'conversation', sha256Hex, () => [
+            resource(performanceUrl()),
+          ])
+        ).resolves.toEqual([
+          {
+            assetId: bundle.manifest.assets[0].id,
+            downloadUrl: performanceUrl(),
+            declaredByteLength: 93,
+          },
+        ]);
+      }
+    }
+  );
 
   it('derives the same strict candidate from the current FILE fragment source pointer', async () => {
     const bundle = await bundleForFragmentFile();
@@ -411,7 +559,9 @@ describe('DeepSeek signed-path resolver', () => {
       { length: DEEPSEEK_ASSET_DERIVATION_BUDGET.sourceRefs - 1 },
       () => ({ ...first.sourceRefs[0] })
     );
-    const raw = JSON.parse(new TextDecoder().decode(bundle.artifacts[0].bytes)) as any;
+    const raw = JSON.parse(new TextDecoder().decode(bundle.artifacts[0].bytes)) as {
+      files: Array<Record<string, unknown>>;
+    };
     delete raw.files[1].signed_path;
     bundle.artifacts[0].bytes = new TextEncoder().encode(JSON.stringify(raw));
     const digest = vi.fn(sha256Hex);
@@ -491,7 +641,9 @@ describe('DeepSeek signed-path resolver', () => {
 
   it('rejects an ambiguous normalized file_id binding', async () => {
     const bundle = await bundleForFile({ signed_path: undefined });
-    const raw = JSON.parse(new TextDecoder().decode(bundle.artifacts[0].bytes)) as any;
+    const raw = JSON.parse(
+      new TextDecoder().decode(bundle.artifacts[0].bytes)
+    ) as DeepSeekFileRawFixture;
     raw.data.biz_data.chat_messages[0].files.push({
       ...raw.data.biz_data.chat_messages[0].files[0],
       id: FILE_ID,
@@ -514,7 +666,9 @@ describe('DeepSeek signed-path resolver', () => {
   it('never makes an ambiguous normalized ID unique by truncating its competing asset', async () => {
     const bundle = await bundleForFile({ signed_path: undefined });
     const original = bundle.manifest.assets[0];
-    const raw = JSON.parse(new TextDecoder().decode(bundle.artifacts[0].bytes)) as any;
+    const raw = JSON.parse(
+      new TextDecoder().decode(bundle.artifacts[0].bytes)
+    ) as DeepSeekFileRawFixture;
     raw.data.biz_data.chat_messages[0].files.push({
       ...raw.data.biz_data.chat_messages[0].files[0],
       id: FILE_ID,
@@ -595,7 +749,9 @@ describe('DeepSeek signed-path resolver', () => {
 
   it('sorts multiple independently bound candidates without exposing provider ids', async () => {
     const bundle = await bundleForFile();
-    const raw = JSON.parse(new TextDecoder().decode(bundle.artifacts[0].bytes)) as any;
+    const raw = JSON.parse(
+      new TextDecoder().decode(bundle.artifacts[0].bytes)
+    ) as DeepSeekFileRawFixture;
     const providerId = 'file-22222222-3333-4444-8555-666666666666';
     const fileId = '22222222-3333-4444-8555-666666666666';
     raw.data.biz_data.chat_messages[0].files.push({

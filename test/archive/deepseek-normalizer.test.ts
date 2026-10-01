@@ -108,6 +108,33 @@ function encodedRaw(mutator: (raw: DeepSeekRaw) => void): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(raw));
 }
 
+const typedFragmentTypes = ['REQUEST', 'RESPONSE', 'TEMPLATE_RESPONSE', 'THINK'] as const;
+const unusableFragmentContents = [
+  { label: 'empty', content: '' },
+  { label: 'missing', content: undefined },
+  { label: 'null', content: null },
+  { label: 'number', content: 42 },
+  { label: 'boolean', content: false },
+  { label: 'object', content: { text: 'fragment shape', api_key: 'synthetic-fragment-secret' } },
+  { label: 'array', content: ['fragment shape'] },
+];
+
+function expectedStringFragmentBlock(type: string, content: string): Record<string, string> {
+  if (type === 'REQUEST') return { type: 'text', text: content };
+  if (type === 'THINK') return { type: 'reasoning', text: content };
+  return { type: 'markdown', markdown: content };
+}
+
+function encodedTypedFragment(type: string, content: unknown, fallback: unknown): Uint8Array {
+  return encodedRaw(raw => {
+    const message = raw.data.biz_data.chat_messages[4];
+    message.role = type === 'REQUEST' ? 'USER' : 'ASSISTANT';
+    message.fragments = [{ type, ...(content === undefined ? {} : { content }) }];
+    message[type === 'THINK' ? 'thinking_content' : 'content'] = fallback;
+    delete message.files;
+  });
+}
+
 function liveFragmentFile(): Record<string, unknown> {
   return {
     audit_result: null,
@@ -504,6 +531,184 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
       )
     );
   });
+
+  describe.each(typedFragmentTypes)('%s fragment fallback', type => {
+    const fallbackField = type === 'THINK' ? 'thinking_content' : 'content';
+    const messagePointer = '/data/biz_data/chat_messages/4';
+
+    it.each(unusableFragmentContents)(
+      'preserves the $label fragment and its distinctive string fallback',
+      async ({ label, content }) => {
+        const fallback = `fallback:${type}:${label}`;
+        const bytes = encodedTypedFragment(type, content, fallback);
+        const expectedUnknown = content === '' ? [] : [`${type}:non-text`];
+        const { archive, observedUnknownContentTypes } = await normalizeBytes(bytes);
+        const blocks = archive.graph.nodes['current-answer'].message?.blocks ?? [];
+
+        expect(preflightDeepSeekHistoryArtifact(bytes, 'deepseek-branching-1')).toEqual(
+          expectedUnknown
+        );
+        expect(observedUnknownContentTypes).toEqual(expectedUnknown);
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0]).toMatchObject({
+          ...(content === ''
+            ? expectedStringFragmentBlock(type, '')
+            : { type: 'unknown', providerType: `${type}:non-text`, raw: { type } }),
+          id: 'current-answer:block:0',
+          sourceRefs: [
+            {
+              rawPointer: `${messagePointer}/fragments/0${content === '' ? '/content' : ''}`,
+            },
+          ],
+        });
+        expect(blocks[1]).toMatchObject({
+          ...expectedStringFragmentBlock(type, fallback),
+          id: 'current-answer:block:1',
+          sourceRefs: [{ rawPointer: `${messagePointer}/${fallbackField}` }],
+        });
+        expect(JSON.stringify(archive)).not.toContain('synthetic-fragment-secret');
+      }
+    );
+
+    it.each(unusableFragmentContents.filter(sample => sample.content !== ''))(
+      'classifies both the $label fragment and its non-string fallback',
+      async ({ content }) => {
+        const fallback = { text: 'fallback shape', api_key: 'synthetic-fallback-secret' };
+        const bytes = encodedTypedFragment(type, content, fallback);
+        const expectedUnknown = [`${type}:non-text`, `message.${fallbackField}`].sort();
+        const bundle = await bundleFor(bytes);
+        const { archive, observedUnknownContentTypes } = await normalizeBytes(bytes);
+
+        expect(preflightDeepSeekHistoryArtifact(bytes, 'deepseek-branching-1')).toEqual(
+          expectedUnknown
+        );
+        expect(bundle.manifest.observedUnknownContentTypes).toEqual(expectedUnknown);
+        expect(observedUnknownContentTypes).toEqual(expectedUnknown);
+        expect(archive.graph.nodes['current-answer'].message?.blocks).toMatchObject([
+          {
+            type: 'unknown',
+            providerType: `${type}:non-text`,
+            raw: { type },
+            sourceRefs: [{ rawPointer: `${messagePointer}/fragments/0` }],
+          },
+          {
+            type: 'unknown',
+            providerType: `message.${fallbackField}`,
+            raw: { text: 'fallback shape' },
+            sourceRefs: [{ rawPointer: `${messagePointer}/${fallbackField}` }],
+          },
+        ]);
+        expect(archive.diagnostics.entries).toEqual(
+          expect.arrayContaining(
+            expectedUnknown.map(contentType =>
+              expect.objectContaining({
+                code: 'unknown-content-type',
+                extensions: { deepseek: { contentType } },
+              })
+            )
+          )
+        );
+        expect(JSON.stringify(archive)).not.toContain('synthetic-fallback-secret');
+      }
+    );
+
+    it.each(['retained fragment', ' \t\n'])(
+      'suppresses even a non-string fallback for non-empty content %j without trimming',
+      async content => {
+        const bytes = encodedTypedFragment(type, content, { text: 'suppressed fallback' });
+        const { archive, observedUnknownContentTypes } = await normalizeBytes(bytes);
+
+        expect(preflightDeepSeekHistoryArtifact(bytes, 'deepseek-branching-1')).toEqual([]);
+        expect(observedUnknownContentTypes).toEqual([]);
+        expect(archive.graph.nodes['current-answer'].message?.blocks).toMatchObject([
+          expectedStringFragmentBlock(type, content),
+        ]);
+        expect(JSON.stringify(archive)).not.toContain('suppressed fallback');
+      }
+    );
+  });
+
+  it('suppresses category fallbacks after mixed empty, invalid, and non-empty fragments in order', async () => {
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[4];
+      message.fragments = [
+        { type: 'REQUEST', content: '' },
+        { type: 'RESPONSE', content: { text: 'invalid visible fragment' } },
+        { type: 'TEMPLATE_RESPONSE', content: 'retained visible fragment' },
+        { type: 'THINK', content: '' },
+        { type: 'THINK', content: null },
+        { type: 'THINK', content: 'retained reasoning fragment' },
+      ];
+      message.content = 'suppressed visible fallback';
+      message.thinking_content = 'suppressed reasoning fallback';
+      delete message.files;
+    });
+    const { archive, observedUnknownContentTypes } = await normalizeBytes(bytes);
+    const blocks = archive.graph.nodes['current-answer'].message?.blocks ?? [];
+    const expectedUnknown = ['RESPONSE:non-text', 'THINK:non-text'];
+
+    expect(preflightDeepSeekHistoryArtifact(bytes, 'deepseek-branching-1')).toEqual(
+      expectedUnknown
+    );
+    expect(observedUnknownContentTypes).toEqual(expectedUnknown);
+    expect(blocks).toMatchObject([
+      { type: 'text', text: '' },
+      { type: 'unknown', providerType: 'RESPONSE:non-text' },
+      { type: 'markdown', markdown: 'retained visible fragment' },
+      { type: 'reasoning', text: '' },
+      { type: 'unknown', providerType: 'THINK:non-text' },
+      { type: 'reasoning', text: 'retained reasoning fragment' },
+    ]);
+    expect(blocks.map(block => block.id)).toEqual(
+      Array.from({ length: 6 }, (_, index) => `current-answer:block:${index}`)
+    );
+    expect(JSON.stringify(archive)).not.toContain('suppressed visible fallback');
+    expect(JSON.stringify(archive)).not.toContain('suppressed reasoning fallback');
+  });
+
+  it.each(['ASSISTANT', ' ai ', ' bot '])(
+    'projects visible fallback and gates reasoning fallback for normalized role %j and type casing',
+    async role => {
+      const bytes = encodedRaw(raw => {
+        const message = raw.data.biz_data.chat_messages[4];
+        message.role = role;
+        message.fragments = [
+          { type: ' response ', content: '' },
+          { type: ' think ', content: false },
+        ];
+        message.content = 'projected visible fallback';
+        message.thinking_content = 'gated reasoning fallback';
+        delete message.files;
+      });
+      const { archive, observedUnknownContentTypes } = await normalizeBytes(bytes);
+      const message = archive.graph.nodes['current-answer'].message;
+      const withoutThinking = projectArchiveBranch(archive, { includeToolContent: false });
+      const withThinking = projectArchiveBranch(archive, { includeToolContent: true });
+
+      expect(preflightDeepSeekHistoryArtifact(bytes, 'deepseek-branching-1')).toEqual([
+        'THINK:non-text',
+      ]);
+      expect(observedUnknownContentTypes).toEqual(['THINK:non-text']);
+      expect(message?.author.role).toBe('assistant');
+      expect(message?.blocks).toMatchObject([
+        { type: 'markdown', markdown: '' },
+        { type: 'unknown', providerType: 'THINK:non-text' },
+        { type: 'markdown', markdown: 'projected visible fallback' },
+        { type: 'reasoning', text: 'gated reasoning fallback' },
+      ]);
+      expect(withoutThinking.data.messages.at(-1)).toMatchObject({
+        id: 'current-answer',
+        content: 'projected visible fallback',
+        toolContent: undefined,
+      });
+      expect(JSON.stringify(withoutThinking.data)).not.toContain('gated reasoning fallback');
+      expect(withThinking.data.messages.at(-1)).toMatchObject({
+        id: 'current-answer',
+        content: 'projected visible fallback',
+        toolContent: '**Reasoning**\ngated reasoning fallback',
+      });
+    }
+  );
 
   it('redacts credentials and signed URLs from typed title and message blocks', async () => {
     const bytes = encodedRaw(raw => {

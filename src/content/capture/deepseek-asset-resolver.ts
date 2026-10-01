@@ -142,10 +142,13 @@ function valueAtPointer(root: unknown, pointer: string): unknown {
   return value;
 }
 
-function recordSignedPath(value: unknown): unknown {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>).signed_path
-    : undefined;
+function recordSignedPath(value: unknown): { present: boolean; value: unknown } {
+  const present =
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, 'signed_path');
+  return { present, value: present ? (value as Record<string, unknown>).signed_path : undefined };
 }
 
 function recordStatus(value: unknown): unknown {
@@ -158,7 +161,11 @@ interface DeepSeekRawAssetBinding {
   assetId: string;
   fileId: string;
   declaredByteLength: number | null;
-  files: Array<ReturnType<typeof readDeepSeekRawFileRecord> & { signedPath: unknown }>;
+  files: Array<
+    ReturnType<typeof readDeepSeekRawFileRecord> & {
+      signedPath: ReturnType<typeof recordSignedPath>;
+    }
+  >;
 }
 
 interface DeepSeekRawAssetBindings {
@@ -267,7 +274,10 @@ function signedCandidatesFromBindings(
   for (const binding of bindings) {
     let downloadUrl: string | undefined;
     for (const file of binding.files) {
-      const next = deepSeekDownloadUrl(file.providerId, file.signedPath);
+      // Repeated metadata may omit transport evidence; present malformed paths
+      // still invalidate the whole in-band candidate rather than being skipped.
+      if (!file.signedPath.present) continue;
+      const next = deepSeekDownloadUrl(file.providerId, file.signedPath.value);
       if (next === undefined || (downloadUrl !== undefined && downloadUrl !== next)) {
         downloadUrl = undefined;
         break;

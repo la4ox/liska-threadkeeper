@@ -277,8 +277,11 @@ function classifyUnknownBlockTypes(message: DeepSeekJsonRecord, normalizedRole?:
         unknown.add('INVALID_FRAGMENT_TYPE');
         return;
       }
-      if (type === 'THINK') hasReasoningFragment = true;
-      if (type === 'REQUEST' || type === 'RESPONSE' || type === 'TEMPLATE_RESPONSE') {
+      if (type === 'THINK' && hasNonEmptyFragmentContent(fragment)) hasReasoningFragment = true;
+      if (
+        (type === 'REQUEST' || type === 'RESPONSE' || type === 'TEMPLATE_RESPONSE') &&
+        hasNonEmptyFragmentContent(fragment)
+      ) {
         hasVisibleFragment = true;
       }
       if (!KNOWN_FRAGMENT_TYPES.has(type)) unknown.add(type);
@@ -300,6 +303,11 @@ function classifyUnknownBlockTypes(message: DeepSeekJsonRecord, normalizedRole?:
     unknown.add('message.thinking_content');
   }
   return [...unknown].sort();
+}
+
+function hasNonEmptyFragmentContent(fragment: DeepSeekJsonRecord): boolean {
+  // Whitespace-only text still satisfies a fragment; do not trim provider content here.
+  return typeof fragment.content === 'string' && fragment.content.length > 0;
 }
 
 function normalizedRoleForClassification(value: unknown): string {
@@ -563,8 +571,11 @@ function normalizeBlocks(
       const fragmentPointer = pointerAt(pointer, 'fragments', String(index));
       const fragment = requireRecord(value, fragmentPointer, 'malformed-fragment');
       const type = fragmentType(fragment, fragmentPointer);
-      if (type === 'THINK') hasReasoningFragment = true;
-      if (type === 'REQUEST' || type === 'RESPONSE' || type === 'TEMPLATE_RESPONSE') {
+      if (type === 'THINK' && hasNonEmptyFragmentContent(fragment)) hasReasoningFragment = true;
+      if (
+        (type === 'REQUEST' || type === 'RESPONSE' || type === 'TEMPLATE_RESPONSE') &&
+        hasNonEmptyFragmentContent(fragment)
+      ) {
         hasVisibleFragment = true;
       }
       if (type === 'FILE') {

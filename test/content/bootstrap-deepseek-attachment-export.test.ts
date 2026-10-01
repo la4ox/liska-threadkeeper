@@ -1,10 +1,23 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildCaptureManifest,
+  inventoryDeepSeekRawAssets,
+  normalizeDeepSeekCapture,
+  type RawCaptureBundle,
+} from '../../src/archive';
+import {
+  appendJsonCanonicalCompanion,
+  buildJsonRawManifestCompanion,
+} from '../../src/content/capture/json-archive-companion';
+import { hashCaptureManifest, sha256Hex } from '../../src/content/capture/response';
+import { conversationToNote } from '../../src/content/markdown';
 import type {
   ArchiveCompanionBundle,
   ContentScriptSettings,
   DeepSeekAssetExportContext,
   ExtractionResult,
   MultiOutputResponse,
+  OutputDestination,
 } from '../../src/lib/types';
 import { resetLocation } from '../fixtures/dom-helpers';
 
@@ -75,41 +88,96 @@ const settings: ContentScriptSettings = {
   },
 };
 
-const companion = {
-  captureId: 'capture-deepseek-synthetic-bootstrap',
-  conversationKey: 'a'.repeat(64),
-  artifacts: [
-    {
-      transport: 'inline',
-      kind: 'raw',
-      relativePath: 'responses/conversation.json',
-      mediaType: 'application/json',
-      byteLength: 2,
-      sha256: 'b'.repeat(64),
-      bodyBase64: 'e30=',
-    },
-    {
-      transport: 'inline',
-      kind: 'manifest',
-      relativePath: 'manifest.json',
-      mediaType: 'application/json',
-      byteLength: 2,
-      sha256: 'c'.repeat(64),
-      bodyBase64: 'e30=',
-    },
-    {
-      transport: 'inline',
-      kind: 'canonical',
-      relativePath: 'canonical/liska-thread-1.json',
-      mediaType: 'application/json',
-      byteLength: 2,
-      sha256: 'd'.repeat(64),
-      bodyBase64: 'e30=',
-    },
-  ],
-} satisfies ArchiveCompanionBundle;
+let companion: ArchiveCompanionBundle;
+let context: DeepSeekAssetExportContext;
 
-const context = {} as DeepSeekAssetExportContext;
+async function capture(fileMode: 'present' | 'empty' | 'malformed' = 'present'): Promise<{
+  companion: ArchiveCompanionBundle;
+  context: DeepSeekAssetExportContext;
+}> {
+  const file = {
+    id: fileMode === 'malformed' ? null : 'file-bootstrap-synthetic',
+    file_name: 'synthetic.txt',
+    file_size: 9,
+    status: 'SUCCESS',
+    signed_path: '/file?file_id=bootstrap-synthetic&state=synthetic-bootstrap-state',
+  };
+  const raw = {
+    code: 0,
+    data: {
+      biz_code: 0,
+      biz_data: {
+        cache_control: 'REPLACE',
+        chat_session: {
+          id: 'synthetic-deepseek-conversation',
+          title: 'Synthetic DeepSeek attachment',
+          current_message_id: 'one',
+        },
+        chat_messages: [
+          {
+            message_id: 'one',
+            parent_id: null,
+            role: 'USER',
+            fragments: [{ type: 'REQUEST', content: 'Synthetic' }],
+            files: fileMode === 'empty' ? [] : [file],
+          },
+        ],
+      },
+    },
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(raw));
+  const artifact = {
+    id: 'conversation',
+    relativePath: 'responses/conversation.json',
+    mediaType: 'application/json',
+    byteLength: bytes.byteLength,
+    sha256: await sha256Hex(bytes),
+    endpoint: { method: 'GET' as const, pathPattern: '/api/v0/chat/history_messages' },
+  };
+  const inventory = await inventoryDeepSeekRawAssets({
+    raw,
+    artifactId: 'conversation',
+    sha256: sha256Hex,
+  });
+  const manifest = buildCaptureManifest({
+    captureId: 'capture-deepseek-synthetic-bootstrap',
+    provider: 'deepseek',
+    conversationId: 'synthetic-deepseek-conversation',
+    capturedAt: '2026-09-19T10:00:00.000Z',
+    method: 'same-origin-api',
+    artifacts: [artifact],
+    assets: inventory.assets,
+    completeness: {
+      graph: 'complete',
+      messages: 'complete',
+      branches: 'complete',
+      assets: inventory.completeness,
+    },
+    warnings: inventory.warnings,
+  });
+  const bundle: RawCaptureBundle = {
+    manifest,
+    artifacts: [{ record: artifact, bytes }],
+    assets: [],
+  };
+  const original = await buildJsonRawManifestCompanion(bundle, sha256Hex, 'deepseek');
+  const normalized = await normalizeDeepSeekCapture({
+    bundle,
+    artifactId: 'conversation',
+    manifestSha256: await hashCaptureManifest(manifest),
+    sha256: sha256Hex,
+  });
+  const companion = await appendJsonCanonicalCompanion(
+    original,
+    normalized.archive,
+    sha256Hex,
+    'deepseek'
+  );
+  return {
+    companion,
+    context: { rawCaptureBundle: bundle, rawArtifact: companion.artifacts[0] },
+  };
+}
 
 function result(): ExtractionResult {
   return {
@@ -134,34 +202,30 @@ function result(): ExtractionResult {
   };
 }
 
-const successfulSave: MultiOutputResponse = {
-  results: [{ destination: 'file', success: true }],
-  allSuccessful: true,
-  anySuccessful: true,
-};
-
 function mockMessages(): void {
-  mocks.sendMessage.mockImplementation((message: { action: string; outputs?: string[] }) => {
-    if (message.action === 'getSettings') return Promise.resolve(settings);
-    if (message.action === 'saveToOutputs') {
-      const outputs = message.outputs ?? ['file'];
-      return Promise.resolve({
-        results: outputs.map(destination => ({ destination, success: true })),
-        allSuccessful: true,
-        anySuccessful: true,
-      });
+  mocks.sendMessage.mockImplementation(
+    (message: { action: string; outputs?: OutputDestination[] }) => {
+      if (message.action === 'getSettings') return Promise.resolve(settings);
+      if (message.action === 'testConnection') return Promise.resolve({ success: true });
+      if (
+        message.action === 'saveToOutputs' ||
+        message.action === 'persistArchiveCompanion' ||
+        message.action === 'commitStagedArchiveCompanion'
+      ) {
+        const outputs = message.outputs ?? ['file'];
+        return Promise.resolve({
+          results: outputs.map(destination => ({ destination, success: true })),
+          allSuccessful: true,
+          anySuccessful: true,
+        } satisfies MultiOutputResponse);
+      }
+      return Promise.reject(new Error(`unexpected background message: ${message.action}`));
     }
-    if (
-      message.action === 'persistArchiveCompanion' ||
-      message.action === 'commitStagedArchiveCompanion'
-    )
-      return Promise.resolve(successfulSave);
-    return Promise.reject(new Error(`unexpected background message: ${message.action}`));
-  });
+  );
 }
 
 describe('DeepSeek attachment bootstrap gate', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     Object.defineProperty(window, 'location', {
       value: {
@@ -179,6 +243,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
     });
     settings.enableImageExport = true;
     settings.outputOptions = { obsidian: false, file: true, clipboard: false };
+    ({ companion, context } = await capture());
     mocks.extract.mockResolvedValue(result());
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
     mocks.attachmentExport.mockResolvedValue({
@@ -205,6 +270,75 @@ describe('DeepSeek attachment bootstrap gate', () => {
         expect.objectContaining({ action: 'saveToOutputs', outputs: ['file'] })
       );
       expect(mocks.showWarningToast).toHaveBeenCalledWith('Synthetic DeepSeek attachment caveat.');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['file', 'obsidian'] as const)(
+    'saves the original companion and Markdown without an attachment rebuild for an empty ledger: %s',
+    async destination => {
+      ({ companion, context } = await capture('empty'));
+      const empty = result();
+      settings.outputOptions = {
+        obsidian: destination === 'obsidian',
+        file: destination === 'file',
+        clipboard: false,
+      };
+      mocks.extract.mockResolvedValue(empty);
+
+      vi.useFakeTimers();
+      try {
+        const note = conversationToNote(empty.data!, settings.templateOptions);
+        await handleSync();
+
+        expect(context.rawCaptureBundle.manifest.assets).toEqual([]);
+        expect(mocks.attachmentExport).not.toHaveBeenCalled();
+        expect(mocks.sendMessage.mock.calls.map(call => call[0])).toEqual([
+          { action: 'getSettings' },
+          ...(destination === 'obsidian' ? [{ action: 'testConnection' }] : []),
+          ...companion.artifacts.map(artifact => ({
+            action: 'persistArchiveCompanion',
+            noteFileName: note.fileName,
+            source: 'deepseek',
+            captureId: companion.captureId,
+            conversationKey: companion.conversationKey,
+            artifact,
+            outputs: [destination],
+          })),
+          { action: 'saveToOutputs', data: note, outputs: [destination] },
+        ]);
+        expect(mocks.showErrorToast).not.toHaveBeenCalled();
+        expect(mocks.showWarningToast).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  it('retains the inventory warning when an empty ledger has unknown completeness', async () => {
+    ({ companion, context } = await capture('malformed'));
+    const unknown = result();
+    unknown.warnings = [...context.rawCaptureBundle.manifest.warnings];
+    mocks.extract.mockResolvedValue(unknown);
+    vi.useFakeTimers();
+    try {
+      const note = conversationToNote(unknown.data!, settings.templateOptions);
+      await handleSync();
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(context.rawCaptureBundle.manifest.assets).toEqual([]);
+      expect(context.rawCaptureBundle.manifest.completeness.assets).toBe('unknown');
+      expect(mocks.attachmentExport).not.toHaveBeenCalled();
+      expect(mocks.sendMessage).toHaveBeenCalledWith({
+        action: 'saveToOutputs',
+        data: note,
+        outputs: ['file'],
+      });
+      expect(mocks.showWarningToast).toHaveBeenCalledWith(
+        'deepseek-attachment-inventory-unavailable'
+      );
+      expect(mocks.showErrorToast).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
