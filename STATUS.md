@@ -116,7 +116,10 @@
 The ChatGPT checkpoint is merged at `588d390`. The local
 `codex/deepseek-obsidian-integration` branch combines draft PR #8 (DeepSeek
 archives and verified attachments) with draft PR #9 (Obsidian key migration)
-without changing the installed Comet build or either remote draft.
+at merge commit `d5cbe8a`. The exact 30-file integration build is now loaded in
+Comet. Its previous PR #8 build is retained outside the repository at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\dist-pr8-20261001`.
+Neither remote draft was changed.
 
 Fresh local validation on 2026-09-22:
 
@@ -144,13 +147,24 @@ Fresh local validation on 2026-09-22:
   frontmatter facts recorded above. Conversation text was not reviewed during
   filesystem verification.
 
-The passive timing fallback is live-verified for File output only. On
-2026-09-22 the local Obsidian REST endpoint answered HTTP 200, but an
-authenticated File+Obsidian canary for this DeepSeek asset and the combined
-build is still pending. Next: after the user saves Obsidian and File outputs in
-the popup, perform one synthetic append-only capture and verify each
-destination's raw/manifest/canonical/binary hashes without reading private
-chat contents. The fallback requires a page-native preview first; automatic
-card activation, active observers, `fetch_files`, retries, and guessed URLs
-remain unsupported. Keep PR #8 and PR #9 draft until an explicit integration
-and merge decision; no release/tag is automatic.
+The combined build passed a post-reload File+Obsidian canary on 2026-10-01.
+After a page-native preview, one trusted click created the same immutable
+`capture-deepseek-ce607c0c-713d-4d23-9e06-00379b638de4` in Downloads and the
+configured vault. Each destination contains exactly one 2,500-byte raw, one
+1,492-byte manifest, one 9,259-byte canonical archive, and one 93-byte binary;
+all four corresponding files are byte-identical across destinations. The two
+702-byte Markdown notes are also byte-identical. Raw length/SHA-256 and
+canonical manifest linkage verify exactly; the fetched asset matches the
+synthetic source SHA-256
+`7ff02bb32d2f4eaec0062870a0bd7afd77eb6e9f348c7e058306f3f67d3d9b96`.
+Manifest reports complete messages/assets with zero warnings. Provider file ID,
+signed path/key, file-service host, and state token are absent from manifest and
+canonical output. The popup's saved File+Obsidian destinations survived the
+integration reload, and Liska reported `Saved locally`.
+
+The fallback still requires a page-native preview first; automatic card
+activation, active observers, `fetch_files`, retries, and guessed URLs remain
+unsupported. Next: choose the remote integration shape for commit `d5cbe8a`
+(one combined review branch or an explicit PR stack), then keep the chosen PR
+draft until the maintainer decides it is ready. No merge, release, or tag is
+automatic.
