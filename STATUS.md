@@ -164,7 +164,8 @@ integration reload, and Liska reported `Saved locally`.
 
 The fallback still requires a page-native preview first; automatic card
 activation, active observers, `fetch_files`, retries, and guessed URLs remain
-unsupported. Next: choose the remote integration shape for commit `d5cbe8a`
-(one combined review branch or an explicit PR stack), then keep the chosen PR
-draft until the maintainer decides it is ready. No merge, release, or tag is
-automatic.
+unsupported. The combined branch is published as draft PR
+[#10](https://github.com/la4ox/liska-threadkeeper/pull/10); focused draft PRs
+#8 and #9 remain open and unchanged. Next: review #10 as the integration
+surface, then explicitly decide whether it supersedes the focused drafts and
+when it is ready. No merge, release, or tag is automatic.
