@@ -37,6 +37,27 @@ describe('DeepSeek structured archive composition', () => {
     vi.restoreAllMocks();
   });
 
+  it.each([false, true])(
+    'cancels an unsuccessful history body without changing its HTTP error (cancel fails: %s)',
+    async cancelFails => {
+      const response = new Response('synthetic unavailable history', { status: 503 });
+      const cancel = vi.spyOn(response.body!, 'cancel');
+      if (cancelFails) cancel.mockRejectedValue(new Error('synthetic cancellation failure'));
+      const getReader = vi.spyOn(response.body!, 'getReader');
+      const normalizeCapture = vi.fn();
+      const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+
+      await expect(
+        fetchDeepSeekConversation('deepseek-branching-1', false, { normalizeCapture })
+      ).rejects.toThrow('Capture endpoint returned HTTP 503.');
+
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(getReader).not.toHaveBeenCalled();
+      expect(normalizeCapture).not.toHaveBeenCalled();
+    }
+  );
+
   it('binds exact raw bytes to manifest and canonical companions', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(fixtureResponse());
     const result = await fetchDeepSeekConversation('deepseek-branching-1', false, {

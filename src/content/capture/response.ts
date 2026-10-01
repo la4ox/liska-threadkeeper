@@ -32,6 +32,15 @@ function concatenate(chunks: Uint8Array[], totalBytes: number): Uint8Array {
   return result;
 }
 
+/** Release unread response bytes without replacing the stable rejection reason. */
+export async function cancelResponseBody(response: Response, reason?: string): Promise<void> {
+  try {
+    await response.body?.cancel(reason);
+  } catch {
+    // A transport cancellation failure must not replace the caller's stable result.
+  }
+}
+
 /** Read exact response bytes while enforcing the limit during streaming. */
 export async function readBoundedResponseBytes(
   response: Response,
@@ -41,11 +50,7 @@ export async function readBoundedResponseBytes(
   const declaredLengthText = response.headers.get('content-length');
   const declaredLength = declaredLengthText === null ? null : Number(declaredLengthText);
   if (declaredLength !== null && Number.isFinite(declaredLength) && declaredLength > maxBytes) {
-    try {
-      await response.body?.cancel('capture response exceeded declared byte limit');
-    } catch {
-      // Preserve the stable size error even if the transport cannot be cancelled.
-    }
+    await cancelResponseBody(response, 'capture response exceeded declared byte limit');
     throw new Error(`Capture response exceeds the ${maxBytes}-byte safety limit.`);
   }
 
@@ -98,7 +103,10 @@ export async function captureResponseArtifact(
   response: Response,
   options: CaptureResponseOptions
 ): Promise<RawCaptureArtifact> {
-  if (!response.ok) throw new Error(`Capture endpoint returned HTTP ${response.status}.`);
+  if (!response.ok) {
+    await cancelResponseBody(response, 'capture endpoint returned an unsuccessful HTTP status');
+    throw new Error(`Capture endpoint returned HTTP ${response.status}.`);
+  }
   const bytes = await readBoundedResponseBytes(response, options.maxBytes);
   const mediaType =
     options.mediaType ?? response.headers.get('content-type') ?? DEFAULT_JSON_MEDIA_TYPE;

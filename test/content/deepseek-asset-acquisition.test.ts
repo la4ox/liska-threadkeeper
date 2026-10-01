@@ -97,6 +97,11 @@ describe('DeepSeek signed asset acquisition', () => {
   it.each([
     ['status', () => new Response('no', { status: 403 }), DEEPSEEK_ASSET_HTTP_FAILED_DETAIL],
     [
+      'unexpected successful status',
+      () => new Response('partial', { status: 206 }),
+      DEEPSEEK_ASSET_HTTP_FAILED_DETAIL,
+    ],
+    [
       'active MIME',
       (url: string) => response(url, new Uint8Array([1]), 'text/html'),
       DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
@@ -119,22 +124,44 @@ describe('DeepSeek signed asset acquisition', () => {
         }),
       DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
     ],
-  ])('fails closed for %s without returning bytes', async (_label, makeResponse, detail) => {
-    const record = ledger();
-    const resolved = candidate(record, 1);
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(makeResponse(resolved.downloadUrl) as Response);
-    const result = await acquireDeepSeekSignedAssets({
-      assets: [record],
-      candidates: [resolved],
-      fetcher,
-      now: () => new Date('2026-09-19T10:00:00.000Z'),
-      sha256: digest,
-    });
-    expect(result.records[0]).toMatchObject({ state: 'failed', detail });
-    expect(result.runtimeAssets).toEqual([]);
-  });
+  ])(
+    'awaits body cancellation for %s even when cancellation fails',
+    async (_label, makeResponse, detail) => {
+      const record = ledger();
+      const resolved = candidate(record, 1);
+      const rejectedResponse = makeResponse(resolved.downloadUrl) as Response;
+      let finishCancellation!: () => void;
+      const cancel = vi.spyOn(rejectedResponse.body!, 'cancel').mockImplementation(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            finishCancellation = () => reject(new Error('synthetic cancellation failure'));
+          })
+      );
+      const getReader = vi.spyOn(rejectedResponse.body!, 'getReader');
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(rejectedResponse);
+      const pending = acquireDeepSeekSignedAssets({
+        assets: [record],
+        candidates: [resolved],
+        fetcher,
+        now: () => new Date('2026-09-19T10:00:00.000Z'),
+        sha256: digest,
+      });
+      let settled = false;
+      void pending.then(() => (settled = true));
+
+      // Drain the resolved-fetch microtasks before testing that cancellation is still awaited.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(getReader).not.toHaveBeenCalled();
+      expect(settled).toBe(false);
+      finishCancellation();
+      const result = await pending;
+
+      expect(result.records[0]).toMatchObject({ state: 'failed', detail });
+      expect(result.runtimeAssets).toEqual([]);
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+  );
 
   it('rejects a declared file_size mismatch after bounded reading', async () => {
     const record = ledger();
@@ -217,63 +244,171 @@ describe('DeepSeek signed asset acquisition', () => {
     });
   });
 
-  it('cancels a stream as soon as its bytes exceed the per-asset bound', async () => {
-    const record = ledger();
-    const resolved = candidate(record);
-    const cancel = vi.fn().mockResolvedValue(undefined);
-    const read = vi
-      .fn()
-      .mockResolvedValueOnce({ done: false, value: new Uint8Array(5) })
-      .mockResolvedValueOnce({ done: true });
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue({
-      ok: true,
-      status: 200,
-      url: resolved.downloadUrl,
-      headers: new Headers({ 'content-type': 'application/octet-stream' }),
-      body: { getReader: () => ({ read, cancel }) } as unknown as ReadableStream<Uint8Array>,
-    } as Response);
-    const result = await acquireDeepSeekSignedAssets({
-      assets: [record],
-      candidates: [resolved],
-      fetcher,
-      now: () => new Date('2026-09-19T10:00:00.000Z'),
-      maxAssetBytes: 4,
-    });
-    expect(cancel).toHaveBeenCalledOnce();
-    expect(result.records[0].state).toBe('failed');
-  });
+  it.each([false, true])(
+    'cancels an overflowing stream once (cancel fails: %s)',
+    async cancelFails => {
+      const record = ledger();
+      const resolved = candidate(record);
+      const cancel = cancelFails
+        ? vi.fn().mockRejectedValue(new Error('synthetic cancellation failure'))
+        : vi.fn().mockResolvedValue(undefined);
+      const cancelBody = vi.fn();
+      const read = vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array(5) })
+        .mockResolvedValueOnce({ done: true });
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue({
+        ok: true,
+        status: 200,
+        url: resolved.downloadUrl,
+        headers: new Headers({ 'content-type': 'application/octet-stream' }),
+        body: {
+          cancel: cancelBody,
+          getReader: () => ({ read, cancel }),
+        } as unknown as ReadableStream<Uint8Array>,
+      } as Response);
+      const result = await acquireDeepSeekSignedAssets({
+        assets: [record],
+        candidates: [resolved],
+        fetcher,
+        now: () => new Date('2026-09-19T10:00:00.000Z'),
+        maxAssetBytes: 4,
+      });
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(cancelBody).not.toHaveBeenCalled();
+      expect(read).toHaveBeenCalledOnce();
+      expect(result.records[0]).toMatchObject({
+        state: 'failed',
+        detail: DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
+      });
+    }
+  );
 
-  it('cancels a declared oversized response body before rejecting it', async () => {
-    const record = ledger();
-    const resolved = candidate(record);
-    const cancel = vi.fn().mockResolvedValue(undefined);
-    const read = vi.fn();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue({
-      ok: true,
-      status: 200,
-      url: resolved.downloadUrl,
-      headers: new Headers({
-        'content-type': 'application/octet-stream',
-        'content-length': '5',
-      }),
-      body: { getReader: () => ({ read, cancel }) } as unknown as ReadableStream<Uint8Array>,
-    } as Response);
+  it.each([false, true])(
+    'cancels a declared oversized body once (cancel fails: %s)',
+    async cancelFails => {
+      const record = ledger();
+      const resolved = candidate(record);
+      const cancel = cancelFails
+        ? vi.fn().mockRejectedValue(new Error('synthetic cancellation failure'))
+        : vi.fn().mockResolvedValue(undefined);
+      const read = vi.fn();
+      const getReader = vi.fn(() => ({ read, cancel: vi.fn() }));
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue({
+        ok: true,
+        status: 200,
+        url: resolved.downloadUrl,
+        headers: new Headers({
+          'content-type': 'application/octet-stream',
+          'content-length': '5',
+        }),
+        body: { cancel, getReader } as unknown as ReadableStream<Uint8Array>,
+      } as Response);
 
-    const result = await acquireDeepSeekSignedAssets({
-      assets: [record],
-      candidates: [resolved],
-      fetcher,
-      now: () => new Date('2026-09-19T10:00:00.000Z'),
-      maxAssetBytes: 4,
-    });
+      const result = await acquireDeepSeekSignedAssets({
+        assets: [record],
+        candidates: [resolved],
+        fetcher,
+        now: () => new Date('2026-09-19T10:00:00.000Z'),
+        maxAssetBytes: 4,
+      });
 
-    expect(read).not.toHaveBeenCalled();
-    expect(cancel).toHaveBeenCalledOnce();
-    expect(result.records[0]).toMatchObject({
-      state: 'failed',
-      detail: DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
-    });
-  });
+      expect(read).not.toHaveBeenCalled();
+      expect(getReader).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(result.records[0]).toMatchObject({
+        state: 'failed',
+        detail: DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
+      });
+    }
+  );
+
+  it.each([false, true])(
+    'keeps non-timeout read failures rejected (cancel fails: %s)',
+    async cancelFails => {
+      const record = ledger();
+      const laterRecord = ledger('b');
+      const resolved = candidate(record);
+      const cancel = cancelFails
+        ? vi.fn().mockRejectedValue(new Error('synthetic cancellation failure'))
+        : vi.fn().mockResolvedValue(undefined);
+      const read = vi.fn().mockRejectedValue(new Error('synthetic reader failure'));
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue({
+        ok: true,
+        status: 200,
+        url: resolved.downloadUrl,
+        headers: new Headers({ 'content-type': 'application/octet-stream' }),
+        body: { getReader: () => ({ read, cancel }) } as unknown as ReadableStream<Uint8Array>,
+      } as Response);
+
+      const result = await acquireDeepSeekSignedAssets({
+        assets: [record, laterRecord],
+        candidates: [resolved, candidate(laterRecord)],
+        fetcher,
+        now: () => new Date('2026-09-19T10:00:00.000Z'),
+        maxAssetBytes: 4,
+        maxTotalBytes: 4,
+      });
+
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(read).toHaveBeenCalledOnce();
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(result.records[0]).toMatchObject({
+        state: 'failed',
+        detail: DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
+      });
+      expect(result.records[1].state).toBe('not-attempted');
+      expect(result.runtimeAssets).toEqual([]);
+    }
+  );
+
+  it.each(['overflow', 'invalid chunk', 'read error'])(
+    'preserves %s rejection when cancellation crosses the timeout',
+    async failure => {
+      vi.useFakeTimers();
+      try {
+        const record = ledger();
+        const resolved = candidate(record);
+        let finishCancellation!: () => void;
+        const cancel = vi.fn(() => new Promise<void>(resolve => (finishCancellation = resolve)));
+        const read =
+          failure === 'read error'
+            ? vi.fn().mockRejectedValue(new Error('synthetic reader failure'))
+            : vi.fn().mockResolvedValue({
+                done: false,
+                value: failure === 'overflow' ? new Uint8Array(5) : 'invalid',
+              });
+        const fetcher = vi.fn<typeof fetch>().mockResolvedValue({
+          ok: true,
+          status: 200,
+          url: resolved.downloadUrl,
+          headers: new Headers({ 'content-type': 'application/octet-stream' }),
+          body: { getReader: () => ({ read, cancel }) } as unknown as ReadableStream<Uint8Array>,
+        } as Response);
+        const pending = acquireDeepSeekSignedAssets({
+          assets: [record],
+          candidates: [resolved],
+          fetcher,
+          now: () => new Date('2026-09-19T10:00:00.000Z'),
+          maxAssetBytes: 4,
+          timeoutMs: 1_000,
+        });
+
+        await vi.advanceTimersByTimeAsync(0);
+        expect(cancel).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(1_000);
+        finishCancellation();
+
+        expect((await pending).records[0]).toMatchObject({
+          state: 'failed',
+          detail: DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
+        });
+        expect(cancel).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
 
   it('fails closed when byte hashing or the attempt clock is unavailable', async () => {
     const hashRecord = ledger('a');
@@ -407,4 +542,59 @@ describe('DeepSeek signed asset acquisition', () => {
       vi.useRealTimers();
     }
   });
+
+  it.each([false, true])(
+    'records a stalled body timeout after headers (cancel fails: %s)',
+    async cancelFails => {
+      vi.useFakeTimers();
+      try {
+        const record = ledger();
+        const resolved = candidate(record);
+        const cancel = cancelFails
+          ? vi.fn().mockRejectedValue(new Error('synthetic cancellation failure'))
+          : vi.fn().mockResolvedValue(undefined);
+        const read = vi.fn();
+        const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => {
+          read.mockImplementation(
+            () =>
+              new Promise((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(new Error('aborted body')));
+              })
+          );
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            url: resolved.downloadUrl,
+            headers: new Headers({ 'content-type': 'application/octet-stream' }),
+            body: { getReader: () => ({ read, cancel }) } as unknown as ReadableStream<Uint8Array>,
+          } as Response);
+        });
+        const pending = acquireDeepSeekSignedAssets({
+          assets: [record],
+          candidates: [resolved],
+          fetcher,
+          now: () => new Date('2026-09-19T10:00:00.000Z'),
+          timeoutMs: 1_000,
+        });
+        let settled = false;
+        void pending.then(() => (settled = true));
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(read).toHaveBeenCalledOnce();
+        expect(cancel).not.toHaveBeenCalled();
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const result = await pending;
+
+        expect(result.records[0]).toMatchObject({
+          state: 'failed',
+          detail: DEEPSEEK_ASSET_TIMEOUT_DETAIL,
+        });
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(result.runtimeAssets).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
 });

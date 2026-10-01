@@ -12,6 +12,7 @@ import {
   isExactDeepSeekDownloadUrl,
   type DeepSeekSignedAssetCandidate,
 } from './deepseek-asset-resolver';
+import { cancelResponseBody } from './response';
 
 const MAX_DEEPSEEK_ASSET_ATTEMPTS = 20;
 const MAX_DEEPSEEK_ASSET_BYTES_TOTAL = 128 * 1024 * 1024;
@@ -96,17 +97,22 @@ async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): Pr
 
 type BoundedRead =
   | { ok: true; bytes: Uint8Array; byteCost: number }
-  | { ok: false; byteCost: number };
+  | { ok: false; byteCost: number; timedOut: boolean };
 
-async function readBoundedResponse(response: Response, maxBytes: number): Promise<BoundedRead> {
+async function readBoundedResponse(
+  response: Response,
+  maxBytes: number,
+  signal: AbortSignal
+): Promise<BoundedRead> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const declared = response.headers.get('content-length');
-    const reader = response.body?.getReader();
     if (declared !== null && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
-      if (reader) await cancelReader(reader);
-      return { ok: false, byteCost: 0 };
+      await cancelResponseBody(response);
+      return { ok: false, byteCost: 0, timedOut: false };
     }
-    if (!reader) return { ok: false, byteCost: 0 };
+    reader = response.body?.getReader();
+    if (!reader) return { ok: false, byteCost: 0, timedOut: false };
     const chunks: Uint8Array[] = [];
     let byteLength = 0;
     while (true) {
@@ -114,13 +120,13 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
       if (next.done) break;
       if (!next.value || !ArrayBuffer.isView(next.value)) {
         await cancelReader(reader);
-        return { ok: false, byteCost: maxBytes };
+        return { ok: false, byteCost: maxBytes, timedOut: false };
       }
       const chunk = new Uint8Array(next.value.buffer, next.value.byteOffset, next.value.byteLength);
       byteLength += chunk.byteLength;
       if (byteLength > maxBytes) {
         await cancelReader(reader);
-        return { ok: false, byteCost: maxBytes };
+        return { ok: false, byteCost: maxBytes, timedOut: false };
       }
       chunks.push(chunk);
     }
@@ -132,7 +138,10 @@ async function readBoundedResponse(response: Response, maxBytes: number): Promis
     }
     return { ok: true, bytes, byteCost: byteLength };
   } catch {
-    return { ok: false, byteCost: maxBytes };
+    // Snapshot the read failure before cancellation can cross the request deadline.
+    const timedOut = signal.aborted;
+    if (reader) await cancelReader(reader);
+    return { ok: false, byteCost: maxBytes, timedOut };
   }
 }
 
@@ -163,12 +172,14 @@ async function fetchOne(
       signal: controller.signal,
     });
     if (!response.ok || response.status !== 200) {
+      await cancelResponseBody(response);
       return {
         record: failedRecord(record, timestamp, DEEPSEEK_ASSET_HTTP_FAILED_DETAIL),
         byteCost: 0,
       };
     }
     if (response.url !== candidate.downloadUrl) {
+      await cancelResponseBody(response);
       return {
         record: failedRecord(record, timestamp, DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL),
         byteCost: 0,
@@ -176,15 +187,20 @@ async function fetchOne(
     }
     const mediaType = normalizedMediaType(response);
     if (!mediaType) {
+      await cancelResponseBody(response);
       return {
         record: failedRecord(record, timestamp, DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL),
         byteCost: 0,
       };
     }
-    const read = await readBoundedResponse(response, maxAssetBytes);
+    const read = await readBoundedResponse(response, maxAssetBytes, controller.signal);
     if (!read.ok) {
       return {
-        record: failedRecord(record, timestamp, DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL),
+        record: failedRecord(
+          record,
+          timestamp,
+          read.timedOut ? DEEPSEEK_ASSET_TIMEOUT_DETAIL : DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL
+        ),
         byteCost: read.byteCost,
       };
     }

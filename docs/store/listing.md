@@ -121,7 +121,7 @@ Ten host groups are required:
 
 1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com, and legacy notebooklm.google.com - show the export button and read the displayed conversation.
 
-8. files.deepseeksvc.com - download a DeepSeek attachment only from an exact verified history signed path, after raw local preservation and only when attachment export is enabled. No conversation text or browser credential is sent.
+8. files.deepseeksvc.com - fetch attachments only with attachment export and a durable local output enabled, after raw local preservation. Verified in-band history signed paths win; otherwise use exact current-page fetch URLs from the newest bounded passive ResourceTiming entries, uniquely matched to a verified raw file ID. Credentials are omitted; no conversation text is sent.
 
 9. *.googleusercontent.com - download AI-generated conversation images only when image export is enabled. No conversation text is sent.
 
@@ -130,7 +130,7 @@ Ten host groups are required:
 Conversation content goes only to selected local outputs. No analytics, telemetry, or developer-operated server.
 ```
 
-820 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
+969 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 
 ---
 
