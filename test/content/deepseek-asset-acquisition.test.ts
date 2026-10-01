@@ -243,6 +243,38 @@ describe('DeepSeek signed asset acquisition', () => {
     expect(result.records[0].state).toBe('failed');
   });
 
+  it('cancels a declared oversized response body before rejecting it', async () => {
+    const record = ledger();
+    const resolved = candidate(record);
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const read = vi.fn();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: resolved.downloadUrl,
+      headers: new Headers({
+        'content-type': 'application/octet-stream',
+        'content-length': '5',
+      }),
+      body: { getReader: () => ({ read, cancel }) } as unknown as ReadableStream<Uint8Array>,
+    } as Response);
+
+    const result = await acquireDeepSeekSignedAssets({
+      assets: [record],
+      candidates: [resolved],
+      fetcher,
+      now: () => new Date('2026-09-19T10:00:00.000Z'),
+      maxAssetBytes: 4,
+    });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(result.records[0]).toMatchObject({
+      state: 'failed',
+      detail: DEEPSEEK_ASSET_RESPONSE_REJECTED_DETAIL,
+    });
+  });
+
   it('fails closed when byte hashing or the attempt clock is unavailable', async () => {
     const hashRecord = ledger('a');
     const hashCandidate = candidate(hashRecord, 1);

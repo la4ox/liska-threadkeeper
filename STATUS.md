@@ -119,7 +119,7 @@ archives and verified attachments) with focused draft PR #9 (Obsidian key
 migration). Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10)
 is Ready for review but is not merged; #8 and #9 remain open and unchanged.
 
-The current 2026-10-02 review-fix tree addresses all eight automated P2 comments
+The current 2026-10-02 review-fix tree addresses all nine automated P2 comments
 from two review passes:
 
 - an unchanged popup key is omitted from a full settings save, so a deferred
@@ -144,13 +144,16 @@ from two review passes:
   original companion/Markdown sequence without a second full normalization;
 - empty, missing, or non-text typed fragments no longer suppress usable
   message-level content/reasoning fallbacks; classifier and normalizer share
-  the same non-empty-string rule.
+  the same non-empty-string rule;
+- a response whose declared attachment length already exceeds the active byte
+  limit has its body reader cancelled before the sequential acquisition loop
+  continues.
 
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 145 test files / 2,997 tests pass with two workers;
-- coverage passes at 95.06% statements, 90.14% branches, 98.22% functions,
+- 145 test files / 2,998 tests pass with two workers;
+- coverage passes at 95.06% statements, 90.13% branches, 98.22% functions,
   and 97.78% lines;
 - typecheck and the production build pass;
 - lint passes with only three pre-existing advisory warnings, and repository

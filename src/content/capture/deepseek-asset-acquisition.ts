@@ -101,10 +101,11 @@ type BoundedRead =
 async function readBoundedResponse(response: Response, maxBytes: number): Promise<BoundedRead> {
   try {
     const declared = response.headers.get('content-length');
+    const reader = response.body?.getReader();
     if (declared !== null && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
+      if (reader) await cancelReader(reader);
       return { ok: false, byteCost: 0 };
     }
-    const reader = response.body?.getReader();
     if (!reader) return { ok: false, byteCost: 0 };
     const chunks: Uint8Array[] = [];
     let byteLength = 0;
