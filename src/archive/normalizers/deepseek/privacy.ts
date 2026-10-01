@@ -10,7 +10,7 @@ const SENSITIVE_FIELD =
   /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|api[_-]?key|x[_-]?api[_-]?key|secret|client[_-]?secret|private[_-]?key|password|signature|signed[_-]?path|credential|credentials)$/i;
 const SENSITIVE_QUERY =
   /^(?:token|access[_-]?token|session[_-]?token|api[_-]?key|auth|authorization|jwt|credential|signature|sig|x-amz-.+|x-goog-.+)$/i;
-const SENSITIVE_TEXT_CANDIDATE = /(?:https?:)?\/\/[^\s<>"']+|(?:^|[\s(\[{"'])\/file\?[^\s<>"']+/gi;
+const SENSITIVE_TEXT_CANDIDATE = /(?:https?:)?\/\/[^\s<>"']+|(?:^|[\s([{"'])\/file\?[^\s<>"']+/gi;
 const DEEPSEEK_FILE_SERVICE_ORIGIN = 'https://files.deepseeksvc.com';
 const CREDENTIAL_TEXT =
   /\bauthorization\s*:\s*(?:bearer\s+)?[A-Za-z0-9._~+/=-]+|\bcookie\s*:\s*[^\s,;}]+|\bbearer\s+[A-Za-z0-9._~+/=-]+/gi;
