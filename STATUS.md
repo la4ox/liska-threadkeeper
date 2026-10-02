@@ -119,8 +119,8 @@ archives and verified attachments) with focused draft PR #9 (Obsidian key
 migration). Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10)
 is Ready for review but is not merged; #8 and #9 remain open and unchanged.
 
-The current 2026-10-02 review-fix tree addresses all 16 automated P2 comments
-from five review passes:
+The current 2026-10-02 review-fix tree addresses all 19 automated P2 comments
+from six review passes:
 
 - an unchanged popup key is omitted from a full settings save, so a deferred
   legacy migration cannot be overwritten by an accidental empty value;
@@ -159,14 +159,23 @@ from five review passes:
 - immutable DeepSeek manifest `capturedAt` now pins Obsidian date-token routing
   for raw/manifest/canonical, binaries, and fresh structured Markdown. Staged
   archives reuse one path and repeat the no-overwrite preflight after Blob
-  verification; File paths and legacy callers remain unchanged.
+  verification; File paths and legacy callers remain unchanged;
+- null identifier aliases now yield to usable non-null aliases while all
+  non-null values still pass exact validation and conflict checks;
+- the complete attachment inventory remains intact, but provider-ID digests are
+  submitted in deterministic batches of at most 32 instead of one unbounded
+  `Promise.all` fan-out;
+- successful `FILE` fragments retain sanitized residual metadata (and empty
+  fragment existence) as an ordered `FILE:metadata` block. Provider IDs in
+  values, dynamic keys, and privacy diagnostic pointers are removed by a
+  bounded fail-closed scrubber before ordinary credential/URL sanitization.
 
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 146 test files / 3,143 tests pass with two workers;
-- coverage passes at 95.21% statements, 90.30% branches, 98.34% functions,
-  and 97.98% lines;
+- 146 test files / 3,154 tests pass with two workers;
+- coverage passes at 95.11% statements, 90.25% branches, 98.32% functions,
+  and 97.87% lines;
 - typecheck and the production build pass;
 - lint passes with only three pre-existing advisory warnings, and repository
   formatting passes;

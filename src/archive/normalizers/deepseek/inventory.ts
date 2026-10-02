@@ -9,6 +9,7 @@ export const DEEPSEEK_ATTACHMENT_INVENTORY_DETAIL = 'metadata-only';
 
 const ATTACHMENT_ID_DOMAIN = 'liska.deepseek.attachment-id/v1\u0000';
 const MAX_DISCOVERED_FILES = 50_000;
+const ATTACHMENT_HASH_BATCH_SIZE = 32;
 const FILE_METADATA_FIELDS = [
   'file_name',
   'file_size',
@@ -267,19 +268,27 @@ async function recordsForDiscoveredFiles(
   files: DiscoveredFile[],
   sha256: DeepSeekAssetInventoryInput['sha256']
 ): Promise<RawCaptureAssetRecord[]> {
-  const records = await Promise.all(
-    files.map(async file => ({
-      id: await deepSeekAttachmentIdForProviderId(file.providerId, sha256),
-      state: 'not-attempted' as const,
-      attemptedAt: null,
-      relativePath: null,
-      mediaType: null,
-      byteLength: null,
-      sha256: null,
-      detail: DEEPSEEK_ATTACHMENT_INVENTORY_DETAIL,
-      sourceRefs: [...file.sourceRefs].sort(compareSourceRefs),
-    }))
-  );
+  const records: RawCaptureAssetRecord[] = [];
+  for (let offset = 0; offset < files.length; offset += ATTACHMENT_HASH_BATCH_SIZE) {
+    const batch = files.slice(offset, offset + ATTACHMENT_HASH_BATCH_SIZE);
+    const settled = await Promise.allSettled(
+      batch.map(async file => ({
+        id: await deepSeekAttachmentIdForProviderId(file.providerId, sha256),
+        state: 'not-attempted' as const,
+        attemptedAt: null,
+        relativePath: null,
+        mediaType: null,
+        byteLength: null,
+        sha256: null,
+        detail: DEEPSEEK_ATTACHMENT_INVENTORY_DETAIL,
+        sourceRefs: [...file.sourceRefs].sort(compareSourceRefs),
+      }))
+    );
+    for (const result of settled) {
+      if (result.status === 'rejected') throw result.reason;
+      records.push(result.value);
+    }
+  }
   if (new Set(records.map(record => record.id)).size !== records.length) throw new Error();
   return records.sort((left, right) => compareStrings(left.id, right.id));
 }

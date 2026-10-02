@@ -23,9 +23,11 @@ import {
   type DeepSeekNormalizationResult,
 } from './contracts';
 import {
+  DEEPSEEK_FILE_METADATA_PROVIDER_TYPE,
   deepSeekAttachmentBlock,
   deepSeekFileFragmentBlocks,
   deepSeekManifestAssetsBySourceRef,
+  hasDeepSeekFileFragmentMetadata,
   verifyDeepSeekAssetInventory,
   type DeepSeekAttachmentContext,
 } from './assets';
@@ -287,6 +289,9 @@ function classifyUnknownBlockTypes(message: DeepSeekJsonRecord, normalizedRole?:
       if (!KNOWN_FRAGMENT_TYPES.has(type)) unknown.add(type);
       else if (type === 'FILE') {
         if (!Array.isArray(fragment.files)) unknown.add('FILE:malformed-files');
+        else if (hasDeepSeekFileFragmentMetadata(fragment)) {
+          unknown.add(DEEPSEEK_FILE_METADATA_PROVIDER_TYPE);
+        }
       } else if (typeof fragment.content !== 'string') unknown.add(`${type}:non-text`);
     });
   }
@@ -808,7 +813,9 @@ function aliasedIdentifier(
   pointer: string,
   missingCode: string
 ): string {
-  const present = fields.filter(field => hasOwn(record, field));
+  const present = fields.filter(
+    field => hasOwn(record, field) && record[field] !== undefined && record[field] !== null
+  );
   if (present.length === 0) deepSeekFail(missingCode, `${pointer} has no identifier.`);
   const values = present.map(field =>
     requireSafeIdentifier(record[field], pointerAt(pointer, field))

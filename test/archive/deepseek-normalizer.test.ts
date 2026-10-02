@@ -351,6 +351,31 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(archive.graph.nodes['first-answer'].message?.author.role).toBe('assistant');
   });
 
+  it.each(['primary', 'secondary'] as const)(
+    'skips null identifier aliases when the %s alias is usable',
+    async usableAlias => {
+      const bytes = encodedRaw(raw => {
+        const session = raw.data.biz_data.chat_session;
+        const message = raw.data.biz_data.chat_messages[0];
+        if (usableAlias === 'primary') {
+          session.chat_session_id = null;
+          message.id = null;
+        } else {
+          session.chat_session_id = session.id;
+          session.id = null;
+          message.id = message.message_id;
+          message.message_id = null;
+        }
+      });
+
+      const { archive } = await normalizeBytes(bytes);
+
+      expect(archive.conversation.id).toBe('deepseek-branching-1');
+      expect(archive.graph.nodes['root-question'].message?.id).toBe('root-question');
+      expect(validateLiskaThreadArchive(archive).valid).toBe(true);
+    }
+  );
+
   describe.each(timestampTargets)('timestamp aliases: $label', target => {
     it.each(validTimestampCases)('reconciles $label deterministically', async testCase => {
       const bytes = encodedTimestampAliases(target, testCase.values);
@@ -453,11 +478,29 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     ).not.toContain('deepseek-file-alpha');
   });
 
-  it('maps current FILE fragment files into ordered attachment blocks without transport leakage', async () => {
+  it('retains sanitized FILE metadata before ordered attachments without transport leakage', async () => {
     const bytes = encodedRaw(raw => {
       const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      const secondFile = {
+        ...liveFragmentFile(),
+        file_name: 'synthetic-second.txt',
+        id: 'file-66666666-7777-4888-8999-000000000000',
+        signed_path:
+          '/file?file_id=66666666-7777-4888-8999-000000000000&state=synthetic-second-state',
+      };
       message.fragments = [
-        { files: [liveFragmentFile()], id: 'synthetic-fragment-id', type: 'FILE' },
+        {
+          files: [liveFragmentFile(), secondFile],
+          id: 'synthetic-fragment-id',
+          custom_metadata: {
+            label: 'retained-label',
+            embedded_value: 'before-file-11111111-2222-4333-8444-555555555555-after',
+            ['dynamic-file-11111111-2222-4333-8444-555555555555-key']: 'hidden-value',
+            file_id: 'file-11111111-2222-4333-8444-555555555555',
+            download_url: 'https://files.invalid/download?access_token=fragment-secret',
+          },
+          type: 'FILE',
+        },
         ...message.fragments,
       ];
       delete message.files;
@@ -474,16 +517,46 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     const serializedCanonical = JSON.stringify(normalized.archive);
 
     expect(blocks[0]).toMatchObject({
-      type: 'attachment',
+      type: 'unknown',
+      providerType: 'FILE:metadata',
+      raw: {
+        id: 'synthetic-fragment-id',
+        custom_metadata: {
+          label: 'retained-label',
+          embedded_value: {
+            _liskaRedactedProviderMetadata: true,
+          },
+        },
+        _liskaRedactedSensitiveValue: true,
+        _liskaRedactedProviderMetadata: true,
+      },
       sourceRefs: [
         {
-          id: null,
-          rawPointer: '/data/biz_data/chat_messages/0/fragments/0/files/0',
+          id: 'root-question',
+          rawPointer: '/data/biz_data/chat_messages/0/fragments/0',
         },
       ],
     });
-    expect(blocks[1]).toMatchObject({ type: 'text', text: 'First question' });
-    expect(bundle.manifest.observedUnknownContentTypes).not.toContain('FILE');
+    expect(blocks.slice(1, 3)).toEqual([
+      expect.objectContaining({
+        type: 'attachment',
+        sourceRefs: [
+          expect.objectContaining({
+            rawPointer: '/data/biz_data/chat_messages/0/fragments/0/files/0',
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        type: 'attachment',
+        sourceRefs: [
+          expect.objectContaining({
+            rawPointer: '/data/biz_data/chat_messages/0/fragments/0/files/1',
+          }),
+        ],
+      }),
+    ]);
+    expect(blocks[3]).toMatchObject({ type: 'text', text: 'First question' });
+    expect(bundle.manifest.observedUnknownContentTypes).toContain('FILE:metadata');
     expect(Object.values(normalized.archive.assets)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -504,8 +577,251 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     for (const durable of [serializedManifest, serializedCanonical]) {
       expect(durable).not.toContain('signed_path');
       expect(durable).not.toContain('synthetic-live-state');
+      expect(durable).not.toContain('synthetic-second-state');
       expect(durable).not.toContain('file-11111111-2222-4333-8444-555555555555');
+      expect(durable).not.toContain('file-66666666-7777-4888-8999-000000000000');
+      expect(durable).not.toContain('fragment-secret');
     }
+    expect(projectArchiveBranch(normalized.archive).warnings).toContain(
+      'Legacy Markdown omitted 2 unknown provider block(s); the canonical archive companion preserves them only when its selected output write succeeds.'
+    );
+  });
+
+  it('does not add FILE metadata noise when a fragment contains only non-empty files', async () => {
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [{ files: [liveFragmentFile()], type: 'FILE' }, ...message.fragments];
+      delete message.files;
+    });
+    const bundle = await bundleFor(bytes);
+    const normalized = await normalizeDeepSeekCapture({
+      bundle,
+      artifactId: 'conversation',
+      manifestSha256: hash(new TextEncoder().encode(JSON.stringify(bundle.manifest, null, 2))),
+      sha256,
+    });
+    const blocks = normalized.archive.graph.nodes['root-question'].message?.blocks ?? [];
+
+    expect(blocks[0]).toMatchObject({ type: 'attachment' });
+    expect(blocks[1]).toMatchObject({ type: 'text', text: 'First question' });
+    expect(blocks).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ providerType: 'FILE:metadata' })])
+    );
+    expect(bundle.manifest.observedUnknownContentTypes).not.toContain('FILE:metadata');
+  });
+
+  it('preserves an empty FILE fragment as exact-pointer metadata', async () => {
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [{ files: [], type: 'FILE' }, ...message.fragments];
+      delete message.files;
+    });
+    const bundle = await bundleFor(bytes);
+    const normalized = await normalizeDeepSeekCapture({
+      bundle,
+      artifactId: 'conversation',
+      manifestSha256: hash(new TextEncoder().encode(JSON.stringify(bundle.manifest, null, 2))),
+      sha256,
+    });
+    const blocks = normalized.archive.graph.nodes['root-question'].message?.blocks ?? [];
+
+    expect(blocks[0]).toMatchObject({
+      type: 'unknown',
+      providerType: 'FILE:metadata',
+      raw: {},
+      sourceRefs: [
+        {
+          id: 'root-question',
+          rawPointer: '/data/biz_data/chat_messages/0/fragments/0',
+        },
+      ],
+    });
+    expect(blocks[1]).toMatchObject({ type: 'text', text: 'First question' });
+    expect(bundle.manifest.observedUnknownContentTypes).toContain('FILE:metadata');
+  });
+
+  it('redacts short provider IDs from successful FILE metadata keys and values', async () => {
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [
+        {
+          files: [{ ...liveFragmentFile(), id: 'x' }],
+          id: 'fragment-xsafe',
+          custom_metadata: {
+            label: 'kept',
+            embedded: 'prefix-xsuffix',
+            ['dynamic-x-key']: 'hidden',
+          },
+          type: 'FILE',
+        },
+        ...message.fragments,
+      ];
+      delete message.files;
+    });
+    const { archive } = await normalizeBytes(bytes);
+    const metadataBlock = archive.graph.nodes['root-question'].message?.blocks.find(
+      block => block.type === 'unknown' && block.providerType === 'FILE:metadata'
+    );
+
+    expect(metadataBlock).toMatchObject({
+      type: 'unknown',
+      raw: {
+        custom_metadata: {
+          label: 'kept',
+          embedded: { _liskaRedactedProviderMetadata: true },
+        },
+        _liskaRedactedProviderMetadata: true,
+      },
+    });
+    expect(
+      JSON.stringify(metadataBlock && metadataBlock.type === 'unknown' ? metadataBlock.raw : null)
+    ).not.toContain('x');
+  });
+
+  it('scrubs provider-ID keys before privacy diagnostics can retain their raw pointer', async () => {
+    const providerId = 'file-11111111-2222-4333-8444-555555555555';
+    const secret = 'dynamic-provider-key-secret';
+    const safePointerSecret = 'safe-pointer-secret';
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [
+        {
+          files: [liveFragmentFile()],
+          id: 'safe-fragment-id',
+          custom_metadata: {
+            [providerId]: {
+              download_url: `https://files.invalid/download?access_token=${secret}`,
+            },
+            safe: {
+              download_url: `https://files.invalid/download?access_token=${safePointerSecret}`,
+            },
+          },
+          type: 'FILE',
+        },
+        ...message.fragments,
+      ];
+      delete message.files;
+    });
+    const rawText = new TextDecoder().decode(bytes);
+    const { archive } = await normalizeBytes(bytes);
+    const serialized = JSON.stringify(archive);
+    const metadataBlock = archive.graph.nodes['root-question'].message?.blocks.find(
+      block => block.type === 'unknown' && block.providerType === 'FILE:metadata'
+    );
+
+    expect(rawText).toContain(providerId);
+    expect(rawText).toContain(secret);
+    expect(metadataBlock).toMatchObject({
+      type: 'unknown',
+      raw: {
+        id: 'safe-fragment-id',
+        custom_metadata: { safe: {} },
+        _liskaRedactedProviderMetadata: true,
+        _liskaRedactedSensitiveValue: true,
+      },
+    });
+    expect(serialized).not.toContain(providerId);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain(safePointerSecret);
+    expect(serialized).not.toContain('files.invalid');
+    expect(JSON.stringify(archive.diagnostics)).not.toContain(providerId);
+    expect(archive.diagnostics.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'privacy-redacted-sensitive-extension-field',
+          sourceRefs: [
+            expect.objectContaining({
+              rawPointer:
+                '/data/biz_data/chat_messages/0/fragments/0/custom_metadata/safe/download_url',
+            }),
+          ],
+        }),
+      ])
+    );
+    expect(JSON.stringify(metadataBlock?.sourceRefs ?? [])).not.toContain(providerId);
+  });
+
+  it.each([
+    [
+      'provider ID count',
+      Array.from({ length: 65 }, (_, index) => `provider-${String(index).padStart(3, '0')}`),
+    ],
+    [
+      'provider ID characters',
+      Array.from(
+        { length: 17 },
+        (_, index) => `long-${String(index).padStart(2, '0')}-${'a'.repeat(240)}`
+      ),
+    ],
+  ])('fails closed on successful FILE metadata beyond the %s bound', async (_label, ids) => {
+    const providerFiles = ids.map((id, index) => ({
+      ...liveFragmentFile(),
+      file_name: `synthetic-${index}.txt`,
+      id,
+    }));
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [
+        {
+          files: providerFiles,
+          id: 'fragment-would-otherwise-survive',
+          custom_metadata: {
+            label: 'would-otherwise-survive',
+            signed_path: `/file?file_id=${ids[0]}&state=bounded-secret`,
+          },
+          type: 'FILE',
+        },
+        ...message.fragments,
+      ];
+      delete message.files;
+    });
+    const { archive } = await normalizeBytes(bytes);
+    const blocks = archive.graph.nodes['root-question'].message?.blocks ?? [];
+
+    expect(blocks[0]).toMatchObject({
+      type: 'unknown',
+      providerType: 'FILE:metadata',
+      raw: { _liskaRedactedProviderMetadata: true },
+    });
+    const attachmentBlocks = blocks.slice(1, providerFiles.length + 1);
+    expect(attachmentBlocks).toHaveLength(providerFiles.length);
+    expect(attachmentBlocks.every(block => block.type === 'attachment')).toBe(true);
+    expect(JSON.stringify(blocks[0])).not.toContain('bounded-secret');
+    expect(JSON.stringify(blocks[0])).not.toContain('would-otherwise-survive');
+    expect(JSON.stringify(blocks[0])).not.toContain(ids[0]);
+  });
+
+  it('marks an uninspected FILE metadata subtree when the character budget is exhausted', async () => {
+    const bytes = encodedRaw(raw => {
+      const message = raw.data.biz_data.chat_messages[0] as Record<string, any>;
+      message.fragments = [
+        {
+          files: [liveFragmentFile()],
+          custom_metadata: {
+            first: 'z'.repeat(32_768),
+            second: 'z'.repeat(32_768),
+            third_uninspected: 'never-emit-this-raw-string',
+          },
+          type: 'FILE',
+        },
+        ...message.fragments,
+      ];
+      delete message.files;
+    });
+    const { archive } = await normalizeBytes(bytes);
+    const metadataBlock = archive.graph.nodes['root-question'].message?.blocks.find(
+      block => block.type === 'unknown' && block.providerType === 'FILE:metadata'
+    );
+    const serialized = JSON.stringify(
+      metadataBlock && metadataBlock.type === 'unknown' ? metadataBlock.raw : null
+    );
+
+    expect(metadataBlock).toMatchObject({
+      type: 'unknown',
+      raw: expect.objectContaining({ _liskaRedactedProviderMetadata: true }),
+    });
+    expect(serialized).not.toContain('third_uninspected');
+    expect(serialized).not.toContain('never-emit-this-raw-string');
   });
 
   it('degrades a malformed attachment ledger without fabricating asset blocks', async () => {
@@ -577,8 +893,20 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     const fileBlock = archive.graph.nodes['root-question'].message?.blocks.find(
       block => block.type === 'unknown' && block.providerType === 'FILE'
     );
+    const rootBlocks = archive.graph.nodes['root-question'].message?.blocks ?? [];
 
     expect(fileBlock).toMatchObject({ type: 'unknown', providerType: 'FILE' });
+    expect(
+      rootBlocks.filter(block => block.type === 'unknown' && block.providerType === 'FILE')
+    ).toHaveLength(1);
+    expect(rootBlocks).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ providerType: 'FILE:metadata' })])
+    );
+    expect(
+      Object.values(archive.graph.nodes).flatMap(
+        node => node.message?.blocks.filter(block => block.type === 'attachment') ?? []
+      )
+    ).toEqual([]);
     expect(serialized).not.toContain('signed_path');
     expect(serialized).not.toContain('synthetic-live-state');
     expect(serialized).not.toContain('file-11111111-2222-4333-8444-555555555555');

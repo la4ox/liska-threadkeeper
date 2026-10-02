@@ -145,6 +145,94 @@ describe('DeepSeek metadata-only attachment inventory', () => {
     expect(JSON.stringify(first.assets)).not.toContain('deepseek-file-beta');
   });
 
+  it('bounds hash concurrency while preserving the complete deterministic inventory', async () => {
+    const fileCount = 257;
+    const raw = {
+      data: {
+        biz_data: {
+          chat_messages: [
+            {
+              files: Array.from({ length: fileCount }, (_, index) => ({
+                ...validFile(),
+                id: `synthetic-file-${String(index).padStart(4, '0')}`,
+                file_name: `synthetic-${index}.txt`,
+              })),
+            },
+          ],
+        },
+      },
+    };
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let hashCalls = 0;
+    const observed = await inventoryDeepSeekRawAssets({
+      raw,
+      artifactId: 'conversation',
+      sha256: async bytes => {
+        hashCalls += 1;
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        try {
+          await new Promise<void>(resolve => setImmediate(resolve));
+          return createHash('sha256').update(bytes).digest('hex');
+        } finally {
+          inFlight -= 1;
+        }
+      },
+    });
+    const repeated = await inventoryDeepSeekRawAssets({
+      raw: structuredClone(raw),
+      artifactId: 'conversation',
+      sha256,
+    });
+
+    expect(hashCalls).toBe(fileCount);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(32);
+    expect(observed).toEqual(repeated);
+    expect(observed.assets).toHaveLength(fileCount);
+    expect(observed.assets.map(asset => asset.id)).toEqual(
+      [...observed.assets.map(asset => asset.id)].sort()
+    );
+    expect(observed.assets.every(asset => asset.sourceRefs.length === 1)).toBe(true);
+  });
+
+  it('keeps hash failures fail-soft without submitting the remaining inventory', async () => {
+    const raw = {
+      data: {
+        biz_data: {
+          chat_messages: [
+            {
+              files: Array.from({ length: 65 }, (_, index) => ({
+                ...validFile(),
+                id: `synthetic-file-${String(index).padStart(4, '0')}`,
+              })),
+            },
+          ],
+        },
+      },
+    };
+    let hashCalls = 0;
+    const inventory = await inventoryDeepSeekRawAssets({
+      raw,
+      artifactId: 'conversation',
+      sha256: async bytes => {
+        hashCalls += 1;
+        const callNumber = hashCalls;
+        await Promise.resolve();
+        if (callNumber === 2) throw new Error('synthetic digest failure');
+        return createHash('sha256').update(bytes).digest('hex');
+      },
+    });
+
+    expect(inventory).toMatchObject({
+      assets: [],
+      completeness: 'unknown',
+      warnings: [DEEPSEEK_ATTACHMENT_INVENTORY_WARNING],
+    });
+    expect(hashCalls).toBe(32);
+  });
+
   it.each([
     [
       'a malformed files array',
