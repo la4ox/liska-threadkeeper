@@ -94,6 +94,7 @@ const companion: ArchiveCompanionBundle = {
   conversationKey: 'a'.repeat(64),
   artifacts: [
     {
+      transport: 'inline',
       kind: 'raw',
       relativePath: 'responses/conversation.json',
       mediaType: 'application/json',
@@ -102,6 +103,7 @@ const companion: ArchiveCompanionBundle = {
       bodyBase64: 'e30=',
     },
     {
+      transport: 'inline',
       kind: 'manifest',
       relativePath: 'manifest.json',
       mediaType: 'application/json',
@@ -338,6 +340,46 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     expect(mocks.attachmentExport).not.toHaveBeenCalled();
     expect(mocks.sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'saveToOutputs' })
+    );
+  });
+
+  it('keeps ChatGPT failed-extraction evidence routing and withholds Markdown/binary export', async () => {
+    mocks.extract.mockResolvedValue({
+      success: false,
+      error: 'Rendered fallback had no messages',
+      archiveCompanion: companion,
+    } satisfies ExtractionResult);
+    mocks.validate.mockReturnValue({
+      isValid: false,
+      warnings: [],
+      errors: ['Rendered fallback had no messages'],
+    });
+    mocks.sendMessage.mockImplementation((message: { action: string }) => {
+      if (message.action === 'getSettings') return Promise.resolve(settings);
+      if (message.action === 'persistArchiveCompanion') return Promise.resolve(successfulSave);
+      return Promise.reject(new Error(`unexpected background message: ${message.action}`));
+    });
+
+    await handleSync();
+
+    expect(mocks.sendMessage.mock.calls.map(call => call[0])).toEqual([
+      { action: 'getSettings' },
+      expect.objectContaining({
+        action: 'persistArchiveCompanion',
+        source: 'chatgpt',
+        noteFileName: 'chatgpt-capture.md',
+        artifact: companion.artifacts[0],
+      }),
+      expect.objectContaining({
+        action: 'persistArchiveCompanion',
+        source: 'chatgpt',
+        noteFileName: 'chatgpt-capture.md',
+        artifact: companion.artifacts[1],
+      }),
+    ]);
+    expect(mocks.attachmentExport).not.toHaveBeenCalled();
+    expect(mocks.showErrorToast).toHaveBeenCalledWith(
+      'Rendered fallback had no messages. Verified raw capture evidence was saved locally.'
     );
   });
 });

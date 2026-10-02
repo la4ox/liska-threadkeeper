@@ -91,6 +91,69 @@ describe('canonical archive to legacy ConversationData projection', () => {
     );
   });
 
+  it.each([undefined, 'DeepSeek reasoning'])(
+    'labels generated reasoning headings only (presentation label: %s)',
+    reasoningLabel => {
+      const archive = cloneArchive();
+      const message = archive.graph.nodes['node-current'].message!;
+      const reasoningBodies = [
+        [
+          '**Reasoning**\nA provider-authored heading at the start.',
+          'Inline **Reasoning** stays unchanged.',
+          '**Reasoning**\nA provider-authored paragraph heading.',
+          '> **Reasoning**\n> A quoted heading.',
+          'Inline code: `**Reasoning**`.',
+          '```markdown\n**Reasoning**\n```',
+          '  Whitespace\tstays unchanged.  ',
+        ].join('\n\n'),
+        '**Reasoning**\nThe second provider-authored heading.',
+      ];
+      const visibleText = 'Visible **Reasoning**\n\n**Reasoning**\nVisible heading.';
+      message.blocks = [
+        {
+          id: 'visible-label-collision',
+          type: 'markdown',
+          markdown: visibleText,
+          sourceRefs: message.sourceRefs,
+          extensions: {},
+        },
+        {
+          id: 'first-reasoning-collision',
+          type: 'reasoning',
+          text: reasoningBodies[0],
+          sourceRefs: message.sourceRefs,
+          extensions: {},
+        },
+        message.blocks.find(block => block.type === 'tool_call')!,
+        {
+          id: 'second-reasoning-collision',
+          type: 'reasoning',
+          text: reasoningBodies[1],
+          sourceRefs: message.sourceRefs,
+          extensions: {},
+        },
+      ];
+      const canonicalBefore = JSON.stringify(archive);
+      const options = reasoningLabel === undefined ? {} : { reasoningLabel };
+      const result = projectArchiveBranch(archive, { ...options, includeToolContent: true });
+      const label = reasoningLabel ?? 'Reasoning';
+
+      expect(result.data.messages[1].toolContent).toBe(
+        [
+          `**${label}**\n${reasoningBodies[0]}`,
+          '**Tool call: synthetic_search**\n```json\n{\n  "query": "archive graph"\n}\n```',
+          `**${label}**\n${reasoningBodies[1]}`,
+        ].join('\n\n')
+      );
+      expect(result.data.messages[1].content).toBe(visibleText);
+      expect(
+        projectArchiveBranch(archive, { ...options, includeToolContent: false }).data.messages[1]
+          .toolContent
+      ).toBeUndefined();
+      expect(JSON.stringify(archive)).toBe(canonicalBefore);
+    }
+  );
+
   it('renders code with a collision-safe fence and sanitizes HTML at the presentation edge', () => {
     const archive = cloneArchive();
     const message = archive.graph.nodes['node-current'].message!;

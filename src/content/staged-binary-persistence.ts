@@ -38,6 +38,8 @@ export interface StagedBinaryPersistenceInput {
   source: AIPlatform;
   captureId: string;
   conversationKey: string;
+  /** Immutable manifest capture time used only for output routing. */
+  capturedAt?: string;
   assets: readonly (RawCaptureAsset | VerifiedBinaryAssetRuntime)[];
   /** Clipboard is absent from this type and rejected again at runtime. */
   outputs: readonly PersistentOutputDestination[];
@@ -186,6 +188,7 @@ async function commitStage(
     stageId,
     captureId: input.captureId,
     conversationKey: input.conversationKey,
+    ...(input.capturedAt !== undefined && { capturedAt: input.capturedAt }),
     source: input.source,
     descriptor,
     outputs: [...input.outputs],

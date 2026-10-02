@@ -86,6 +86,12 @@
         <strong>chat.deepseek.com</strong>: To extract DeepSeek conversation content (read-only)
       </li>
       <li>
+        <strong>files.deepseeksvc.com</strong>: To download only DeepSeek attachments whose exact
+        signed path is already present in the verified conversation history, only when attachment
+        export is enabled for a durable local output. These requests omit browser credentials and
+        send no conversation text.
+      </li>
+      <li>
         <strong>notebook.google.com</strong>: To extract Gemini Notebook conversation content
         (read-only)
       </li>
@@ -110,6 +116,17 @@
       Your conversation content is never sent to a server operated by Liska. It is processed on the
       AI page that already displays it and goes only to the local output you select. We collect no
       analytics or telemetry, and we operate no servers of our own.
+    </p>
+    <p>
+      DeepSeek signed attachment paths and provider file identifiers remain inside the exact raw
+      archive. Liska saves that raw evidence first, then may perform one bounded credential-free
+      request per verified current path. If history has no signed path, Liska may passively inspect
+      only the newest bounded resource-timing entries already created by the current DeepSeek page
+      and use an exact file-service fetch only when its file ID uniquely matches the verified raw
+      manifest. Liska does not click file cards, clear timing data, call the provider metadata
+      resolver, or retain observed URLs. Manifest and canonical outputs retain only opaque asset
+      IDs, content hashes, destination-specific local paths, and explicit acquisition states.
+      Missing or expired paths and attachments not already previewed remain unresolved.
     </p>
     <p>
       A ChatGPT raw archive may contain temporary attachment transport references already present in
@@ -194,6 +211,10 @@
       <tr>
         <td>Host: chat.deepseek.com</td>
         <td>Inject the Bring thread home export button on DeepSeek pages</td>
+      </tr>
+      <tr>
+        <td>Host: files.deepseeksvc.com</td>
+        <td>Download verified DeepSeek attachment bytes when attachment export is enabled</td>
       </tr>
       <tr>
         <td>Host: notebook.google.com</td>

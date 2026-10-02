@@ -213,6 +213,7 @@ export const ALLOWED_ORIGINS: readonly string[] = ALL_PLATFORMS.flatMap(platform
  */
 export const VALID_MESSAGE_ACTIONS = [
   'getSettings',
+  'saveSettings',
   'testConnection',
   'saveToOutputs',
   'fetchImage',

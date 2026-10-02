@@ -16,6 +16,7 @@ import type {
   ArchiveStageReadResponse,
   ArchiveStageResponse,
   StagedArchiveCompanionArtifact,
+  StructuredArchiveSource,
 } from '../lib/types';
 import { sha256Hex } from './capture/response';
 
@@ -101,10 +102,13 @@ function descriptorFor(
   };
 }
 
-export async function abortStagedArchiveArtifact(stageId: string): Promise<void> {
+export async function abortStagedArchiveArtifact(
+  stageId: string,
+  source: StructuredArchiveSource = 'chatgpt'
+): Promise<void> {
   if (!isSafeArchiveStageId(stageId)) return;
   try {
-    await sendMessage({ action: 'abortStagedArchiveArtifact', source: 'chatgpt', stageId });
+    await sendMessage({ action: 'abortStagedArchiveArtifact', source, stageId });
   } catch {
     // A later bounded stale-stage sweep retains cleanup ownership.
   }
@@ -113,7 +117,8 @@ export async function abortStagedArchiveArtifact(stageId: string): Promise<void>
 /** Stage one already materialized canonical artifact without one whole message. */
 export async function stageArchiveArtifactBytes(
   kind: ArchiveStageKind,
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  source: StructuredArchiveSource = 'chatgpt'
 ): Promise<StagedArchiveCompanionArtifact> {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength > ARCHIVE_STAGE_MAX_BYTES) {
     throw new Error('archive-stage-payload-invalid');
@@ -123,7 +128,7 @@ export async function stageArchiveArtifactBytes(
 
   const begin = await sendMessage({
     action: 'beginStagedArchiveArtifact',
-    source: 'chatgpt',
+    source,
     descriptor,
   });
   if (!isBeginSuccess(begin)) throw new Error('archive-stage-begin-failed');
@@ -134,7 +139,7 @@ export async function stageArchiveArtifactBytes(
       const chunk = bytes.subarray(offset, offset + ARCHIVE_STAGE_CHUNK_BYTES);
       const appended = await sendMessage({
         action: 'appendStagedArchiveArtifact',
-        source: 'chatgpt',
+        source,
         stageId,
         offset,
         chunkBase64: bytesToBase64(chunk),
@@ -143,7 +148,7 @@ export async function stageArchiveArtifactBytes(
     }
     const sealedResponse = await sendMessage({
       action: 'sealStagedArchiveArtifact',
-      source: 'chatgpt',
+      source,
       stageId,
       descriptor,
     });
@@ -151,13 +156,14 @@ export async function stageArchiveArtifactBytes(
     sealed = true;
     return { transport: 'staged', stageId, ...descriptor };
   } finally {
-    if (!sealed) await abortStagedArchiveArtifact(stageId);
+    if (!sealed) await abortStagedArchiveArtifact(stageId, source);
   }
 }
 
 /** Read one sealed artifact in bounded messages, then independently verify it. */
 export async function readStagedArchiveArtifactBytes(
-  artifact: StagedArchiveCompanionArtifact
+  artifact: StagedArchiveCompanionArtifact,
+  source: StructuredArchiveSource = 'chatgpt'
 ): Promise<Uint8Array> {
   const descriptor: ArchiveStageDescriptor = {
     kind: artifact.kind,
@@ -179,7 +185,7 @@ export async function readStagedArchiveArtifactBytes(
     const byteLength = Math.min(ARCHIVE_STAGE_CHUNK_BYTES, artifact.byteLength - offset);
     const response = await sendMessage({
       action: 'readStagedArchiveArtifact',
-      source: 'chatgpt',
+      source,
       stageId: artifact.stageId,
       offset,
       byteLength,

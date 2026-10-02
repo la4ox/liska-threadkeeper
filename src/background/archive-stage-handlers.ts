@@ -355,6 +355,7 @@ async function saveStagedArchiveToObsidian(
       source: message.source,
       captureId: message.captureId,
       conversationKey: message.conversationKey,
+      ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
       stageId: message.artifact.stageId,
       descriptor,
       blobUrl,

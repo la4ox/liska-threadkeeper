@@ -185,6 +185,9 @@ export interface NoteFrontmatter {
  */
 export type OutputDestination = 'obsidian' | 'file' | 'clipboard';
 
+/** Providers currently able to create structured raw/canonical archive stages. */
+export type StructuredArchiveSource = Extract<AIPlatform, 'chatgpt' | 'deepseek'>;
+
 /** Destinations that can retain private archive companion bytes. */
 export type PersistentOutputDestination = Exclude<OutputDestination, 'clipboard'>;
 
@@ -239,6 +242,8 @@ export type ArchiveCompanionArtifact =
 export interface ArchiveCompanionBundle {
   captureId: string;
   conversationKey: string;
+  /** Immutable manifest capture time used only to resolve runtime output routing. */
+  capturedAt?: string;
   /** Raw + manifest are always present; canonical is appended after normalization. */
   artifacts:
     | readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact]
@@ -253,6 +258,16 @@ export interface ArchiveCompanionBundle {
  */
 export interface ChatGptAssetExportContext {
   conversationId: string;
+  rawCaptureBundle: RawCaptureBundle;
+  rawArtifact: ArchiveCompanionArtifact;
+}
+
+/**
+ * Runtime-only DeepSeek evidence retained for an optional attachment pass.
+ * Signed paths and provider file IDs remain solely inside the exact raw bytes;
+ * this context is never serialized into Markdown or an archive companion.
+ */
+export interface DeepSeekAssetExportContext {
   rawCaptureBundle: RawCaptureBundle;
   rawArtifact: ArchiveCompanionArtifact;
 }
@@ -409,6 +424,14 @@ export interface SyncSettings {
 export interface ExtensionSettings extends SecureSettings, SyncSettings {}
 
 /**
+ * Exact popup settings-save transport: every non-secret setting is required.
+ * Omitting the API key preserves the credential; an explicit empty string clears it.
+ */
+export interface PopupSettingsUpdate extends SyncSettings {
+  obsidianApiKey?: string;
+}
+
+/**
  * Settings returned to content scripts (API key redacted)
  *
  * Security: Content scripts run inside third-party pages and should
@@ -464,7 +487,14 @@ export interface TemplateOptions {
  * Message types for chrome.runtime communication
  */
 export type ExtensionMessage =
-  | { action: 'saveToOutputs'; data: ObsidianNote; outputs: OutputDestination[] }
+  | {
+      action: 'saveToOutputs';
+      data: ObsidianNote;
+      outputs: OutputDestination[];
+      /** Runtime-only structured-capture routing timestamp. */
+      capturedAt?: string;
+    }
+  | { action: 'saveSettings'; settings: PopupSettingsUpdate }
   | { action: 'updateOutputOptions'; outputOptions: OutputOptions }
   | {
       action: 'persistArchiveCompanion';
@@ -472,30 +502,31 @@ export type ExtensionMessage =
       source: AIPlatform;
       captureId: string;
       conversationKey: string;
+      capturedAt?: string;
       artifact: ArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
   | {
       action: 'beginStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       descriptor: ArchiveStageDescriptor;
     }
   | {
       action: 'appendStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       stageId: string;
       offset: number;
       chunkBase64: string;
     }
   | {
       action: 'sealStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       stageId: string;
       descriptor: ArchiveStageDescriptor;
     }
   | {
       action: 'readStagedArchiveArtifact';
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       stageId: string;
       offset: number;
       byteLength: number;
@@ -503,13 +534,18 @@ export type ExtensionMessage =
   | {
       action: 'commitStagedArchiveCompanion';
       noteFileName: string;
-      source: 'chatgpt';
+      source: StructuredArchiveSource;
       captureId: string;
       conversationKey: string;
+      capturedAt?: string;
       artifact: StagedArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
-  | { action: 'abortStagedArchiveArtifact'; source: 'chatgpt'; stageId: string }
+  | {
+      action: 'abortStagedArchiveArtifact';
+      source: StructuredArchiveSource;
+      stageId: string;
+    }
   | {
       action: 'beginStagedBinaryAsset';
       source: AIPlatform;
@@ -528,6 +564,7 @@ export type ExtensionMessage =
       stageId: string;
       captureId: string;
       conversationKey: string;
+      capturedAt?: string;
       source: AIPlatform;
       descriptor: StagedBinaryAssetDescriptor;
       outputs: PersistentOutputDestination[];
@@ -740,6 +777,12 @@ export interface OutputOptionsUpdateResponse {
   error?: string;
 }
 
+/** Response to a full extension settings update owned by the service worker. */
+export interface SettingsSaveResponse {
+  success: boolean;
+  error?: string;
+}
+
 /**
  * Response from background service worker
  */
@@ -771,6 +814,8 @@ export interface ExtractionResult {
   archiveCompanion?: ArchiveCompanionBundle;
   /** Runtime-only source evidence for optional destination-honest ChatGPT attachment export. */
   chatGptAssetExportContext?: ChatGptAssetExportContext;
+  /** Runtime-only source evidence for optional destination-honest DeepSeek attachment export. */
+  deepSeekAssetExportContext?: DeepSeekAssetExportContext;
   /** Complete graph retained for sequential per-leaf presentation writes. */
   allBranches?: AllBranchesPresentationPlan;
 }

@@ -35,6 +35,7 @@ import type {
   ObsidianNote,
   SaveResponse,
   StagedBinaryAssetDescriptor,
+  StructuredArchiveSource,
 } from '../lib/types';
 
 /**
@@ -66,6 +67,7 @@ export interface ArchiveCompanionWriteRequest {
   source: AIPlatform;
   captureId: string;
   conversationKey: string;
+  capturedAt?: string;
   artifact: ArchiveCompanionArtifact;
   bytes: Uint8Array;
 }
@@ -75,15 +77,17 @@ export interface StagedBinaryAssetWriteRequest {
   source: AIPlatform;
   captureId: string;
   conversationKey: string;
+  capturedAt?: string;
   descriptor: StagedBinaryAssetDescriptor;
   blobUrl: string;
 }
 
 /** One sealed archive JSON stage consumed for an immutable vault write. */
 export interface StagedArchiveCompanionWriteRequest {
-  source: 'chatgpt';
+  source: StructuredArchiveSource;
   captureId: string;
   conversationKey: string;
+  capturedAt?: string;
   stageId: string;
   descriptor: ArchiveStageDescriptor;
   blobUrl: string;
@@ -154,13 +158,26 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const ROUTING_CAPTURED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** Legacy callers route by save time; supplied capture times fail closed unless canonical. */
+function routingDate(capturedAt: string | undefined): Date | undefined {
+  if (capturedAt === undefined) return new Date();
+  if (!ROUTING_CAPTURED_AT_PATTERN.test(capturedAt)) return undefined;
+  const parsed = Date.parse(capturedAt);
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== capturedAt) return undefined;
+  return new Date(parsed);
+}
+
 function archiveCompanionVaultPath(
   settings: ExtensionSettings,
   request: ArchiveCompanionWriteRequest
 ): string | undefined {
+  const date = routingDate(request.capturedAt);
+  if (!date) return undefined;
   const variables = {
     platform: request.source,
-    ...getDateVariables(new Date()),
+    ...getDateVariables(date),
   };
   const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
   const path = [
@@ -178,9 +195,11 @@ function stagedBinaryAssetVaultPath(
   request: StagedBinaryAssetWriteRequest
 ): string | undefined {
   if (!isStagedBinaryAssetDescriptor(request.descriptor)) return undefined;
+  const date = routingDate(request.capturedAt);
+  if (!date) return undefined;
   const variables = {
     platform: request.source,
-    ...getDateVariables(new Date()),
+    ...getDateVariables(date),
   };
   const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
   const path = [
@@ -198,7 +217,9 @@ function stagedArchiveCompanionVaultPath(
   request: StagedArchiveCompanionWriteRequest
 ): string | undefined {
   if (!isArchiveStageDescriptor(request.descriptor)) return undefined;
-  const variables = { platform: request.source, ...getDateVariables(new Date()) };
+  const date = routingDate(request.capturedAt);
+  if (!date) return undefined;
+  const variables = { platform: request.source, ...getDateVariables(date) };
   const resolvedFolder = resolvePathTemplate(settings.vaultPath, variables);
   const path = [
     ...(resolvedFolder ? [resolvedFolder] : []),
@@ -208,6 +229,43 @@ function stagedArchiveCompanionVaultPath(
     ...request.descriptor.relativePath.split('/'),
   ].join('/');
   return containsPathTraversal(path) ? undefined : path;
+}
+
+async function writeAndVerifyArchiveCompanion(
+  client: ObsidianApiClient,
+  path: string,
+  bytes: Uint8Array,
+  expectedSha256: string
+): Promise<SaveResponse> {
+  try {
+    await client.putBinaryFile(
+      path,
+      bytes,
+      ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('put', error) };
+  }
+
+  let readBack: Uint8Array | null;
+  try {
+    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('readback', error) };
+  }
+  if (!readBack) return { success: false, error: 'archive-obsidian-readback-missing' };
+  if (readBack.byteLength !== bytes.byteLength) {
+    return { success: false, error: 'archive-obsidian-readback-size-mismatch' };
+  }
+
+  try {
+    return (await sha256Hex(readBack)) === expectedSha256
+      ? { success: true }
+      : { success: false, error: 'archive-obsidian-readback-hash-mismatch' };
+  } catch {
+    return { success: false, error: 'archive-obsidian-readback-hash-failed' };
+  }
 }
 
 /**
@@ -237,39 +295,7 @@ export async function handleSaveArchiveCompanion(
   if (existing !== null) {
     return { success: false, error: 'archive-obsidian-preflight-existing' };
   }
-
-  try {
-    await client.putBinaryFile(
-      path,
-      request.bytes,
-      ARCHIVE_COMPANION_TRANSPORT_CONTENT_TYPE,
-      ARCHIVE_COMPANION_API_TIMEOUT_MS
-    );
-  } catch (error) {
-    return { success: false, error: archiveObsidianFailureCode('put', error) };
-  }
-
-  let readBack: Uint8Array | null;
-  try {
-    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
-  } catch (error) {
-    return { success: false, error: archiveObsidianFailureCode('readback', error) };
-  }
-  if (!readBack) return { success: false, error: 'archive-obsidian-readback-missing' };
-  if (readBack.byteLength !== request.bytes.byteLength) {
-    return { success: false, error: 'archive-obsidian-readback-size-mismatch' };
-  }
-
-  let readBackSha256: string;
-  try {
-    readBackSha256 = await sha256Hex(readBack);
-  } catch {
-    return { success: false, error: 'archive-obsidian-readback-hash-failed' };
-  }
-  if (readBackSha256 !== request.artifact.sha256) {
-    return { success: false, error: 'archive-obsidian-readback-hash-mismatch' };
-  }
-  return { success: true };
+  return writeAndVerifyArchiveCompanion(client, path, request.bytes, request.artifact.sha256);
 }
 
 function stagedBinaryFailureCode(
@@ -348,17 +374,16 @@ export async function handleSaveStagedArchiveCompanion(
 
   const staged = await readVerifiedArchiveStageBlob(request);
   if (!staged.bytes) return { success: false, error: staged.error };
-  return handleSaveArchiveCompanion(settings, {
-    source: request.source,
-    captureId: request.captureId,
-    conversationKey: request.conversationKey,
-    artifact: {
-      transport: 'staged',
-      stageId: request.stageId,
-      ...request.descriptor,
-    },
-    bytes: staged.bytes,
-  });
+  // Blob verification can be slow. Recheck the same pinned path immediately
+  // before PUT so a concurrent completed snapshot is never overwritten.
+  try {
+    if ((await client.getFile(path)) !== null) {
+      return { success: false, error: 'archive-obsidian-preflight-existing' };
+    }
+  } catch (error) {
+    return { success: false, error: archiveObsidianFailureCode('preflight', error) };
+  }
+  return writeAndVerifyArchiveCompanion(client, path, staged.bytes, request.descriptor.sha256);
 }
 
 async function writeAndVerifyStagedBinary(
@@ -544,7 +569,8 @@ function withAppendImageWarning(
  */
 export async function handleSave(
   settings: ExtensionSettings,
-  note: ObsidianNote
+  note: ObsidianNote,
+  capturedAt?: string
 ): Promise<SaveResponse> {
   const client = createObsidianClient(settings);
   if (isClientError(client)) {
@@ -552,9 +578,11 @@ export async function handleSave(
   }
 
   try {
+    const date = routingDate(capturedAt);
+    if (!date) return { success: false, error: 'Invalid capture timestamp' };
     const templateVariables: Record<string, string> = {
       platform: note.frontmatter.source,
-      ...getDateVariables(new Date()),
+      ...getDateVariables(date),
     };
     const resolvedPath = resolvePathTemplate(settings.vaultPath, templateVariables);
     const searchBasePath = getSearchBasePath(settings.vaultPath, templateVariables);

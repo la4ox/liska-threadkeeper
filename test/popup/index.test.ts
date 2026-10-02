@@ -6,18 +6,17 @@
  * index.ts entry shim stays a DOMContentLoaded one-liner.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { ExtensionSettings } from '../../src/lib/types';
+import type { ExtensionSettings, PopupSettingsUpdate } from '../../src/lib/types';
 
 vi.mock('../../src/lib/storage', () => ({
   getSettings: vi.fn(),
-  saveSettings: vi.fn(),
 }));
 
 vi.mock('../../src/lib/messaging', () => ({
   sendMessage: vi.fn(),
 }));
 
-import { getSettings, saveSettings } from '../../src/lib/storage';
+import { getSettings } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
 import { initPopup } from '../../src/popup/app';
 
@@ -118,10 +117,16 @@ function statusEl(): HTMLDivElement {
   return el<HTMLDivElement>('status');
 }
 
-async function initWithDefaults(): Promise<void> {
+async function initWithDefaults(settings: ExtensionSettings = storedSettings): Promise<void> {
   buildPopupDom();
-  vi.mocked(getSettings).mockResolvedValue(storedSettings);
+  vi.mocked(getSettings).mockResolvedValue(settings);
   await initPopup();
+}
+
+function settingsSaveAt(index: number): PopupSettingsUpdate {
+  const message = vi.mocked(sendMessage).mock.calls[index]?.[0];
+  if (message?.action !== 'saveSettings') throw new Error('Expected a settings-save message');
+  return message.settings;
 }
 
 describe('popup/app', () => {
@@ -154,18 +159,19 @@ describe('popup/app', () => {
         enableChatGptOpaqueProbe: true,
         enableChatGptOpaqueReplay: true,
       });
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
       await initPopup();
 
       expect(el<HTMLInputElement>('enableChatGptOpaqueProbe').checked).toBe(true);
       expect(el<HTMLInputElement>('enableChatGptOpaqueReplay').checked).toBe(false);
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enableChatGptOpaqueProbe: true,
-          enableChatGptOpaqueReplay: false,
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({
+            enableChatGptOpaqueProbe: true,
+            enableChatGptOpaqueReplay: false,
+          }),
         })
       );
     });
@@ -348,32 +354,34 @@ describe('popup/app', () => {
   describe('save flow', () => {
     it('saves the experimental opaque-probe switch with an explicit default-off value', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
 
       const probe = el<HTMLInputElement>('enableChatGptOpaqueProbe');
       probe.checked = true;
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ enableChatGptOpaqueProbe: true })
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({ enableChatGptOpaqueProbe: true }),
+        })
       );
     });
 
     it('saves the experimental opaque-replay switch with an explicit default-off value', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
 
       const replay = el<HTMLInputElement>('enableChatGptOpaqueReplay');
       replay.checked = true;
       replay.dispatchEvent(new Event('change'));
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enableChatGptOpaqueProbe: false,
-          enableChatGptOpaqueReplay: true,
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({
+            enableChatGptOpaqueProbe: false,
+            enableChatGptOpaqueReplay: true,
+          }),
         })
       );
     });
@@ -439,19 +447,25 @@ describe('popup/app', () => {
       ]);
     });
 
-    it('saves collected settings and shows a success status', async () => {
+    it('saves other collected settings without resending an unchanged loaded key', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
+      const { obsidianApiKey: _unchangedKey, ...syncSettings } = storedSettings;
 
       el<HTMLInputElement>('vaultPath').value = '  AI/Claude  ';
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          obsidianApiKey: VALID_API_KEY,
-          vaultPath: 'AI/Claude',
-          outputOptions: { obsidian: true, file: false, clipboard: true },
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: {
+            ...syncSettings,
+            vaultPath: 'AI/Claude',
+            outputOptions: { obsidian: true, file: false, clipboard: true },
+            templateOptions: {
+              ...storedSettings.templateOptions,
+              filenameScheme: 'title-id',
+            },
+          },
         })
       );
       expect(statusEl().textContent).toBe('status_settingsSaved');
@@ -459,17 +473,147 @@ describe('popup/app', () => {
       expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
     });
 
+    it('omits an unchanged blank key while saving other settings', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        obsidianApiKey: '',
+        outputOptions: { obsidian: false, file: true, clipboard: false },
+      });
+
+      el<HTMLInputElement>('vaultPath').value = 'AI/Updated';
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(0)).not.toHaveProperty('obsidianApiKey');
+      expect(settingsSaveAt(0).vaultPath).toBe('AI/Updated');
+    });
+
+    it('preserves a key migrated after the popup opened with a blank field', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        obsidianApiKey: '',
+        outputOptions: { obsidian: false, file: true, clipboard: false },
+      });
+
+      // Migration finishes after the popup's initial local-only read. Model
+      // the background's explicit-key write authority without repopulating UI.
+      let backgroundApiKey = VALID_API_KEY;
+      vi.mocked(sendMessage).mockImplementation(async message => {
+        if (message.action === 'saveSettings' && message.settings.obsidianApiKey !== undefined) {
+          backgroundApiKey = message.settings.obsidianApiKey;
+        }
+        return { success: true } as never;
+      });
+
+      el<HTMLInputElement>('vaultPath').value = 'AI/AfterMigration';
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(el<HTMLInputElement>('apiKey').value).toBe('');
+      expect(settingsSaveAt(0)).not.toHaveProperty('obsidianApiKey');
+      expect(settingsSaveAt(0).vaultPath).toBe('AI/AfterMigration');
+      expect(backgroundApiKey).toBe(VALID_API_KEY);
+    });
+
+    it('includes a newly entered key instead of treating an initially blank field as a clear', async () => {
+      await initWithDefaults({ ...storedSettings, obsidianApiKey: '' });
+
+      el<HTMLInputElement>('apiKey').value = `  ${VALID_API_KEY}  `;
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(0)).toHaveProperty('obsidianApiKey', VALID_API_KEY);
+    });
+
+    it('includes an explicit clear when a loaded key is erased with Obsidian output disabled', async () => {
+      await initWithDefaults();
+
+      el<HTMLInputElement>('outputObsidian').checked = false;
+      el<HTMLInputElement>('apiKey').value = '';
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(0)).toHaveProperty('obsidianApiKey', '');
+    });
+
+    it('updates the key baseline only after a successful explicit save, including a later revert', async () => {
+      await initWithDefaults();
+      const replacementKey = 'b'.repeat(32);
+      el<HTMLInputElement>('apiKey').value = replacementKey;
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(0)).toHaveProperty('obsidianApiKey', replacementKey);
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false));
+      expect(settingsSaveAt(1)).not.toHaveProperty('obsidianApiKey');
+
+      el<HTMLInputElement>('apiKey').value = VALID_API_KEY;
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3));
+      expect(settingsSaveAt(2)).toHaveProperty('obsidianApiKey', VALID_API_KEY);
+    });
+
+    it('retries an explicit key write after a failed save without advancing the baseline', async () => {
+      await initWithDefaults();
+      const replacementKey = 'b'.repeat(32);
+      vi.mocked(sendMessage).mockResolvedValueOnce({ success: false } as never);
+
+      el<HTMLInputElement>('apiKey').value = replacementKey;
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('toast_error_saveFailed'));
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(0)).toHaveProperty('obsidianApiKey', replacementKey);
+      expect(settingsSaveAt(1)).toHaveProperty('obsidianApiKey', replacementKey);
+    });
+
+    it('restores the displayed key after a rejected save may have partially committed another key', async () => {
+      await initWithDefaults();
+      const replacementKey = 'b'.repeat(32);
+      let backgroundApiKey = VALID_API_KEY;
+      let rejectAfterLocalWrite = true;
+      vi.mocked(sendMessage).mockImplementation(async message => {
+        if (message.action !== 'saveSettings') return { success: true } as never;
+        if (message.settings.obsidianApiKey !== undefined) {
+          backgroundApiKey = message.settings.obsidianApiKey;
+        }
+        if (rejectAfterLocalWrite) {
+          rejectAfterLocalWrite = false;
+          return { success: false, error: 'sync write failed after local key write' } as never;
+        }
+        return { success: true } as never;
+      });
+
+      el<HTMLInputElement>('apiKey').value = replacementKey;
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() =>
+        expect(statusEl().textContent).toBe('sync write failed after local key write')
+      );
+      expect(backgroundApiKey).toBe(replacementKey);
+
+      el<HTMLInputElement>('apiKey').value = VALID_API_KEY;
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(1)).toHaveProperty('obsidianApiKey', VALID_API_KEY);
+      expect(backgroundApiKey).toBe(VALID_API_KEY);
+    });
+
     it('collects the selected filename scheme into templateOptions (#328)', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
 
       el<HTMLSelectElement>('filenameScheme').value = 'title-date';
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
-      expect(saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          templateOptions: expect.objectContaining({ filenameScheme: 'title-date' }),
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({
+            templateOptions: expect.objectContaining({ filenameScheme: 'title-date' }),
+          }),
         })
       );
     });
@@ -483,7 +627,7 @@ describe('popup/app', () => {
       el<HTMLButtonElement>('saveBtn').click();
 
       await vi.waitFor(() => expect(statusEl().textContent).toBe('error_noOutputSelected'));
-      expect(saveSettings).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
     });
 
     it('rejects an API key shorter than the security minimum', async () => {
@@ -494,7 +638,7 @@ describe('popup/app', () => {
 
       await vi.waitFor(() => expect(statusEl().className).toBe('status error'));
       expect(statusEl().textContent).toContain('too short');
-      expect(saveSettings).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
     });
 
     it('skips Obsidian validation when Obsidian output is disabled', async () => {
@@ -504,52 +648,161 @@ describe('popup/app', () => {
         obsidianApiKey: '',
         outputOptions: { obsidian: false, file: true, clipboard: false },
       });
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
       await initPopup();
 
       el<HTMLButtonElement>('saveBtn').click();
 
-      await vi.waitFor(() => expect(saveSettings).toHaveBeenCalled());
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'saveSettings' })
+        )
+      );
       expect(statusEl().textContent).toBe('status_settingsSaved');
     });
 
     it('shows an error status when persisting settings fails', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockRejectedValue(new Error('quota exceeded'));
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(sendMessage).mockResolvedValue({ success: false } as never);
 
       el<HTMLButtonElement>('saveBtn').click();
 
       await vi.waitFor(() => expect(statusEl().className).toBe('status error'));
       expect(statusEl().textContent).toBe('toast_error_saveFailed');
       expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
-      errorSpy.mockRestore();
+    });
+
+    it('does not make the key uncertain when a key-omitting settings save fails', async () => {
+      await initWithDefaults();
+      vi.mocked(sendMessage).mockResolvedValueOnce({ success: false } as never);
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('toast_error_saveFailed'));
+      expect(settingsSaveAt(0)).not.toHaveProperty('obsidianApiKey');
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(1)).not.toHaveProperty('obsidianApiKey');
     });
   });
 
   describe('test connection flow', () => {
     it('saves settings then reports a successful connection', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
       vi.mocked(sendMessage).mockResolvedValue({ success: true });
 
       el<HTMLButtonElement>('testBtn').click();
 
       await vi.waitFor(() => expect(statusEl().textContent).toBe('status_connectionSuccess'));
-      expect(saveSettings).toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledWith({
+        action: 'saveSettings',
+        settings: expect.objectContaining({ obsidianApiKey: VALID_API_KEY }),
+      });
       expect(sendMessage).toHaveBeenCalledWith({ action: 'testConnection' });
       expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
     });
 
+    it('explicitly saves the entered validated key and advances the baseline before a later ordinary save', async () => {
+      await initWithDefaults();
+      const replacementKey = 'b'.repeat(32);
+
+      el<HTMLInputElement>('apiKey').value = `  ${replacementKey}  `;
+      el<HTMLButtonElement>('testBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_connectionSuccess'));
+      expect(settingsSaveAt(0)).toHaveProperty('obsidianApiKey', replacementKey);
+      expect(sendMessage).toHaveBeenNthCalledWith(2, { action: 'testConnection' });
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3));
+      expect(settingsSaveAt(2)).not.toHaveProperty('obsidianApiKey');
+    });
+
+    it('prevents a reverted ordinary save from racing a pending connection-key write', async () => {
+      await initWithDefaults();
+      const replacementKey = 'b'.repeat(32);
+      let resolveKeySave: ((value: { success: true }) => void) | undefined;
+      const pendingKeySave = new Promise<{ success: true }>(resolve => {
+        resolveKeySave = resolve;
+      });
+      vi.mocked(sendMessage).mockImplementation(message =>
+        message.action === 'saveSettings'
+          ? (pendingKeySave as never)
+          : Promise.resolve({ success: true } as never)
+      );
+
+      el<HTMLInputElement>('apiKey').value = replacementKey;
+      el<HTMLButtonElement>('testBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      expect(settingsSaveAt(0)).toHaveProperty('obsidianApiKey', replacementKey);
+      expect(el<HTMLButtonElement>('testBtn').disabled).toBe(true);
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(true);
+
+      el<HTMLInputElement>('apiKey').value = VALID_API_KEY;
+      el<HTMLButtonElement>('saveBtn').click();
+      await Promise.resolve();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+
+      resolveKeySave?.({ success: true });
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_connectionSuccess'));
+      expect(sendMessage).toHaveBeenNthCalledWith(2, { action: 'testConnection' });
+      expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3));
+      expect(settingsSaveAt(2)).toHaveProperty('obsidianApiKey', VALID_API_KEY);
+    });
+
+    it('forces the displayed key after the connection settings save is rejected', async () => {
+      await initWithDefaults();
+      const replacementKey = 'b'.repeat(32);
+      vi.mocked(sendMessage).mockResolvedValueOnce({ success: false } as never);
+
+      el<HTMLInputElement>('apiKey').value = replacementKey;
+      el<HTMLButtonElement>('testBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('toast_error_saveFailed'));
+
+      el<HTMLInputElement>('apiKey').value = VALID_API_KEY;
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_settingsSaved'));
+      expect(settingsSaveAt(0)).toHaveProperty('obsidianApiKey', replacementKey);
+      expect(settingsSaveAt(1)).toHaveProperty('obsidianApiKey', VALID_API_KEY);
+      expect(sendMessage).not.toHaveBeenCalledWith({ action: 'testConnection' });
+    });
+
     it('reports the backend error when the connection test fails', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
-      vi.mocked(sendMessage).mockResolvedValue({ success: false, error: 'Invalid API key' });
+      vi.mocked(sendMessage)
+        .mockResolvedValueOnce({ success: true })
+        .mockResolvedValueOnce({ success: false, error: 'Invalid API key' });
 
       el<HTMLButtonElement>('testBtn').click();
 
       await vi.waitFor(() => expect(statusEl().textContent).toBe('Invalid API key'));
       expect(statusEl().className).toBe('status error');
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3));
+      expect(settingsSaveAt(2)).not.toHaveProperty('obsidianApiKey');
+    });
+
+    it('does not test the connection after the settings route rejects the save', async () => {
+      await initWithDefaults();
+      vi.mocked(sendMessage).mockResolvedValue({
+        success: false,
+        error: 'Could not save settings',
+      } as never);
+
+      el<HTMLButtonElement>('testBtn').click();
+
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('Could not save settings'));
+      expect(vi.mocked(sendMessage).mock.calls).toEqual([
+        [
+          {
+            action: 'saveSettings',
+            settings: expect.objectContaining({ obsidianApiKey: VALID_API_KEY }),
+          },
+        ],
+      ]);
     });
 
     it('warns and skips the test when no API key is entered', async () => {
@@ -575,15 +828,14 @@ describe('popup/app', () => {
 
     it('shows the thrown message when the test itself errors', async () => {
       await initWithDefaults();
-      vi.mocked(saveSettings).mockResolvedValue(undefined);
-      vi.mocked(sendMessage).mockRejectedValue(new Error('port closed'));
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(sendMessage)
+        .mockResolvedValueOnce({ success: true })
+        .mockRejectedValueOnce(new Error('port closed'));
 
       el<HTMLButtonElement>('testBtn').click();
 
-      await vi.waitFor(() => expect(statusEl().textContent).toBe('port closed'));
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('toast_error_connectionFailed'));
       expect(statusEl().className).toBe('status error');
-      errorSpy.mockRestore();
     });
   });
 });

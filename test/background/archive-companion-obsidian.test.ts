@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../../src/lib/image-utils';
 import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../../src/lib/constants';
+import { getDateVariables } from '../../src/lib/path-utils';
 import type { ArchiveCompanionArtifact, ExtensionSettings } from '../../src/lib/types';
 
 const mocks = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ vi.mock('../../src/lib/obsidian-api', () => ({
 
 import {
   handleSaveArchiveCompanion,
+  handleSaveStagedArchiveCompanion,
   handleSaveStagedBinaryAsset,
 } from '../../src/background/obsidian-handlers';
 
@@ -34,6 +36,7 @@ async function request() {
     value.toString(16).padStart(2, '0')
   ).join('');
   const artifact: ArchiveCompanionArtifact = {
+    transport: 'inline',
     kind: 'canonical',
     relativePath: 'canonical/liska-thread-1.json',
     mediaType: 'application/json',
@@ -71,6 +74,11 @@ async function stagedRequest() {
 }
 
 describe('Obsidian archive companion persistence', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.client.mockImplementation(function () {
@@ -99,6 +107,159 @@ describe('Obsidian archive companion persistence', () => {
     expect(putArgs?.[3]).toBe(ARCHIVE_COMPANION_API_TIMEOUT_MS);
     expect(mocks.getBinaryFile).toHaveBeenCalledWith(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
     expect(result).toEqual({ success: true });
+  });
+
+  it('keeps raw, binary, manifest, and canonical writes under the capture-date prefix across midnight', async () => {
+    vi.useFakeTimers();
+    const capturedDate = new Date(2026, 0, 31, 23, 59, 0);
+    const capturedAt = capturedDate.toISOString();
+    vi.setSystemTime(capturedDate);
+    const datedSettings = {
+      ...settings,
+      vaultPath: 'AI/{platform}/{YYYY}/{MM}/{DD}',
+    } as ExtensionSettings;
+    const value = await request();
+    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+
+    await handleSaveArchiveCompanion(datedSettings, {
+      ...value,
+      capturedAt,
+      artifact: {
+        ...value.artifact,
+        kind: 'raw',
+        relativePath: 'responses/conversation.json',
+      },
+    });
+
+    vi.setSystemTime(new Date(2026, 1, 1, 0, 1, 0));
+    const staged = await stagedRequest();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(value.bytes)));
+    await handleSaveStagedBinaryAsset(datedSettings, { ...staged.request, capturedAt });
+    await handleSaveArchiveCompanion(datedSettings, {
+      ...value,
+      capturedAt,
+      artifact: { ...value.artifact, kind: 'manifest', relativePath: 'manifest.json' },
+    });
+    await handleSaveArchiveCompanion(datedSettings, { ...value, capturedAt });
+
+    const tokens = getDateVariables(capturedDate);
+    const prefix = `AI/chatgpt/${tokens.YYYY}/${tokens.MM}/${tokens.DD}/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/`;
+    const paths = mocks.putBinaryFile.mock.calls.map(call => call[0]);
+    expect(paths).toEqual([
+      `${prefix}responses/conversation.json`,
+      `${prefix}${staged.request.descriptor.relativePath}`,
+      `${prefix}manifest.json`,
+      `${prefix}canonical/liska-thread-1.json`,
+    ]);
+  });
+
+  it('resolves one legacy staged archive path before a Blob read crosses midnight', async () => {
+    vi.useFakeTimers();
+    const beforeMidnight = new Date(2026, 2, 31, 23, 59, 0);
+    const afterMidnight = new Date(2026, 3, 1, 0, 1, 0);
+    vi.setSystemTime(beforeMidnight);
+    const datedSettings = {
+      ...settings,
+      vaultPath: 'AI/{platform}/{YYYY}/{MM}/{DD}',
+    } as ExtensionSettings;
+    const value = await request();
+    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => {
+        vi.setSystemTime(afterMidnight);
+        return Promise.resolve(new Response(value.bytes));
+      })
+    );
+
+    const result = await handleSaveStagedArchiveCompanion(datedSettings, {
+      source: 'chatgpt',
+      captureId: CAPTURE_ID,
+      conversationKey: CONVERSATION_KEY,
+      stageId: `archive-stage-${'A'.repeat(32)}`,
+      descriptor: {
+        kind: 'canonical',
+        relativePath: 'canonical/liska-thread-1.json',
+        mediaType: 'application/json',
+        byteLength: value.bytes.byteLength,
+        sha256: value.artifact.sha256,
+      },
+      blobUrl: 'blob:chrome-extension://test/archive-stage',
+    });
+
+    const tokens = getDateVariables(beforeMidnight);
+    const path = `AI/chatgpt/${tokens.YYYY}/${tokens.MM}/${tokens.DD}/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/canonical/liska-thread-1.json`;
+    expect(result).toEqual({ success: true });
+    expect(mocks.getFile).toHaveBeenCalledTimes(2);
+    expect(mocks.getFile).toHaveBeenCalledWith(path);
+    expect(mocks.putBinaryFile).toHaveBeenCalledWith(
+      path,
+      expect.any(Uint8Array),
+      'application/octet-stream',
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+  });
+
+  it('rechecks the pinned staged path after Blob verification and never overwrites a race winner', async () => {
+    const value = await request();
+    const path = `AI/chatgpt/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/canonical/liska-thread-1.json`;
+    mocks.getFile
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('concurrent immutable snapshot');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(value.bytes)));
+
+    const result = await handleSaveStagedArchiveCompanion(settings, {
+      source: 'chatgpt',
+      captureId: CAPTURE_ID,
+      conversationKey: CONVERSATION_KEY,
+      stageId: `archive-stage-${'B'.repeat(32)}`,
+      descriptor: {
+        kind: 'canonical',
+        relativePath: 'canonical/liska-thread-1.json',
+        mediaType: 'application/json',
+        byteLength: value.bytes.byteLength,
+        sha256: value.artifact.sha256,
+      },
+      blobUrl: 'blob:chrome-extension://test/archive-stage-race',
+    });
+
+    expect(result).toEqual({ success: false, error: 'archive-obsidian-preflight-existing' });
+    expect(mocks.getFile).toHaveBeenNthCalledWith(1, path);
+    expect(mocks.getFile).toHaveBeenNthCalledWith(2, path);
+    expect(mocks.putBinaryFile).not.toHaveBeenCalled();
+  });
+
+  it('routes concurrent captures independently from their own immutable timestamps', async () => {
+    const datedSettings = {
+      ...settings,
+      vaultPath: 'AI/{platform}/{YYYY}/{MM}/{DD}',
+    } as ExtensionSettings;
+    const value = await request();
+    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    const firstDate = new Date(2026, 4, 2, 12, 0, 0);
+    const secondDate = new Date(2026, 10, 29, 12, 0, 0);
+    const secondCaptureId = 'capture-chatgpt-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
+    await Promise.all([
+      handleSaveArchiveCompanion(datedSettings, {
+        ...value,
+        capturedAt: firstDate.toISOString(),
+      }),
+      handleSaveArchiveCompanion(datedSettings, {
+        ...value,
+        captureId: secondCaptureId,
+        capturedAt: secondDate.toISOString(),
+      }),
+    ]);
+
+    const first = getDateVariables(firstDate);
+    const second = getDateVariables(secondDate);
+    expect(mocks.putBinaryFile.mock.calls.map(call => call[0])).toEqual(
+      expect.arrayContaining([
+        `AI/chatgpt/${first.YYYY}/${first.MM}/${first.DD}/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/canonical/liska-thread-1.json`,
+        `AI/chatgpt/${second.YYYY}/${second.MM}/${second.DD}/_liska-archive/${CONVERSATION_KEY}/${secondCaptureId}/canonical/liska-thread-1.json`,
+      ])
+    );
   });
 
   it('never overwrites an existing snapshot', async () => {

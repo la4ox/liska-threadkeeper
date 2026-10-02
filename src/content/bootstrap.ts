@@ -27,6 +27,11 @@ import {
   type AllBranchesPersistenceSummary,
 } from './archive-branch-persistence';
 import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-export';
+import { persistDeepSeekDestinationHonestAttachments } from './deepseek-asset-export';
+import {
+  canExportChatGptAttachments,
+  canExportDeepSeekAttachments,
+} from './attachment-export-gates';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
   observeChatGptInterpreterAssetResolvers,
@@ -58,10 +63,12 @@ import type {
   OutputResult,
   MultiOutputResponse,
   PersistentOutputDestination,
+  StructuredArchiveSource,
 } from '../lib/types';
 import { platformForHost } from '../lib/platform-registry';
 import { throttle } from '../lib/throttle';
 import { abortStagedArchiveArtifact } from './archive-stage';
+import { buildArchivePersistenceMessage, buildSaveToOutputsMessage } from './capture-routing';
 
 /**
  * Platform-specific main content container selectors for optimized observation.
@@ -375,6 +382,10 @@ const ARCHIVE_COMPANION_WRITE_ORDER: readonly ArchiveCompanionKind[] = [
   'canonical',
 ];
 
+function isStructuredArchiveSource(source: AIPlatform): source is StructuredArchiveSource {
+  return source === 'chatgpt' || source === 'deepseek';
+}
+
 function requestedArchiveArtifacts(
   companion: ArchiveCompanionBundle,
   artifactKinds: readonly ArchiveCompanionKind[] | undefined
@@ -448,8 +459,13 @@ export async function persistArchiveCompanionArtifacts(
       .filter(artifact => artifact.transport === 'staged')
       .map(artifact => artifact.stageId)
   );
+  const stageSource = isStructuredArchiveSource(source) ? source : undefined;
   const abortUnclaimedStages = async (): Promise<void> => {
-    await Promise.all([...unclaimedStages].map(stageId => abortStagedArchiveArtifact(stageId)));
+    if (stageSource) {
+      await Promise.all(
+        [...unclaimedStages].map(stageId => abortStagedArchiveArtifact(stageId, stageSource))
+      );
+    }
     unclaimedStages.clear();
   };
   let activeOutputs = outputs.filter(
@@ -459,7 +475,9 @@ export async function persistArchiveCompanionArtifacts(
     await abortUnclaimedStages();
     return {
       activeOutputs,
-      warnings: ['ChatGPT raw/canonical archive was not saved because only Clipboard is enabled'],
+      warnings: [
+        'Structured raw/canonical archive was not saved because only Clipboard is enabled',
+      ],
     };
   }
 
@@ -478,26 +496,25 @@ export async function persistArchiveCompanionArtifacts(
   }
   for (const artifact of selected) {
     if (activeOutputs.length === 0) break;
-    const message =
-      artifact.transport === 'inline'
-        ? {
-            action: 'persistArchiveCompanion' as const,
-            noteFileName,
-            source,
-            captureId: companion.captureId,
-            conversationKey: companion.conversationKey,
-            artifact,
-            outputs: activeOutputs,
-          }
-        : {
-            action: 'commitStagedArchiveCompanion' as const,
-            noteFileName,
-            source: 'chatgpt' as const,
-            captureId: companion.captureId,
-            conversationKey: companion.conversationKey,
-            artifact,
-            outputs: activeOutputs,
-          };
+    if (artifact.transport === 'staged' && !stageSource) {
+      warnings.push(
+        ...archiveDestinationWarnings(
+          archiveArtifactLabel(artifact.kind),
+          activeOutputs,
+          'its provider cannot use the staged archive transport'
+        )
+      );
+      activeOutputs = [];
+      break;
+    }
+    const message = buildArchivePersistenceMessage({
+      companion,
+      noteFileName,
+      source,
+      stageSource,
+      artifact,
+      outputs: activeOutputs,
+    });
     const label = archiveArtifactLabel(artifact.kind);
     if (
       artifact.transport === 'inline' &&
@@ -546,13 +563,14 @@ export async function persistArchiveCompanions(
 /** Preserve verified source evidence even when no readable Markdown can be built. */
 export async function persistFailedExtractionArchive(
   result: ExtractionResult,
-  outputs: OutputDestination[]
+  outputs: OutputDestination[],
+  source: StructuredArchiveSource
 ): Promise<string | undefined> {
   if (result.success || !result.archiveCompanion) return undefined;
   const warnings = await persistArchiveCompanions(
     result.archiveCompanion,
-    'chatgpt-capture.md',
-    'chatgpt',
+    `${source}-capture.md`,
+    source,
     outputs
   );
   return warnings.length === 0
@@ -574,10 +592,8 @@ async function persistExtractedNote(
     data.source,
     outputs
   );
-  await persistNote(note, outputs, data.messages.length, [
-    ...(extractionWarnings ?? []),
-    ...archiveWarnings,
-  ]);
+  const warnings = [...(extractionWarnings ?? []), ...archiveWarnings];
+  await persistNote(note, outputs, data.messages.length, warnings, archiveCompanion?.capturedAt);
 }
 
 /** Runtime guard: the worker can return a generic error envelope on rejection. */
@@ -634,13 +650,14 @@ type NoteWriteAttempt =
 async function writeNoteToOutputs(
   note: ObsidianNote,
   outputs: OutputDestination[],
-  messageCount: number
+  messageCount: number,
+  capturedAt?: string
 ): Promise<NoteWriteAttempt> {
   if (utf8ByteLength(note.body) > MAX_CONTENT_SIZE) {
     return { success: false, error: 'Conversation is too large to export safely (32 MiB limit)' };
   }
 
-  const saveMessage = { action: 'saveToOutputs' as const, data: note, outputs };
+  const saveMessage = buildSaveToOutputsMessage(note, outputs, capturedAt);
   if (jsonUtf8ByteLength(saveMessage) > MAX_EXTENSION_MESSAGE_SIZE) {
     return {
       success: false,
@@ -719,6 +736,7 @@ export async function persistAllBranchesBundle(
   archiveWarnings: readonly string[] = []
 ): Promise<void> {
   showToast('Saving all branches...', 'info', 0);
+  const capturedAt = companion.capturedAt;
   let lastReported = 0;
   const summary = await persistAllBranchesPresentation(
     plan,
@@ -730,7 +748,7 @@ export async function persistAllBranchesBundle(
       persistCompanions: persistArchiveCompanions,
       archiveAlreadyPersisted,
       writeNote: async (note, destination, messageCount) => {
-        const attempt = await writeNoteToOutputs(note, [destination], messageCount);
+        const attempt = await writeNoteToOutputs(note, [destination], messageCount, capturedAt);
         return (
           attempt.success &&
           attempt.response.allSuccessful &&
@@ -750,35 +768,15 @@ export async function persistAllBranchesBundle(
   displayAllBranchesSummary(summary, archiveWarnings);
 }
 
-function hasDurableOutput(outputs: readonly OutputDestination[]): boolean {
-  return outputs.some(output => output === 'file' || output === 'obsidian');
-}
-
-function canExportChatGptAttachments(
-  result: ExtractionResult,
-  settings: ContentScriptSettings,
-  outputs: readonly OutputDestination[]
-): result is ExtractionResult & {
-  archiveCompanion: ArchiveCompanionBundle;
-  chatGptAssetExportContext: NonNullable<ExtractionResult['chatGptAssetExportContext']>;
-} {
-  return (
-    settings.enableImageExport === true &&
-    hasDurableOutput(outputs) &&
-    result.archiveCompanion !== undefined &&
-    result.chatGptAssetExportContext !== undefined &&
-    (result.allBranches !== undefined || result.data?.source === 'chatgpt')
-  );
-}
-
 async function persistNote(
   note: ObsidianNote,
   outputs: OutputDestination[],
   messageCount: number,
-  extractionWarnings?: string[]
+  extractionWarnings?: string[],
+  capturedAt?: string
 ): Promise<void> {
   showToast('Saving...', 'info', INFO_TOAST_DURATION);
-  const attempt = await writeNoteToOutputs(note, outputs, messageCount);
+  const attempt = await writeNoteToOutputs(note, outputs, messageCount, capturedAt);
   if (!attempt.success) {
     showErrorToast(attempt.error);
     return;
@@ -867,7 +865,9 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       return;
     }
     stage = 'preserving failed extraction evidence';
-    const failedArchiveStatus = await persistFailedExtractionArchive(result, enabledOutputs);
+    const failedArchiveStatus = isStructuredArchiveSource(extractor.platform)
+      ? await persistFailedExtractionArchive(result, enabledOutputs, extractor.platform)
+      : undefined;
     stage = 'validating the extracted conversation';
     const validation = extractor.validate(result);
     if (!validation.isValid) {
@@ -899,13 +899,38 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         }
       );
       stage = 'saving the ChatGPT note';
-      await persistNote(note, enabledOutputs, result.data.messages.length, [
-        ...(result.warnings ?? []),
-        ...attachmentExport.warnings,
-      ]);
+      const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
+      await persistNote(
+        note,
+        enabledOutputs,
+        result.data.messages.length,
+        warnings,
+        result.archiveCompanion?.capturedAt
+      );
       return;
     }
-    stage = 'formatting and saving the ChatGPT archive companions and note';
+    if (canExportDeepSeekAttachments(result, settings, enabledOutputs)) {
+      const note = conversationToNote(result.data, settings.templateOptions);
+      stage = 'saving the original DeepSeek raw archive companion';
+      const attachmentExport = await persistDeepSeekDestinationHonestAttachments(
+        result.deepSeekAssetExportContext,
+        result.archiveCompanion,
+        note.fileName,
+        enabledOutputs,
+        { persistArtifacts: persistArchiveCompanionArtifacts }
+      );
+      stage = 'saving the DeepSeek note';
+      const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
+      await persistNote(
+        note,
+        enabledOutputs,
+        result.data.messages.length,
+        warnings,
+        result.archiveCompanion?.capturedAt
+      );
+      return;
+    }
+    stage = 'formatting and saving the structured archive companions and note';
     await persistExtractedNote(
       result.data,
       result.archiveCompanion,
