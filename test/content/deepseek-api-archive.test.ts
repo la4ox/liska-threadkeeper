@@ -235,6 +235,90 @@ describe('DeepSeek structured archive composition', () => {
     expect(withoutThinking?.archive).toEqual(withThinking?.archive);
   });
 
+  it('relabels only generated headings while preserving ordered provider text after redaction', async () => {
+    const reasoningBodies = [
+      [
+        '**Reasoning**\nA provider-authored heading at the start.',
+        'Inline **Reasoning** stays unchanged.',
+        '**Reasoning**\nA provider-authored paragraph heading.',
+        '> **Reasoning**\n> A quoted heading.',
+        'Inline code: `**Reasoning**`.',
+        '```markdown\n**Reasoning**\n```',
+        '  Whitespace\tstays unchanged.  ',
+        'Authorization: Bearer synthetic-fixture-secret',
+      ].join('\n\n'),
+      '**Reasoning**\nThe second provider-authored heading.',
+    ];
+    const visibleBodies = [
+      'Visible **Reasoning**\n\n**Reasoning**\nVisible heading.',
+      '> **Reasoning**\n\n`**Reasoning**`\n\n```markdown\n**Reasoning**\n```',
+    ];
+    const raw = JSON.parse(new TextDecoder().decode(fixtureBytes));
+    raw.data.biz_data.chat_messages[4].fragments = [
+      { type: 'THINK', content: reasoningBodies[0] },
+      { type: 'RESPONSE', content: visibleBodies[0] },
+      { type: 'THINK', content: reasoningBodies[1] },
+      { type: 'RESPONSE', content: visibleBodies[1] },
+    ];
+    const rawBytes = new TextEncoder().encode(JSON.stringify(raw));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(new Response(rawBytes.slice(), { status: 200 }))
+    );
+    const dependencies = {
+      createCaptureId: () => 'capture-deepseek-reasoning-collision',
+      now: () => new Date('2026-09-18T06:00:00.000Z'),
+    };
+    const withoutThinking = await fetchDeepSeekConversation(
+      'deepseek-branching-1',
+      false,
+      dependencies
+    );
+    const withThinking = await fetchDeepSeekConversation(
+      'deepseek-branching-1',
+      true,
+      dependencies
+    );
+    const redactedBodies = [
+      reasoningBodies[0].replace(
+        'Authorization: Bearer synthetic-fixture-secret',
+        '[redacted-credential]'
+      ),
+      reasoningBodies[1],
+    ];
+    const expectedToolContent = redactedBodies
+      .map(body => `**DeepSeek reasoning**\n${body}`)
+      .join('\n\n');
+
+    expect(withThinking).not.toBeNull();
+    expect(
+      withThinking!.data.messages.find(message => message.id === 'current-answer')
+    ).toMatchObject({
+      content: visibleBodies.join('\n\n'),
+      toolContent: expectedToolContent,
+    });
+    expect(withoutThinking!.data.messages.every(message => message.toolContent === undefined)).toBe(
+      true
+    );
+    expect(withoutThinking!.data.messages.map(message => message.content)).toEqual(
+      withThinking!.data.messages.map(message => message.content)
+    );
+    const blocks = withThinking!.archive.graph.nodes['current-answer'].message!.blocks;
+    expect(blocks.filter(block => block.type === 'reasoning').map(block => block.text)).toEqual(
+      redactedBodies
+    );
+    expect(blocks.filter(block => block.type === 'markdown').map(block => block.markdown)).toEqual(
+      visibleBodies
+    );
+    expect(withoutThinking!.archive).toEqual(withThinking!.archive);
+    expect(withoutThinking!.archiveCompanion).toEqual(withThinking!.archiveCompanion);
+    expect(JSON.stringify(withThinking!.archive)).not.toContain('synthetic-fixture-secret');
+    const rawArtifact = withThinking!.archiveCompanion.artifacts.find(
+      artifact => artifact.kind === 'raw'
+    ) as InlineArchiveCompanionArtifact;
+    expect(Array.from(inlineBytes(rawArtifact))).toEqual(Array.from(rawBytes));
+    expect(rawArtifact.sha256).toBe(hash(rawBytes));
+  });
+
   it.each(['', ' \t '])(
     'leaves a blank source title %j unchanged in API canonical/raw evidence',
     async title => {
@@ -277,6 +361,42 @@ describe('DeepSeek structured archive composition', () => {
         ],
       },
     });
+  });
+
+  it.each([
+    [
+      'an invalid non-null alias',
+      { created_at: 'not-a-timestamp', create_time: '2026-09-18T06:00:00.000Z' },
+    ],
+    [
+      'conflicting valid aliases',
+      { created_at: '2026-09-18T06:00:00.000Z', create_time: '2026-09-18T06:00:01.000Z' },
+    ],
+  ])('retains exact raw evidence for %s', async (_label, timestampAliases) => {
+    const raw = JSON.parse(new TextDecoder().decode(fixtureBytes));
+    Object.assign(raw.data.biz_data.chat_session, timestampAliases);
+    const rawBytes = new TextEncoder().encode(JSON.stringify(raw));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(rawBytes.slice(), { status: 200 })
+    );
+
+    const error = await fetchDeepSeekConversation('deepseek-branching-1', false, {
+      createCaptureId: () => 'capture-deepseek-invalid-timestamp',
+      now: () => new Date('2026-09-18T06:00:00.000Z'),
+    }).catch((reason: unknown) => reason);
+
+    expect(error).toMatchObject<Partial<DeepSeekStructuredCaptureError>>({
+      code: 'normalization-failed',
+    });
+    const artifacts = (error as DeepSeekStructuredCaptureError).archiveCompanion!
+      .artifacts as readonly InlineArchiveCompanionArtifact[];
+    expect(artifacts.map(artifact => artifact.kind)).toEqual(['raw', 'manifest']);
+    expect(Array.from(inlineBytes(artifacts[0]))).toEqual(Array.from(rawBytes));
+    expect(artifacts[0].sha256).toBe(hash(rawBytes));
+    const manifest = JSON.parse(new TextDecoder().decode(inlineBytes(artifacts[1]))) as {
+      artifacts: Array<{ sha256: string }>;
+    };
+    expect(manifest.artifacts[0].sha256).toBe(hash(rawBytes));
   });
 
   it('fails closed before persistence for an invalid capture identifier or clock', async () => {

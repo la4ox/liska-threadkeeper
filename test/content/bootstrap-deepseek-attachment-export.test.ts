@@ -267,7 +267,11 @@ describe('DeepSeek attachment bootstrap gate', () => {
         { persistArtifacts: expect.any(Function) }
       );
       expect(mocks.sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'saveToOutputs', outputs: ['file'] })
+        expect.objectContaining({
+          action: 'saveToOutputs',
+          outputs: ['file'],
+          capturedAt: companion.capturedAt,
+        })
       );
       expect(mocks.showWarningToast).toHaveBeenCalledWith('Synthetic DeepSeek attachment caveat.');
     } finally {
@@ -303,10 +307,16 @@ describe('DeepSeek attachment bootstrap gate', () => {
             source: 'deepseek',
             captureId: companion.captureId,
             conversationKey: companion.conversationKey,
+            capturedAt: companion.capturedAt,
             artifact,
             outputs: [destination],
           })),
-          { action: 'saveToOutputs', data: note, outputs: [destination] },
+          {
+            action: 'saveToOutputs',
+            data: note,
+            outputs: [destination],
+            capturedAt: companion.capturedAt,
+          },
         ]);
         expect(mocks.showErrorToast).not.toHaveBeenCalled();
         expect(mocks.showWarningToast).not.toHaveBeenCalled();
@@ -334,6 +344,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
         action: 'saveToOutputs',
         data: note,
         outputs: ['file'],
+        capturedAt: companion.capturedAt,
       });
       expect(mocks.showWarningToast).toHaveBeenCalledWith(
         'deepseek-attachment-inventory-unavailable'

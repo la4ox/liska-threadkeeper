@@ -167,6 +167,22 @@ describe('archive companion durable outputs', () => {
     );
   });
 
+  it('keeps File archive paths unchanged when capture-date routing metadata is present', async () => {
+    const request = {
+      ...(await message('raw', ['file'], 'deepseek')),
+      capturedAt: '2026-09-19T10:00:00.000Z',
+    };
+
+    await handlePersistArchiveCompanion(request, settings);
+
+    expect(chrome.downloads.download).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: `_liska-archive/${CONVERSATION_KEY}/${request.captureId}/responses/conversation.json`,
+      }),
+      expect.any(Function)
+    );
+  });
+
   it('uses a terminal uniquified download only when Chrome confirms the canonical staged relative path', async () => {
     const descriptor = {
       assetId: `chatgpt-asset-${'a'.repeat(64)}`,
@@ -446,7 +462,10 @@ describe('archive companion durable outputs', () => {
   });
 
   it('writes the same verified companion to both selected durable outputs', async () => {
-    const request = await message('canonical', ['file', 'obsidian']);
+    const request = {
+      ...(await message('canonical', ['file', 'obsidian'])),
+      capturedAt: '2026-09-19T10:00:00.000Z',
+    };
     const result = await handlePersistArchiveCompanion(request, settings);
 
     expect(result.allSuccessful).toBe(true);
@@ -456,6 +475,7 @@ describe('archive companion durable outputs', () => {
         source: 'chatgpt',
         captureId: CAPTURE_ID,
         conversationKey: CONVERSATION_KEY,
+        capturedAt: request.capturedAt,
         artifact: request.artifact,
       })
     );
@@ -730,6 +750,14 @@ describe('archive companion durable outputs', () => {
     expect(result.results).toEqual([
       { destination: 'obsidian', success: false, error: 'vault write unavailable' },
     ]);
+  });
+
+  it('passes structured capture time only to the Obsidian note route', async () => {
+    const capturedAt = '2026-09-19T10:00:00.000Z';
+
+    await handleMultiOutput(clipboardNote, ['obsidian'], clipboardSettings, capturedAt);
+
+    expect(mocks.saveNote).toHaveBeenCalledWith(clipboardSettings, clipboardNote, capturedAt);
   });
 
   it('rejects an archive whose decoded byte length disagrees with its envelope', async () => {

@@ -68,6 +68,7 @@ import type {
 import { platformForHost } from '../lib/platform-registry';
 import { throttle } from '../lib/throttle';
 import { abortStagedArchiveArtifact } from './archive-stage';
+import { buildArchivePersistenceMessage, buildSaveToOutputsMessage } from './capture-routing';
 
 /**
  * Platform-specific main content container selectors for optimized observation.
@@ -506,26 +507,14 @@ export async function persistArchiveCompanionArtifacts(
       activeOutputs = [];
       break;
     }
-    const message =
-      artifact.transport === 'inline'
-        ? {
-            action: 'persistArchiveCompanion' as const,
-            noteFileName,
-            source,
-            captureId: companion.captureId,
-            conversationKey: companion.conversationKey,
-            artifact,
-            outputs: activeOutputs,
-          }
-        : {
-            action: 'commitStagedArchiveCompanion' as const,
-            noteFileName,
-            source: stageSource!,
-            captureId: companion.captureId,
-            conversationKey: companion.conversationKey,
-            artifact,
-            outputs: activeOutputs,
-          };
+    const message = buildArchivePersistenceMessage({
+      companion,
+      noteFileName,
+      source,
+      stageSource,
+      artifact,
+      outputs: activeOutputs,
+    });
     const label = archiveArtifactLabel(artifact.kind);
     if (
       artifact.transport === 'inline' &&
@@ -603,10 +592,8 @@ async function persistExtractedNote(
     data.source,
     outputs
   );
-  await persistNote(note, outputs, data.messages.length, [
-    ...(extractionWarnings ?? []),
-    ...archiveWarnings,
-  ]);
+  const warnings = [...(extractionWarnings ?? []), ...archiveWarnings];
+  await persistNote(note, outputs, data.messages.length, warnings, archiveCompanion?.capturedAt);
 }
 
 /** Runtime guard: the worker can return a generic error envelope on rejection. */
@@ -663,13 +650,14 @@ type NoteWriteAttempt =
 async function writeNoteToOutputs(
   note: ObsidianNote,
   outputs: OutputDestination[],
-  messageCount: number
+  messageCount: number,
+  capturedAt?: string
 ): Promise<NoteWriteAttempt> {
   if (utf8ByteLength(note.body) > MAX_CONTENT_SIZE) {
     return { success: false, error: 'Conversation is too large to export safely (32 MiB limit)' };
   }
 
-  const saveMessage = { action: 'saveToOutputs' as const, data: note, outputs };
+  const saveMessage = buildSaveToOutputsMessage(note, outputs, capturedAt);
   if (jsonUtf8ByteLength(saveMessage) > MAX_EXTENSION_MESSAGE_SIZE) {
     return {
       success: false,
@@ -748,6 +736,7 @@ export async function persistAllBranchesBundle(
   archiveWarnings: readonly string[] = []
 ): Promise<void> {
   showToast('Saving all branches...', 'info', 0);
+  const capturedAt = companion.capturedAt;
   let lastReported = 0;
   const summary = await persistAllBranchesPresentation(
     plan,
@@ -759,7 +748,7 @@ export async function persistAllBranchesBundle(
       persistCompanions: persistArchiveCompanions,
       archiveAlreadyPersisted,
       writeNote: async (note, destination, messageCount) => {
-        const attempt = await writeNoteToOutputs(note, [destination], messageCount);
+        const attempt = await writeNoteToOutputs(note, [destination], messageCount, capturedAt);
         return (
           attempt.success &&
           attempt.response.allSuccessful &&
@@ -783,10 +772,11 @@ async function persistNote(
   note: ObsidianNote,
   outputs: OutputDestination[],
   messageCount: number,
-  extractionWarnings?: string[]
+  extractionWarnings?: string[],
+  capturedAt?: string
 ): Promise<void> {
   showToast('Saving...', 'info', INFO_TOAST_DURATION);
-  const attempt = await writeNoteToOutputs(note, outputs, messageCount);
+  const attempt = await writeNoteToOutputs(note, outputs, messageCount, capturedAt);
   if (!attempt.success) {
     showErrorToast(attempt.error);
     return;
@@ -909,10 +899,14 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         }
       );
       stage = 'saving the ChatGPT note';
-      await persistNote(note, enabledOutputs, result.data.messages.length, [
-        ...(result.warnings ?? []),
-        ...attachmentExport.warnings,
-      ]);
+      const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
+      await persistNote(
+        note,
+        enabledOutputs,
+        result.data.messages.length,
+        warnings,
+        result.archiveCompanion?.capturedAt
+      );
       return;
     }
     if (canExportDeepSeekAttachments(result, settings, enabledOutputs)) {
@@ -926,10 +920,14 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         { persistArtifacts: persistArchiveCompanionArtifacts }
       );
       stage = 'saving the DeepSeek note';
-      await persistNote(note, enabledOutputs, result.data.messages.length, [
-        ...(result.warnings ?? []),
-        ...attachmentExport.warnings,
-      ]);
+      const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
+      await persistNote(
+        note,
+        enabledOutputs,
+        result.data.messages.length,
+        warnings,
+        result.archiveCompanion?.capturedAt
+      );
       return;
     }
     stage = 'formatting and saving the structured archive companions and note';

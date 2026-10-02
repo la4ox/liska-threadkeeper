@@ -105,11 +105,29 @@ describe('provider-neutral JSON archive companions', () => {
     });
 
     await expect(buildJsonRawManifestCompanion(bundle, sha256, 'deepseek')).resolves.toMatchObject({
+      capturedAt: bundle.manifest.capturedAt,
       artifacts: [
         expect.objectContaining({ kind: 'raw' }),
         expect.objectContaining({ kind: 'manifest' }),
       ],
     });
+  });
+
+  it('preserves capture routing metadata across canonical append without injecting routing fields', async () => {
+    const bundle = bundleFor();
+    const companion = await buildJsonRawManifestCompanion(bundle, sha256, 'deepseek');
+    const archive = { schemaVersion: 'liska-thread/1', metadata: { capturedAt: null } } as never;
+
+    const complete = await appendJsonCanonicalCompanion(companion, archive, sha256, 'deepseek');
+
+    expect(complete.capturedAt).toBe(bundle.manifest.capturedAt);
+    const canonical = complete.artifacts.find(artifact => artifact.kind === 'canonical');
+    expect(canonical?.transport).toBe('inline');
+    if (canonical?.transport !== 'inline') throw new Error('expected inline canonical fixture');
+    expect(JSON.parse(Buffer.from(canonical.bodyBase64, 'base64').toString('utf8'))).toEqual(
+      archive
+    );
+    expect(canonical).not.toHaveProperty('vaultPath');
   });
 
   it('rejects canonical append unless the existing pair is exactly raw then manifest', async () => {

@@ -599,7 +599,7 @@ async function handleMessage(
 
   switch (message.action) {
     case 'saveToOutputs':
-      return handleMultiOutput(message.data, message.outputs, settings);
+      return handleMultiOutput(message.data, message.outputs, settings, message.capturedAt);
 
     case 'persistArchiveCompanion':
       return handlePersistArchiveCompanion(message, settings);

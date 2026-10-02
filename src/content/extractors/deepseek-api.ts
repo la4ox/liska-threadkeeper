@@ -26,6 +26,7 @@ const HISTORY_PATH_PATTERN = '/api/v0/chat/history_messages';
 const HISTORY_TIMEOUT_MS = 15_000;
 const HISTORY_MAX_BYTES = 32 * 1024 * 1024;
 const ARTIFACT_ID = 'conversation';
+const REASONING_LABEL = 'DeepSeek reasoning';
 
 export const DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING =
   'DeepSeek attachment metadata was inventoried; binary acquisition was not attempted.';
@@ -124,7 +125,10 @@ export async function fetchDeepSeekConversation(
     }
 
     try {
-      const projected = projectArchiveBranch(archive, { includeToolContent: includeThinking });
+      const projected = projectArchiveBranch(archive, {
+        includeToolContent: includeThinking,
+        reasoningLabel: REASONING_LABEL,
+      });
       archiveCompanion = await appendJsonCanonicalCompanion(
         archiveCompanion,
         archive,
@@ -141,13 +145,6 @@ export async function fetchDeepSeekConversation(
         data: {
           ...projected.data,
           title: projected.data.title.substring(0, MAX_CONVERSATION_TITLE_LENGTH),
-          messages: projected.data.messages.map(message => ({
-            ...message,
-            toolContent: message.toolContent?.replace(
-              /\*\*Reasoning\*\*/g,
-              '**DeepSeek reasoning**'
-            ),
-          })),
           capture: { mode: 'structured-api', completeness: 'complete' },
         },
       };

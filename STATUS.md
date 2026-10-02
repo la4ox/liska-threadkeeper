@@ -119,8 +119,8 @@ archives and verified attachments) with focused draft PR #9 (Obsidian key
 migration). Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10)
 is Ready for review but is not merged; #8 and #9 remain open and unchanged.
 
-The current 2026-10-02 review-fix tree addresses all 13 automated P2 comments
-from four review passes:
+The current 2026-10-02 review-fix tree addresses all 16 automated P2 comments
+from five review passes:
 
 - an unchanged popup key is omitted from a full settings save, so a deferred
   legacy migration cannot be overwritten by an accidental empty value;
@@ -150,14 +150,23 @@ from four review passes:
   reading a body remains an explicit timeout rather than a generic rejection;
 - the Chrome Web Store host disclosure now describes both verified in-band
   DeepSeek signed paths and the bounded, uniquely raw-bound passive
-  ResourceTiming fallback.
+  ResourceTiming fallback;
+- DeepSeek reasoning headings are now generated structurally, so provider text
+  containing the same Markdown phrase is never rewritten;
+- nullable timestamp aliases are reconciled symmetrically: null/missing values
+  yield to valid aliases, equal instants agree, and malformed or conflicting
+  non-null values fail closed while exact raw evidence remains available;
+- immutable DeepSeek manifest `capturedAt` now pins Obsidian date-token routing
+  for raw/manifest/canonical, binaries, and fresh structured Markdown. Staged
+  archives reuse one path and repeat the no-overwrite preflight after Blob
+  verification; File paths and legacy callers remain unchanged.
 
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 145 test files / 3,012 tests pass with two workers;
-- coverage passes at 95.09% statements, 90.15% branches, 98.22% functions,
-  and 97.81% lines;
+- 146 test files / 3,143 tests pass with two workers;
+- coverage passes at 95.21% statements, 90.30% branches, 98.34% functions,
+  and 97.98% lines;
 - typecheck and the production build pass;
 - lint passes with only three pre-existing advisory warnings, and repository
   formatting passes;
@@ -171,7 +180,11 @@ provider transport leakage. The 2026-10-02 review-fix tree has not yet been
 reloaded for a new live browser canary. A page-native preview is still required
 for the passive attachment fallback; automatic card activation, active
 observers, `fetch_files`, retries, guessed URLs, a real provider response above
-16 MiB, and official-export reconciliation remain explicit evidence gaps.
+16 MiB, and official-export reconciliation remain explicit evidence gaps. The
+latest response-lifecycle and capture-date routing fixes have not yet received a
+live Chrome/Obsidian replay. ChatGPT capture-date pinning, append-mode lookup in
+older folders, and a vault-template change during one capture remain separate
+future scopes.
 
 Next: commit and push the review fixes, wait for exact-head CI/re-review, then
 make a separate merge decision. No merge, release, tag, or closure of #8/#9 is

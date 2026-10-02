@@ -174,10 +174,11 @@ export async function acquireOffscreenLeaseForArchiveStage(): Promise<OffscreenL
  */
 async function handleSaveToObsidian(
   note: ObsidianNote,
-  settings: ExtensionSettings
+  settings: ExtensionSettings,
+  capturedAt?: string
 ): Promise<OutputResult> {
   try {
-    const result = await handleSave(settings, note);
+    const result = await handleSave(settings, note, capturedAt);
     return {
       destination: 'obsidian',
       success: result.success,
@@ -603,6 +604,7 @@ async function handleArchiveSaveToObsidian(
     source: message.source,
     captureId: message.captureId,
     conversationKey: message.conversationKey,
+    ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
     artifact: message.artifact,
     bytes,
   });
@@ -762,12 +764,13 @@ async function handleCopyToClipboard(
 export async function handleMultiOutput(
   note: ObsidianNote,
   outputs: OutputDestination[],
-  settings: ExtensionSettings
+  settings: ExtensionSettings,
+  capturedAt?: string
 ): Promise<MultiOutputResponse> {
   const promises = outputs.map(dest => {
     switch (dest) {
       case 'obsidian':
-        return handleSaveToObsidian(note, settings);
+        return handleSaveToObsidian(note, settings, capturedAt);
       case 'file':
         return handleDownloadToFile(note, settings);
       case 'clipboard':

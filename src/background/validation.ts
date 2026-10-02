@@ -356,6 +356,20 @@ function validateOutputOptions(value: unknown): value is OutputOptions {
 
 const SAFE_CAPTURE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/;
 const OPAQUE_CONVERSATION_KEY_PATTERN = /^[a-f0-9]{64}$/;
+const ROUTING_CAPTURED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+function isValidRoutingCapturedAt(value: unknown): value is string {
+  if (typeof value !== 'string' || !ROUTING_CAPTURED_AT_PATTERN.test(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
+
+function hasOptionalValidRoutingCapturedAt(value: { capturedAt?: unknown }): boolean {
+  return (
+    !Object.prototype.hasOwnProperty.call(value, 'capturedAt') ||
+    isValidRoutingCapturedAt(value.capturedAt)
+  );
+}
 
 function isSafeNoteFileName(value: unknown): value is string {
   return (
@@ -464,16 +478,28 @@ function validatePersistArchiveCompanionMessage(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
 ): boolean {
   if (!isStructuredArchiveSource(message.source)) return false;
+  const exactLegacy = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'artifact',
+    'outputs',
+  ]);
+  const exactCaptured = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'capturedAt',
+    'artifact',
+    'outputs',
+  ]);
   return (
-    hasExactOwnKeys(message, [
-      'action',
-      'noteFileName',
-      'source',
-      'captureId',
-      'conversationKey',
-      'artifact',
-      'outputs',
-    ]) &&
+    (exactLegacy || exactCaptured) &&
+    hasOptionalValidRoutingCapturedAt(message) &&
     isSafeNoteFileName(message.noteFileName) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -540,16 +566,28 @@ function validateArchiveStageMessage(
       isSafeArchiveStageId(message.stageId)
     );
   }
+  const exactLegacy = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'artifact',
+    'outputs',
+  ]);
+  const exactCaptured = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'capturedAt',
+    'artifact',
+    'outputs',
+  ]);
   return (
-    hasExactOwnKeys(message, [
-      'action',
-      'noteFileName',
-      'source',
-      'captureId',
-      'conversationKey',
-      'artifact',
-      'outputs',
-    ]) &&
+    (exactLegacy || exactCaptured) &&
+    hasOptionalValidRoutingCapturedAt(message) &&
     isSafeNoteFileName(message.noteFileName) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -601,16 +639,28 @@ function validateAppendStagedBinaryAssetMessage(
 function validateCommitStagedBinaryAssetMessage(
   message: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>
 ): boolean {
+  const exactLegacy = hasExactOwnKeys(message, [
+    'action',
+    'stageId',
+    'captureId',
+    'conversationKey',
+    'source',
+    'descriptor',
+    'outputs',
+  ]);
+  const exactCaptured = hasExactOwnKeys(message, [
+    'action',
+    'stageId',
+    'captureId',
+    'conversationKey',
+    'capturedAt',
+    'source',
+    'descriptor',
+    'outputs',
+  ]);
   return (
-    hasExactOwnKeys(message, [
-      'action',
-      'stageId',
-      'captureId',
-      'conversationKey',
-      'source',
-      'descriptor',
-      'outputs',
-    ]) &&
+    (exactLegacy || exactCaptured) &&
+    hasOptionalValidRoutingCapturedAt(message) &&
     isSafeBinaryStageId(message.stageId) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -649,6 +699,7 @@ function validateSaveToOutputsMessage(
   message: Extract<ExtensionMessage, { action: 'saveToOutputs' }>
 ): boolean {
   return (
+    hasOptionalValidRoutingCapturedAt(message) &&
     validateNoteData(message.data) &&
     Array.isArray(message.outputs) &&
     message.outputs.length > 0 &&

@@ -57,6 +57,7 @@ describe('content archive companion persistence', () => {
   it('commits a staged raw companion without bodyBase64, then continues with inline manifest', async () => {
     const staged: ArchiveCompanionBundle = {
       ...companion,
+      capturedAt: '2026-09-19T10:00:00.000Z',
       artifacts: [
         {
           transport: 'staged',
@@ -88,6 +89,10 @@ describe('content archive companion persistence', () => {
     expect(messages.map(message => (message as { action: string }).action)).toEqual([
       'commitStagedArchiveCompanion',
       'persistArchiveCompanion',
+    ]);
+    expect(messages.map(message => (message as { capturedAt?: string }).capturedAt)).toEqual([
+      staged.capturedAt,
+      staged.capturedAt,
     ]);
     expect(JSON.stringify(messages[0])).not.toContain('bodyBase64');
   });

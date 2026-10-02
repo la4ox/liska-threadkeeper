@@ -7,6 +7,8 @@ import {
   inventoryDeepSeekRawAssets,
   normalizeDeepSeekCapture,
   preflightDeepSeekHistoryArtifact,
+  validateLiskaThreadArchive,
+  type LiskaThreadArchive,
   type RawCaptureBundle,
 } from '../../src/archive';
 import { projectArchiveBranch } from '../../src/content/archive-projection';
@@ -108,6 +110,151 @@ function encodedRaw(mutator: (raw: DeepSeekRaw) => void): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(raw));
 }
 
+const timestampTargets = [
+  {
+    label: 'session createdAt',
+    scope: 'session',
+    aliases: ['created_at', 'create_time'],
+    canonicalField: 'createdAt',
+    pointer: '/data/biz_data/chat_session',
+  },
+  {
+    label: 'session updatedAt',
+    scope: 'session',
+    aliases: ['updated_at', 'update_time'],
+    canonicalField: 'updatedAt',
+    pointer: '/data/biz_data/chat_session',
+  },
+  {
+    label: 'message createdAt',
+    scope: 'message',
+    aliases: ['created_at', 'create_time'],
+    canonicalField: 'createdAt',
+    pointer: '/data/biz_data/chat_messages/4',
+  },
+  {
+    label: 'message updatedAt',
+    scope: 'message',
+    aliases: ['updated_at', 'update_time'],
+    canonicalField: 'updatedAt',
+    pointer: '/data/biz_data/chat_messages/4',
+  },
+] as const;
+type TimestampTarget = (typeof timestampTargets)[number];
+
+const timestampIso = '2026-09-18T06:00:00.000Z';
+const timestampTimezone = '2026-09-18T11:00:00+05:00';
+const timestampSeconds = 1_789_711_200;
+const timestampMilliseconds = timestampSeconds * 1000;
+const epochIso = '1970-01-01T00:00:00.000Z';
+const invalidTimestamp = 'synthetic-private-invalid-timestamp';
+const validTimestampCases = [
+  { label: 'missing aliases', values: [undefined, undefined], expected: null },
+  { label: 'missing and null', values: [undefined, null], expected: null },
+  { label: 'null and missing', values: [null, undefined], expected: null },
+  { label: 'null aliases', values: [null, null], expected: null },
+  { label: 'primary only', values: [timestampIso, undefined], expected: timestampIso },
+  { label: 'secondary only', values: [undefined, timestampIso], expected: timestampIso },
+  { label: 'null then valid', values: [null, timestampIso], expected: timestampIso },
+  { label: 'valid then null', values: [timestampIso, null], expected: timestampIso },
+  { label: 'primary epoch zero', values: [0, null], expected: epochIso },
+  { label: 'secondary epoch zero', values: [null, 0], expected: epochIso },
+  { label: 'identical ISO instants', values: [timestampIso, timestampIso], expected: timestampIso },
+  { label: 'ISO and timezone', values: [timestampIso, timestampTimezone], expected: timestampIso },
+  { label: 'timezone and ISO', values: [timestampTimezone, timestampIso], expected: timestampIso },
+  {
+    label: 'Unix seconds and milliseconds',
+    values: [timestampSeconds, timestampMilliseconds],
+    expected: timestampIso,
+  },
+  {
+    label: 'Unix milliseconds and seconds',
+    values: [timestampMilliseconds, timestampSeconds],
+    expected: timestampIso,
+  },
+  {
+    label: 'ISO and Unix seconds',
+    values: [timestampIso, timestampSeconds],
+    expected: timestampIso,
+  },
+  {
+    label: 'Unix seconds and ISO',
+    values: [timestampSeconds, timestampIso],
+    expected: timestampIso,
+  },
+  {
+    label: 'ISO and Unix milliseconds',
+    values: [timestampIso, timestampMilliseconds],
+    expected: timestampIso,
+  },
+  {
+    label: 'Unix milliseconds and ISO',
+    values: [timestampMilliseconds, timestampIso],
+    expected: timestampIso,
+  },
+  { label: 'epoch zero and ISO', values: [0, epochIso], expected: epochIso },
+  { label: 'ISO and epoch zero', values: [epochIso, 0], expected: epochIso },
+] as const;
+const invalidTimestampCases = [
+  {
+    label: 'conflicting ISO instants',
+    values: [timestampIso, '2026-09-18T06:00:00.001Z'],
+    code: 'ambiguous-timestamp',
+  },
+  {
+    label: 'conflicting Unix instants',
+    values: [timestampSeconds, timestampMilliseconds + 1],
+    code: 'ambiguous-timestamp',
+  },
+  {
+    label: 'invalid and valid',
+    values: [invalidTimestamp, timestampIso],
+    code: 'invalid-timestamp',
+  },
+  { label: 'invalid and null', values: [invalidTimestamp, null], code: 'invalid-timestamp' },
+  {
+    label: 'invalid and missing',
+    values: [invalidTimestamp, undefined],
+    code: 'invalid-timestamp',
+  },
+  {
+    label: 'object and valid',
+    values: [{ secret: invalidTimestamp }, timestampIso],
+    code: 'invalid-timestamp',
+  },
+  { label: 'boolean and valid', values: [false, timestampIso], code: 'invalid-timestamp' },
+  {
+    label: 'out-of-range number and valid',
+    values: [8_640_000_000_000_001, timestampIso],
+    code: 'invalid-timestamp',
+  },
+] as const;
+
+function encodedTimestampAliases(
+  target: TimestampTarget,
+  values: readonly unknown[],
+  reverseInsertion = false
+): Uint8Array {
+  return encodedRaw(raw => {
+    const record =
+      target.scope === 'session'
+        ? raw.data.biz_data.chat_session
+        : raw.data.biz_data.chat_messages[4];
+    target.aliases.forEach(alias => delete record[alias]);
+    const indexes = reverseInsertion ? [1, 0] : [0, 1];
+    indexes.forEach(index => {
+      // Undefined represents an omitted alias at the raw JSON boundary.
+      if (values[index] !== undefined) record[target.aliases[index]] = values[index];
+    });
+  });
+}
+
+function canonicalTimestampRecord(archive: LiskaThreadArchive, target: TimestampTarget) {
+  return target.scope === 'session'
+    ? archive.conversation
+    : archive.graph.nodes['current-answer'].message!;
+}
+
 const typedFragmentTypes = ['REQUEST', 'RESPONSE', 'TEMPLATE_RESPONSE', 'THINK'] as const;
 const unusableFragmentContents = [
   { label: 'empty', content: '' },
@@ -202,6 +349,47 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     expect(archive.conversation.id).toBe('deepseek-branching-1');
     expect(archive.graph.nodes['root-question'].message?.author.role).toBe('user');
     expect(archive.graph.nodes['first-answer'].message?.author.role).toBe('assistant');
+  });
+
+  describe.each(timestampTargets)('timestamp aliases: $label', target => {
+    it.each(validTimestampCases)('reconciles $label deterministically', async testCase => {
+      const bytes = encodedTimestampAliases(target, testCase.values);
+      const first = await normalizeBytes(bytes);
+      const second = await normalizeBytes(bytes);
+      const reordered = await normalizeBytes(
+        encodedTimestampAliases(target, testCase.values, true)
+      );
+      const record = canonicalTimestampRecord(first.archive, target);
+
+      expect(first).toEqual(second);
+      expect(record[target.canonicalField]).toBe(testCase.expected);
+      expect(validateLiskaThreadArchive(first.archive).valid).toBe(true);
+      expect(validateLiskaThreadArchive(reordered.archive).valid).toBe(true);
+      // Different raw byte order changes provenance hashes, not canonical records.
+      expect(reordered.archive.conversation).toEqual(first.archive.conversation);
+      expect(reordered.archive.graph).toEqual(first.archive.graph);
+      target.aliases.forEach(alias => expect(record.extensions.deepseek).not.toHaveProperty(alias));
+    });
+
+    it.each(invalidTimestampCases)('rejects $label in either alias order', async testCase => {
+      for (const reverse of [false, true]) {
+        const values = reverse ? [...testCase.values].reverse() : testCase.values;
+        const bytes = encodedTimestampAliases(target, values, reverse);
+        const error = await normalizeBytes(bytes).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(DeepSeekNormalizationError);
+        expect(error).toMatchObject({ code: testCase.code });
+        const message = (error as DeepSeekNormalizationError).message;
+        expect(message).toBe(
+          testCase.code === 'ambiguous-timestamp'
+            ? `Timestamp aliases at ${target.pointer} disagree.`
+            : `${target.pointer}/${target.aliases[reverse ? 1 : 0]} must be an ISO timestamp or Unix time.`
+        );
+        expect(message).not.toContain(invalidTimestamp);
+        expect(message).not.toContain(timestampIso);
+        expect(message).not.toContain(String(timestampSeconds));
+      }
+    });
   });
 
   it('reconciles a metadata-only attachment ledger before appending deterministic blocks', async () => {

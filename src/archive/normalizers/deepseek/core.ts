@@ -843,10 +843,13 @@ function firstTimestamp(
   fields: string[],
   pointer: string
 ): string | null {
-  for (const field of fields) {
-    if (hasOwn(record, field)) return normalizeTimestamp(record[field], pointerAt(pointer, field));
+  const values = fields
+    .filter(field => hasOwn(record, field) && record[field] !== undefined && record[field] !== null)
+    .map(field => normalizeTimestamp(record[field], pointerAt(pointer, field)));
+  if (new Set(values).size > 1) {
+    deepSeekFail('ambiguous-timestamp', `Timestamp aliases at ${pointer} disagree.`);
   }
-  return null;
+  return values[0] ?? null;
 }
 
 function assertArchiveValidity(archive: LiskaThreadArchive): void {

@@ -192,6 +192,9 @@ describe('DeepSeek destination-honest asset export', () => {
       { outputs: ['obsidian'], kinds: ['manifest', 'canonical'] },
     ]);
     expect(fetcher).toHaveBeenCalledOnce();
+    expect(persistBinaryAssets).toHaveBeenCalledWith(
+      expect.objectContaining({ capturedAt: companion.capturedAt })
+    );
     expect(result.completeDestinations).toEqual(['file', 'obsidian']);
     expect(result.warnings.join(' ')).toContain('not saved to obsidian');
     expect(JSON.stringify(context.rawCaptureBundle.manifest)).toBe(rawBefore);
@@ -236,6 +239,7 @@ describe('DeepSeek destination-honest asset export', () => {
       expect(durable).not.toContain(STATE);
       expect(durable).not.toContain(PROVIDER_ID);
       expect(durable).not.toContain(FILE_ID);
+      expect(durable).not.toContain('_liska-archive');
     }
   });
 
@@ -334,6 +338,9 @@ describe('DeepSeek destination-honest asset export', () => {
 
     const wrongKey = { ...companion, conversationKey: 'f'.repeat(64) };
     await expect(validateDeepSeekAssetExportBinding(context, wrongKey)).resolves.toBe(false);
+
+    const wrongCapturedAt = { ...companion, capturedAt: '2026-09-20T10:00:00.000Z' };
+    await expect(validateDeepSeekAssetExportBinding(context, wrongCapturedAt)).resolves.toBe(false);
 
     const raw = companion.artifacts.find(artifact => artifact.kind === 'raw')!;
     const wrongRaw: ArchiveCompanionBundle = {

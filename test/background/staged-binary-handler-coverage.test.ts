@@ -47,6 +47,7 @@ function commitMessage(
     stageId,
     captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
     conversationKey: 'c'.repeat(64),
+    capturedAt: '2026-09-19T10:00:00.000Z',
     descriptor,
     outputs,
   };
@@ -218,6 +219,7 @@ describe('staged binary background handler coverage', () => {
       expect.objectContaining({
         descriptor,
         blobUrl: 'blob:chrome-extension://test-extension-id/stage',
+        capturedAt: '2026-09-19T10:00:00.000Z',
       })
     );
     expect(release).toHaveBeenCalledOnce();

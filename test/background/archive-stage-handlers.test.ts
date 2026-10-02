@@ -57,6 +57,7 @@ function commitMessage(
     noteFileName: 'synthetic.md',
     captureId,
     conversationKey,
+    capturedAt: '2026-09-19T10:00:00.000Z',
     artifact: artifactFor(kind),
     outputs,
   };
@@ -228,7 +229,12 @@ describe('archive-stage background handlers', () => {
       const url = 'blob:chrome-extension://test-extension-id/archive-stage';
       expect(mocks.saveStagedArchive).toHaveBeenCalledWith(
         settings,
-        expect.objectContaining({ stageId, descriptor, blobUrl: url })
+        expect.objectContaining({
+          stageId,
+          descriptor,
+          blobUrl: url,
+          capturedAt: '2026-09-19T10:00:00.000Z',
+        })
       );
       expect(mocks.downloadArchiveBlob).toHaveBeenCalledWith(
         url,

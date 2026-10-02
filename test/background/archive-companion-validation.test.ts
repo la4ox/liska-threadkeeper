@@ -74,6 +74,48 @@ describe('structured archive companion message validation', () => {
     expect(validateMessageContent(archiveMessage('deepseek'))).toBe(true);
   });
 
+  it('accepts only omitted or canonical bounded capture-routing timestamps', () => {
+    const capturedAt = '2026-09-19T10:00:00.000Z';
+    const archive = { ...archiveMessage('deepseek'), capturedAt };
+    const stagedArchive = {
+      action: 'commitStagedArchiveCompanion' as const,
+      noteFileName: 'safe-note.md',
+      source: 'deepseek' as const,
+      captureId: 'capture-deepseek-11111111-2222-4333-8444-555555555555',
+      conversationKey: 'a'.repeat(64),
+      capturedAt,
+      artifact: {
+        transport: 'staged' as const,
+        stageId: `archive-stage-${'A'.repeat(32)}`,
+        kind: 'raw' as const,
+        relativePath: 'responses/conversation.json',
+        mediaType: 'application/json' as const,
+        byteLength: 0,
+        sha256: 'c'.repeat(64),
+      },
+      outputs: ['obsidian' as const],
+    };
+    const binary = {
+      action: 'commitStagedBinaryAsset' as const,
+      source: 'deepseek' as const,
+      stageId: `stage-${'A'.repeat(32)}`,
+      captureId: 'capture-deepseek-11111111-2222-4333-8444-555555555555',
+      conversationKey: 'a'.repeat(64),
+      capturedAt,
+      descriptor: { ...stagedDescriptor, assetId: `deepseek-asset-${'a'.repeat(64)}` },
+      outputs: ['obsidian' as const],
+    };
+
+    for (const message of [archive, stagedArchive, binary]) {
+      expect(validateMessageContent(message)).toBe(true);
+      expect(validateMessageContent({ ...message, capturedAt: undefined })).toBe(false);
+      expect(validateMessageContent({ ...message, capturedAt: '2026-09-19' })).toBe(false);
+      expect(
+        validateMessageContent({ ...message, capturedAt: `${capturedAt}${'x'.repeat(256)}` })
+      ).toBe(false);
+    }
+  });
+
   it('accepts exact staged binary messages and rejects oversized or extra chunks', () => {
     expect(validateMessageContent(stagedBegin())).toBe(true);
     expect(
@@ -366,6 +408,12 @@ describe('structured archive companion message validation', () => {
       },
     };
     const message = { action: 'saveToOutputs', outputs: ['file'], data: note };
+
+    expect(validateMessageContent({ ...message, capturedAt: '2026-09-19T10:00:00.000Z' })).toBe(
+      true
+    );
+    expect(validateMessageContent({ ...message, capturedAt: undefined })).toBe(false);
+    expect(validateMessageContent({ ...message, capturedAt: '2026-09-19' })).toBe(false);
 
     expect(
       validateMessageContent({

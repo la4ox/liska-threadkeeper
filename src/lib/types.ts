@@ -242,6 +242,8 @@ export type ArchiveCompanionArtifact =
 export interface ArchiveCompanionBundle {
   captureId: string;
   conversationKey: string;
+  /** Immutable manifest capture time used only to resolve runtime output routing. */
+  capturedAt?: string;
   /** Raw + manifest are always present; canonical is appended after normalization. */
   artifacts:
     | readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact]
@@ -485,7 +487,13 @@ export interface TemplateOptions {
  * Message types for chrome.runtime communication
  */
 export type ExtensionMessage =
-  | { action: 'saveToOutputs'; data: ObsidianNote; outputs: OutputDestination[] }
+  | {
+      action: 'saveToOutputs';
+      data: ObsidianNote;
+      outputs: OutputDestination[];
+      /** Runtime-only structured-capture routing timestamp. */
+      capturedAt?: string;
+    }
   | { action: 'saveSettings'; settings: PopupSettingsUpdate }
   | { action: 'updateOutputOptions'; outputOptions: OutputOptions }
   | {
@@ -494,6 +502,7 @@ export type ExtensionMessage =
       source: AIPlatform;
       captureId: string;
       conversationKey: string;
+      capturedAt?: string;
       artifact: ArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
@@ -528,6 +537,7 @@ export type ExtensionMessage =
       source: StructuredArchiveSource;
       captureId: string;
       conversationKey: string;
+      capturedAt?: string;
       artifact: StagedArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
@@ -554,6 +564,7 @@ export type ExtensionMessage =
       stageId: string;
       captureId: string;
       conversationKey: string;
+      capturedAt?: string;
       source: AIPlatform;
       descriptor: StagedBinaryAssetDescriptor;
       outputs: PersistentOutputDestination[];

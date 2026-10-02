@@ -82,6 +82,7 @@ export async function buildJsonRawManifestCompanion(
   return {
     captureId: bundle.manifest.captureId,
     conversationKey,
+    capturedAt: bundle.manifest.capturedAt,
     artifacts: [rawArtifact, manifest] as readonly [
       ArchiveCompanionArtifact,
       ArchiveCompanionArtifact,

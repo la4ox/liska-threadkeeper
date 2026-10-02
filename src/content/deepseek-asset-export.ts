@@ -157,6 +157,7 @@ export async function validateDeepSeekAssetExportBinding(
     if (
       companion.captureId !== context.rawCaptureBundle.manifest.captureId ||
       companion.conversationKey !== expectedConversationKey ||
+      companion.capturedAt !== context.rawCaptureBundle.manifest.capturedAt ||
       rawArtifacts.length !== 1 ||
       manifests.length !== 1
     ) {
@@ -271,6 +272,7 @@ export async function buildDeepSeekBinaryAwareArchiveCompanion(
   const rawManifest: ArchiveCompanionBundle = {
     captureId: manifest.captureId,
     conversationKey: await sha256Hex(new TextEncoder().encode(manifest.conversationId)),
+    capturedAt: manifest.capturedAt,
     artifacts: [
       { ...context.rawArtifact },
       await inlineJsonArtifact('manifest', ARCHIVE_COMPANION_RELATIVE_PATHS.manifest, manifest),
@@ -375,6 +377,7 @@ async function persistBinaries(
     source: 'deepseek',
     captureId: companion.captureId,
     conversationKey: companion.conversationKey,
+    ...(companion.capturedAt !== undefined && { capturedAt: companion.capturedAt }),
     assets: acquisition.runtimeAssets,
     outputs,
   });
