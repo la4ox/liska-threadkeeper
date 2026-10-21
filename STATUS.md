@@ -113,88 +113,83 @@
 
 ## Current integration checkpoint
 
-The ChatGPT checkpoint is merged at `588d390`. Branch
-`codex/deepseek-obsidian-integration` combines focused draft PR #8 (DeepSeek
-archives and verified attachments) with focused draft PR #9 (Obsidian key
-migration). Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10)
-is Ready for review but is not merged; #8 and #9 remain open and unchanged.
+Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10) is merged
+into `main` at `ef24f3e`. Current work continues from that exact head on
+`codex/chatgpt-2026-10-compat`; no release or tag is implied.
 
-The current 2026-10-02 review-fix tree addresses all 19 automated P2 comments
-from six review passes:
+The current ChatGPT compatibility slice repairs the October 2026 page request
+shape without weakening the loss-aware archive boundary:
 
-- an unchanged popup key is omitted from a full settings save, so a deferred
-  legacy migration cannot be overwritten by an accidental empty value;
-- Save and Test Connection cannot race, and any unacknowledged explicit key
-  write remains uncertain until a later explicit write succeeds;
-- every readable DeepSeek DOM fallback is marked partial, while verified
-  raw/manifest evidence survives even when the DOM fallback also fails and is
-  persisted with the correct provider route;
-- blank structured DeepSeek presentation titles fall back locally without
-  mutating raw/canonical evidence;
-- optional attachment candidate derivation is bounded before pointer/hash work
-  to 64 whole assets and 256 source refs with one shared binding pass. If that
-  budget truncates the ledger, passive ResourceTiming fallback is disabled
-  because global file-ID uniqueness cannot be proven; verified in-band paths
-  inside the admitted prefix remain usable and all other assets stay
-  `not-attempted`;
-- repeated records for one DeepSeek file may omit `signed_path` without erasing
-  another verified path, while present malformed or conflicting paths still
-  invalidate the in-band candidate;
-- an empty asset ledger bypasses binary-aware finalization and preserves the
-  original companion/Markdown sequence without a second full normalization;
-- empty, missing, or non-text typed fragments no longer suppress usable
-  message-level content/reasoning fallbacks; classifier and normalizer share
-  the same non-empty-string rule;
-- every unread history/attachment response body is cancelled before an early
-  HTTP, URL, media-type, or declared-size rejection continues; a timeout while
-  reading a body remains an explicit timeout rather than a generic rejection;
-- the Chrome Web Store host disclosure now describes both verified in-band
-  DeepSeek signed paths and the bounded, uniquely raw-bound passive
-  ResourceTiming fallback;
-- DeepSeek reasoning headings are now generated structurally, so provider text
-  containing the same Markdown phrase is never rewritten;
-- nullable timestamp aliases are reconciled symmetrically: null/missing values
-  yield to valid aliases, equal instants agree, and malformed or conflicting
-  non-null values fail closed while exact raw evidence remains available;
-- immutable DeepSeek manifest `capturedAt` now pins Obsidian date-token routing
-  for raw/manifest/canonical, binaries, and fresh structured Markdown. Staged
-  archives reuse one path and repeat the no-overwrite preflight after Blob
-  verification; File paths and legacy callers remain unchanged;
-- null identifier aliases now yield to usable non-null aliases while all
-  non-null values still pass exact validation and conflict checks;
-- the complete attachment inventory remains intact, but provider-ID digests are
-  submitted in deterministic batches of at most 32 instead of one unbounded
-  `Promise.all` fan-out;
-- successful `FILE` fragments retain sanitized residual metadata (and empty
-  fragment existence) as an ordered `FILE:metadata` block. Provider IDs in
-  values, dynamic keys, and privacy diagnostic pointers are removed by a
-  bounded fail-closed scrubber before ordinary credential/URL sanitization.
+- replay/probe accept a bounded plain own-data `HeadersInit` record as well as
+  the established native Request path. Header names and values remain inside the
+  document-start MAIN-world closure and never enter messages, logs, storage, or
+  diagnostics;
+- the page's original fetch receiver, arguments, synchronous exception, and
+  returned promise remain unchanged. A singular Request is constructed once and
+  dispatched at most once, only after the page-owned plural source resolves as
+  exact `200 application/json`;
+- source authorization now uses captured native `Response.url` and
+  `Response.redirected` getters. The final response must be an unredirected exact
+  `https://chatgpt.com/backend-api/conversations/{selectedId}` URL with one of
+  the two allowlisted raw query orderings. Empty, malformed, redirected,
+  cross-origin, wrong-ID, extra-query, and post-WebIDL base-mutation cases fail
+  closed before replay;
+- string inputs resolve through a captured genuine `Node.prototype.baseURI`
+  getter and are rechecked after the single init/header classification pass.
+  Network-path references are rejected; native Request handling is unchanged;
+- plain-header snapshots are bounded to 64 fields, 128-byte names, 8 KiB values,
+  and 32 KiB aggregate text. Accessors, symbols, inherited pollution, invalid
+  bytes, duplicate case-folded names, unstable reflection, and unsupported
+  prototypes fail with fixed enum-only diagnostics;
+- resolver modes retain their earlier strict eligibility. Compatibility is
+  replay/probe-only;
+- the old generic page timeout is split into `target-not-observed`,
+  `source-response-timeout`, and `replay-response-timeout`. Background timeout
+  remains explicitly ambiguous. No retry, cache-bypass reload, token/session
+  route, active-tab mutation, DOM fallback substitution, or guessed branch was
+  added;
+- persistence logging now emits only destination enums and success booleans.
+  Filenames, paths, note bodies, warnings, errors, response objects, credentials,
+  and archive content are excluded.
+
+Live Comet verification on a private 232-message ordinary ChatGPT conversation
+completed three successive final-phase exports, including an immediate warm
+repeat. The final response-URL-gated build produced a fresh snapshot in both
+Downloads and Obsidian:
+
+- raw `conversation.json`: 2,684,770 bytes;
+- manifest: 1,884 bytes;
+- canonical `liska-thread-1.json`: 4,434,199 bytes;
+- complete graph: 453 nodes, one root, current node present, two preserved asset
+  references, zero manifest warnings, and `graph/messages/branches = complete`;
+- Downloads and Obsidian raw/manifest/canonical copies have identical SHA-256
+  values inside the snapshot;
+- Markdown was written to both destinations. Downloads retained the ordinary
+  547,823-byte form; Obsidian retained the configured flattened 546,535-byte
+  form;
+- each successful run received a distinct random capture ID and a new archive
+  directory. Older snapshots were not replaced, and no marker tab remained.
+
+One earlier warm run on a pre-phase-diagnostic build ended in the old generic
+timeout. The exact phase was therefore not recoverable. It did not write a
+partial snapshot, and the timeout did not recur in the later cold/warm/final
+sequence. This remains an explicit reliability observation rather than a reason
+for an automatic retry.
 
 Fresh exact-tree validation:
 
-- Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 146 test files / 3,154 tests pass with two workers;
-- coverage passes at 95.11% statements, 90.25% branches, 98.32% functions,
-  and 97.87% lines;
-- typecheck and the production build pass;
-- lint passes with only three pre-existing advisory warnings, and repository
-  formatting passes;
-- independent reviews reproduced and fixed two additional popup credential
-  races and found no residual P0-P3 issue after either review-fix layer.
+- Node 24.18.0 and npm 11.16.0 match the project contract;
+- 147 test files / 3,509 tests pass;
+- coverage passes at 95.20% statements, 90.47% branches, 98.32% functions, and
+  97.92% lines;
+- TypeScript and the production Vite build pass;
+- full lint has zero errors and only the same three pre-existing advisory
+  warnings; platform registry lint and repository formatting pass;
+- independent review reproduced both URL/base conversion defects against the
+  exact module, verified their fixes in memory, and reports no residual P0-P3
+  finding.
 
-The prior combined File+Obsidian synthetic canary remains valid evidence for the
-unchanged successful one-file path: both destinations received byte-identical
-raw/manifest/canonical/binary artifacts and Markdown, with exact hashes and no
-provider transport leakage. The 2026-10-02 review-fix tree has not yet been
-reloaded for a new live browser canary. A page-native preview is still required
-for the passive attachment fallback; automatic card activation, active
-observers, `fetch_files`, retries, guessed URLs, a real provider response above
-16 MiB, and official-export reconciliation remain explicit evidence gaps. The
-latest response-lifecycle and capture-date routing fixes have not yet received a
-live Chrome/Obsidian replay. ChatGPT capture-date pinning, append-mode lookup in
-older folders, and a vault-template change during one capture remain separate
-future scopes.
-
-Next: commit and push the review fixes, wait for exact-head CI/re-review, then
-make a separate merge decision. No merge, release, tag, or closure of #8/#9 is
-automatic.
+Next: commit this compatibility checkpoint locally. A remote push, pull request,
+merge, release, or tag remains a separate explicit action. Broader stress tests
+on the branch-heavy/heavy-chat corpus and any evidence-gated timeout recovery
+remain future checkpoints.

@@ -665,15 +665,18 @@ async function writeNoteToOutputs(
     };
   }
 
-  console.info('[G2O] Generated note:', {
-    messageCount,
-    outputs,
-  });
+  console.info('[G2O] Generated note:', { messageCount, outputs });
 
   const saveResponse: unknown = await sendMessage(saveMessage);
   if (!isMultiOutputResponse(saveResponse, outputs)) {
+    console.info('[G2O] Note write response invalid');
     return { success: false, error: backgroundResponseError(saveResponse) };
   }
+  console.info('[G2O] Note write result:', {
+    allSuccessful: saveResponse.allSuccessful,
+    anySuccessful: saveResponse.anySuccessful,
+    results: saveResponse.results.map(({ destination, success }) => ({ destination, success })),
+  });
   return { success: true, response: saveResponse };
 }
 

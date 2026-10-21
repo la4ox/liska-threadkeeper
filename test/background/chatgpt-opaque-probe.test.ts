@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createChatGptOpaqueProbeResult } from '../../src/lib/chatgpt-opaque-probe-contract';
+import {
+  CHATGPT_OPAQUE_PROBE_OUTCOMES,
+  createChatGptOpaqueProbeResult,
+} from '../../src/lib/chatgpt-opaque-probe-contract';
 import {
   probeChatGptOpaqueRequest,
   readChatGptOpaqueProbeState,
@@ -14,6 +17,31 @@ afterEach(() => {
 });
 
 describe('ChatGPT opaque probe temporary-tab runtime', () => {
+  it.each([
+    'init-security-sensitive-headers-unbranded',
+    'init-security-sensitive-headers-unbranded-synthetic-secret',
+    'init-security-sensitive-headers-unbranded-entry-synthetic-secret',
+    'init-security-sensitive-headers-unbranded-ENTRY',
+  ])('rejects the non-allowlisted header reason %s in the serialized reader', outcome => {
+    const result = { ...createChatGptOpaqueProbeResult('probe-failed'), outcome };
+    vi.stubGlobal('window', { [`__liskaChatGptOpaqueProbe_${NONCE}`]: { kind: 'result', result } });
+    expect(readChatGptOpaqueProbeState(NONCE)).toEqual({ kind: 'missing' });
+  });
+
+  it('keeps the serialized outcome allowlist exact and aligned with the contract', () => {
+    for (const outcome of CHATGPT_OPAQUE_PROBE_OUTCOMES) {
+      const snapshot = { kind: 'result', result: createChatGptOpaqueProbeResult(outcome) };
+      vi.stubGlobal('window', { [`__liskaChatGptOpaqueProbe_${NONCE}`]: snapshot });
+      expect(readChatGptOpaqueProbeState(NONCE)).toEqual(snapshot);
+    }
+    const result = {
+      ...createChatGptOpaqueProbeResult('eligible-init-compatible'),
+      outcome: 'eligible-init-compatible:synthetic-secret',
+    };
+    vi.stubGlobal('window', { [`__liskaChatGptOpaqueProbe_${NONCE}`]: { kind: 'result', result } });
+    expect(readChatGptOpaqueProbeState(NONCE)).toEqual({ kind: 'missing' });
+  });
+
   it('opens only the marker-gated route, returns metadata, and closes its disposable tab', async () => {
     const result = createChatGptOpaqueProbeResult('eligible', {
       observedTargetRequest: true,

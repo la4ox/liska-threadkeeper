@@ -301,6 +301,8 @@ async function waitForReplayResult(
       break;
     }
   }
+  // No terminal page result was observed. The fallback count of 0 cannot prove
+  // that the page never dispatched, so this deadline never authorizes a retry.
   return createChatGptOpaqueReplayFailure('replay-result-timeout');
 }
 
@@ -415,7 +417,30 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
       'target-not-observed',
       'source-not-native-request',
       'init-security-sensitive',
+      'init-security-sensitive-headers',
+      'init-security-sensitive-headers-distinct',
+      'init-security-sensitive-headers-native-distinct',
+      'init-security-sensitive-headers-unbranded-shape',
+      'init-security-sensitive-headers-unbranded-prototype',
+      'init-security-sensitive-headers-unbranded-inherited',
+      'init-security-sensitive-headers-unbranded-symbol',
+      'init-security-sensitive-headers-unbranded-descriptor',
+      'init-security-sensitive-headers-unbranded-accessor',
+      'init-security-sensitive-headers-unbranded-limit',
+      'init-security-sensitive-headers-unbranded-entry',
+      'init-security-sensitive-headers-unbranded-unstable',
+      'init-security-sensitive-headers-unbranded-reflection',
+      'init-security-sensitive-body',
+      'init-security-sensitive-method',
+      'init-security-sensitive-credentials',
+      'init-security-sensitive-multiple',
       'init-unsupported',
+      'init-unsupported-prototype',
+      'init-unsupported-inherited',
+      'init-unsupported-symbol',
+      'init-unsupported-member',
+      'init-unsupported-accessor',
+      'init-unsupported-reflection',
       'target-mismatch',
       'clone-failed',
       'authorization-absent',
@@ -423,11 +448,13 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
       'source-rejected',
       'source-http-error',
       'source-non-json',
+      'source-response-timeout',
       'replay-construction-failed',
       'replay-dispatch-failed',
       'replay-rejected',
       'replay-http-error',
       'replay-non-json',
+      'replay-response-timeout',
       'response-processing-failed',
       'payload-too-large',
       'timed-out',
