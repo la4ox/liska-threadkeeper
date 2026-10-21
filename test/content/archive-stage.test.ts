@@ -88,6 +88,24 @@ describe('content archive-stage bridge', () => {
     messages.forEach(expectBoundedRuntimeMessage);
   });
 
+  it('binds every staged message to the requested DeepSeek source', async () => {
+    mocks.sendMessage.mockImplementation((message: { action: string }) =>
+      Promise.resolve(
+        message.action === 'beginStagedArchiveArtifact'
+          ? { success: true, stageId }
+          : { success: true }
+      )
+    );
+
+    await stageArchiveArtifactBytes('raw', new Uint8Array([1]), 'deepseek');
+
+    expect(
+      mocks.sendMessage.mock.calls.every(
+        ([message]) => (message as { source?: string }).source === 'deepseek'
+      )
+    ).toBe(true);
+  });
+
   it('stages a canonical artifact above the former 32 MiB inline ceiling without one whole message', async () => {
     const bytes = new Uint8Array(32 * 1024 * 1024 + 1);
     bytes[0] = 1;

@@ -51,6 +51,7 @@ describe('content staged binary persistence', () => {
       source: 'chatgpt',
       captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
       conversationKey: 'c'.repeat(64),
+      capturedAt: '2026-09-19T10:00:00.000Z',
       assets: [first, second],
       outputs: ['file', 'obsidian'],
     });
@@ -79,6 +80,16 @@ describe('content staged binary persistence', () => {
     expect(appends).toHaveLength(2);
     expect(canonicalBase64ByteLength(appends[0]?.chunkBase64 ?? '')).toBe(BINARY_STAGE_CHUNK_BYTES);
     expect(canonicalBase64ByteLength(appends[1]?.chunkBase64 ?? '')).toBe(1);
+    expect(
+      mocks.sendMessage.mock.calls.find(
+        ([message]) => (message as { action?: string }).action === 'commitStagedBinaryAsset'
+      )?.[0]
+    ).toEqual(
+      expect.objectContaining({
+        action: 'commitStagedBinaryAsset',
+        capturedAt: '2026-09-19T10:00:00.000Z',
+      })
+    );
     expect(
       mocks.sendMessage.mock.calls.some(
         ([message]) => (message as { action?: string }).action === 'abortStagedBinaryAsset'

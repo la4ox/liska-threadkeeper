@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
+import { DEEPSEEK_DOM_FALLBACK_WARNING } from '../../src/content/extractors/deepseek-api';
 import { clearFixture, resetLocation } from '../fixtures/dom-helpers';
 import type { SyncSettings } from '../../src/lib/types';
 
@@ -130,7 +131,8 @@ describe('DeepSeekExtractor auto-scroll (virtualization)', () => {
       'A4',
     ]);
     expect(result.data?.messages.map(message => message.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(result.warnings).toBeUndefined();
+    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+    expect(result.warnings).toEqual([DEEPSEEK_DOM_FALLBACK_WARNING]);
   });
 
   it('extracts only the currently mounted window when auto-scroll is disabled', async () => {

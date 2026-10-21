@@ -21,12 +21,13 @@
     "https://notebook.google.com/*",
     "https://notebooklm.google.com/*",
     "https://chat.deepseek.com/*",
+    "https://files.deepseeksvc.com/*",
     "https://*.googleusercontent.com/*",
     "http://127.0.0.1/*",
     "https://127.0.0.1/*"
   ],
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; script-src 'self'; connect-src 'self' http://127.0.0.1:* https://127.0.0.1:* https://*.googleusercontent.com; object-src 'none'; frame-src 'none'; style-src 'self'"
+    "extension_pages": "default-src 'self'; script-src 'self'; connect-src 'self' http://127.0.0.1:* https://127.0.0.1:* https://*.googleusercontent.com https://files.deepseeksvc.com; object-src 'none'; frame-src 'none'; style-src 'self'"
   },
   "background": {
     "service_worker": "src/background/service-worker.ts",

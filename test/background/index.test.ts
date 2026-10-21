@@ -240,6 +240,85 @@ describe('background/index', () => {
       expect(sendResponse).toHaveBeenCalledWith({ success: true });
     });
 
+    it('uses the last full save after an earlier immediate destination update', async () => {
+      const toggleResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'updateOutputOptions',
+          outputOptions: { obsidian: false, file: true, clipboard: false },
+        },
+        popupSender,
+        toggleResponse
+      );
+      await vi.waitFor(() => expect(toggleResponse).toHaveBeenCalledWith({ success: true }));
+
+      const saveResponse = vi.fn();
+      capturedListener({ action: 'saveSettings', settings }, popupSender, saveResponse);
+      await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ success: true }));
+
+      const readResponse = vi.fn();
+      capturedListener({ action: 'getSettings' }, popupSender, readResponse);
+      await vi.waitFor(() => expect(readResponse).toHaveBeenCalled());
+      expect(readResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ outputOptions: settings.outputOptions })
+      );
+    });
+
+    it('does not let an older pending full save replace a newer destination toggle', async () => {
+      let finishSave!: () => void;
+      mockSaveSettings.mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            finishSave = resolve;
+          })
+      );
+
+      const saveResponse = vi.fn();
+      capturedListener({ action: 'saveSettings', settings }, popupSender, saveResponse);
+      await vi.waitFor(() => expect(mockSaveSettings).toHaveBeenCalledOnce());
+
+      const newerOptions = { obsidian: false, file: true, clipboard: false };
+      const toggleResponse = vi.fn();
+      capturedListener(
+        { action: 'updateOutputOptions', outputOptions: newerOptions },
+        popupSender,
+        toggleResponse
+      );
+      await vi.waitFor(() => expect(toggleResponse).toHaveBeenCalledWith({ success: true }));
+      finishSave();
+      await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ success: true }));
+
+      const readResponse = vi.fn();
+      capturedListener({ action: 'getSettings' }, popupSender, readResponse);
+      await vi.waitFor(() => expect(readResponse).toHaveBeenCalled());
+      expect(readResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ outputOptions: newerOptions })
+      );
+    });
+
+    it('falls back to stored destinations when the latest full save fails', async () => {
+      const storedOptions = { obsidian: false, file: true, clipboard: false };
+      mockGetSettings = vi.fn(() =>
+        Promise.resolve({ ...defaultSettings, outputOptions: storedOptions })
+      );
+      mockSaveSettings.mockRejectedValueOnce(new Error('synthetic write failure'));
+      const saveResponse = vi.fn();
+      capturedListener({ action: 'saveSettings', settings }, popupSender, saveResponse);
+      await vi.waitFor(() =>
+        expect(saveResponse).toHaveBeenCalledWith({
+          success: false,
+          error: 'Could not save settings',
+        })
+      );
+
+      const readResponse = vi.fn();
+      capturedListener({ action: 'getSettings' }, popupSender, readResponse);
+      await vi.waitFor(() => expect(readResponse).toHaveBeenCalled());
+      expect(readResponse).toHaveBeenCalledWith(
+        expect.objectContaining({ outputOptions: storedOptions })
+      );
+    });
+
     it('rejects a complete settings update from a content script', () => {
       const sendResponse = vi.fn();
       capturedListener(

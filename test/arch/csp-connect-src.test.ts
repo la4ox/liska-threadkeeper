@@ -66,6 +66,12 @@ describe('manifest CSP connect-src', () => {
     expect(covers(sources, '127.0.0.1')).toBe(true);
   });
 
+  it('permits the credential-free DeepSeek file service', () => {
+    const sources = directive('connect-src') as string[];
+    expect(manifest.host_permissions).toContain('https://files.deepseeksvc.com/*');
+    expect(covers(sources, 'files.deepseeksvc.com')).toBe(true);
+  });
+
   it('lists every remote host_permission it needs to connect to', () => {
     // Content scripts are not bound by the extension CSP, so page hosts are
     // exempt; only hosts the extension itself connects to must appear. The

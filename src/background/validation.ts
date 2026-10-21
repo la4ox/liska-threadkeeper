@@ -18,17 +18,16 @@ import {
   MAX_TOTAL_IMAGE_DATA_LENGTH,
   ALLOWED_ORIGINS,
   VALID_MESSAGE_ACTIONS,
-  VALID_MESSAGE_FORMATS,
   VALID_OUTPUT_DESTINATIONS,
   VALID_SOURCES,
 } from '../lib/constants';
 import type {
   ArchiveCompanionArtifact,
-  ExtensionSettings,
   ExtensionMessage,
   ExtractedImage,
   ObsidianNote,
   OutputOptions,
+  StructuredArchiveSource,
 } from '../lib/types';
 import { ARCHIVE_COMPANION_KINDS, ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
 import {
@@ -52,6 +51,13 @@ import {
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 import { platformOrigins } from '../lib/platform-registry';
+import { validateSettingsUpdate } from './settings-validation';
+
+const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
+
+function isStructuredArchiveSource(value: unknown): value is StructuredArchiveSource {
+  return STRUCTURED_ARCHIVE_SOURCES.includes(value as StructuredArchiveSource);
+}
 
 /**
  * Validate message sender (M-02)
@@ -140,27 +146,44 @@ export function validateStagedBinaryAssetSender(
   }
 }
 
-/** Archive stages are private ChatGPT-only capabilities. */
-export function validateArchiveStageSender(sender: chrome.runtime.MessageSender): boolean {
-  if (
-    !sender.tab?.url ||
-    sender.frameId !== 0 ||
-    typeof sender.url !== 'string' ||
-    !isExactChatGptDocumentUrl(sender.url)
-  ) {
+/** Archive stages are private capabilities bound to the exact provider conversation tab. */
+export function validateArchiveStageSender(
+  sender: chrome.runtime.MessageSender,
+  source: StructuredArchiveSource = 'chatgpt'
+): boolean {
+  if (!sender.tab?.url || sender.frameId !== 0 || typeof sender.url !== 'string') {
     return false;
   }
   try {
     const url = new URL(sender.tab.url);
-    if (
-      !isExactChatGptConversationUrl(url) ||
-      (sender.frameId !== undefined && sender.frameId !== 0)
-    ) {
-      return false;
+    if (source === 'deepseek') {
+      return isExactDeepSeekConversationUrl(url) && isExactDeepSeekDocumentUrl(sender.url);
     }
+    if (!isExactChatGptDocumentUrl(sender.url)) return false;
+    if (!isExactChatGptConversationUrl(url)) return false;
     const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
     const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(url.pathname);
     return isChatGptConversationId(standard?.[1] ?? custom?.[1]);
+  } catch {
+    return false;
+  }
+}
+
+function isExactDeepSeekConversationUrl(url: URL): boolean {
+  return (
+    url.origin === 'https://chat.deepseek.com' &&
+    url.username === '' &&
+    url.password === '' &&
+    url.search === '' &&
+    url.hash === '' &&
+    /^\/a\/chat\/s\/[a-z0-9-]+\/?$/i.test(url.pathname)
+  );
+}
+
+function isExactDeepSeekDocumentUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.origin === 'https://chat.deepseek.com' && url.username === '' && url.password === '';
   } catch {
     return false;
   }
@@ -331,116 +354,22 @@ function validateOutputOptions(value: unknown): value is OutputOptions {
   );
 }
 
-const SETTINGS_UPDATE_KEYS = [
-  'obsidianApiKey',
-  'obsidianUrl',
-  'vaultPath',
-  'templateOptions',
-  'outputOptions',
-  'enableAutoScroll',
-  'enableAppendMode',
-  'enableToolContent',
-  'enableImageExport',
-  'enableChatGptOpaqueProbe',
-  'enableChatGptOpaqueReplay',
-  'imageVaultPath',
-  'flattenLargeCallouts',
-  'maxCalloutLines',
-] as const;
-
-const REQUIRED_TEMPLATE_OPTION_KEYS = [
-  'includeId',
-  'includeTitle',
-  'includeTags',
-  'includeSource',
-  'includeDates',
-  'includeMessageCount',
-  'messageFormat',
-  'userCalloutType',
-  'assistantCalloutType',
-] as const;
-
-const OPTIONAL_TEMPLATE_OPTION_KEYS = [
-  'includeQuestionHeaders',
-  'timezone',
-  'filenameScheme',
-] as const;
-
-function hasRequiredAndAllowedOwnKeys(
-  value: object,
-  required: readonly string[],
-  optional: readonly string[]
-): boolean {
-  const keys = Reflect.ownKeys(value);
-  return (
-    required.every(requiredKey => keys.some(key => key === requiredKey)) &&
-    keys.every(key => typeof key === 'string' && (required.includes(key) || optional.includes(key)))
-  );
-}
-
-// eslint-disable-next-line complexity -- Keep the full settings transport shape explicit at the message boundary.
-function validateTemplateOptionsForSettingsUpdate(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  if (
-    !hasRequiredAndAllowedOwnKeys(
-      value,
-      REQUIRED_TEMPLATE_OPTION_KEYS,
-      OPTIONAL_TEMPLATE_OPTION_KEYS
-    )
-  ) {
-    return false;
-  }
-
-  const options = value as Record<string, unknown>;
-  return (
-    typeof options.includeId === 'boolean' &&
-    typeof options.includeTitle === 'boolean' &&
-    typeof options.includeTags === 'boolean' &&
-    typeof options.includeSource === 'boolean' &&
-    typeof options.includeDates === 'boolean' &&
-    typeof options.includeMessageCount === 'boolean' &&
-    typeof options.messageFormat === 'string' &&
-    VALID_MESSAGE_FORMATS.includes(
-      options.messageFormat as (typeof VALID_MESSAGE_FORMATS)[number]
-    ) &&
-    typeof options.userCalloutType === 'string' &&
-    typeof options.assistantCalloutType === 'string' &&
-    (options.includeQuestionHeaders === undefined ||
-      typeof options.includeQuestionHeaders === 'boolean') &&
-    (options.timezone === undefined || typeof options.timezone === 'string') &&
-    (options.filenameScheme === undefined ||
-      options.filenameScheme === 'title-id' ||
-      options.filenameScheme === 'title-date')
-  );
-}
-
-// eslint-disable-next-line complexity -- Keep the full settings transport shape explicit at the message boundary.
-function validateSettingsUpdate(value: unknown): value is ExtensionSettings {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  if (!hasExactOwnKeys(value, SETTINGS_UPDATE_KEYS)) return false;
-
-  const settings = value as Record<string, unknown>;
-  return (
-    typeof settings.obsidianApiKey === 'string' &&
-    typeof settings.obsidianUrl === 'string' &&
-    typeof settings.vaultPath === 'string' &&
-    validateTemplateOptionsForSettingsUpdate(settings.templateOptions) &&
-    validateOutputOptions(settings.outputOptions) &&
-    typeof settings.enableAutoScroll === 'boolean' &&
-    typeof settings.enableAppendMode === 'boolean' &&
-    typeof settings.enableToolContent === 'boolean' &&
-    typeof settings.enableImageExport === 'boolean' &&
-    typeof settings.enableChatGptOpaqueProbe === 'boolean' &&
-    typeof settings.enableChatGptOpaqueReplay === 'boolean' &&
-    typeof settings.imageVaultPath === 'string' &&
-    typeof settings.flattenLargeCallouts === 'boolean' &&
-    Number.isSafeInteger(settings.maxCalloutLines) &&
-    (settings.maxCalloutLines as number) > 0
-  );
-}
-
 const SAFE_CAPTURE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/;
 const OPAQUE_CONVERSATION_KEY_PATTERN = /^[a-f0-9]{64}$/;
+const ROUTING_CAPTURED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+function isValidRoutingCapturedAt(value: unknown): value is string {
+  if (typeof value !== 'string' || !ROUTING_CAPTURED_AT_PATTERN.test(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
+
+function hasOptionalValidRoutingCapturedAt(value: { capturedAt?: unknown }): boolean {
+  return (
+    !Object.prototype.hasOwnProperty.call(value, 'capturedAt') ||
+    isValidRoutingCapturedAt(value.capturedAt)
+  );
+}
 
 function isSafeNoteFileName(value: unknown): value is string {
   return (
@@ -460,6 +389,15 @@ function isArchiveCompanionKind(value: unknown): value is ArchiveCompanionArtifa
   );
 }
 
+function archiveCompanionMaxBytes(
+  kind: ArchiveCompanionArtifact['kind'],
+  source: StructuredArchiveSource
+): number {
+  return kind === 'raw' && source === 'chatgpt'
+    ? CHATGPT_INLINE_CAPTURE_MAX_BYTES
+    : MAX_CONTENT_SIZE;
+}
+
 function hasValidArchiveCompanionMetadata(artifact: Record<string, unknown>): boolean {
   const kind = artifact.kind;
   return (
@@ -473,7 +411,10 @@ function hasValidArchiveCompanionMetadata(artifact: Record<string, unknown>): bo
   );
 }
 
-function validateArchiveCompanionArtifact(value: unknown): value is ArchiveCompanionArtifact {
+function validateArchiveCompanionArtifact(
+  value: unknown,
+  source: StructuredArchiveSource
+): value is ArchiveCompanionArtifact {
   if (typeof value !== 'object' || value === null) return false;
   if (
     !hasExactOwnKeys(value, [
@@ -494,7 +435,10 @@ function validateArchiveCompanionArtifact(value: unknown): value is ArchiveCompa
 
   const bodyBase64 = artifact.bodyBase64 as string;
   const byteLength = canonicalBase64ByteLength(bodyBase64);
-  const maxBytes = artifact.kind === 'raw' ? CHATGPT_INLINE_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE;
+  const maxBytes = archiveCompanionMaxBytes(
+    artifact.kind as ArchiveCompanionArtifact['kind'],
+    source
+  );
   return byteLength === artifact.byteLength && byteLength !== undefined && byteLength <= maxBytes;
 }
 
@@ -533,21 +477,33 @@ function validateStagedArchiveCompanionArtifact(value: unknown): boolean {
 function validatePersistArchiveCompanionMessage(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
 ): boolean {
+  if (!isStructuredArchiveSource(message.source)) return false;
+  const exactLegacy = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'artifact',
+    'outputs',
+  ]);
+  const exactCaptured = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'capturedAt',
+    'artifact',
+    'outputs',
+  ]);
   return (
-    hasExactOwnKeys(message, [
-      'action',
-      'noteFileName',
-      'source',
-      'captureId',
-      'conversationKey',
-      'artifact',
-      'outputs',
-    ]) &&
+    (exactLegacy || exactCaptured) &&
+    hasOptionalValidRoutingCapturedAt(message) &&
     isSafeNoteFileName(message.noteFileName) &&
-    message.source === 'chatgpt' &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
-    validateArchiveCompanionArtifact(message.artifact) &&
+    validateArchiveCompanionArtifact(message.artifact, message.source) &&
     Array.isArray(message.outputs) &&
     message.outputs.length > 0 &&
     message.outputs.length <= 2 &&
@@ -568,7 +524,7 @@ function validateArchiveStageMessage(
     | { action: 'abortStagedArchiveArtifact' }
   >
 ): boolean {
-  if (message.source !== 'chatgpt') return false;
+  if (!isStructuredArchiveSource(message.source)) return false;
   if (message.action === 'beginStagedArchiveArtifact') {
     return (
       hasExactOwnKeys(message, ['action', 'source', 'descriptor']) &&
@@ -610,16 +566,28 @@ function validateArchiveStageMessage(
       isSafeArchiveStageId(message.stageId)
     );
   }
+  const exactLegacy = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'artifact',
+    'outputs',
+  ]);
+  const exactCaptured = hasExactOwnKeys(message, [
+    'action',
+    'noteFileName',
+    'source',
+    'captureId',
+    'conversationKey',
+    'capturedAt',
+    'artifact',
+    'outputs',
+  ]);
   return (
-    hasExactOwnKeys(message, [
-      'action',
-      'noteFileName',
-      'source',
-      'captureId',
-      'conversationKey',
-      'artifact',
-      'outputs',
-    ]) &&
+    (exactLegacy || exactCaptured) &&
+    hasOptionalValidRoutingCapturedAt(message) &&
     isSafeNoteFileName(message.noteFileName) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -671,16 +639,28 @@ function validateAppendStagedBinaryAssetMessage(
 function validateCommitStagedBinaryAssetMessage(
   message: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>
 ): boolean {
+  const exactLegacy = hasExactOwnKeys(message, [
+    'action',
+    'stageId',
+    'captureId',
+    'conversationKey',
+    'source',
+    'descriptor',
+    'outputs',
+  ]);
+  const exactCaptured = hasExactOwnKeys(message, [
+    'action',
+    'stageId',
+    'captureId',
+    'conversationKey',
+    'capturedAt',
+    'source',
+    'descriptor',
+    'outputs',
+  ]);
   return (
-    hasExactOwnKeys(message, [
-      'action',
-      'stageId',
-      'captureId',
-      'conversationKey',
-      'source',
-      'descriptor',
-      'outputs',
-    ]) &&
+    (exactLegacy || exactCaptured) &&
+    hasOptionalValidRoutingCapturedAt(message) &&
     isSafeBinaryStageId(message.stageId) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -719,6 +699,7 @@ function validateSaveToOutputsMessage(
   message: Extract<ExtensionMessage, { action: 'saveToOutputs' }>
 ): boolean {
   return (
+    hasOptionalValidRoutingCapturedAt(message) &&
     validateNoteData(message.data) &&
     Array.isArray(message.outputs) &&
     message.outputs.length > 0 &&

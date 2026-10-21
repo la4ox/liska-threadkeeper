@@ -11,9 +11,19 @@ import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
-import type { ConversationMessage, ExtractionResult, SyncSettings } from '../../lib/types';
+import type {
+  ArchiveCompanionBundle,
+  ConversationMessage,
+  ExtractionResult,
+  SyncSettings,
+} from '../../lib/types';
 import { SELECTORS } from './selectors/deepseek';
-import { fetchDeepSeekConversation } from './deepseek-api';
+import {
+  DEEPSEEK_DOM_FALLBACK_WARNING,
+  DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
+  DeepSeekStructuredCaptureError,
+  fetchDeepSeekConversation,
+} from './deepseek-api';
 
 type MessageRole = 'user' | 'assistant';
 
@@ -53,12 +63,15 @@ export class DeepSeekExtractor extends BaseExtractor {
         if (apiConversation) {
           if (conversationId) {
             console.info('[G2O] Extracted DeepSeek conversation from local session history');
-            return this.buildConversationResult(
-              apiConversation.messages,
-              conversationId,
-              apiConversation.title ?? this.getTitle(),
-              this.platform
-            );
+            return {
+              success: true,
+              data: apiConversation.data.title.trim()
+                ? apiConversation.data
+                : { ...apiConversation.data, title: this.getTitle() },
+              archiveCompanion: apiConversation.archiveCompanion,
+              deepSeekAssetExportContext: apiConversation.assetExportContext,
+              warnings: apiConversation.warnings.length > 0 ? apiConversation.warnings : undefined,
+            };
           }
         }
       } catch (error) {
@@ -66,10 +79,37 @@ export class DeepSeekExtractor extends BaseExtractor {
           '[G2O] DeepSeek history API unavailable; falling back to rendered conversation:',
           error instanceof Error ? error.message : 'unknown error'
         );
+        return this.extractDomFallback(
+          error instanceof DeepSeekStructuredCaptureError ? error.archiveCompanion : undefined
+        );
       }
     }
 
-    return super.extract();
+    return this.extractDomFallback();
+  }
+
+  /** Rendered content cannot certify complete history, even after auto-scroll. */
+  private async extractDomFallback(
+    archiveCompanion?: ArchiveCompanionBundle
+  ): Promise<ExtractionResult> {
+    const fallback = await super.extract();
+    if (!fallback.success) {
+      // Bootstrap owns persistence/cleanup of any already-verified evidence.
+      return archiveCompanion ? { ...fallback, archiveCompanion } : fallback;
+    }
+    return {
+      ...fallback,
+      data: fallback.data
+        ? { ...fallback.data, capture: { mode: 'dom-fallback', completeness: 'partial' } }
+        : fallback.data,
+      ...(archiveCompanion ? { archiveCompanion } : {}),
+      warnings: [
+        ...(fallback.warnings ?? []),
+        archiveCompanion
+          ? DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING
+          : DEEPSEEK_DOM_FALLBACK_WARNING,
+      ],
+    };
   }
 
   // ========== ID & Title Extraction ==========

@@ -227,6 +227,7 @@ async function saveStagedBinaryAssetToObsidian(
       source: message.source,
       captureId: message.captureId,
       conversationKey: message.conversationKey,
+      ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
       descriptor: message.descriptor,
       blobUrl,
     });

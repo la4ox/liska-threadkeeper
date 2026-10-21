@@ -37,6 +37,46 @@ describe('capture response primitives', () => {
     expect(parseJsonArtifact(artifact.bytes)).toEqual({ mapping: {} });
   });
 
+  it.each([false, true])(
+    'awaits rejected HTTP body cancellation and preserves the HTTP error (cancel fails: %s)',
+    async cancelFails => {
+      let finishCancellation!: () => void;
+      const cancel = vi.fn(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            finishCancellation = () =>
+              cancelFails ? reject(new Error('synthetic cancellation failure')) : resolve();
+          })
+      );
+      const getReader = vi.fn();
+      const response = {
+        ok: false,
+        status: 503,
+        body: { cancel, getReader },
+      } as unknown as Response;
+      const pending = captureResponseArtifact(response, {
+        artifactId: 'conversation',
+        relativePath: 'responses/conversation.json',
+        endpoint: { method: 'GET', pathPattern: '/api/v0/chat/history_messages' },
+        maxBytes: 1024,
+      });
+      let settled = false;
+      void pending.then(
+        () => (settled = true),
+        () => (settled = true)
+      );
+
+      expect(cancel).toHaveBeenCalledOnce();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(getReader).not.toHaveBeenCalled();
+      finishCancellation();
+
+      await expect(pending).rejects.toThrow('Capture endpoint returned HTTP 503.');
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+  );
+
   it('rejects an oversized declared response before reading its body', async () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     const arrayBuffer = vi.fn();

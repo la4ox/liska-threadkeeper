@@ -45,6 +45,8 @@ export interface ArchiveProjectionOptions {
   targetNodeId?: string | null;
   /** Include reasoning/tool/error blocks in legacy toolContent callouts. */
   includeToolContent?: boolean;
+  /** Trusted internal presentation label for generated reasoning headings; defaults to Reasoning. */
+  reasoningLabel?: string;
 }
 
 export interface ArchiveProjectionResult {
@@ -129,10 +131,10 @@ function renderVisibleBlock(
   }
 }
 
-function renderToolBlock(block: ArchiveBlock): string | null {
+function renderToolBlock(block: ArchiveBlock, reasoningLabel: string): string | null {
   switch (block.type) {
     case 'reasoning':
-      return `**Reasoning**\n${block.text}`;
+      return `**${reasoningLabel}**\n${block.text}`;
     case 'tool_call':
       return `**Tool call: ${inlineLabel(block.toolName) || 'unknown'}**\n${codeFence(
         JSON.stringify(block.arguments, null, 2),
@@ -165,6 +167,7 @@ function projectMessage(
   message: ArchiveMessage,
   index: number,
   includeToolContent: boolean,
+  reasoningLabel: string,
   omissions: Map<OmissionKind, number>
 ): ConversationMessage | null {
   if (message.author.role !== 'user' && message.author.role !== 'assistant') {
@@ -181,7 +184,7 @@ function projectMessage(
       continue;
     }
 
-    const renderedTool = renderToolBlock(block);
+    const renderedTool = renderToolBlock(block, reasoningLabel);
     if (renderedTool !== null) {
       if (includeToolContent) {
         tool.push(renderedTool);
@@ -297,14 +300,21 @@ function resolveTargetNodeId(
 function projectSelectedMessages(
   archive: LiskaThreadArchive,
   selectedNodeIds: string[],
-  includeToolContent: boolean
+  includeToolContent: boolean,
+  reasoningLabel: string
 ): { messages: ConversationMessage[]; omissions: Map<OmissionKind, number> } {
   const omissions = new Map<OmissionKind, number>();
   const messages: ConversationMessage[] = [];
   for (const nodeId of selectedNodeIds) {
     const message = archive.graph.nodes[nodeId].message;
     if (!message) continue;
-    const projected = projectMessage(message, messages.length, includeToolContent, omissions);
+    const projected = projectMessage(
+      message,
+      messages.length,
+      includeToolContent,
+      reasoningLabel,
+      omissions
+    );
     if (projected) messages.push(projected);
   }
   return { messages, omissions };
@@ -337,7 +347,8 @@ export function projectArchiveBranch(
   const { messages, omissions } = projectSelectedMessages(
     archive,
     selectedNodeIds,
-    options.includeToolContent ?? false
+    options.includeToolContent ?? false,
+    options.reasoningLabel ?? 'Reasoning'
   );
 
   if (messages.length === 0) {

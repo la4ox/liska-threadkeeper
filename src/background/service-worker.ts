@@ -58,8 +58,9 @@ import type {
   OutputOptions,
 } from '../lib/types';
 
-/** Latest acknowledged popup intent while chrome.storage.sync is committing. */
+/** Latest popup destination intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
+let outputOptionsUpdateSequence = 0;
 
 // Register durable Downloads recovery before any awaited startup work. A fresh
 // MV3 worker must observe terminal deltas and browser-startup reconciliation.
@@ -99,7 +100,6 @@ function dispatchMessage(
  * Handle incoming messages from content script and popup
  */
 chrome.runtime.onMessage.addListener(
-  // eslint-disable-next-line max-lines-per-function -- Sender, content, and action authorization intentionally stay at this single message boundary.
   (
     message: unknown,
     sender: chrome.runtime.MessageSender,
@@ -147,17 +147,12 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    if (!isAuthorizedSettingsSave(message, sender)) {
-      sendResponse({ success: false, error: 'Unauthorized' });
-      return false;
-    }
-
-    if (!isAuthorizedStagedBinaryAssetRequest(message, sender)) {
-      sendResponse({ success: false, error: 'Unauthorized' });
-      return false;
-    }
-
-    if (!isAuthorizedArchiveStageRequest(message, sender)) {
+    if (
+      !isAuthorizedSettingsSave(message, sender) ||
+      !isAuthorizedStagedBinaryAssetRequest(message, sender) ||
+      !isAuthorizedArchiveCompanionRequest(message, sender) ||
+      !isAuthorizedArchiveStageRequest(message, sender)
+    ) {
       sendResponse({ success: false, error: 'Unauthorized' });
       return false;
     }
@@ -293,7 +288,16 @@ function isAuthorizedArchiveStageRequest(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): boolean {
-  return !isArchiveStageMessage(message) || validateArchiveStageSender(sender);
+  return !isArchiveStageMessage(message) || validateArchiveStageSender(sender, message.source);
+}
+
+function isAuthorizedArchiveCompanionRequest(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (message.action !== 'persistArchiveCompanion') return true;
+  if (message.source !== 'chatgpt' && message.source !== 'deepseek') return false;
+  return validateArchiveStageSender(sender, message.source);
 }
 
 function isStagedBinaryAssetMessage(
@@ -556,6 +560,9 @@ async function handleMessage(
   }
 
   if (message.action === 'updateOutputOptions') {
+    // A disabled destination must take effect immediately, even if sync storage
+    // later rejects the write; do not resurrect the older stored destination.
+    outputOptionsUpdateSequence += 1;
     outputOptionsOverride = { ...message.outputOptions };
     try {
       await saveSettings({ outputOptions: message.outputOptions });
@@ -566,8 +573,13 @@ async function handleMessage(
   }
 
   if (message.action === 'saveSettings') {
+    const sequence = ++outputOptionsUpdateSequence;
     try {
       await saveSettings(message.settings);
+      // A newer toggle/save may have arrived while this storage write awaited.
+      if (sequence === outputOptionsUpdateSequence) {
+        outputOptionsOverride = { ...message.settings.outputOptions };
+      }
       return { success: true };
     } catch {
       return { success: false, error: 'Could not save settings' };
@@ -587,7 +599,7 @@ async function handleMessage(
 
   switch (message.action) {
     case 'saveToOutputs':
-      return handleMultiOutput(message.data, message.outputs, settings);
+      return handleMultiOutput(message.data, message.outputs, settings, message.capturedAt);
 
     case 'persistArchiveCompanion':
       return handlePersistArchiveCompanion(message, settings);

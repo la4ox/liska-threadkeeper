@@ -49,7 +49,7 @@ describe('content archive companion persistence', () => {
     const warnings = await persistArchiveCompanions(companion, 'note.md', 'chatgpt', ['clipboard']);
 
     expect(warnings).toEqual([
-      'ChatGPT raw/canonical archive was not saved because only Clipboard is enabled',
+      'Structured raw/canonical archive was not saved because only Clipboard is enabled',
     ]);
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -57,6 +57,7 @@ describe('content archive companion persistence', () => {
   it('commits a staged raw companion without bodyBase64, then continues with inline manifest', async () => {
     const staged: ArchiveCompanionBundle = {
       ...companion,
+      capturedAt: '2026-09-19T10:00:00.000Z',
       artifacts: [
         {
           transport: 'staged',
@@ -89,7 +90,49 @@ describe('content archive companion persistence', () => {
       'commitStagedArchiveCompanion',
       'persistArchiveCompanion',
     ]);
+    expect(messages.map(message => (message as { capturedAt?: string }).capturedAt)).toEqual([
+      staged.capturedAt,
+      staged.capturedAt,
+    ]);
     expect(JSON.stringify(messages[0])).not.toContain('bodyBase64');
+  });
+
+  it('keeps the DeepSeek source on staged commit and cleanup messages', async () => {
+    const staged: ArchiveCompanionBundle = {
+      ...companion,
+      captureId: 'capture-deepseek-11111111-2222-4333-8444-555555555555',
+      artifacts: [
+        {
+          transport: 'staged',
+          stageId: `archive-stage-${'D'.repeat(32)}`,
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 20 * 1024 * 1024,
+          sha256: 'e'.repeat(64),
+        },
+        companion.artifacts[1],
+      ],
+    };
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [{ destination: 'file', success: true }],
+          allSuccessful: true,
+          anySuccessful: true,
+        });
+      }
+    );
+
+    await persistArchiveCompanionArtifacts(staged, 'note.md', 'deepseek', ['file']);
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'commitStagedArchiveCompanion',
+        source: 'deepseek',
+      }),
+      expect.any(Function)
+    );
   });
 
   it('persists only raw and manifest when canonical normalization did not complete', async () => {
@@ -117,33 +160,53 @@ describe('content archive companion persistence', () => {
     ).toEqual(['raw', 'manifest']);
   });
 
-  it('preserves raw evidence when the rendered fallback also fails', async () => {
-    const partial: ArchiveCompanionBundle = {
-      ...companion,
-      artifacts: [companion.artifacts[0], companion.artifacts[1]],
-    };
-    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
-      (_message: unknown, callback?: (response: unknown) => void) => {
-        callback?.({
-          results: [{ destination: 'file', success: true }],
-          allSuccessful: true,
-          anySuccessful: true,
-        });
-      }
-    );
+  it.each(['chatgpt', 'deepseek'] as const)(
+    'preserves %s raw evidence when the rendered fallback also fails',
+    async source => {
+      const partial: ArchiveCompanionBundle = {
+        ...companion,
+        captureId: `capture-${source}-11111111-2222-4333-8444-555555555555`,
+        artifacts: [companion.artifacts[0], companion.artifacts[1]],
+      };
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+        (_message: unknown, callback?: (response: unknown) => void) => {
+          callback?.({
+            results: [{ destination: 'file', success: true }],
+            allSuccessful: true,
+            anySuccessful: true,
+          });
+        }
+      );
 
-    const status = await persistFailedExtractionArchive(
-      {
-        success: false,
-        error: 'Rendered fallback had no messages',
-        archiveCompanion: partial,
-      },
-      ['file']
-    );
+      const status = await persistFailedExtractionArchive(
+        {
+          success: false,
+          error: 'Rendered fallback had no messages',
+          archiveCompanion: partial,
+        },
+        ['file'],
+        source
+      );
 
-    expect(status).toBe('Verified raw capture evidence was saved locally');
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
-  });
+      expect(status).toBe('Verified raw capture evidence was saved locally');
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(2);
+      const messages = vi.mocked(chrome.runtime.sendMessage).mock.calls.map(call => call[0]);
+      expect(messages).toEqual([
+        expect.objectContaining({
+          action: 'persistArchiveCompanion',
+          source,
+          noteFileName: `${source}-capture.md`,
+          artifact: expect.objectContaining({ kind: 'raw' }),
+        }),
+        expect.objectContaining({
+          action: 'persistArchiveCompanion',
+          source,
+          noteFileName: `${source}-capture.md`,
+          artifact: expect.objectContaining({ kind: 'manifest' }),
+        }),
+      ]);
+    }
+  );
 
   it('stops later companions for a destination after its manifest write fails', async () => {
     let calls = 0;

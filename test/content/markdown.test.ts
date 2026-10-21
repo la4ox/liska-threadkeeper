@@ -604,7 +604,7 @@ describe('conversationToNote', () => {
     expect(note.images).toEqual([]);
   });
 
-  it('persists ChatGPT capture metadata only for ChatGPT', () => {
+  it('persists capture evidence for every structured provider', () => {
     const chatgpt = {
       ...mockData,
       id: '01234567-89ab-4cde-8f01-23456789abcd',
@@ -621,6 +621,20 @@ describe('conversationToNote', () => {
     expect(conversationToNote(mockData, defaultOptions).frontmatter).not.toHaveProperty(
       'capture_mode'
     );
+
+    expect(
+      conversationToNote(
+        {
+          ...mockData,
+          source: 'deepseek',
+          capture: { mode: 'structured-api', completeness: 'complete' },
+        },
+        defaultOptions
+      ).frontmatter
+    ).toMatchObject({
+      capture_mode: 'structured-api',
+      capture_completeness: 'complete',
+    });
 
     const fallback = conversationToNote(
       {

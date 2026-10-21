@@ -76,12 +76,17 @@ async function artifact(kind: ArchiveCompanionArtifact['kind']): Promise<Archive
   };
 }
 
-async function message(kind: ArchiveCompanionArtifact['kind'], outputs: ('file' | 'obsidian')[]) {
+async function message(
+  kind: ArchiveCompanionArtifact['kind'],
+  outputs: ('file' | 'obsidian')[],
+  source: 'chatgpt' | 'deepseek' = 'chatgpt'
+) {
   return {
     action: 'persistArchiveCompanion' as const,
     noteFileName: 'local-note.md',
-    source: 'chatgpt' as const,
-    captureId: CAPTURE_ID,
+    source,
+    captureId:
+      source === 'chatgpt' ? CAPTURE_ID : 'capture-deepseek-11111111-2222-4333-8444-555555555555',
     conversationKey: CONVERSATION_KEY,
     artifact: await artifact(kind),
     outputs,
@@ -159,6 +164,22 @@ describe('archive companion durable outputs', () => {
     );
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiveBlobRevoke', url: expect.stringMatching(/^blob:/) })
+    );
+  });
+
+  it('keeps File archive paths unchanged when capture-date routing metadata is present', async () => {
+    const request = {
+      ...(await message('raw', ['file'], 'deepseek')),
+      capturedAt: '2026-09-19T10:00:00.000Z',
+    };
+
+    await handlePersistArchiveCompanion(request, settings);
+
+    expect(chrome.downloads.download).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: `_liska-archive/${CONVERSATION_KEY}/${request.captureId}/responses/conversation.json`,
+      }),
+      expect.any(Function)
     );
   });
 
@@ -441,7 +462,10 @@ describe('archive companion durable outputs', () => {
   });
 
   it('writes the same verified companion to both selected durable outputs', async () => {
-    const request = await message('canonical', ['file', 'obsidian']);
+    const request = {
+      ...(await message('canonical', ['file', 'obsidian'])),
+      capturedAt: '2026-09-19T10:00:00.000Z',
+    };
     const result = await handlePersistArchiveCompanion(request, settings);
 
     expect(result.allSuccessful).toBe(true);
@@ -451,10 +475,26 @@ describe('archive companion durable outputs', () => {
         source: 'chatgpt',
         captureId: CAPTURE_ID,
         conversationKey: CONVERSATION_KEY,
+        capturedAt: request.capturedAt,
         artifact: request.artifact,
       })
     );
     expect(chrome.downloads.download).toHaveBeenCalledOnce();
+  });
+
+  it('persists a verified DeepSeek companion through the provider-neutral handler', async () => {
+    const request = await message('raw', ['obsidian'], 'deepseek');
+    const result = await handlePersistArchiveCompanion(request, settings);
+
+    expect(result.allSuccessful).toBe(true);
+    expect(mocks.saveArchive).toHaveBeenCalledWith(
+      settings,
+      expect.objectContaining({
+        source: 'deepseek',
+        captureId: request.captureId,
+        artifact: request.artifact,
+      })
+    );
   });
 
   it('keeps a successful destination when its sibling companion write fails', async () => {
@@ -710,6 +750,14 @@ describe('archive companion durable outputs', () => {
     expect(result.results).toEqual([
       { destination: 'obsidian', success: false, error: 'vault write unavailable' },
     ]);
+  });
+
+  it('passes structured capture time only to the Obsidian note route', async () => {
+    const capturedAt = '2026-09-19T10:00:00.000Z';
+
+    await handleMultiOutput(clipboardNote, ['obsidian'], clipboardSettings, capturedAt);
+
+    expect(mocks.saveNote).toHaveBeenCalledWith(clipboardSettings, clipboardNote, capturedAt);
   });
 
   it('rejects an archive whose decoded byte length disagrees with its envelope', async () => {

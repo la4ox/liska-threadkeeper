@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
+import * as deepSeekApi from '../../src/content/extractors/deepseek-api';
+import { MAX_CONVERSATION_TITLE_LENGTH } from '../../src/lib/constants';
 import { clearFixture, loadFixture, resetLocation } from '../fixtures/dom-helpers';
-import type { SyncSettings } from '../../src/lib/types';
+import type { ArchiveCompanionBundle, SyncSettings } from '../../src/lib/types';
 
 interface DeepSeekMessage {
   role: 'user' | 'assistant';
@@ -90,6 +92,25 @@ function createDeepSeekPage(
     </main>`);
 }
 
+function historyResponse(title: string): Response {
+  return new Response(
+    JSON.stringify({
+      code: 0,
+      data: {
+        biz_data: {
+          cache_control: 'REPLACE',
+          chat_session: { id: 'chat-123', title, current_message_id: '2' },
+          chat_messages: [
+            { message_id: '1', parent_id: null, role: 'USER', content: 'API question' },
+            { message_id: '2', parent_id: '1', role: 'ASSISTANT', content: 'API answer' },
+          ],
+        },
+      },
+    }),
+    { status: 200 }
+  );
+}
+
 describe('DeepSeekExtractor', () => {
   let extractor: DeepSeekExtractor;
 
@@ -139,6 +160,92 @@ describe('DeepSeekExtractor', () => {
   });
 
   describe('message extraction', () => {
+    it.each(['chat', 'share'] as const)(
+      'marks a no-token %s DOM capture as partial without claiming raw preservation',
+      async route => {
+        createDeepSeekPage(
+          'chat-123',
+          [
+            { role: 'user', content: 'Rendered question' },
+            { role: 'assistant', content: '<p>Rendered answer</p>' },
+          ],
+          route
+        );
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+        const result = await extractor.extract();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+        expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
+        expect(result.warnings?.join(' ')).not.toContain('preserves verified raw');
+        expect(result.archiveCompanion).toBeUndefined();
+        expect(result.deepSeekAssetExportContext).toBeUndefined();
+        expect(fetchSpy).not.toHaveBeenCalled();
+      }
+    );
+
+    it('uses partial DOM capture on a share route even when a token is available', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Shared question' }], 'share');
+      localStorage.setItem('userToken', 'local-test-token');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const result = await extractor.extract();
+
+      expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+      expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each(['', ' \t '])(
+      'uses the page title for blank API title %j without changing raw/canonical evidence',
+      async title => {
+        createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered first question' }]);
+        document.title = 'A page title - DeepSeek';
+        localStorage.setItem('userToken', 'local-test-token');
+        const response = historyResponse(title);
+        const rawText = await response.clone().text();
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+
+        const result = await extractor.extract();
+
+        expect(result.data?.title).toBe('A page title');
+        expect(result.data?.capture?.mode).toBe('structured-api');
+        const raw = result.archiveCompanion?.artifacts.find(artifact => artifact.kind === 'raw');
+        const canonical = result.archiveCompanion?.artifacts.find(
+          artifact => artifact.kind === 'canonical'
+        );
+        expect(raw?.transport).toBe('inline');
+        expect(canonical?.transport).toBe('inline');
+        if (raw?.transport !== 'inline' || canonical?.transport !== 'inline') {
+          throw new Error('Expected inline evidence');
+        }
+        expect(atob(raw.bodyBase64)).toBe(rawText);
+        expect(JSON.parse(atob(canonical.bodyBase64)).conversation.title).toBe(title);
+      }
+    );
+
+    it('uses the first rendered user title when both API and page titles are blank', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered first question' }]);
+      document.title = 'DeepSeek';
+      localStorage.setItem('userToken', 'local-test-token');
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(historyResponse('  '));
+
+      expect((await extractor.extract()).data?.title).toBe('Rendered first question');
+    });
+
+    it('preserves a nonblank API title and its existing presentation length bound', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered first question' }]);
+      document.title = 'Page title';
+      localStorage.setItem('userToken', 'local-test-token');
+      const title = 'API title '.repeat(20);
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(historyResponse(title));
+
+      expect((await extractor.extract()).data?.title).toBe(
+        title.substring(0, MAX_CONVERSATION_TITLE_LENGTH)
+      );
+    });
+
     it('fetches the complete active API branch without scrolling', async () => {
       createDeepSeekPage('chat-123', [
         { role: 'user', content: 'Only the latest mounted question' },
@@ -349,6 +456,36 @@ describe('DeepSeekExtractor', () => {
       expect(result.data?.messages.map(message => message.content).join('\n')).toContain(
         'Fallback answer'
       );
+      expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+      expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
+      expect(result.archiveCompanion).toBeUndefined();
+      expect(result.deepSeekAssetExportContext).toBeUndefined();
+    });
+
+    it('marks network-error fallback as partial without claiming preserved evidence', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered question' }]);
+      localStorage.setItem('userToken', 'local-test-token');
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Synthetic network failure'));
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+      expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
+      expect(result.archiveCompanion).toBeUndefined();
+    });
+
+    it('marks a preflight-rejected response fallback as partial without attaching evidence', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered question' }]);
+      localStorage.setItem('userToken', 'local-test-token');
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"code":1}', { status: 200 }));
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+      expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
+      expect(result.archiveCompanion).toBeUndefined();
     });
 
     it.each([{}, 1.5])(
@@ -391,6 +528,119 @@ describe('DeepSeekExtractor', () => {
         expect(body).not.toContain('Truncated API answer');
       }
     );
+
+    it('attaches verified raw and manifest evidence to a successful DOM fallback', async () => {
+      createDeepSeekPage('chat-123', [
+        { role: 'user', content: 'Fallback question' },
+        { role: 'assistant', content: '<p>Fallback answer</p>' },
+      ]);
+      localStorage.setItem('userToken', JSON.stringify({ value: 'local-test-token' }));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              biz_data: {
+                cache_control: 'REPLACE',
+                chat_session: { id: 'chat-123', current_message_id: '2' },
+                chat_messages: [
+                  { message_id: '1', parent_id: null, role: 'USER', content: 'API question' },
+                  { message_id: '2', parent_id: '1', role: 'ASSISTANT', content: 'API answer' },
+                  { message_id: '2', parent_id: '1', role: 'ASSISTANT', content: 'Duplicate' },
+                ],
+              },
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+      expect(result.archiveCompanion?.artifacts.map(artifact => artifact.kind)).toEqual([
+        'raw',
+        'manifest',
+      ]);
+      expect(result.warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining('preserves verified raw capture evidence')])
+      );
+      expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING);
+      expect(result.warnings).not.toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
+      expect(result.deepSeekAssetExportContext).toBeUndefined();
+    });
+
+    it('retains verified raw and manifest evidence when normalization and DOM both fail', async () => {
+      createDeepSeekPage('chat-123', []);
+      localStorage.setItem('userToken', JSON.stringify({ value: 'local-test-token' }));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              biz_data: {
+                cache_control: 'REPLACE',
+                chat_session: { id: 'chat-123', current_message_id: '1' },
+                chat_messages: [
+                  { message_id: '1', parent_id: null, role: 'USER', content: 'API question' },
+                  { message_id: '1', parent_id: null, role: 'USER', content: 'Duplicate' },
+                ],
+              },
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('No messages found in conversation');
+      expect(result.archiveCompanion?.artifacts.map(artifact => artifact.kind)).toEqual([
+        'raw',
+        'manifest',
+      ]);
+      expect(result.data).toBeUndefined();
+      expect(result.deepSeekAssetExportContext).toBeUndefined();
+    });
+
+    it('does not abort staged evidence when both structured normalization and DOM fail', async () => {
+      createDeepSeekPage('chat-123', []);
+      const companion: ArchiveCompanionBundle = {
+        captureId: 'capture-deepseek-failed-staged',
+        conversationKey: 'a'.repeat(64),
+        artifacts: [
+          {
+            transport: 'staged',
+            kind: 'raw',
+            stageId: `archive-stage-${'A'.repeat(32)}`,
+            relativePath: 'responses/conversation.json',
+            mediaType: 'application/json',
+            byteLength: 20 * 1024 * 1024,
+            sha256: 'b'.repeat(64),
+          },
+          {
+            transport: 'inline',
+            kind: 'manifest',
+            relativePath: 'manifest.json',
+            mediaType: 'application/json',
+            byteLength: 2,
+            sha256: 'c'.repeat(64),
+            bodyBase64: 'e30=',
+          },
+        ],
+      };
+      vi.spyOn(deepSeekApi, 'fetchDeepSeekConversation').mockRejectedValue(
+        new deepSeekApi.DeepSeekStructuredCaptureError('normalization-failed', companion)
+      );
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(false);
+      expect(result.archiveCompanion).toBe(companion);
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
 
     it('extracts rendered user and assistant messages in DOM order', async () => {
       createDeepSeekPage('chat-123', [

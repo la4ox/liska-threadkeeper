@@ -8,7 +8,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 
 ## Why Liska
 
-- **Fast DeepSeek export:** signed-in conversations use DeepSeek's same-origin history response and reconstruct the active branch without scrolling through the page.
+- **Loss-aware DeepSeek export:** signed-in conversations preserve the exact same-origin history response, normalize its complete graph into `liska-thread/1`, and render the active branch without scrolling through the page.
 - **Fast ChatGPT export:** after a trusted click, an inactive disposable tab observes ChatGPT's page-native conversation response at document start and reconstructs the complete graph without scrolling. The default view follows the current branch; a local chooser can export one explicit branch or every leaf plus an index. A marked DOM fallback remains available for the default view.
 - **Local outputs:** download Markdown, copy it, or write to Obsidian. Liska has no analytics, telemetry, account, or operated server.
 - **Long-thread support:** the text pipeline accepts large notes up to 32 MiB of UTF-8; other supported sites can accumulate virtualized conversations with bounded auto-scroll.
@@ -18,14 +18,14 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 
 ## Supported services
 
-| Service         | Conversation export | Notes                                                                 |
-| --------------- | ------------------- | --------------------------------------------------------------------- |
-| DeepSeek        | Yes                 | Active branch; same-origin API first, DOM fallback; optional Thinking |
-| Gemini          | Yes                 | Deep Research and generated images                                    |
-| Claude          | Yes                 | Extended Thinking, artifacts, tool and search content                 |
-| ChatGPT         | Yes                 | Complete graph capture; current, selected, or every leaf plus index   |
-| Perplexity      | Yes                 | Regular threads and Deep Research                                     |
-| Gemini Notebook | Yes                 | Chat citations as footnotes; legacy NotebookLM URLs supported         |
+| Service         | Conversation export | Notes                                                               |
+| --------------- | ------------------- | ------------------------------------------------------------------- |
+| DeepSeek        | Yes                 | Complete structured graph; active branch view; optional Thinking    |
+| Gemini          | Yes                 | Deep Research and generated images                                  |
+| Claude          | Yes                 | Extended Thinking, artifacts, tool and search content               |
+| ChatGPT         | Yes                 | Complete graph capture; current, selected, or every leaf plus index |
+| Perplexity      | Yes                 | Regular threads and Deep Research                                   |
+| Gemini Notebook | Yes                 | Chat citations as footnotes; legacy NotebookLM URLs supported       |
 
 Supported page origins: `gemini.google.com`, `claude.ai`, `chatgpt.com`, `www.perplexity.ai`, `chat.deepseek.com`, `notebook.google.com`, and the legacy redirect `notebooklm.google.com`.
 
@@ -65,7 +65,7 @@ The bearer key is stored in `chrome.storage.local`, is never exposed to supporte
 
 - The main button exports the provider-selected current branch. ChatGPT also offers a local chooser for one explicit branch or every leaf plus an index.
 - Automatic scheduled backups are not implemented yet; every export begins with a real click.
-- DeepSeek images are not captured yet. Its text, Markdown, active branch, and optional Thinking are supported.
+- DeepSeek structured exports save raw/manifest/canonical companions beside durable Markdown outputs. Text, Markdown, the active branch, and optional Thinking are supported. With **Export images & attachments** enabled for File or Obsidian, Liska can fetch up to 20 passive files from exact current `signed_path` records in verified history, or from an exact file-service fetch that the current page already recorded in the newest bounded ResourceTiming tail and that uniquely matches a current raw file ID. In-band history wins. Liska never clicks a file card or calls `fetch_files`; a missing preview remains honestly unresolved. Raw is saved first, writes are destination-specific, and provider IDs/signed URLs stay out of manifest/canonical output.
 - ChatGPT structured archives always retain attachment references and metadata. With **Export images & attachments** enabled, Liska can also acquire a bounded subset of ordinary-chat image/file-ID assets and interpreter/sandbox documents after the raw archive is durably saved. Every asset remains honestly marked as `fetched`, `not-attempted`, or failed; custom-GPT, Library-ID, and Calpico fallback routes are not supported yet.
 - ChatGPT graph responses up to 16 MiB use the inline verified path. Larger responses up to 64 MiB use chunked extension-owned staging; this staged path is synthetic-live verified, while a real provider response above 16 MiB remains an explicit evidence gap.
 - Image export is bounded to 20 images, 10 MiB per image, and 48 MiB of combined base64 data per note.
