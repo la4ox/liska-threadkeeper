@@ -213,6 +213,18 @@ Downloads and Obsidian:
   token, signed-query parameter, signed OAI URL, or `download_url` field;
 - the temporary metadata probe was restored to off and strict replay to on.
 
+A content-free follow-up over the four unresolved PNG ledger entries found
+usable identities rather than a settings/routing regression: three have one
+accepted direct metadata ID, and the fourth has two equivalent `sediment:`
+pointers for one identity. All four are unique active-plan candidates and none
+is interpreter-eligible. They remained `not-attempted` because the passive
+eight-second observer saw no matching page-owned resolver request for these
+historical/lazy assets. This does not authorize active acquisition: the last
+documented active download-mode canary dispatched one valid helper request but
+ended `download-url-missing`. Production therefore remains unchanged until one
+known-loadable ordinary-chat PNG proves one exact current helper recipe; there
+will be no endpoint fallback sequence or guessed retry.
+
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
@@ -226,9 +238,8 @@ Fresh exact-tree validation:
   exact module, verified their fixes in memory, and reports no residual P0-P3
   finding.
 
-Next: commit the interpreter attachment compatibility checkpoint locally, then
-continue with the remaining ChatGPT asset families. A remote push, pull request,
-merge, release, or tag remains a separate explicit action. The next useful live
-surface is bounded acquisition of raw-inventory PNG references; older 404 assets
-must remain explicit partial evidence rather than trigger retries or guessed
-routes.
+Next: obtain one known-loadable ordinary-chat PNG and observe its exact current
+helper recipe before implementing a separate, bounded file-ID acquisition
+adapter. Older 404 assets remain explicit partial evidence rather than trigger
+retries or guessed routes. A remote push, pull request, merge, release, or tag
+remains a separate explicit action.
