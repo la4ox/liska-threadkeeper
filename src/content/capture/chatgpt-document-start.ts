@@ -1953,7 +1953,8 @@ function snapshotReplayHeaders(
 
 /**
  * Own descriptors only. All compatibility expansion (not only plain headers)
- * is opt-in for replay/probe; resolver modes accept absent/empty/signal-only init.
+ * is opt-in. Passive/active resolver modes accept absent/empty/signal-only init;
+ * interpreter transport separately gates plain headers on native Requests/strings.
  */
 function opaqueProbeInitKind(
   primordials: PagePrimordials,
@@ -3249,8 +3250,8 @@ function prepareOpaqueReplay(
 }
 
 /**
- * Replay-only preparation. Resolver modes retain prepareOpaqueReplay's strict
- * native-Request contract. No headers escape this synchronous MAIN-world work;
+ * Replay-only preparation. Passive/active resolvers retain prepareOpaqueReplay's
+ * strict native-Request contract. No headers escape this MAIN-world work;
  * only a native Request and its fresh abort controller survive preparation.
  */
 function prepareOpaqueReplayRequest(
@@ -4360,6 +4361,64 @@ type InterpreterResolverCandidate = {
   sandboxPath: string;
 };
 
+// Closure-private, extension-owned transport only: never retain native Headers
+// or publish this bounded, null-prototype snapshot through the result getter.
+type InterpreterResolverTransportPreparation = {
+  headers: Record<string, string>;
+  credentials: 'include' | 'same-origin';
+};
+
+function prepareInterpreterResolverTransport(
+  primordials: PagePrimordials,
+  candidate: OpaqueProbeCandidate,
+  primitiveStringInput: boolean
+): InterpreterResolverTransportPreparation | undefined {
+  try {
+    if (!candidate.exactTarget || !candidate.methodAccepted) return undefined;
+    let headers: Record<string, string> | undefined;
+    let credentials: RequestCredentials | undefined;
+    if (candidate.initKind === 'plain-headers') {
+      if (!primitiveStringInput && !candidate.sourceIsNativeRequest) return undefined;
+      headers = candidate.plainHeaders;
+      credentials =
+        candidate.credentialsOverride ??
+        (candidate.sourceIsNativeRequest ? candidate.sourceCredentials : 'same-origin');
+    } else {
+      // Classification's compatibility flag must not expand the old native
+      // path (including redundant Headers/credentials/cache overrides).
+      if (
+        candidate.initKind !== 'absent' &&
+        candidate.initKind !== 'empty' &&
+        candidate.initKind !== 'signal-only'
+      ) {
+        return undefined;
+      }
+      const native = prepareOpaqueReplay(primordials, candidate);
+      if (typeof native === 'string') return undefined;
+      credentials = native.credentials;
+      const snapshot = snapshotReplayHeaders(primordials, native.headers, true);
+      if (snapshot.kind === 'accepted') headers = snapshot.headers;
+    }
+    if (
+      headers === undefined ||
+      (credentials !== 'include' && credentials !== 'same-origin') ||
+      applyCaptured<PropertyDescriptor | undefined>(
+        primordials,
+        primordials.document.objectGetOwnPropertyDescriptor,
+        undefined,
+        [headers, 'authorization']
+      ) === undefined
+    ) {
+      return undefined;
+    }
+    // Authorization is membership only; never inspect its normalized value.
+    return { headers, credentials };
+  } finally {
+    candidate.plainHeaders = undefined;
+    candidate.sourceClone = undefined;
+  }
+}
+
 type InterpreterResolverPageState = {
   primordials: PagePrimordials;
   originalFetch: typeof window.fetch;
@@ -4373,7 +4432,7 @@ type InterpreterResolverPageState = {
   commandAccepted: boolean;
   sourceReady: boolean;
   dispatchStarted: boolean;
-  preparation: OpaqueReplayPreparation | undefined;
+  preparation: InterpreterResolverTransportPreparation | undefined;
   candidates: InterpreterResolverCandidate[] | undefined;
   outcomes: InterpreterResolverOutcome[];
   dispatchCount: number;
@@ -4392,6 +4451,7 @@ function hasInterpreterResolverArmingPrimordials(primordials: PagePrimordials): 
   const document = primordials.document;
   return (
     hasActiveResolverArmingPrimordials(primordials) &&
+    document.headersForEach !== undefined &&
     document.URLSearchParams !== undefined &&
     document.urlSearchParamsSet !== undefined &&
     document.urlSearchParamsToString !== undefined
@@ -4479,6 +4539,9 @@ function finishInterpreterResolver(
   if (state.settled) return;
   state.settled = true;
   state.result = result;
+  // Best-effort reference release, not a claim of secure memory erasure.
+  state.preparation = undefined;
+  state.candidates = undefined;
   clearInterpreterResolverTimer(pageWindow, state, 'globalTimeoutId');
   clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
   abortInterpreterResolver(state);
@@ -4496,6 +4559,7 @@ function interpreterResolverComplete(
   state: InterpreterResolverPageState,
   target: MarkerTarget
 ): void {
+  if (state.settled) return;
   const requestedCount = state.candidates?.length ?? 0;
   if (state.outcomes.length < state.dispatchCount) {
     appendInterpreterResolverOutcome(state, { state: 'timed-out' });
@@ -4518,7 +4582,7 @@ function interpreterResolverSourceFailure(
   target: MarkerTarget,
   code: Extract<InterpreterResolverHookResult, { kind: 'error' }>['code']
 ): void {
-  if (state.commandAccepted) interpreterResolverComplete(pageWindow, state, target);
+  if (state.dispatchCount > 0) interpreterResolverComplete(pageWindow, state, target);
   else finishInterpreterResolver(pageWindow, state, { kind: 'error', code });
 }
 
@@ -4527,7 +4591,7 @@ function interpreterResolverTimeout(
   state: InterpreterResolverPageState,
   target: MarkerTarget
 ): void {
-  if (state.commandAccepted) interpreterResolverComplete(pageWindow, state, target);
+  if (state.dispatchCount > 0) interpreterResolverComplete(pageWindow, state, target);
   else
     finishInterpreterResolver(pageWindow, state, {
       kind: 'error',
@@ -4753,7 +4817,8 @@ function isCapturedHttpErrorStatus(value: unknown): value is number {
 
 async function captureInterpreterResolverResponse(
   state: InterpreterResolverPageState,
-  response: Response
+  response: Response,
+  controller: AbortController
 ): Promise<InterpreterResolverOutcome> {
   try {
     const status = applyCaptured<number>(
@@ -4794,12 +4859,17 @@ async function captureInterpreterResolverResponse(
       clone,
       DEFAULT_INTERPRETER_RESOLVER_MAX_BYTES
     );
+    if (state.settled || state.abortController !== controller)
+      return { state: 'response-processing-rejected' };
+    const sha256 = await sha256FromBytes(state.primordials, bytes);
+    if (state.settled || state.abortController !== controller)
+      return { state: 'response-processing-rejected' };
     return {
       state: 'observed',
       capture: {
         bodyBase64: base64FromBytes(state.primordials, bytes),
         byteLength: bytes.byteLength,
-        sha256: await sha256FromBytes(state.primordials, bytes),
+        sha256,
         mediaType,
       },
     };
@@ -4808,19 +4878,76 @@ async function captureInterpreterResolverResponse(
   }
 }
 
-async function dispatchInterpreterResolverQueue(
+function completeInterpreterResolverItem(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  target: MarkerTarget,
+  controller: AbortController,
+  outcome: InterpreterResolverOutcome
+): void {
+  // A late fetch/body/hash completion never owns the next item or terminal state.
+  if (state.settled || state.abortController !== controller) return;
+  clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
+  abortInterpreterResolver(state);
+  appendInterpreterResolverOutcome(state, outcome);
+  dispatchInterpreterResolverQueue(pageWindow, state, target);
+}
+
+function observeInterpreterResolverItem(
+  pageWindow: PageWindow,
+  state: InterpreterResolverPageState,
+  target: MarkerTarget,
+  controller: AbortController,
+  responsePromise: Promise<Response>
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        async (response: Response) => {
+          if (state.settled || state.abortController !== controller) return;
+          const outcome = await captureInterpreterResolverResponse(state, response, controller);
+          completeInterpreterResolverItem(pageWindow, state, target, controller, outcome);
+        },
+        () =>
+          completeInterpreterResolverItem(pageWindow, state, target, controller, {
+            state: 'fetch-rejected',
+          }),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [
+        () => undefined,
+        () =>
+          completeInterpreterResolverItem(pageWindow, state, target, controller, {
+            state: 'response-processing-rejected',
+          }),
+      ]
+    );
+  } catch {
+    completeInterpreterResolverItem(pageWindow, state, target, controller, {
+      state: 'fetch-rejected',
+    });
+  }
+}
+
+function dispatchInterpreterResolverQueue(
   pageWindow: PageWindow,
   state: InterpreterResolverPageState,
   target: MarkerTarget
-): Promise<void> {
-  const candidates = state.candidates;
-  const preparation = state.preparation;
-  const AbortControllerConstructor = state.primordials.document.abortControllerConstructor;
-  const RequestConstructor = state.primordials.document.requestConstructor;
+): void {
+  const document = state.primordials.document;
+  const AbortControllerConstructor = document.abortControllerConstructor;
+  const RequestConstructor = document.requestConstructor;
   if (
     state.settled ||
-    candidates === undefined ||
-    preparation === undefined ||
+    state.candidates === undefined ||
+    state.preparation === undefined ||
     AbortControllerConstructor === undefined ||
     RequestConstructor === undefined
   ) {
@@ -4831,85 +4958,76 @@ async function dispatchInterpreterResolverQueue(
       });
     return;
   }
-  state.dispatchStarted = true;
-  for (let ordinal = 0; ordinal < candidates.length; ordinal += 1) {
-    if (state.settled) return;
+  if (
+    state.outcomes.length === state.candidates.length ||
+    !interpreterResolverHrefStillExact(pageWindow, state)
+  ) {
+    interpreterResolverComplete(pageWindow, state, target);
+    return;
+  }
+  try {
+    const controller = new AbortControllerConstructor();
+    state.abortController = controller;
+    const requestUrl = interpreterResolverRequestUrl(
+      state.primordials,
+      target,
+      state.candidates[state.outcomes.length]
+    );
+    if (requestUrl === undefined) throw PRIMORDIAL_UNAVAILABLE;
+    const init = applyCaptured<RequestInit>(state.primordials, document.objectCreate, undefined, [
+      null,
+    ]);
+    init.method = 'GET';
+    init.headers = state.preparation.headers;
+    init.credentials = state.preparation.credentials;
+    init.redirect = 'error';
+    init.cache = 'no-store';
+    init.signal = applyCaptured<AbortSignal>(
+      state.primordials,
+      document.abortControllerSignal,
+      controller,
+      []
+    );
+    const request = new RequestConstructor(requestUrl, init);
+    const headers = applyCaptured<Headers>(state.primordials, document.requestHeaders, request, []);
+    if (!applyCaptured<boolean>(state.primordials, document.headersHas, headers, ['authorization']))
+      throw PRIMORDIAL_UNAVAILABLE;
     if (!interpreterResolverHrefStillExact(pageWindow, state)) {
       interpreterResolverComplete(pageWindow, state, target);
       return;
     }
-    let timedOut = false;
-    let request: Request;
-    try {
-      const controller = new AbortControllerConstructor();
-      const signal = applyCaptured<AbortSignal>(
-        state.primordials,
-        state.primordials.document.abortControllerSignal,
-        controller,
-        []
-      );
-      const requestUrl = interpreterResolverRequestUrl(
-        state.primordials,
-        target,
-        candidates[ordinal]
-      );
-      if (requestUrl === undefined) throw PRIMORDIAL_UNAVAILABLE;
-      state.abortController = controller;
-      state.perItemTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
-        state.primordials,
-        state.primordials.setTimeout,
-        pageWindow,
-        [
-          () => {
-            timedOut = true;
-            abortInterpreterResolver(state);
-          },
-          DEFAULT_INTERPRETER_RESOLVER_PER_ITEM_TIMEOUT_MS,
-        ]
-      );
-      request = new RequestConstructor(requestUrl, {
-        method: 'GET',
-        headers: preparation.headers,
-        credentials: preparation.credentials,
-        redirect: 'error',
-        cache: 'no-store',
-        signal,
-      });
-    } catch {
-      clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
-      abortInterpreterResolver(state);
-      finishInterpreterResolver(pageWindow, state, {
-        kind: 'error',
-        code: 'interpreter-result-invalid',
-      });
-      return;
-    }
+    state.perItemTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      state.primordials,
+      state.primordials.setTimeout,
+      pageWindow,
+      [
+        () =>
+          completeInterpreterResolverItem(pageWindow, state, target, controller, {
+            state: 'timed-out',
+          }),
+        DEFAULT_INTERPRETER_RESOLVER_PER_ITEM_TIMEOUT_MS,
+      ]
+    );
     state.dispatchCount += 1;
     try {
-      const response = await applyCaptured<Promise<Response>>(
+      const responsePromise = applyCaptured<Promise<Response>>(
         state.primordials,
         state.originalFetch,
         pageWindow,
         [request]
       );
-      clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
-      state.abortController = undefined;
-      if (state.settled) return;
-      const outcome = timedOut
-        ? ({ state: 'timed-out' } as const)
-        : await captureInterpreterResolverResponse(state, response);
-      if (!state.settled) appendInterpreterResolverOutcome(state, outcome);
+      observeInterpreterResolverItem(pageWindow, state, target, controller, responsePromise);
     } catch {
-      clearInterpreterResolverTimer(pageWindow, state, 'perItemTimeoutId');
-      state.abortController = undefined;
-      if (!state.settled) {
-        appendInterpreterResolverOutcome(state, {
-          state: timedOut ? 'timed-out' : 'fetch-rejected',
-        });
-      }
+      completeInterpreterResolverItem(pageWindow, state, target, controller, {
+        state: 'fetch-rejected',
+      });
     }
+  } catch {
+    finishInterpreterResolver(pageWindow, state, {
+      kind: 'error',
+      code: 'interpreter-result-invalid',
+    });
   }
-  if (!state.settled) interpreterResolverComplete(pageWindow, state, target);
 }
 
 function maybeDispatchInterpreterResolver(
@@ -4931,15 +5049,15 @@ function maybeDispatchInterpreterResolver(
     interpreterResolverComplete(pageWindow, state, target);
     return;
   }
-  void dispatchInterpreterResolverQueue(pageWindow, state, target);
+  state.dispatchStarted = true;
+  dispatchInterpreterResolverQueue(pageWindow, state, target);
 }
 
 function observeInterpreterResolverSourceResponse(
   pageWindow: PageWindow,
   state: InterpreterResolverPageState,
   responsePromise: Promise<Response>,
-  target: MarkerTarget,
-  preparation: OpaqueReplayPreparation
+  target: MarkerTarget
 ): void {
   try {
     const observation = applyCaptured<Promise<unknown>>(
@@ -4950,6 +5068,10 @@ function observeInterpreterResolverSourceResponse(
         (response: Response) => {
           try {
             if (state.settled) return;
+            if (!isExactOpaqueSourceResponse(state.primordials, response, target.conversationId)) {
+              interpreterResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
+              return;
+            }
             const status = applyCaptured<number>(
               state.primordials,
               state.primordials.document.responseStatus,
@@ -4980,7 +5102,6 @@ function observeInterpreterResolverSourceResponse(
               return;
             }
             state.sourceReady = true;
-            state.preparation = preparation;
             maybeDispatchInterpreterResolver(pageWindow, state, target);
           } catch {
             interpreterResolverSourceFailure(pageWindow, state, target, 'source-http-error');
@@ -5099,27 +5220,37 @@ function armInterpreterResolver(
         }
       },
     });
+    let preparing = false;
     const wrappedFetch = function (
       this: PageWindow,
       ...args: Parameters<typeof pageWindow.fetch>
     ): ReturnType<typeof pageWindow.fetch> {
+      // Proxy reflection may re-enter fetch, but may not claim another source.
+      if (preparing) return applyCaptured(state.primordials, state.originalFetch, this, args);
+      preparing = true;
       let candidate: OpaqueProbeCandidate | undefined;
-      let preparation: OpaqueReplayPreparation | OpaqueReplayErrorCode | undefined;
       try {
         candidate =
           !state.settled && !state.claimed
-            ? opaqueProbeCandidate(state.primordials, args, target.conversationId)
+            ? opaqueProbeCandidate(state.primordials, args, target.conversationId, true)
             : undefined;
         if (candidate !== undefined) {
           state.claimed = true;
-          preparation = prepareOpaqueReplay(state.primordials, candidate);
-          if (typeof preparation === 'string') {
+          state.preparation = prepareInterpreterResolverTransport(
+            state.primordials,
+            candidate,
+            typeof args[0] === 'string'
+          );
+          if (state.preparation === undefined) {
             interpreterResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
           }
         }
       } catch {
+        if (candidate !== undefined && !state.settled)
+          interpreterResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
         candidate = undefined;
-        preparation = undefined;
+      } finally {
+        preparing = false;
       }
       let responsePromise: ReturnType<typeof pageWindow.fetch>;
       try {
@@ -5135,14 +5266,8 @@ function armInterpreterResolver(
         }
         throw error;
       }
-      if (candidate !== undefined && preparation !== undefined && typeof preparation !== 'string') {
-        observeInterpreterResolverSourceResponse(
-          pageWindow,
-          state,
-          responsePromise,
-          target,
-          preparation
-        );
+      if (candidate !== undefined && state.preparation !== undefined && !state.settled) {
+        observeInterpreterResolverSourceResponse(pageWindow, state, responsePromise, target);
       }
       return responsePromise;
     } as typeof pageWindow.fetch;

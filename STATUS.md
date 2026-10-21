@@ -141,8 +141,18 @@ shape without weakening the loss-aware archive boundary:
   and 32 KiB aggregate text. Accessors, symbols, inherited pollution, invalid
   bytes, duplicate case-folded names, unstable reflection, and unsupported
   prototypes fail with fixed enum-only diagnostics;
-- resolver modes retain their earlier strict eligibility. Compatibility is
-  replay/probe-only;
+- passive and active resolver modes retain their earlier strict eligibility.
+  Interpreter transport alone accepts the confirmed October 2026 source shape:
+  a primitive string or genuine native Request with a bounded plain own-data
+  header override. It uses only the captured override, requires authorization
+  membership without reading its value, allows only `include`/`same-origin`
+  credentials, and never clones or consumes the page Request;
+- interpreter queue ownership is now explicit across fetch, response-body read,
+  and SHA-256 calculation. One per-item timer covers the entire operation; late
+  completions cannot advance the queue or overwrite terminal state. A failure
+  before the first helper dispatch preserves its fixed run error instead of
+  collapsing to `not-dispatched`; once any helper request was dispatched,
+  partial ordinal evidence remains authoritative;
 - the old generic page timeout is split into `target-not-observed`,
   `source-response-timeout`, and `replay-response-timeout`. Background timeout
   remains explicitly ambiguous. No retry, cache-bypass reload, token/session
@@ -176,12 +186,39 @@ partial snapshot, and the timeout did not recur in the later cold/warm/final
 sequence. This remains an explicit reliability observation rather than a reason
 for an automatic retry.
 
+The interpreter attachment compatibility slice is now live-verified on a
+private standard ChatGPT conversation containing both current and older
+interpreter assets. The metadata-only probe observed the exact
+`eligible-init-plain-headers` request class. After an extension and page reload,
+three successive trusted-click exports produced new immutable snapshots in both
+Downloads and Obsidian:
+
+- raw `conversation.json`: 112,439 bytes;
+- manifest: 4,354 bytes;
+- canonical `liska-thread-1.json`: 218,585 bytes;
+- complete graph: 36 nodes, one root, current node present, six preserved asset
+  references, and `graph/messages/branches = complete`;
+- one current PDF was fetched through the page-owned interpreter flow and saved
+  as a 51,741-byte content-addressed binary. Its manifest length and SHA-256
+  match the file; it begins with `%PDF-1.4`, and Poppler parses one unencrypted
+  A4 page;
+- one older interpreter asset returned HTTP 404 and remains explicitly
+  `not-attempted`; four PNG inventory records also remain honestly
+  `raw-inventory-not-attempted`. Overall asset completeness is therefore
+  `partial`, without inventing missing bytes;
+- raw, manifest, canonical, and PDF copies are byte-identical between Downloads
+  and Obsidian. Repeated exports retained the same PDF hash while creating new
+  capture directories; older snapshots were not replaced;
+- manifest/canonical scans contain no authorization or cookie fields, bearer
+  token, signed-query parameter, signed OAI URL, or `download_url` field;
+- the temporary metadata probe was restored to off and strict replay to on.
+
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 147 test files / 3,509 tests pass;
-- coverage passes at 95.20% statements, 90.47% branches, 98.32% functions, and
-  97.92% lines;
+- 147 test files / 3,646 tests pass;
+- coverage passes at 95.20% statements, 90.51% branches, 98.33% functions, and
+  97.90% lines;
 - TypeScript and the production Vite build pass;
 - full lint has zero errors and only the same three pre-existing advisory
   warnings; platform registry lint and repository formatting pass;
@@ -189,7 +226,9 @@ Fresh exact-tree validation:
   exact module, verified their fixes in memory, and reports no residual P0-P3
   finding.
 
-Next: commit this compatibility checkpoint locally. A remote push, pull request,
-merge, release, or tag remains a separate explicit action. Broader stress tests
-on the branch-heavy/heavy-chat corpus and any evidence-gated timeout recovery
-remain future checkpoints.
+Next: commit the interpreter attachment compatibility checkpoint locally, then
+continue with the remaining ChatGPT asset families. A remote push, pull request,
+merge, release, or tag remains a separate explicit action. The next useful live
+surface is bounded acquisition of raw-inventory PNG references; older 404 assets
+must remain explicit partial evidence rather than trigger retries or guessed
+routes.
