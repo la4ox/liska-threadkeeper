@@ -3748,7 +3748,7 @@ type ActiveResolverPageState = {
   commandAccepted: boolean;
   sourceReady: boolean;
   dispatchStarted: boolean;
-  preparation: OpaqueReplayPreparation | undefined;
+  preparation: ResolverTransportPreparation | undefined;
   providerFileIds: string[] | undefined;
   outcomes: ActiveResolverOutcome[];
   dispatchCount: number;
@@ -3836,6 +3836,9 @@ function finishActiveResolver(
   if (state.settled) return;
   state.settled = true;
   state.result = result;
+  // Best-effort release; no sensitive source transport remains in published state.
+  state.preparation = undefined;
+  state.providerFileIds = undefined;
   clearActiveResolverTimer(pageWindow, state, 'globalTimeoutId');
   clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
   abortActiveResolver(state);
@@ -3853,6 +3856,7 @@ function activeResolverComplete(
   state: ActiveResolverPageState,
   target: MarkerTarget
 ): void {
+  if (state.settled) return;
   const requestedCount = state.providerFileIds?.length ?? 0;
   // A direct request increments dispatchCount immediately before fetch. On a
   // global timeout it is therefore a dispatched (timed-out) ordinal, never a
@@ -3878,7 +3882,7 @@ function activeResolverSourceFailure(
   target: MarkerTarget,
   code: Extract<ActiveResolverHookResult, { kind: 'error' }>['code']
 ): void {
-  if (state.commandAccepted) {
+  if (state.dispatchCount > 0) {
     activeResolverComplete(pageWindow, state, target);
   } else {
     finishActiveResolver(pageWindow, state, { kind: 'error', code });
@@ -3890,7 +3894,7 @@ function activeResolverTimeout(
   state: ActiveResolverPageState,
   target: MarkerTarget
 ): void {
-  if (state.commandAccepted) {
+  if (state.dispatchCount > 0) {
     activeResolverComplete(pageWindow, state, target);
   } else {
     finishActiveResolver(pageWindow, state, { kind: 'error', code: 'resolver-result-timeout' });
@@ -3900,8 +3904,8 @@ function activeResolverTimeout(
 function activeResolverRequestUrl(target: MarkerTarget, providerFileId: string): string {
   return (
     `${CHATGPT_ORIGIN}/backend-api/files/download/${providerFileId}` +
-    '?download_intent=true' +
-    `&check_context_scopes_for_conversation_id=${target.conversationId}`
+    `?conversation_id=${target.conversationId}` +
+    '&inline=false&download_intent=false&include_library_file_state=true'
   );
 }
 
@@ -3925,7 +3929,8 @@ function activeResolverHrefStillExact(
 
 async function captureActiveResolverResponse(
   state: ActiveResolverPageState,
-  response: Response
+  response: Response,
+  controller: AbortController
 ): Promise<ActiveResolverOutcome> {
   try {
     const status = applyCaptured<number>(
@@ -3962,12 +3967,17 @@ async function captureActiveResolverResponse(
       clone,
       DEFAULT_ACTIVE_RESOLVER_MAX_BYTES
     );
+    if (state.settled || state.abortController !== controller)
+      return { state: 'response-processing-rejected' };
+    const sha256 = await sha256FromBytes(state.primordials, bytes);
+    if (state.settled || state.abortController !== controller)
+      return { state: 'response-processing-rejected' };
     return {
       state: 'observed',
       capture: {
         bodyBase64: base64FromBytes(state.primordials, bytes),
         byteLength: bytes.byteLength,
-        sha256: await sha256FromBytes(state.primordials, bytes),
+        sha256,
         mediaType,
       },
     };
@@ -3978,90 +3988,148 @@ async function captureActiveResolverResponse(
   }
 }
 
-async function dispatchActiveResolverQueue(
+function completeActiveResolverItem(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  target: MarkerTarget,
+  controller: AbortController,
+  outcome: ActiveResolverOutcome
+): void {
+  // One owner across fetch, body, and hash. Late work cannot mutate a terminal
+  // result or clear a newer item's controller/timer.
+  if (state.settled || state.abortController !== controller) return;
+  clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
+  abortActiveResolver(state);
+  appendActiveResolverOutcome(state, outcome);
+  dispatchActiveResolverQueue(pageWindow, state, target);
+}
+
+function observeActiveResolverItem(
+  pageWindow: PageWindow,
+  state: ActiveResolverPageState,
+  target: MarkerTarget,
+  controller: AbortController,
+  responsePromise: Promise<Response>
+): void {
+  try {
+    const observation = applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      responsePromise,
+      [
+        async (response: Response) => {
+          if (state.settled || state.abortController !== controller) return;
+          const outcome = await captureActiveResolverResponse(state, response, controller);
+          completeActiveResolverItem(pageWindow, state, target, controller, outcome);
+        },
+        () =>
+          completeActiveResolverItem(pageWindow, state, target, controller, {
+            state: 'fetch-rejected',
+          }),
+      ]
+    );
+    void applyCaptured<Promise<unknown>>(
+      state.primordials,
+      state.primordials.document.promiseThen,
+      observation,
+      [
+        () => undefined,
+        () =>
+          completeActiveResolverItem(pageWindow, state, target, controller, {
+            state: 'response-processing-rejected',
+          }),
+      ]
+    );
+  } catch {
+    completeActiveResolverItem(pageWindow, state, target, controller, {
+      state: 'fetch-rejected',
+    });
+  }
+}
+
+function dispatchActiveResolverQueue(
   pageWindow: PageWindow,
   state: ActiveResolverPageState,
   target: MarkerTarget
-): Promise<void> {
-  const providerFileIds = state.providerFileIds;
-  const preparation = state.preparation;
-  if (state.settled || providerFileIds === undefined || preparation === undefined) return;
-  const AbortControllerConstructor = state.primordials.document.abortControllerConstructor;
-  const RequestConstructor = state.primordials.document.requestConstructor;
-  if (AbortControllerConstructor === undefined || RequestConstructor === undefined) {
-    activeResolverSourceFailure(pageWindow, state, target, 'hook-state-failed');
+): void {
+  const document = state.primordials.document;
+  const AbortControllerConstructor = document.abortControllerConstructor;
+  const RequestConstructor = document.requestConstructor;
+  if (
+    state.settled ||
+    state.providerFileIds === undefined ||
+    state.preparation === undefined ||
+    AbortControllerConstructor === undefined ||
+    RequestConstructor === undefined
+  ) {
+    if (!state.settled) activeResolverSourceFailure(pageWindow, state, target, 'hook-state-failed');
     return;
   }
-  state.dispatchStarted = true;
-  for (let ordinal = 0; ordinal < providerFileIds.length; ordinal += 1) {
-    if (state.settled) return;
+  if (state.outcomes.length === state.providerFileIds.length) {
+    activeResolverComplete(pageWindow, state, target);
+    return;
+  }
+  if (!activeResolverHrefStillExact(pageWindow, state)) {
+    activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
+    return;
+  }
+  try {
+    const controller = new AbortControllerConstructor();
+    state.abortController = controller;
+    const init = applyCaptured<RequestInit>(state.primordials, document.objectCreate, undefined, [
+      null,
+    ]);
+    init.method = 'GET';
+    init.headers = state.preparation.headers;
+    init.credentials = state.preparation.credentials;
+    init.redirect = 'error';
+    init.cache = 'no-store';
+    init.signal = applyCaptured<AbortSignal>(
+      state.primordials,
+      document.abortControllerSignal,
+      controller,
+      []
+    );
+    const request = new RequestConstructor(
+      activeResolverRequestUrl(target, state.providerFileIds[state.outcomes.length]),
+      init
+    );
+    const headers = applyCaptured<Headers>(state.primordials, document.requestHeaders, request, []);
+    if (!applyCaptured<boolean>(state.primordials, document.headersHas, headers, ['authorization']))
+      throw PRIMORDIAL_UNAVAILABLE;
     if (!activeResolverHrefStillExact(pageWindow, state)) {
-      activeResolverComplete(pageWindow, state, target);
+      activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
       return;
     }
-    let timedOut = false;
-    let request: Request;
-    try {
-      const controller = new AbortControllerConstructor();
-      const signal = applyCaptured<AbortSignal>(
-        state.primordials,
-        state.primordials.document.abortControllerSignal,
-        controller,
-        []
-      );
-      state.abortController = controller;
-      state.perIdTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
-        state.primordials,
-        state.primordials.setTimeout,
-        pageWindow,
-        [
-          () => {
-            timedOut = true;
-            abortActiveResolver(state);
-          },
-          DEFAULT_ACTIVE_RESOLVER_PER_ID_TIMEOUT_MS,
-        ]
-      );
-      request = new RequestConstructor(activeResolverRequestUrl(target, providerFileIds[ordinal]), {
-        method: 'GET',
-        headers: preparation.headers,
-        credentials: preparation.credentials,
-        redirect: 'error',
-        cache: 'no-store',
-        signal,
-      });
-    } catch {
-      finishActiveResolver(pageWindow, state, { kind: 'error', code: 'hook-state-failed' });
-      return;
-    }
+    state.perIdTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+      state.primordials,
+      state.primordials.setTimeout,
+      pageWindow,
+      [
+        () =>
+          completeActiveResolverItem(pageWindow, state, target, controller, {
+            state: 'timed-out',
+          }),
+        DEFAULT_ACTIVE_RESOLVER_PER_ID_TIMEOUT_MS,
+      ]
+    );
     state.dispatchCount += 1;
     try {
-      const response = await applyCaptured<Promise<Response>>(
+      const responsePromise = applyCaptured<Promise<Response>>(
         state.primordials,
         state.originalFetch,
         pageWindow,
         [request]
       );
-      clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
-      state.abortController = undefined;
-      if (state.settled) return;
-      const outcome = timedOut
-        ? { state: 'timed-out' as const }
-        : await captureActiveResolverResponse(state, response);
-      // The non-extendable global deadline may settle while clone/hash work is
-      // pending. Never mutate the terminal result after that point.
-      if (state.settled) return;
-      appendActiveResolverOutcome(state, outcome);
+      observeActiveResolverItem(pageWindow, state, target, controller, responsePromise);
     } catch {
-      clearActiveResolverTimer(pageWindow, state, 'perIdTimeoutId');
-      state.abortController = undefined;
-      if (state.settled) return;
-      appendActiveResolverOutcome(state, {
-        state: timedOut ? 'timed-out' : 'fetch-rejected',
+      completeActiveResolverItem(pageWindow, state, target, controller, {
+        state: 'fetch-rejected',
       });
     }
+  } catch {
+    activeResolverSourceFailure(pageWindow, state, target, 'hook-state-failed');
   }
-  if (!state.settled) activeResolverComplete(pageWindow, state, target);
 }
 
 function maybeDispatchActiveResolver(
@@ -4080,18 +4148,18 @@ function maybeDispatchActiveResolver(
     return;
   }
   if (!activeResolverHrefStillExact(pageWindow, state)) {
-    activeResolverComplete(pageWindow, state, target);
+    activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
     return;
   }
-  void dispatchActiveResolverQueue(pageWindow, state, target);
+  state.dispatchStarted = true;
+  dispatchActiveResolverQueue(pageWindow, state, target);
 }
 
 function observeActiveResolverSourceResponse(
   pageWindow: PageWindow,
   state: ActiveResolverPageState,
   responsePromise: Promise<Response>,
-  target: MarkerTarget,
-  preparation: OpaqueReplayPreparation
+  target: MarkerTarget
 ): void {
   try {
     const observation = applyCaptured<Promise<unknown>>(
@@ -4102,6 +4170,10 @@ function observeActiveResolverSourceResponse(
         (response: Response) => {
           try {
             if (state.settled) return;
+            if (!isExactOpaqueSourceResponse(state.primordials, response, target.conversationId)) {
+              activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
+              return;
+            }
             const status = applyCaptured<number>(
               state.primordials,
               state.primordials.document.responseStatus,
@@ -4132,7 +4204,6 @@ function observeActiveResolverSourceResponse(
               return;
             }
             state.sourceReady = true;
-            state.preparation = preparation;
             maybeDispatchActiveResolver(pageWindow, state, target);
           } catch {
             activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
@@ -4204,7 +4275,12 @@ function armActiveResolver(
     defineProperty(windowRecord, stateKey, {
       configurable: false,
       enumerable: false,
-      get: () => snapshotActiveResolverResult(state.result),
+      get: () => {
+        if (!state.settled && !activeResolverHrefStillExact(pageWindow, state)) {
+          activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
+        }
+        return snapshotActiveResolverResult(state.result);
+      },
     });
     defineProperty(windowRecord, commandKey, {
       configurable: false,
@@ -4251,27 +4327,36 @@ function armActiveResolver(
         }
       },
     });
+    let preparing = false;
     const wrappedFetch = function (
       this: PageWindow,
       ...args: Parameters<typeof pageWindow.fetch>
     ): ReturnType<typeof pageWindow.fetch> {
+      if (preparing) return applyCaptured(state.primordials, state.originalFetch, this, args);
+      preparing = true;
       let candidate: OpaqueProbeCandidate | undefined;
-      let preparation: OpaqueReplayPreparation | OpaqueReplayErrorCode | undefined;
       try {
         candidate =
           !state.settled && !state.claimed
-            ? opaqueProbeCandidate(state.primordials, args, target.conversationId)
+            ? opaqueProbeCandidate(state.primordials, args, target.conversationId, true)
             : undefined;
         if (candidate !== undefined) {
           state.claimed = true;
-          preparation = prepareOpaqueReplay(state.primordials, candidate);
-          if (typeof preparation === 'string') {
+          state.preparation = prepareResolverTransport(
+            state.primordials,
+            candidate,
+            typeof args[0] === 'string'
+          );
+          if (state.preparation === undefined) {
             activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
           }
         }
       } catch {
+        if (candidate !== undefined && !state.settled)
+          activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
         candidate = undefined;
-        preparation = undefined;
+      } finally {
+        preparing = false;
       }
       let responsePromise: ReturnType<typeof pageWindow.fetch>;
       try {
@@ -4287,14 +4372,8 @@ function armActiveResolver(
         }
         throw error;
       }
-      if (candidate !== undefined && preparation !== undefined && typeof preparation !== 'string') {
-        observeActiveResolverSourceResponse(
-          pageWindow,
-          state,
-          responsePromise,
-          target,
-          preparation
-        );
+      if (candidate !== undefined && state.preparation !== undefined && !state.settled) {
+        observeActiveResolverSourceResponse(pageWindow, state, responsePromise, target);
       }
       return responsePromise;
     } as typeof pageWindow.fetch;
@@ -4363,16 +4442,16 @@ type InterpreterResolverCandidate = {
 
 // Closure-private, extension-owned transport only: never retain native Headers
 // or publish this bounded, null-prototype snapshot through the result getter.
-type InterpreterResolverTransportPreparation = {
+type ResolverTransportPreparation = {
   headers: Record<string, string>;
   credentials: 'include' | 'same-origin';
 };
 
-function prepareInterpreterResolverTransport(
+function prepareResolverTransport(
   primordials: PagePrimordials,
   candidate: OpaqueProbeCandidate,
   primitiveStringInput: boolean
-): InterpreterResolverTransportPreparation | undefined {
+): ResolverTransportPreparation | undefined {
   try {
     if (!candidate.exactTarget || !candidate.methodAccepted) return undefined;
     let headers: Record<string, string> | undefined;
@@ -4432,7 +4511,7 @@ type InterpreterResolverPageState = {
   commandAccepted: boolean;
   sourceReady: boolean;
   dispatchStarted: boolean;
-  preparation: InterpreterResolverTransportPreparation | undefined;
+  preparation: ResolverTransportPreparation | undefined;
   candidates: InterpreterResolverCandidate[] | undefined;
   outcomes: InterpreterResolverOutcome[];
   dispatchCount: number;
@@ -5236,7 +5315,7 @@ function armInterpreterResolver(
             : undefined;
         if (candidate !== undefined) {
           state.claimed = true;
-          state.preparation = prepareInterpreterResolverTransport(
+          state.preparation = prepareResolverTransport(
             state.primordials,
             candidate,
             typeof args[0] === 'string'

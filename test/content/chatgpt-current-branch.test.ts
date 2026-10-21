@@ -651,6 +651,13 @@ describe('ChatGPT current-branch capture composition', () => {
           'payload-integrity-rejected': 0,
           'download-url-missing': 0,
           'download-url-binding-rejected': 0,
+          'file-not-found': 0,
+          'file-expired': 0,
+          'provider-retry': 0,
+          'success-without-download-url': 0,
+          'provider-status-absent': 0,
+          'provider-status-non-string': 0,
+          'provider-status-other': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -663,7 +670,7 @@ describe('ChatGPT current-branch capture composition', () => {
     const persistedManifest = parseBase64Json(companion.artifacts[1].bodyBase64);
     const persistedCanonical = parseBase64Json(companion.artifacts[2].bodyBase64);
     const metric =
-      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.';
+      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,file-not-found:0,file-expired:0,provider-retry:0,success-without-download-url:0,provider-status-absent:0,provider-status-non-string:0,provider-status-other:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.';
     expect(persistedManifest.warnings).toContain(metric);
     const durable = JSON.stringify({ persistedManifest, persistedCanonical });
     expect(durable).not.toContain('download_url');
@@ -717,6 +724,13 @@ describe('ChatGPT current-branch capture composition', () => {
         'payload-integrity-rejected': 0,
         'download-url-missing': 0,
         'download-url-binding-rejected': 0,
+        'file-not-found': 0,
+        'file-expired': 0,
+        'provider-retry': 0,
+        'success-without-download-url': 0,
+        'provider-status-absent': 0,
+        'provider-status-non-string': 0,
+        'provider-status-other': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -736,6 +750,13 @@ describe('ChatGPT current-branch capture composition', () => {
         'payload-integrity-rejected': 0,
         'download-url-missing': 0,
         'download-url-binding-rejected': 0,
+        'file-not-found': 0,
+        'file-expired': 0,
+        'provider-retry': 0,
+        'success-without-download-url': 0,
+        'provider-status-absent': 0,
+        'provider-status-non-string': 0,
+        'provider-status-other': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -755,6 +776,13 @@ describe('ChatGPT current-branch capture composition', () => {
         'payload-integrity-rejected': 0,
         'download-url-missing': 0,
         'download-url-binding-rejected': 0,
+        'file-not-found': 0,
+        'file-expired': 0,
+        'provider-retry': 0,
+        'success-without-download-url': 0,
+        'provider-status-absent': 0,
+        'provider-status-non-string': 0,
+        'provider-status-other': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -1024,6 +1052,13 @@ describe('ChatGPT current-branch capture composition', () => {
           'payload-integrity-rejected': 0,
           'download-url-missing': 0,
           'download-url-binding-rejected': 0,
+          'file-not-found': 0,
+          'file-expired': 0,
+          'provider-retry': 0,
+          'success-without-download-url': 0,
+          'provider-status-absent': 0,
+          'provider-status-non-string': 0,
+          'provider-status-other': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -1081,6 +1116,13 @@ describe('ChatGPT current-branch capture composition', () => {
           'payload-integrity-rejected': 0,
           'download-url-missing': 0,
           'download-url-binding-rejected': 0,
+          'file-not-found': 0,
+          'file-expired': 0,
+          'provider-retry': 0,
+          'success-without-download-url': 0,
+          'provider-status-absent': 0,
+          'provider-status-non-string': 0,
+          'provider-status-other': 0,
           'non-json': 0,
           oversized: 0,
           'timed-out': 0,
@@ -1098,13 +1140,13 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(returned).not.toContain('https://');
     expect(returned).not.toContain('assets/');
     expect(info).toHaveBeenCalledWith(
-      '[G2O] ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
+      '[G2O] ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,file-not-found:0,file-expired:0,provider-retry:0,success-without-download-url:0,provider-status-absent:0,provider-status-non-string:0,provider-status-other:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
     );
     expect(JSON.stringify(info.mock.calls)).not.toContain('synthetic-file-2');
     expect(JSON.stringify(info.mock.calls)).not.toContain('https://');
   });
 
-  it('builds the active legacy plan only from explicitly remaining asset IDs', async () => {
+  it('does not probe an explicitly selected non-PNG ledger asset', async () => {
     const capture = await captureChatGptArchive(CONVERSATION_ID, {
       requestCapture: () => successfulResponse(),
       createCaptureId: fixedCaptureId,
@@ -1130,7 +1172,7 @@ describe('ChatGPT current-branch capture composition', () => {
 
     await observeChatGptActiveAssetResolvers(capture.assetExportContext!, [remaining.id]);
 
-    expect(activeResolverMocks.probe).toHaveBeenCalledWith(CONVERSATION_ID, ['synthetic-file-2']);
+    expect(activeResolverMocks.probe).not.toHaveBeenCalled();
     expect(JSON.stringify(activeResolverMocks.probe.mock.calls)).not.toContain('synthetic-image-1');
   });
 

@@ -5,6 +5,7 @@ import {
   probeChatGptActiveAssetResolvers,
   readChatGptActiveResolverState,
 } from '../../src/background/chatgpt-active-resolver';
+import { CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT } from '../../src/lib/chatgpt-active-resolver-contract';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
@@ -79,6 +80,22 @@ afterEach(() => {
 });
 
 describe('ChatGPT active resolver background checkpoint', () => {
+  it('reads a complete snapshot after serialization without any module closure', () => {
+    const state = observedState('e30=', 2, '0'.repeat(64));
+    vi.stubGlobal('window', { [`__liskaChatGptActiveResolver_${NONCE}`]: state });
+    const serializedReader = new Function(
+      `return (${readChatGptActiveResolverState.toString()});`
+    )() as typeof readChatGptActiveResolverState;
+    expect(CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT).toBe(1);
+    expect(serializedReader(NONCE)).toEqual(state);
+    (window as unknown as Record<string, unknown>)[`__liskaChatGptActiveResolver_${NONCE}`] = {
+      ...state,
+      requestedCount: 2,
+      dispatchCount: 2,
+      outcomes: [...state.outcomes, ...state.outcomes],
+    };
+    expect(serializedReader(NONCE)).toEqual({ kind: 'missing' });
+  });
   it('uses a foreground exact marker, pins command/polls to the first document, and returns metrics only', async () => {
     const signedUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +
@@ -734,7 +751,7 @@ describe('ChatGPT active resolver background checkpoint', () => {
         })
       ).resolves.toMatchObject({
         success: true,
-        data: { outcomes: ['download-url-missing'] },
+        data: { outcomes: ['payload-integrity-rejected'] },
       });
     } finally {
       vi.stubGlobal('atob', originalAtob);
@@ -776,24 +793,122 @@ describe('ChatGPT active resolver background checkpoint', () => {
   });
 
   it.each([
-    ['a missing status', { download_url: 'https://private.example/signed' }],
-    ['a non-success status', { status: 'Error', download_url: 'https://private.example/signed' }],
-    ['a success envelope without download_url', { status: 'Success' }],
-  ])('rejects resolver JSON with %s', async (_label, value) => {
-    const source = JSON.stringify(value);
-    const body = new TextEncoder().encode(source);
-    const chrome = chromeApi(observedState(btoa(source), body.byteLength, await digest(body)));
-    await expect(
-      probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
+    [
+      'a missing status',
+      { download_url: 'https://private.example/signed' },
+      'provider-status-absent',
+    ],
+    [
+      'a non-success status',
+      { status: 'Error', download_url: 'https://private.example/signed' },
+      'provider-status-other',
+    ],
+    [
+      'a lower-case success status',
+      { status: 'success', download_url: 'https://private.example/signed' },
+      'download-url-binding-rejected',
+    ],
+    ['a null envelope', null, 'provider-status-other'],
+    ['an array envelope', [], 'provider-status-other'],
+    ['an absent status in an empty envelope', {}, 'provider-status-absent'],
+    ['a null status', { status: null }, 'provider-status-non-string'],
+    ['a boolean status', { status: true }, 'provider-status-non-string'],
+    ['a numeric status', { status: 200 }, 'provider-status-non-string'],
+    ['an object status', { status: { detail: 'private-value' } }, 'provider-status-non-string'],
+    ['an array status', { status: ['Success'] }, 'provider-status-non-string'],
+    ['an unknown string status', { status: 'private-value' }, 'provider-status-other'],
+    ['a lowercase success without URL', { status: 'success' }, 'success-without-download-url'],
+    [
+      'a lowercase success with a null URL',
+      { status: 'success', download_url: null },
+      'success-without-download-url',
+    ],
+    [
+      'a lowercase success with an empty string URL',
+      { status: 'success', download_url: '' },
+      'download-url-binding-rejected',
+    ],
+    [
+      'a success envelope without download_url',
+      { status: 'Success' },
+      'success-without-download-url',
+    ],
+    [
+      'a success envelope with a non-string URL',
+      { status: 'Success', download_url: 5 },
+      'success-without-download-url',
+    ],
+    ['file_not_found', { status: 'file_not_found', detail: 'private-value' }, 'file-not-found'],
+    [
+      'file_expired',
+      { status: 'file_expired', download_url: 'https://private.example/signed' },
+      'file-expired',
+    ],
+    ['Retry', { status: 'Retry', detail: 'private-value' }, 'provider-retry'],
+  ])(
+    'classifies resolver JSON with %s without leaking the envelope',
+    async (_label, value, code) => {
+      const source = JSON.stringify(value);
+      const body = new TextEncoder().encode(source);
+      const chrome = chromeApi(observedState(btoa(source), body.byteLength, await digest(body)));
+      const response = await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
         chromeApi: chrome.api,
         createNonce: () => NONCE,
         digestSha256: digest,
-      })
-    ).resolves.toMatchObject({
-      success: true,
-      data: { outcomes: ['download-url-missing'] },
-    });
-  });
+      });
+      expect(response).toMatchObject({
+        success: true,
+        data: { outcomes: [code], observedCount: 0 },
+      });
+      expect(JSON.stringify(response)).not.toContain('private');
+      expect(JSON.stringify(response)).not.toContain('https://');
+      expect(chrome.executeScript).toHaveBeenCalledTimes(3);
+    }
+  );
+
+  it.each([
+    ['six-key PNG', 'Success', false, PROVIDER_ID, 'observed'],
+    ['eight-key file', 'Success', true, PROVIDER_ID, 'observed'],
+    ['different numeric image id', 'Success', false, 'file_other', 'download-url-binding-rejected'],
+    ['different numeric file id', 'Success', true, 'file_other', 'download-url-binding-rejected'],
+    ['six-key PNG', 'success', false, PROVIDER_ID, 'observed'],
+    ['eight-key file', 'success', true, PROVIDER_ID, 'observed'],
+    ['different numeric image id', 'success', false, 'file_other', 'download-url-binding-rejected'],
+    ['different numeric file id', 'success', true, 'file_other', 'download-url-binding-rejected'],
+  ] as const)(
+    'binds the %s URL with %s status to the commanded provider identity',
+    async (_label, status, eightKeys, returnedId, expected) => {
+      const query = new URLSearchParams({
+        id: returnedId,
+        ts: '1700000000',
+        p: 'fs',
+        cid: '1',
+        sig: 'a'.repeat(64),
+        v: '0',
+      });
+      if (eightKeys) {
+        query.set('cd', 'attachment');
+        query.set('fn', 'synthetic.png');
+      }
+      const source = JSON.stringify({
+        status,
+        download_url: `https://chatgpt.com/backend-api/estuary/content?${query}`,
+      });
+      const body = new TextEncoder().encode(source);
+      const chrome = chromeApi(observedState(btoa(source), body.byteLength, await digest(body)));
+      const response = await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
+        chromeApi: chrome.api,
+        createNonce: () => NONCE,
+        digestSha256: digest,
+      });
+      expect(response).toMatchObject({
+        success: true,
+        data: { outcomes: [expected], observedCount: expected === 'observed' ? 1 : 0 },
+      });
+      expect(JSON.stringify(response)).not.toContain(PROVIDER_ID);
+      expect(JSON.stringify(response)).not.toContain('estuary');
+    }
+  );
 
   it('reads only exact MAIN snapshots and invokes a nonce-scoped one-shot command fail closed', () => {
     vi.stubGlobal('window', {

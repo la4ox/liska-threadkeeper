@@ -71,6 +71,11 @@ export interface ChatGptAssetExportDependencies {
   observeInterpreterResolvers?: (
     context: ChatGptAssetExportContext
   ) => Promise<ChatGptAssetResolverObservation>;
+  /** Strict replay only: a metric probe before passive observation, never acquisition. */
+  observeActiveResolvers?: (
+    context: ChatGptAssetExportContext,
+    eligibleAssetIds: readonly string[]
+  ) => Promise<ChatGptAssetResolverObservation>;
   acquireAssets?: typeof acquireChatGptPageOwnedAssets;
   persistBinaryAssets?: typeof persistVerifiedBinaryAssets;
   buildDestinationCompanion?: typeof buildChatGptBinaryAwareArchiveCompanion;
@@ -351,6 +356,41 @@ function addObservation(
   addWarning(resolution.warnings, observation.warning);
 }
 
+async function observeOneUnattemptedPng(
+  context: ChatGptAssetExportContext,
+  dependencies: ChatGptAssetExportDependencies,
+  acquired: AcquiredAssets,
+  candidates: ReadonlyMap<string, ChatGptPageOwnedAssetCandidate>,
+  resolution: ChatGptAssetCandidateResolution
+): Promise<void> {
+  // Probe one unresolved PNG independently of the later passive observer's
+  // source compatibility or candidate acquisition outcome.
+  if (dependencies.observeActiveResolvers === undefined) return;
+  const selectedId = acquired.records
+    .filter(
+      record =>
+        record.state === 'not-attempted' &&
+        record.mediaType === 'image/png' &&
+        /^chatgpt-asset-[a-f0-9]{64}$/.test(record.id) &&
+        !candidates.has(record.id)
+    )
+    .map(record => record.id)
+    .sort()[0];
+  if (selectedId === undefined) return;
+  try {
+    const observation = await dependencies.observeActiveResolvers(context, [selectedId]);
+    // Even a substituted dependency cannot turn this seam into acquisition.
+    if (observation.kind === 'probe-only') {
+      resolution.activeResolverMetric = observation.metric;
+      addWarning(resolution.warnings, observation.warning);
+    } else if (observation.kind !== 'matched') {
+      addWarning(resolution.warnings, observation.warning);
+    }
+  } catch {
+    addWarning(resolution.warnings, CHATGPT_ASSET_RECAPTURE_FAILED_WARNING);
+  }
+}
+
 // eslint-disable-next-line max-lines-per-function -- The interpreter-fetch-before-legacy ordering stays explicit so signed URLs cannot age behind another resolver family.
 async function resolveAndAcquireAssetCandidates(
   context: ChatGptAssetExportContext,
@@ -391,6 +431,7 @@ async function resolveAndAcquireAssetCandidates(
       left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
     )
   );
+  await observeOneUnattemptedPng(context, dependencies, acquired, candidates, resolution);
 
   const hasUnresolvedAsset = [...allowedAssetIds].some(assetId => !candidates.has(assetId));
   if (hasUnresolvedAsset) {

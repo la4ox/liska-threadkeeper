@@ -31,6 +31,30 @@ function completeMetric(): ChatGptActiveResolverMetric {
 }
 
 describe('ChatGPT active resolver durable audit', () => {
+  it.each(['provider-status-absent', 'provider-status-non-string'] as const)(
+    'persists only the fixed %s category with observed zero',
+    code => {
+      const metric = chatGptActiveResolverMetricFromResponse(
+        {
+          success: true,
+          data: {
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 0,
+            outcomes: [code],
+            attemptedAt: ATTEMPTED_AT,
+          },
+        },
+        1
+      );
+      expect(metric.observedCount).toBe(0);
+      expect(metric.outcomeCounts?.[code]).toBe(1);
+      expect(chatGptActiveResolverAuditWarning(metric)).toContain(`${code}:1`);
+      expect(chatGptActiveResolverAuditWarning(metric)).toContain(
+        'file-ID binary acquisition remains disabled.'
+      );
+    }
+  );
   it('builds the exact revised allowlisted histogram without retaining the batch timestamp', () => {
     const metric = completeMetric();
 
@@ -46,6 +70,13 @@ describe('ChatGPT active resolver durable audit', () => {
         'payload-integrity-rejected': 0,
         'download-url-missing': 0,
         'download-url-binding-rejected': 0,
+        'file-not-found': 0,
+        'file-expired': 0,
+        'provider-retry': 0,
+        'success-without-download-url': 0,
+        'provider-status-absent': 0,
+        'provider-status-non-string': 0,
+        'provider-status-other': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -54,7 +85,7 @@ describe('ChatGPT active resolver durable audit', () => {
       failureCode: null,
     });
     expect(chatGptActiveResolverAuditWarning(metric)).toBe(
-      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,file-not-found:0,file-expired:0,provider-retry:0,success-without-download-url:0,provider-status-absent:0,provider-status-non-string:0,provider-status-other:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
     );
     expect(chatGptActiveResolverProbeWarning(metric)).toBe(
       'ChatGPT active resolver observed 1/1; file-ID binary acquisition remains disabled.'
@@ -71,13 +102,20 @@ describe('ChatGPT active resolver durable audit', () => {
       'payload-integrity-rejected',
       'download-url-missing',
       'download-url-binding-rejected',
+      'file-not-found',
+      'file-expired',
+      'provider-retry',
+      'success-without-download-url',
+      'provider-status-absent',
+      'provider-status-non-string',
+      'provider-status-other',
       'non-json',
       'oversized',
       'timed-out',
       'not-dispatched',
     ]);
     expect(chatGptActiveResolverAuditWarning(emptyChatGptActiveResolverMetric())).toBe(
-      'ChatGPT active resolver audit: requested=0; dispatched=0; observed=0; outcomes=observed:0,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=0; dispatched=0; observed=0; outcomes=observed:0,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,file-not-found:0,file-expired:0,provider-retry:0,success-without-download-url:0,provider-status-absent:0,provider-status-non-string:0,provider-status-other:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
     );
   });
 

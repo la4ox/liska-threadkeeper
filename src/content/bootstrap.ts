@@ -34,6 +34,7 @@ import {
 } from './attachment-export-gates';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
+  observeChatGptActiveAssetResolvers,
   observeChatGptInterpreterAssetResolvers,
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
@@ -787,6 +788,17 @@ async function persistNote(
   displaySaveResults(attempt.response, extractionWarnings);
 }
 
+const chatGptAttachmentDependencies = (strictReplay: boolean) => ({
+  persistArtifacts: persistArchiveCompanionArtifacts,
+  observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+  ...(strictReplay
+    ? {
+        observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
+        observeActiveResolvers: observeChatGptActiveAssetResolvers,
+      }
+    : {}),
+});
+
 /**
  * Handle sync button click
  */
@@ -832,13 +844,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           result.archiveCompanion,
           'chatgpt-all-branches.md',
           enabledOutputs,
-          {
-            persistArtifacts: persistArchiveCompanionArtifacts,
-            observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
-            ...(settings.enableChatGptOpaqueReplay === true
-              ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
-              : {}),
-          }
+          chatGptAttachmentDependencies(settings.enableChatGptOpaqueReplay === true)
         );
         if (attachmentExport.completeDestinations.length === 0) {
           showWarningToast(
@@ -893,13 +899,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         result.archiveCompanion,
         note.fileName,
         enabledOutputs,
-        {
-          persistArtifacts: persistArchiveCompanionArtifacts,
-          observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
-          ...(settings.enableChatGptOpaqueReplay === true
-            ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
-            : {}),
-        }
+        chatGptAttachmentDependencies(settings.enableChatGptOpaqueReplay === true)
       );
       stage = 'saving the ChatGPT note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];

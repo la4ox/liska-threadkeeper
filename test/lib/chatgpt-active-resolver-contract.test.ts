@@ -32,6 +32,36 @@ function completeHook() {
 }
 
 describe('ChatGPT active resolver metric contract', () => {
+  it.each([
+    'file-not-found',
+    'file-expired',
+    'provider-retry',
+    'success-without-download-url',
+    'provider-status-absent',
+    'provider-status-non-string',
+    'provider-status-other',
+  ])('admits %s only as a background metric, not as an unvalidated MAIN outcome', code => {
+    const response = {
+      success: true,
+      data: {
+        requestedCount: 1,
+        dispatchCount: 1,
+        observedCount: 0,
+        outcomes: [code],
+        attemptedAt: '2026-10-21T12:00:00.000Z',
+      },
+    };
+    expect(isChatGptActiveResolverResponse(response)).toBe(true);
+    expect(
+      isChatGptActiveResolverHookResult({ ...completeHook(), outcomes: [{ state: code }] })
+    ).toBe(false);
+    expect(
+      isChatGptActiveResolverResponse({
+        ...response,
+        data: { ...response.data, providerId: 'private' },
+      })
+    ).toBe(false);
+  });
   it('rejects malformed primitives before inspecting any nested shape', () => {
     for (const value of [null, undefined, '', 0, false, [], Symbol('private')]) {
       expect(isChatGptActiveResolverObservedCapture(value)).toBe(false);

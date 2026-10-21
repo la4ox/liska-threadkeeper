@@ -6,6 +6,7 @@
 
 import { canonicalBase64ByteLength } from '../lib/base64';
 import {
+  getChatGptNumericResolverFileId,
   isChatGptConversationId,
   isChatGptTransientDownloadUrl,
 } from '../lib/chatgpt-capture-contract';
@@ -293,23 +294,35 @@ function strictBase64Bytes(value: string): Uint8Array | undefined {
   }
 }
 
-function signedUrlFromResolverBody(bytes: Uint8Array): string | undefined {
+function resolverEnvelope(
+  bytes: Uint8Array
+):
+  | { kind: 'download'; url: string }
+  | { kind: 'terminal'; code: ChatGptActiveResolverOutcomeCode } {
   try {
     const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      Array.isArray(parsed) ||
-      !Object.prototype.hasOwnProperty.call(parsed, 'status') ||
-      (parsed as { status?: unknown }).status !== 'Success' ||
-      !Object.prototype.hasOwnProperty.call(parsed, 'download_url') ||
-      typeof (parsed as { download_url?: unknown }).download_url !== 'string'
-    ) {
-      return undefined;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { kind: 'terminal', code: 'provider-status-other' };
     }
-    return (parsed as { download_url: string }).download_url;
+    const record = parsed as Record<string, unknown>;
+    if (!Object.prototype.hasOwnProperty.call(record, 'status'))
+      return { kind: 'terminal', code: 'provider-status-absent' };
+    if (typeof record.status !== 'string')
+      return { kind: 'terminal', code: 'provider-status-non-string' };
+    if (record.status === 'file_not_found') return { kind: 'terminal', code: 'file-not-found' };
+    if (record.status === 'file_expired') return { kind: 'terminal', code: 'file-expired' };
+    if (record.status === 'Retry') return { kind: 'terminal', code: 'provider-retry' };
+    if (record.status !== 'Success' && record.status !== 'success')
+      return { kind: 'terminal', code: 'provider-status-other' };
+    if (
+      !Object.prototype.hasOwnProperty.call(record, 'download_url') ||
+      typeof record.download_url !== 'string'
+    ) {
+      return { kind: 'terminal', code: 'success-without-download-url' };
+    }
+    return { kind: 'download', url: record.download_url };
   } catch {
-    return undefined;
+    return { kind: 'terminal', code: 'payload-integrity-rejected' };
   }
 }
 
@@ -325,6 +338,7 @@ function isJsonResolverMediaType(value: unknown): value is string {
 async function metricOutcome(
   outcome: Extract<ChatGptActiveResolverHookResult, { kind: 'complete' }>['outcomes'][number],
   conversationId: string,
+  providerFileId: string,
   digestSha256: (bytes: Uint8Array) => Promise<string>
 ): Promise<ChatGptActiveResolverOutcomeCode> {
   if (outcome.state !== 'observed') return outcome.state;
@@ -341,10 +355,14 @@ async function metricOutcome(
   }
   if (!/^[a-f0-9]{64}$/.test(digest) || digest !== capture.sha256.toLowerCase())
     return 'payload-integrity-rejected';
-  const signedUrl = signedUrlFromResolverBody(bytes);
-  if (signedUrl === undefined) return 'download-url-missing';
-  if (!isChatGptTransientDownloadUrl(signedUrl, conversationId))
+  const envelope = resolverEnvelope(bytes);
+  if (envelope.kind === 'terminal') return envelope.code;
+  const numericFileId = getChatGptNumericResolverFileId(envelope.url);
+  if (numericFileId !== undefined) {
+    if (numericFileId !== providerFileId) return 'download-url-binding-rejected';
+  } else if (!isChatGptTransientDownloadUrl(envelope.url, conversationId)) {
     return 'download-url-binding-rejected';
+  }
   return 'observed';
 }
 
@@ -364,8 +382,8 @@ async function metricsFromState(
   digestSha256: (bytes: Uint8Array) => Promise<string>,
   batchAttemptedAt: string
 ): Promise<ChatGptActiveResolverResponse | undefined> {
-  // The expected ID list is deliberately used only as an ordinal binding; no
-  // ID appears in the output, even when hostile MAIN values are malformed.
+  // Expected IDs bind both ordinal and numeric signed-URL identity. They never
+  // appear in the metric response, including for malformed MAIN values.
   if (
     state.conversationId !== conversationId ||
     state.requestedCount !== providerFileIds.length ||
@@ -376,7 +394,14 @@ async function metricsFromState(
   }
   const outcomes: ChatGptActiveResolverOutcomeCode[] = [];
   for (let ordinal = 0; ordinal < state.outcomes.length; ordinal += 1) {
-    outcomes.push(await metricOutcome(state.outcomes[ordinal], conversationId, digestSha256));
+    outcomes.push(
+      await metricOutcome(
+        state.outcomes[ordinal],
+        conversationId,
+        providerFileIds[ordinal],
+        digestSha256
+      )
+    );
   }
   return {
     success: true,
@@ -563,6 +588,9 @@ export async function probeChatGptActiveAssetResolvers(
 // eslint-disable-next-line complexity, max-lines-per-function -- Self-contained code is serialized into MAIN.
 export function readChatGptActiveResolverState(nonce: string): HookState {
   try {
+    // executeScript serializes this function without imported module bindings.
+    // Keep this local cap aligned with the public diagnostic contract (tested).
+    const diagnosticMaxCount = 1;
     const exact = (value: object, expected: readonly string[]): boolean => {
       const keys = Reflect.ownKeys(value);
       if (keys.length !== expected.length) return false;
@@ -619,7 +647,7 @@ export function readChatGptActiveResolverState(nonce: string): HookState {
       !Number.isSafeInteger(state.requestedCount) ||
       !Number.isSafeInteger(state.dispatchCount) ||
       (state.requestedCount as number) < 0 ||
-      (state.requestedCount as number) > CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT ||
+      (state.requestedCount as number) > diagnosticMaxCount ||
       (state.dispatchCount as number) < 0 ||
       (state.dispatchCount as number) > (state.requestedCount as number) ||
       !Array.isArray(state.outcomes)

@@ -109,7 +109,9 @@ function setup(
       ? 'OpaqueProbe'
       : mode === 'interpreter-resolver'
         ? 'InterpreterResolver'
-        : 'OpaqueReplay';
+        : mode === 'active-resolver'
+          ? 'ActiveResolver'
+          : 'OpaqueReplay';
   const snapshot = () =>
     Object.getOwnPropertyDescriptor(page, `__liskaChatGpt${key}_${NONCE}`)?.get?.();
   expect(startChatGptDocumentStartCapture(page)).toEqual({ kind: 'ready' });
@@ -131,9 +133,16 @@ function interpreterCommand(fixture: ReturnType<typeof setup>) {
   )?.value as (value: unknown) => boolean;
 }
 
+function activeCommand(fixture: ReturnType<typeof setup>) {
+  return Object.getOwnPropertyDescriptor(
+    fixture.page,
+    `__liskaChatGptActiveResolverCommand_${NONCE}`
+  )?.value as (value: unknown) => boolean;
+}
+
 function expectHeaderRejection(fixture: ReturnType<typeof setup>, mode: string, code: string) {
   const snapshot = fixture.snapshot();
-  if (mode === 'interpreter-resolver') {
+  if (mode === 'interpreter-resolver' || mode === 'active-resolver') {
     expect(snapshot).toEqual({ kind: 'error', code: 'source-not-eligible' });
     expect(fixture.constructed).toHaveLength(0);
     expect(JSON.stringify(snapshot)).not.toContain(SENTINEL);
@@ -449,244 +458,421 @@ describe('interpreter-only owned transport', () => {
       expect(source.bodyUsed).toBe(false);
     }
   );
+});
 
-  it.each(['empty', 'redirected'])(
-    'reports a native plain source with %s actual response metadata before dispatch',
-    async kind => {
-      const response = jsonResponse();
-      responseMetadata.set(response, {
-        url: kind === 'empty' ? '' : SOURCE,
-        redirected: kind === 'redirected',
-      });
-      const clone = vi.spyOn(response, 'clone');
-      const fixture = setup(async () => response, 'interpreter-resolver');
-      expect(interpreterCommand(fixture)(interpreterCandidates(1))).toBe(true);
-      const source = new NativeRequest(SOURCE, { credentials: 'include' });
-      await fixture.page.fetch(source, { headers: { authorization: SENTINEL } });
-      expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
-      expect(fixture.constructed).toHaveLength(0);
-      expect(clone).not.toHaveBeenCalled();
-      expect(response.bodyUsed).toBe(false);
+describe('one-PNG active owned transport', () => {
+  it.each(['command-first', 'source-first'])(
+    'preserves primitive/native source calls and one exact PNG dispatch in %s order',
+    async order => {
+      for (const inputKind of ['primitive', 'native']) {
+        for (const credentials of ['include', 'same-origin'] as const) {
+          const source =
+            inputKind === 'primitive'
+              ? SOURCE
+              : new NativeRequest(SOURCE, {
+                  credentials: 'include',
+                  headers: {
+                    authorization: 'synthetic-original-secret',
+                    'x-original-only': 'original',
+                  },
+                });
+          const response = jsonResponse();
+          const responseClone = vi.spyOn(response, 'clone');
+          const sourcePromise = Promise.resolve(response);
+          const fixture = setup(
+            input => (input === source ? sourcePromise : Promise.resolve(jsonResponse())),
+            'active-resolver'
+          );
+          const command = activeCommand(fixture);
+          if (order === 'command-first') expect(command(['synthetic-png-id'])).toBe(true);
+          const init = { headers: { Authorization: SENTINEL }, credentials };
+          const receiver = { syntheticReceiver: true };
+          const result = Reflect.apply(fixture.page.fetch, receiver, [source, init]);
+          expect(result).toBe(sourcePromise);
+          await result;
+          if (order === 'source-first') expect(command(['synthetic-png-id'])).toBe(true);
+          await vi.waitFor(() =>
+            expect(fixture.snapshot()).toMatchObject({
+              kind: 'complete',
+              requestedCount: 1,
+              dispatchCount: 1,
+              outcomes: [{ state: 'observed' }],
+            })
+          );
+          expect(fixture.original.mock.contexts[0]).toBe(receiver);
+          expect(fixture.original.mock.calls[0]).toEqual([source, init]);
+          expect(fixture.original).toHaveBeenCalledTimes(2);
+          expect(fixture.constructed).toHaveLength(1);
+          const request = fixture.constructed[0];
+          expect(request.url).toBe(
+            `https://chatgpt.com/backend-api/files/download/synthetic-png-id?conversation_id=${ID}&inline=false&download_intent=false&include_library_file_state=true`
+          );
+          expect(request.url).not.toContain('check_context_scopes');
+          expect(request.headers.get('authorization')).toBe(SENTINEL);
+          expect(request.headers.has('x-original-only')).toBe(false);
+          expect(request.credentials).toBe(credentials);
+          expect(fixture.initShapes).toEqual([
+            { nullInit: true, nullHeaders: true, stringsOnly: true },
+          ]);
+          expect(responseClone).not.toHaveBeenCalled();
+          expect(response.bodyUsed).toBe(false);
+          expect(command(['synthetic-png-id'])).toBe(false);
+          expect(JSON.stringify(fixture.snapshot())).not.toContain(SENTINEL);
+          expect(JSON.stringify(fixture.snapshot())).not.toContain('synthetic-png-id');
+          expect(timers.size).toBe(0);
+        }
+      }
     }
   );
 
-  it.each([
-    ['missing authorization', SOURCE, { headers: { 'x-authorization': SENTINEL } }],
-    ['omit', SOURCE, { headers: { authorization: SENTINEL }, credentials: 'omit' }],
-    ['POST', SOURCE, { headers: { authorization: SENTINEL }, method: 'POST' }],
-    ['body', SOURCE, { headers: { authorization: SENTINEL }, body: SENTINEL }],
-    ['credentials only', SOURCE, { credentials: 'include' }],
-    ['cache only', SOURCE, { cache: 'no-store' }],
-    ['no init', SOURCE, undefined],
-    ['native headers', SOURCE, { headers: new Headers({ authorization: SENTINEL }) }],
-    ['URL object', new NodeURL(SOURCE), { headers: { authorization: SENTINEL } }],
-  ] as const)('rejects %s before dispatch', async (_label, input, init) => {
-    const fixture = setup(undefined, 'interpreter-resolver');
-    await fixture.page.fetch(input as RequestInfo, init as RequestInit);
+  it('never falls back from a missing plain override authorization to native source headers', async () => {
+    const fixture = setup(undefined, 'active-resolver');
+    activeCommand(fixture)(['synthetic-png-id']);
+    const source = new NativeRequest(SOURCE, {
+      headers: { authorization: SENTINEL },
+      credentials: 'include',
+    });
+    await fixture.page.fetch(source, { headers: { 'x-unrelated': 'synthetic' } });
     expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
     expect(fixture.constructed).toHaveLength(0);
-    expect(fixture.original).toHaveBeenCalledExactlyOnceWith(input, init);
-    expect(interpreterCommand(fixture)(interpreterCandidates(1))).toBe(false);
+    expect(fixture.original).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    ['empty', '', false],
-    ['malformed', 'https://[', false],
-    ['relative', SOURCE.slice('https://chatgpt.com'.length), false],
-    ['cross-origin', SOURCE.replace('chatgpt.com', 'example.invalid'), false],
-    ['wrong conversation', SOURCE.replace(ID, '11111111-2222-3333-4444-555555555555'), false],
-    ['singular', SINGULAR, false],
-    ['extra query', `${SOURCE}&extra=1`, false],
-    ['duplicate query', `${SOURCE}&num_turns=10`, false],
-    ['encoded query', SOURCE.replace('num_turns', '%6eum_turns'), false],
-    ['missing query', SOURCE.split('?')[0], false],
-    ['username', SOURCE.replace('https://', 'https://user@'), false],
-    ['password', SOURCE.replace('https://', 'https://user:password@'), false],
-    ['fragment', `${SOURCE}#fragment`, false],
-    ['number', 42, false],
-    ['undefined', undefined, false],
-    ['null', null, false],
-    ['redirected', SOURCE, true],
-    ['undefined redirected', SOURCE, undefined],
-    ['non-boolean redirected', SOURCE, 'false'],
-  ] as const)(
-    'rejects actual source %s before status/header/body access in both latch orders',
-    async (_label, url, redirected) => {
-      for (const commandFirst of [false, true]) {
-        const source = jsonResponse();
-        responseMetadata.set(source, { url, redirected });
-        const status = vi.spyOn(Response.prototype, 'status', 'get');
-        const headers = vi.spyOn(Response.prototype, 'headers', 'get');
-        const clone = vi.spyOn(source, 'clone');
-        const fixture = setup(async () => source, 'interpreter-resolver');
-        const command = interpreterCommand(fixture);
-        if (commandFirst) expect(command(interpreterCandidates())).toBe(true);
-        await fixture.page.fetch(SOURCE, { headers: { authorization: SENTINEL } });
-        expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
-        expect(fixture.original).toHaveBeenCalledOnce();
-        expect(fixture.constructed).toHaveLength(0);
-        expect(status).not.toHaveBeenCalled();
-        expect(headers).not.toHaveBeenCalled();
-        expect(clone).not.toHaveBeenCalled();
-        expect(source.bodyUsed).toBe(false);
-        expect(command(interpreterCandidates())).toBe(false);
-        status.mockRestore();
-        headers.mockRestore();
-      }
-    }
-  );
-
-  it.each(['init', 'headers'])(
-    'rejects a base change from forwarding %s Proxy reflection without reinspecting values',
-    async kind => {
-      const fixture = setup(undefined, 'interpreter-resolver');
-      const headers = { authorization: SENTINEL };
-      const descriptor = (target: object, key: PropertyKey) => {
-        fixture.base.href = 'https://example.invalid/c/synthetic';
-        return Reflect.getOwnPropertyDescriptor(target, key);
-      };
-      const init =
-        kind === 'init'
-          ? new Proxy({ headers }, { getOwnPropertyDescriptor: descriptor })
-          : { headers: new Proxy(headers, { getOwnPropertyDescriptor: descriptor }) };
-      await fixture.page.fetch(SOURCE.slice('https://chatgpt.com'.length), init);
-      expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
-      expect(fixture.constructed).toHaveLength(0);
-      expect(fixture.original).toHaveBeenCalledOnce();
-    }
-  );
-
-  it.each(['body', 'method', 'credentials', 'headers', 'signal', 'cache'])(
-    'rejects an init %s accessor without invoking it',
-    async member => {
-      const getter = vi.fn(() => SENTINEL);
-      const init = { headers: { authorization: SENTINEL } };
-      Object.defineProperty(init, member, { enumerable: true, get: getter });
-      const fixture = setup(undefined, 'interpreter-resolver');
-      await fixture.page.fetch(SOURCE, init);
-      expect(getter).not.toHaveBeenCalled();
-      expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
-      expect(fixture.constructed).toHaveLength(0);
-      expect(fixture.original).toHaveBeenCalledExactlyOnceWith(SOURCE, init);
-    }
-  );
-
-  it('bounds reentrant Proxy reflection to one private interpreter preparation', async () => {
-    const fixture = setup(undefined, 'interpreter-resolver');
-    expect(interpreterCommand(fixture)(interpreterCandidates(1))).toBe(true);
-    let reentered = false;
-    const headers = new Proxy(
-      { authorization: SENTINEL },
-      {
-        getPrototypeOf(target) {
-          if (!reentered) {
-            reentered = true;
-            void fixture.page.fetch(SOURCE, {
-              headers: { authorization: 'synthetic-inner-sentinel' },
-            });
-          }
-          return Reflect.getPrototypeOf(target);
-        },
-      }
-    );
-    await fixture.page.fetch(SOURCE, { headers });
-    await vi.waitFor(() =>
-      expect(fixture.snapshot()).toMatchObject({ kind: 'complete', dispatchCount: 1 })
-    );
-    expect(reentered).toBe(true);
-    expect(fixture.constructed).toHaveLength(1);
-    expect(fixture.constructed[0].headers.get('authorization')).toBe(SENTINEL);
-    expect(fixture.original).toHaveBeenCalledTimes(3);
-  });
-
-  it.each(['synchronous throw', 'promise rejection'])(
-    'preserves the original plain-header source %s exactly',
-    async failure => {
-      const error = new Error(SENTINEL);
-      const sourcePromise = Promise.reject(error);
-      // Attach immediately so the synchronous-throw case has no unused rejection.
-      void sourcePromise.catch(() => undefined);
-      const fixture = setup(() => {
-        if (failure === 'synchronous throw') throw error;
-        return sourcePromise;
-      }, 'interpreter-resolver');
-      const init = { headers: { authorization: SENTINEL } };
-      if (failure === 'synchronous throw')
-        expect(() => fixture.page.fetch(SOURCE, init)).toThrow(error);
-      else {
-        const result = fixture.page.fetch(SOURCE, init);
-        expect(result).toBe(sourcePromise);
-        await expect(result).rejects.toBe(error);
-      }
-      expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-rejected' });
-      expect(fixture.constructed).toHaveLength(0);
-      expect(fixture.original).toHaveBeenCalledExactlyOnceWith(SOURCE, init);
-      expect(JSON.stringify(fixture.snapshot())).not.toContain(SENTINEL);
-    }
-  );
-
-  it.each(['plain', 'native', 'native-plain'])(
-    'uses only captured primitives and owned records after late %s header iterator poisoning',
-    async kind => {
-      let resolveSource!: (response: Response) => void;
-      const sourcePending = new Promise<Response>(resolve => {
-        resolveSource = resolve;
+  it.each(['fetch', 'body', 'hash'])(
+    'bounds stalled %s at 12 seconds and ignores its late completion',
+    async phase => {
+      vi.useFakeTimers();
+      let resolveFetch!: (response: Response) => void;
+      const pendingFetch = new Promise<Response>(resolve => {
+        resolveFetch = resolve;
       });
-      const sourceResponse = jsonResponse();
-      const helperResponse = jsonResponse();
+      let bodyController!: ReadableStreamDefaultController<Uint8Array>;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          bodyController = controller;
+        },
+      });
+      let resolveHash!: (value: ArrayBuffer) => void;
+      const pendingHash = new Promise<ArrayBuffer>(resolve => {
+        resolveHash = resolve;
+      });
+      const digest = vi.spyOn(webcrypto.subtle, 'digest');
+      if (phase === 'hash') digest.mockImplementation(() => pendingHash);
+      const helperResponse =
+        phase === 'body'
+          ? new Response(stream, { headers: { 'content-type': 'application/json' } })
+          : jsonResponse();
       const fixture = setup(
         input =>
-          input instanceof NativeRequest && input.url !== SOURCE
-            ? Promise.resolve(helperResponse)
-            : sourcePending,
-        'interpreter-resolver'
+          input === SOURCE
+            ? Promise.resolve(jsonResponse())
+            : phase === 'fetch'
+              ? pendingFetch
+              : Promise.resolve(helperResponse),
+        'active-resolver'
       );
-      const native = new NativeRequest(SOURCE, {
-        headers: { authorization: SENTINEL },
-        credentials: 'include',
-      });
-      const plain = { Authorization: SENTINEL };
-      const result =
-        kind === 'native'
-          ? fixture.page.fetch(native)
-          : fixture.page.fetch(kind === 'native-plain' ? native : SOURCE, { headers: plain });
-      native.headers.set('authorization', 'late-native-mutation');
-      plain.Authorization = 'late-plain-mutation';
-      const poison = vi.fn(() => {
-        throw new Error(SENTINEL);
-      });
-      const iterator = Object.getOwnPropertyDescriptor(Headers.prototype, Symbol.iterator)!;
-      const forEach = Object.getOwnPropertyDescriptor(Headers.prototype, 'forEach')!;
-      Object.defineProperty(Headers.prototype, Symbol.iterator, {
-        configurable: true,
-        value: poison,
-      });
-      Object.defineProperty(Headers.prototype, 'forEach', { configurable: true, value: poison });
-      try {
-        interpreterCommand(fixture)(interpreterCandidates(1));
-        resolveSource(sourceResponse);
-        await result;
-        await new Promise<void>(resolve => setTimeout(resolve, 25));
-      } finally {
-        Object.defineProperty(Headers.prototype, Symbol.iterator, iterator);
-        Object.defineProperty(Headers.prototype, 'forEach', forEach);
+      activeCommand(fixture)(['synthetic-png-id']);
+      await fixture.page.fetch(SOURCE, { headers: { authorization: SENTINEL } });
+      await vi.waitFor(() => expect(fixture.original).toHaveBeenCalledTimes(2));
+      if (phase === 'hash') await vi.waitFor(() => expect(digest).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(12_001);
+      const terminal = {
+        kind: 'complete',
+        conversationId: ID,
+        requestedCount: 1,
+        dispatchCount: 1,
+        outcomes: [{ state: 'timed-out' }],
+      };
+      expect(fixture.snapshot()).toEqual(terminal);
+      expect(fixture.constructed[0].signal.aborted).toBe(true);
+      expect(timers.size).toBe(0);
+      if (phase === 'fetch') resolveFetch(jsonResponse());
+      if (phase === 'body') {
+        bodyController.enqueue(new TextEncoder().encode('{}'));
+        bodyController.close();
       }
-      await vi.waitFor(() =>
-        expect(fixture.snapshot()).toMatchObject({
-          kind: 'complete',
-          dispatchCount: 1,
-          outcomes: [{ state: 'observed' }],
-        })
-      );
-      expect(poison).not.toHaveBeenCalled();
-      expect(fixture.constructed[0].headers.get('authorization')).toBe(SENTINEL);
-      expect(fixture.initShapes).toEqual([
-        { nullInit: true, nullHeaders: true, stringsOnly: true },
-      ]);
+      if (phase === 'hash') resolveHash(new Uint8Array(32).buffer);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fixture.snapshot()).toEqual(terminal);
       expect(fixture.original).toHaveBeenCalledTimes(2);
     }
   );
+
+  it('preserves the fixed global timeout before any source dispatch', async () => {
+    vi.useFakeTimers();
+    const fixture = setup(undefined, 'active-resolver');
+    activeCommand(fixture)(['synthetic-png-id']);
+    await vi.advanceTimersByTimeAsync(180_001);
+    expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'resolver-result-timeout' });
+    expect(fixture.constructed).toHaveLength(0);
+    expect(fixture.page.fetch).toBe(fixture.original);
+  });
+
+  it('aborts an in-flight item when a state read detects same-document navigation', async () => {
+    const fixture = setup(
+      input =>
+        input === SOURCE ? Promise.resolve(jsonResponse()) : new Promise<Response>(() => undefined),
+      'active-resolver'
+    );
+    activeCommand(fixture)(['synthetic-png-id']);
+    await fixture.page.fetch(SOURCE, { headers: { authorization: SENTINEL } });
+    await vi.waitFor(() => expect(fixture.constructed).toHaveLength(1));
+    fixture.page.location.href = `https://chatgpt.com/c/${ID}`;
+    expect(fixture.snapshot()).toMatchObject({
+      kind: 'complete',
+      dispatchCount: 1,
+      outcomes: [{ state: 'timed-out' }],
+    });
+    expect(fixture.constructed[0].signal.aborted).toBe(true);
+    expect(timers.size).toBe(0);
+  });
 });
+
+describe.each(['interpreter-resolver', 'active-resolver'])(
+  'owned resolver transport boundary in %s',
+  mode => {
+    const commandFor = (fixture: ReturnType<typeof setup>) =>
+      mode === 'active-resolver' ? activeCommand(fixture) : interpreterCommand(fixture);
+    const candidatesFor = (count = 2): unknown =>
+      mode === 'active-resolver' ? ['synthetic-png-id'] : interpreterCandidates(count);
+    it.each(['empty', 'redirected'])(
+      'reports a native plain source with %s actual response metadata before dispatch',
+      async kind => {
+        const response = jsonResponse();
+        responseMetadata.set(response, {
+          url: kind === 'empty' ? '' : SOURCE,
+          redirected: kind === 'redirected',
+        });
+        const clone = vi.spyOn(response, 'clone');
+        const fixture = setup(async () => response, mode);
+        expect(commandFor(fixture)(candidatesFor(1))).toBe(true);
+        const source = new NativeRequest(SOURCE, { credentials: 'include' });
+        await fixture.page.fetch(source, { headers: { authorization: SENTINEL } });
+        expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
+        expect(fixture.constructed).toHaveLength(0);
+        expect(clone).not.toHaveBeenCalled();
+        expect(response.bodyUsed).toBe(false);
+      }
+    );
+
+    it.each([
+      ['missing authorization', SOURCE, { headers: { 'x-authorization': SENTINEL } }],
+      ['omit', SOURCE, { headers: { authorization: SENTINEL }, credentials: 'omit' }],
+      ['POST', SOURCE, { headers: { authorization: SENTINEL }, method: 'POST' }],
+      ['body', SOURCE, { headers: { authorization: SENTINEL }, body: SENTINEL }],
+      ['credentials only', SOURCE, { credentials: 'include' }],
+      ['cache only', SOURCE, { cache: 'no-store' }],
+      ['no init', SOURCE, undefined],
+      ['native headers', SOURCE, { headers: new Headers({ authorization: SENTINEL }) }],
+      ['URL object', new NodeURL(SOURCE), { headers: { authorization: SENTINEL } }],
+    ] as const)('rejects %s before dispatch', async (_label, input, init) => {
+      const fixture = setup(undefined, mode);
+      await fixture.page.fetch(input as RequestInfo, init as RequestInit);
+      expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
+      expect(fixture.constructed).toHaveLength(0);
+      expect(fixture.original).toHaveBeenCalledExactlyOnceWith(input, init);
+      expect(commandFor(fixture)(candidatesFor(1))).toBe(false);
+    });
+
+    it.each([
+      ['empty', '', false],
+      ['malformed', 'https://[', false],
+      ['relative', SOURCE.slice('https://chatgpt.com'.length), false],
+      ['cross-origin', SOURCE.replace('chatgpt.com', 'example.invalid'), false],
+      ['wrong conversation', SOURCE.replace(ID, '11111111-2222-3333-4444-555555555555'), false],
+      ['singular', SINGULAR, false],
+      ['extra query', `${SOURCE}&extra=1`, false],
+      ['duplicate query', `${SOURCE}&num_turns=10`, false],
+      ['encoded query', SOURCE.replace('num_turns', '%6eum_turns'), false],
+      ['missing query', SOURCE.split('?')[0], false],
+      ['username', SOURCE.replace('https://', 'https://user@'), false],
+      ['password', SOURCE.replace('https://', 'https://user:password@'), false],
+      ['fragment', `${SOURCE}#fragment`, false],
+      ['number', 42, false],
+      ['undefined', undefined, false],
+      ['null', null, false],
+      ['redirected', SOURCE, true],
+      ['undefined redirected', SOURCE, undefined],
+      ['non-boolean redirected', SOURCE, 'false'],
+    ] as const)(
+      'rejects actual source %s before status/header/body access in both latch orders',
+      async (_label, url, redirected) => {
+        for (const commandFirst of [false, true]) {
+          const source = jsonResponse();
+          responseMetadata.set(source, { url, redirected });
+          const status = vi.spyOn(Response.prototype, 'status', 'get');
+          const headers = vi.spyOn(Response.prototype, 'headers', 'get');
+          const clone = vi.spyOn(source, 'clone');
+          const fixture = setup(async () => source, mode);
+          const command = commandFor(fixture);
+          if (commandFirst) expect(command(candidatesFor())).toBe(true);
+          await fixture.page.fetch(SOURCE, { headers: { authorization: SENTINEL } });
+          expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
+          expect(fixture.original).toHaveBeenCalledOnce();
+          expect(fixture.constructed).toHaveLength(0);
+          expect(status).not.toHaveBeenCalled();
+          expect(headers).not.toHaveBeenCalled();
+          expect(clone).not.toHaveBeenCalled();
+          expect(source.bodyUsed).toBe(false);
+          expect(command(candidatesFor())).toBe(false);
+          status.mockRestore();
+          headers.mockRestore();
+        }
+      }
+    );
+
+    it.each(['init', 'headers'])(
+      'rejects a base change from forwarding %s Proxy reflection without reinspecting values',
+      async kind => {
+        const fixture = setup(undefined, mode);
+        const headers = { authorization: SENTINEL };
+        const descriptor = (target: object, key: PropertyKey) => {
+          fixture.base.href = 'https://example.invalid/c/synthetic';
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        };
+        const init =
+          kind === 'init'
+            ? new Proxy({ headers }, { getOwnPropertyDescriptor: descriptor })
+            : { headers: new Proxy(headers, { getOwnPropertyDescriptor: descriptor }) };
+        await fixture.page.fetch(SOURCE.slice('https://chatgpt.com'.length), init);
+        expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
+        expect(fixture.constructed).toHaveLength(0);
+        expect(fixture.original).toHaveBeenCalledOnce();
+      }
+    );
+
+    it.each(['body', 'method', 'credentials', 'headers', 'signal', 'cache'])(
+      'rejects an init %s accessor without invoking it',
+      async member => {
+        const getter = vi.fn(() => SENTINEL);
+        const init = { headers: { authorization: SENTINEL } };
+        Object.defineProperty(init, member, { enumerable: true, get: getter });
+        const fixture = setup(undefined, mode);
+        await fixture.page.fetch(SOURCE, init);
+        expect(getter).not.toHaveBeenCalled();
+        expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-not-eligible' });
+        expect(fixture.constructed).toHaveLength(0);
+        expect(fixture.original).toHaveBeenCalledExactlyOnceWith(SOURCE, init);
+      }
+    );
+
+    it('bounds reentrant Proxy reflection to one private resolver preparation', async () => {
+      const fixture = setup(undefined, mode);
+      expect(commandFor(fixture)(candidatesFor(1))).toBe(true);
+      let reentered = false;
+      const headers = new Proxy(
+        { authorization: SENTINEL },
+        {
+          getPrototypeOf(target) {
+            if (!reentered) {
+              reentered = true;
+              void fixture.page.fetch(SOURCE, {
+                headers: { authorization: 'synthetic-inner-sentinel' },
+              });
+            }
+            return Reflect.getPrototypeOf(target);
+          },
+        }
+      );
+      await fixture.page.fetch(SOURCE, { headers });
+      await vi.waitFor(() =>
+        expect(fixture.snapshot()).toMatchObject({ kind: 'complete', dispatchCount: 1 })
+      );
+      expect(reentered).toBe(true);
+      expect(fixture.constructed).toHaveLength(1);
+      expect(fixture.constructed[0].headers.get('authorization')).toBe(SENTINEL);
+      expect(fixture.original).toHaveBeenCalledTimes(3);
+    });
+
+    it.each(['synchronous throw', 'promise rejection'])(
+      'preserves the original plain-header source %s exactly',
+      async failure => {
+        const error = new Error(SENTINEL);
+        const sourcePromise = Promise.reject(error);
+        // Attach immediately so the synchronous-throw case has no unused rejection.
+        void sourcePromise.catch(() => undefined);
+        const fixture = setup(() => {
+          if (failure === 'synchronous throw') throw error;
+          return sourcePromise;
+        }, mode);
+        const init = { headers: { authorization: SENTINEL } };
+        if (failure === 'synchronous throw')
+          expect(() => fixture.page.fetch(SOURCE, init)).toThrow(error);
+        else {
+          const result = fixture.page.fetch(SOURCE, init);
+          expect(result).toBe(sourcePromise);
+          await expect(result).rejects.toBe(error);
+        }
+        expect(fixture.snapshot()).toEqual({ kind: 'error', code: 'source-rejected' });
+        expect(fixture.constructed).toHaveLength(0);
+        expect(fixture.original).toHaveBeenCalledExactlyOnceWith(SOURCE, init);
+        expect(JSON.stringify(fixture.snapshot())).not.toContain(SENTINEL);
+      }
+    );
+
+    it.each(['plain', 'native', 'native-plain'])(
+      'uses only captured primitives and owned records after late %s header iterator poisoning',
+      async kind => {
+        let resolveSource!: (response: Response) => void;
+        const sourcePending = new Promise<Response>(resolve => {
+          resolveSource = resolve;
+        });
+        const sourceResponse = jsonResponse();
+        const helperResponse = jsonResponse();
+        const fixture = setup(
+          input =>
+            input instanceof NativeRequest && input.url !== SOURCE
+              ? Promise.resolve(helperResponse)
+              : sourcePending,
+          mode
+        );
+        const native = new NativeRequest(SOURCE, {
+          headers: { authorization: SENTINEL },
+          credentials: 'include',
+        });
+        const plain = { Authorization: SENTINEL };
+        const result =
+          kind === 'native'
+            ? fixture.page.fetch(native)
+            : fixture.page.fetch(kind === 'native-plain' ? native : SOURCE, { headers: plain });
+        native.headers.set('authorization', 'late-native-mutation');
+        plain.Authorization = 'late-plain-mutation';
+        const poison = vi.fn(() => {
+          throw new Error(SENTINEL);
+        });
+        const iterator = Object.getOwnPropertyDescriptor(Headers.prototype, Symbol.iterator)!;
+        const forEach = Object.getOwnPropertyDescriptor(Headers.prototype, 'forEach')!;
+        Object.defineProperty(Headers.prototype, Symbol.iterator, {
+          configurable: true,
+          value: poison,
+        });
+        Object.defineProperty(Headers.prototype, 'forEach', { configurable: true, value: poison });
+        try {
+          commandFor(fixture)(candidatesFor(1));
+          resolveSource(sourceResponse);
+          await result;
+          await new Promise<void>(resolve => setTimeout(resolve, 25));
+        } finally {
+          Object.defineProperty(Headers.prototype, Symbol.iterator, iterator);
+          Object.defineProperty(Headers.prototype, 'forEach', forEach);
+        }
+        await vi.waitFor(() =>
+          expect(fixture.snapshot()).toMatchObject({
+            kind: 'complete',
+            dispatchCount: 1,
+            outcomes: [{ state: 'observed' }],
+          })
+        );
+        expect(poison).not.toHaveBeenCalled();
+        expect(fixture.constructed[0].headers.get('authorization')).toBe(SENTINEL);
+        expect(fixture.initShapes).toEqual([
+          { nullInit: true, nullHeaders: true, stringsOnly: true },
+        ]);
+        expect(fixture.original).toHaveBeenCalledTimes(2);
+      }
+    );
+  }
+);
 
 describe.each(['opaque-replay', 'opaque-probe'])('actual source response boundary in %s', mode => {
   const expectSourceMismatch = (fixture: ReturnType<typeof setup>) => {
@@ -1131,7 +1317,12 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
     }
   );
 
-  const snapshotModes = ['opaque-replay', 'opaque-probe', 'interpreter-resolver'];
+  const snapshotModes = [
+    'opaque-replay',
+    'opaque-probe',
+    'interpreter-resolver',
+    'active-resolver',
+  ];
   describe.each(snapshotModes)('rejection diagnostics in %s', mode => {
     it.each([
       ['null', () => null, 'shape'],
@@ -1332,7 +1523,7 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
         expect(good.snapshot()).toMatchObject(
           mode === 'opaque-replay'
             ? { kind: 'captured' }
-            : mode === 'interpreter-resolver'
+            : mode === 'interpreter-resolver' || mode === 'active-resolver'
               ? { kind: 'ready' }
               : { kind: 'result', result: { outcome: 'eligible-init-plain-headers' } }
         )
@@ -1791,7 +1982,7 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
     expect(serialized).not.toContain('Authorization');
   });
 
-  it.each(['opaque-resolver-observer', 'active-resolver'])(
+  it.each(['opaque-resolver-observer'])(
     'does not expand %s to plain header eligibility',
     async mode => {
       const fixture = setup(undefined, mode);
@@ -1845,7 +2036,7 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
         {
           label: 'plain override on native Request',
           init: { headers: { authorization: SENTINEL } },
-          eligible: mode === 'interpreter-resolver',
+          eligible: mode === 'interpreter-resolver' || mode === 'active-resolver',
         },
         {
           label: 'include credentials override',

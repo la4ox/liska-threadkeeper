@@ -782,7 +782,9 @@ export async function observeChatGptActiveAssetResolvers(
   }
   const plan = extractChatGptActiveResolverPlan(
     parseRawForInventory(original.bytes),
-    eligibleAssetRecords(context, eligibleAssetIds)
+    eligibleAssetRecords(context, eligibleAssetIds).filter(
+      asset => asset.mediaType === 'image/png' && asset.state === 'not-attempted'
+    )
   );
   if (plan.providerFileIds.length === 0) {
     return activeResolverProbeOnly(emptyChatGptActiveResolverMetric());

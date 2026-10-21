@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { buildCaptureManifest, type RawCaptureAssetRecord } from '../../src/archive';
+import { chatGptActiveResolverMetricFromResponse } from '../../src/content/capture/chatgpt-active-resolver-audit';
 import {
   CHATGPT_ASSET_ACQUISITION_FAILED_WARNING,
   CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL,
@@ -177,6 +178,247 @@ function binaryResult(
 }
 
 describe('destination-honest ChatGPT attachment export', () => {
+  it.each([false, true])(
+    'runs interpreter acquisition, one opaque PNG metric probe, then passive observation (failure=%s), retaining the metric for both destinations',
+    async passiveFails => {
+      const a = originalAsset();
+      const b = { ...originalAsset(), id: `chatgpt-asset-${'b'.repeat(64)}` };
+      const interpreterAsset = {
+        ...originalAsset(),
+        id: `chatgpt-asset-${'0'.repeat(64)}`,
+      };
+      const exportContext = context(true, [b, interpreterAsset, a]);
+      const order: string[] = [];
+      const metric = chatGptActiveResolverMetricFromResponse(
+        {
+          success: true,
+          data: {
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 0,
+            outcomes: ['file-expired'],
+            attemptedAt: '2026-10-21T12:00:00.000Z',
+          },
+        },
+        1
+      );
+      const warning =
+        'ChatGPT active resolver observed 0/1; file-ID binary acquisition remains disabled.';
+      const observeActiveResolvers = vi.fn(async () => {
+        order.push('active');
+        return { kind: 'probe-only' as const, metric, warning };
+      });
+      const acquireAssets = vi.fn(async () => {
+        order.push('acquire-interpreter');
+        return {
+          records: exportContext.rawCaptureBundle.manifest.assets,
+          runtimeAssets: [],
+          completeness: 'not-attempted' as const,
+        };
+      });
+      const persistBinaryAssets = vi.fn();
+      const buildDestinationCompanion = vi.fn(
+        async (_context, records, runtimeAssets, retainedMetric) => {
+          expect(retainedMetric).toEqual(metric);
+          expect(records).toEqual(exportContext.rawCaptureBundle.manifest.assets);
+          expect(runtimeAssets).toEqual([]);
+          return companion();
+        }
+      );
+      const result = await persistChatGptDestinationHonestAttachments(
+        exportContext,
+        companion(),
+        'thread.md',
+        ['file', 'obsidian'],
+        {
+          persistArtifacts: async (_companion, _name, _source, outputs) => {
+            if (!order.length) order.push('raw');
+            return persisted(outputs as ('file' | 'obsidian')[]);
+          },
+          observeInterpreterResolvers: async () => {
+            order.push('interpreter');
+            return {
+              kind: 'matched',
+              candidates: [
+                { assetId: interpreterAsset.id, downloadUrl: 'synthetic-interpreter-url' },
+              ],
+            };
+          },
+          observeResolvers: async () => {
+            order.push('passive');
+            if (passiveFails)
+              return {
+                kind: 'recapture-failed',
+                warning:
+                  'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.',
+              };
+            return { kind: 'matched', candidates: [] };
+          },
+          observeActiveResolvers,
+          acquireAssets,
+          persistBinaryAssets,
+          buildDestinationCompanion,
+        }
+      );
+      expect(order).toEqual(['raw', 'interpreter', 'acquire-interpreter', 'active', 'passive']);
+      expect(observeActiveResolvers).toHaveBeenCalledExactlyOnceWith(exportContext, [a.id]);
+      expect(acquireAssets).toHaveBeenCalledOnce();
+      expect(persistBinaryAssets).not.toHaveBeenCalled();
+      expect(buildDestinationCompanion).toHaveBeenCalledTimes(2);
+      expect(result.completeDestinations).toEqual(['file', 'obsidian']);
+      expect(result.warnings).toContain(warning);
+    }
+  );
+
+  it.each(['non-PNG', 'already attempted', 'no strict dependency'])(
+    'does not invoke the active probe with %s',
+    async scenario => {
+      const asset = {
+        ...originalAsset(),
+        ...(scenario === 'non-PNG' ? { mediaType: 'application/pdf' } : {}),
+        ...(scenario === 'already attempted'
+          ? {
+              state: 'failed' as const,
+              attemptedAt: '2026-10-21T12:00:00.000Z',
+              detail: 'synthetic-failed',
+            }
+          : {}),
+      };
+      const exportContext = context(true, [asset]);
+      const observeActiveResolvers = vi.fn();
+      await persistChatGptDestinationHonestAttachments(
+        exportContext,
+        companion(),
+        'thread.md',
+        ['file'],
+        {
+          persistArtifacts: async () => persisted(['file']),
+          observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+          ...(scenario === 'no strict dependency' ? {} : { observeActiveResolvers }),
+          acquireAssets: async () => ({
+            records: [asset],
+            runtimeAssets: [],
+            completeness: 'not-attempted',
+          }),
+          buildDestinationCompanion: async () => companion(),
+        }
+      );
+      expect(observeActiveResolvers).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['metric', 'substituted candidates', 'failure', 'throw'])(
+    'continues passive acquisition after an active %s result',
+    async scenario => {
+      const exportContext = context();
+      const fetched = fetchedAsset();
+      const order: string[] = [];
+      const metric = chatGptActiveResolverMetricFromResponse(
+        {
+          success: true,
+          data: {
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 0,
+            outcomes: ['provider-status-other'],
+            attemptedAt: '2026-10-21T12:00:00.000Z',
+          },
+        },
+        1
+      );
+      const observeActiveResolvers = vi
+        .fn<NonNullable<ChatGptAssetExportDependencies['observeActiveResolvers']>>()
+        .mockImplementation(async () => {
+          order.push('active');
+          if (scenario === 'throw') throw new Error('synthetic-active-failure');
+          if (scenario === 'substituted candidates')
+            return {
+              kind: 'matched',
+              candidates: [{ assetId: ASSET_ID, downloadUrl: 'must-not-fetch-active' }],
+            };
+          if (scenario === 'failure')
+            return {
+              kind: 'recapture-failed',
+              warning:
+                'ChatGPT legacy attachment resolver recapture failed; final attachment states are recorded in the archive manifest.',
+            };
+          return {
+            kind: 'probe-only',
+            metric,
+            warning:
+              'ChatGPT active resolver observed 0/1; file-ID binary acquisition remains disabled.',
+          };
+        });
+      const observeResolvers = vi.fn(async () => {
+        order.push('passive');
+        return {
+          kind: 'matched' as const,
+          candidates: [{ assetId: ASSET_ID, downloadUrl: 'synthetic-passive-url' }],
+        };
+      });
+      const acquireAssets = vi
+        .fn<NonNullable<ChatGptAssetExportDependencies['acquireAssets']>>()
+        .mockImplementation(async () => {
+          order.push('acquire-passive');
+          return { records: [fetched.record], runtimeAssets: [fetched], completeness: 'complete' };
+        });
+      const persistBinaryAssets = vi
+        .fn()
+        .mockResolvedValue(binaryResult(fetched.record, true, false));
+      const result = await persistChatGptDestinationHonestAttachments(
+        exportContext,
+        companion(),
+        'thread.md',
+        ['file'],
+        {
+          persistArtifacts: async () => persisted(['file']),
+          observeActiveResolvers,
+          observeResolvers,
+          acquireAssets,
+          persistBinaryAssets,
+          buildDestinationCompanion: async () => companion(),
+        }
+      );
+      expect(order).toEqual(['active', 'passive', 'acquire-passive']);
+      expect(observeActiveResolvers).toHaveBeenCalledExactlyOnceWith(exportContext, [ASSET_ID]);
+      expect(observeResolvers).toHaveBeenCalledExactlyOnceWith(exportContext, [ASSET_ID]);
+      expect(acquireAssets).toHaveBeenCalledOnce();
+      expect(acquireAssets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          candidates: [{ assetId: ASSET_ID, downloadUrl: 'synthetic-passive-url' }],
+        })
+      );
+      expect(persistBinaryAssets).toHaveBeenCalledOnce();
+      expect(result.completeDestinations).toEqual(['file']);
+    }
+  );
+
+  it('cannot turn a substituted active probe into acquisition or binary staging', async () => {
+    const acquireAssets = vi.fn();
+    const persistBinaryAssets = vi.fn();
+    const observeActiveResolvers = vi.fn(async () => ({
+      kind: 'matched' as const,
+      candidates: [{ assetId: ASSET_ID, downloadUrl: 'must-not-fetch' }],
+    }));
+    await persistChatGptDestinationHonestAttachments(
+      context(),
+      companion(),
+      'thread.md',
+      ['file'],
+      {
+        persistArtifacts: async () => persisted(['file']),
+        observeResolvers: async () => ({ kind: 'matched', candidates: [] }),
+        observeActiveResolvers,
+        acquireAssets,
+        persistBinaryAssets,
+        buildDestinationCompanion: async () => companion(),
+      }
+    );
+    expect(observeActiveResolvers).toHaveBeenCalledOnce();
+    expect(acquireAssets).not.toHaveBeenCalled();
+    expect(persistBinaryAssets).not.toHaveBeenCalled();
+  });
+
   it('finalizes probe-only active metrics without acquisition, binary staging, or fetched ledger state', async () => {
     const persistArtifacts = vi.fn().mockResolvedValue(persisted(['file']));
     const acquireAssets = vi.fn();
@@ -202,6 +444,13 @@ describe('destination-honest ChatGPT attachment export', () => {
               'payload-integrity-rejected': 0,
               'download-url-missing': 0,
               'download-url-binding-rejected': 0,
+              'file-not-found': 0,
+              'file-expired': 0,
+              'provider-retry': 0,
+              'success-without-download-url': 0,
+              'provider-status-absent': 0,
+              'provider-status-non-string': 0,
+              'provider-status-other': 0,
               'non-json': 0,
               oversized: 0,
               'timed-out': 0,
@@ -228,6 +477,13 @@ describe('destination-honest ChatGPT attachment export', () => {
               'payload-integrity-rejected': 0,
               'download-url-missing': 0,
               'download-url-binding-rejected': 0,
+              'file-not-found': 0,
+              'file-expired': 0,
+              'provider-retry': 0,
+              'success-without-download-url': 0,
+              'provider-status-absent': 0,
+              'provider-status-non-string': 0,
+              'provider-status-other': 0,
               'non-json': 0,
               oversized: 0,
               'timed-out': 0,

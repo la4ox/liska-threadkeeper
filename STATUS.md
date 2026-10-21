@@ -219,18 +219,34 @@ accepted direct metadata ID, and the fourth has two equivalent `sediment:`
 pointers for one identity. All four are unique active-plan candidates and none
 is interpreter-eligible. They remained `not-attempted` because the passive
 eight-second observer saw no matching page-owned resolver request for these
-historical/lazy assets. This does not authorize active acquisition: the last
-documented active download-mode canary dispatched one valid helper request but
-ended `download-url-missing`. Production therefore remains unchanged until one
-known-loadable ordinary-chat PNG proves one exact current helper recipe; there
-will be no endpoint fallback sequence or guessed retry.
+historical/lazy assets.
+
+The active file-ID evidence gate is now live-verified on a separate ordinary
+ChatGPT conversation with a freshly visible generated PNG. Its complete graph
+contained 35 current-path nodes and six image ledger records (three unique
+active identities). The page itself issued `/backend-api/files/download/{id}`
+with the exact image query `conversation_id`, `inline=false`,
+`download_intent=false`, and `include_library_file_state=true`, followed by the
+established six-key estuary content request. A credential-only repetition
+returned 404 JSON, confirming that the helper needs the closure-private source
+authorization. The bounded production checkpoint therefore reuses the
+interpreter-owned plain-header transport, copies no credential outside MAIN,
+dispatches exactly one PNG helper request, and never returns a candidate or
+acquires bytes. After refining the value-free envelope taxonomy, the final live
+receipt was `requested=1`, `dispatched=1`, `observed=1`, with every failure
+bucket zero. The provider currently uses lowercase `success`; it passed the
+same signed-URL grammar and numeric provider-ID binding as `Success`. Raw,
+manifest, and canonical companions were byte-identical between Downloads and
+Obsidian; all six assets deliberately remained `not-attempted`, and no binary
+file was created. This authorizes a separate bounded data-bearing adapter, not
+automatic retries, endpoint fallback, or broad active acquisition.
 
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 147 test files / 3,646 tests pass;
-- coverage passes at 95.20% statements, 90.51% branches, 98.33% functions, and
-  97.90% lines;
+- 147 test files / 3,794 tests pass;
+- coverage passes at 95.17% statements, 90.53% branches, 98.30% functions, and
+  97.84% lines;
 - TypeScript and the production Vite build pass;
 - full lint has zero errors and only the same three pre-existing advisory
   warnings; platform registry lint and repository formatting pass;
@@ -238,8 +254,9 @@ Fresh exact-tree validation:
   exact module, verified their fixes in memory, and reports no residual P0-P3
   finding.
 
-Next: obtain one known-loadable ordinary-chat PNG and observe its exact current
-helper recipe before implementing a separate, bounded file-ID acquisition
-adapter. Older 404 assets remain explicit partial evidence rather than trigger
-retries or guessed routes. A remote push, pull request, merge, release, or tag
-remains a separate explicit action.
+Next: implement a separate one-candidate file-ID acquisition adapter that
+returns only the already validated transient URL to the existing bounded binary
+downloader. Preserve interpreter-first ordering, exclude the attempted active
+identity from passive retry, and keep older 404 assets as explicit partial
+evidence. A remote push, pull request, merge, release, or tag remains a separate
+explicit action.

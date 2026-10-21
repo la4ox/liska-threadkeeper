@@ -2824,8 +2824,8 @@ describe('startChatGptDocumentStartCapture', () => {
       expect(activeRequest).toMatchObject({
         url:
           `https://chatgpt.com/backend-api/files/download/${providerFileId}` +
-          '?download_intent=true' +
-          `&check_context_scopes_for_conversation_id=${CONVERSATION_ID}`,
+          `?conversation_id=${CONVERSATION_ID}` +
+          '&inline=false&download_intent=false&include_library_file_state=true',
         method: 'GET',
         credentials: 'include',
         redirect: 'error',
@@ -2869,10 +2869,10 @@ describe('startChatGptDocumentStartCapture', () => {
     page.pageWindow.location.href = `https://chatgpt.com/c/${CONVERSATION_ID}`;
     expect(command(['file_one'])).toBe(false);
     expect(page.originalFetch).not.toHaveBeenCalled();
-    expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'ready' });
+    expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'error', code: 'source-not-eligible' });
   });
 
-  it('keeps a command not-dispatched when the marker route drifts before source readiness', async () => {
+  it('preserves source-not-eligible when the marker route drifts before source readiness', async () => {
     const sourceUrl =
       `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
       '?include_has_versions=true&num_turns=10';
@@ -2907,11 +2907,8 @@ describe('startChatGptDocumentStartCapture', () => {
 
     await vi.waitFor(() =>
       expect(activeResolverSnapshotOf(page)).toEqual({
-        kind: 'complete',
-        conversationId: CONVERSATION_ID,
-        requestedCount: 1,
-        dispatchCount: 0,
-        outcomes: [{ state: 'not-dispatched' }],
+        kind: 'error',
+        code: 'source-not-eligible',
       })
     );
     expect(page.originalFetch).toHaveBeenCalledOnce();
@@ -2937,7 +2934,9 @@ describe('startChatGptDocumentStartCapture', () => {
         headers: { authorization: 'synthetic-authorization-sentinel' },
       }) as unknown as Request
     );
-    await vi.waitFor(() => expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'ready' }));
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toEqual({ kind: 'error', code: 'source-not-eligible' })
+    );
     expect(page.originalFetch).toHaveBeenCalledOnce();
   });
 
@@ -3228,7 +3227,7 @@ describe('startChatGptDocumentStartCapture', () => {
     expect(page.originalFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps an already-commanded ineligible active source as not-dispatched', async () => {
+  it('preserves an already-commanded ineligible active source failure', async () => {
     const sourceUrl =
       `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
       '?include_has_versions=true&num_turns=10';
@@ -3246,11 +3245,8 @@ describe('startChatGptDocumentStartCapture', () => {
     );
     await vi.waitFor(() =>
       expect(activeResolverSnapshotOf(page)).toEqual({
-        kind: 'complete',
-        conversationId: CONVERSATION_ID,
-        requestedCount: 1,
-        dispatchCount: 0,
-        outcomes: [{ state: 'not-dispatched' }],
+        kind: 'error',
+        code: 'source-not-eligible',
       })
     );
     expect(page.originalFetch).toHaveBeenCalledOnce();
@@ -3279,8 +3275,8 @@ describe('startChatGptDocumentStartCapture', () => {
     );
     await vi.waitFor(() =>
       expect(activeResolverSnapshotOf(malformedPage)).toMatchObject({
-        kind: 'complete',
-        outcomes: [{ state: 'not-dispatched' }],
+        kind: 'error',
+        code: 'source-http-error',
       })
     );
 
@@ -3399,7 +3395,7 @@ describe('startChatGptDocumentStartCapture', () => {
     }
   );
 
-  it('reports an already-commanded source failure as zero dispatch and all not-dispatched', async () => {
+  it('preserves an already-commanded HTTP source failure with zero dispatch', async () => {
     const sourceUrl =
       `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
       '?include_has_versions=true&num_turns=10';
@@ -3423,11 +3419,8 @@ describe('startChatGptDocumentStartCapture', () => {
     );
     await vi.waitFor(() =>
       expect(activeResolverSnapshotOf(page)).toEqual({
-        kind: 'complete',
-        conversationId: CONVERSATION_ID,
-        requestedCount: 1,
-        dispatchCount: 0,
-        outcomes: [{ state: 'not-dispatched' }],
+        kind: 'error',
+        code: 'source-http-error',
       })
     );
     expect(page.originalFetch).toHaveBeenCalledOnce();
