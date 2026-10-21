@@ -34,7 +34,7 @@ import {
 } from './attachment-export-gates';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
-  observeChatGptActiveAssetResolvers,
+  resolveChatGptActivePngAsset,
   observeChatGptInterpreterAssetResolvers,
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
@@ -794,7 +794,7 @@ const chatGptAttachmentDependencies = (strictReplay: boolean) => ({
   ...(strictReplay
     ? {
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
-        observeActiveResolvers: observeChatGptActiveAssetResolvers,
+        resolveActiveAsset: resolveChatGptActivePngAsset,
       }
     : {}),
 });

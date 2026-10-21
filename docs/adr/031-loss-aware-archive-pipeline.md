@@ -460,6 +460,29 @@ header-value extraction, retry, or persisted signed URL. Its next evidence must
 be one short trusted-click smoke with a visibly loadable attachment; an empty
 result stops the route rather than triggering a fallback.
 
+That evidence gate is now satisfied for exactly one ordinary-chat PNG, and the
+data-bearing route remains a separate action from the metric-only API. A pure
+plan is rebuilt from reverified committed raw, resolves strength and ambiguity
+against the full ledger, excludes every interpreter-owned identity, and sends
+one `{assetId, providerFileId}` pair. Any unsupported nonempty direct identity
+fails closed before a valid sibling or weaker pointer can be considered.
+Passive matching likewise keeps the full ledger until after winner selection,
+so an already attempted direct record cannot promote its pointer alias into a
+duplicate download. The selected active identity is never passively retried,
+including after a terminal helper or binary-acquisition failure.
+
+The helper uses only the page-observed four-query image recipe, returns one
+transient candidate after background rebinding, and feeds it immediately to the
+existing bounded browser-owned downloader. `fetched` remains destination-honest:
+verified bytes, length, SHA-256, and a successful destination write are all
+required. Two trusted-click final-build captures each resolved one PNG with
+`requested=1`, `dispatched=1`, `observed=1`; both wrote the same verified
+1,474,502-byte 1122-by-1402 PNG plus byte-identical raw/manifest/canonical
+companions to Downloads and Obsidian. Five other ledger records remained
+`not-attempted`; no provider identity, signed URL, or marker tab remained. This
+proves the one-PNG path only. Multi-item acquisition, automatic retry, endpoint
+fallback, and custom-GPT/Library-ID widening require separate evidence.
+
 Discovering every reference does not make `completeness.assets` complete. Until
 all selected binary acquisitions reach an evidenced terminal state, a
 metadata-only inventory remains `not-attempted` (or `partial` after a mixed

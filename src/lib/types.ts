@@ -593,6 +593,12 @@ export type ExtensionMessage =
       conversationId: string;
       /** Transient plan only: never persisted or copied into MAIN state. */
       candidates: Array<{ assetId: string; messageId: string; sandboxPath: string }>;
+    }
+  | {
+      action: 'resolveChatGptActiveAsset';
+      conversationId: string;
+      /** Exactly one transient committed-raw plan item. */
+      item: { assetId: string; providerFileId: string };
     };
 
 /**

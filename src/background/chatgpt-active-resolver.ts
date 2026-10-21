@@ -1,23 +1,31 @@
 /**
- * Disposable foreground-tab runtime for the active, metric-only ChatGPT
- * resolver checkpoint. Sensitive MAIN values are validated and discarded here;
- * content receives only ordinal states and aggregate counts.
+ * Shared disposable foreground-tab runtime for the active ChatGPT resolver.
+ * The metric wrapper drops all transient candidates; the separate one-item
+ * data wrapper returns only a verified, ledger-bound candidate and counts.
  */
 
 import { canonicalBase64ByteLength } from '../lib/base64';
 import {
+  activeAssetFailure,
+  isChatGptActiveAssetPlanItem,
+  type ChatGptActiveAssetPlanItem,
+  type ChatGptActiveAssetCandidate,
+  type ChatGptActiveAssetResponse,
+} from '../lib/chatgpt-active-asset-contract';
+import {
   getChatGptNumericResolverFileId,
+  CHATGPT_RESOLVER_KEY_DOMAIN,
   isChatGptConversationId,
   isChatGptTransientDownloadUrl,
 } from '../lib/chatgpt-capture-contract';
 import {
   CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
-  createChatGptActiveResolverFailure,
   isChatGptActiveResolverHookResult,
   isChatGptActiveResolverProviderFileId,
   type ChatGptActiveResolverHookResult,
   type ChatGptActiveResolverOutcomeCode,
   type ChatGptActiveResolverResponse,
+  type ChatGptActiveResolverMetrics,
 } from '../lib/chatgpt-active-resolver-contract';
 
 export const CHATGPT_ACTIVE_RESOLVER_TIMEOUT_MS = 190_000;
@@ -335,12 +343,15 @@ function isJsonResolverMediaType(value: unknown): value is string {
   return essence === 'application/json' || essence?.endsWith('+json') === true;
 }
 
-async function metricOutcome(
+async function analyzeOutcome(
   outcome: Extract<ChatGptActiveResolverHookResult, { kind: 'complete' }>['outcomes'][number],
   conversationId: string,
   providerFileId: string,
   digestSha256: (bytes: Uint8Array) => Promise<string>
-): Promise<ChatGptActiveResolverOutcomeCode> {
+): Promise<
+  | ChatGptActiveResolverOutcomeCode
+  | { code: 'observed'; candidate: Omit<ChatGptActiveAssetCandidate, 'assetId'> }
+> {
   if (outcome.state !== 'observed') return outcome.state;
   const capture = outcome.capture;
   if (!isJsonResolverMediaType(capture.mediaType)) return 'payload-integrity-rejected';
@@ -358,12 +369,22 @@ async function metricOutcome(
   const envelope = resolverEnvelope(bytes);
   if (envelope.kind === 'terminal') return envelope.code;
   const numericFileId = getChatGptNumericResolverFileId(envelope.url);
+  const candidate: Omit<ChatGptActiveAssetCandidate, 'assetId'> = { downloadUrl: envelope.url };
   if (numericFileId !== undefined) {
     if (numericFileId !== providerFileId) return 'download-url-binding-rejected';
+    try {
+      const key = await digestSha256(
+        new TextEncoder().encode(`${CHATGPT_RESOLVER_KEY_DOMAIN}${providerFileId}`)
+      );
+      if (!/^[a-f0-9]{64}$/.test(key)) return 'payload-integrity-rejected';
+      candidate.resolverKey = key;
+    } catch {
+      return 'payload-integrity-rejected';
+    }
   } else if (!isChatGptTransientDownloadUrl(envelope.url, conversationId)) {
     return 'download-url-binding-rejected';
   }
-  return 'observed';
+  return { code: 'observed', candidate };
 }
 
 function attemptedAt(now: () => number): string | undefined {
@@ -375,13 +396,21 @@ function attemptedAt(now: () => number): string | undefined {
   }
 }
 
-async function metricsFromState(
+interface ActiveResolverAnalysis {
+  metrics: ChatGptActiveResolverMetrics;
+  candidates: (Omit<ChatGptActiveAssetCandidate, 'assetId'> | undefined)[];
+}
+type ActiveResolverRunResponse =
+  | { success: true; data: ActiveResolverAnalysis }
+  | Extract<ChatGptActiveAssetResponse, { success: false }>;
+
+async function analyzeState(
   state: Extract<ChatGptActiveResolverHookResult, { kind: 'complete' }>,
   conversationId: string,
   providerFileIds: readonly string[],
   digestSha256: (bytes: Uint8Array) => Promise<string>,
   batchAttemptedAt: string
-): Promise<ChatGptActiveResolverResponse | undefined> {
+): Promise<ActiveResolverRunResponse | undefined> {
   // Expected IDs bind both ordinal and numeric signed-URL identity. They never
   // appear in the metric response, including for malformed MAIN values.
   if (
@@ -393,40 +422,45 @@ async function metricsFromState(
     return undefined;
   }
   const outcomes: ChatGptActiveResolverOutcomeCode[] = [];
+  const candidates: ActiveResolverAnalysis['candidates'] = [];
   for (let ordinal = 0; ordinal < state.outcomes.length; ordinal += 1) {
-    outcomes.push(
-      await metricOutcome(
-        state.outcomes[ordinal],
-        conversationId,
-        providerFileIds[ordinal],
-        digestSha256
-      )
+    const outcome = await analyzeOutcome(
+      state.outcomes[ordinal],
+      conversationId,
+      providerFileIds[ordinal],
+      digestSha256
     );
+    outcomes.push(typeof outcome === 'string' ? outcome : outcome.code);
+    candidates.push(typeof outcome === 'string' ? undefined : outcome.candidate);
   }
   return {
     success: true,
     data: {
-      requestedCount: state.requestedCount,
-      dispatchCount: state.dispatchCount,
-      observedCount: outcomes.filter(outcome => outcome === 'observed').length,
-      outcomes,
-      attemptedAt: batchAttemptedAt,
+      candidates,
+      metrics: {
+        requestedCount: state.requestedCount,
+        dispatchCount: state.dispatchCount,
+        observedCount: outcomes.filter(outcome => outcome === 'observed').length,
+        outcomes,
+        attemptedAt: batchAttemptedAt,
+      },
     },
   };
 }
 
 /**
- * One foreground, marker-gated active probe. It never performs binary asset
- * acquisition and its response is metric-only.
+ * One foreground, marker-gated resolver. It never performs binary acquisition.
+ * Internal analyzed URLs remain private until the separate data wrapper binds
+ * its one opaque ledger item; the metric wrapper discards them.
  */
 // eslint-disable-next-line max-lines-per-function, complexity -- Tab lifecycle and document-id pinning form one boundary.
-export async function probeChatGptActiveAssetResolvers(
+async function runChatGptActiveResolvers(
   conversationId: string,
   providerFileIds: readonly string[],
   overrides: ChatGptActiveResolverDependencies = {}
-): Promise<ChatGptActiveResolverResponse> {
+): Promise<ActiveResolverRunResponse> {
   if (!isChatGptConversationId(conversationId)) {
-    return createChatGptActiveResolverFailure('invalid-conversation-id');
+    return activeAssetFailure('invalid-conversation-id');
   }
   if (
     !Array.isArray(providerFileIds) ||
@@ -435,20 +469,20 @@ export async function probeChatGptActiveAssetResolvers(
     providerFileIds.some(fileId => !isChatGptActiveResolverProviderFileId(fileId)) ||
     new Set(providerFileIds).size !== providerFileIds.length
   ) {
-    return createChatGptActiveResolverFailure('invalid-provider-file-ids');
+    return activeAssetFailure('invalid-provider-file-ids');
   }
   const resolved = resolvedDependencies(overrides);
   const nonce = safeNonce(resolved.createNonce);
-  if (nonce === undefined) return createChatGptActiveResolverFailure('nonce-invalid');
+  if (nonce === undefined) return activeAssetFailure('nonce-invalid');
   const batchAttemptedAt = attemptedAt(resolved.now);
   if (batchAttemptedAt === undefined) {
-    return createChatGptActiveResolverFailure('resolver-result-invalid');
+    return activeAssetFailure('resolver-result-invalid');
   }
   let deadline: number;
   try {
     deadline = resolved.now() + resolved.timeoutMs;
   } catch {
-    return createChatGptActiveResolverFailure('resolver-result-invalid');
+    return activeAssetFailure('resolver-result-invalid');
   }
   let tabId: number | undefined;
   let cleanLateCreatedTab = false;
@@ -459,7 +493,7 @@ export async function probeChatGptActiveAssetResolvers(
         resolved.chromeApi.tabs.create({ url: targetUrl(conversationId, nonce), active: true })
       );
     } catch {
-      return createChatGptActiveResolverFailure('temporary-tab-create-failed');
+      return activeAssetFailure('temporary-tab-create-failed');
     }
     void creation.then(
       tab => {
@@ -474,10 +508,10 @@ export async function probeChatGptActiveAssetResolvers(
       tab = await withinDeadline(creation, remainingTimeout(deadline, resolved.now));
     } catch {
       cleanLateCreatedTab = true;
-      return createChatGptActiveResolverFailure('temporary-tab-create-failed');
+      return activeAssetFailure('temporary-tab-create-failed');
     }
     if (!Number.isSafeInteger(tab.id) || tab.id === undefined) {
-      return createChatGptActiveResolverFailure('temporary-tab-missing-id');
+      return activeAssetFailure('temporary-tab-missing-id');
     }
     tabId = tab.id;
     const readiness = await waitForTemporaryTarget(
@@ -490,12 +524,9 @@ export async function probeChatGptActiveAssetResolvers(
       resolved.sleep,
       resolved.pollIntervalMs
     );
-    if (readiness === 'unexpected-origin')
-      return createChatGptActiveResolverFailure('unexpected-origin');
-    if (readiness === 'unexpected-path')
-      return createChatGptActiveResolverFailure('unexpected-path');
-    if (readiness !== 'ready')
-      return createChatGptActiveResolverFailure('temporary-tab-ready-timeout');
+    if (readiness === 'unexpected-origin') return activeAssetFailure('unexpected-origin');
+    if (readiness === 'unexpected-path') return activeAssetFailure('unexpected-path');
+    if (readiness !== 'ready') return activeAssetFailure('temporary-tab-ready-timeout');
 
     // The initial unpinned read is the only one permitted. All later command
     // and state reads target exactly the document that produced this result.
@@ -506,12 +537,9 @@ export async function probeChatGptActiveAssetResolvers(
       deadline,
       resolved.now
     );
-    if (initial.documentId === undefined)
-      return createChatGptActiveResolverFailure('document-id-missing');
-    if (initial.state.kind === 'error')
-      return createChatGptActiveResolverFailure(initial.state.code);
-    if (initial.state.kind !== 'ready')
-      return createChatGptActiveResolverFailure('resolver-result-invalid');
+    if (initial.documentId === undefined) return activeAssetFailure('document-id-missing');
+    if (initial.state.kind === 'error') return activeAssetFailure(initial.state.code);
+    if (initial.state.kind !== 'ready') return activeAssetFailure('resolver-result-invalid');
     const pinnedTarget = { tabId, documentIds: [initial.documentId] };
     // Check the route once more immediately before the sole ID-bearing command.
     const current = await withinDeadline(
@@ -519,9 +547,8 @@ export async function probeChatGptActiveAssetResolvers(
       remainingTimeout(deadline, resolved.now)
     );
     const currentReadiness = isExactTargetUrl(current.url, conversationId, nonce);
-    if (currentReadiness === 'unexpected-origin')
-      return createChatGptActiveResolverFailure('unexpected-origin');
-    if (currentReadiness !== 'ready') return createChatGptActiveResolverFailure('unexpected-path');
+    if (currentReadiness === 'unexpected-origin') return activeAssetFailure('unexpected-origin');
+    if (currentReadiness !== 'ready') return activeAssetFailure('unexpected-path');
     if (
       !(await commandHook(
         resolved.chromeApi,
@@ -532,7 +559,7 @@ export async function probeChatGptActiveAssetResolvers(
         resolved.now
       ))
     ) {
-      return createChatGptActiveResolverFailure('command-rejected');
+      return activeAssetFailure('command-rejected');
     }
     while (resolved.now() <= deadline) {
       const read = await readHookState(
@@ -543,14 +570,14 @@ export async function probeChatGptActiveAssetResolvers(
         resolved.now
       );
       if (read.documentId !== initial.documentId) {
-        return createChatGptActiveResolverFailure('resolver-result-invalid');
+        return activeAssetFailure('resolver-result-invalid');
       }
-      if (read.state.kind === 'error') return createChatGptActiveResolverFailure(read.state.code);
+      if (read.state.kind === 'error') return activeAssetFailure(read.state.code);
       if (read.state.kind === 'complete') {
-        let metrics: ChatGptActiveResolverResponse | undefined;
+        let metrics: ActiveResolverRunResponse | undefined;
         try {
           metrics = await withinDeadline(
-            metricsFromState(
+            analyzeState(
               read.state,
               conversationId,
               providerFileIds,
@@ -560,9 +587,9 @@ export async function probeChatGptActiveAssetResolvers(
             remainingTimeout(deadline, resolved.now)
           );
         } catch {
-          return createChatGptActiveResolverFailure('resolver-result-timeout');
+          return activeAssetFailure('resolver-result-timeout');
         }
-        return metrics ?? createChatGptActiveResolverFailure('resolver-result-invalid');
+        return metrics ?? activeAssetFailure('resolver-result-invalid');
       }
       const remaining = deadline - resolved.now();
       if (remaining <= 0) break;
@@ -575,12 +602,48 @@ export async function probeChatGptActiveAssetResolvers(
         break;
       }
     }
-    return createChatGptActiveResolverFailure('resolver-result-timeout');
+    return activeAssetFailure('resolver-result-timeout');
   } catch {
-    return createChatGptActiveResolverFailure('resolver-result-invalid');
+    return activeAssetFailure('resolver-result-invalid');
   } finally {
     cleanLateCreatedTab = true;
     await removeTemporaryTab(resolved.chromeApi, tabId);
+  }
+}
+
+/** Existing metric-only boundary discards all transient data from shared analysis. */
+export async function probeChatGptActiveAssetResolvers(
+  conversationId: string,
+  providerFileIds: readonly string[],
+  overrides: ChatGptActiveResolverDependencies = {}
+): Promise<ChatGptActiveResolverResponse> {
+  const result = await runChatGptActiveResolvers(conversationId, providerFileIds, overrides);
+  return result.success ? { success: true, data: result.data.metrics } : result;
+}
+
+/** Separate one-item data boundary; no alternative network route or retry. */
+export async function resolveChatGptActiveAsset(
+  conversationId: string,
+  item: ChatGptActiveAssetPlanItem,
+  overrides: ChatGptActiveResolverDependencies = {}
+): Promise<ChatGptActiveAssetResponse> {
+  try {
+    if (!isChatGptActiveAssetPlanItem(item)) return activeAssetFailure('invalid-provider-file-ids');
+    const boundItem = { assetId: item.assetId, providerFileId: item.providerFileId };
+    const result = await runChatGptActiveResolvers(
+      conversationId,
+      [boundItem.providerFileId],
+      overrides
+    );
+    if (!result.success) return result;
+    const resolved = result.data.candidates[0];
+    const candidate = resolved === undefined ? null : { assetId: boundItem.assetId, ...resolved };
+    return {
+      success: true,
+      data: { assetId: boundItem.assetId, metrics: result.data.metrics, candidate },
+    };
+  } catch {
+    return activeAssetFailure('resolver-result-invalid');
   }
 }
 

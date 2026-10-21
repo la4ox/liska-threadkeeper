@@ -221,42 +221,55 @@ is interpreter-eligible. They remained `not-attempted` because the passive
 eight-second observer saw no matching page-owned resolver request for these
 historical/lazy assets.
 
-The active file-ID evidence gate is now live-verified on a separate ordinary
-ChatGPT conversation with a freshly visible generated PNG. Its complete graph
-contained 35 current-path nodes and six image ledger records (three unique
-active identities). The page itself issued `/backend-api/files/download/{id}`
-with the exact image query `conversation_id`, `inline=false`,
-`download_intent=false`, and `include_library_file_state=true`, followed by the
-established six-key estuary content request. A credential-only repetition
-returned 404 JSON, confirming that the helper needs the closure-private source
-authorization. The bounded production checkpoint therefore reuses the
-interpreter-owned plain-header transport, copies no credential outside MAIN,
-dispatches exactly one PNG helper request, and never returns a candidate or
-acquires bytes. After refining the value-free envelope taxonomy, the final live
+The active file-ID route is now live-verified through its first bounded
+data-bearing adapter on a separate ordinary ChatGPT conversation with a freshly
+visible generated PNG. Its complete graph has 35 current-path nodes and six
+image ledger records. A pure committed-raw plan resolves whole-ledger identity
+strength and ambiguity before choosing exactly one eligible PNG; interpreter
+ownership wins first, the selected active identity is never retried passively,
+and passive matching keeps the complete ledger until after winner selection so
+a weaker pointer alias cannot trigger a duplicate fetch. Any unsupported
+nonempty direct identity fails closed before sibling or pointer fallback in both
+passive and active evidence families.
+
+The helper remains the one page-observed
+`/backend-api/files/download/{id}` route with exactly `conversation_id`,
+`inline=false`, `download_intent=false`, and
+`include_library_file_state=true`. It reuses closure-private source
+authorization only inside MAIN, copies no credential outside that closure, and
+has no retry, endpoint fallback, route discovery, or batch widening. Background
+rebinds the signed URL to the exact transient plan; the existing downloader then
+verifies response URL, media type, PNG bytes, length, and SHA-256 before
+destination-specific persistence can claim `fetched`.
+
+Two final-build trusted-click exports completed independently. The warm canary
 receipt was `requested=1`, `dispatched=1`, `observed=1`, with every failure
-bucket zero. The provider currently uses lowercase `success`; it passed the
-same signed-URL grammar and numeric provider-ID binding as `Success`. Raw,
-manifest, and canonical companions were byte-identical between Downloads and
-Obsidian; all six assets deliberately remained `not-attempted`, and no binary
-file was created. This authorizes a separate bounded data-bearing adapter, not
-automatic retries, endpoint fallback, or broad active acquisition.
+bucket zero. It wrote raw 82,854 bytes, manifest 4,734 bytes, canonical 186,521
+bytes, and one 1,474,502-byte PNG (1122 by 1402) to both Downloads and Obsidian.
+All four companion/binary files were byte-identical across destinations; the
+Markdown views were also byte-identical at 25,894 bytes. Manifest and actual
+PNG length/SHA-256/path agree, one asset is `fetched`, and five remain honestly
+`not-attempted`. The same content-addressed PNG hash repeated across both
+immutable captures. Durable manifest/canonical scans found no selected provider
+identity or transient signed URL, and no marker tab remained.
 
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 147 test files / 3,794 tests pass;
-- coverage passes at 95.17% statements, 90.53% branches, 98.30% functions, and
-  97.84% lines;
+- 150 test files / 3,878 tests pass;
+- coverage passes at 95.14% statements, 90.62% branches, 98.28% functions, and
+  97.76% lines;
 - TypeScript and the production Vite build pass;
 - full lint has zero errors and only the same three pre-existing advisory
   warnings; platform registry lint and repository formatting pass;
-- independent review reproduced both URL/base conversion defects against the
-  exact module, verified their fixes in memory, and reports no residual P0-P3
-  finding.
+- independent review reproduced and then invalidated three resolver-boundary
+  defects: duplicate direct/pointer fetching, invalid-direct pointer fallback,
+  and the same fallback in shared passive/metric evidence. Whole-ledger
+  precedence plus per-family fail-closed direct-ID validation now cover all
+  three; final review reports no residual P0-P3 finding.
 
-Next: implement a separate one-candidate file-ID acquisition adapter that
-returns only the already validated transient URL to the existing bounded binary
-downloader. Preserve interpreter-first ordering, exclude the attempted active
-identity from passive retry, and keep older 404 assets as explicit partial
-evidence. A remote push, pull request, merge, release, or tag remains a separate
-explicit action.
+Next: keep the one-PNG cap while exercising deliberately different live
+availability states and old-reference samples. Widening to a small multi-PNG
+batch requires a separate evidence checkpoint; custom-GPT, Library-ID, Calpico,
+and broad endpoint fallback remain out of scope. A remote push, pull request,
+merge, release, or tag remains a separate explicit action.

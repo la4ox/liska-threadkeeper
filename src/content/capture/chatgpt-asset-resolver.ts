@@ -20,6 +20,10 @@ import {
   isChatGptActiveResolverProviderFileId,
 } from '../../lib/chatgpt-active-resolver-contract';
 import {
+  isChatGptActiveAssetId,
+  type ChatGptActiveAssetPlanItem,
+} from '../../lib/chatgpt-active-asset-contract';
+import {
   CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
   isChatGptInterpreterMessageId,
   isChatGptInterpreterSandboxPath,
@@ -330,9 +334,10 @@ function providerFileEvidence(value: unknown): ProviderFileEvidence[] {
   const direct = new Set<string>();
   for (const field of DIRECT_ID_FIELDS) {
     const candidate = value[field];
-    if (typeof candidate === 'string' && PROVIDER_FILE_ID_PATTERN.test(candidate)) {
-      direct.add(candidate);
-    }
+    if (typeof candidate !== 'string' || candidate.length === 0) continue;
+    // Never reinterpret an unsupported direct identity as a sibling or pointer.
+    if (!PROVIDER_FILE_ID_PATTERN.test(candidate)) return [];
+    direct.add(candidate);
   }
   if (direct.size > 0) {
     return [...direct].sort().map(fileId => ({ fileId, strength: 2 as const }));
@@ -349,7 +354,9 @@ function activeProviderFileEvidence(value: unknown): string[] {
   const direct = new Set<string>();
   for (const field of DIRECT_ID_FIELDS) {
     const candidate = value[field];
-    if (isChatGptActiveResolverProviderFileId(candidate)) direct.add(candidate);
+    if (typeof candidate !== 'string' || candidate.length === 0) continue;
+    if (!isChatGptActiveResolverProviderFileId(candidate)) return [];
+    direct.add(candidate);
   }
   if (direct.size > 0) return [...direct].sort();
   const pointer = value.asset_pointer;
@@ -387,6 +394,82 @@ export function extractChatGptActiveResolverPlan(
     if (selected.size >= CHATGPT_ACTIVE_RESOLVER_MAX_COUNT) break;
   }
   return { providerFileIds: [...selected] };
+}
+
+function activePngAssetEvidence(raw: unknown, asset: RawCaptureAssetRecord) {
+  const evidence = new Map<string, number>();
+  let unsupportedIdentity = false;
+  for (const ref of asset.sourceRefs) {
+    if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') continue;
+    const value = atJsonPointer(raw, ref.rawPointer);
+    // The inventory may derive this opaque ID from a nonempty direct value
+    // that the legacy evidence regex discards. Never then bind it to a pointer.
+    if (hasUnsupportedActiveDirectIdentity(value)) {
+      return { evidence: new Map<string, number>(), ambiguous: true };
+    }
+    for (const item of providerFileEvidence(value)) {
+      // A stronger but unsupported direct identity never falls back to a pointer.
+      if (isChatGptActiveResolverProviderFileId(item.fileId))
+        evidence.set(item.fileId, Math.max(evidence.get(item.fileId) ?? 0, item.strength));
+      else unsupportedIdentity = true;
+    }
+  }
+  return { evidence, ambiguous: unsupportedIdentity || evidence.size !== 1 };
+}
+
+function hasUnsupportedActiveDirectIdentity(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return DIRECT_ID_FIELDS.some(field => {
+    const direct = value[field];
+    return (
+      typeof direct === 'string' &&
+      direct.length > 0 &&
+      !isChatGptActiveResolverProviderFileId(direct)
+    );
+  });
+}
+
+/** Resolve ambiguity across the whole ledger before selecting one eligible PNG. */
+export function extractChatGptActivePngPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  eligibleAssetIds: readonly string[]
+): ChatGptActiveAssetPlanItem | undefined {
+  const eligible = new Set(eligibleAssetIds);
+  const byProvider = new Map<
+    string,
+    Array<{ asset: RawCaptureAssetRecord; strength: number; ambiguous: boolean }>
+  >();
+  const assetIdCounts = new Map<string, number>();
+  for (const asset of assets) {
+    if (!asset || !isChatGptActiveAssetId(asset.id) || !Array.isArray(asset.sourceRefs)) continue;
+    assetIdCounts.set(asset.id, (assetIdCounts.get(asset.id) ?? 0) + 1);
+    const { evidence, ambiguous } = activePngAssetEvidence(raw, asset);
+    for (const [providerFileId, strength] of evidence) {
+      const group = byProvider.get(providerFileId) ?? [];
+      group.push({ asset, strength, ambiguous });
+      byProvider.set(providerFileId, group);
+    }
+  }
+  const selected: ChatGptActiveAssetPlanItem[] = [];
+  for (const [providerFileId, group] of byProvider) {
+    const strongest = Math.max(...group.map(entry => entry.strength));
+    const winners = group.filter(entry => entry.strength === strongest);
+    if (winners.length !== 1) continue;
+    const winner = winners[0];
+    if (
+      winner.ambiguous ||
+      assetIdCounts.get(winner.asset.id) !== 1 ||
+      !eligible.has(winner.asset.id) ||
+      winner.asset.mediaType !== 'image/png' ||
+      winner.asset.state !== 'not-attempted'
+    )
+      continue;
+    selected.push({ assetId: winner.asset.id, providerFileId });
+  }
+  return selected.sort((left, right) =>
+    left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
+  )[0];
 }
 
 async function resolverKeyFor(

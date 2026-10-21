@@ -18,10 +18,26 @@ import {
   CHATGPT_ASSET_RECAPTURE_FAILED_WARNING,
   CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
   observeChatGptAssetResolvers,
+  planChatGptActivePngAsset,
+  planChatGptInterpreterAssetIds,
   verifyChatGptAssetExportContext,
   type ChatGptAssetResolverObservation,
 } from './capture/chatgpt-current-branch';
-import type { ChatGptActiveResolverMetric } from './capture/chatgpt-active-resolver-audit';
+import {
+  chatGptActiveResolverAuditWarning,
+  chatGptActiveResolverMetricFromResponse,
+  type ChatGptActiveResolverMetric,
+} from './capture/chatgpt-active-resolver-audit';
+import {
+  activeAssetFailure,
+  isBoundChatGptActiveAssetResponse,
+  type ChatGptActiveAssetPlanItem,
+  type ChatGptActiveAssetResponse,
+} from '../lib/chatgpt-active-asset-contract';
+import {
+  applyChatGptActiveAssetFailure,
+  applyChatGptActiveAcquisitionFailure,
+} from './capture/chatgpt-active-asset-diagnostics';
 import type { ChatGptPageOwnedAssetCandidate } from './capture/chatgpt-asset-resolver';
 import { applyInterpreterResolverDetails } from './capture/chatgpt-interpreter-resolver-diagnostics';
 import { sha256Hex } from './capture/response';
@@ -76,6 +92,11 @@ export interface ChatGptAssetExportDependencies {
     context: ChatGptAssetExportContext,
     eligibleAssetIds: readonly string[]
   ) => Promise<ChatGptAssetResolverObservation>;
+  /** Separate one-candidate data route; never enabled outside strict replay. */
+  resolveActiveAsset?: (
+    context: ChatGptAssetExportContext,
+    item: ChatGptActiveAssetPlanItem
+  ) => Promise<ChatGptActiveAssetResponse>;
   acquireAssets?: typeof acquireChatGptPageOwnedAssets;
   persistBinaryAssets?: typeof persistVerifiedBinaryAssets;
   buildDestinationCompanion?: typeof buildChatGptBinaryAwareArchiveCompanion;
@@ -361,6 +382,7 @@ async function observeOneUnattemptedPng(
   dependencies: ChatGptAssetExportDependencies,
   acquired: AcquiredAssets,
   candidates: ReadonlyMap<string, ChatGptPageOwnedAssetCandidate>,
+  excludedAssetIds: ReadonlySet<string>,
   resolution: ChatGptAssetCandidateResolution
 ): Promise<void> {
   // Probe one unresolved PNG independently of the later passive observer's
@@ -372,6 +394,7 @@ async function observeOneUnattemptedPng(
         record.state === 'not-attempted' &&
         record.mediaType === 'image/png' &&
         /^chatgpt-asset-[a-f0-9]{64}$/.test(record.id) &&
+        !excludedAssetIds.has(record.id) &&
         !candidates.has(record.id)
     )
     .map(record => record.id)
@@ -389,6 +412,56 @@ async function observeOneUnattemptedPng(
   } catch {
     addWarning(resolution.warnings, CHATGPT_ASSET_RECAPTURE_FAILED_WARNING);
   }
+}
+
+async function resolveOneUnattemptedPng(
+  context: ChatGptAssetExportContext,
+  dependencies: ChatGptAssetExportDependencies,
+  records: readonly RawCaptureAssetRecord[],
+  candidates: ReadonlyMap<string, ChatGptPageOwnedAssetCandidate>,
+  excludedAssetIds: ReadonlySet<string>,
+  resolution: ChatGptAssetCandidateResolution
+): Promise<{ assetId: string; response: ChatGptActiveAssetResponse } | undefined> {
+  if (dependencies.resolveActiveAsset === undefined) return undefined;
+  let item: ChatGptActiveAssetPlanItem | undefined;
+  try {
+    item = await planChatGptActivePngAsset(
+      context,
+      records
+        .filter(
+          record =>
+            record.state === 'not-attempted' &&
+            !candidates.has(record.id) &&
+            !excludedAssetIds.has(record.id)
+        )
+        .map(record => record.id)
+    );
+  } catch {
+    addWarning(resolution.warnings, CHATGPT_ASSET_BINDING_FAILED_WARNING);
+  }
+  if (!item) return undefined;
+  const bound = { ...item };
+  let response: ChatGptActiveAssetResponse;
+  try {
+    const result = await dependencies.resolveActiveAsset(context, { ...bound });
+    response = (await isBoundChatGptActiveAssetResponse(result, bound, context.conversationId))
+      ? result
+      : activeAssetFailure('resolver-result-invalid');
+  } catch {
+    response = activeAssetFailure('resolver-result-invalid');
+  }
+  resolution.activeResolverMetric = {
+    ...chatGptActiveResolverMetricFromResponse(
+      response.success ? { success: true, data: response.data.metrics } : response,
+      1
+    ),
+    acquisitionMode: 'one-png',
+  };
+  addWarning(
+    resolution.warnings,
+    chatGptActiveResolverAuditWarning(resolution.activeResolverMetric)
+  );
+  return { assetId: bound.assetId, response };
 }
 
 // eslint-disable-next-line max-lines-per-function -- The interpreter-fetch-before-legacy ordering stays explicit so signed URLs cannot age behind another resolver family.
@@ -421,28 +494,77 @@ async function resolveAndAcquireAssetCandidates(
     }
     acquired = combineAcquiredAssets(acquired, next);
   };
+  let interpreterPlanIds: string[] = [];
+  if (dependencies.observeInterpreterResolvers !== undefined) {
+    try {
+      interpreterPlanIds = await planChatGptInterpreterAssetIds(context);
+    } catch {
+      addWarning(resolution.warnings, CHATGPT_ASSET_BINDING_FAILED_WARNING);
+      return { resolution, acquired, acquisitionFailed };
+    }
+  }
   const interpreter = await observeInterpreterResolvers(context, dependencies);
   if (interpreter !== undefined) {
     addObservation(resolution, interpreter, candidates, allowedAssetIds, true);
   }
-  const interpreterAssetIds = new Set(candidates.keys());
+  const interpreterAssetIds = new Set([...interpreterPlanIds, ...candidates.keys()]);
   await acquireBatch(
     [...candidates.values()].sort((left, right) =>
       left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
     )
   );
-  await observeOneUnattemptedPng(context, dependencies, acquired, candidates, resolution);
+  const active = await resolveOneUnattemptedPng(
+    context,
+    dependencies,
+    acquired.records,
+    candidates,
+    interpreterAssetIds,
+    resolution
+  );
+  if (active) {
+    acquired.records = applyChatGptActiveAssetFailure(
+      acquired.records,
+      active.assetId,
+      active.response
+    );
+    if (active.response.success && active.response.data.candidate !== null) {
+      const candidate = active.response.data.candidate;
+      candidates.set(active.assetId, candidate);
+      resolution.matched = true;
+      await acquireBatch([candidate]);
+      if (
+        acquired.records.find(record => record.id === active.assetId)?.state === 'not-attempted'
+      ) {
+        acquired.records = applyChatGptActiveAcquisitionFailure(acquired.records, active.assetId);
+      }
+    }
+  } else if (dependencies.resolveActiveAsset === undefined) {
+    await observeOneUnattemptedPng(
+      context,
+      dependencies,
+      acquired,
+      candidates,
+      interpreterAssetIds,
+      resolution
+    );
+  }
 
-  const hasUnresolvedAsset = [...allowedAssetIds].some(assetId => !candidates.has(assetId));
+  const remainingAssetIds = [...allowedAssetIds]
+    .filter(
+      assetId =>
+        !interpreterAssetIds.has(assetId) && !candidates.has(assetId) && assetId !== active?.assetId
+    )
+    .sort();
+  const hasUnresolvedAsset = remainingAssetIds.length > 0;
   if (hasUnresolvedAsset) {
-    const remainingAssetIds = [...allowedAssetIds]
-      .filter(assetId => !candidates.has(assetId))
-      .sort();
     const legacy = await observeLegacyResolvers(context, dependencies, remainingAssetIds);
-    addObservation(resolution, legacy, candidates, allowedAssetIds, false);
+    addObservation(resolution, legacy, candidates, new Set(remainingAssetIds), false);
     await acquireBatch(
       [...candidates.values()]
-        .filter(candidate => !interpreterAssetIds.has(candidate.assetId))
+        .filter(
+          candidate =>
+            !interpreterAssetIds.has(candidate.assetId) && candidate.assetId !== active?.assetId
+        )
         .sort((left, right) =>
           left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
         )

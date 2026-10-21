@@ -31,6 +31,32 @@ function completeMetric(): ChatGptActiveResolverMetric {
 }
 
 describe('ChatGPT active resolver durable audit', () => {
+  it('keeps the metric route disabled and admits only the fixed one-png data capability', () => {
+    expect(chatGptActiveResolverAuditWarning(completeMetric())).toContain(
+      'file-ID binary acquisition remains disabled.'
+    );
+    expect(
+      chatGptActiveResolverAuditWarning({ ...completeMetric(), acquisitionMode: 'one-png' })
+    ).toContain('file-ID binary acquisition is limited to one PNG.');
+    expect(() =>
+      chatGptActiveResolverAuditWarning({
+        ...completeMetric(),
+        acquisitionMode: 'arbitrary',
+      } as never)
+    ).toThrow('invalid active resolver metric');
+    expect(() =>
+      chatGptActiveResolverAuditWarning({ ...completeMetric(), url: 'private' } as never)
+    ).toThrow('invalid active resolver metric');
+    const metric = completeMetric();
+    Object.defineProperty(metric, 'acquisitionMode', {
+      get: () => {
+        throw new Error('must-not-evaluate');
+      },
+    });
+    expect(() => chatGptActiveResolverAuditWarning(metric)).toThrow(
+      'invalid active resolver metric'
+    );
+  });
   it.each(['provider-status-absent', 'provider-status-non-string'] as const)(
     'persists only the fixed %s category with observed zero',
     code => {

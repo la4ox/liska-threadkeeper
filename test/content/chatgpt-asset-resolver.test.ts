@@ -9,6 +9,7 @@ import {
 import {
   CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
   extractChatGptActiveResolverPlan,
+  extractChatGptActivePngPlan,
   extractChatGptInterpreterAssetPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptTransientResolverRecord,
@@ -57,6 +58,178 @@ function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
 }
 
 describe('ChatGPT page-owned asset resolver matching', () => {
+  describe.each(['passive', 'active-metric'] as const)('%s direct identity rejection', route => {
+    it.each(['slash', 'Unicode', 'over-limit'] as const)(
+      'rejects %s direct identity without sibling/pointer fallback',
+      async kind => {
+        const invalid =
+          kind === 'slash'
+            ? 'file/unsupported'
+            : kind === 'Unicode'
+              ? 'file-неподдерживаемый'
+              : 'x'.repeat(route === 'passive' ? 513 : 257);
+        const observed = await resolver('file_valid', 'https://chatgpt.com/synthetic-signed');
+        for (const mixed of [false, true]) {
+          for (const field of ['asset_id', 'assetId', 'file_id', 'fileId', 'id']) {
+            const record = {
+              asset_pointer: 'file-service://file_valid',
+              ...(mixed ? { [field === 'id' ? 'file_id' : 'id']: 'file_valid' } : {}),
+              [field]: invalid,
+            };
+            const assets = [asset('a', '/candidate')];
+            if (route === 'passive')
+              expect(
+                await matchChatGptPageOwnedAssetResolvers({
+                  raw: { candidate: record },
+                  assets,
+                  resolvers: [observed],
+                  sha256: digest,
+                })
+              ).toEqual([]);
+            else
+              expect(extractChatGptActiveResolverPlan({ candidate: record }, assets)).toEqual({
+                providerFileIds: [],
+              });
+          }
+        }
+      }
+    );
+  });
+
+  it('preserves the wider passive grammar without relaxing the active metric grammar', async () => {
+    for (const direct of ['file.with.dot', 'x'.repeat(512)]) {
+      const assets = [asset('a', '/candidate')];
+      const raw = { candidate: { file_id: direct, asset_pointer: 'file-service://file_valid' } };
+      const observed = await resolver(direct, 'https://chatgpt.com/synthetic-signed');
+      expect(
+        await matchChatGptPageOwnedAssetResolvers({
+          raw,
+          assets,
+          resolvers: [observed],
+          sha256: digest,
+        })
+      ).toEqual([{ assetId: assets[0].id, downloadUrl: observed.downloadUrl }]);
+      expect(extractChatGptActiveResolverPlan(raw, assets)).toEqual({ providerFileIds: [] });
+    }
+  });
+
+  describe('one-PNG data plan before dispatch', () => {
+    it.each([
+      ['slash', 'file/unsupported'],
+      ['Unicode', 'file-неподдерживаемый'],
+      ['over-512', 'x'.repeat(513)],
+    ])(
+      'rejects a nonempty %s direct identity before pointer fallback, including mixed valid/invalid direct fields',
+      async (_label, invalidId) => {
+        for (const mixed of [false, true]) {
+          const attachment = {
+            content_type: 'image_asset_pointer',
+            mime_type: 'image/png',
+            file_id: invalidId,
+            asset_pointer: 'file-service://file_valid',
+            ...(mixed ? { id: 'file_valid' } : {}),
+          };
+          const raw = {
+            mapping: {
+              node: {
+                id: 'node',
+                parent: null,
+                children: [],
+                message: {
+                  id: 'message',
+                  author: { role: 'user' },
+                  content: { content_type: 'multimodal_text', parts: [attachment] },
+                  metadata: {},
+                },
+              },
+            },
+          };
+          const inventory = await inventoryChatGptRawAssets({
+            raw,
+            artifactId: 'conversation',
+            sha256: digest,
+          });
+          expect(inventory.assets).toHaveLength(1);
+          const opaque = inventory.assets[0];
+          expect(opaque.id).toBe(
+            await chatGptAssetIdForIdentity(`provider-id:${invalidId}`, digest)
+          );
+          expect(extractChatGptActivePngPlan(raw, inventory.assets, [opaque.id])).toBeUndefined();
+        }
+      }
+    );
+    it('deduplicates equivalent pointers and chooses one deterministic opaque asset', () => {
+      const raw = {
+        first: { file_id: 'file_one' },
+        duplicate: { asset_pointer: 'file-service://file_one' },
+        second: { file_id: 'file_two' },
+        outside: { file_id: 'must-not-scan' },
+      };
+      const first = assetWithSourceRefs('a', ['/first', '/duplicate']);
+      const second = asset('b', '/second');
+      expect(extractChatGptActivePngPlan(raw, [second, first], [second.id, first.id])).toEqual({
+        assetId: first.id,
+        providerFileId: 'file_one',
+      });
+    });
+    it('gives a direct metadata identity precedence over pointer-only ledger records, not array order', () => {
+      const raw = {
+        direct: { file_id: 'file_one', asset_pointer: 'file-service://ignored' },
+        pointer: { asset_pointer: 'file-service://file_one' },
+      };
+      const direct = asset('b', '/direct'),
+        pointer = asset('a', '/pointer');
+      expect(extractChatGptActivePngPlan(raw, [pointer, direct], [pointer.id, direct.id])).toEqual({
+        assetId: direct.id,
+        providerFileId: 'file_one',
+      });
+      expect(extractChatGptActivePngPlan(raw, [pointer, direct], [pointer.id])).toBeUndefined();
+    });
+    it('skips multiple identities, cross-record ties, and duplicate opaque records', () => {
+      const raw = {
+        one: { file_id: 'file_one' },
+        two: { file_id: 'file_two' },
+        ambiguous: { file_id: 'file_one', id: 'file_two' },
+      };
+      const first = asset('a', '/one'),
+        second = asset('b', '/one');
+      expect(
+        extractChatGptActivePngPlan(raw, [first, second], [first.id, second.id])
+      ).toBeUndefined();
+      expect(extractChatGptActivePngPlan(raw, [first, first], [first.id])).toBeUndefined();
+      expect(
+        extractChatGptActivePngPlan(raw, [assetWithSourceRefs('a', ['/one', '/two'])], [first.id])
+      ).toBeUndefined();
+      expect(
+        extractChatGptActivePngPlan(raw, [asset('a', '/ambiguous'), second], [first.id, second.id])
+      ).toBeUndefined();
+    });
+    it('does not recover unsupported direct IDs through weaker transport pointers', () => {
+      const raw = {
+        one: { file_id: 'file.unsupported', asset_pointer: 'file-service://file_valid' },
+        two: { asset_pointer: 'file-service://file_valid' },
+      };
+      const record = assetWithSourceRefs('a', ['/one', '/two']);
+      expect(extractChatGptActivePngPlan(raw, [record], [record.id])).toBeUndefined();
+    });
+    it.each(['non-PNG', 'attempted', 'unlisted', 'other artifact', 'missing ref'])(
+      'skips %s before any network plan',
+      mode => {
+        const record = asset('a', '/one');
+        if (mode === 'non-PNG') record.mediaType = 'application/pdf';
+        if (mode === 'attempted') record.state = 'failed';
+        if (mode === 'other artifact') record.sourceRefs[0].artifactId = 'other';
+        if (mode === 'missing ref') record.sourceRefs[0].rawPointer = '/missing';
+        expect(
+          extractChatGptActivePngPlan(
+            { one: { file_id: 'file_one' } },
+            [record],
+            mode === 'unlisted' ? [] : [record.id]
+          )
+        ).toBeUndefined();
+      }
+    );
+  });
   describe('interpreter attachment plan', () => {
     it('matches each assistant Markdown link from one exact text-part ledger source', async () => {
       const raw = {

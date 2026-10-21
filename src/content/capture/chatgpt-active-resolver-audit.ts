@@ -16,6 +16,8 @@ import {
 export type ChatGptActiveResolverOutcomeCounts = Record<ChatGptActiveResolverOutcomeCode, number>;
 
 export interface ChatGptActiveResolverMetric {
+  /** Fixed capability label only; absent for the unchanged metric-only route. */
+  acquisitionMode?: 'one-png';
   requestedCount: number;
   dispatchCount: number | null;
   observedCount: number;
@@ -105,7 +107,25 @@ function invalidMetric(): never {
 }
 
 function validateMetricBase(metric: ChatGptActiveResolverMetric): void {
+  const fields = [
+    'requestedCount',
+    'dispatchCount',
+    'observedCount',
+    'outcomeCounts',
+    'failureCode',
+  ];
+  if (Object.getOwnPropertyDescriptor(metric, 'acquisitionMode') !== undefined)
+    fields.push('acquisitionMode');
   if (
+    Reflect.ownKeys(metric).length !== fields.length ||
+    !fields.every(field => {
+      const descriptor = Object.getOwnPropertyDescriptor(metric, field);
+      return descriptor !== undefined && 'value' in descriptor;
+    })
+  )
+    invalidMetric();
+  if (
+    (metric.acquisitionMode !== undefined && metric.acquisitionMode !== 'one-png') ||
     !Number.isSafeInteger(metric.requestedCount) ||
     metric.requestedCount < 0 ||
     metric.requestedCount > CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT ||
@@ -177,10 +197,14 @@ export function chatGptActiveResolverAuditWarning(
 ): string | undefined {
   if (metric === undefined) return undefined;
   validateMetricBase(metric);
+  const acquisition =
+    metric.acquisitionMode === 'one-png'
+      ? 'file-ID binary acquisition is limited to one PNG.'
+      : 'file-ID binary acquisition remains disabled.';
   if (metric.outcomeCounts === null) {
     validateFailureMetric(metric);
-    return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=unknown; observed=0; outcomes=unavailable; failure=${metric.failureCode}; file-ID binary acquisition remains disabled.`;
+    return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=unknown; observed=0; outcomes=unavailable; failure=${metric.failureCode}; ${acquisition}`;
   }
   validateSuccessMetric(metric, metric.outcomeCounts);
-  return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=${metric.dispatchCount}; observed=${metric.observedCount}; outcomes=${histogram(metric.outcomeCounts)}; failure=none; file-ID binary acquisition remains disabled.`;
+  return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=${metric.dispatchCount}; observed=${metric.observedCount}; outcomes=${histogram(metric.outcomeCounts)}; failure=none; ${acquisition}`;
 }

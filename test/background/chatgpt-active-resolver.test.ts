@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   commandChatGptActiveResolver,
   probeChatGptActiveAssetResolvers,
+  resolveChatGptActiveAsset,
   readChatGptActiveResolverState,
 } from '../../src/background/chatgpt-active-resolver';
 import { CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT } from '../../src/lib/chatgpt-active-resolver-contract';
@@ -80,6 +81,119 @@ afterEach(() => {
 });
 
 describe('ChatGPT active resolver background checkpoint', () => {
+  it('bounds data-candidate key hashing by the same outer deadline and cleans its tab', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const source = JSON.stringify({
+      status: 'success',
+      download_url: `https://chatgpt.com/backend-api/estuary/content?id=${PROVIDER_ID}&ts=1&p=fs&cid=1&sig=${'a'.repeat(64)}&v=0`,
+    });
+    const bytes = new TextEncoder().encode(source);
+    const hash = await digest(bytes);
+    const chrome = chromeApi(observedState(btoa(source), bytes.byteLength, hash));
+    let calls = 0;
+    const result = resolveChatGptActiveAsset(
+      CONVERSATION_ID,
+      { assetId: `chatgpt-asset-${'a'.repeat(64)}`, providerFileId: PROVIDER_ID },
+      {
+        chromeApi: chrome.api,
+        createNonce: () => NONCE,
+        timeoutMs: 1000,
+        digestSha256: () =>
+          ++calls === 1 ? Promise.resolve(hash) : new Promise<string>(() => undefined),
+      }
+    );
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(await result).toEqual({ success: false, code: 'resolver-result-timeout' });
+    expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+  });
+  it.each(['Success', 'success'])(
+    'returns a separately bound one-item candidate for %s without changing the metric route',
+    async status => {
+      const assetId = `chatgpt-asset-${'a'.repeat(64)}`;
+      const url = `https://chatgpt.com/backend-api/estuary/content?id=${PROVIDER_ID}&ts=1700000000&p=fs&cid=1&sig=${'a'.repeat(64)}&v=0`;
+      const source = JSON.stringify({ status, download_url: url, detail: 'must-not-return' });
+      const bytes = new TextEncoder().encode(source);
+      const state = observedState(btoa(source), bytes.byteLength, await digest(bytes));
+      const chrome = chromeApi(state);
+      const response = await resolveChatGptActiveAsset(
+        CONVERSATION_ID,
+        { assetId, providerFileId: PROVIDER_ID },
+        { chromeApi: chrome.api, createNonce: () => NONCE, digestSha256: digest }
+      );
+      expect(response).toMatchObject({
+        success: true,
+        data: {
+          assetId,
+          metrics: {
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 1,
+            outcomes: ['observed'],
+          },
+          candidate: {
+            assetId,
+            downloadUrl: url,
+            resolverKey: await digest(
+              new TextEncoder().encode(`liska-chatgpt-resolver/1\u0000${PROVIDER_ID}`)
+            ),
+          },
+        },
+      });
+      expect(JSON.stringify(response)).not.toContain('providerFileId');
+      expect(JSON.stringify(response)).not.toContain('must-not-return');
+      expect(chrome.executeScript.mock.calls[1][0].args).toEqual([NONCE, [PROVIDER_ID]]);
+      expect(chrome.remove).toHaveBeenCalledWith(123);
+      const metricChrome = chromeApi(state);
+      const metric = await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
+        chromeApi: metricChrome.api,
+        createNonce: () => NONCE,
+        digestSha256: digest,
+      });
+      expect(JSON.stringify(metric)).not.toContain('https://');
+      expect(JSON.stringify(metric)).not.toContain(PROVIDER_ID);
+    }
+  );
+
+  it.each([
+    ['file_expired', undefined, 'file-expired'],
+    ['success', 'https://example.invalid/private', 'download-url-binding-rejected'],
+    [
+      'success',
+      `https://chatgpt.com/backend-api/estuary/content?id=file_other&ts=1&p=fs&cid=1&sig=${'a'.repeat(64)}&v=0`,
+      'download-url-binding-rejected',
+    ],
+    ['Success', undefined, 'success-without-download-url'],
+  ])('returns zero data candidates for %s / %s', async (status, download_url, outcome) => {
+    const source = JSON.stringify({ status, download_url });
+    const bytes = new TextEncoder().encode(source);
+    const chrome = chromeApi(observedState(btoa(source), bytes.byteLength, await digest(bytes)));
+    const result = await resolveChatGptActiveAsset(
+      CONVERSATION_ID,
+      { assetId: `chatgpt-asset-${'a'.repeat(64)}`, providerFileId: PROVIDER_ID },
+      { chromeApi: chrome.api, createNonce: () => NONCE, digestSha256: digest }
+    );
+    expect(result).toMatchObject({
+      success: true,
+      data: { candidate: null, metrics: { outcomes: [outcome], observedCount: 0 } },
+    });
+    expect(JSON.stringify(result)).not.toContain('https://');
+    expect(chrome.executeScript).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    null,
+    [],
+    [{ assetId: `chatgpt-asset-${'a'.repeat(64)}`, providerFileId: PROVIDER_ID }],
+    { assetId: 'file_a', providerFileId: PROVIDER_ID },
+    { assetId: `chatgpt-asset-${'a'.repeat(64)}`, providerFileId: PROVIDER_ID, extra: true },
+  ])('rejects an invalid single-item data plan %# before tabs', async item => {
+    const chrome = chromeApi({ kind: 'ready' });
+    expect(
+      await resolveChatGptActiveAsset(CONVERSATION_ID, item as never, { chromeApi: chrome.api })
+    ).toEqual({ success: false, code: 'invalid-provider-file-ids' });
+    expect(chrome.api.tabs.create).not.toHaveBeenCalled();
+  });
   it('reads a complete snapshot after serialization without any module closure', () => {
     const state = observedState('e30=', 2, '0'.repeat(64));
     vi.stubGlobal('window', { [`__liskaChatGptActiveResolver_${NONCE}`]: state });

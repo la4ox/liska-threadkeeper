@@ -58,6 +58,7 @@ import { requestChatGptConversationCapture } from './chatgpt-request';
 import {
   extractChatGptInterpreterAssetPlan,
   extractChatGptActiveResolverPlan,
+  extractChatGptActivePngPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
@@ -73,6 +74,13 @@ import {
   type ChatGptActiveResolverMetric,
 } from './chatgpt-active-resolver-audit';
 import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver-request';
+import { resolveChatGptActiveAsset } from './chatgpt-active-asset-request';
+import {
+  activeAssetFailure,
+  isBoundChatGptActiveAssetResponse,
+  type ChatGptActiveAssetPlanItem,
+  type ChatGptActiveAssetResponse,
+} from '../../lib/chatgpt-active-asset-contract';
 import { resolveChatGptInterpreterAssets } from './chatgpt-interpreter-resolver-request';
 import {
   CHATGPT_INTERPRETER_DIAGNOSTIC_WARNING,
@@ -698,7 +706,10 @@ export async function observeChatGptAssetResolvers(
   }
 
   try {
-    const assets = eligibleAssetRecords(context, eligibleAssetIds);
+    // Resolve strength/ambiguity against the full committed ledger first.
+    // Removing an already-attempted winner must not promote its weaker alias.
+    const assets = context.rawCaptureBundle.manifest.assets;
+    const eligible = eligibleAssetIds === undefined ? undefined : new Set(eligibleAssetIds);
     if (dependencies.requestResolvers !== undefined) {
       const response = await dependencies.requestResolvers(context.conversationId);
       if (!response.success) {
@@ -706,12 +717,14 @@ export async function observeChatGptAssetResolvers(
       }
       return {
         kind: 'matched',
-        candidates: await matchChatGptPageOwnedAssetResolvers({
-          raw: parseRawForInventory(original.bytes),
-          assets,
-          resolvers: response.data.transientAssetResolvers,
-          sha256: sha256Hex,
-        }),
+        candidates: (
+          await matchChatGptPageOwnedAssetResolvers({
+            raw: parseRawForInventory(original.bytes),
+            assets,
+            resolvers: response.data.transientAssetResolvers,
+            sha256: sha256Hex,
+          })
+        ).filter(candidate => eligible === undefined || eligible.has(candidate.assetId)),
       };
     }
     const response = await requestCaptureResponse(
@@ -732,12 +745,14 @@ export async function observeChatGptAssetResolvers(
 
       return {
         kind: 'matched',
-        candidates: await matchChatGptPageOwnedAssetResolvers({
-          raw: parseRawForInventory(original.bytes),
-          assets,
-          resolvers: recaptured.transientAssetResolvers,
-          sha256: sha256Hex,
-        }),
+        candidates: (
+          await matchChatGptPageOwnedAssetResolvers({
+            raw: parseRawForInventory(original.bytes),
+            assets,
+            resolvers: recaptured.transientAssetResolvers,
+            sha256: sha256Hex,
+          })
+        ).filter(candidate => eligible === undefined || eligible.has(candidate.assetId)),
       };
     } finally {
       if (recaptured.rawArtifact.transport === 'staged') {
@@ -807,6 +822,58 @@ export async function observeChatGptActiveAssetResolvers(
         'resolver-result-invalid'
       )
     );
+  }
+}
+
+/** Exact committed-raw sourceRefs only; whole-ledger ambiguity is resolved before eligibility. */
+export async function planChatGptActivePngAsset(
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds: readonly string[]
+): Promise<ChatGptActiveAssetPlanItem | undefined> {
+  const original = await verifiedOriginalRaw(context);
+  const raw = parseRawForInventory(original.bytes);
+  const assets = context.rawCaptureBundle.manifest.assets;
+  const interpreterIds = new Set(
+    (await extractChatGptInterpreterAssetPlan(raw, assets)).map(item => item.assetId)
+  );
+  return extractChatGptActivePngPlan(
+    raw,
+    assets,
+    eligibleAssetIds.filter(assetId => !interpreterIds.has(assetId))
+  );
+}
+
+/** Family ownership only: provider message/path values never leave this planner. */
+export async function planChatGptInterpreterAssetIds(
+  context: ChatGptAssetExportContext
+): Promise<string[]> {
+  const original = await verifiedOriginalRaw(context);
+  return (
+    await extractChatGptInterpreterAssetPlan(
+      parseRawForInventory(original.bytes),
+      context.rawCaptureBundle.manifest.assets
+    )
+  ).map(item => item.assetId);
+}
+
+export async function resolveChatGptActivePngAsset(
+  context: ChatGptAssetExportContext,
+  item: ChatGptActiveAssetPlanItem
+): Promise<ChatGptActiveAssetResponse> {
+  try {
+    const verified = await planChatGptActivePngAsset(context, [item.assetId]);
+    if (
+      !verified ||
+      verified.assetId !== item.assetId ||
+      verified.providerFileId !== item.providerFileId
+    )
+      return activeAssetFailure('invalid-provider-file-ids');
+    const response = await resolveChatGptActiveAsset(context.conversationId, verified);
+    return (await isBoundChatGptActiveAssetResponse(response, verified, context.conversationId))
+      ? response
+      : activeAssetFailure('resolver-result-invalid');
+  } catch {
+    return activeAssetFailure('resolver-result-invalid');
   }
 }
 

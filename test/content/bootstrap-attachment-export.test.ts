@@ -59,7 +59,7 @@ vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 import { handleSync } from '../../src/content/bootstrap';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
-  observeChatGptActiveAssetResolvers,
+  resolveChatGptActivePngAsset,
   observeChatGptInterpreterAssetResolvers,
 } from '../../src/content/capture/chatgpt-current-branch';
 
@@ -191,7 +191,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         })
       );
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
-      expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeActiveResolvers');
+      expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'saveToOutputs', outputs: ['file'] })
       );
@@ -203,7 +203,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     }
   });
 
-  it('injects the passive observer and metric-only fallback only for strict replay mode', async () => {
+  it('injects the passive observer and one-PNG data route only for strict replay mode', async () => {
     settings.enableChatGptOpaqueReplay = true;
     mocks.extract.mockResolvedValue(noteResult);
 
@@ -218,12 +218,12 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         persistArtifacts: expect.any(Function),
         observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
-        observeActiveResolvers: observeChatGptActiveAssetResolvers,
+        resolveActiveAsset: resolveChatGptActivePngAsset,
       })
     );
   });
 
-  it('wires the same passive observer and metric-only fallback for a selected replay branch', async () => {
+  it('wires the same passive observer and one-PNG data route for a selected replay branch', async () => {
     settings.enableChatGptOpaqueReplay = true;
     mocks.extract.mockResolvedValue(noteResult);
 
@@ -234,7 +234,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect.objectContaining({
         observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
-        observeActiveResolvers: observeChatGptActiveAssetResolvers,
+        resolveActiveAsset: resolveChatGptActivePngAsset,
       })
     );
   });
@@ -272,7 +272,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       })
     );
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
-    expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeActiveResolvers');
+    expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
     expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledWith(
       allBranchesResult.allBranches,
       companion,
@@ -331,7 +331,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect.objectContaining({
         observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
-        observeActiveResolvers: observeChatGptActiveAssetResolvers,
+        resolveActiveAsset: resolveChatGptActivePngAsset,
       })
     );
     expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
