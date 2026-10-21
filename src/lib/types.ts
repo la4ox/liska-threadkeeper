@@ -465,6 +465,7 @@ export interface TemplateOptions {
  */
 export type ExtensionMessage =
   | { action: 'saveToOutputs'; data: ObsidianNote; outputs: OutputDestination[] }
+  | { action: 'saveSettings'; settings: ExtensionSettings }
   | { action: 'updateOutputOptions'; outputOptions: OutputOptions }
   | {
       action: 'persistArchiveCompanion';
@@ -736,6 +737,12 @@ export type ArchiveStageUrlResponse =
   | { success: false; error: string };
 
 export interface OutputOptionsUpdateResponse {
+  success: boolean;
+  error?: string;
+}
+
+/** Response to a full extension settings update owned by the service worker. */
+export interface SettingsSaveResponse {
   success: boolean;
   error?: string;
 }
