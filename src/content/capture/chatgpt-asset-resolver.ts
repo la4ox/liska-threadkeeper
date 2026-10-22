@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Keep Library admission beside ordinary deny-only evidence so its separate authority and whole-ledger checks remain auditable. */
 /**
  * Match transient page-owned ChatGPT resolver observations to the existing
  * credential-free capture ledger. Provider file IDs are read only from the
@@ -522,6 +523,132 @@ export function classifyChatGptLibraryAssets(
     associatedAssetIds: [...new Set(associatedAssetIds)].sort(compareStrings),
     ambiguousAssetIds: [...new Set(ambiguousAssetIds)].sort(compareStrings),
   };
+}
+
+/** Library admission does not establish custom-GPT, project, or template ownership. */
+function hasUnsupportedLibraryOwnerContext(raw: unknown): boolean {
+  if (!isPlainRecord(raw)) return true;
+  return [
+    'gizmo_id',
+    'gizmoId',
+    'project_id',
+    'projectId',
+    'conversation_template_id',
+    'conversationTemplateId',
+  ].some(field => {
+    const value = raw[field];
+    return value !== undefined && value !== null && value !== '';
+  });
+}
+
+/** Direct attachment identities only; malformed aliases never fall back to a pointer. */
+function libraryDirectProviderFileIds(value: Record<string, unknown>): Set<string> | undefined {
+  const direct = new Set<string>();
+  for (const field of DIRECT_ID_FIELDS) {
+    const candidate = value[field];
+    if (candidate === undefined || candidate === null || candidate === '') continue;
+    if (!isChatGptActiveResolverProviderFileId(candidate)) return undefined;
+    direct.add(candidate);
+  }
+  return direct;
+}
+
+function hasConflictingLibraryPointer(
+  value: Record<string, unknown>,
+  direct: ReadonlySet<string>
+): boolean {
+  const pointer = value.asset_pointer;
+  if (typeof pointer !== 'string' || pointer.length === 0) return false;
+  const match = POINTER_FILE_ID_PATTERN.exec(pointer);
+  return !match?.[1] || !direct.has(match[1]);
+}
+
+function isLibraryJpegAttachment(raw: unknown, pointer: unknown): boolean {
+  // Interpreter ownership is evidence, not membership in its bounded dispatch
+  // plan: an attachment beyond that family's cap must not fall through here.
+  return (
+    interpreterAttachmentPointer(pointer) !== undefined &&
+    interpreterAttachmentEvidence(raw, pointer) === undefined
+  );
+}
+
+function libraryJpegProviderFileId(raw: unknown, asset: RawCaptureAssetRecord): string | undefined {
+  const direct = new Set<string>();
+  let libraryAttachmentCount = 0;
+  for (const ref of asset.sourceRefs) {
+    if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') continue;
+    // Interpreter ownership applies to the whole merged ledger record, not
+    // only to the sourceRef that carries Library metadata. This must remain
+    // independent of the interpreter dispatch cap and planner ordering.
+    if (interpreterAttachmentEvidence(raw, ref.rawPointer) !== undefined) return undefined;
+    const value = atJsonPointer(raw, ref.rawPointer);
+    if (!isPlainRecord(value)) return undefined;
+    const evidence = libraryIdentityEvidence(value);
+    const localIds = libraryDirectProviderFileIds(value);
+    if (!localIds) return undefined;
+    for (const id of localIds) direct.add(id);
+    if (evidence.present) {
+      if (
+        evidence.ambiguous ||
+        !isLibraryJpegAttachment(raw, ref.rawPointer) ||
+        localIds.size !== 1
+      )
+        return undefined;
+      libraryAttachmentCount += 1;
+    }
+    // A disagreeing transport identity is ambiguity, never a fallback authority.
+    if (hasConflictingLibraryPointer(value, localIds)) return undefined;
+  }
+  return libraryAttachmentCount > 0 && direct.size === 1 ? [...direct][0] : undefined;
+}
+
+function libraryProviderIdentityCollides(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  selected: RawCaptureAssetRecord,
+  providerFileId: string
+): boolean {
+  return assets.some(asset => {
+    if (asset === selected || !asset || !Array.isArray(asset.sourceRefs)) return false;
+    return asset.sourceRefs.some(ref => {
+      if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') return false;
+      return denyOnlyProviderIdentityFacts(
+        atJsonPointer(raw, ref.rawPointer),
+        isChatGptActiveResolverProviderFileId
+      ).denyIdentities.includes(providerFileId);
+    });
+  });
+}
+
+/**
+ * Separate, one-item Library JPEG admission. Association alone is not transport
+ * authority: exact attachment direct-ID evidence and whole-ledger uniqueness
+ * are required before eligibility, and ordinary active/passive denial is unchanged.
+ */
+export function extractChatGptLibraryJpegPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  eligibleAssetIds: readonly string[]
+): ChatGptActiveAssetPlanItem | undefined {
+  if (!Array.isArray(assets) || hasUnsupportedLibraryOwnerContext(raw)) return undefined;
+  const classification = classifyChatGptLibraryAssets(raw, assets);
+  const associated = new Set(classification.associatedAssetIds);
+  const eligible = new Set(eligibleAssetIds);
+  const selected: ChatGptActiveAssetPlanItem[] = [];
+  for (const asset of assets) {
+    if (!asset || !associated.has(asset.id)) continue;
+    const providerFileId = libraryJpegProviderFileId(raw, asset);
+    if (!providerFileId || libraryProviderIdentityCollides(raw, assets, asset, providerFileId))
+      continue;
+    if (
+      !eligible.has(asset.id) ||
+      asset.state !== 'not-attempted' ||
+      asset.mediaType !== 'image/jpeg'
+    )
+      continue;
+    selected.push({ assetId: asset.id, providerFileId });
+  }
+  return selected.sort((left, right) => compareStrings(left.assetId, right.assetId))[0];
 }
 
 /** Deny-only evidence; this never authorizes a request or chooses a winner. */

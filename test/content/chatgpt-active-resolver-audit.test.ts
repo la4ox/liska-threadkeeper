@@ -32,6 +32,53 @@ function completeMetric(): ChatGptActiveResolverMetric {
 }
 
 describe('ChatGPT active resolver durable audit', () => {
+  it('counts one Library JPEG within the same four-attempt audit without retaining provider values', () => {
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'image-batch-4',
+      libraryJpegAttemptCount: 1,
+      attempts: [
+        chatGptActiveResolverFailureMetric(1, 'resolver-result-timeout'),
+        completeMetric(),
+      ],
+    });
+    expect(warning).toContain('selected=2/4;');
+    expect(warning).toContain('dispatch-unknown=1;');
+    expect(warning).toContain('library-jpeg-attempts=1; ordinary-image-attempts=1;');
+    expect(warning).not.toMatch(/private|file_library|https:|Bearer|cookie|sig=/i);
+  });
+
+  it.each([undefined, null, -1, 2, 0.5, 'private-count', {}, NaN])(
+    'rejects unsafe Library family count %s',
+    libraryJpegAttemptCount => {
+      expect(() =>
+        chatGptActiveResolverAuditWarning({
+          acquisitionMode: 'image-batch-4',
+          attempts: [completeMetric()],
+          libraryJpegAttemptCount,
+        } as never)
+      ).toThrow('invalid active resolver metric');
+    }
+  );
+
+  it('rejects family getters, symbols, and extra private fields without evaluating them', () => {
+    const getter = vi.fn(() => 'private-family');
+    for (const mode of ['getter', 'symbol', 'private'] as const) {
+      const audit = {
+        acquisitionMode: 'image-batch-4' as const,
+        attempts: [completeMetric()],
+        libraryJpegAttemptCount: 1 as const,
+      };
+      if (mode === 'getter')
+        Object.defineProperty(audit, 'libraryJpegAttemptCount', { get: getter });
+      if (mode === 'symbol') Object.defineProperty(audit, Symbol('private'), { value: 'secret' });
+      if (mode === 'private') Object.defineProperty(audit, 'providerId', { value: 'private-id' });
+      expect(() => chatGptActiveResolverAuditWarning(audit)).toThrow(
+        'invalid active resolver metric'
+      );
+    }
+    expect(getter).not.toHaveBeenCalled();
+  });
+
   it('never invokes a caller-owned inherited array iterator that changes its yielded metrics', () => {
     const metric = completeMetric();
     const fake = {

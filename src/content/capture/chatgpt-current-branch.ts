@@ -59,6 +59,7 @@ import {
   extractChatGptInterpreterAssetPlan,
   extractChatGptActiveResolverPlan,
   extractChatGptActiveImagePlan,
+  extractChatGptLibraryJpegPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
@@ -846,6 +847,24 @@ export async function planChatGptActiveImageAsset(
   );
 }
 
+/** Separate Library admission, excluding exact interpreter ownership first. */
+export async function planChatGptLibraryJpegAsset(
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds: readonly string[]
+): Promise<ChatGptActiveAssetPlanItem | undefined> {
+  const original = await verifiedOriginalRaw(context);
+  const raw = parseRawForInventory(original.bytes);
+  const assets = context.rawCaptureBundle.manifest.assets;
+  const interpreterIds = new Set(
+    (await extractChatGptInterpreterAssetPlan(raw, assets)).map(item => item.assetId)
+  );
+  return extractChatGptLibraryJpegPlan(
+    raw,
+    assets,
+    eligibleAssetIds.filter(assetId => !interpreterIds.has(assetId))
+  );
+}
+
 /** Family ownership only: provider message/path values never leave this planner. */
 export async function planChatGptInterpreterAssetIds(
   context: ChatGptAssetExportContext
@@ -863,8 +882,24 @@ export async function resolveChatGptActiveImageAsset(
   context: ChatGptAssetExportContext,
   item: ChatGptActiveAssetPlanItem
 ): Promise<ChatGptActiveAssetResponse> {
+  return resolvePlannedChatGptImageAsset(context, item, planChatGptActiveImageAsset);
+}
+
+/** Re-plan Library authority immediately before the unchanged single-item transport. */
+export async function resolveChatGptLibraryJpegAsset(
+  context: ChatGptAssetExportContext,
+  item: ChatGptActiveAssetPlanItem
+): Promise<ChatGptActiveAssetResponse> {
+  return resolvePlannedChatGptImageAsset(context, item, planChatGptLibraryJpegAsset);
+}
+
+async function resolvePlannedChatGptImageAsset(
+  context: ChatGptAssetExportContext,
+  item: ChatGptActiveAssetPlanItem,
+  planner: typeof planChatGptActiveImageAsset
+): Promise<ChatGptActiveAssetResponse> {
   try {
-    const verified = await planChatGptActiveImageAsset(context, [item.assetId]);
+    const verified = await planner(context, [item.assetId]);
     if (
       !verified ||
       verified.assetId !== item.assetId ||
