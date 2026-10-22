@@ -24,6 +24,7 @@ import {
   activeDigest,
   activeSuccess,
 } from '../fixtures/chatgpt-active-asset';
+import { validChatGptPngBytes } from '../fixtures/chatgpt-image-bytes';
 
 const messaging = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: messaging.sendMessage }));
@@ -151,7 +152,7 @@ async function pipeline(
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
     order.push('fetch-active');
     if (mode === 'binary-failed') throw new Error('synthetic network failure');
-    const response = new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]), {
+    const response = new Response(validChatGptPngBytes(), {
       headers: { 'Content-Type': 'image/png' },
     });
     Object.defineProperty(response, 'url', { value: String(url) });
@@ -318,7 +319,7 @@ async function batchPipeline(
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
     const index = selected.length - 1;
     order.push(`fetch-${index}`);
-    const response = new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, index]), {
+    const response = new Response(validChatGptPngBytes(index + 1), {
       status: outcomes[index] === 'binary-failed' ? 404 : 200,
       headers: { 'Content-Type': 'image/png' },
     });
@@ -713,7 +714,7 @@ describe('active PNG destination-honest pipeline', () => {
       );
       const resolveActiveAsset = vi.fn();
       const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
-        const response = new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]), {
+        const response = new Response(validChatGptPngBytes(), {
           headers: { 'Content-Type': 'image/png' },
         });
         Object.defineProperty(response, 'url', { value: String(url) });
@@ -853,7 +854,7 @@ describe('active PNG destination-honest pipeline', () => {
         );
       });
       const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
-        const response = new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]), {
+        const response = new Response(validChatGptPngBytes(), {
           headers: { 'Content-Type': 'image/png' },
         });
         Object.defineProperty(response, 'url', { value: String(url) });

@@ -318,6 +318,27 @@ matches the earlier one-PNG canary; the second had previously remained
 `not-attempted`. Raw/manifest/canonical plus both binaries and Markdown were
 byte-identical between Downloads and Obsidian, with no leftover marker tab.
 
+Ordinary JPEG preparation now has a fail-closed local boundary but is not yet
+enabled in the active plan. A content-free structural pass over the latest
+committed raw snapshot found one ordinary JPEG represented by a direct metadata
+ID plus a `sediment:` pointer alias, and a separate JPEG record carrying an
+explicit Library ID. The ordinary planner now resolves the whole evidence
+ledger before eligibility and refuses any identity group containing
+`library_file_id` or `libraryFileId`; `source: local` alone is deliberately not
+treated as Library ownership. Library assets therefore remain for their own
+later contract instead of being sent through the ordinary file-ID helper.
+
+Fetched PNG/JPEG claims now require bounded structural byte validation before
+hashing and persistence. PNG checks cover signature, chunk lengths and CRCs,
+IHDR/palette/data ordering, and terminal IEND. JPEG checks cover complete 8-bit
+Huffman baseline, extended-sequential, and progressive marker/table/scan
+structure, including immutable quantization values across progressive scans.
+This is intentionally a container/codec-structure check rather than pixel
+decoding: zlib and DCT coefficients are not rendered. Other already supported
+binary MIME families retain their existing validation contracts. Focused tests
+and the production TypeScript/Vite build pass; live JPEG helper and destination
+evidence remain the gate before widening active MIME eligibility.
+
 Fresh exact-tree validation on `codex/upstream-2.14.9-audit`:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
@@ -343,6 +364,10 @@ zero new findings. These are diff-scoped commit scans, not a repository-wide
 proof of absence. Older finding occurrences have not been silently treated as
 closed and remain a separate reconciliation task.
 
+Pull request 12 merged to `main` as `950f775`. Its final reviewed source head
+was `21cebb6`; CI and the final independent review were clean. This JPEG work
+continues from that exact merge on `codex/chatgpt-jpeg-assets`.
+
 The upstream `v2.7.13` → `v2.14.9` audit is retained in
 [`docs/upstream-2.14.9-audit.md`](docs/upstream-2.14.9-audit.md). This branch now
 adapts the Perplexity rollout fixes, strict popup settings reads, a length-aware
@@ -350,7 +375,7 @@ append reader, and compatible dependency/build-chain updates. Claude current
 DOM, ChatGPT DOM fallback, typed truncation guards, Gemini completeness/title
 and the exact Google image redirect permission remain explicit later slices.
 
-Next: perform one authenticated Perplexity canary before calling the selector
-port live-verified, then choose between the small Gemini-title/redirect slices
-and the larger Claude/truncation work. Publishing this new branch or opening a
-pull request remains an explicit external action.
+Next: enable only the exact ordinary `image/jpeg` family in a controlled local
+candidate, then run the existing fresh ChatGPT canary through the proven helper
+and both durable destinations. Keep Library-ID records out of that run. Widen
+no other image MIME family until its own raw-shape and byte evidence exists.

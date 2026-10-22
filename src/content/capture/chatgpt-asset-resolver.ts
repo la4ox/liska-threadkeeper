@@ -393,6 +393,17 @@ function activeProviderFileEvidence(value: unknown): string[] {
   return match?.[1] && isChatGptActiveResolverProviderFileId(match[1]) ? [match[1]] : [];
 }
 
+/** Library-backed records require a separate provider contract, never the ordinary file-ID route. */
+function hasLibraryFileIdentity(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  for (const field of ['library_file_id', 'libraryFileId']) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
+    const candidate = value[field];
+    if (candidate !== undefined && candidate !== null && candidate !== '') return true;
+  }
+  return false;
+}
+
 /**
  * Extract only the ledger's already-validated JSON pointers. A source record
  * with zero or multiple possible IDs is deliberately skipped; this is not a
@@ -427,9 +438,11 @@ export function extractChatGptActiveResolverPlan(
 function activePngAssetEvidence(raw: unknown, asset: RawCaptureAssetRecord) {
   const evidence = new Map<string, number>();
   let unsupportedIdentity = false;
+  let libraryIdentity = false;
   for (const ref of asset.sourceRefs) {
     if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') continue;
     const value = atJsonPointer(raw, ref.rawPointer);
+    if (hasLibraryFileIdentity(value)) libraryIdentity = true;
     // The inventory may derive this opaque ID from a nonempty direct value
     // that the legacy evidence regex discards. Never then bind it to a pointer.
     if (hasUnsupportedActiveDirectIdentity(value)) {
@@ -442,7 +455,10 @@ function activePngAssetEvidence(raw: unknown, asset: RawCaptureAssetRecord) {
       else unsupportedIdentity = true;
     }
   }
-  return { evidence, ambiguous: unsupportedIdentity || evidence.size !== 1 };
+  return {
+    evidence,
+    ambiguous: libraryIdentity || unsupportedIdentity || evidence.size !== 1,
+  };
 }
 
 function hasUnsupportedActiveDirectIdentity(value: unknown): boolean {

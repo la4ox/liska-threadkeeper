@@ -9,6 +9,7 @@ import {
   CHATGPT_ASSET_HTTP_FAILED_DETAIL,
   CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
 } from '../../src/content/capture/chatgpt-asset-acquisition';
+import { validChatGptJpegBytes, validChatGptPngBytes } from '../fixtures/chatgpt-image-bytes';
 
 const CONVERSATION_ID = '11111111-2222-4333-8444-555555555555';
 
@@ -132,7 +133,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
 
   it('performs one browser-authenticated same-origin signed GET without exposing credentials', async () => {
     const record = ledger();
-    const bytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
+    const bytes = validChatGptPngBytes();
     const url = signedUrl();
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes));
 
@@ -156,11 +157,12 @@ describe('ChatGPT page-owned asset acquisition', () => {
       })
     );
     expect(result.completeness).toBe('complete');
+    expect(result.records[0].detail).toBe(CHATGPT_ASSET_FETCHED_DETAIL);
     expect(result.records[0]).toMatchObject({
       state: 'fetched',
       attemptedAt: '2026-08-21T12:00:00.000Z',
       mediaType: 'image/png',
-      byteLength: 6,
+      byteLength: bytes.byteLength,
       detail: CHATGPT_ASSET_FETCHED_DETAIL,
       relativePath: expect.stringMatching(/^assets\/[a-f0-9]{64}\.png$/),
       sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -169,9 +171,65 @@ describe('ChatGPT page-owned asset acquisition', () => {
     expect([...result.runtimeAssets[0].bytes]).toEqual([...bytes]);
   });
 
+  it('persists structurally validated JPEG bytes with a content-addressed .jpg path', async () => {
+    const record = ledger('d', 'image/jpeg');
+    const bytes = validChatGptJpegBytes();
+    const url = signedUrl();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, 'image/jpeg'));
+
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: url }],
+      fetcher,
+      now: () => new Date('2026-08-21T12:00:00.000Z'),
+      sha256: digest,
+    });
+
+    expect(result.records[0].detail).toBe(CHATGPT_ASSET_FETCHED_DETAIL);
+    expect(result.records[0]).toMatchObject({
+      state: 'fetched',
+      mediaType: 'image/jpeg',
+      byteLength: bytes.byteLength,
+      relativePath: expect.stringMatching(/^assets\/[a-f0-9]{64}\.jpg$/),
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect([...result.runtimeAssets[0].bytes]).toEqual([...bytes]);
+  });
+
+  it.each([
+    ['PNG', 'image/png'],
+    ['JPEG', 'image/jpeg'],
+  ] as const)(
+    'rejects MIME-labelled arbitrary bytes before hashing them as %s',
+    async (_label, mime) => {
+      const record = ledger('x', mime);
+      const hash = vi.fn(digest);
+      const url = signedUrl(_label.toLowerCase());
+      const result = await acquireChatGptPageOwnedAssets({
+        conversationId: CONVERSATION_ID,
+        assets: [record],
+        candidates: [{ assetId: record.id, downloadUrl: url }],
+        fetcher: vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(
+            response(url, new TextEncoder().encode('<html>not an image</html>'), mime)
+          ),
+        sha256: hash,
+      });
+
+      expect(result.records[0]).toMatchObject({
+        state: 'failed',
+        detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+      });
+      expect(result.runtimeAssets).toEqual([]);
+      expect(hash).not.toHaveBeenCalled();
+    }
+  );
+
   it('fetches a strict numeric image URL only after its runtime-only opaque key verifies', async () => {
     const record = ledger();
-    const bytes = new Uint8Array([0, 1, 2, 3, 254, 255]);
+    const bytes = validChatGptPngBytes();
     const url = numericImageUrl();
     const resolverKey = await digest(
       new TextEncoder().encode('liska-chatgpt-resolver/1\u0000file-image_123')
@@ -196,7 +254,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
 
   it('retains numeric eight-key identity when a resolver key is present', async () => {
     const record = ledger();
-    const bytes = new Uint8Array([1, 2, 3]);
+    const bytes = validChatGptPngBytes();
     const url = numericEightKeyUrl();
     const resolverKey = await digest(
       new TextEncoder().encode('liska-chatgpt-resolver/1\u0000file-image_123')
@@ -219,7 +277,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
   it('keeps valid unkeyed numeric eight-key URLs on the established generic route', async () => {
     const record = ledger();
     const url = numericEightKeyUrl();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, new Uint8Array([1])));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, validChatGptPngBytes()));
 
     await expect(
       acquireChatGptPageOwnedAssets({
@@ -352,7 +410,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
     const matched = ledger('a');
     const unmatched = ledger('b');
     const url = signedUrl();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, new Uint8Array([1])));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(url, validChatGptPngBytes()));
 
     const result = await acquireChatGptPageOwnedAssets({
       conversationId: CONVERSATION_ID,
@@ -485,7 +543,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
     const secondUrl = signedUrl('b');
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(response(firstUrl, new Uint8Array([1])))
+      .mockResolvedValueOnce(response(firstUrl, validChatGptPngBytes()))
       .mockResolvedValueOnce(response(secondUrl, new Uint8Array([2])));
 
     const digestResult = await acquireChatGptPageOwnedAssets({
@@ -519,7 +577,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
     const secondUrl = signedUrl('b');
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(response(firstUrl, new Uint8Array([1])))
+      .mockResolvedValueOnce(response(firstUrl, validChatGptPngBytes()))
       .mockResolvedValueOnce(response(secondUrl, new Uint8Array([2])));
 
     const result = await acquireChatGptPageOwnedAssets({
@@ -532,8 +590,8 @@ describe('ChatGPT page-owned asset acquisition', () => {
       fetcher,
       now: () => new Date('2026-08-21T12:00:00.000Z'),
       sha256: () => Promise.resolve('NOT-CANONICAL'),
-      maxAssetBytes: 1,
-      maxTotalBytes: 1,
+      maxAssetBytes: validChatGptPngBytes().byteLength,
+      maxTotalBytes: validChatGptPngBytes().byteLength,
     });
 
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -545,12 +603,11 @@ describe('ChatGPT page-owned asset acquisition', () => {
     const second = ledger('b');
     const firstUrl = signedUrl('a');
     const secondUrl = signedUrl('b');
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(response(firstUrl, new Uint8Array([1])));
+    const pngBytes = validChatGptPngBytes();
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(firstUrl, pngBytes));
     const budget = createChatGptPageOwnedAssetAcquisitionBudget();
     budget.attemptsRemaining = 1;
-    budget.bytesRemaining = 1;
+    budget.bytesRemaining = pngBytes.byteLength;
 
     const firstResult = await acquireChatGptPageOwnedAssets({
       conversationId: CONVERSATION_ID,

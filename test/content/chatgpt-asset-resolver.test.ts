@@ -266,6 +266,43 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       });
       expect(extractChatGptActivePngPlan(raw, [pointer, direct], [pointer.id])).toBeUndefined();
     });
+    it('keeps Library-ID evidence out of the ordinary route without promoting its pointer alias', () => {
+      const raw = {
+        direct: { file_id: 'file_one', library_file_id: 'library_one', source: 'local' },
+        pointer: { asset_pointer: 'sediment://file_one' },
+      };
+      const direct = asset('b', '/direct');
+      const pointer = asset('a', '/pointer');
+      for (const records of [
+        [direct, pointer],
+        [pointer, direct],
+      ]) {
+        expect(extractChatGptActivePngPlan(raw, records, [direct.id, pointer.id])).toBeUndefined();
+      }
+    });
+    it('does not infer Library ownership from source=local alone', () => {
+      const record = asset('a', '/direct');
+      expect(
+        extractChatGptActivePngPlan(
+          { direct: { file_id: 'file_one', source: 'local' } },
+          [record],
+          [record.id]
+        )
+      ).toEqual({ assetId: record.id, providerFileId: 'file_one' });
+    });
+    it.each([{ malformed: true }, 42])(
+      'fails closed on malformed Library identity evidence %#',
+      libraryFileId => {
+        const record = asset('a', '/direct');
+        expect(
+          extractChatGptActivePngPlan(
+            { direct: { file_id: 'file_one', library_file_id: libraryFileId } },
+            [record],
+            [record.id]
+          )
+        ).toBeUndefined();
+      }
+    );
     it('skips multiple identities, cross-record ties, and duplicate opaque records', () => {
       const raw = {
         one: { file_id: 'file_one' },
