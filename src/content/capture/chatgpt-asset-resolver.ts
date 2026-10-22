@@ -41,7 +41,7 @@ const POINTER_FILE_ID_PATTERN = /^(?:file-service|sediment):(?:\/\/)?([A-Za-z0-9
 const DIRECT_ID_FIELDS = ['asset_id', 'assetId', 'file_id', 'fileId', 'id'] as const;
 const CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 const CHATGPT_INTERPRETER_MAX_POINTER_LENGTH = 4_096;
-const CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES = new Set<string | null>(['image/png', 'image/jpeg']);
+const CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES = new Set<string>(['image/png', 'image/jpeg']);
 
 export interface ChatGptTransientResolverRecord {
   resolverKey: string;
@@ -551,6 +551,7 @@ function isEligibleActiveImageRecord(
   return (
     assetIdCounts.get(asset.id) === 1 &&
     eligible.has(asset.id) &&
+    typeof asset.mediaType === 'string' &&
     CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES.has(asset.mediaType) &&
     asset.state === 'not-attempted'
   );

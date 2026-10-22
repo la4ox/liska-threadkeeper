@@ -390,6 +390,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ['image/gif', false],
       ['image/webp', false],
       ['application/pdf', false],
+      [null, false],
       ['image/jpg', false],
       ['IMAGE/JPEG', false],
       ['image/jpeg; charset=binary', false],

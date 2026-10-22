@@ -357,13 +357,13 @@ and was not retried. The generated trusted-click smoke hook was never added to
 source or packaging and was removed after verification.
 
 Final exact-tree validation for this JPEG slice uses Node 24.18.0 and npm
-11.16.0. All 152 test files / 4,191 tests pass; coverage is 95.20% statements,
+11.16.0. All 152 test files / 4,192 tests pass; coverage is 95.20% statements,
 90.90% branches, 98.45% functions, and 97.70% lines. TypeScript, the production
 Vite build, source/platform lint, repository formatting, and ZIP packaging pass;
 lint retains only the same three pre-existing advisory warnings. The final ZIP
 contains the same 29 files as `dist`, with zero list/hash differences; it is
-226,733 bytes with SHA-256
-`719211148AC502438B6A39F63ECC2852B54800915ECB4130A4D10B40F370C304`.
+226,744 bytes with SHA-256
+`7348510F48EBE52EA297B88384B469FAE7D421822D0C5C8E3091B8C9A876CAB6`.
 Release-to-local reproducibility comparison remains unavailable because no
 published `v3.0.0` GitHub release exists. Independent review found no residual
 P0-P2 issue after the Library/multi-ID/unsupported-direct whole-ledger fixes.
