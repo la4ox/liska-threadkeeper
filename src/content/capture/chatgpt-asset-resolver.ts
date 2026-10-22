@@ -42,6 +42,8 @@ const DIRECT_ID_FIELDS = ['asset_id', 'assetId', 'file_id', 'fileId', 'id'] as c
 const CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 const CHATGPT_INTERPRETER_MAX_POINTER_LENGTH = 4_096;
 const CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES = new Set<string>(['image/png', 'image/jpeg']);
+const CHATGPT_LIBRARY_ID_FIELDS = ['library_file_id', 'libraryFileId'] as const;
+const CHATGPT_LIBRARY_ID_MAX_LENGTH = 512;
 
 export interface ChatGptTransientResolverRecord {
   resolverKey: string;
@@ -68,6 +70,12 @@ export interface MatchChatGptAssetResolversInput {
  */
 export interface ChatGptActiveResolverPlan {
   providerFileIds: string[];
+}
+
+/** Offline-only association evidence. It carries opaque ledger IDs, never Library IDs. */
+export interface ChatGptLibraryAssetClassification {
+  associatedAssetIds: string[];
+  ambiguousAssetIds: string[];
 }
 
 interface ProviderFileEvidence {
@@ -395,15 +403,125 @@ function activeProviderFileEvidence(value: unknown): string[] {
   return match?.[1] && isChatGptActiveResolverProviderFileId(match[1]) ? [match[1]] : [];
 }
 
-/** Library-backed records require a separate provider contract, never the ordinary file-ID route. */
-function hasLibraryFileIdentity(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  for (const field of ['library_file_id', 'libraryFileId']) {
+interface LibraryIdentityEvidence {
+  present: boolean;
+  ambiguous: boolean;
+  /** Runtime-only comparison values. Never return these from an exported API. */
+  identities: Set<string>;
+}
+
+function libraryIdentityEvidence(value: unknown): LibraryIdentityEvidence {
+  const identities = new Set<string>();
+  let malformed = false;
+  if (!isRecord(value)) return { present: false, ambiguous: false, identities };
+  for (const field of CHATGPT_LIBRARY_ID_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
     const candidate = value[field];
-    if (candidate !== undefined && candidate !== null && candidate !== '') return true;
+    if (candidate === undefined || candidate === null || candidate === '') continue;
+    if (
+      typeof candidate !== 'string' ||
+      candidate.length > CHATGPT_LIBRARY_ID_MAX_LENGTH ||
+      hasControlCharacters(candidate)
+    ) {
+      malformed = true;
+      continue;
+    }
+    identities.add(candidate);
   }
-  return false;
+  return {
+    present: malformed || identities.size > 0,
+    ambiguous: malformed || identities.size > 1,
+    identities,
+  };
+}
+
+/** Library-backed records require a separate provider contract, never the ordinary file-ID route. */
+function hasLibraryFileIdentity(value: unknown): boolean {
+  return libraryIdentityEvidence(value).present;
+}
+
+function libraryEvidenceForAsset(
+  raw: unknown,
+  asset: RawCaptureAssetRecord
+): LibraryIdentityEvidence {
+  const identities = new Set<string>();
+  const seenPointers = new Set<string>();
+  let present = false;
+  let ambiguous = false;
+  for (const sourceRef of asset.sourceRefs) {
+    if (!isPlainRecord(sourceRef)) {
+      ambiguous = true;
+      continue;
+    }
+    if (typeof sourceRef.artifactId !== 'string') {
+      ambiguous = true;
+      continue;
+    }
+    if (sourceRef.artifactId !== 'conversation') continue;
+    if (typeof sourceRef.rawPointer !== 'string' || seenPointers.has(sourceRef.rawPointer)) {
+      ambiguous = true;
+      continue;
+    }
+    seenPointers.add(sourceRef.rawPointer);
+    const value = atJsonPointer(raw, sourceRef.rawPointer);
+    if (value === undefined) {
+      ambiguous = true;
+      continue;
+    }
+    const evidence = libraryIdentityEvidence(value);
+    if (!evidence.present) continue;
+    present = true;
+    if (evidence.ambiguous) ambiguous = true;
+    for (const identity of evidence.identities) identities.add(identity);
+  }
+  return { present, ambiguous: present && (ambiguous || identities.size > 1), identities };
+}
+
+function libraryAssetDisposition(
+  raw: unknown,
+  asset: RawCaptureAssetRecord,
+  duplicate: boolean
+): 'associated' | 'ambiguous' | undefined {
+  if (!isChatGptActiveAssetId(asset.id) || !Array.isArray(asset.sourceRefs)) return undefined;
+  const evidence = libraryEvidenceForAsset(raw, asset);
+  if (!evidence.present) return undefined;
+  return duplicate || evidence.ambiguous || evidence.identities.size !== 1
+    ? 'ambiguous'
+    : 'associated';
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Classify exact ledger records as Library-associated without creating any
+ * dispatchable request. Conflicts remain ambiguous and all provider identity
+ * values stay inside this pure function.
+ */
+export function classifyChatGptLibraryAssets(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[]
+): ChatGptLibraryAssetClassification {
+  if (!Array.isArray(assets)) return { associatedAssetIds: [], ambiguousAssetIds: [] };
+  const assetIdCounts = new Map<string, number>();
+  for (const asset of assets) {
+    if (asset && typeof asset === 'object' && typeof asset.id === 'string') {
+      assetIdCounts.set(asset.id, (assetIdCounts.get(asset.id) ?? 0) + 1);
+    }
+  }
+  const associatedAssetIds: string[] = [];
+  const ambiguousAssetIds: string[] = [];
+  for (const asset of assets) {
+    if (!asset || typeof asset !== 'object' || typeof asset.id !== 'string') continue;
+    const disposition = libraryAssetDisposition(raw, asset, assetIdCounts.get(asset.id) !== 1);
+    if (disposition === 'ambiguous') ambiguousAssetIds.push(asset.id);
+    else if (disposition === 'associated') associatedAssetIds.push(asset.id);
+  }
+  return {
+    associatedAssetIds: [...new Set(associatedAssetIds)].sort(compareStrings),
+    ambiguousAssetIds: [...new Set(ambiguousAssetIds)].sort(compareStrings),
+  };
 }
 
 /** Deny-only evidence; this never authorizes a request or chooses a winner. */

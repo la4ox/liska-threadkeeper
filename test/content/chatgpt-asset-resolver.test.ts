@@ -10,6 +10,7 @@ import {
 } from '../../src/archive/chatgpt-sandbox-link';
 import {
   CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
+  classifyChatGptLibraryAssets,
   extractChatGptActiveResolverPlan,
   extractChatGptActiveImagePlan,
   extractChatGptInterpreterAssetPlan,
@@ -60,6 +61,178 @@ function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
 }
 
 describe('ChatGPT page-owned asset resolver matching', () => {
+  describe('offline Library association classification', () => {
+    it('classifies only the exact Library ledger record and returns no provider identity', () => {
+      const raw = {
+        library: {
+          file_id: 'file_one',
+          library_file_id: 'library-private',
+          libraryFileId: 'library-private',
+        },
+        pointerAlias: { asset_pointer: 'sediment://file_one' },
+        ordinary: { file_id: 'file_two', source: 'local' },
+      };
+      const library = asset('b', '/library');
+      const pointerAlias = asset('a', '/pointerAlias');
+      const ordinary = asset('c', '/ordinary');
+      const classification = classifyChatGptLibraryAssets(raw, [pointerAlias, ordinary, library]);
+      expect(classification).toEqual({
+        associatedAssetIds: [library.id],
+        ambiguousAssetIds: [],
+      });
+      expect(JSON.stringify(classification)).not.toContain('library-private');
+    });
+
+    it.each([
+      ['conflicting aliases', { library_file_id: 'library-one', libraryFileId: 'library-two' }],
+      ['non-string identity', { library_file_id: { malformed: true } }],
+      ['control character', { library_file_id: 'library\u0000one' }],
+      ['overlong identity', { library_file_id: 'x'.repeat(513) }],
+    ])('retains %s as ambiguous non-dispatchable evidence', (_label, value) => {
+      const record = asset('a', '/candidate');
+      expect(classifyChatGptLibraryAssets({ candidate: value }, [record])).toEqual({
+        associatedAssetIds: [],
+        ambiguousAssetIds: [record.id],
+      });
+    });
+
+    it('treats disagreement across exact source refs as ambiguous', () => {
+      const record = assetWithSourceRefs('a', ['/one', '/two']);
+      expect(
+        classifyChatGptLibraryAssets(
+          {
+            one: { library_file_id: 'library-one' },
+            two: { library_file_id: 'library-two' },
+          },
+          [record]
+        )
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+    });
+
+    it.each(['missing', 'duplicate'] as const)(
+      'fails closed when Library evidence has a %s conversation source ref',
+      mode => {
+        const record = assetWithSourceRefs(
+          'a',
+          mode === 'missing' ? ['/library', '/missing'] : ['/library', '/library']
+        );
+        expect(
+          classifyChatGptLibraryAssets({ library: { library_file_id: 'library-one' } }, [record])
+        ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+      }
+    );
+
+    it('fails closed on malformed artifact identity beside valid Library evidence', () => {
+      const record = asset('a', '/library');
+      record.sourceRefs.push({ artifactId: 42 as never, rawPointer: '/other' });
+      expect(
+        classifyChatGptLibraryAssets({ library: { library_file_id: 'library-one' } }, [record])
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+    });
+
+    it('does not merge different ledger assets that share one Library association', () => {
+      const first = asset('a', '/first');
+      const second = asset('b', '/second');
+      expect(
+        classifyChatGptLibraryAssets(
+          {
+            first: { file_id: 'file_one', library_file_id: 'library-shared' },
+            second: { file_id: 'file_two', library_file_id: 'library-shared' },
+          },
+          [second, first]
+        )
+      ).toEqual({ associatedAssetIds: [first.id, second.id], ambiguousAssetIds: [] });
+    });
+
+    it('classifies pointerless JPEG/WebP inventory records without acquisition authority', async () => {
+      const raw = {
+        mapping: {
+          node: {
+            id: 'node',
+            parent: null,
+            children: [],
+            message: {
+              id: 'message',
+              author: { role: 'user' },
+              content: { content_type: 'text', parts: ['synthetic'] },
+              metadata: {
+                attachments: [
+                  {
+                    id: 'file_one',
+                    library_file_id: 'library-one',
+                    mime_type: 'image/jpeg',
+                  },
+                  {
+                    id: 'file_two',
+                    library_file_id: 'library-two',
+                    mime_type: 'image/webp',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
+      const inventory = await inventoryChatGptRawAssets({
+        raw,
+        artifactId: 'conversation',
+        sha256: digest,
+      });
+      expect(inventory.assets).toHaveLength(2);
+      expect(
+        inventory.assets.map(record => ({
+          state: record.state,
+          attemptedAt: record.attemptedAt,
+          relativePath: record.relativePath,
+          sha256: record.sha256,
+        }))
+      ).toEqual(
+        Array.from({ length: 2 }, () => ({
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          sha256: null,
+        }))
+      );
+      const classification = classifyChatGptLibraryAssets(raw, inventory.assets);
+      expect(classification).toEqual({
+        associatedAssetIds: inventory.assets.map(record => record.id).sort(),
+        ambiguousAssetIds: [],
+      });
+      expect(JSON.stringify({ inventory, classification })).not.toMatch(
+        /file_one|file_two|library-one|library-two/
+      );
+    });
+
+    it('does not infer Library association from source=local or empty aliases', () => {
+      const local = asset('a', '/local');
+      const empty = asset('b', '/empty');
+      expect(
+        classifyChatGptLibraryAssets(
+          {
+            local: { file_id: 'file_one', source: 'local' },
+            empty: { library_file_id: '', libraryFileId: null },
+          },
+          [local, empty]
+        )
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [] });
+    });
+
+    it('fails closed on duplicate ledger IDs and malformed asset arrays', () => {
+      const record = asset('a', '/library');
+      expect(
+        classifyChatGptLibraryAssets({ library: { library_file_id: 'library-one' } }, [
+          record,
+          record,
+        ])
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+      expect(classifyChatGptLibraryAssets({}, null as never)).toEqual({
+        associatedAssetIds: [],
+        ambiguousAssetIds: [],
+      });
+    });
+  });
+
   describe('bounded sandbox-link parsing', () => {
     it('handles dense unmatched link openers without inventing evidence', () => {
       expect(chatGptSandboxLinksFromAssistantTextPart('message-1', '['.repeat(100_000))).toEqual(
