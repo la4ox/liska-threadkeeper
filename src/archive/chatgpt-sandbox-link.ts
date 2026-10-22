@@ -4,7 +4,7 @@
  * publishing an asset record.
  */
 
-import { markdownBlockquotePrefix } from '../lib/markdown-syntax';
+import { markdownBlockquotePrefix } from './markdown-syntax';
 
 const CHATGPT_ASSET_ID_DOMAIN = 'liska-chatgpt-asset/1\u0000';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;

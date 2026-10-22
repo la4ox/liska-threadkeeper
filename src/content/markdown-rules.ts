@@ -7,7 +7,7 @@
 
 import TurndownService from 'turndown';
 import { MAX_LANG_HINT_LENGTH, MAX_MATH_LENGTH } from '../lib/constants';
-import { markdownBlockquotePrefix } from '../lib/markdown-syntax';
+import { markdownBlockquotePrefix } from '../archive/markdown-syntax';
 import { markdownCodeFence } from './markdown-code';
 
 /** Angle brackets, including backslash-escaped forms (`\<`, `\>`). */
