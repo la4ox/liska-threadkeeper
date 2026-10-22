@@ -26,11 +26,13 @@ import {
   hasOwn,
   isPlainRecord,
   normalizeTimestamp,
+  nullableAliasedString,
   nullableString,
   optionalTimestamp,
   pointerAt,
   providerFields,
   redactSensitiveUrls,
+  recordProviderContextRedaction,
   sanitizeJson,
   sourceRef,
 } from './privacy';
@@ -337,6 +339,10 @@ function mappedConversationFields(): Set<string> {
     'updated_at',
     'updatedAt',
     'url',
+    'gizmo_id',
+    'gizmoId',
+    'conversation_template_id',
+    'conversationTemplateId',
   ]);
 }
 
@@ -349,8 +355,6 @@ function conversationMetadata(
   const fieldMap: Array<[string, string]> = [
     ['isArchived', 'is_archived'],
     ['isDoNotRemember', 'is_do_not_remember'],
-    ['gizmoId', 'gizmo_id'],
-    ['templateId', 'conversation_template_id'],
     ['asyncStatus', 'async_status'],
   ];
   fieldMap.forEach(([canonical, provider]) => {
@@ -361,6 +365,24 @@ function conversationMetadata(
         pointerAt(pointer, provider)
       ).value;
   });
+  const associations: Array<[string, string[]]> = [
+    ['isCustomGpt', ['gizmo_id', 'gizmoId']],
+    ['hasConversationTemplate', ['conversation_template_id', 'conversationTemplateId']],
+  ];
+  for (const [canonical, fields] of associations) {
+    const value = nullableAliasedString(
+      fields.map(field => [conversation, field, pointer]),
+      'ambiguous-context-id'
+    );
+    for (const field of fields) {
+      if (hasOwn(conversation, field)) {
+        recordProviderContextRedaction(context.privacy, pointerAt(pointer, field));
+      }
+    }
+    if (value === null || value === '') continue;
+    assertSafeIdentifier(value, 'Provider context identifier');
+    metadata[canonical] = true;
+  }
   return metadata;
 }
 

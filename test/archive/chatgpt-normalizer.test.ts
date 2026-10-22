@@ -360,6 +360,182 @@ describe('ChatGPT raw-byte normalizer', () => {
     );
   });
 
+  it.each(['library_file_id', 'libraryFileId'])(
+    'keeps %s raw-only in direct and nested asset provider metadata',
+    async field => {
+      const raw = rawClone();
+      const message = raw.mapping['node/current'].message!;
+      const attachment = (message.metadata.attachments as Record<string, unknown>[])[0];
+      attachment[field] = 'direct-library-sentinel';
+      attachment.nested = { records: [{ [field]: 'nested-library-sentinel', id: 'ordinary-id' }] };
+      const before = bytesFor(raw);
+      const { archive } = await normalize(raw, { bytes: before });
+      const { archive: baseline } = await normalize();
+      const serialized = JSON.stringify(archive);
+      const asset = archive.assets['synthetic-file-2'];
+      const pointer = '/mapping/node~1current/message/metadata/attachments/0';
+
+      expect(serialized).not.toContain(`"${field}":`);
+      expect(serialized).not.toMatch(/direct-library-sentinel|nested-library-sentinel/);
+      expect(asset.extensions).toMatchObject({
+        openai: { nested: { records: [{ id: 'ordinary-id' }] } },
+      });
+      expect(Object.keys(archive.assets)).toEqual(Object.keys(baseline.assets));
+      for (const id of Object.keys(archive.assets)) {
+        expect(archive.assets[id].sourceRefs).toEqual(baseline.assets[id].sourceRefs);
+        expect(archive.assets[id].acquisition).toEqual(baseline.assets[id].acquisition);
+      }
+      const diagnostics = archive.diagnostics.entries.filter(
+        entry => entry.code === 'privacy-redacted-provider-context-id'
+      );
+      expect(diagnostics.map(entry => entry.sourceRefs[0].rawPointer)).toEqual([
+        `${pointer}/${field}`,
+        `${pointer}/nested/records/0/${field}`,
+      ]);
+      expect(diagnostics.every(entry => entry.sourceRefs[0].id === null)).toBe(true);
+      expect(diagnostics.map(entry => entry.message)).toEqual([
+        'A provider context identifier was omitted from canonical data and remains in raw capture only.',
+        'A provider context identifier was omitted from canonical data and remains in raw capture only.',
+      ]);
+      expect(bytesFor(raw)).toEqual(before);
+      expect(validateLiskaThreadArchive(archive)).toEqual({ valid: true, issues: [] });
+    }
+  );
+
+  it.each([
+    ['gizmo_id', 'conversation_template_id', ''],
+    ['gizmoId', 'conversationTemplateId', '/conversation'],
+  ])(
+    'keeps association facts but not %s or %s values in canonical data',
+    async (gizmoField, templateField, basePointer) => {
+      const raw = rawClone();
+      const fields = [
+        'library_file_id',
+        'libraryFileId',
+        'gizmo_id',
+        'gizmoId',
+        'project_id',
+        'projectId',
+        'conversation_template_id',
+        'conversationTemplateId',
+      ];
+      const message = raw.mapping['node/current'].message!;
+      const authoredText =
+        'Keep the words gizmo_id, libraryFileId, project_id and conversationTemplateId.';
+      const ordinaryMetadata = {
+        id: 'ordinary-provider-id',
+        project: 'authored project',
+        library: 'authored library',
+        gizmo: 'authored gizmo',
+        templateId: 'ordinary-template-label',
+        projectIdLabel: 'ordinary-project-label',
+      };
+      raw[gizmoField] = 'root-gizmo-sentinel';
+      raw[templateField] = 'root-template-sentinel';
+      raw.project_id = 'root-project-sentinel';
+      raw.projectId = 'root-camel-project-sentinel';
+      raw.library_file_id = 'root-library-sentinel';
+      raw.libraryFileId = 'root-camel-library-sentinel';
+      const nestedIds = Object.fromEntries(
+        fields.map(field => [field, `nested-sentinel-${field}`])
+      );
+      message.metadata.gizmo_id = 'message-gizmo-sentinel';
+      message.metadata.projectId = 'message-project-sentinel';
+      message.extra = { 'context/with~id': [{ ...nestedIds, ...ordinaryMetadata }] };
+      message.content.parts[0] = authoredText;
+      const envelope = basePointer === '' ? raw : ({ conversation: raw } as unknown as MutableRaw);
+      const before = bytesFor(envelope);
+      const { archive } = await normalize(envelope, { bytes: before });
+      const serialized = JSON.stringify(archive);
+
+      expect(archive.conversation.metadata).toMatchObject({
+        isCustomGpt: true,
+        hasConversationTemplate: true,
+      });
+      expect(archive.conversation.metadata).not.toHaveProperty('gizmoId');
+      expect(archive.conversation.metadata).not.toHaveProperty('templateId');
+      fields.forEach(field => expect(serialized).not.toContain(`"${field}":`));
+      expect(serialized).not.toContain('sentinel');
+      expect(archive.graph.nodes['node/current'].message?.blocks[0]).toMatchObject({
+        type: 'text',
+        text: authoredText,
+      });
+      expect(archive.graph.nodes['node/current'].message?.extensions).toMatchObject({
+        openai: { providerFields: { extra: { 'context/with~id': [ordinaryMetadata] } } },
+      });
+      const expectedPointers = [
+        `/${gizmoField}`,
+        `/${templateField}`,
+        '/project_id',
+        '/projectId',
+        '/library_file_id',
+        '/libraryFileId',
+        '/mapping/node~1current/message/metadata/gizmo_id',
+        '/mapping/node~1current/message/metadata/projectId',
+        ...fields.map(field => `/mapping/node~1current/message/extra/context~1with~0id/0/${field}`),
+      ].map(pointer => `${basePointer}${pointer}`);
+      const diagnostics = archive.diagnostics.entries.filter(
+        entry => entry.code === 'privacy-redacted-provider-context-id'
+      );
+      expect(diagnostics.map(entry => entry.sourceRefs[0].rawPointer).sort()).toEqual(
+        expectedPointers.sort()
+      );
+      expect(diagnostics.every(entry => entry.sourceRefs[0].id === null)).toBe(true);
+      expect(bytesFor(envelope)).toEqual(before);
+      expect(validateLiskaThreadArchive(archive)).toEqual({ valid: true, issues: [] });
+    }
+  );
+
+  it.each([null, ''])(
+    'does not infer association facts from empty context evidence %j',
+    async value => {
+      const raw = rawClone();
+      raw.gizmo_id = value;
+      raw.gizmoId = value;
+      raw.conversation_template_id = value;
+      raw.conversationTemplateId = value;
+
+      const { archive } = await normalize(raw);
+
+      expect(archive.conversation.metadata).not.toHaveProperty('isCustomGpt');
+      expect(archive.conversation.metadata).not.toHaveProperty('hasConversationTemplate');
+      expect(
+        archive.diagnostics.entries.filter(
+          entry => entry.code === 'privacy-redacted-provider-context-id'
+        )
+      ).toHaveLength(4);
+    }
+  );
+
+  it.each(['gizmo_id', 'gizmoId', 'conversation_template_id', 'conversationTemplateId'])(
+    'fails closed for malformed %s association evidence without exposing its value',
+    async field => {
+      for (const value of [42, false, [], { private: 'malformed-sentinel' }]) {
+        const raw = rawClone();
+        raw[field] = value;
+        expect(await errorCode(() => normalize(raw))).toBe('malformed-string-field');
+      }
+      for (const value of ['x'.repeat(513), 'control\u0000sentinel', 'sediment:private-sentinel']) {
+        const raw = rawClone();
+        raw[field] = value;
+        await expect(normalize(raw)).rejects.toMatchObject({ code: 'unsafe-id' });
+        await expect(normalize(raw)).rejects.not.toThrow(value);
+      }
+    }
+  );
+
+  it('rejects disagreeing structured context aliases rather than choosing an association arbitrarily', async () => {
+    for (const fields of [
+      ['gizmo_id', 'gizmoId'],
+      ['conversation_template_id', 'conversationTemplateId'],
+    ]) {
+      const raw = rawClone();
+      raw[fields[0]] = 'first-context-sentinel';
+      raw[fields[1]] = 'other-context-sentinel';
+      expect(await errorCode(() => normalize(raw))).toBe('ambiguous-context-id');
+    }
+  });
+
   it('uses the actual citation alias key in the privacy source pointer', async () => {
     const raw = rawClone();
     raw.mapping['node/current'].message!.metadata.citations = [
