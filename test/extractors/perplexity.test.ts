@@ -195,6 +195,19 @@ describe('PerplexityExtractor', () => {
       </div></div>
     `;
 
+    const sectionedAnswer = (...sections: string[]): string => `
+      <div class="flex flex-col flex-1 min-w-0 gap-4"><div class="contents">
+        <div class="break-words min-w-0 flex-1">
+          ${sections
+            .map(
+              html =>
+                `<div><div class="${ANSWER_PROSE_CLASS}" data-renderer="lm">${html}</div></div>`
+            )
+            .join('')}
+        </div>
+      </div></div>
+    `;
+
     const rendererQuery = (html: string, semanticBubble = true): string => `
       <div class="${semanticBubble ? 'group/user-bubble ' : ''}flex min-w-0 justify-end">
         <div class="min-w-0 max-w-[600px] bg-subtle px-4 py-3 rounded-2xl">
@@ -330,6 +343,106 @@ describe('PerplexityExtractor', () => {
       expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0']);
       expect(messages[0].content).toContain('first line');
       expect(messages[0].content).toContain('last line');
+    });
+
+    it('preserves paragraph and list separators in renderer-backed queries and titles', () => {
+      loadFixture(
+        rendererQuery(`
+          <p>first paragraph</p>
+          <p>second paragraph</p>
+          <ul><li>alpha item</li><li>beta item</li></ul>
+          <script>alert('not exported')</script>
+        `) + answer('<p>answer</p>')
+      );
+
+      const messages = extractor.extractMessages();
+
+      expect(messages[0].content).toBe(
+        'first paragraph\n\nsecond paragraph\n\n-   alpha item\n-   beta item'
+      );
+      expect(messages[0].content).not.toContain('alert');
+      expect(extractor.getTitle()).toBe(
+        'first paragraph second paragraph - alpha item - beta item'
+      );
+    });
+
+    it('keeps Markdown-looking text inside renderer inline code literal', () => {
+      const payload = 'x`![tracking](https://attacker.invalid/pixel)`y';
+      loadFixture(rendererQuery(`<p><code>${payload}</code></p>`) + answer('<p>answer</p>'));
+
+      const messages = extractor.extractMessages();
+
+      expect(messages[0].content).toBe(`\`\`${payload}\`\``);
+    });
+
+    it('groups sibling answer sections into one assistant message and one footnote set', () => {
+      const citation = createPerplexityPillCitation('https://source.example/article', 'source');
+      loadFixture(
+        legacyQuery('sectioned answer') +
+          sectionedAnswer(
+            `<p>first section${citation}</p>`,
+            `<h2>second section</h2><p>same source${citation}</p>`
+          )
+      );
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[1].content).toContain('first section');
+      expect(messages[1].content).toContain('second section');
+      expect(messages[1].content.match(/data-footnote-ref="m1-1"/g)).toHaveLength(2);
+      expect(messages[1].content.match(/\[\^m1-1\]:/g)).toHaveLength(1);
+    });
+
+    it('keeps sibling sections grouped within each answer without merging turns', () => {
+      loadFixture(
+        rendererQuery('<p>first question</p>') +
+          sectionedAnswer('<p>first A</p>', '<p>first B</p>') +
+          rendererQuery('<p>second question</p>') +
+          sectionedAnswer('<p>second A</p>', '<p>second B</p>')
+      );
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.id)).toEqual([
+        'user-0',
+        'assistant-0',
+        'user-1',
+        'assistant-1',
+      ]);
+      expect(messages[1].content).toContain('first A');
+      expect(messages[1].content).toContain('first B');
+      expect(messages[1].content).not.toContain('second A');
+      expect(messages[3].content).toContain('second A');
+      expect(messages[3].content).toContain('second B');
+      expect(messages[3].content).not.toContain('first A');
+    });
+
+    it('does not absorb a separately owned report inside the same answer wrapper', () => {
+      loadFixture(`
+        ${legacyQuery('research this')}
+        <div class="contents">
+          <div class="prose">
+            <div class="${ANSWER_PROSE_CLASS}" data-renderer="lm"><p>summary only</p></div>
+            <div class="relative prose dark:prose-invert max-w-none p-6">
+              <div class="${ANSWER_PROSE_CLASS}" data-renderer="lm"><h1>full report</h1></div>
+            </div>
+          </div>
+        </div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.id)).toEqual(['user-0', 'assistant-0', 'report-0']);
+      expect(messages[1].content).toContain('summary only');
+      expect(messages[1].content).not.toContain('full report');
+      expect(messages[2].content).toContain('full report');
+      expect(
+        messages
+          .map(message => message.content)
+          .join('\n')
+          .match(/full report/g)
+      ).toHaveLength(1);
     });
 
     it('preserves DOM order when legacy and renderer-backed queries coexist', () => {

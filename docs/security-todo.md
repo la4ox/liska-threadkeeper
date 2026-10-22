@@ -49,8 +49,8 @@ finding, `commit:41c1f05321f48191b8bbc9bf9e9ffb91`, is also closed: published
 commit `ccf9a56` serializes migration/settings mutations, fresh-reads sync after
 local verification, and has a deterministic interleaving regression test.
 
-Current follow-up validation: 150 test files / 4,074 tests; 95.15% statements,
-90.71% branches, 98.42% functions, and 97.64% lines; production build and ZIP
+Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
+90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
 reconciliation, formatting, platform-registry lint and source lint pass with
 only the same three pre-existing advisory warnings. A dated fresh `npm audit`
 reports zero known vulnerabilities.

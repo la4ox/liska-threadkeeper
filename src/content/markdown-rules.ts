@@ -289,13 +289,24 @@ turndown.addRule('codemirrorCodeBlocks', {
   },
 });
 
+/** Serialize inline code with a delimiter longer than every payload backtick run. */
+function markdownInlineCode(content: string): string {
+  if (!content) return '';
+  const normalized = content.replace(/\r?\n|\r/g, ' ');
+  const padding = /^`|^ .*?[^ ].* $|`$/.test(normalized) ? ' ' : '';
+  let delimiter = '`';
+  const runs: string[] = normalized.match(/`+/g) ?? [];
+  while (runs.includes(delimiter)) delimiter += '`';
+  return `${delimiter}${padding}${normalized}${padding}${delimiter}`;
+}
+
 // Custom rule for inline code
 turndown.addRule('inlineCode', {
   filter: node => {
     return node.nodeName === 'CODE' && node.parentNode?.nodeName !== 'PRE';
   },
   replacement: content => {
-    return `\`${content}\``;
+    return markdownInlineCode(content);
   },
 });
 

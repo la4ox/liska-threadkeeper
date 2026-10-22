@@ -8,6 +8,7 @@
 
 import { BaseExtractor } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
+import { htmlToMarkdownRaw } from '../markdown-rules';
 import { isHttpUrl } from '../../lib/validation';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import type { ConversationMessage } from '../../lib/types';
@@ -222,7 +223,7 @@ export class PerplexityExtractor extends BaseExtractor {
     const pageTitle = this.getPageTitle();
     if (pageTitle) return pageTitle;
     for (const element of this.queryAllSelectorUnion<HTMLElement>(USER_QUERY_ANY_LAYOUT)) {
-      const title = this.extractPlainText(element);
+      const title = this.sanitizeText(this.extractUserContent(element));
       if (title) return title.substring(0, MAX_CONVERSATION_TITLE_LENGTH);
     }
     return 'Untitled Perplexity Conversation';
@@ -255,7 +256,7 @@ export class PerplexityExtractor extends BaseExtractor {
 
     for (const item of sorted) {
       if (item.type === 'user') {
-        const content = this.extractPlainText(item.element);
+        const content = this.extractUserContent(item.element);
         if (content) {
           messages.push({
             id: `user-${userIdx}`,
@@ -318,11 +319,17 @@ export class PerplexityExtractor extends BaseExtractor {
 
     // New answers render beside an empty placeholder, or without one at all.
     // Old-layout answers and a report's nested inline prose already have owners.
+    const answerOwners = new Set<HTMLElement>();
     for (const prose of this.queryAllSelectorUnion<HTMLElement>(SELECTORS.answerProse)) {
       if (this.isInside(prose, USER_QUERY_ANY_LAYOUT)) continue;
       if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) continue;
       if (this.isInside(prose, DEEP_RESEARCH_PROSE)) continue;
-      tagged.push({ type: 'response', element: prose });
+
+      const owner =
+        this.closestWithFallback<HTMLElement>(prose, SELECTORS.answerContainer) ?? prose;
+      if (answerOwners.has(owner)) continue;
+      answerOwners.add(owner);
+      tagged.push({ type: 'response', element: owner });
     }
 
     for (const prose of this.queryAllSelectorUnion<HTMLElement>(DEEP_RESEARCH_PROSE)) {
@@ -388,6 +395,39 @@ export class PerplexityExtractor extends BaseExtractor {
     });
   }
 
+  /** Find the first stable ancestor in selector-priority order. */
+  private closestWithFallback<T extends Element>(
+    el: Element,
+    selectors: readonly string[]
+  ): T | null {
+    for (const selector of selectors) {
+      try {
+        const match = el.closest<T>(selector);
+        if (match) return match;
+      } catch {
+        // Invalid rollout selectors are treated as absent rather than fatal.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Extract one user query without flattening renderer-owned block structure.
+   *
+   * Current queries are HTML rendered from Markdown, so sanitizing and turning
+   * that HTML back into Markdown preserves paragraph/list boundaries. Legacy
+   * single-span queries retain their established plain-text path. The shared
+   * formatter still performs final user-text escaping when the note is built.
+   */
+  private extractUserContent(element: HTMLElement): string {
+    if (this.matchesAny(element, SELECTORS.userQuery) && element.innerHTML) {
+      const markdown = htmlToMarkdownRaw(sanitizeHtml(element.innerHTML)).trim();
+      if (markdown) return markdown;
+    }
+
+    return this.extractPlainText(element);
+  }
+
   /**
    * Extract assistant response content (HTML for markdown conversion)
    *
@@ -409,15 +449,18 @@ export class PerplexityExtractor extends BaseExtractor {
    * All HTML is sanitized via DOMPurify to prevent XSS.
    */
   private extractAssistantContent(contentElement: HTMLElement, messageIndex: number): string {
-    const ownsProseContent = this.matchesAny(contentElement, SELECTORS.proseContent);
+    const extractionRoot = this.prunedAnswerOwner(contentElement);
+    const ownsProseContent = this.matchesAny(extractionRoot, SELECTORS.proseContent);
     const proseEls = ownsProseContent
       ? []
-      : this.queryAllSelectorUnion<HTMLElement>(SELECTORS.proseContent, contentElement);
+      : this.queryAllSelectorUnion<HTMLElement>(SELECTORS.proseContent, extractionRoot).filter(
+          prose => this.isOwnedAnswerProse(prose, extractionRoot)
+        );
 
     // Fallback: use the content element's innerHTML directly
     const rawHtml =
       ownsProseContent || proseEls.length === 0
-        ? contentElement.innerHTML
+        ? extractionRoot.innerHTML
         : proseEls.map(el => el.innerHTML).join('\n');
 
     if (!rawHtml) {
@@ -425,6 +468,36 @@ export class PerplexityExtractor extends BaseExtractor {
     }
 
     return this.toSanitizedHtmlWithFootnotes(rawHtml, messageIndex);
+  }
+
+  /** Remove descendants already owned by another message before selector aliases collapse. */
+  private prunedAnswerOwner(contentElement: HTMLElement): HTMLElement {
+    if (!this.matchesAny(contentElement, SELECTORS.answerContainer)) return contentElement;
+    const clone = contentElement.cloneNode(true) as HTMLElement;
+    for (const selectors of [
+      USER_QUERY_ANY_LAYOUT,
+      LEGACY_MARKDOWN_CONTENT,
+      DEEP_RESEARCH_PROSE,
+      SELECTORS.answerContainer,
+    ]) {
+      for (const selector of selectors) {
+        try {
+          clone.querySelectorAll(selector).forEach(element => element.remove());
+        } catch {
+          // Invalid rollout selectors are treated as absent rather than fatal.
+        }
+      }
+    }
+    return clone;
+  }
+
+  /** Keep a widened current-answer owner from absorbing nested content with another owner. */
+  private isOwnedAnswerProse(prose: HTMLElement, owner: HTMLElement): boolean {
+    if (!this.matchesAny(owner, SELECTORS.answerContainer)) return true;
+    if (this.isInside(prose, USER_QUERY_ANY_LAYOUT)) return false;
+    if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) return false;
+    if (this.isInside(prose, DEEP_RESEARCH_PROSE)) return false;
+    return this.closestWithFallback(prose, SELECTORS.answerContainer) === owner;
   }
 
   /**

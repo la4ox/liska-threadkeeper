@@ -19,6 +19,9 @@ Source commits: `1f2e07f`, `d35af68`, `2fe0609`.
   the placeholder was removed;
 - support renderer-backed user bubbles while retaining legacy query spans;
 - deduplicate transitional old/new markup;
+- preserve paragraph/list boundaries in renderer-backed user prompts;
+- group sibling prose sections by answer owner without absorbing separately
+  owned Deep Research content;
 - detect opened Deep Research report prose without obsolete card classes;
 - never invent a body for a collapsed report that is absent from the DOM;
 - preserve Liska's hardened citation-title and footnote pipeline.
@@ -47,7 +50,9 @@ outer block. Backticks remain the only writer/reader fence family.
 The branch updates compatible versions of DOMPurify, CRXJS, Vite, Vitest,
 coverage, ESLint and the Undici override. The single-purpose
 `vite-plugin-static-copy` dependency was replaced with Node's built-in `fs.cp`
-for `_locales`; the extension ZIP still retains both locale files. A fresh
+for `_locales`; exact locale copies are maintained in both the resolved dev
+output and production ZIP, including serialized watcher refreshes. The
+extension ZIP still retains both locale files. A fresh
 `npm audit` reports zero known vulnerabilities at this checkpoint. This is a
 dated registry result, not a permanent safety claim.
 

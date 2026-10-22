@@ -32,6 +32,14 @@ export const SELECTORS = {
     '.prose[data-renderer="lm"]', // Renderer hook, added 2026-08 (LOW)
   ],
 
+  // One rendered answer can contain several sibling prose sections. These
+  // wrappers are measured ancestors of the section nodes; the extractor uses
+  // them only to assign one message owner, then reads the prose descendants.
+  answerContainer: [
+    'div.contents', // Per-answer display-contents wrapper (HIGH)
+    'div.flex.flex-col.flex-1.min-w-0.gap-4', // Outer answer wrapper (MEDIUM)
+  ],
+
   // Inline citation pill carrying the source URL (issue #291).
   // Observed 2026-07-02: every citation (hover-trigger pill and anchor variant)
   // wraps in a span whose data-pplx-citation-url attribute holds the source URL.
