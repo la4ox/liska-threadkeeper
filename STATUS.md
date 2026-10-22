@@ -335,8 +335,8 @@ Fresh exact-tree validation:
   closed transitive alias-cancellation and empty-ledger completeness defects;
   final review reports no residual P0-P3 finding.
 
-Next: retain the proven sequential cap of four while sampling materially
-different ordinary-chat image provenance. Image/jpeg and other true asset
+Next: continue from [`docs/chatgpt-todo.md`](docs/chatgpt-todo.md), beginning with
+the existing fresh ordinary-chat JPEG evidence. Image/jpeg and other true asset
 families, custom-GPT, Library-ID, Calpico, retry, concurrent workers, and broad
 endpoint or credential fallback remain separate evidence-gated work. A remote
 push, pull request, merge, release, or tag remains a separate explicit action.

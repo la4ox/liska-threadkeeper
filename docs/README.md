@@ -13,6 +13,10 @@
 - [Fitness-function assessment](fitness-functions-assessment.md)
 - [Changelog](../CHANGELOG.md)
 
+## Active implementation plans
+
+- [ChatGPT follow-up plan](chatgpt-todo.md)
+
 ## Chrome Web Store
 
 - [Dashboard listing source](store/listing.md)
