@@ -45,6 +45,12 @@ terminal states, and the existing no-credential-export boundary.
 - Offline classification is implemented without transport authority: exact raw
   source refs produce only opaque associated/ambiguous asset IDs, while
   malformed, conflicting or stale evidence fails closed.
+- One exact Library-associated JPEG is live-verified through a separate planner
+  and the existing page-owned file-ID transport. It consumes one of four active
+  image slots; only the exact direct attachment ID can authorize the request.
+- Pointer-only aliases may lose to that exact direct record, but malformed,
+  nonempty direct, Library-bearing and interpreter-owned siblings remain hard
+  blocks before eligibility.
 - Library/gizmo/project/template identifiers are raw-only in canonical output;
   custom-GPT/template context retains only bounded boolean association facts.
 - Derive custom-GPT/project context only from exact committed-raw evidence; never
@@ -145,8 +151,8 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Finish and merge PR 13. Then observe the existing Library JPEG through a bounded
-metadata-only/live transport probe before defining a Library request contract.
-Keep the sole archived WebP as separate Library-family evidence; do not infer a
-WebP route, custom-GPT/project ownership, or ordinary GIF/WebP support from its
-metadata.
+Checkpoint the live-verified one-Library-JPEG slice in its own pull request.
+Then collect a fresh custom-GPT/project attachment example and define ownership
+only from its committed raw evidence. Keep the sole archived WebP as separate
+Library-family evidence; do not infer a WebP route or ordinary GIF/WebP support
+from its metadata.

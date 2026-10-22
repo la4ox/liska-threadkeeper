@@ -372,7 +372,8 @@ conflicting aliases, malformed values, duplicate ledger IDs, missing or
 duplicate raw pointers and malformed conversation artifact IDs fail closed as
 ambiguous. Separate assets that share one Library association are not merged.
 Synthetic inventory plus content-free checks against the saved Library JPEG and
-pointerless WebP keep both assets `not-attempted` with null local claims.
+pointerless WebP originally kept both assets `not-attempted` with null local
+claims; that frozen offline checkpoint remains the no-authority baseline.
 
 Canonical privacy now treats exact Library, gizmo, project and conversation
 template identifier aliases as raw-only structured provider context. Direct and
@@ -380,7 +381,53 @@ nested values are omitted with fixed value-free diagnostics at exact raw
 pointers. Root gizmo/template evidence retains only `isCustomGpt: true` and
 `hasConversationTemplate: true`; authored text, ordinary provider fields, raw
 bytes, opaque asset IDs, source references and acquisition states remain
-unchanged. Transport and ownership remain explicitly unimplemented.
+unchanged. Custom-GPT/project ownership remains explicitly unimplemented.
+
+The first live Library transport observation proved that ChatGPT's preview
+downloads a `blob:https://chatgpt.com/...`, while the underlying page-owned
+flow uses `/backend-api/files/download/<direct attachment id>` and a transient
+signed `/backend-api/estuary/content` URL. A browser-owned content GET returned
+200; the same signed URL without the authenticated browser session returned 403. The contract therefore reuses the existing MAIN-world credential-bearing
+resolver and content-script acquisition seam; it never exports cookies,
+Authorization headers, signed URLs or Library IDs and never moves the signed
+URL into a background fetch.
+
+The initial production-path canary correctly left the Library JPEG
+`not-attempted` and exposed a stricter-than-intended collision rule: a separate
+pointer-only inventory record referenced the same provider file as the exact
+Library metadata record. The fix permits only that weaker pointer-only alias;
+malformed, unsupported, Library-bearing or nonempty direct siblings still fail
+closed. Independent review also found and closed a separate merged-ledger
+interpreter-precedence defect before the successful canary.
+
+The successful trusted-click canary produced capture
+`capture-chatgpt-4bb552a8-ce71-43ce-ae2a-b8632e9a0c4b`. It selected four of four
+active slots: one Library JPEG and three ordinary images, with four known
+dispatches, four observed helpers and no run failure. The Library JPEG is 9,949
+bytes at SHA-256
+`29c102f25e517ef317efcd548d120335fd7d146ed42b1482eac8b075be4dcebb`;
+it is byte-identical to ChatGPT's own preview download and passes the existing
+155 by 194 JPEG structural validator. A second 145,482-byte ordinary JPEG and
+two PNGs were also preserved. File and Obsidian contain seven of seven
+byte-identical raw/manifest/canonical/binary files. `library_file_id`, signed
+transport URLs and credential/header markers are absent from manifest and
+canonical output; the immutable raw retains original provider evidence.
+
+The installed extension was returned to its pre-canary `dist` with the exact
+29-file tree hash
+`8d74d2458ec5f5a6fa978f574ef07896f0f657fa2af539a1df3a21066286d955`.
+Temporary screenshots, browser-History copy and both canary builds were removed;
+captures remain append-only.
+
+Final exact-tree validation for the combined Library slice passes all 153 test
+files / 4,286 tests. Coverage is 95.23% statements, 90.99% branches, 98.46%
+functions and 97.72% lines. TypeScript, the production build, source/platform
+lint and repository formatting pass; lint retains the same three pre-existing
+warnings. The package has 29 of 29 files byte-identical to `dist`, is 228,071
+bytes and has SHA-256
+`14b25a7f063584ad9c78921ea0a2e05f704fc97bde09ca3d437603605345bafc`.
+Independent review found and closed the merged-ledger interpreter-precedence
+and pointer-alias ambiguity defects; its final pass found no remaining P0-P2.
 
 Exact-tree validation for this offline Library checkpoint passes all 152 test
 files / 4,216 tests. Coverage is 95.20% statements, 90.93% branches, 98.45%
@@ -435,9 +482,10 @@ Pull request 13 merged to `main` as `6c64fd1`; its reviewed source head was
 `bc6a6a3`, CI was green and Security review was clean. The repeated ordinary
 code-review indicator remained externally stuck after both actionable threads
 were resolved, so the merge used the clean CI/Security result, the resolved
-review evidence and an independent local review. The offline Library branch is
-rebased onto that exact merge and remains unpublished while its runtime
-contract is still evidence-gated.
+review evidence and an independent local review. The Library branch is
+rebased onto that exact merge. Its offline privacy and association checkpoint
+plus the one-JPEG runtime contract remain unpublished pending their own
+reviewable pull request.
 
 The upstream `v2.7.13` → `v2.14.9` audit is retained in
 [`docs/upstream-2.14.9-audit.md`](docs/upstream-2.14.9-audit.md). This branch now
@@ -446,7 +494,7 @@ append reader, and compatible dependency/build-chain updates. Claude current
 DOM, ChatGPT DOM fallback, typed truncation guards, Gemini completeness/title
 and the exact Google image redirect permission remain explicit later slices.
 
-Next: finish and merge PR 13, then run a bounded Library metadata/transport
-observation on the existing Library JPEG before defining any runtime request
-contract. Treat the archived WebP and custom-GPT/project context as separate
-evidence gates; do not widen ordinary GIF/WebP acquisition.
+Next: checkpoint the independently reviewed, live-verified one-Library-JPEG
+slice in its own pull request. Then collect exact custom-GPT/project attachment
+evidence as a separate ownership contract. Treat the archived WebP as separate
+Library-family evidence and do not widen ordinary GIF/WebP acquisition.
