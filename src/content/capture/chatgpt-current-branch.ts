@@ -71,6 +71,7 @@ import {
   chatGptActiveResolverMetricFromResponse,
   chatGptActiveResolverProbeWarning,
   emptyChatGptActiveResolverMetric,
+  type ChatGptActiveResolverAudit,
   type ChatGptActiveResolverMetric,
 } from './chatgpt-active-resolver-audit';
 import { probeChatGptActiveAssetResolvers } from './chatgpt-active-resolver-request';
@@ -938,7 +939,7 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
   context: ChatGptAssetExportContext,
   assetRecords: readonly RawCaptureAssetRecord[],
   runtimeAssets: readonly RawCaptureAsset[],
-  activeResolverMetric?: ChatGptActiveResolverMetric
+  activeResolverMetric?: ChatGptActiveResolverAudit
 ): Promise<ArchiveCompanionBundle> {
   const originalRaw = await verifiedOriginalRaw(context);
   try {

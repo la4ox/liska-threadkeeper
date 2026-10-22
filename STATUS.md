@@ -237,10 +237,23 @@ The helper remains the one page-observed
 `inline=false`, `download_intent=false`, and
 `include_library_file_state=true`. It reuses closure-private source
 authorization only inside MAIN, copies no credential outside that closure, and
-has no retry, endpoint fallback, route discovery, or batch widening. Background
+has no retry, endpoint fallback, route discovery, or concurrent dispatch. Background
 rebinds the signed URL to the exact transient plan; the existing downloader then
 verifies response URL, media type, PNG bytes, length, and SHA-256 before
 destination-specific persistence can claim `fetched`.
+
+A local static interoperability review of installed AI Exporter 4.6.0 explained
+its apparent speed without adopting its broader trust model. It captures the
+same conversation API, hydrates every mapping image through the same helper
+family with `inline=true`, and uses up to six workers while silently skipping
+individual failures. It also retains authorization/device headers in its own
+runtime, has broad background image-fetch permissions, may compress images, and
+chooses the newest reachable leaf rather than ChatGPT `current_node`. Liska
+keeps its closure-private authorization, explicit current/selected branch,
+original-byte verification, sequential acquisition, and honest failure states.
+One same-identity live A/B changed only `inline=false` to `inline=true`; both
+modes returned the same `http-error`. The experiment was fully rolled back, so
+no second-mode fallback remains.
 
 Two final-build trusted-click exports completed independently. The warm canary
 receipt was `requested=1`, `dispatched=1`, `observed=1`, with every failure
@@ -253,26 +266,38 @@ PNG length/SHA-256/path agree, one asset is `fetched`, and five remain honestly
 immutable captures. Durable manifest/canonical scans found no selected provider
 identity or transient signed URL, and no marker tab remained.
 
-A compact historical ordinary-chat canary then separated availability evidence
-from the earlier “expired PNG” hypothesis. Four PNG ledger records were present.
-The one-PNG adapter dispatched exactly one helper request and received
-`http-error`; that asset is therefore `failed` with an attempt timestamp, not
-`expired`. The other three PNGs remained `not-attempted`. Opaque-ID
-reconciliation showed that the attempted PNG was not the one unique PNG that
-older captures had successfully fetched; that historically fetched identity is
-still in the current ledger and was not selected. An older interpreter/document
-reference independently returned its known HTTP 404 and stayed
-`not-attempted`, while the current 51,741-byte PDF was fetched again. Raw
-115,759 bytes, manifest 4,885 bytes, canonical 229,582 bytes, PDF, and Markdown
-were byte-identical between Downloads and Obsidian; no marker tab remained.
-This run proves neither PNG expiry nor loss of the previously fetched PNG.
+A bounded content-level batch now selects at most four distinct ordinary PNG
+identities while leaving every background/MAIN transaction single-item. It runs
+strictly sequentially, assigns ownership before dispatch, immediately acquires
+each successful candidate through the shared 20-attempt/128-MiB budget, excludes
+all selected identities from passive retry, and stops before another helper when
+the shared attempt or byte budget is exhausted. One aggregate durable audit
+preserves completed outcomes, known dispatches, unknown-dispatch run failures,
+and allowlisted terminal counts without IDs, URLs, timestamps, or bodies. Its
+caller-owned inputs are snapshotted once through own data descriptors before
+validation and formatting; iterator, accessor, Proxy-get, repeated-descriptor,
+and sparse-array attacks are covered.
+
+The historical four-PNG canary then selected and dispatched all four identities:
+three returned `http-error`, while the fourth produced a verified 2,313,476-byte
+PNG (1448 by 1086). Its opaque ID and SHA-256 exactly match the one unique PNG
+that older captures had fetched, proving historical availability without
+inventing expiry for the other three. The current 51,741-byte PDF also remained
+fetched. Downloads and Obsidian each retained five byte-identical archive files
+plus byte-identical Markdown; all temporary tabs closed.
+
+The fresh canary selected its two eligible PNG identities and fetched both:
+1,474,502 and 1,429,642 bytes, each a verified 1122-by-1402 PNG. The first hash
+matches the earlier one-PNG canary; the second had previously remained
+`not-attempted`. Raw/manifest/canonical plus both binaries and Markdown were
+byte-identical between Downloads and Obsidian, with no leftover marker tab.
 
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 150 test files / 3,878 tests pass;
-- coverage passes at 95.14% statements, 90.62% branches, 98.28% functions, and
-  97.76% lines;
+- 150 test files / 3,912 tests pass;
+- coverage passes at 95.16% statements, 90.67% branches, 98.36% functions, and
+  97.80% lines;
 - TypeScript and the production Vite build pass;
 - full lint has zero errors and only the same three pre-existing advisory
   warnings; platform registry lint and repository formatting pass;
@@ -280,13 +305,12 @@ Fresh exact-tree validation:
   defects: duplicate direct/pointer fetching, invalid-direct pointer fallback,
   and the same fallback in shared passive/metric evidence. Whole-ledger
   precedence plus per-family fail-closed direct-ID validation now cover all
-  three; final review reports no residual P0-P3 finding.
+  three. Batch review additionally reproduced and closed a validation/use
+  mismatch caused by caller-owned iteration; final review reports no residual
+  P0-P3 finding.
 
-Next: do not repeat the same one-PNG historical export: deterministic selection
-would target the same failed identity and add no evidence. The next explicit
-decision is either to stop at the proven fresh-PNG slice or widen only this
-ordinary-chat adapter to a sequential batch of at most four distinct PNG
-identities so the historically fetched identity can be tested. Custom-GPT,
-Library-ID, Calpico, retry, and broad endpoint fallback remain out of scope. A
-remote push, pull request, merge, release, or tag remains a separate explicit
-action.
+Next: retain the proven sequential cap of four while sampling materially
+different ordinary-chat PNG provenance. Image/jpeg and other asset families,
+custom-GPT, Library-ID, Calpico, retry, concurrent workers, and broad endpoint or
+credential fallback remain separate evidence-gated work. A remote push, pull
+request, merge, release, or tag remains a separate explicit action.

@@ -460,41 +460,53 @@ header-value extraction, retry, or persisted signed URL. Its next evidence must
 be one short trusted-click smoke with a visibly loadable attachment; an empty
 result stops the route rather than triggering a fallback.
 
-That evidence gate is now satisfied for exactly one ordinary-chat PNG, and the
-data-bearing route remains a separate action from the metric-only API. A pure
-plan is rebuilt from reverified committed raw, resolves strength and ambiguity
-against the full ledger, excludes every interpreter-owned identity, and sends
-one `{assetId, providerFileId}` pair. Any unsupported nonempty direct identity
-fails closed before a valid sibling or weaker pointer can be considered.
-Passive matching likewise keeps the full ledger until after winner selection,
-so an already attempted direct record cannot promote its pointer alias into a
-duplicate download. The selected active identity is never passively retried,
-including after a terminal helper or binary-acquisition failure.
+The data-bearing route remains separate from the metric-only API. A pure plan is
+rebuilt from reverified committed raw, resolves strength and ambiguity against
+the full ledger, excludes every interpreter-owned identity, and emits only
+single `{assetId, providerFileId}` transactions. Any unsupported nonempty direct
+identity fails closed before a valid sibling or weaker pointer can be considered.
+Passive matching keeps the full ledger until after winner selection, so an
+already selected direct record cannot promote its pointer alias into a duplicate
+download. Every selected identity is owned before dispatch and is never retried
+passively, including after helper or binary-acquisition failure.
 
-The helper uses only the page-observed four-query image recipe, returns one
-transient candidate after background rebinding, and feeds it immediately to the
-existing bounded browser-owned downloader. `fetched` remains destination-honest:
-verified bytes, length, SHA-256, and a successful destination write are all
-required. Two trusted-click final-build captures each resolved one PNG with
-`requested=1`, `dispatched=1`, `observed=1`; both wrote the same verified
-1,474,502-byte 1122-by-1402 PNG plus byte-identical raw/manifest/canonical
-companions to Downloads and Obsidian. Five other ledger records remained
-`not-attempted`; no provider identity, signed URL, or marker tab remained. This
-proves the one-PNG path only. Multi-item acquisition, automatic retry, endpoint
-fallback, and custom-GPT/Library-ID widening require separate evidence.
+The helper uses only the page-observed four-query image recipe. A local static
+interoperability review found that installed AI Exporter 4.6.0 uses the same
+conversation and file-helper families but hydrates all mapping images with
+`inline=true`, up to six concurrent workers, broad retained authorization/device
+headers and silent per-image failure. It can also compress image outputs and
+chooses the newest reachable leaf rather than provider `current_node`. These
+choices explain speed and branch drift but do not meet Liska's archive boundary.
+One exact same-identity A/B changed only Liska's `inline=false` to `inline=true`;
+both modes returned the same `http-error`. The experimental build was rolled
+back, so no mode fallback, broad credential path, or concurrency was added.
 
-One later historical-chat canary had four PNG ledger identities. Deterministic
-one-item selection dispatched one helper request and produced `http-error`, so
-that selected record became `failed`; no `file-expired` evidence was observed.
-The other three PNGs remained `not-attempted`. Cross-capture opaque-ID
-reconciliation established that the selected record was not the single PNG that
-older captures had fetched successfully; that prior-success identity remains in
-the current ledger but was not exercised. A separate old interpreter/document
-reference still returned HTTP 404, while the current PDF resolved normally.
-Repeating the one-item run would deterministically retry the same failed identity
-and is therefore not an evidence-gathering strategy. Testing the other PNGs
-requires either an explicit sequential cap increase or no further live action;
-it does not justify inferring expiry, random selection, or automatic retry.
+Instead, a content-level cap permits at most four distinct eligible PNGs while
+each background/MAIN request remains single-item. Acquisition is sequential:
+resolve one, immediately validate/acquire it through the shared 20-attempt and
+128-MiB budget, then consider the next. The durable batch audit contains one to
+four exact per-item metrics and safely aggregates known dispatches,
+unknown-dispatch run failures, observed counts and allowlisted outcomes without
+IDs, URLs, bodies or timestamps. Caller-owned audit objects, arrays, metrics and
+outcome counts are snapshotted once from own data descriptors; aggregation uses
+only those internal snapshots, preventing iterator, accessor, Proxy-get and
+validation/use substitution.
+
+The historical four-PNG canary selected and dispatched all four identities.
+Three returned `http-error`; the fourth produced a verified 2,313,476-byte,
+1448-by-1086 PNG whose opaque identity and SHA-256 exactly match the one PNG
+older captures had fetched. The current 51,741-byte PDF also remained fetched.
+Five archive files plus Markdown were byte-identical across Downloads and
+Obsidian, and every temporary tab closed. This establishes historical
+availability without inventing expiry for the three failed identities.
+
+The fresh canary selected both of its eligible PNG identities and fetched both:
+1,474,502 and 1,429,642 verified bytes, each 1122 by 1402. The first repeats the
+earlier one-PNG hash; the second had previously remained `not-attempted`.
+Raw/manifest/canonical plus both binaries and Markdown were byte-identical across
+Downloads and Obsidian, with no marker tab left open. Automatic retry, endpoint
+fallback, custom-GPT/Library-ID widening and concurrent workers still require
+separate evidence.
 
 Discovering every reference does not make `completeness.assets` complete. Until
 all selected binary acquisitions reach an evidenced terminal state, a

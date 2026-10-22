@@ -28,6 +28,12 @@ import {
   extractChatGptActiveResolverPlan,
   extractChatGptInterpreterAssetPlan,
 } from '../../src/content/capture/chatgpt-asset-resolver';
+import {
+  chatGptActiveResolverAuditWarning,
+  chatGptActiveResolverFailureMetric,
+  chatGptActiveResolverMetricFromResponse,
+  type ChatGptActiveResolverBatchAudit,
+} from '../../src/content/capture/chatgpt-active-resolver-audit';
 
 const activeResolverMocks = vi.hoisted(() => ({ probe: vi.fn() }));
 const interpreterResolverMocks = vi.hoisted(() => ({ resolve: vi.fn() }));
@@ -709,6 +715,55 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(durable).not.toContain('providerFileId');
     expect(durable).not.toContain('download_url');
     expect(durable).not.toContain('private active resolver diagnostic');
+  });
+
+  it('persists one safe batch audit without replacing earlier complete metrics with a run failure', async () => {
+    const capture = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: () => successfulResponse(),
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    });
+    const context = capture.assetExportContext!;
+    const audit: ChatGptActiveResolverBatchAudit = {
+      acquisitionMode: 'png-batch-4',
+      attempts: [
+        chatGptActiveResolverMetricFromResponse(
+          {
+            success: true,
+            data: {
+              requestedCount: 1,
+              dispatchCount: 1,
+              observedCount: 1,
+              outcomes: ['observed'],
+              attemptedAt: CAPTURE_TIME,
+            },
+          },
+          1
+        ),
+        chatGptActiveResolverFailureMetric(1, 'source-http-error'),
+      ],
+    };
+    const companion = await buildChatGptBinaryAwareArchiveCompanion(
+      context,
+      context.rawCaptureBundle.manifest.assets,
+      [],
+      audit
+    );
+    const manifest = parseBase64Json(companion.artifacts[1].bodyBase64);
+    const warning = chatGptActiveResolverAuditWarning(audit)!;
+    expect(manifest.warnings.filter((value: string) => value === warning)).toHaveLength(1);
+    expect(warning).toContain(
+      'selected=2/4; completed=1; dispatched-known=1; dispatch-unknown=1; observed=1;'
+    );
+    expect(warning).toContain('run-failures=source-http-error:1;');
+    expect(warning).not.toContain(CAPTURE_TIME);
+    const durable = JSON.stringify({
+      manifest,
+      canonical: parseBase64Json(companion.artifacts[2].bodyBase64),
+    });
+    expect(durable).not.toContain('download_url');
+    expect(durable).not.toContain('providerFileId');
+    expect(durable).not.toContain('/backend-api/estuary/content');
   });
 
   it.each([

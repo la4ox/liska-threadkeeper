@@ -25,6 +25,18 @@ export interface ChatGptActiveResolverMetric {
   failureCode: ChatGptActiveResolverErrorCode | null;
 }
 
+/** Content orchestration cap only; every background request remains single-item. */
+export const CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT = 4;
+
+export interface ChatGptActiveResolverBatchAudit {
+  acquisitionMode: 'png-batch-4';
+  attempts: ChatGptActiveResolverMetric[];
+}
+
+export type ChatGptActiveResolverAudit =
+  | ChatGptActiveResolverMetric
+  | ChatGptActiveResolverBatchAudit;
+
 export function emptyChatGptActiveResolverOutcomeCounts(): ChatGptActiveResolverOutcomeCounts {
   return {
     observed: 0,
@@ -106,7 +118,36 @@ function invalidMetric(): never {
   throw new Error('invalid active resolver metric');
 }
 
+type DataFields = Record<string, unknown>;
+type DataSnapshots = WeakMap<object, DataFields>;
+
+/** Read each caller-owned own descriptor once; never invoke property gets or iterators. */
+function snapshotOwnDataFields(value: unknown, snapshots: DataSnapshots): DataFields {
+  if (value === null || typeof value !== 'object') invalidMetric();
+  const prior = snapshots.get(value);
+  if (prior !== undefined) return prior;
+  const snapshot: DataFields = Object.create(null);
+  snapshots.set(value, snapshot);
+  snapshots.set(snapshot, snapshot);
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') invalidMetric();
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !('value' in descriptor)) invalidMetric();
+    snapshot[key] = descriptor.value;
+  }
+  return snapshot;
+}
+
+/** Only internal snapshots reach this helper. */
+function hasExactFields(value: object, fields: readonly string[]): boolean {
+  return (
+    Reflect.ownKeys(value).length === fields.length &&
+    fields.every(field => Object.prototype.hasOwnProperty.call(value, field))
+  );
+}
+
 function validateMetricBase(metric: ChatGptActiveResolverMetric): void {
+  if (metric === null || typeof metric !== 'object') invalidMetric();
   const fields = [
     'requestedCount',
     'dispatchCount',
@@ -114,16 +155,9 @@ function validateMetricBase(metric: ChatGptActiveResolverMetric): void {
     'outcomeCounts',
     'failureCode',
   ];
-  if (Object.getOwnPropertyDescriptor(metric, 'acquisitionMode') !== undefined)
+  if (Object.prototype.hasOwnProperty.call(metric, 'acquisitionMode'))
     fields.push('acquisitionMode');
-  if (
-    Reflect.ownKeys(metric).length !== fields.length ||
-    !fields.every(field => {
-      const descriptor = Object.getOwnPropertyDescriptor(metric, field);
-      return descriptor !== undefined && 'value' in descriptor;
-    })
-  )
-    invalidMetric();
+  if (!hasExactFields(metric, fields)) invalidMetric();
   if (
     (metric.acquisitionMode !== undefined && metric.acquisitionMode !== 'one-png') ||
     !Number.isSafeInteger(metric.requestedCount) ||
@@ -146,10 +180,10 @@ function validateFailureMetric(metric: ChatGptActiveResolverMetric): void {
 }
 
 function validateOutcomeCountShape(counts: ChatGptActiveResolverOutcomeCounts): void {
-  const keys = Reflect.ownKeys(counts);
   if (
-    keys.length !== CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES.length ||
-    !CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES.every(code => keys.includes(code))
+    counts === null ||
+    typeof counts !== 'object' ||
+    !hasExactFields(counts, CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES)
   ) {
     invalidMetric();
   }
@@ -192,19 +226,109 @@ function histogram(counts: ChatGptActiveResolverOutcomeCounts): string {
   return CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES.map(code => `${code}:${counts[code]}`).join(',');
 }
 
+function validatedMetricSnapshot(
+  fields: DataFields,
+  snapshots: DataSnapshots
+): ChatGptActiveResolverMetric {
+  const metric = fields as unknown as ChatGptActiveResolverMetric;
+  validateMetricBase(metric);
+  if (metric.outcomeCounts === null) validateFailureMetric(metric);
+  else {
+    const counts = snapshotOwnDataFields(
+      metric.outcomeCounts,
+      snapshots
+    ) as ChatGptActiveResolverOutcomeCounts;
+    validateSuccessMetric(metric, counts);
+    metric.outcomeCounts = counts;
+  }
+  return metric;
+}
+
+function validatedAttemptSnapshots(
+  value: unknown,
+  snapshots: DataSnapshots
+): ChatGptActiveResolverMetric[] {
+  if (!Array.isArray(value)) invalidMetric();
+  const entries = snapshotOwnDataFields(value, snapshots);
+  const length = entries.length;
+  if (
+    typeof length !== 'number' ||
+    !Number.isSafeInteger(length) ||
+    length < 1 ||
+    length > CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT ||
+    !hasExactFields(entries, ['length', ...Array.from({ length }, (_, index) => String(index))])
+  )
+    invalidMetric();
+  const attempts: ChatGptActiveResolverMetric[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const metric = validatedMetricSnapshot(
+      snapshotOwnDataFields(entries[String(index)], snapshots),
+      snapshots
+    );
+    if (
+      metric.requestedCount !== 1 ||
+      Object.prototype.hasOwnProperty.call(metric, 'acquisitionMode')
+    )
+      invalidMetric();
+    attempts.push(metric);
+  }
+  return attempts;
+}
+
+function validatedBatchSnapshot(
+  fields: DataFields,
+  snapshots: DataSnapshots
+): ChatGptActiveResolverBatchAudit {
+  if (
+    !hasExactFields(fields, ['acquisitionMode', 'attempts']) ||
+    fields.acquisitionMode !== 'png-batch-4'
+  )
+    invalidMetric();
+  return {
+    acquisitionMode: 'png-batch-4',
+    attempts: validatedAttemptSnapshots(fields.attempts, snapshots),
+  };
+}
+
+function batchAuditWarning(audit: ChatGptActiveResolverBatchAudit): string {
+  const counts = emptyChatGptActiveResolverOutcomeCounts();
+  const failures = new Map<ChatGptActiveResolverErrorCode, number>();
+  let completed = 0;
+  let dispatched = 0;
+  let observed = 0;
+  for (const metric of audit.attempts) {
+    if (metric.outcomeCounts === null) {
+      const code = metric.failureCode!;
+      failures.set(code, (failures.get(code) ?? 0) + 1);
+      continue;
+    }
+    completed += 1;
+    dispatched += metric.dispatchCount!;
+    observed += metric.observedCount;
+    for (const code of CHATGPT_ACTIVE_RESOLVER_OUTCOME_CODES)
+      counts[code] += metric.outcomeCounts[code];
+  }
+  const runFailures = CHATGPT_ACTIVE_RESOLVER_ERROR_CODES.filter(code => failures.has(code))
+    .map(code => `${code}:${failures.get(code)}`)
+    .join(',');
+  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; file-ID binary acquisition is limited to four sequential PNGs.`;
+}
+
 export function chatGptActiveResolverAuditWarning(
-  metric: ChatGptActiveResolverMetric | undefined
+  metric: ChatGptActiveResolverAudit | undefined
 ): string | undefined {
   if (metric === undefined) return undefined;
-  validateMetricBase(metric);
+  const snapshots: DataSnapshots = new WeakMap();
+  const fields = snapshotOwnDataFields(metric, snapshots);
+  if (fields.acquisitionMode === 'png-batch-4')
+    return batchAuditWarning(validatedBatchSnapshot(fields, snapshots));
+  const singular = validatedMetricSnapshot(fields, snapshots);
   const acquisition =
-    metric.acquisitionMode === 'one-png'
+    singular.acquisitionMode === 'one-png'
       ? 'file-ID binary acquisition is limited to one PNG.'
       : 'file-ID binary acquisition remains disabled.';
-  if (metric.outcomeCounts === null) {
-    validateFailureMetric(metric);
-    return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=unknown; observed=0; outcomes=unavailable; failure=${metric.failureCode}; ${acquisition}`;
+  if (singular.outcomeCounts === null) {
+    return `ChatGPT active resolver audit: requested=${singular.requestedCount}; dispatched=unknown; observed=0; outcomes=unavailable; failure=${singular.failureCode}; ${acquisition}`;
   }
-  validateSuccessMetric(metric, metric.outcomeCounts);
-  return `ChatGPT active resolver audit: requested=${metric.requestedCount}; dispatched=${metric.dispatchCount}; observed=${metric.observedCount}; outcomes=${histogram(metric.outcomeCounts)}; failure=none; ${acquisition}`;
+  return `ChatGPT active resolver audit: requested=${singular.requestedCount}; dispatched=${singular.dispatchCount}; observed=${singular.observedCount}; outcomes=${histogram(singular.outcomeCounts)}; failure=none; ${acquisition}`;
 }
