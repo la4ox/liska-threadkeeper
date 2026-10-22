@@ -481,7 +481,8 @@ One exact same-identity A/B changed only Liska's `inline=false` to `inline=true`
 both modes returned the same `http-error`. The experimental build was rolled
 back, so no mode fallback, broad credential path, or concurrency was added.
 
-Instead, a content-level cap permits at most four distinct eligible PNGs while
+Instead, a content-level cap permits at most four distinct eligible ordinary
+PNG/JPEG images while
 each background/MAIN request remains single-item. Acquisition is sequential:
 resolve one, immediately validate/acquire it through the shared 20-attempt and
 128-MiB budget, then consider the next. The durable batch audit contains one to
@@ -532,6 +533,30 @@ Raw/manifest/canonical plus both binaries and Markdown were byte-identical acros
 Downloads and Obsidian, with no marker tab left open. Automatic retry, endpoint
 fallback, custom-GPT/Library-ID widening and concurrent workers still require
 separate evidence.
+
+JPEG activation reuses that exact route and the same four-slot content cap; it
+does not add a second JPEG quota. Eligibility uses the inventory's canonical
+MIME essence and the exact set `image/png | image/jpeg`. Standards-equivalent
+case and parameters are normalized before planning; nonstandard aliases such as
+`image/jpg`, GIF and WebP remain excluded. Before either active or passive winner selection,
+the planner builds a whole-ledger deny set from every valid direct identity and
+pointer present on a Library-bearing raw value. This prevents both a stronger
+ordinary record and a weaker pointer alias from laundering the same Library
+identity into the ordinary route. `source: local` alone is not evidence of
+Library ownership. The same deny-only pass retains multi-ID and
+unsupported-direct evidence before candidate matching, so an ambiguous strong
+record cannot disappear and promote a separately inventoried pointer alias.
+
+A live standard-conversation canary selected one of two JPEG records. Its audit
+reported one dispatch and one observed resolver response with no failure. File
+and Obsidian each retained byte-identical raw, manifest, canonical and JPEG
+files. The 188,009-byte original was an 8-bit baseline SOF0 JPEG measuring 1015
+by 1536; actual bytes, content-addressed `.jpg` path, length and SHA-256 match
+both durable metadata layers. The other JPEG stayed `not-attempted`, so overall
+asset completeness remained honestly `partial`. Credential-key and transient
+transport scans of manifest/canonical were empty. A temporary generated-dist
+trusted-click harness was removed after the canary and never entered source or
+the packaged build.
 
 Discovering every reference does not make `completeness.assets` complete. Until
 all required binary acquisitions reach an evidenced terminal state, a

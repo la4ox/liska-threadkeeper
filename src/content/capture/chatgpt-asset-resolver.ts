@@ -41,6 +41,7 @@ const POINTER_FILE_ID_PATTERN = /^(?:file-service|sediment):(?:\/\/)?([A-Za-z0-9
 const DIRECT_ID_FIELDS = ['asset_id', 'assetId', 'file_id', 'fileId', 'id'] as const;
 const CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 const CHATGPT_INTERPRETER_MAX_POINTER_LENGTH = 4_096;
+const CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES = new Set<string | null>(['image/png', 'image/jpeg']);
 
 export interface ChatGptTransientResolverRecord {
   resolverKey: string;
@@ -79,6 +80,7 @@ interface MatchedAsset {
   assetId: string;
   downloadUrl: string;
   resolverKey: string;
+  providerFileId: string;
   numericResolver: boolean;
   strength: 1 | 2;
 }
@@ -404,6 +406,76 @@ function hasLibraryFileIdentity(value: unknown): boolean {
   return false;
 }
 
+/** Deny-only evidence; this never authorizes a request or chooses a winner. */
+function denyOnlyProviderIdentityFacts(
+  value: unknown,
+  acceptsIdentity: (candidate: unknown) => candidate is string
+): {
+  ordinaryIdentities: string[];
+  denyIdentities: string[];
+  hardBlock: boolean;
+} {
+  if (!isRecord(value)) {
+    return { ordinaryIdentities: [], denyIdentities: [], hardBlock: false };
+  }
+  const direct = new Set<string>();
+  let unsupportedDirect = false;
+  for (const field of DIRECT_ID_FIELDS) {
+    const candidate = value[field];
+    if (typeof candidate !== 'string' || candidate.length === 0) continue;
+    if (acceptsIdentity(candidate)) direct.add(candidate);
+    else unsupportedDirect = true;
+  }
+  const pointerIdentities = new Set<string>();
+  const pointer = value.asset_pointer;
+  if (typeof pointer === 'string') {
+    const match = POINTER_FILE_ID_PATTERN.exec(pointer);
+    if (match?.[1] && acceptsIdentity(match[1])) pointerIdentities.add(match[1]);
+  }
+  const ordinaryIdentities = unsupportedDirect
+    ? []
+    : direct.size > 0
+      ? [...direct]
+      : [...pointerIdentities];
+  return {
+    ordinaryIdentities,
+    denyIdentities: [...new Set([...direct, ...pointerIdentities])],
+    hardBlock: hasLibraryFileIdentity(value) || unsupportedDirect || direct.size > 1,
+  };
+}
+
+/**
+ * Whole-ledger deny set shared by active and passive ordinary routes. Every
+ * valid identity on a Library-bearing, unsupported-direct, or multi-identity
+ * asset remains present even if normal matching would discard that asset.
+ */
+function blockedOrdinaryProviderFileIdentities(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  acceptsIdentity: (candidate: unknown) => candidate is string
+): Set<string> {
+  const blocked = new Set<string>();
+  for (const asset of assets) {
+    if (!asset || typeof asset !== 'object' || !Array.isArray(asset.sourceRefs)) continue;
+    const ordinaryIdentities = new Set<string>();
+    const denyIdentities = new Set<string>();
+    let blockAsset = false;
+    for (const sourceRef of asset.sourceRefs) {
+      if (!sourceRef || sourceRef.artifactId !== 'conversation') continue;
+      const facts = denyOnlyProviderIdentityFacts(
+        atJsonPointer(raw, sourceRef.rawPointer),
+        acceptsIdentity
+      );
+      for (const fileId of facts.ordinaryIdentities) ordinaryIdentities.add(fileId);
+      for (const fileId of facts.denyIdentities) denyIdentities.add(fileId);
+      if (facts.hardBlock) blockAsset = true;
+    }
+    if (ordinaryIdentities.size !== 1) blockAsset = true;
+    if (blockAsset) for (const fileId of denyIdentities) blocked.add(fileId);
+  }
+  return blocked;
+}
+
 /**
  * Extract only the ledger's already-validated JSON pointers. A source record
  * with zero or multiple possible IDs is deliberately skipped; this is not a
@@ -435,14 +507,12 @@ export function extractChatGptActiveResolverPlan(
   return { providerFileIds: [...selected] };
 }
 
-function activePngAssetEvidence(raw: unknown, asset: RawCaptureAssetRecord) {
+function activeImageAssetEvidence(raw: unknown, asset: RawCaptureAssetRecord) {
   const evidence = new Map<string, number>();
   let unsupportedIdentity = false;
-  let libraryIdentity = false;
   for (const ref of asset.sourceRefs) {
     if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') continue;
     const value = atJsonPointer(raw, ref.rawPointer);
-    if (hasLibraryFileIdentity(value)) libraryIdentity = true;
     // The inventory may derive this opaque ID from a nonempty direct value
     // that the legacy evidence regex discards. Never then bind it to a pointer.
     if (hasUnsupportedActiveDirectIdentity(value)) {
@@ -457,7 +527,7 @@ function activePngAssetEvidence(raw: unknown, asset: RawCaptureAssetRecord) {
   }
   return {
     evidence,
-    ambiguous: libraryIdentity || unsupportedIdentity || evidence.size !== 1,
+    ambiguous: unsupportedIdentity || evidence.size !== 1,
   };
 }
 
@@ -473,13 +543,31 @@ function hasUnsupportedActiveDirectIdentity(value: unknown): boolean {
   });
 }
 
-/** Resolve ambiguity across the whole ledger before selecting one eligible PNG. */
-export function extractChatGptActivePngPlan(
+function isEligibleActiveImageRecord(
+  asset: RawCaptureAssetRecord,
+  eligible: ReadonlySet<string>,
+  assetIdCounts: ReadonlyMap<string, number>
+): boolean {
+  return (
+    assetIdCounts.get(asset.id) === 1 &&
+    eligible.has(asset.id) &&
+    CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES.has(asset.mediaType) &&
+    asset.state === 'not-attempted'
+  );
+}
+
+/** Resolve whole-ledger ambiguity before selecting one eligible ordinary PNG/JPEG image. */
+export function extractChatGptActiveImagePlan(
   raw: unknown,
   assets: readonly RawCaptureAssetRecord[],
   eligibleAssetIds: readonly string[]
 ): ChatGptActiveAssetPlanItem | undefined {
   const eligible = new Set(eligibleAssetIds);
+  const blockedIdentities = blockedOrdinaryProviderFileIdentities(
+    raw,
+    assets,
+    isChatGptActiveResolverProviderFileId
+  );
   const byProvider = new Map<
     string,
     Array<{ asset: RawCaptureAssetRecord; strength: number; ambiguous: boolean }>
@@ -488,7 +576,7 @@ export function extractChatGptActivePngPlan(
   for (const asset of assets) {
     if (!asset || !isChatGptActiveAssetId(asset.id) || !Array.isArray(asset.sourceRefs)) continue;
     assetIdCounts.set(asset.id, (assetIdCounts.get(asset.id) ?? 0) + 1);
-    const { evidence, ambiguous } = activePngAssetEvidence(raw, asset);
+    const { evidence, ambiguous } = activeImageAssetEvidence(raw, asset);
     for (const [providerFileId, strength] of evidence) {
       const group = byProvider.get(providerFileId) ?? [];
       group.push({ asset, strength, ambiguous });
@@ -497,17 +585,12 @@ export function extractChatGptActivePngPlan(
   }
   const selected: ChatGptActiveAssetPlanItem[] = [];
   for (const [providerFileId, group] of byProvider) {
+    if (blockedIdentities.has(providerFileId)) continue;
     const strongest = Math.max(...group.map(entry => entry.strength));
     const winners = group.filter(entry => entry.strength === strongest);
     if (winners.length !== 1) continue;
     const winner = winners[0];
-    if (
-      winner.ambiguous ||
-      assetIdCounts.get(winner.asset.id) !== 1 ||
-      !eligible.has(winner.asset.id) ||
-      winner.asset.mediaType !== 'image/png' ||
-      winner.asset.state !== 'not-attempted'
-    )
+    if (winner.ambiguous || !isEligibleActiveImageRecord(winner.asset, eligible, assetIdCounts))
       continue;
     selected.push({ assetId: winner.asset.id, providerFileId });
   }
@@ -563,7 +646,8 @@ async function matchOneAsset(
   const matches = new Map<string, MatchedAsset>();
   for (const sourceRef of asset.sourceRefs) {
     if (sourceRef.artifactId !== 'conversation') continue;
-    for (const evidence of providerFileEvidence(atJsonPointer(raw, sourceRef.rawPointer))) {
+    const value = atJsonPointer(raw, sourceRef.rawPointer);
+    for (const evidence of providerFileEvidence(value)) {
       const resolverKey = await resolverKeyFor(evidence.fileId, digest);
       if (!resolverKey) continue;
       const downloadUrl = resolvers.get(resolverKey);
@@ -575,6 +659,7 @@ async function matchOneAsset(
         assetId: asset.id,
         downloadUrl,
         resolverKey,
+        providerFileId: evidence.fileId,
         numericResolver: numericResolverFileId !== undefined,
         strength: evidence.strength,
       });
@@ -602,6 +687,12 @@ export async function matchChatGptPageOwnedAssetResolvers(
   const resolvers = acceptedResolvers(input.resolvers);
   if (resolvers.size === 0) return [];
   const digest = input.sha256 ?? sha256Hex;
+  const blockedIdentities = blockedOrdinaryProviderFileIdentities(
+    input.raw,
+    input.assets,
+    (candidate): candidate is string =>
+      typeof candidate === 'string' && PROVIDER_FILE_ID_PATTERN.test(candidate)
+  );
   const matches = (
     await Promise.all(input.assets.map(asset => matchOneAsset(input.raw, asset, resolvers, digest)))
   ).filter((match): match is MatchedAsset => match !== undefined);
@@ -615,6 +706,7 @@ export async function matchChatGptPageOwnedAssetResolvers(
 
   const selected: ChatGptPageOwnedAssetCandidate[] = [];
   for (const candidates of byResolver.values()) {
+    if (candidates.some(candidate => blockedIdentities.has(candidate.providerFileId))) continue;
     const strongest = Math.max(...candidates.map(candidate => candidate.strength));
     const winners = candidates.filter(candidate => candidate.strength === strongest);
     if (winners.length !== 1) continue;

@@ -18,7 +18,7 @@ import {
   CHATGPT_ASSET_RECAPTURE_FAILED_WARNING,
   CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
   observeChatGptAssetResolvers,
-  planChatGptActivePngAsset,
+  planChatGptActiveImageAsset,
   planChatGptInterpreterAssetIds,
   verifyChatGptAssetExportContext,
   type ChatGptAssetResolverObservation,
@@ -26,7 +26,7 @@ import {
 import {
   chatGptActiveResolverAuditWarning,
   chatGptActiveResolverMetricFromResponse,
-  CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT,
+  CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT,
   type ChatGptActiveResolverAudit,
   type ChatGptActiveResolverMetric,
 } from './capture/chatgpt-active-resolver-audit';
@@ -135,7 +135,7 @@ interface ResolvedAssetAcquisition {
   acquisitionFailed: boolean;
 }
 
-interface ActivePngAttempt {
+interface ActiveImageAttempt {
   assetId: string;
   response: ChatGptActiveAssetResponse;
   metric: ChatGptActiveResolverMetric;
@@ -422,7 +422,7 @@ async function observeOneUnattemptedPng(
   }
 }
 
-async function resolveOneUnattemptedPng(
+async function resolveOneUnattemptedImage(
   context: ChatGptAssetExportContext,
   dependencies: ChatGptAssetExportDependencies,
   records: readonly RawCaptureAssetRecord[],
@@ -430,11 +430,11 @@ async function resolveOneUnattemptedPng(
   excludedAssetIds: ReadonlySet<string>,
   activeOwnedAssetIds: Set<string>,
   resolution: ChatGptAssetCandidateResolution
-): Promise<ActivePngAttempt | undefined> {
+): Promise<ActiveImageAttempt | undefined> {
   if (dependencies.resolveActiveAsset === undefined) return undefined;
   let item: ChatGptActiveAssetPlanItem | undefined;
   try {
-    item = await planChatGptActivePngAsset(
+    item = await planChatGptActiveImageAsset(
       context,
       records
         .filter(
@@ -477,7 +477,7 @@ function addActiveBatchAudit(
   attempts: ChatGptActiveResolverMetric[]
 ): void {
   if (attempts.length === 0) return;
-  resolution.activeResolverMetric = { acquisitionMode: 'png-batch-4', attempts };
+  resolution.activeResolverMetric = { acquisitionMode: 'image-batch-4', attempts };
   addWarning(
     resolution.warnings,
     chatGptActiveResolverAuditWarning(resolution.activeResolverMetric)
@@ -541,9 +541,9 @@ async function resolveAndAcquireAssetCandidates(
   const activeOwnedAssetIds = new Set<string>();
   const activeMetrics: ChatGptActiveResolverMetric[] = [];
   if (dependencies.resolveActiveAsset !== undefined) {
-    for (let index = 0; index < CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT; index += 1) {
+    for (let index = 0; index < CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT; index += 1) {
       if (budget.attemptsRemaining <= 0 || budget.bytesRemaining <= 0) break;
-      const active = await resolveOneUnattemptedPng(
+      const active = await resolveOneUnattemptedImage(
         context,
         dependencies,
         acquired.records,

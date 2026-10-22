@@ -132,9 +132,14 @@
       A ChatGPT raw archive may contain temporary attachment transport references already present in
       ChatGPT's conversation response. Raw archives are written only to the durable local output you
       selected; they are never copied to the clipboard. The canonical archive removes those
-      transport values and currently records discovered attachment references as
-      <code>not-attempted</code>. This release does not make additional ChatGPT attachment download
-      requests.
+      transport values. When attachment export and a durable File or Obsidian destination are
+      enabled, Liska may resolve exact committed-raw interpreter documents and up to four ordinary
+      PNG/JPEG file-ID images sequentially through ChatGPT's page-owned same-origin helper. Raw is
+      saved first; signed URLs remain transient; response bytes, MIME, image structure, length and
+      SHA-256 are verified before a destination can claim <code>fetched</code>. Liska does not
+      export cookies or request-header values, retry an actively owned identity through another
+      resolver, or send Library-ID/custom-GPT assets through the ordinary route. Unmatched
+      references remain explicitly <code>not-attempted</code>.
     </p>
     <p>
       When a ChatGPT raw or canonical JSON artifact is too large for the bounded inline extension
@@ -202,7 +207,10 @@
       </tr>
       <tr>
         <td>Host: chatgpt.com</td>
-        <td>Inject the Bring thread home export button on ChatGPT pages</td>
+        <td>
+          Inject the Bring thread home export button; after a trusted click and raw local
+          preservation, resolve only bounded, exact supported ChatGPT attachment families
+        </td>
       </tr>
       <tr>
         <td>Host: www.perplexity.ai</td>

@@ -26,10 +26,10 @@ export interface ChatGptActiveResolverMetric {
 }
 
 /** Content orchestration cap only; every background request remains single-item. */
-export const CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT = 4;
+export const CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT = 4;
 
 export interface ChatGptActiveResolverBatchAudit {
-  acquisitionMode: 'png-batch-4';
+  acquisitionMode: 'image-batch-4';
   attempts: ChatGptActiveResolverMetric[];
 }
 
@@ -255,7 +255,7 @@ function validatedAttemptSnapshots(
     typeof length !== 'number' ||
     !Number.isSafeInteger(length) ||
     length < 1 ||
-    length > CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT ||
+    length > CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT ||
     !hasExactFields(entries, ['length', ...Array.from({ length }, (_, index) => String(index))])
   )
     invalidMetric();
@@ -281,11 +281,11 @@ function validatedBatchSnapshot(
 ): ChatGptActiveResolverBatchAudit {
   if (
     !hasExactFields(fields, ['acquisitionMode', 'attempts']) ||
-    fields.acquisitionMode !== 'png-batch-4'
+    fields.acquisitionMode !== 'image-batch-4'
   )
     invalidMetric();
   return {
-    acquisitionMode: 'png-batch-4',
+    acquisitionMode: 'image-batch-4',
     attempts: validatedAttemptSnapshots(fields.attempts, snapshots),
   };
 }
@@ -311,7 +311,7 @@ function batchAuditWarning(audit: ChatGptActiveResolverBatchAudit): string {
   const runFailures = CHATGPT_ACTIVE_RESOLVER_ERROR_CODES.filter(code => failures.has(code))
     .map(code => `${code}:${failures.get(code)}`)
     .join(',');
-  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_PNG_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; file-ID binary acquisition is limited to four sequential PNGs.`;
+  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; file-ID binary acquisition is limited to four sequential PNG/JPEG images.`;
 }
 
 export function chatGptActiveResolverAuditWarning(
@@ -320,7 +320,7 @@ export function chatGptActiveResolverAuditWarning(
   if (metric === undefined) return undefined;
   const snapshots: DataSnapshots = new WeakMap();
   const fields = snapshotOwnDataFields(metric, snapshots);
-  if (fields.acquisitionMode === 'png-batch-4')
+  if (fields.acquisitionMode === 'image-batch-4')
     return batchAuditWarning(validatedBatchSnapshot(fields, snapshots));
   const singular = validatedMetricSnapshot(fields, snapshots);
   const acquisition =

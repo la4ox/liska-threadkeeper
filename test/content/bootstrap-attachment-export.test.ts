@@ -59,7 +59,7 @@ vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 import { handleSync } from '../../src/content/bootstrap';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
-  resolveChatGptActivePngAsset,
+  resolveChatGptActiveImageAsset,
   observeChatGptInterpreterAssetResolvers,
 } from '../../src/content/capture/chatgpt-current-branch';
 
@@ -203,7 +203,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     }
   });
 
-  it('injects the passive observer and one-PNG data route only for strict replay mode', async () => {
+  it('injects the passive observer and ordinary image data route only for strict replay mode', async () => {
     settings.enableChatGptOpaqueReplay = true;
     mocks.extract.mockResolvedValue(noteResult);
 
@@ -218,12 +218,12 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         persistArtifacts: expect.any(Function),
         observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
-        resolveActiveAsset: resolveChatGptActivePngAsset,
+        resolveActiveAsset: resolveChatGptActiveImageAsset,
       })
     );
   });
 
-  it('wires the same passive observer and one-PNG data route for a selected replay branch', async () => {
+  it('wires the same passive observer and ordinary image data route for a selected replay branch', async () => {
     settings.enableChatGptOpaqueReplay = true;
     mocks.extract.mockResolvedValue(noteResult);
 
@@ -234,7 +234,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect.objectContaining({
         observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
-        resolveActiveAsset: resolveChatGptActivePngAsset,
+        resolveActiveAsset: resolveChatGptActiveImageAsset,
       })
     );
   });
@@ -331,7 +331,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect.objectContaining({
         observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
-        resolveActiveAsset: resolveChatGptActivePngAsset,
+        resolveActiveAsset: resolveChatGptActiveImageAsset,
       })
     );
     expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();

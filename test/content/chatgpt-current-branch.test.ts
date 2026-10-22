@@ -725,7 +725,7 @@ describe('ChatGPT current-branch capture composition', () => {
     });
     const context = capture.assetExportContext!;
     const audit: ChatGptActiveResolverBatchAudit = {
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: [
         chatGptActiveResolverMetricFromResponse(
           {

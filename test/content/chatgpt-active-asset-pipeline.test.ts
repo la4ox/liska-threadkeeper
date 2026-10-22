@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   captureChatGptArchive,
-  resolveChatGptActivePngAsset,
-  planChatGptActivePngAsset,
+  resolveChatGptActiveImageAsset,
+  planChatGptActiveImageAsset,
   observeChatGptAssetResolvers,
   buildChatGptBinaryAwareArchiveCompanion,
 } from '../../src/content/capture/chatgpt-current-branch';
@@ -24,15 +24,15 @@ import {
   activeDigest,
   activeSuccess,
 } from '../fixtures/chatgpt-active-asset';
-import { validChatGptPngBytes } from '../fixtures/chatgpt-image-bytes';
+import { validChatGptJpegBytes, validChatGptPngBytes } from '../fixtures/chatgpt-image-bytes';
 
 const messaging = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: messaging.sendMessage }));
 
-function syntheticRaw(pngCount = 3, withJpeg = false) {
+function syntheticRaw(imageCount = 3, extraMediaType?: string, mediaTypes: readonly string[] = []) {
   return {
     conversation_id: ACTIVE_CONVERSATION_ID,
-    title: 'Synthetic PNG archive',
+    title: 'Synthetic image archive',
     current_node: 'node',
     mapping: {
       node: {
@@ -46,16 +46,16 @@ function syntheticRaw(pngCount = 3, withJpeg = false) {
             content_type: 'multimodal_text',
             parts: [
               'Synthetic',
-              ...Array.from({ length: pngCount }, (_, index) => ({
+              ...Array.from({ length: imageCount }, (_, index) => ({
                 content_type: 'image_asset_pointer',
-                mime_type: 'image/png',
+                mime_type: mediaTypes[index] ?? 'image/png',
                 asset_pointer: `file-service://synthetic-png-${index}`,
               })),
-              ...(withJpeg
+              ...(extraMediaType
                 ? [
                     {
                       content_type: 'image_asset_pointer',
-                      mime_type: 'image/jpeg',
+                      mime_type: extraMediaType,
                       asset_pointer: 'file-service://synthetic-jpeg',
                     },
                   ]
@@ -104,23 +104,24 @@ async function pipeline(
     | 'run-failed'
     | 'binary-failed'
     | 'substituted' = 'success',
-  obsidianOk = true
+  obsidianOk = true,
+  activeMediaType: 'image/png' | 'image/jpeg' = 'image/png'
 ) {
-  const captured = await capture(syntheticRaw(2, true));
+  const captured = await capture(syntheticRaw(2, 'image/gif', [activeMediaType, activeMediaType]));
   const context = captured.assetExportContext!;
   expect(context.rawCaptureBundle.manifest.assets).toHaveLength(3);
   const original = JSON.stringify(context.rawCaptureBundle.manifest);
   const ids = context.rawCaptureBundle.manifest.assets
-    .filter(asset => asset.mediaType === 'image/png')
+    .filter(asset => asset.mediaType === activeMediaType)
     .map(asset => asset.id)
     .sort();
-  // Interpreter ownership deliberately consumes the first PNG before active selection.
+  // Interpreter ownership deliberately consumes the first image before active selection.
   const interpreterId = ids[0];
-  const expectedActive = await planChatGptActivePngAsset(context, ids.slice(1));
+  const expectedActive = await planChatGptActiveImageAsset(context, ids.slice(1));
   expect(expectedActive).toBeDefined();
   const selected = expectedActive!;
   const otherId = context.rawCaptureBundle.manifest.assets.find(
-    asset => asset.mediaType === 'image/jpeg'
+    asset => asset.mediaType === 'image/gif'
   )!.id;
   const order: string[] = [];
   const calls: Array<{ assetIds: string[]; budget: unknown; remaining: number }> = [];
@@ -152,9 +153,10 @@ async function pipeline(
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
     order.push('fetch-active');
     if (mode === 'binary-failed') throw new Error('synthetic network failure');
-    const response = new Response(validChatGptPngBytes(), {
-      headers: { 'Content-Type': 'image/png' },
-    });
+    const response = new Response(
+      activeMediaType === 'image/jpeg' ? validChatGptJpegBytes() : validChatGptPngBytes(),
+      { headers: { 'Content-Type': activeMediaType } }
+    );
     Object.defineProperty(response, 'url', { value: String(url) });
     return response;
   });
@@ -226,7 +228,7 @@ async function pipeline(
               );
               return response;
             }
-          : resolveChatGptActivePngAsset,
+          : resolveChatGptActiveImageAsset,
       observeResolvers: passive,
       acquireAssets: async input => {
         calls.push({
@@ -283,18 +285,19 @@ async function batchPipeline(
       resource: 'attemptsRemaining' | 'bytesRemaining';
     };
     failedObsidianIndex?: number;
+    mediaTypes?: readonly string[];
   } = {}
 ) {
-  const captured = await capture(syntheticRaw(5, true));
+  const captured = await capture(syntheticRaw(5, 'image/jpeg', options.mediaTypes));
   const context = captured.assetExportContext!;
   const original = JSON.stringify(context.rawCaptureBundle.manifest);
-  const pngIds = context.rawCaptureBundle.manifest.assets
-    .filter(asset => asset.mediaType === 'image/png')
+  const interpreterId = context.rawCaptureBundle.manifest.assets.find(asset =>
+    asset.sourceRefs.some(ref => ref.rawPointer === '/mapping/node/message/content/parts/6')
+  )!.id;
+  const imageIds = context.rawCaptureBundle.manifest.assets
+    .filter(asset => asset.id !== interpreterId)
     .map(asset => asset.id)
     .sort();
-  const interpreterId = context.rawCaptureBundle.manifest.assets.find(
-    asset => asset.mediaType === 'image/jpeg'
-  )!.id;
   const selected: ChatGptActiveAssetPlanItem[] = [];
   const order: string[] = [];
   const budgets: unknown[] = [];
@@ -319,10 +322,16 @@ async function batchPipeline(
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async url => {
     const index = selected.length - 1;
     order.push(`fetch-${index}`);
-    const response = new Response(validChatGptPngBytes(index + 1), {
-      status: outcomes[index] === 'binary-failed' ? 404 : 200,
-      headers: { 'Content-Type': 'image/png' },
-    });
+    const mediaType = context.rawCaptureBundle.manifest.assets.find(
+      asset => asset.id === selected[index].assetId
+    )!.mediaType!;
+    const response = new Response(
+      mediaType === 'image/jpeg' ? validChatGptJpegBytes() : validChatGptPngBytes(index + 1),
+      {
+        status: outcomes[index] === 'binary-failed' ? 404 : 200,
+        headers: { 'Content-Type': mediaType },
+      }
+    );
     Object.defineProperty(response, 'url', { value: String(url) });
     return response;
   });
@@ -378,7 +387,7 @@ async function batchPipeline(
         { destination: 'file', success: true },
         {
           destination: 'obsidian',
-          success: asset.record.id !== pngIds[options.failedObsidianIndex ?? -1],
+          success: asset.record.id !== imageIds[options.failedObsidianIndex ?? -1],
         },
       ],
       allSuccessful: options.failedObsidianIndex === undefined,
@@ -411,7 +420,7 @@ async function batchPipeline(
   expect(JSON.stringify(context.rawCaptureBundle.manifest)).toBe(original);
   return {
     context,
-    pngIds,
+    imageIds,
     selected,
     order,
     budgets,
@@ -426,7 +435,7 @@ async function batchPipeline(
   };
 }
 
-describe('active PNG destination-honest pipeline', () => {
+describe('active image destination-honest pipeline', () => {
   beforeEach(() => vi.clearAllMocks());
   it('keeps a preview-shaped orphan PNG unresolved and eligible for active planning', async () => {
     const raw = syntheticRaw(0);
@@ -446,7 +455,7 @@ describe('active PNG destination-honest pipeline', () => {
     const asset = context.rawCaptureBundle.manifest.assets[0];
     expect(asset).toMatchObject({ state: 'not-attempted', mediaType: 'image/png' });
     expect(context.rawCaptureBundle.manifest.completeness.assets).toBe('not-attempted');
-    await expect(planChatGptActivePngAsset(context, [asset.id])).resolves.toEqual(
+    await expect(planChatGptActiveImageAsset(context, [asset.id])).resolves.toEqual(
       expect.objectContaining({ assetId: asset.id })
     );
   });
@@ -536,7 +545,7 @@ describe('active PNG destination-honest pipeline', () => {
 
   it('selects only the first four of five eligible identities with immediate sequential acquisition', async () => {
     const run = await batchPipeline();
-    expect(run.selected.map(item => item.assetId)).toEqual(run.pngIds.slice(0, 4));
+    expect(run.selected.map(item => item.assetId)).toEqual(run.imageIds.slice(0, 4));
     expect(run.order).toEqual([
       'raw',
       'interpreter',
@@ -558,7 +567,7 @@ describe('active PNG destination-honest pipeline', () => {
     ]);
     expect(run.remaining).toEqual([20, 19, 18, 17, 16]);
     expect(run.budgets.every(budget => budget === run.budgets[0])).toBe(true);
-    expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, [run.pngIds[4]]);
+    expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, [run.imageIds[4]]);
     expect(run.acquireAssets).toHaveBeenCalledTimes(5);
     expect(
       run.result.warnings.filter(w => w.startsWith('ChatGPT active resolver batch audit:'))
@@ -566,7 +575,7 @@ describe('active PNG destination-honest pipeline', () => {
     for (const bundle of run.final.values()) {
       const manifest = parseArtifact<RawCaptureManifest>(bundle, 'manifest');
       expect(manifest.assets.filter(asset => asset.state === 'fetched')).toHaveLength(4);
-      expect(manifest.assets.find(asset => asset.id === run.pngIds[4])?.state).toBe(
+      expect(manifest.assets.find(asset => asset.id === run.imageIds[4])?.state).toBe(
         'not-attempted'
       );
       const audit = manifest.warnings.filter(w =>
@@ -579,6 +588,110 @@ describe('active PNG destination-honest pipeline', () => {
     }
   });
 
+  it('shares the same four sequential slots across mixed PNG/JPEG identities in opaque-ID order', async () => {
+    const run = await batchPipeline([], {
+      mediaTypes: ['image/jpeg', 'image/png', 'image/jpeg', 'image/png', 'image/jpeg'],
+    });
+    expect(run.selected.map(item => item.assetId)).toEqual(run.imageIds.slice(0, 4));
+    const selectedTypes = run.selected.map(
+      item =>
+        run.context.rawCaptureBundle.manifest.assets.find(asset => asset.id === item.assetId)!
+          .mediaType
+    );
+    expect(selectedTypes).toContain('image/png');
+    expect(selectedTypes).toContain('image/jpeg');
+    expect(run.order.filter(value => /^(resolve|acquire|fetch)-\d+$/.test(value))).toEqual(
+      Array.from({ length: 4 }, (_, index) => [
+        `resolve-${index}`,
+        `acquire-${index}`,
+        `fetch-${index}`,
+      ]).flat()
+    );
+    expect(run.remaining).toEqual([20, 19, 18, 17, 16]);
+    expect(run.budgets.every(budget => budget === run.budgets[0])).toBe(true);
+    expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, [run.imageIds[4]]);
+    for (const bundle of run.final.values()) {
+      const manifest = parseArtifact<RawCaptureManifest>(bundle, 'manifest');
+      for (const item of run.selected) {
+        const record = manifest.assets.find(asset => asset.id === item.assetId)!;
+        expect(record.state).toBe('fetched');
+        expect(record.relativePath).toBe(
+          `assets/${record.sha256}.${record.mediaType === 'image/jpeg' ? 'jpg' : 'png'}`
+        );
+      }
+    }
+  });
+
+  it.each(['resolver-throws', 'binary-failed', 'binary-throws'] as const)(
+    'owns every JPEG before %s and never retries any of the four identities passively',
+    async mode => {
+      const run = await batchPipeline([mode, mode, mode, mode], {
+        mediaTypes: Array.from({ length: 5 }, () => 'image/jpeg'),
+      });
+      expect(run.selected.map(item => item.assetId)).toEqual(run.imageIds.slice(0, 4));
+      expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, [run.imageIds[4]]);
+      expect(run.acquireAssets).toHaveBeenCalledTimes(mode === 'resolver-throws' ? 1 : 5);
+      expect(run.fetcher).toHaveBeenCalledTimes(mode === 'binary-failed' ? 4 : 0);
+      expect(run.persistBinaryAssets).not.toHaveBeenCalled();
+      for (const bundle of run.final.values()) {
+        const manifest = parseArtifact<RawCaptureManifest>(bundle, 'manifest');
+        const durable = JSON.stringify(manifest);
+        for (const item of run.selected) {
+          expect(manifest.assets.find(asset => asset.id === item.assetId)).toMatchObject({
+            state: 'failed',
+            relativePath: null,
+            sha256: null,
+          });
+          expect(durable).not.toContain(item.providerFileId);
+        }
+        expect(durable).not.toContain('private');
+        expect(durable).not.toContain('downloadUrl');
+        expect(durable).not.toContain('sig=');
+      }
+    }
+  );
+
+  it('does not dispatch a Library-ID JPEG or promote its weaker ordinary pointer alias', async () => {
+    const raw = syntheticRaw(1, undefined, ['image/jpeg']);
+    raw.mapping.node.message.metadata = {
+      attachments: [
+        {
+          id: 'synthetic-png-0',
+          mime_type: 'image/jpeg',
+          name: 'synthetic-library.jpg',
+          library_file_id: 'synthetic-library-id',
+        },
+      ],
+    };
+    const captured = await capture(raw);
+    const context = captured.assetExportContext!;
+    expect(context.rawCaptureBundle.manifest.assets).toHaveLength(2);
+    const ids = context.rawCaptureBundle.manifest.assets.map(asset => asset.id);
+    expect(await planChatGptActiveImageAsset(context, ids)).toBeUndefined();
+    const resolveActiveAsset = vi.fn();
+    const acquireAssets = vi.fn();
+    const observeResolvers = vi.fn(async () => ({ kind: 'matched' as const, candidates: [] }));
+    await persistChatGptDestinationHonestAttachments(
+      context,
+      captured.archiveCompanion,
+      'library.md',
+      ['file'],
+      {
+        persistArtifacts: async (_bundle, _name, _source, outputs) => ({
+          activeOutputs: outputs as ['file'],
+          warnings: [],
+        }),
+        resolveActiveAsset,
+        observeResolvers,
+        acquireAssets,
+      }
+    );
+    expect(resolveActiveAsset).not.toHaveBeenCalled();
+    expect(acquireAssets).not.toHaveBeenCalled();
+    expect(observeResolvers).toHaveBeenCalledExactlyOnceWith(context, [...ids].sort());
+    expect(messaging.sendMessage).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['success', 'not-dispatched', 'http-error', 'file-expired'],
     ['success', 'binary-failed', 'run-failed', 'success'],
@@ -587,8 +700,8 @@ describe('active PNG destination-honest pipeline', () => {
     'continues once after mixed outcomes %s/%s/%s/%s without losing earlier evidence',
     async (...outcomes) => {
       const run = await batchPipeline(outcomes);
-      expect(run.selected.map(item => item.assetId)).toEqual(run.pngIds.slice(0, 4));
-      expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, [run.pngIds[4]]);
+      expect(run.selected.map(item => item.assetId)).toEqual(run.imageIds.slice(0, 4));
+      expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, [run.imageIds[4]]);
       expect(run.fetcher).toHaveBeenCalledTimes(
         outcomes.filter(mode => mode === 'success' || mode === 'binary-failed').length
       );
@@ -596,7 +709,7 @@ describe('active PNG destination-honest pipeline', () => {
         const manifest = parseArtifact<RawCaptureManifest>(bundle, 'manifest');
         const canonical = parseArtifact<LiskaThreadArchive>(bundle, 'canonical');
         for (const [index, mode] of outcomes.entries()) {
-          const asset = manifest.assets.find(asset => asset.id === run.pngIds[index])!;
+          const asset = manifest.assets.find(asset => asset.id === run.imageIds[index])!;
           const expected =
             mode === 'success'
               ? 'fetched'
@@ -627,28 +740,28 @@ describe('active PNG destination-honest pipeline', () => {
     async (after, resource, count) => {
       const run = await batchPipeline([], { stopBudget: { after, resource } });
       expect(run.resolveActiveAsset).toHaveBeenCalledTimes(count);
-      expect(run.selected.map(item => item.assetId)).toEqual(run.pngIds.slice(0, count));
+      expect(run.selected.map(item => item.assetId)).toEqual(run.imageIds.slice(0, count));
       expect(run.fetcher).toHaveBeenCalledTimes(count);
       expect(run.acquireAssets).toHaveBeenCalledTimes(1 + count);
-      expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, run.pngIds.slice(count));
+      expect(run.passive).toHaveBeenCalledExactlyOnceWith(run.context, run.imageIds.slice(count));
     }
   );
 
-  it('keeps each PNG destination write outcome independent of the other batch items', async () => {
+  it('keeps each image destination write outcome independent of the other batch items', async () => {
     const run = await batchPipeline([], { failedObsidianIndex: 1 });
     const file = parseArtifact<RawCaptureManifest>(run.final.get('file')!, 'manifest');
     const obsidian = parseArtifact<RawCaptureManifest>(run.final.get('obsidian')!, 'manifest');
     expect(file.assets.filter(asset => asset.state === 'fetched')).toHaveLength(4);
     expect(obsidian.assets.filter(asset => asset.state === 'fetched')).toHaveLength(3);
-    expect(obsidian.assets.find(asset => asset.id === run.pngIds[1])).toMatchObject({
+    expect(obsidian.assets.find(asset => asset.id === run.imageIds[1])).toMatchObject({
       state: 'failed',
       detail: 'destination-write-failed',
       relativePath: null,
       sha256: null,
     });
     const canonical = parseArtifact<LiskaThreadArchive>(run.final.get('obsidian')!, 'canonical');
-    expect(canonical.assets[run.pngIds[1]].localArtifactRef).toBeNull();
-    expect(canonical.assets[run.pngIds[0]].localArtifactRef).not.toBeNull();
+    expect(canonical.assets[run.imageIds[1]].localArtifactRef).toBeNull();
+    expect(canonical.assets[run.imageIds[0]].localArtifactRef).not.toBeNull();
     expect(run.persistBinaryAssets).toHaveBeenCalledOnce();
   });
 
@@ -693,7 +806,7 @@ describe('active PNG destination-honest pipeline', () => {
       expect(opaqueId).toBe(
         `chatgpt-asset-${activeDigest(new TextEncoder().encode(`liska-chatgpt-asset/1\u0000provider-id:${invalidDirect}`))}`
       );
-      expect(await planChatGptActivePngAsset(context, [opaqueId])).toBeUndefined();
+      expect(await planChatGptActiveImageAsset(context, [opaqueId])).toBeUndefined();
       const candidate = activeSuccess({ assetId: opaqueId, providerFileId: 'file_valid' }).data
         .candidate!;
       const passive = vi.fn((ctx, eligible: readonly string[]) =>
@@ -808,7 +921,7 @@ describe('active PNG destination-honest pipeline', () => {
       const alias = assets.find(asset => asset.id !== direct.id)!;
       const item = { assetId: direct.id, providerFileId };
       expect(
-        await planChatGptActivePngAsset(
+        await planChatGptActiveImageAsset(
           context,
           assets.map(asset => asset.id)
         )
@@ -966,10 +1079,10 @@ describe('active PNG destination-honest pipeline', () => {
       const context = captured.assetExportContext!;
       const ids = context.rawCaptureBundle.manifest.assets.map(asset => asset.id).sort();
       expect(ids[0]).toBe(interpreter.assetId);
-      expect(await planChatGptActivePngAsset(context, ids)).toEqual(
+      expect(await planChatGptActiveImageAsset(context, ids)).toEqual(
         onlyInterpreter ? undefined : png
       );
-      expect(await resolveChatGptActivePngAsset(context, interpreter)).toEqual({
+      expect(await resolveChatGptActiveImageAsset(context, interpreter)).toEqual({
         success: false,
         code: 'invalid-provider-file-ids',
       });
@@ -1009,6 +1122,63 @@ describe('active PNG destination-honest pipeline', () => {
       expect(acquire).not.toHaveBeenCalled();
     }
   );
+  it('resolves and acquires an ordinary JPEG through the existing bound active request', async () => {
+    const run = await pipeline('success', true, 'image/jpeg');
+    expect(messaging.sendMessage).toHaveBeenCalledOnce();
+    expect(run.fetcher).toHaveBeenCalledOnce();
+    expect(run.calls.map(call => call.assetIds)).toEqual([
+      [run.interpreterId],
+      [run.selected.assetId],
+      [run.otherId],
+    ]);
+    expect(run.calls.every(call => call.budget === run.calls[0].budget)).toBe(true);
+    const expectedBytes = validChatGptJpegBytes();
+    expect(run.persistBinaryAssets.mock.calls[0][0].assets[0].bytes).toEqual(expectedBytes);
+    for (const bundle of run.final.values()) {
+      const manifest = parseArtifact<RawCaptureManifest>(bundle, 'manifest');
+      const canonical = parseArtifact<LiskaThreadArchive>(bundle, 'canonical');
+      const record = manifest.assets.find(asset => asset.id === run.selected.assetId)!;
+      expect(record).toMatchObject({
+        mediaType: 'image/jpeg',
+        state: 'fetched',
+        byteLength: expectedBytes.byteLength,
+        sha256: activeDigest(expectedBytes),
+        relativePath: `assets/${activeDigest(expectedBytes)}.jpg`,
+      });
+      expect(canonical.assets[record.id].localArtifactRef).not.toBeNull();
+      const audit = manifest.warnings.find(w =>
+        w.startsWith('ChatGPT active resolver batch audit:')
+      )!;
+      expect(audit).toContain('selected=1/4; completed=1; dispatched-known=1;');
+      expect(audit).toContain('four sequential PNG/JPEG images');
+      expect(audit).not.toContain(run.selected.providerFileId);
+      expect(audit).not.toContain('https://');
+      expect(audit).not.toContain('sig=');
+    }
+  });
+
+  it.each(['helper-failed', 'not-dispatched', 'run-failed', 'binary-failed'] as const)(
+    'never returns an actively owned JPEG to the passive resolver after %s',
+    async mode => {
+      const run = await pipeline(mode, true, 'image/jpeg');
+      expect(messaging.sendMessage).toHaveBeenCalledOnce();
+      expect(run.passive).toHaveBeenCalledOnce();
+      expect(run.fetcher).toHaveBeenCalledTimes(mode === 'binary-failed' ? 1 : 0);
+      expect(run.persistBinaryAssets).not.toHaveBeenCalled();
+      expect(run.calls.filter(call => call.assetIds.includes(run.selected.assetId))).toHaveLength(
+        mode === 'binary-failed' ? 1 : 0
+      );
+      for (const bundle of run.final.values()) {
+        const manifest = parseArtifact<RawCaptureManifest>(bundle, 'manifest');
+        expect(manifest.assets.find(asset => asset.id === run.selected.assetId)).toMatchObject({
+          state: mode === 'not-dispatched' || mode === 'run-failed' ? 'not-attempted' : 'failed',
+          relativePath: null,
+          sha256: null,
+        });
+      }
+    }
+  );
+
   it.each([true, false])(
     'downloads once through the shared budget and preserves destination truth (Obsidian=%s)',
     async obsidianOk => {
@@ -1043,7 +1213,9 @@ describe('active PNG destination-honest pipeline', () => {
         );
         expect(canonical.assets[run.selected.assetId].localArtifactRef !== null).toBe(fetched);
         expect(
-          manifest.warnings.some(w => w.includes('acquisition is limited to four sequential PNGs'))
+          manifest.warnings.some(w =>
+            w.includes('acquisition is limited to four sequential PNG/JPEG images')
+          )
         ).toBe(true);
         const durable = JSON.stringify({ manifest, warnings: canonical.warnings });
         expect(durable).not.toContain('sig=');
@@ -1088,12 +1260,12 @@ describe('active PNG destination-honest pipeline', () => {
   it('revalidates the committed raw context before sending the data request', async () => {
     const captured = await capture();
     const context = captured.assetExportContext!;
-    const item = (await planChatGptActivePngAsset(
+    const item = (await planChatGptActiveImageAsset(
       context,
       context.rawCaptureBundle.manifest.assets.map(a => a.id)
     ))!;
     context.rawCaptureBundle.artifacts[0].bytes[0] ^= 1;
-    expect(await resolveChatGptActivePngAsset(context, item)).toEqual({
+    expect(await resolveChatGptActiveImageAsset(context, item)).toEqual({
       success: false,
       code: 'resolver-result-invalid',
     });

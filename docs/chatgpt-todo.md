@@ -25,11 +25,11 @@ terminal states, and the existing no-credential-export boundary.
 
 ### 1. Ordinary image families
 
-- Add evidence-gated support for `image/jpeg`, then GIF/WebP where live raw shapes
-  and helper behavior actually match supported routes.
-- JPEG preparation is complete: explicit Library-ID evidence fails closed out of
-  the ordinary route, and PNG/JPEG bytes receive bounded structural validation
-  before hashing. JPEG active-plan eligibility remains off until the live gate.
+- Add evidence-gated active support for `image/jpeg`, then GIF/WebP where live
+  raw shapes and helper behavior actually match supported routes.
+- JPEG is live-verified and enabled for the ordinary route. Explicit Library-ID
+  evidence fails closed before active and passive winner selection, and
+  PNG/JPEG bytes receive bounded structural validation before hashing.
 - Keep derived previews and ordinary images distinct before resolver dispatch.
 - Preserve original bytes; do not introduce compression as an archival default.
 - Live gate: fresh and historical examples, exact PNG/JPEG signatures,
@@ -137,9 +137,8 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Build a controlled candidate that adds only `image/jpeg` to the proven ordinary
-image planner. Use the existing fresh ordinary-chat fixture to verify that its
-helper returns the original JPEG bytes and that explicit Library-ID evidence is
-not dispatched. Reconcile signature, dimensions, length, SHA-256 and paths in
-Downloads and Obsidian before calling JPEG support enabled. Do not widen GIF or
-WebP eligibility before their own evidence.
+Checkpoint the live-verified ordinary JPEG slice in its own pull request. Then
+classify real GIF/WebP raw records and helper responses without widening the
+allowlist; admit each MIME only after exact signatures, animation/container
+structure, length/SHA-256/path reconciliation, byte-identical Downloads and
+Obsidian copies, and explicit historical/unavailable behavior are proven.
