@@ -483,6 +483,19 @@ companions to Downloads and Obsidian. Five other ledger records remained
 proves the one-PNG path only. Multi-item acquisition, automatic retry, endpoint
 fallback, and custom-GPT/Library-ID widening require separate evidence.
 
+One later historical-chat canary had four PNG ledger identities. Deterministic
+one-item selection dispatched one helper request and produced `http-error`, so
+that selected record became `failed`; no `file-expired` evidence was observed.
+The other three PNGs remained `not-attempted`. Cross-capture opaque-ID
+reconciliation established that the selected record was not the single PNG that
+older captures had fetched successfully; that prior-success identity remains in
+the current ledger but was not exercised. A separate old interpreter/document
+reference still returned HTTP 404, while the current PDF resolved normally.
+Repeating the one-item run would deterministically retry the same failed identity
+and is therefore not an evidence-gathering strategy. Testing the other PNGs
+requires either an explicit sequential cap increase or no further live action;
+it does not justify inferring expiry, random selection, or automatic retry.
+
 Discovering every reference does not make `completeness.assets` complete. Until
 all selected binary acquisitions reach an evidenced terminal state, a
 metadata-only inventory remains `not-attempted` (or `partial` after a mixed

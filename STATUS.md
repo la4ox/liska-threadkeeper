@@ -253,6 +253,20 @@ PNG length/SHA-256/path agree, one asset is `fetched`, and five remain honestly
 immutable captures. Durable manifest/canonical scans found no selected provider
 identity or transient signed URL, and no marker tab remained.
 
+A compact historical ordinary-chat canary then separated availability evidence
+from the earlier “expired PNG” hypothesis. Four PNG ledger records were present.
+The one-PNG adapter dispatched exactly one helper request and received
+`http-error`; that asset is therefore `failed` with an attempt timestamp, not
+`expired`. The other three PNGs remained `not-attempted`. Opaque-ID
+reconciliation showed that the attempted PNG was not the one unique PNG that
+older captures had successfully fetched; that historically fetched identity is
+still in the current ledger and was not selected. An older interpreter/document
+reference independently returned its known HTTP 404 and stayed
+`not-attempted`, while the current 51,741-byte PDF was fetched again. Raw
+115,759 bytes, manifest 4,885 bytes, canonical 229,582 bytes, PDF, and Markdown
+were byte-identical between Downloads and Obsidian; no marker tab remained.
+This run proves neither PNG expiry nor loss of the previously fetched PNG.
+
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
@@ -268,8 +282,11 @@ Fresh exact-tree validation:
   precedence plus per-family fail-closed direct-ID validation now cover all
   three; final review reports no residual P0-P3 finding.
 
-Next: keep the one-PNG cap while exercising deliberately different live
-availability states and old-reference samples. Widening to a small multi-PNG
-batch requires a separate evidence checkpoint; custom-GPT, Library-ID, Calpico,
-and broad endpoint fallback remain out of scope. A remote push, pull request,
-merge, release, or tag remains a separate explicit action.
+Next: do not repeat the same one-PNG historical export: deterministic selection
+would target the same failed identity and add no evidence. The next explicit
+decision is either to stop at the proven fresh-PNG slice or widen only this
+ordinary-chat adapter to a sequential batch of at most four distinct PNG
+identities so the historically fetched identity can be tested. Custom-GPT,
+Library-ID, Calpico, retry, and broad endpoint fallback remain out of scope. A
+remote push, pull request, merge, release, or tag remains a separate explicit
+action.
