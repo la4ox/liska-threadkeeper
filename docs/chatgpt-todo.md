@@ -91,6 +91,23 @@ terminal states, and the existing no-credential-export boundary.
 - Re-run focused security/diff review at meaningful boundaries, not after every
   cosmetic change.
 
+### 9. Adjacent provider: Dots chat export
+
+- Treat Dots as a separate provider investigation, not as another ChatGPT URL or
+  a DOM-selector variant.
+- First identify the authenticated page-owned conversation transport, raw graph
+  or event model, current-thread identity, pagination, branches, tool content,
+  media, and attachment families without reading unrelated Dots/account state.
+- Preserve one exact conversation-scoped raw artifact before designing the
+  provider adapter; retain unknown event types instead of flattening them.
+- Map verified Dots raw data into `liska-thread/1`, then reuse existing Markdown,
+  branch, Downloads, and Obsidian layers only where their contracts really fit.
+- Keep Dots memory/persona configuration, global activity, and unrelated dot
+  conversations outside capture scope unless the user explicitly selects them.
+- Evidence gate: synthetic fixtures from a sanitized live shape, one ordinary
+  live current-chat capture, explicit loss diagnostics, and a separate
+  attachment/branch assessment before enabling the provider generally.
+
 ## Deliberate non-goals without new evidence
 
 - No broad cookie, storage, bearer, or device-header extraction.
