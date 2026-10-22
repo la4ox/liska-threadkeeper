@@ -610,11 +610,18 @@ function libraryProviderIdentityCollides(
 ): boolean {
   return assets.some(asset => {
     if (asset === selected || !asset || !Array.isArray(asset.sourceRefs)) return false;
+    const interpreterOwned = asset.sourceRefs.some(
+      ref =>
+        isPlainRecord(ref) &&
+        ref.artifactId === 'conversation' &&
+        interpreterAttachmentEvidence(raw, ref.rawPointer) !== undefined
+    );
     return asset.sourceRefs.some(ref => {
       if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') return false;
       const value = atJsonPointer(raw, ref.rawPointer);
       if (!isRecord(value)) return false;
       const facts = denyOnlyProviderIdentityFacts(value, isChatGptActiveResolverProviderFileId);
+      if (interpreterOwned && facts.denyIdentities.includes(providerFileId)) return true;
       if (facts.hardBlock && facts.denyIdentities.includes(providerFileId)) return true;
       const direct = libraryDirectProviderFileIds(value);
       const pointer =

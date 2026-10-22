@@ -25,7 +25,13 @@ import { validChatGptJpegBytes, validChatGptPngBytes } from '../fixtures/chatgpt
 const messaging = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: messaging.sendMessage }));
 
-function libraryRaw(options: { interpreterLibrary?: boolean; owner?: unknown } = {}) {
+function libraryRaw(
+  options: {
+    interpreterLibrary?: boolean;
+    interpreterPointerAlias?: boolean;
+    owner?: unknown;
+  } = {}
+) {
   return {
     conversation_id: ACTIVE_CONVERSATION_ID,
     title: 'Synthetic Library JPEG',
@@ -65,6 +71,15 @@ function libraryRaw(options: { interpreterLibrary?: boolean; owner?: unknown } =
                 name: '/mnt/data/interpreter.jpg',
                 mime_type: 'image/jpeg',
               },
+              ...(options.interpreterPointerAlias
+                ? [
+                    {
+                      asset_pointer: 'sediment://library-provider-0',
+                      name: '/mnt/data/library-pointer-alias.jpg',
+                      mime_type: 'image/jpeg',
+                    },
+                  ]
+                : []),
             ],
           },
         },
@@ -453,6 +468,25 @@ describe('evidence-gated Library JPEG runtime', () => {
       success: false,
       code: 'invalid-provider-file-ids',
     });
+    expect(messaging.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch the interpreter-owned Library identity or block an unrelated one', async () => {
+    const captured = await capture(libraryRaw({ interpreterPointerAlias: true }));
+    const context = captured.assetExportContext!;
+    const eligible = context.rawCaptureBundle.manifest.assets.map(asset => asset.id);
+    const firstLibraryAssetId = context.rawCaptureBundle.manifest.assets.find(asset =>
+      asset.sourceRefs.some(ref => ref.rawPointer.endsWith('/metadata/attachments/0'))
+    )!.id;
+    await expect(planChatGptLibraryJpegAsset(context, eligible)).resolves.toMatchObject({
+      providerFileId: 'library-provider-1',
+    });
+    await expect(
+      resolveChatGptLibraryJpegAsset(context, {
+        assetId: firstLibraryAssetId,
+        providerFileId: 'library-provider-0',
+      })
+    ).resolves.toEqual({ success: false, code: 'invalid-provider-file-ids' });
     expect(messaging.sendMessage).not.toHaveBeenCalled();
   });
 

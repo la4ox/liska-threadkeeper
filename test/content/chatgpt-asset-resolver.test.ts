@@ -249,6 +249,39 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       }
     });
 
+    it('blocks a matching pointer-only sibling with exact interpreter ownership', () => {
+      const { raw, record } = libraryFixture();
+      const interpreterRaw = {
+        ...raw,
+        mapping: {
+          ...raw.mapping,
+          interpreter: {
+            message: {
+              id: 'message-interpreter',
+              metadata: {
+                attachments: [
+                  {
+                    asset_pointer: 'sediment://file_library_direct',
+                    name: '/mnt/data/sibling-interpreter.jpg',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
+      const alias = {
+        ...asset('b', '/mapping/interpreter/message/metadata/attachments/0'),
+        mediaType: null,
+      };
+      for (const assets of [
+        [record, alias],
+        [alias, record],
+      ]) {
+        expect(extractChatGptLibraryJpegPlan(interpreterRaw, assets, [record.id])).toBeUndefined();
+      }
+    });
+
     it('selects only one Library JPEG deterministically, without treating shared Library ID as a direct collision', () => {
       const { raw, record } = libraryFixture();
       raw.mapping.node.message.metadata.attachments.push({
