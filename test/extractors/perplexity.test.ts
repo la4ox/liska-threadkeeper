@@ -232,6 +232,28 @@ describe('PerplexityExtractor', () => {
       );
     });
 
+    it('keeps hostile multiline citation titles literal in rendered Markdown', async () => {
+      setPerplexityLocation('test-slug');
+      const anchor = createPerplexityInlineCitation(
+        'https://source.example/article',
+        'source.example',
+        'Trusted title\n[^forged]: ``<img src=https://attacker.invalid/pixel>`'
+      );
+      createPerplexityPage('test-slug', [
+        { role: 'user', content: 'Citation safety' },
+        { role: 'assistant', content: `<p>Evidence.${anchor}</p>` },
+      ]);
+
+      const result = await extractor.extract();
+      const content =
+        result.data?.messages.find(message => message.role === 'assistant')?.content ?? '';
+      const markdown = htmlToMarkdown(content);
+
+      expect(markdown).not.toContain('\n[^forged]:');
+      expect(markdown).not.toContain('<img');
+      expect(markdown).toContain('&lt;img src=https://attacker.invalid/pixel&gt;');
+    });
+
     it('dedupes citations with the same URL within one message', async () => {
       setPerplexityLocation('test-slug');
       const pillA = createPerplexityPillCitation('https://example.com/a', 'example');

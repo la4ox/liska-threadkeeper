@@ -3,6 +3,7 @@ import {
   captureChatGptConversationViaOpaqueReplay,
   readChatGptOpaqueReplayState,
 } from '../../src/background/chatgpt-opaque-replay';
+import { CHATGPT_OPAQUE_REPLAY_ERROR_CODES } from '../../src/lib/chatgpt-opaque-replay-contract';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const OTHER_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555';
@@ -50,6 +51,95 @@ afterEach(() => {
 });
 
 describe('ChatGPT opaque replay temporary-tab core', () => {
+  it.each([
+    ['target-not-observed', 0],
+    ['source-response-timeout', 0],
+    ['replay-response-timeout', 1],
+    ['timed-out', 0],
+    ['timed-out', 1],
+  ] as const)('preserves the terminal %s count %s without a retry', async (code, count) => {
+    const snapshot = { kind: 'error', code, singularDispatchCount: count };
+    vi.stubGlobal('window', { [`__liskaChatGptOpaqueReplay_${NONCE}`]: snapshot });
+    expect(readChatGptOpaqueReplayState(NONCE)).toEqual(snapshot);
+    const chrome = chromeApi(snapshot);
+
+    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+      chromeApi: chrome.api,
+      createNonce: () => NONCE,
+    });
+
+    expect(response).toEqual({ success: false, code, singularDispatchCount: count });
+    expect(chrome.create).toHaveBeenCalledOnce();
+    expect(chrome.api.scripting.executeScript).toHaveBeenCalledOnce();
+    expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+  });
+
+  it.each(['source-response-timeout', 'replay-response-timeout', 'timed-out'])(
+    'rejects suffixes and unbounded counts on %s in the serialized reader',
+    code => {
+      for (const snapshot of [
+        { kind: 'error', code: `${code}:synthetic-secret`, singularDispatchCount: 0 },
+        { kind: 'error', code, singularDispatchCount: 2 },
+      ]) {
+        vi.stubGlobal('window', { [`__liskaChatGptOpaqueReplay_${NONCE}`]: snapshot });
+        expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
+      }
+    }
+  );
+
+  it('keeps an unobserved background deadline ambiguous and never retries', async () => {
+    let now = 0;
+    const chrome = chromeApi({ kind: 'ready' });
+    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+      chromeApi: chrome.api,
+      createNonce: () => NONCE,
+      timeoutMs: 1_000,
+      now: () => now,
+      sleep: async () => {
+        now = 1_001;
+      },
+    });
+
+    // The reader never saw a terminal result: 0 is the fallback, not proof
+    // that a singular request was not dispatched in the unobserved page.
+    expect(response).toEqual({
+      success: false,
+      code: 'replay-result-timeout',
+      singularDispatchCount: 0,
+    });
+    expect(chrome.create).toHaveBeenCalledOnce();
+    expect(chrome.api.scripting.executeScript).toHaveBeenCalledOnce();
+    expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+  });
+
+  it.each([
+    'init-security-sensitive-headers-unbranded',
+    'init-security-sensitive-headers-unbranded-synthetic-secret',
+    'init-security-sensitive-headers-unbranded-entry-synthetic-secret',
+    'init-security-sensitive-headers-unbranded-ENTRY',
+  ])('rejects the non-allowlisted header reason %s in the serialized reader', code => {
+    vi.stubGlobal('window', {
+      [`__liskaChatGptOpaqueReplay_${NONCE}`]: { kind: 'error', code, singularDispatchCount: 0 },
+    });
+    expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
+  });
+
+  it('keeps the serialized error-code allowlist exact and aligned with the contract', () => {
+    for (const code of CHATGPT_OPAQUE_REPLAY_ERROR_CODES) {
+      const snapshot = { kind: 'error', code, singularDispatchCount: 0 };
+      vi.stubGlobal('window', { [`__liskaChatGptOpaqueReplay_${NONCE}`]: snapshot });
+      expect(readChatGptOpaqueReplayState(NONCE)).toEqual(snapshot);
+    }
+    vi.stubGlobal('window', {
+      [`__liskaChatGptOpaqueReplay_${NONCE}`]: {
+        kind: 'error',
+        code: 'init-security-sensitive-headers:synthetic-secret',
+        singularDispatchCount: 0,
+      },
+    });
+    expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
+  });
+
   it('uses the bounded default nonce, sleep, and SHA-256 implementation', async () => {
     const bytes = new Uint8Array([0, 255, 1]);
     const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);

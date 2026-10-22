@@ -79,7 +79,7 @@ describe('provider-neutral JSON archive companions', () => {
           },
         ],
       }),
-      'JSON archive companion requires one raw artifact and only metadata-only asset inventory records',
+      'JSON archive companion requires one raw artifact and only not-attempted or declined metadata-only asset inventory records',
     ],
   ] as const)('rejects %s before creating a companion pair', async (_label, bundle, message) => {
     await expect(buildJsonRawManifestCompanion(bundle, sha256, 'deepseek')).rejects.toThrow(
@@ -87,30 +87,57 @@ describe('provider-neutral JSON archive companions', () => {
     );
   });
 
-  it('keeps a metadata-only asset ledger with raw and manifest evidence', async () => {
-    const bundle = bundleFor({
-      assets: [
-        {
-          id: 'asset-1',
-          state: 'not-attempted',
-          attemptedAt: null,
-          relativePath: null,
-          mediaType: null,
-          byteLength: null,
-          sha256: null,
-          detail: 'metadata-only',
-          sourceRefs: [{ artifactId: 'conversation', rawPointer: '/data/asset' }],
-        },
-      ],
-    });
+  it.each(['not-attempted', 'declined'] as const)(
+    'keeps a %s metadata-only asset ledger with raw and manifest evidence',
+    async state => {
+      const bundle = bundleFor({
+        assets: [
+          {
+            id: 'asset-1',
+            state,
+            attemptedAt: null,
+            relativePath: null,
+            mediaType: null,
+            byteLength: null,
+            sha256: null,
+            detail: 'metadata-only',
+            sourceRefs: [{ artifactId: 'conversation', rawPointer: '/data/asset' }],
+          },
+        ],
+      });
 
-    await expect(buildJsonRawManifestCompanion(bundle, sha256, 'deepseek')).resolves.toMatchObject({
-      capturedAt: bundle.manifest.capturedAt,
-      artifacts: [
-        expect.objectContaining({ kind: 'raw' }),
-        expect.objectContaining({ kind: 'manifest' }),
-      ],
+      await expect(
+        buildJsonRawManifestCompanion(bundle, sha256, 'deepseek')
+      ).resolves.toMatchObject({
+        capturedAt: bundle.manifest.capturedAt,
+        artifacts: [
+          expect.objectContaining({ kind: 'raw' }),
+          expect.objectContaining({ kind: 'manifest' }),
+        ],
+      });
+    }
+  );
+
+  it.each([
+    ['attemptedAt', '2026-09-18T06:01:00.000Z'],
+    ['relativePath', 'assets/pretended.png'],
+    ['byteLength', 12],
+    ['sha256', 'a'.repeat(64)],
+  ] as const)('rejects declined metadata carrying a non-null %s claim', async (field, value) => {
+    const bundle = bundleFor();
+    bundle.manifest.assets.push({
+      id: 'asset-1',
+      state: 'declined',
+      attemptedAt: null,
+      relativePath: null,
+      mediaType: 'image/png',
+      byteLength: null,
+      sha256: null,
+      detail: 'policy-excluded',
+      sourceRefs: [{ artifactId: 'conversation', rawPointer: '/data/asset' }],
+      [field]: value,
     });
+    await expect(buildJsonRawManifestCompanion(bundle, sha256, 'deepseek')).rejects.toThrow();
   });
 
   it('preserves capture routing metadata across canonical append without injecting routing fields', async () => {

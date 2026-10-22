@@ -39,6 +39,7 @@ import {
   isChatGptActiveResolverProviderFileId,
 } from '../lib/chatgpt-active-resolver-contract';
 import { isChatGptInterpreterCandidates } from '../lib/chatgpt-interpreter-resolver-contract';
+import { isChatGptActiveAssetPlanItem } from '../lib/chatgpt-active-asset-contract';
 import { containsPathTraversal } from '../lib/path-utils';
 import { isHttpUrl } from '../lib/validation';
 import { canonicalBase64ByteLength } from '../lib/base64';
@@ -320,10 +321,17 @@ function validateChatGptBridgeMessage(
         | 'captureChatGptConversationViaOpaqueReplay'
         | 'observeChatGptAssetResolversViaOpaqueSource'
         | 'probeChatGptActiveAssetResolvers'
+        | 'resolveChatGptActiveAsset'
         | 'resolveChatGptInterpreterAssets';
     }
   >
 ): boolean {
+  if (message.action === 'resolveChatGptActiveAsset')
+    return (
+      hasExactOwnKeys(message, ['action', 'conversationId', 'item']) &&
+      isChatGptConversationId(message.conversationId) &&
+      isChatGptActiveAssetPlanItem(message.item)
+    );
   if (message.action === 'captureChatGptConversation')
     return validateChatGptCaptureMessage(message);
   return message.action === 'probeChatGptOpaqueRequest'
@@ -786,6 +794,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     extensionMessage.action === 'captureChatGptConversationViaOpaqueReplay' ||
     extensionMessage.action === 'observeChatGptAssetResolversViaOpaqueSource' ||
     extensionMessage.action === 'probeChatGptActiveAssetResolvers' ||
+    extensionMessage.action === 'resolveChatGptActiveAsset' ||
     extensionMessage.action === 'resolveChatGptInterpreterAssets'
   ) {
     return validateChatGptBridgeMessage(extensionMessage);

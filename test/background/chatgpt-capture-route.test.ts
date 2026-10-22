@@ -8,6 +8,7 @@ import { createChatGptOpaqueReplayFailure } from '../../src/lib/chatgpt-opaque-r
 import { createChatGptOpaqueResolverFailure } from '../../src/lib/chatgpt-opaque-resolver-contract';
 import { createChatGptActiveResolverFailure } from '../../src/lib/chatgpt-active-resolver-contract';
 import { createChatGptInterpreterResolverFailure } from '../../src/lib/chatgpt-interpreter-resolver-contract';
+import { activeItem, activeSuccess } from '../fixtures/chatgpt-active-asset';
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   replay: vi.fn(),
   resolver: vi.fn(),
   activeResolver: vi.fn(),
+  activeAsset: vi.fn(),
   interpreterResolver: vi.fn(),
   binaryStage: vi.fn(),
   fetchImage: vi.fn(),
@@ -67,6 +69,7 @@ vi.mock('../../src/background/chatgpt-active-resolver', async importOriginal => 
   return {
     ...actual,
     probeChatGptActiveAssetResolvers: (...args: unknown[]) => mocks.activeResolver(...args),
+    resolveChatGptActiveAsset: (...args: unknown[]) => mocks.activeAsset(...args),
   };
 });
 
@@ -252,6 +255,103 @@ describe('ChatGPT capture service-worker route', () => {
     vi.resetModules();
     await import('../../src/background/service-worker');
   });
+
+  it('routes the data action separately with permission and exact standard document sender binding', async () => {
+    mocks.activeAsset.mockResolvedValue(activeSuccess());
+    const sendResponse = vi.fn();
+    expect(
+      capturedListener(
+        {
+          action: 'resolveChatGptActiveAsset',
+          conversationId: CONVERSATION_ID,
+          item: activeItem(),
+        },
+        {
+          tab: { id: 123, url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+          frameId: 0,
+          documentId: 'synthetic-document',
+        } as chrome.runtime.MessageSender,
+        sendResponse
+      )
+    ).toBe(true);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith(activeSuccess()));
+    expect(mocks.activeAsset).toHaveBeenCalledExactlyOnceWith(CONVERSATION_ID, activeItem());
+    expect(mocks.activeResolver).not.toHaveBeenCalled();
+    expect(mocks.getSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'custom GPT',
+    'wrong conversation',
+    'foreign document',
+    'missing document',
+    'subframe',
+    'permission',
+  ])('rejects the one-PNG data action for %s before transport', async scenario => {
+    const sender = {
+      tab: { id: 123, url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+      frameId: 0,
+      documentId: 'synthetic-document',
+      url: `https://chatgpt.com/c/${CONVERSATION_ID}`,
+    } as chrome.runtime.MessageSender;
+    if (scenario === 'custom GPT')
+      sender.tab!.url = `https://chatgpt.com/g/custom/c/${CONVERSATION_ID}`;
+    if (scenario === 'wrong conversation')
+      sender.tab!.url = 'https://chatgpt.com/c/11111111-2222-4333-8444-555555555555';
+    if (scenario === 'foreign document') sender.url = 'https://example.invalid/';
+    if (scenario === 'missing document') delete sender.documentId;
+    if (scenario === 'subframe') sender.frameId = 1;
+    if (scenario === 'permission') setScriptingPermission(false);
+    const sendResponse = vi.fn();
+    capturedListener(
+      { action: 'resolveChatGptActiveAsset', conversationId: CONVERSATION_ID, item: activeItem() },
+      sender,
+      sendResponse
+    );
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      code: scenario === 'permission' ? 'permission-unavailable' : 'resolver-result-invalid',
+    });
+    expect(mocks.activeAsset).not.toHaveBeenCalled();
+  });
+
+  it.each(['malformed', 'wrong asset', 'wrong provider', 'throw'])(
+    'contains a %s data response with a fixed safe error',
+    async scenario => {
+      const result = activeSuccess();
+      if (scenario === 'malformed')
+        (result as unknown as Record<string, unknown>).secret = 'private';
+      if (scenario === 'wrong asset') result.data.assetId = activeItem('b').assetId;
+      if (scenario === 'wrong provider')
+        result.data.candidate!.downloadUrl = activeSuccess(
+          activeItem('b')
+        ).data.candidate!.downloadUrl;
+      if (scenario === 'throw') mocks.activeAsset.mockRejectedValue(new Error('private-source'));
+      else mocks.activeAsset.mockResolvedValue(result);
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'resolveChatGptActiveAsset',
+          conversationId: CONVERSATION_ID,
+          item: activeItem(),
+        },
+        {
+          tab: { id: 123, url: `https://chatgpt.com/c/${CONVERSATION_ID}` },
+          frameId: 0,
+          documentId: 'synthetic-document',
+        } as chrome.runtime.MessageSender,
+        sendResponse
+      );
+      await vi.waitFor(() =>
+        expect(sendResponse).toHaveBeenCalledWith({
+          success: false,
+          code: 'resolver-result-invalid',
+        })
+      );
+      expect(JSON.stringify(sendResponse.mock.calls)).not.toContain('private');
+    }
+  );
 
   afterEach(() => {
     delete (chrome as unknown as { permissions?: unknown }).permissions;

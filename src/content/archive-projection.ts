@@ -21,6 +21,7 @@ import type {
   ConversationData,
   ConversationMessage,
 } from '../lib/types';
+import { markdownCodeFence } from './markdown-code';
 import { htmlToMarkdownRaw } from './markdown-rules';
 import { sanitizeHtml } from '../lib/sanitize';
 
@@ -75,16 +76,6 @@ function isAIPlatform(provider: string): provider is AIPlatform {
   return ALL_PLATFORMS.includes(provider as AIPlatform);
 }
 
-function codeFence(content: string, language = ''): string {
-  let longestRun = 0;
-  for (const match of content.matchAll(/`+/g)) {
-    longestRun = Math.max(longestRun, match[0].length);
-  }
-  const fence = '`'.repeat(Math.max(3, longestRun + 1));
-  const safeLanguage = /^[a-z0-9_+.-]{1,32}$/i.test(language) ? language : '';
-  return `${fence}${safeLanguage}\n${content}\n${fence}`;
-}
-
 function inlineLabel(value: string): string {
   return value
     .replace(/\s+/g, ' ')
@@ -118,7 +109,7 @@ function renderVisibleBlock(
     case 'html':
       return htmlToLegacyMarkdown(block.html, omissions);
     case 'code':
-      return codeFence(block.code, block.language ?? '');
+      return markdownCodeFence(block.code, block.language ?? '');
     case 'quote': {
       const quote = block.text
         .split('\n')
@@ -136,14 +127,14 @@ function renderToolBlock(block: ArchiveBlock, reasoningLabel: string): string | 
     case 'reasoning':
       return `**${reasoningLabel}**\n${block.text}`;
     case 'tool_call':
-      return `**Tool call: ${inlineLabel(block.toolName) || 'unknown'}**\n${codeFence(
+      return `**Tool call: ${inlineLabel(block.toolName) || 'unknown'}**\n${markdownCodeFence(
         JSON.stringify(block.arguments, null, 2),
         'json'
       )}`;
     case 'tool_result':
-      return `**Tool result${block.toolName ? `: ${inlineLabel(block.toolName)}` : ''}**\n${codeFence(JSON.stringify(block.result, null, 2), 'json')}`;
+      return `**Tool result${block.toolName ? `: ${inlineLabel(block.toolName)}` : ''}**\n${markdownCodeFence(JSON.stringify(block.result, null, 2), 'json')}`;
     case 'execution_output':
-      return `**Execution output**\n${codeFence(JSON.stringify(block.output, null, 2), 'json')}`;
+      return `**Execution output**\n${markdownCodeFence(JSON.stringify(block.output, null, 2), 'json')}`;
     case 'error':
       return `**Provider error${block.code ? ` (${inlineLabel(block.code)})` : ''}**\n${block.message}`;
     default:

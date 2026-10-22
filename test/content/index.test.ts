@@ -421,6 +421,100 @@ describe('content/bootstrap', () => {
       expect(setButtonLoading).toHaveBeenLastCalledWith(false);
     });
 
+    it.each([
+      {
+        outcome: 'success',
+        successes: [true, true, true],
+        allSuccessful: true,
+        anySuccessful: true,
+      },
+      {
+        outcome: 'partial',
+        successes: [true, false, true],
+        allSuccessful: false,
+        anySuccessful: true,
+      },
+      {
+        outcome: 'failure',
+        successes: [false, false, false],
+        allSuccessful: false,
+        anySuccessful: false,
+      },
+    ])('logs one fresh fixed-schema note write $outcome summary', async testCase => {
+      vi.useFakeTimers();
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      try {
+        loadGeminiConversation();
+        const destinations = ['obsidian', 'file', 'clipboard'] as const;
+        const saveResponse = {
+          allSuccessful: testCase.allSuccessful,
+          anySuccessful: testCase.anySuccessful,
+          results: destinations.map((destination, index) => ({
+            destination,
+            success: testCase.successes[index],
+            error: 'PRIVATE_ERROR',
+            warning: 'PRIVATE_WARNING',
+            savedAs: 'PRIVATE_FILENAME.md',
+            path: 'PRIVATE_PATH',
+            extra: 'PRIVATE_RESULT_EXTRA',
+          })),
+          note: { body: 'PRIVATE_NOTE_BODY' },
+          fileName: 'PRIVATE_NOTE_FILENAME.md',
+          capturedAt: 'PRIVATE_CAPTURED_AT',
+          extra: 'PRIVATE_RESPONSE_EXTRA',
+        };
+        mockMessaging({
+          settings: { outputOptions: { obsidian: true, file: true, clipboard: true } },
+          save: saveResponse,
+        });
+
+        await handleSync();
+
+        const resultCalls = infoSpy.mock.calls.filter(([message]) =>
+          message.startsWith('[G2O] Note write')
+        );
+        expect(resultCalls).toStrictEqual([
+          [
+            '[G2O] Note write result:',
+            {
+              allSuccessful: testCase.allSuccessful,
+              anySuccessful: testCase.anySuccessful,
+              results: destinations.map((destination, index) => ({
+                destination,
+                success: testCase.successes[index],
+              })),
+            },
+          ],
+        ]);
+        const summary = resultCalls[0][1] as MultiOutputResponse;
+        expect(summary).not.toBe(saveResponse);
+        expect(summary.results).not.toBe(saveResponse.results);
+        summary.results.forEach((result, index) => {
+          expect(result).not.toBe(saveResponse.results[index]);
+        });
+        expect(JSON.stringify(infoSpy.mock.calls)).not.toMatch(
+          /PRIVATE_|error|warning|savedAs|fileName|path|capturedAt/
+        );
+        if (testCase.allSuccessful) {
+          expect(showToast).toHaveBeenCalledWith('Saved locally', 'success');
+          expect(showErrorToast).not.toHaveBeenCalled();
+        } else if (testCase.anySuccessful) {
+          expect(showWarningToast).toHaveBeenCalledWith(
+            'Saved to: obsidian, clipboard. Failed: file: PRIVATE_ERROR'
+          );
+          expect(showErrorToast).not.toHaveBeenCalled();
+        } else {
+          expect(showErrorToast).toHaveBeenCalledWith(
+            'PRIVATE_ERROR; PRIVATE_ERROR; PRIVATE_ERROR'
+          );
+        }
+        expect(setButtonLoading).toHaveBeenLastCalledWith(false);
+      } finally {
+        infoSpy.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
     it('keeps a collision-resolved filename out of the generic success toast', async () => {
       loadGeminiConversation();
       mockMessaging({
@@ -540,25 +634,42 @@ describe('content/bootstrap', () => {
     });
 
     it('surfaces a background rejection instead of reading results.map', async () => {
-      loadGeminiConversation();
-      mockMessaging({
-        save: { success: false, error: 'Invalid message content' },
-      });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      try {
+        loadGeminiConversation();
+        mockMessaging({
+          save: { success: false, error: 'PRIVATE_BACKGROUND_ERROR' },
+        });
 
-      await handleSync();
+        await handleSync();
 
-      expect(showErrorToast).toHaveBeenCalledWith('Invalid message content');
+        expect(showErrorToast).toHaveBeenCalledWith('PRIVATE_BACKGROUND_ERROR');
+        expect(
+          infoSpy.mock.calls.filter(([message]) => message.startsWith('[G2O] Note write'))
+        ).toStrictEqual([['[G2O] Note write response invalid']]);
+        expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('PRIVATE_BACKGROUND_ERROR');
+      } finally {
+        infoSpy.mockRestore();
+      }
     });
 
     it('rejects malformed result entries instead of passing them to results.map', async () => {
-      loadGeminiConversation();
-      mockMessaging({
-        save: { results: [null], allSuccessful: true, anySuccessful: true },
-      });
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      try {
+        loadGeminiConversation();
+        mockMessaging({
+          save: { results: [null], allSuccessful: true, anySuccessful: true },
+        });
 
-      await handleSync();
+        await handleSync();
 
-      expect(showErrorToast).toHaveBeenCalledWith('Invalid response from extension background');
+        expect(showErrorToast).toHaveBeenCalledWith('Invalid response from extension background');
+        expect(
+          infoSpy.mock.calls.filter(([message]) => message.startsWith('[G2O] Note write'))
+        ).toStrictEqual([['[G2O] Note write response invalid']]);
+      } finally {
+        infoSpy.mockRestore();
+      }
     });
 
     it('catches messaging errors and resets the button state', async () => {

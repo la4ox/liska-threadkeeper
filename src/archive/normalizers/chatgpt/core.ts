@@ -173,6 +173,7 @@ function createContext(
   return {
     assets: {},
     assetIdsByIdentity: new Map(),
+    sourceRefsByAssetId: new Map(),
     manifestAssets: manifestAssetsById(manifest.assets),
     artifactId: input.artifactId,
     format,

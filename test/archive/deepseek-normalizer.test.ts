@@ -1363,6 +1363,66 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     );
   });
 
+  it.each(['=', ':', ',', '`', '!', '.', '*', '_', '>'])(
+    'redacts a relative signed path after the %s delimiter',
+    delimiter => {
+      const tracker = { redactions: [] };
+      const closing = delimiter === '`' ? '`' : '';
+      const value = `${delimiter}/file?file_id=11111111-2222-4333-8444-555555555555&state=private-state${closing}`;
+      const redacted = redactSensitiveText(value, tracker, '/punctuated-path');
+
+      expect(redacted).not.toContain('private-state');
+      expect(redacted).toContain('[redacted-sensitive-url]');
+    }
+  );
+
+  it('redacts encoded sensitive query keys without matching path suffix lookalikes', () => {
+    const tracker = { redactions: [] };
+    expect(
+      redactSensitiveText('/file?file_id=synthetic&st%61te=private-state', tracker, '/encoded')
+    ).toBe('[redacted-sensitive-url]');
+    expect(redactSensitiveText('Keep profile/file?state=public', tracker, '/path-suffix')).toBe(
+      'Keep profile/file?state=public'
+    );
+    expect(
+      redactSensitiveText(
+        '[download](&#47;file?file_id=synthetic&amp;state=private-state)',
+        tracker,
+        '/markdown-entity'
+      )
+    ).toBe('[download]([redacted-sensitive-url])');
+    expect(
+      redactSensitiveText(
+        '[download](&#x2f;file&#63;file_id=synthetic&amp;state=private-state)',
+        tracker,
+        '/markdown-numeric-entities'
+      )
+    ).toBe('[download]([redacted-sensitive-url])');
+  });
+
+  it.each([
+    '[download](&#47;file?file_id=synthetic&amp;state=private-state)',
+    '[download](&#x2f;file&#63;file_id=synthetic&amp;state=private-state)',
+  ])(
+    'removes Markdown character-reference capabilities from the canonical archive',
+    async content => {
+      const bytes = encodedRaw(raw => {
+        raw.data.biz_data.chat_messages[0].fragments = [{ type: 'REQUEST', content }];
+      });
+
+      const { archive } = await normalizeBytes(bytes);
+      const serialized = JSON.stringify(archive);
+
+      expect(serialized).not.toContain('private-state');
+      expect(serialized).toContain('[redacted-sensitive-url]');
+      expect(archive.diagnostics.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'privacy-redacted-sensitive-extension-field' }),
+        ])
+      );
+    }
+  );
+
   it('fails closed when the manifest omits observed unknown content types', async () => {
     const bundle = await bundleFor(fixtureBytes);
     bundle.manifest.observedUnknownContentTypes = [];
@@ -1488,5 +1548,19 @@ describe('DeepSeek liska-thread/1 normalizer', () => {
     const result = await normalizeBytes(new TextEncoder().encode(JSON.stringify(raw)));
     expect(Object.keys(result.archive.graph.nodes)).toHaveLength(count);
     expect(result.archive.conversation.currentNodeId).toBe(String(count));
+  });
+
+  it('rejects an oversized graph before synchronous node materialization', async () => {
+    const count = 20_001;
+    const raw = structuredClone(fixture);
+    raw.data.biz_data.chat_session.current_message_id = String(count);
+    raw.data.biz_data.chat_messages = Array.from({ length: count }, (_, index) => ({
+      message_id: String(index + 1),
+      parent_id: index === 0 ? null : String(index),
+      role: index % 2 === 0 ? 'USER' : 'ASSISTANT',
+      content: '',
+    }));
+
+    await expectCode(new TextEncoder().encode(JSON.stringify(raw)), 'graph-node-limit-exceeded');
   });
 });

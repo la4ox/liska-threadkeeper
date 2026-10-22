@@ -113,88 +113,240 @@
 
 ## Current integration checkpoint
 
-The ChatGPT checkpoint is merged at `588d390`. Branch
-`codex/deepseek-obsidian-integration` combines focused draft PR #8 (DeepSeek
-archives and verified attachments) with focused draft PR #9 (Obsidian key
-migration). Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10)
-is Ready for review but is not merged; #8 and #9 remain open and unchanged.
+Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10) is merged
+into `main` at `ef24f3e`. Current work continues from that exact head on
+`codex/chatgpt-2026-10-compat`; no release or tag is implied.
 
-The current 2026-10-02 review-fix tree addresses all 19 automated P2 comments
-from six review passes:
+The current ChatGPT compatibility slice repairs the October 2026 page request
+shape without weakening the loss-aware archive boundary:
 
-- an unchanged popup key is omitted from a full settings save, so a deferred
-  legacy migration cannot be overwritten by an accidental empty value;
-- Save and Test Connection cannot race, and any unacknowledged explicit key
-  write remains uncertain until a later explicit write succeeds;
-- every readable DeepSeek DOM fallback is marked partial, while verified
-  raw/manifest evidence survives even when the DOM fallback also fails and is
-  persisted with the correct provider route;
-- blank structured DeepSeek presentation titles fall back locally without
-  mutating raw/canonical evidence;
-- optional attachment candidate derivation is bounded before pointer/hash work
-  to 64 whole assets and 256 source refs with one shared binding pass. If that
-  budget truncates the ledger, passive ResourceTiming fallback is disabled
-  because global file-ID uniqueness cannot be proven; verified in-band paths
-  inside the admitted prefix remain usable and all other assets stay
-  `not-attempted`;
-- repeated records for one DeepSeek file may omit `signed_path` without erasing
-  another verified path, while present malformed or conflicting paths still
-  invalidate the in-band candidate;
-- an empty asset ledger bypasses binary-aware finalization and preserves the
-  original companion/Markdown sequence without a second full normalization;
-- empty, missing, or non-text typed fragments no longer suppress usable
-  message-level content/reasoning fallbacks; classifier and normalizer share
-  the same non-empty-string rule;
-- every unread history/attachment response body is cancelled before an early
-  HTTP, URL, media-type, or declared-size rejection continues; a timeout while
-  reading a body remains an explicit timeout rather than a generic rejection;
-- the Chrome Web Store host disclosure now describes both verified in-band
-  DeepSeek signed paths and the bounded, uniquely raw-bound passive
-  ResourceTiming fallback;
-- DeepSeek reasoning headings are now generated structurally, so provider text
-  containing the same Markdown phrase is never rewritten;
-- nullable timestamp aliases are reconciled symmetrically: null/missing values
-  yield to valid aliases, equal instants agree, and malformed or conflicting
-  non-null values fail closed while exact raw evidence remains available;
-- immutable DeepSeek manifest `capturedAt` now pins Obsidian date-token routing
-  for raw/manifest/canonical, binaries, and fresh structured Markdown. Staged
-  archives reuse one path and repeat the no-overwrite preflight after Blob
-  verification; File paths and legacy callers remain unchanged;
-- null identifier aliases now yield to usable non-null aliases while all
-  non-null values still pass exact validation and conflict checks;
-- the complete attachment inventory remains intact, but provider-ID digests are
-  submitted in deterministic batches of at most 32 instead of one unbounded
-  `Promise.all` fan-out;
-- successful `FILE` fragments retain sanitized residual metadata (and empty
-  fragment existence) as an ordered `FILE:metadata` block. Provider IDs in
-  values, dynamic keys, and privacy diagnostic pointers are removed by a
-  bounded fail-closed scrubber before ordinary credential/URL sanitization.
+- replay/probe accept a bounded plain own-data `HeadersInit` record as well as
+  the established native Request path. Header names and values remain inside the
+  document-start MAIN-world closure and never enter messages, logs, storage, or
+  diagnostics;
+- the page's original fetch receiver, arguments, synchronous exception, and
+  returned promise remain unchanged. A singular Request is constructed once and
+  dispatched at most once, only after the page-owned plural source resolves as
+  exact `200 application/json`;
+- source authorization now uses captured native `Response.url` and
+  `Response.redirected` getters. The final response must be an unredirected exact
+  `https://chatgpt.com/backend-api/conversations/{selectedId}` URL with one of
+  the two allowlisted raw query orderings. Empty, malformed, redirected,
+  cross-origin, wrong-ID, extra-query, and post-WebIDL base-mutation cases fail
+  closed before replay;
+- string inputs resolve through a captured genuine `Node.prototype.baseURI`
+  getter and are rechecked after the single init/header classification pass.
+  Network-path references are rejected; native Request handling is unchanged;
+- plain-header snapshots are bounded to 64 fields, 128-byte names, 8 KiB values,
+  and 32 KiB aggregate text. Accessors, symbols, inherited pollution, invalid
+  bytes, duplicate case-folded names, unstable reflection, and unsupported
+  prototypes fail with fixed enum-only diagnostics;
+- passive and active resolver modes retain their earlier strict eligibility.
+  Interpreter transport alone accepts the confirmed October 2026 source shape:
+  a primitive string or genuine native Request with a bounded plain own-data
+  header override. It uses only the captured override, requires authorization
+  membership without reading its value, allows only `include`/`same-origin`
+  credentials, and never clones or consumes the page Request;
+- interpreter queue ownership is now explicit across fetch, response-body read,
+  and SHA-256 calculation. One per-item timer covers the entire operation; late
+  completions cannot advance the queue or overwrite terminal state. A failure
+  before the first helper dispatch preserves its fixed run error instead of
+  collapsing to `not-dispatched`; once any helper request was dispatched,
+  partial ordinal evidence remains authoritative;
+- the old generic page timeout is split into `target-not-observed`,
+  `source-response-timeout`, and `replay-response-timeout`. Background timeout
+  remains explicitly ambiguous. No retry, cache-bypass reload, token/session
+  route, active-tab mutation, DOM fallback substitution, or guessed branch was
+  added;
+- persistence logging now emits only destination enums and success booleans.
+  Filenames, paths, note bodies, warnings, errors, response objects, credentials,
+  and archive content are excluded.
+
+Live Comet verification on a private 232-message ordinary ChatGPT conversation
+completed three successive final-phase exports, including an immediate warm
+repeat. The final response-URL-gated build produced a fresh snapshot in both
+Downloads and Obsidian:
+
+- raw `conversation.json`: 2,684,770 bytes;
+- manifest: 1,884 bytes;
+- canonical `liska-thread-1.json`: 4,434,199 bytes;
+- complete graph: 453 nodes, one root, current node present, two preserved asset
+  references, zero manifest warnings, and `graph/messages/branches = complete`;
+- Downloads and Obsidian raw/manifest/canonical copies have identical SHA-256
+  values inside the snapshot;
+- Markdown was written to both destinations. Downloads retained the ordinary
+  547,823-byte form; Obsidian retained the configured flattened 546,535-byte
+  form;
+- each successful run received a distinct random capture ID and a new archive
+  directory. Older snapshots were not replaced, and no marker tab remained.
+
+One earlier warm run on a pre-phase-diagnostic build ended in the old generic
+timeout. The exact phase was therefore not recoverable. It did not write a
+partial snapshot, and the timeout did not recur in the later cold/warm/final
+sequence. This remains an explicit reliability observation rather than a reason
+for an automatic retry.
+
+The interpreter attachment compatibility slice is now live-verified on a
+private standard ChatGPT conversation containing both current and older
+interpreter assets. The metadata-only probe observed the exact
+`eligible-init-plain-headers` request class. After an extension and page reload,
+three successive trusted-click exports produced new immutable snapshots in both
+Downloads and Obsidian:
+
+- raw `conversation.json`: 112,439 bytes;
+- manifest: 4,354 bytes;
+- canonical `liska-thread-1.json`: 218,585 bytes;
+- complete graph: 36 nodes, one root, current node present, six preserved asset
+  references, and `graph/messages/branches = complete`;
+- one current PDF was fetched through the page-owned interpreter flow and saved
+  as a 51,741-byte content-addressed binary. Its manifest length and SHA-256
+  match the file; it begins with `%PDF-1.4`, and Poppler parses one unencrypted
+  A4 page;
+- one older interpreter asset returned HTTP 404 and remains explicitly
+  `not-attempted`; four PNG inventory records also remain honestly
+  `raw-inventory-not-attempted`. Overall asset completeness is therefore
+  `partial`, without inventing missing bytes;
+- raw, manifest, canonical, and PDF copies are byte-identical between Downloads
+  and Obsidian. Repeated exports retained the same PDF hash while creating new
+  capture directories; older snapshots were not replaced;
+- manifest/canonical scans contain no authorization or cookie fields, bearer
+  token, signed-query parameter, signed OAI URL, or `download_url` field;
+- the temporary metadata probe was restored to off and strict replay to on.
+
+A content-free follow-up over the four unresolved PNG ledger entries found
+usable identities rather than a settings/routing regression: three have one
+accepted direct metadata ID, and the fourth has two equivalent `sediment:`
+pointers for one identity. All four are unique active-plan candidates and none
+is interpreter-eligible. They remained `not-attempted` because the passive
+eight-second observer saw no matching page-owned resolver request for these
+historical/lazy assets.
+
+The active file-ID route is now live-verified through its first bounded
+data-bearing adapter on a separate ordinary ChatGPT conversation with a freshly
+visible generated PNG. Its complete graph has 35 current-path nodes and six
+image ledger records. A pure committed-raw plan resolves whole-ledger identity
+strength and ambiguity before choosing exactly one eligible PNG; interpreter
+ownership wins first, the selected active identity is never retried passively,
+and passive matching keeps the complete ledger until after winner selection so
+a weaker pointer alias cannot trigger a duplicate fetch. Any unsupported
+nonempty direct identity fails closed before sibling or pointer fallback in both
+passive and active evidence families.
+
+The helper remains the one page-observed
+`/backend-api/files/download/{id}` route with exactly `conversation_id`,
+`inline=false`, `download_intent=false`, and
+`include_library_file_state=true`. It reuses closure-private source
+authorization only inside MAIN, copies no credential outside that closure, and
+has no retry, endpoint fallback, route discovery, or concurrent dispatch. Background
+rebinds the signed URL to the exact transient plan; the existing downloader then
+verifies response URL, media type, PNG bytes, length, and SHA-256 before
+destination-specific persistence can claim `fetched`.
+
+A local static interoperability review of installed AI Exporter 4.6.0 explained
+its apparent speed without adopting its broader trust model. It captures the
+same conversation API, hydrates every mapping image through the same helper
+family with `inline=true`, and uses up to six workers while silently skipping
+individual failures. It also retains authorization/device headers in its own
+runtime, has broad background image-fetch permissions, may compress images, and
+chooses the newest reachable leaf rather than ChatGPT `current_node`. Liska
+keeps its closure-private authorization, explicit current/selected branch,
+original-byte verification, sequential acquisition, and honest failure states.
+One same-identity live A/B changed only `inline=false` to `inline=true`; both
+modes returned the same `http-error`. The experiment was fully rolled back, so
+no second-mode fallback remains.
+
+Two final-build trusted-click exports completed independently. The warm canary
+receipt was `requested=1`, `dispatched=1`, `observed=1`, with every failure
+bucket zero. It wrote raw 82,854 bytes, manifest 4,734 bytes, canonical 186,521
+bytes, and one 1,474,502-byte PNG (1122 by 1402) to both Downloads and Obsidian.
+All four companion/binary files were byte-identical across destinations; the
+Markdown views were also byte-identical at 25,894 bytes. Manifest and actual
+PNG length/SHA-256/path agree, one asset is `fetched`, and five remain honestly
+`not-attempted`. The same content-addressed PNG hash repeated across both
+immutable captures. Durable manifest/canonical scans found no selected provider
+identity or transient signed URL, and no marker tab remained.
+
+A bounded content-level batch now selects at most four distinct ordinary PNG
+identities while leaving every background/MAIN transaction single-item. It runs
+strictly sequentially, assigns ownership before dispatch, immediately acquires
+each successful candidate through the shared 20-attempt/128-MiB budget, excludes
+all selected identities from passive retry, and stops before another helper when
+the shared attempt or byte budget is exhausted. One aggregate durable audit
+preserves completed outcomes, known dispatches, unknown-dispatch run failures,
+and allowlisted terminal counts without IDs, URLs, timestamps, or bodies. Its
+caller-owned inputs are snapshotted once through own data descriptors before
+validation and formatting; iterator, accessor, Proxy-get, repeated-descriptor,
+and sparse-array attacks are covered.
+
+The historical four-PNG canary then selected and dispatched all four identities:
+three returned `http-error`, while the fourth produced a verified 2,313,476-byte
+PNG (1448 by 1086). Its opaque ID and SHA-256 exactly match the one unique PNG
+that older captures had fetched, proving historical availability without
+inventing expiry for the other three. The current 51,741-byte PDF also remained
+fetched. Downloads and Obsidian each retained five byte-identical archive files
+plus byte-identical Markdown; all temporary tabs closed.
+
+Structural reconciliation showed that the three failed records were not
+independent chat images: they were tool-role `metadata.attachments` named as
+`liska_pdf_render/page-N.png` or `liska_docx_render/page-N.png`, transient page
+previews derived from source documents. Inventory now classifies only the exact
+bounded provider path grammar as policy `declined` with fixed detail
+`derived-document-preview-policy-skipped`. Raw bytes, opaque IDs and every exact
+sourceRef remain unchanged. Ordinary evidence for any provider-key alias cancels
+the policy across the entire connected component; no identities or provenance
+are merged. Similar paths, user/assistant content, metadata files, MIME
+mismatches, traversal/encoding/control variants and malformed prefixes remain
+ordinary assets. Policy-declined records cannot enter interpreter, active,
+passive or binary acquisition, and metadata-only declined records are accepted
+at the initial JSON companion boundary only with null attempt/path/byte/hash
+claims. Completeness ignores declined policy assets while preserving empty and
+unknown ledger semantics.
+
+The post-policy historical canary retained six assets as three `declined`, two
+`fetched` (the real PNG and PDF), and one genuine `not-attempted` old document.
+Only the real PNG was selected: `selected=1/4`, `dispatched-known=1`,
+`observed=1`, with every failure bucket zero. Canonical retained all three fixed
+reasons and sourceRefs with no local artifact claims. Downloads and Obsidian
+again held five byte-identical archive files plus byte-identical Markdown; no
+temporary tab remained. The old source document's HTTP 404, not its discarded
+page thumbnail, is the remaining evidence of loss.
+
+The fresh canary selected its two eligible PNG identities and fetched both:
+1,474,502 and 1,429,642 bytes, each a verified 1122-by-1402 PNG. The first hash
+matches the earlier one-PNG canary; the second had previously remained
+`not-attempted`. Raw/manifest/canonical plus both binaries and Markdown were
+byte-identical between Downloads and Obsidian, with no leftover marker tab.
 
 Fresh exact-tree validation:
 
-- Node 24.18.0 and npm 11.16.0 match the project/CI contract;
-- 146 test files / 3,154 tests pass with two workers;
-- coverage passes at 95.11% statements, 90.25% branches, 98.32% functions,
-  and 97.87% lines;
-- typecheck and the production build pass;
-- lint passes with only three pre-existing advisory warnings, and repository
-  formatting passes;
-- independent reviews reproduced and fixed two additional popup credential
-  races and found no residual P0-P3 issue after either review-fix layer.
+- Node 24.18.0 and npm 11.16.0 match the project contract;
+- 150 test files / 4,029 tests pass;
+- coverage passes at 95.17% statements, 90.73% branches, 98.42% functions, and
+  97.78% lines;
+- TypeScript and the production Vite build pass;
+- full lint has zero errors and only the same three pre-existing advisory
+  warnings; platform registry lint and repository formatting pass;
+- independent review reproduced and then invalidated three resolver-boundary
+  defects: duplicate direct/pointer fetching, invalid-direct pointer fallback,
+  and the same fallback in shared passive/metric evidence. Whole-ledger
+  precedence plus per-family fail-closed direct-ID validation now cover all
+  three. Batch review additionally reproduced and closed a validation/use
+  mismatch caused by caller-owned iteration. Derived-preview review additionally
+  closed transitive alias-cancellation and empty-ledger completeness defects;
+  final review reports no residual P0-P3 finding.
 
-The prior combined File+Obsidian synthetic canary remains valid evidence for the
-unchanged successful one-file path: both destinations received byte-identical
-raw/manifest/canonical/binary artifacts and Markdown, with exact hashes and no
-provider transport leakage. The 2026-10-02 review-fix tree has not yet been
-reloaded for a new live browser canary. A page-native preview is still required
-for the passive attachment fallback; automatic card activation, active
-observers, `fetch_files`, retries, guessed URLs, a real provider response above
-16 MiB, and official-export reconciliation remain explicit evidence gaps. The
-latest response-lifecycle and capture-date routing fixes have not yet received a
-live Chrome/Obsidian replay. ChatGPT capture-date pinning, append-mode lookup in
-older folders, and a vault-template change during one capture remain separate
-future scopes.
+The first repository-security fix wave now closes six confirmed source paths:
+collision-safe Markdown code/citation rendering; bounded linear sandbox-link
+parsing; indexed canonical asset provenance; linear shared and ChatGPT graph
+symmetry checks; a post-raw DeepSeek graph limit; and punctuation/entity-aware
+DeepSeek capability redaction. Independent review reproduced escaped-backtick,
+fenced-container, and Markdown character-reference bypasses before their final
+regressions passed. Security Cloud state has not been mutated or treated as
+closed yet.
 
-Next: commit and push the review fixes, wait for exact-head CI/re-review, then
-make a separate merge decision. No merge, release, tag, or closure of #8/#9 is
-automatic.
+Next: push the two verified security commits to pull request 11, reconcile CI
+and its security review, then continue from
+[`docs/security-todo.md`](docs/security-todo.md). That plan includes the
+remaining repository findings and a narrow latest-upstream audit of provider and
+shared blocks Liska has not substantially changed. Product work then returns to
+the JPEG evidence checkpoint in [`docs/chatgpt-todo.md`](docs/chatgpt-todo.md).

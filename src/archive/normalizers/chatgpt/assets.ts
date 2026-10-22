@@ -117,10 +117,13 @@ function createAsset(
 ): ArchiveAsset {
   const fields = resolvedAssetFields(attachment, manifestAsset);
   const sources = manifestAsset === undefined ? [] : archiveSourceRefs(manifestAsset, context);
+  const sourceIndex = indexSourceRefs(sources);
   appendSourceRef(
     sources,
-    sourceRef(context, 'attachment', attachmentSourceId(attachment), pointer)
+    sourceRef(context, 'attachment', attachmentSourceId(attachment), pointer),
+    sourceIndex
   );
+  sourceRefIndexes(context).set(id, sourceIndex);
   return {
     id,
     ...fields,
@@ -225,8 +228,10 @@ function mergeAsset(
   }
   mergeAssetProviderFields(asset, assetProviderFields(attachment, context, pointer));
   appendArchiveSourceRef(
+    assetId,
     asset,
-    sourceRef(context, 'attachment', attachmentSourceId(attachment), pointer)
+    sourceRef(context, 'attachment', attachmentSourceId(attachment), pointer),
+    context
   );
   return assetId;
 }
@@ -360,24 +365,30 @@ function sourceRefForManifestLocation(
 }
 
 function appendArchiveSourceRef(
+  assetId: string,
   asset: ArchiveAsset,
-  source: ArchiveAsset['sourceRefs'][number]
+  source: ArchiveAsset['sourceRefs'][number],
+  context: AssetContext
 ): void {
-  appendSourceRef(asset.sourceRefs, source);
+  const indexes = sourceRefIndexes(context);
+  let index = indexes.get(assetId);
+  if (!index) {
+    index = indexSourceRefs(asset.sourceRefs);
+    indexes.set(assetId, index);
+  }
+  appendSourceRef(asset.sourceRefs, source, index);
 }
 
 function appendSourceRef(
   sourceRefs: ArchiveAsset['sourceRefs'],
-  source: ArchiveAsset['sourceRefs'][number]
+  source: ArchiveAsset['sourceRefs'][number],
+  index: Map<string, ArchiveAsset['sourceRefs'][number]>
 ): void {
-  const existing = sourceRefs.find(
-    candidate =>
-      candidate.artifactId === source.artifactId &&
-      candidate.rawPointer === source.rawPointer &&
-      candidate.kind === source.kind
-  );
+  const key = archiveSourceRefKey(source);
+  const existing = index.get(key);
   if (!existing) {
     sourceRefs.push(source);
+    index.set(key, source);
     return;
   }
   if (existing.id === null && source.id !== null) {
@@ -387,6 +398,28 @@ function appendSourceRef(
   if (source.id !== null && existing.id !== source.id) {
     fail('asset-conflict', 'Repeated ChatGPT asset source IDs disagree.');
   }
+}
+
+function sourceRefIndexes(
+  context: AssetContext
+): Map<string, Map<string, ArchiveAsset['sourceRefs'][number]>> {
+  context.sourceRefsByAssetId ??= new Map();
+  return context.sourceRefsByAssetId;
+}
+
+function indexSourceRefs(
+  sourceRefs: ArchiveAsset['sourceRefs']
+): Map<string, ArchiveAsset['sourceRefs'][number]> {
+  const index = new Map<string, ArchiveAsset['sourceRefs'][number]>();
+  for (const sourceRef of sourceRefs) {
+    const key = archiveSourceRefKey(sourceRef);
+    if (!index.has(key)) index.set(key, sourceRef);
+  }
+  return index;
+}
+
+function archiveSourceRefKey(source: ArchiveAsset['sourceRefs'][number]): string {
+  return JSON.stringify([source.artifactId, source.rawPointer, source.kind]);
 }
 
 function nextAssetId(identity: string, assets: Record<string, ArchiveAsset>): string {

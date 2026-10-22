@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   chatGptActiveResolverAuditWarning,
   chatGptActiveResolverFailureMetric,
@@ -6,6 +6,7 @@ import {
   chatGptActiveResolverProbeWarning,
   emptyChatGptActiveResolverMetric,
   type ChatGptActiveResolverMetric,
+  type ChatGptActiveResolverAudit,
 } from '../../src/content/capture/chatgpt-active-resolver-audit';
 import {
   CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
@@ -31,6 +32,246 @@ function completeMetric(): ChatGptActiveResolverMetric {
 }
 
 describe('ChatGPT active resolver durable audit', () => {
+  it('never invokes a caller-owned inherited array iterator that changes its yielded metrics', () => {
+    const metric = completeMetric();
+    const fake = {
+      ...metric,
+      dispatchCount: 'private-dispatch',
+      observedCount: 'private-observed',
+    };
+    const iterator = vi
+      .fn()
+      .mockImplementationOnce(() => [metric][Symbol.iterator]())
+      .mockImplementation(() => [fake][Symbol.iterator]());
+    const prototype = Object.create(Array.prototype);
+    Object.defineProperty(prototype, Symbol.iterator, { value: iterator });
+    const attempts = [metric];
+    Object.setPrototypeOf(attempts, prototype);
+    const expected = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'png-batch-4',
+      attempts: [completeMetric()],
+    });
+    const warning = chatGptActiveResolverAuditWarning({ acquisitionMode: 'png-batch-4', attempts });
+    expect(warning).toBe(expected);
+    expect(warning).not.toContain('private-');
+    expect(iterator).not.toHaveBeenCalled();
+  });
+
+  it.each(['audit', 'attempts', 'metric', 'counts'] as const)(
+    'never invokes a property-get trap on caller-owned %s',
+    location => {
+      const get = vi.fn(() => {
+        throw new Error('private proxy value must not execute');
+      });
+      const metric = completeMetric();
+      if (location === 'counts') metric.outcomeCounts = new Proxy(metric.outcomeCounts!, { get });
+      const attempt = location === 'metric' ? new Proxy(metric, { get }) : metric;
+      const attempts = location === 'attempts' ? new Proxy([attempt], { get }) : [attempt];
+      const audit = { acquisitionMode: 'png-batch-4' as const, attempts };
+      const input = location === 'audit' ? new Proxy(audit, { get }) : audit;
+      const expected = chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'png-batch-4',
+        attempts: [completeMetric()],
+      });
+      expect(chatGptActiveResolverAuditWarning(input)).toBe(expected);
+      expect(get).not.toHaveBeenCalled();
+    }
+  );
+
+  it('reads each caller-owned descriptor exactly once and aggregates only its first snapshot', () => {
+    const reads = new Map<string, number>();
+    const get = vi.fn(() => {
+      throw new Error('private property get');
+    });
+    function once<T extends object>(target: T, path: string): T {
+      return new Proxy(target, {
+        get,
+        ownKeys(value) {
+          const key = `${path}:keys`;
+          reads.set(key, (reads.get(key) ?? 0) + 1);
+          return Reflect.ownKeys(value);
+        },
+        getOwnPropertyDescriptor(value, field) {
+          const key = `${path}:${String(field)}`;
+          const count = (reads.get(key) ?? 0) + 1;
+          reads.set(key, count);
+          const descriptor = Reflect.getOwnPropertyDescriptor(value, field);
+          if (descriptor?.configurable && count > 1)
+            return { ...descriptor, value: 'private-second-read' };
+          return descriptor;
+        },
+      });
+    }
+    const metric = completeMetric();
+    metric.outcomeCounts = once(metric.outcomeCounts!, 'counts');
+    const sharedMetric = once(metric, 'metric');
+    const attempts = once([sharedMetric, sharedMetric], 'attempts');
+    const audit = once({ acquisitionMode: 'png-batch-4' as const, attempts }, 'audit');
+    const expected = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'png-batch-4',
+      attempts: [completeMetric(), completeMetric()],
+    });
+    const warning = chatGptActiveResolverAuditWarning(audit);
+    expect(warning).toBe(expected);
+    expect(warning).not.toContain('private');
+    expect(reads.size).toBeGreaterThan(20);
+    expect([...reads.values()].every(count => count === 1)).toBe(true);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('aggregates a bounded batch without losing completed evidence behind run failures', () => {
+    const notDispatched = completeMetric();
+    notDispatched.dispatchCount = 0;
+    notDispatched.observedCount = 0;
+    notDispatched.outcomeCounts!.observed = 0;
+    notDispatched.outcomeCounts!['not-dispatched'] = 1;
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'png-batch-4',
+      attempts: [
+        completeMetric(),
+        notDispatched,
+        chatGptActiveResolverFailureMetric(1, 'source-http-error'),
+        chatGptActiveResolverFailureMetric(1, 'resolver-result-invalid'),
+      ],
+    });
+    expect(warning).toContain(
+      'selected=4/4; completed=2; dispatched-known=1; dispatch-unknown=2; observed=1;'
+    );
+    expect(warning).toContain('outcomes=observed:1,http-error:0,');
+    expect(warning).toContain('not-dispatched:1;');
+    expect(warning).toContain('run-failures=resolver-result-invalid:1,source-http-error:1;');
+    expect(warning).toContain('acquisition is limited to four sequential PNGs.');
+    expect(warning).not.toContain(ATTEMPTED_AT);
+  });
+
+  it('represents a completed batch with no run failures explicitly', () => {
+    expect(
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'png-batch-4',
+        attempts: [completeMetric()],
+      })
+    ).toContain('selected=1/4; completed=1; dispatched-known=1; dispatch-unknown=0; observed=1;');
+    expect(
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'png-batch-4',
+        attempts: [completeMetric()],
+      })
+    ).toContain('run-failures=none;');
+  });
+
+  it('counts repeated unknown-dispatch failures without inventing completed outcomes', () => {
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'png-batch-4',
+      attempts: Array.from({ length: 4 }, () =>
+        chatGptActiveResolverFailureMetric(1, 'resolver-result-timeout')
+      ),
+    });
+    expect(warning).toContain(
+      'selected=4/4; completed=0; dispatched-known=0; dispatch-unknown=4; observed=0;'
+    );
+    expect(warning).toContain('outcomes=observed:0,http-error:0,');
+    expect(warning).toContain('run-failures=resolver-result-timeout:4;');
+  });
+
+  it.each(['mode', 'attempts', 'entry', 'metric', 'outcome'] as const)(
+    'rejects an accessor in the batch %s without evaluating it',
+    location => {
+      const metric = completeMetric();
+      const attempts = [metric];
+      const audit = { acquisitionMode: 'png-batch-4' as const, attempts };
+      const accessor = {
+        get: () => {
+          throw new Error('private getter must not execute');
+        },
+      };
+      if (location === 'mode') Object.defineProperty(audit, 'acquisitionMode', accessor);
+      if (location === 'attempts') Object.defineProperty(audit, 'attempts', accessor);
+      if (location === 'entry') Object.defineProperty(attempts, '0', accessor);
+      if (location === 'metric') Object.defineProperty(metric, 'outcomeCounts', accessor);
+      if (location === 'outcome')
+        Object.defineProperty(metric.outcomeCounts!, 'observed', accessor);
+      expect(() => chatGptActiveResolverAuditWarning(audit)).toThrow(
+        'invalid active resolver metric'
+      );
+    }
+  );
+
+  it.each([
+    { acquisitionMode: 'png-batch-4', attempts: [] },
+    { acquisitionMode: 'png-batch-4', attempts: Array.from({ length: 5 }, completeMetric) },
+    { acquisitionMode: 'png-batch-4', attempts: [{ ...completeMetric(), requestedCount: 0 }] },
+    {
+      acquisitionMode: 'png-batch-4',
+      attempts: [{ ...completeMetric(), acquisitionMode: 'one-png' }],
+    },
+    {
+      acquisitionMode: 'png-batch-4',
+      attempts: [{ ...completeMetric(), acquisitionMode: undefined }],
+    },
+    {
+      acquisitionMode: 'png-batch-4',
+      attempts: [{ ...completeMetric(), attemptedAt: ATTEMPTED_AT }],
+    },
+    { acquisitionMode: 'png-batch-4', attempts: [{ ...completeMetric(), outcomeCounts: null }] },
+    { acquisitionMode: 'png-batch-4', attempts: new Array(1) },
+    { acquisitionMode: 'png-batch-4', attempts: [completeMetric()], providerFileId: 'private' },
+    { acquisitionMode: 'png-batch-4', attempts: [completeMetric()], requestedCount: 1 },
+  ])('rejects a non-exact or unsafe content batch %#', audit => {
+    expect(() => chatGptActiveResolverAuditWarning(audit as ChatGptActiveResolverAudit)).toThrow(
+      'invalid active resolver metric'
+    );
+  });
+
+  it('keeps the metric route disabled and admits only the fixed one-png data capability', () => {
+    expect(chatGptActiveResolverAuditWarning(completeMetric())).toContain(
+      'file-ID binary acquisition remains disabled.'
+    );
+    expect(
+      chatGptActiveResolverAuditWarning({ ...completeMetric(), acquisitionMode: 'one-png' })
+    ).toContain('file-ID binary acquisition is limited to one PNG.');
+    expect(() =>
+      chatGptActiveResolverAuditWarning({
+        ...completeMetric(),
+        acquisitionMode: 'arbitrary',
+      } as never)
+    ).toThrow('invalid active resolver metric');
+    expect(() =>
+      chatGptActiveResolverAuditWarning({ ...completeMetric(), url: 'private' } as never)
+    ).toThrow('invalid active resolver metric');
+    const metric = completeMetric();
+    Object.defineProperty(metric, 'acquisitionMode', {
+      get: () => {
+        throw new Error('must-not-evaluate');
+      },
+    });
+    expect(() => chatGptActiveResolverAuditWarning(metric)).toThrow(
+      'invalid active resolver metric'
+    );
+  });
+  it.each(['provider-status-absent', 'provider-status-non-string'] as const)(
+    'persists only the fixed %s category with observed zero',
+    code => {
+      const metric = chatGptActiveResolverMetricFromResponse(
+        {
+          success: true,
+          data: {
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 0,
+            outcomes: [code],
+            attemptedAt: ATTEMPTED_AT,
+          },
+        },
+        1
+      );
+      expect(metric.observedCount).toBe(0);
+      expect(metric.outcomeCounts?.[code]).toBe(1);
+      expect(chatGptActiveResolverAuditWarning(metric)).toContain(`${code}:1`);
+      expect(chatGptActiveResolverAuditWarning(metric)).toContain(
+        'file-ID binary acquisition remains disabled.'
+      );
+    }
+  );
   it('builds the exact revised allowlisted histogram without retaining the batch timestamp', () => {
     const metric = completeMetric();
 
@@ -46,6 +287,13 @@ describe('ChatGPT active resolver durable audit', () => {
         'payload-integrity-rejected': 0,
         'download-url-missing': 0,
         'download-url-binding-rejected': 0,
+        'file-not-found': 0,
+        'file-expired': 0,
+        'provider-retry': 0,
+        'success-without-download-url': 0,
+        'provider-status-absent': 0,
+        'provider-status-non-string': 0,
+        'provider-status-other': 0,
         'non-json': 0,
         oversized: 0,
         'timed-out': 0,
@@ -54,7 +302,7 @@ describe('ChatGPT active resolver durable audit', () => {
       failureCode: null,
     });
     expect(chatGptActiveResolverAuditWarning(metric)).toBe(
-      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=1; dispatched=1; observed=1; outcomes=observed:1,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,file-not-found:0,file-expired:0,provider-retry:0,success-without-download-url:0,provider-status-absent:0,provider-status-non-string:0,provider-status-other:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
     );
     expect(chatGptActiveResolverProbeWarning(metric)).toBe(
       'ChatGPT active resolver observed 1/1; file-ID binary acquisition remains disabled.'
@@ -71,13 +319,20 @@ describe('ChatGPT active resolver durable audit', () => {
       'payload-integrity-rejected',
       'download-url-missing',
       'download-url-binding-rejected',
+      'file-not-found',
+      'file-expired',
+      'provider-retry',
+      'success-without-download-url',
+      'provider-status-absent',
+      'provider-status-non-string',
+      'provider-status-other',
       'non-json',
       'oversized',
       'timed-out',
       'not-dispatched',
     ]);
     expect(chatGptActiveResolverAuditWarning(emptyChatGptActiveResolverMetric())).toBe(
-      'ChatGPT active resolver audit: requested=0; dispatched=0; observed=0; outcomes=observed:0,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
+      'ChatGPT active resolver audit: requested=0; dispatched=0; observed=0; outcomes=observed:0,http-error:0,fetch-rejected:0,response-processing-rejected:0,payload-integrity-rejected:0,download-url-missing:0,download-url-binding-rejected:0,file-not-found:0,file-expired:0,provider-retry:0,success-without-download-url:0,provider-status-absent:0,provider-status-non-string:0,provider-status-other:0,non-json:0,oversized:0,timed-out:0,not-dispatched:0; failure=none; file-ID binary acquisition remains disabled.'
     );
   });
 

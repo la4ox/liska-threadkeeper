@@ -1,5 +1,5 @@
 import type { RawCaptureBundle } from '../../capture';
-import type { ArchiveAsset, JsonValue, LiskaThreadArchive } from '../../types';
+import type { ArchiveAsset, JsonValue, LiskaThreadArchive, SourceReference } from '../../types';
 
 export const DEFAULT_SOURCE_FORMAT = 'chatgpt.web.history';
 export const NORMALIZER_ID = 'chatgpt-web/1';
@@ -70,6 +70,8 @@ export interface PrivacyRedaction {
 export interface AssetContext {
   assets: Record<string, ArchiveAsset>;
   assetIdsByIdentity: Map<string, string>;
+  /** Runtime-only index; never serialized into the canonical archive. */
+  sourceRefsByAssetId?: Map<string, Map<string, SourceReference>>;
   manifestAssets: ProviderAssetIndex;
   artifactId: string;
   format: string;

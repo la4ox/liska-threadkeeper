@@ -16,6 +16,23 @@ function contentSender(tabUrl: string, senderUrl?: string): chrome.runtime.Messa
 }
 
 describe('ChatGPT capture message validation', () => {
+  it('validates only the separate one-item active asset action with exact keys', () => {
+    const message = {
+      action: 'resolveChatGptActiveAsset',
+      conversationId: CONVERSATION_ID,
+      item: { assetId: `chatgpt-asset-${'a'.repeat(64)}`, providerFileId: 'file_a' },
+    };
+    expect(validateMessageContent(message)).toBe(true);
+    for (const malformed of [
+      { ...message, providerFileId: 'extra' },
+      { ...message, conversationId: 'bad' },
+      { ...message, item: [message.item] },
+      { ...message, item: { ...message.item, secret: 'extra' } },
+      { ...message, item: { ...message.item, assetId: 'file_a' } },
+      { ...message, item: { ...message.item, providerFileId: 'file.a' } },
+    ])
+      expect(validateMessageContent(malformed)).toBe(false);
+  });
   it('accepts only a strict UUID payload', () => {
     expect(
       validateMessageContent({

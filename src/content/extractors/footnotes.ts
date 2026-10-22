@@ -71,11 +71,16 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * Escape Markdown link metacharacters in text.
- * Prevents injection of Markdown links via crafted titles.
+ * Encode an untrusted citation title as one literal Markdown line.
+ * Newlines cannot create another footnote, backticks cannot open code spans,
+ * and angle brackets remain entities instead of becoming raw HTML.
  */
 export function escapeMarkdownLink(text: string): string {
-  return text.replace(/[\\[\]()]/g, '\\$&');
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[<>]/g, character => (character === '<' ? '&lt;' : '&gt;'))
+    .replace(/[\\[\]()`]/g, '\\$&');
 }
 
 /**

@@ -26,10 +26,34 @@ export const CHATGPT_OPAQUE_REPLAY_ERROR_CODES = [
   'temporary-tab-ready-timeout',
   'replay-result-timeout',
   'hook-state-failed',
+  // No eligible source was claimed; this is not proof of no network request.
   'target-not-observed',
   'source-not-native-request',
   'init-security-sensitive',
+  'init-security-sensitive-headers',
+  'init-security-sensitive-headers-distinct',
+  'init-security-sensitive-headers-native-distinct',
+  'init-security-sensitive-headers-unbranded-shape',
+  'init-security-sensitive-headers-unbranded-prototype',
+  'init-security-sensitive-headers-unbranded-inherited',
+  'init-security-sensitive-headers-unbranded-symbol',
+  'init-security-sensitive-headers-unbranded-descriptor',
+  'init-security-sensitive-headers-unbranded-accessor',
+  'init-security-sensitive-headers-unbranded-limit',
+  'init-security-sensitive-headers-unbranded-entry',
+  'init-security-sensitive-headers-unbranded-unstable',
+  'init-security-sensitive-headers-unbranded-reflection',
+  'init-security-sensitive-body',
+  'init-security-sensitive-method',
+  'init-security-sensitive-credentials',
+  'init-security-sensitive-multiple',
   'init-unsupported',
+  'init-unsupported-prototype',
+  'init-unsupported-inherited',
+  'init-unsupported-symbol',
+  'init-unsupported-member',
+  'init-unsupported-accessor',
+  'init-unsupported-reflection',
   'target-mismatch',
   'clone-failed',
   'authorization-absent',
@@ -37,13 +61,16 @@ export const CHATGPT_OPAQUE_REPLAY_ERROR_CODES = [
   'source-rejected',
   'source-http-error',
   'source-non-json',
+  'source-response-timeout',
   'replay-construction-failed',
   'replay-dispatch-failed',
   'replay-rejected',
   'replay-http-error',
   'replay-non-json',
+  'replay-response-timeout',
   'response-processing-failed',
   'payload-too-large',
+  // Legacy/unknown outcome compatibility only; current page code emits phases.
   'timed-out',
   'replay-result-invalid',
   'response-integrity-invalid',
@@ -81,6 +108,7 @@ export interface ChatGptOpaqueReplayArtifact {
 
 export type ChatGptOpaqueReplayResponse =
   | { success: true; data: ChatGptOpaqueReplayArtifact }
+  // A background deadline's count of 0 is unobserved/ambiguous, not safe to retry.
   | { success: false; code: ChatGptOpaqueReplayErrorCode; singularDispatchCount: 0 | 1 };
 
 function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {

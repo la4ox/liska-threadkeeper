@@ -10,7 +10,11 @@ const SENSITIVE_FIELD =
   /^(?:authorization|cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|api[_-]?key|x[_-]?api[_-]?key|secret|client[_-]?secret|private[_-]?key|password|signature|signed[_-]?path|credential|credentials)$/i;
 const SENSITIVE_QUERY =
   /^(?:token|access[_-]?token|session[_-]?token|api[_-]?key|auth|authorization|jwt|credential|signature|sig|x-amz-.+|x-goog-.+)$/i;
-const SENSITIVE_TEXT_CANDIDATE = /(?:https?:)?\/\/[^\s<>"']+|(?:^|[\s([{"'])\/file\?[^\s<>"']+/gi;
+const SENSITIVE_TEXT_CANDIDATE =
+  /(?:https?:)?\/\/[^\s<>"'`]+|(?:^|[^A-Za-z0-9/])(?:\/file\?|&(?:#[0-9]{1,7}|#x[0-9a-f]{1,6}|amp|sol|quest|equals);)[^\s<>"'`)]+/gi;
+const MARKDOWN_CHARACTER_REFERENCE =
+  /&(?:#([0-9]{1,7})|#x([0-9a-f]{1,6})|(amp|sol|quest|equals));/gi;
+const SENSITIVE_TOKEN_START = /\/file\?|&(?:#[0-9]{1,7}|#x[0-9a-f]{1,6}|amp|sol|quest|equals);/i;
 const DEEPSEEK_FILE_SERVICE_ORIGIN = 'https://files.deepseeksvc.com';
 const CREDENTIAL_TEXT =
   /\bauthorization\s*:\s*(?:bearer\s+)?[A-Za-z0-9._~+/=-]+|\bcookie\s*:\s*[^\s,;}]+|\bbearer\s+[A-Za-z0-9._~+/=-]+/gi;
@@ -227,7 +231,7 @@ function splitSensitiveTextCandidate(value: string): { prefix: string; token: st
   if (/^(?:https?:)?\/\//i.test(value) || value.startsWith('/file?')) {
     return { prefix: '', token: value };
   }
-  const signedPathOffset = value.indexOf('/file?');
+  const signedPathOffset = value.search(SENSITIVE_TOKEN_START);
   if (signedPathOffset < 0) return { prefix: '', token: value };
   return {
     prefix: value.slice(0, signedPathOffset),
@@ -236,10 +240,39 @@ function splitSensitiveTextCandidate(value: string): { prefix: string; token: st
 }
 
 function isSensitiveTextCandidate(value: string): boolean {
-  if (/^(?:https?:)?\/\//i.test(value)) {
-    return isSensitiveUrl(value.startsWith('//') ? `https:${value}` : value);
+  const decoded = decodeMarkdownCharacterReferences(value);
+  if (/^(?:https?:)?\/\//i.test(decoded)) {
+    return isSensitiveUrl(decoded.startsWith('//') ? `https:${decoded}` : decoded);
   }
-  return isSensitiveDeepSeekSignedPath(value);
+  return isSensitiveDeepSeekSignedPath(decoded);
+}
+
+function decodeMarkdownCharacterReferences(value: string): string {
+  return value.replace(
+    MARKDOWN_CHARACTER_REFERENCE,
+    (
+      reference,
+      decimal: string | undefined,
+      hexadecimal: string | undefined,
+      named: string | undefined
+    ) => {
+      if (decimal !== undefined || hexadecimal !== undefined) {
+        const encodedCodePoint = decimal ?? hexadecimal;
+        if (encodedCodePoint === undefined) return reference;
+        const codePoint = Number.parseInt(encodedCodePoint, decimal !== undefined ? 10 : 16);
+        return Number.isSafeInteger(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
+          ? String.fromCodePoint(codePoint)
+          : reference;
+      }
+      const namedReferences: Record<string, string> = {
+        amp: '&',
+        sol: '/',
+        quest: '?',
+        equals: '=',
+      };
+      return named ? (namedReferences[named.toLowerCase()] ?? reference) : reference;
+    }
+  );
 }
 
 function isSensitiveUrl(value: string): boolean {

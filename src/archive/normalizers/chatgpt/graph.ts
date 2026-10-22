@@ -145,7 +145,10 @@ function readChildren(
 function validateGraphLinks(
   links: Map<string, { parentId: string | null; childIds: string[] }>
 ): void {
-  links.forEach((link, nodeId) => validateNodeSymmetry(links, nodeId, link));
+  const childIdsByNode = new Map(
+    [...links].map(([nodeId, link]) => [nodeId, new Set(link.childIds)] as const)
+  );
+  links.forEach((link, nodeId) => validateNodeSymmetry(links, childIdsByNode, nodeId, link));
   validateCycles(links);
   if (![...links.values()].some(link => link.parentId === null)) {
     fail('missing-root', 'ChatGPT graph does not have a null-parent root.');
@@ -154,10 +157,11 @@ function validateGraphLinks(
 
 function validateNodeSymmetry(
   links: Map<string, { parentId: string | null; childIds: string[] }>,
+  childIdsByNode: Map<string, Set<string>>,
   nodeId: string,
   link: { parentId: string | null; childIds: string[] }
 ): void {
-  if (link.parentId !== null && !links.get(link.parentId)?.childIds.includes(nodeId)) {
+  if (link.parentId !== null && !childIdsByNode.get(link.parentId)?.has(nodeId)) {
     fail('parent-child-asymmetry', `Parent ${link.parentId} does not list child ${nodeId}.`);
   }
   for (const childId of link.childIds) {

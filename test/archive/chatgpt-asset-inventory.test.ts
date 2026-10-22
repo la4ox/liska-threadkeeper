@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CHATGPT_ASSET_INVENTORY_DETAIL,
   CHATGPT_ASSET_INVENTORY_WARNING,
+  CHATGPT_DERIVED_DOCUMENT_PREVIEW_DETAIL,
   inventoryChatGptRawAssets,
 } from '../../src/archive/normalizers/chatgpt/inventory';
 import {
@@ -37,7 +38,325 @@ async function inventory(raw: unknown) {
   return inventoryChatGptRawAssets({ raw, artifactId: 'conversation', sha256 });
 }
 
+const PREVIEW_NAME = `user-synthetic_user/${'a'.repeat(32)}/mnt/data/liska_pdf_render/page-1.png`;
+
+function previewMessage(
+  attachment: RawRecord = {},
+  role = 'tool',
+  field = 'attachments'
+): RawRecord {
+  const record = {
+    id: 'preview-provider-id',
+    name: PREVIEW_NAME,
+    mime_type: 'image/png',
+    ...attachment,
+  };
+  return {
+    author: { role },
+    ...(field === 'content'
+      ? { content: contentWithParts([{ content_type: 'image_asset_pointer', ...record }]) }
+      : { metadata: { [field]: [record] } }),
+  };
+}
+
+function rawMessages(...messages: RawRecord[]): RawRecord {
+  return {
+    mapping: Object.fromEntries(messages.map((message, index) => [`node-${index}`, { message }])),
+  };
+}
+
 describe('ChatGPT raw attachment inventory', () => {
+  it.each([
+    ['pdf', '1'],
+    ['docx', '12'],
+    ['pdf', '999999'],
+  ])(
+    'policy-declines exact tool %s page %s previews without changing raw identity/provenance',
+    async (kind, page) => {
+      const message = previewMessage({
+        name: `user-synthetic_user/${'a'.repeat(32)}/mnt/data/liska_${kind}_render/page-${page}.png`,
+        mime_type: ' IMAGE/PNG; charset=binary ',
+      });
+      const raw = rawMessages(message);
+      const before = JSON.stringify(raw);
+      const result = await inventory(raw);
+      const ordinary = await inventory(rawMessages({ ...message, author: { role: 'user' } }));
+      expect(result).toEqual({
+        assets: [
+          {
+            ...ordinary.assets[0],
+            state: 'declined',
+            detail: CHATGPT_DERIVED_DOCUMENT_PREVIEW_DETAIL,
+          },
+        ],
+        completeness: 'complete',
+        warnings: [],
+      });
+      expect(result.assets[0]).toMatchObject({
+        attemptedAt: null,
+        relativePath: null,
+        byteLength: null,
+        sha256: null,
+        mediaType: 'image/png',
+        sourceRefs: [
+          {
+            artifactId: 'conversation',
+            rawPointer: '/mapping/node-0/message/metadata/attachments/0',
+          },
+        ],
+      });
+      expect(JSON.stringify(raw)).toBe(before);
+      expect(JSON.stringify(result)).not.toContain('preview-provider-id');
+      expect(JSON.stringify(result)).not.toContain('liska_pdf_render');
+    }
+  );
+
+  it.each([
+    ['assistant role', {}, 'assistant', 'attachments'],
+    ['user role', {}, 'user', 'attachments'],
+    ['system role', {}, 'system', 'attachments'],
+    ['metadata files', {}, 'tool', 'files'],
+    ['content part', {}, 'tool', 'content'],
+    ['JPEG MIME', { mime_type: 'image/jpeg' }, 'tool', 'attachments'],
+    ['unknown MIME', { mime_type: 'image/x-png' }, 'tool', 'attachments'],
+    ['missing MIME', { mime_type: null }, 'tool', 'attachments'],
+    ...[
+      '/mnt/data/liska_pdf_render/page-1.png',
+      PREVIEW_NAME.replace('user-', 'account-'),
+      PREVIEW_NAME.replace('synthetic_user', ''),
+      PREVIEW_NAME.replace('synthetic_user', 'a'.repeat(129)),
+      PREVIEW_NAME.replace('a'.repeat(32), 'A'.repeat(32)),
+      PREVIEW_NAME.replace('a'.repeat(32), 'a'.repeat(31)),
+      PREVIEW_NAME.replace('liska_pdf_render', 'pdf_render'),
+      PREVIEW_NAME.replace('liska_pdf_render', 'liska_pdf_render_backup'),
+      PREVIEW_NAME.replace('page-1.png', 'page-0.png'),
+      PREVIEW_NAME.replace('page-1.png', 'page-01.png'),
+      PREVIEW_NAME.replace('page-1.png', 'page-1000000.png'),
+      PREVIEW_NAME.replace('page-1.png', 'page-1.PNG'),
+      PREVIEW_NAME.replace('/page-1', '/../page-1'),
+      PREVIEW_NAME.replace('/page-1', '/%2e%2e/page-1'),
+      PREVIEW_NAME.replace('/page-1', '/%70age-1'),
+      PREVIEW_NAME.replace('/page-1', '\\page-1'),
+      PREVIEW_NAME.replace('/page-1', '//page-1'),
+      `prefix/${PREVIEW_NAME}`,
+      `${PREVIEW_NAME}.bak`,
+      `${PREVIEW_NAME}?download=1`,
+      `${PREVIEW_NAME}\n`,
+      `${PREVIEW_NAME}\u0000`,
+    ].map(name => ['nonexact name', { name }, 'tool', 'attachments']),
+  ] as const)('leaves %s ordinary', async (_label, attachment, role, field) => {
+    const result = await inventory(rawMessages(previewMessage(attachment, role, field)));
+    expect(result.assets).toHaveLength(1);
+    expect(result.assets[0]).toMatchObject({
+      state: 'not-attempted',
+      detail: CHATGPT_ASSET_INVENTORY_DETAIL,
+    });
+    expect(result.completeness).toBe('not-attempted');
+  });
+
+  it('does not invoke an attachment name accessor to apply policy', async () => {
+    const message = previewMessage();
+    const record = ((message.metadata as RawRecord).attachments as RawRecord[])[0];
+    let reads = 0;
+    Object.defineProperty(record, 'name', {
+      get: () => {
+        reads += 1;
+        return PREVIEW_NAME;
+      },
+    });
+    const result = await inventory(rawMessages(message));
+    expect(reads).toBe(0);
+    expect(result.assets[0]?.state).toBe('not-attempted');
+  });
+
+  it.each(['author', 'role', 'mime_type'] as const)(
+    'does not invoke the %s accessor to apply policy',
+    async field => {
+      const message = previewMessage();
+      const record = ((message.metadata as RawRecord).attachments as RawRecord[])[0];
+      const target =
+        field === 'author' ? message : field === 'role' ? (message.author as RawRecord) : record;
+      let reads = 0;
+      Object.defineProperty(target, field, {
+        get: () => {
+          reads += 1;
+          return field === 'author' ? { role: 'tool' } : field === 'role' ? 'tool' : 'image/png';
+        },
+      });
+      const result = await inventory(rawMessages(message));
+      expect(reads).toBe(0);
+      expect(result.assets[0]?.state).toBe('not-attempted');
+    }
+  );
+
+  it.each(['slash/value', 'encoded%20value', 'x'.repeat(513), 'trailing-newline\n'])(
+    'does not use an unsafe provider key to group a preview with a pointer alias',
+    async id => {
+      const result = await inventory(
+        rawMessages(
+          previewMessage({ id }),
+          previewMessage({ id: null, asset_pointer: `sediment://${id}` }, 'user')
+        )
+      );
+      expect(result.assets).toHaveLength(2);
+      expect(result.assets.map(asset => asset.state).sort()).toEqual(['declined', 'not-attempted']);
+    }
+  );
+
+  it('accepts bounded ordinary provider keys for conservative policy cancellation', async () => {
+    const id = `file.${'x'.repeat(507)}`;
+    expect(id).toHaveLength(512);
+    const result = await inventory(
+      rawMessages(
+        previewMessage({ id }),
+        previewMessage({ id: null, asset_pointer: `sediment://${id}` }, 'user')
+      )
+    );
+    expect(result.assets.every(asset => asset.state === 'not-attempted')).toBe(true);
+  });
+
+  it.each(['direct', 'file-service', 'sediment'] as const)(
+    'ordinary %s evidence cancels preview exclusion in either order without merging aliases',
+    async kind => {
+      const preview = previewMessage();
+      const ordinary = previewMessage(
+        kind === 'direct' ? {} : { id: null, asset_pointer: `${kind}://preview-provider-id` },
+        'user'
+      );
+      for (const messages of [
+        [preview, ordinary],
+        [ordinary, preview],
+      ]) {
+        const result = await inventory(rawMessages(...messages));
+        expect(result.assets).toHaveLength(kind === 'direct' ? 1 : 2);
+        expect(result.assets.every(asset => asset.state === 'not-attempted')).toBe(true);
+        expect(result.assets.flatMap(asset => asset.sourceRefs)).toHaveLength(2);
+        expect(result.completeness).toBe('not-attempted');
+      }
+    }
+  );
+
+  it.each(['file-service:', 'sediment://'])(
+    'ordinary direct evidence cancels a derived %s pointer alias without changing records',
+    async prefix => {
+      const preview = previewMessage({ id: null, asset_pointer: `${prefix}preview-provider-id` });
+      const ordinary = previewMessage({}, 'user');
+      for (const messages of [
+        [preview, ordinary],
+        [ordinary, preview],
+      ]) {
+        const result = await inventory(rawMessages(...messages));
+        expect(result.assets).toHaveLength(2);
+        expect(result.assets.every(asset => asset.state === 'not-attempted')).toBe(true);
+      }
+    }
+  );
+
+  it('keeps unrelated previews declined when a genuine attachment remains required', async () => {
+    const result = await inventory(
+      rawMessages(previewMessage(), previewMessage({ id: 'genuine-id' }, 'user'))
+    );
+    expect(result.assets.map(asset => asset.state).sort()).toEqual(['declined', 'not-attempted']);
+    expect(result.completeness).toBe('not-attempted');
+  });
+
+  it('retains every exact reference when all duplicate identity evidence is derived', async () => {
+    const result = await inventory(
+      rawMessages(
+        previewMessage(),
+        previewMessage({ name: PREVIEW_NAME.replace('page-1', 'page-2') })
+      )
+    );
+    expect(result.assets).toHaveLength(1);
+    expect(result.assets[0]?.state).toBe('declined');
+    expect(result.assets[0]?.sourceRefs).toEqual([
+      { artifactId: 'conversation', rawPointer: '/mapping/node-0/message/metadata/attachments/0' },
+      { artifactId: 'conversation', rawPointer: '/mapping/node-1/message/metadata/attachments/0' },
+    ]);
+    expect(result.completeness).toBe('complete');
+  });
+
+  it.each([
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+  ])(
+    'propagates ordinary policy evidence through a provider-key bridge in order %s/%s/%s',
+    async (...order) => {
+      const messages = [
+        previewMessage({ id: 'a' }, 'user'),
+        previewMessage({ asset_id: 'b', id: 'a' }),
+        previewMessage({ id: null, asset_pointer: 'sediment://b' }),
+      ];
+      const result = await inventory(rawMessages(...order.map(index => messages[index])));
+      expect(result.assets).toHaveLength(3);
+      expect(result.assets.every(asset => asset.state === 'not-attempted')).toBe(true);
+      expect(result.assets.flatMap(asset => asset.sourceRefs)).toHaveLength(3);
+    }
+  );
+
+  it('propagates across a long reversed provider-key chain without merging identities', async () => {
+    const length = 2_000;
+    const chain = Array.from({ length }, (_, index) =>
+      previewMessage({ asset_id: `key-${index + 1}`, id: `key-${index}` })
+    );
+    const messages = [
+      previewMessage({ id: null, asset_pointer: `file-service://key-${length}` }),
+      ...chain.reverse(),
+      previewMessage({ id: 'key-0' }, 'user'),
+    ];
+    const result = await inventory(rawMessages(...messages));
+    expect(result.assets).toHaveLength(length + 2);
+    expect(result.assets.every(asset => asset.state === 'not-attempted')).toBe(true);
+    expect(result.assets.flatMap(asset => asset.sourceRefs)).toHaveLength(length + 2);
+  });
+
+  it.each([false, true])(
+    'handles cyclic provider aliases with ordinary evidence=%s',
+    async ordinary => {
+      const messages = [
+        previewMessage({ asset_id: 'a', id: 'b' }),
+        previewMessage({ asset_id: 'b', id: 'c' }),
+        previewMessage({ asset_id: 'c', id: 'd' }),
+        previewMessage({ asset_id: 'd', id: 'a' }),
+        previewMessage({ id: null, asset_pointer: 'sediment://c' }),
+        ...(ordinary ? [previewMessage({ id: 'a' }, 'user')] : []),
+      ];
+      for (const ordered of [messages, [...messages].reverse()]) {
+        const result = await inventory(rawMessages(...ordered));
+        expect(result.assets).toHaveLength(5);
+        expect(result.assets.flatMap(asset => asset.sourceRefs)).toHaveLength(ordinary ? 6 : 5);
+        expect(
+          result.assets.every(asset => asset.state === (ordinary ? 'not-attempted' : 'declined'))
+        ).toBe(true);
+      }
+    }
+  );
+
+  it.each(['invalid/key', 'encoded%20key', 'x'.repeat(513), 'newline\n'])(
+    'does not propagate cancellation across an invalid bridge key',
+    async invalid => {
+      const result = await inventory(
+        rawMessages(
+          previewMessage({ id: 'ordinary' }, 'user'),
+          previewMessage({ asset_id: invalid, id: 'ordinary' }),
+          previewMessage({ id: null, asset_pointer: `sediment://${invalid}` })
+        )
+      );
+      expect(result.assets).toHaveLength(3);
+      const stateAt = (index: number) =>
+        result.assets.find(asset =>
+          asset.sourceRefs.some(ref => ref.rawPointer.includes(`/node-${index}/`))
+        )?.state;
+      expect(stateAt(0)).toBe('not-attempted');
+      expect(stateAt(1)).toBe('not-attempted');
+      expect(stateAt(2)).toBe('declined');
+    }
+  );
+
   it('discovers sediment and file-service pointer-only assets across nested content without retaining transport', async () => {
     const sedimentPointer = 'sediment://opaque-private-value';
     const fileServicePointer = 'file-service:opaque-private-value';
@@ -532,6 +851,49 @@ describe('ChatGPT raw attachment inventory', () => {
     expect(context.assets[assetId]?.sourceRefs).toContainEqual(
       expect.objectContaining({ id: 'different-provider-id', rawPointer: pointer })
     );
+  });
+
+  it('indexes a manifest-populated source-ref ledger instead of rescanning it per occurrence', () => {
+    const sourceRefs = Array.from({ length: 2_000 }, (_, index) => ({
+      artifactId: 'conversation',
+      rawPointer: `/mapping/node-${index}/message/content/parts/0`,
+    }));
+    const manifestId = `chatgpt-asset-${'c'.repeat(64)}`;
+    const context: AssetContext = {
+      assets: {},
+      assetIdsByIdentity: new Map(),
+      manifestAssets: manifestAssetsById([
+        {
+          id: manifestId,
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          mediaType: null,
+          byteLength: null,
+          sha256: null,
+          detail: CHATGPT_ASSET_INVENTORY_DETAIL,
+          sourceRefs,
+        },
+      ]),
+      artifactId: 'conversation',
+      format: 'synthetic',
+      privacy: { redactions: [] },
+    };
+    const attachment = { content_type: 'file', file_id: 'one-repeated-id' };
+    const assetId = upsertAsset(attachment, sourceRefs[0].rawPointer, context);
+    const canonicalRefs = context.assets[assetId].sourceRefs;
+    const linearScan = vi.spyOn(canonicalRefs, 'find');
+
+    try {
+      for (const sourceRef of sourceRefs.slice(1)) {
+        upsertAsset(attachment, sourceRef.rawPointer, context);
+      }
+      expect(linearScan).not.toHaveBeenCalled();
+      expect(canonicalRefs).toHaveLength(sourceRefs.length);
+      expect(canonicalRefs.every(sourceRef => sourceRef.id === 'one-repeated-id')).toBe(true);
+    } finally {
+      linearScan.mockRestore();
+    }
   });
 
   it('preserves manifest references to another artifact and rejects conflicting source IDs', () => {

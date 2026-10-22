@@ -34,6 +34,7 @@ import {
 } from './attachment-export-gates';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
+  resolveChatGptActivePngAsset,
   observeChatGptInterpreterAssetResolvers,
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
@@ -665,15 +666,18 @@ async function writeNoteToOutputs(
     };
   }
 
-  console.info('[G2O] Generated note:', {
-    messageCount,
-    outputs,
-  });
+  console.info('[G2O] Generated note:', { messageCount, outputs });
 
   const saveResponse: unknown = await sendMessage(saveMessage);
   if (!isMultiOutputResponse(saveResponse, outputs)) {
+    console.info('[G2O] Note write response invalid');
     return { success: false, error: backgroundResponseError(saveResponse) };
   }
+  console.info('[G2O] Note write result:', {
+    allSuccessful: saveResponse.allSuccessful,
+    anySuccessful: saveResponse.anySuccessful,
+    results: saveResponse.results.map(({ destination, success }) => ({ destination, success })),
+  });
   return { success: true, response: saveResponse };
 }
 
@@ -784,6 +788,17 @@ async function persistNote(
   displaySaveResults(attempt.response, extractionWarnings);
 }
 
+const chatGptAttachmentDependencies = (strictReplay: boolean) => ({
+  persistArtifacts: persistArchiveCompanionArtifacts,
+  observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+  ...(strictReplay
+    ? {
+        observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
+        resolveActiveAsset: resolveChatGptActivePngAsset,
+      }
+    : {}),
+});
+
 /**
  * Handle sync button click
  */
@@ -829,13 +844,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           result.archiveCompanion,
           'chatgpt-all-branches.md',
           enabledOutputs,
-          {
-            persistArtifacts: persistArchiveCompanionArtifacts,
-            observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
-            ...(settings.enableChatGptOpaqueReplay === true
-              ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
-              : {}),
-          }
+          chatGptAttachmentDependencies(settings.enableChatGptOpaqueReplay === true)
         );
         if (attachmentExport.completeDestinations.length === 0) {
           showWarningToast(
@@ -890,13 +899,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         result.archiveCompanion,
         note.fileName,
         enabledOutputs,
-        {
-          persistArtifacts: persistArchiveCompanionArtifacts,
-          observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
-          ...(settings.enableChatGptOpaqueReplay === true
-            ? { observeResolvers: observeChatGptAssetResolversViaOpaqueSource }
-            : {}),
-        }
+        chatGptAttachmentDependencies(settings.enableChatGptOpaqueReplay === true)
       );
       stage = 'saving the ChatGPT note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];

@@ -460,11 +460,88 @@ header-value extraction, retry, or persisted signed URL. Its next evidence must
 be one short trusted-click smoke with a visibly loadable attachment; an empty
 result stops the route rather than triggering a fallback.
 
+The data-bearing route remains separate from the metric-only API. A pure plan is
+rebuilt from reverified committed raw, resolves strength and ambiguity against
+the full ledger, excludes every interpreter-owned identity, and emits only
+single `{assetId, providerFileId}` transactions. Any unsupported nonempty direct
+identity fails closed before a valid sibling or weaker pointer can be considered.
+Passive matching keeps the full ledger until after winner selection, so an
+already selected direct record cannot promote its pointer alias into a duplicate
+download. Every selected identity is owned before dispatch and is never retried
+passively, including after helper or binary-acquisition failure.
+
+The helper uses only the page-observed four-query image recipe. A local static
+interoperability review found that installed AI Exporter 4.6.0 uses the same
+conversation and file-helper families but hydrates all mapping images with
+`inline=true`, up to six concurrent workers, broad retained authorization/device
+headers and silent per-image failure. It can also compress image outputs and
+chooses the newest reachable leaf rather than provider `current_node`. These
+choices explain speed and branch drift but do not meet Liska's archive boundary.
+One exact same-identity A/B changed only Liska's `inline=false` to `inline=true`;
+both modes returned the same `http-error`. The experimental build was rolled
+back, so no mode fallback, broad credential path, or concurrency was added.
+
+Instead, a content-level cap permits at most four distinct eligible PNGs while
+each background/MAIN request remains single-item. Acquisition is sequential:
+resolve one, immediately validate/acquire it through the shared 20-attempt and
+128-MiB budget, then consider the next. The durable batch audit contains one to
+four exact per-item metrics and safely aggregates known dispatches,
+unknown-dispatch run failures, observed counts and allowlisted outcomes without
+IDs, URLs, bodies or timestamps. Caller-owned audit objects, arrays, metrics and
+outcome counts are snapshotted once from own data descriptors; aggregation uses
+only those internal snapshots, preventing iterator, accessor, Proxy-get and
+validation/use substitution.
+
+The historical four-PNG canary selected and dispatched all four identities.
+Three returned `http-error`; the fourth produced a verified 2,313,476-byte,
+1448-by-1086 PNG whose opaque identity and SHA-256 exactly match the one PNG
+older captures had fetched. The current 51,741-byte PDF also remained fetched.
+Five archive files plus Markdown were byte-identical across Downloads and
+Obsidian, and every temporary tab closed. This establishes historical
+availability without inventing expiry for the three failed identities.
+
+Those three failed identities were then reconciled to exact raw structure. They
+were tool-role `metadata.attachments` named under provider-scoped
+`/mnt/data/liska_pdf_render/page-N.png` or
+`/mnt/data/liska_docx_render/page-N.png`: derived first-page document previews,
+not independent chat images. Inventory now recognizes only the exact bounded
+provider path grammar and records these as policy `declined` with fixed detail
+`derived-document-preview-policy-skipped`. Raw bytes, asset IDs and exact
+sourceRefs remain unchanged. Any ordinary evidence connected through the same
+safe provider-key component cancels the policy transitively without merging
+records; similar paths, other roles/fields/MIME types, traversal, encoding,
+control characters and malformed prefixes remain ordinary assets.
+
+Declined previews cannot enter interpreter, active, passive or binary
+acquisition. The initial JSON companion admits them only as metadata-only
+records with null attempt/path/byte/hash claims. Completeness ignores policy
+declines while retaining prior empty-ledger and unknown semantics; all-declined
+is complete, declined plus genuinely unattempted required evidence is still
+not-attempted, and mixed required outcomes remain partial. No relationship to a
+source PDF/DOCX is guessed from names or adjacency.
+
+The post-policy historical canary retained three derived previews as
+`declined`, the real PNG and PDF as `fetched`, and the genuinely unavailable old
+document as `not-attempted`. Only one PNG helper request was selected and
+observed successfully; no preview request was dispatched. Canonical retained all
+fixed reasons and provenance without local artifact claims. Both destinations
+again held five byte-identical archive files plus byte-identical Markdown, and
+no temporary tab remained.
+
+The fresh canary selected both of its eligible PNG identities and fetched both:
+1,474,502 and 1,429,642 verified bytes, each 1122 by 1402. The first repeats the
+earlier one-PNG hash; the second had previously remained `not-attempted`.
+Raw/manifest/canonical plus both binaries and Markdown were byte-identical across
+Downloads and Obsidian, with no marker tab left open. Automatic retry, endpoint
+fallback, custom-GPT/Library-ID widening and concurrent workers still require
+separate evidence.
+
 Discovering every reference does not make `completeness.assets` complete. Until
-all selected binary acquisitions reach an evidenced terminal state, a
-metadata-only inventory remains `not-attempted` (or `partial` after a mixed
-attempt); `complete` is reserved for a capture that actually satisfied its
-declared asset-acquisition policy.
+all required binary acquisitions reach an evidenced terminal state, a
+metadata-only required inventory remains `not-attempted` (or `partial` after a
+mixed attempt); `complete` is reserved for a capture that satisfied its declared
+asset-acquisition policy. Explicit policy-declined derived previews do not count
+as required binaries.
 
 The manifest maps an asset to one or more exact raw pointers. Signed URLs and
 provider transport pointers may be used transiently to derive an opaque digest,

@@ -17,6 +17,7 @@ interface NodeSnapshot {
   key: string;
   parentId: string | null | undefined;
   childIds: string[];
+  childIdSet: Set<string>;
 }
 
 export function validateGraph(
@@ -108,7 +109,12 @@ function validateNode(
   if (hasOwn(node, 'message')) {
     validateMessage(node.message, `${path}/message`, issues, messageIds, assetReferences);
   }
-  return { key, parentId: asNullableString(node.parentId), childIds };
+  return {
+    key,
+    parentId: asNullableString(node.parentId),
+    childIds,
+    childIdSet: new Set(childIds),
+  };
 }
 
 function validateNodeIdentity(
@@ -274,7 +280,7 @@ function validateParentLink(
       `${nodePath}/parentId`,
       'Parent ID does not reference a node.'
     );
-  } else if (!parent.childIds.includes(node.key)) {
+  } else if (!parent.childIdSet.has(node.key)) {
     addIssue(
       issues,
       'error',
