@@ -76,6 +76,11 @@
 - Two scan-derived hardening items remain outside this checkpoint: shared structural work budgets for recursive ChatGPT/DeepSeek normalization, and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
 - One earlier settings run attempted an Obsidian archive write after the user had visually disabled that output without a confirmed persisted update. Destination toggles now send an acknowledged popup-only background update, apply an in-memory override before `chrome.storage.sync` completes, and serialize rapid changes. Live Obsidian-only followed immediately by File+Obsidian smokes confirmed the toggle/readback path.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
+- Provider-controlled frontmatter strings now quote leading `?`/`,` indicators
+  and encode forbidden C0/C1/BOM-sentinel characters as `\\uXXXX`. Existing
+  newline/tab/YAML escapes and byte-stable ordinary strings remain unchanged;
+  focused coverage includes provider titles, block-sequence tags, append
+  parsing and the common note generator used by File, Clipboard and Obsidian.
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
 - Append mode does not upload images into an existing note yet; it appends text and reports the skipped new images.
 - DOM-only auto-scroll is intentionally bounded to five minutes. Provider markup changes can still require extractor maintenance.

@@ -6,7 +6,7 @@ reconciled with source and verification evidence.
 
 ## Current checkpoint
 
-The first fix wave covered seven statically confirmed findings:
+The first fix wave covered eight statically confirmed findings:
 
 - collision-safe code fences and literal citation titles across ChatGPT DOM,
   Perplexity, NotebookLM, and Deep Research;
@@ -20,7 +20,9 @@ The first fix wave covered seven statically confirmed findings:
   Markdown character-reference spellings.
 - fail-safe ChatGPT attachment inventory: provider-shaped role/MIME/filename
   metadata cannot silently turn an unproven PNG into a policy-declined asset or
-  falsely complete the ledger.
+  falsely complete the ledger;
+- YAML-safe frontmatter strings: leading mapping/sequence indicators and
+  non-printable characters cannot corrupt provider-controlled titles or tags.
 
 Source finding IDs:
 
@@ -31,6 +33,7 @@ Source finding IDs:
 - `commit:2387521a87f48191a526e99985492f83`
 - `commit:6c0253bdf58c8191bd85f1e507823ec0`
 - `commit:7f599e3e531481918b44b12cc641daed`
+- `commit:142acce52d248191bd0780a27b396930`
 
 Pull request 11 merged as `6e9098a`. Continuous scans completed successfully
 for its newly reachable commits; the security-fix commits `1509bfc` and
@@ -39,12 +42,15 @@ These scans are diff-scoped, not a repository-wide proof. Historical occurrence
 rows remain separate records until explicitly reconciled and closed.
 
 The first six findings above are closed as fixed in Security Cloud. The seventh
-is fixed and independently reviewed on the current local branch, but remains
-open in Cloud until this patch is published; local evidence must not be
-presented as a remotely reachable fix.
+and eighth are fixed and independently reviewed on the current local branch,
+but remain open in Cloud until this branch is published; local evidence must not
+be presented as a remotely reachable fix. A separate stale-sync API-key race
+finding, `commit:41c1f05321f48191b8bbc9bf9e9ffb91`, is also closed: published
+commit `ccf9a56` serializes migration/settings mutations, fresh-reads sync after
+local verification, and has a deterministic interleaving regression test.
 
-Current follow-up validation: 150 test files / 4,057 tests; 95.15% statements,
-90.70% branches, 98.42% functions, and 97.64% lines; production build and ZIP
+Current follow-up validation: 150 test files / 4,074 tests; 95.15% statements,
+90.71% branches, 98.42% functions, and 97.64% lines; production build and ZIP
 reconciliation, formatting, platform-registry lint and source lint pass with
 only the same three pre-existing advisory warnings. A dated fresh `npm audit`
 reports zero known vulnerabilities.
@@ -58,8 +64,8 @@ head, preserving one verdict per finding:
    tool metadata, citation URLs/titles, and raw DeepSeek Markdown.
 2. Resource bounds: branch fan-out, nested Canmore JSON, image response
    buffering/timeouts, and frontmatter parsing.
-3. Storage and Obsidian boundaries: stale append paths, API-key migration and
-   disclosure, and response-body error handling.
+3. Storage and Obsidian boundaries: stale append paths, remaining credential
+   disclosure paths, and response-body error handling.
 4. Supply-chain and repository hygiene: mutable CI actions and live fixture
    URLs.
 
