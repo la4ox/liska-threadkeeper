@@ -16,7 +16,12 @@
 import { BaseExtractor } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
 import type { ConversationMessage } from '../../lib/types';
-import { createFootnoteRef, footnoteDefsToHtml, transformCitations } from './footnotes';
+import {
+  createFootnoteRef,
+  escapeMarkdownLink,
+  footnoteDefsToHtml,
+  transformCitations,
+} from './footnotes';
 import type { CitationTransformResult } from './footnotes';
 
 import { SELECTORS } from './selectors/notebooklm';
@@ -90,7 +95,9 @@ function transformCitationsToFootnotes(
         }
       }
 
-      return order.map(num => `[^m${messageIndex}-${num}]: ${footnoteByNumber.get(num)}`);
+      return order.map(
+        num => `[^m${messageIndex}-${num}]: ${escapeMarkdownLink(footnoteByNumber.get(num) ?? '')}`
+      );
     },
   });
 }

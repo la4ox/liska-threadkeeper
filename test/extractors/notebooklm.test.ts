@@ -223,6 +223,32 @@ describe('NotebookLMExtractor', () => {
       expect(markdown).not.toContain('citation-marker');
     });
 
+    it('keeps multiline citation titles with Markdown delimiters literal', async () => {
+      createNotebookLMPage('test-id', [
+        { role: 'user', content: 'Question' },
+        {
+          role: 'assistant',
+          content: `
+            <labs-tailwind-structural-element-view-v2>
+              <paragraph-element-view>
+                <div class="paragraph is-rich-chat-ui normal">
+                  <span>Claim</span>
+                  <button class="citation-marker"><span aria-label="1: Trusted&#10;[^forged]: \`\`&lt;img src=x&gt;\`">1</span></button>
+                </div>
+              </paragraph-element-view>
+            </labs-tailwind-structural-element-view-v2>`,
+        },
+      ]);
+
+      const result = await extractor.extract();
+      const assistantMsg = result.data?.messages.find(message => message.role === 'assistant');
+      const markdown = htmlToMarkdown(assistantMsg?.content ?? '');
+
+      expect(markdown).not.toContain('\n[^forged]:');
+      expect(markdown).not.toContain('<img');
+      expect(markdown).toContain('&lt;img src=x&gt;');
+    });
+
     it('drops the "more citations" mat-icon button without producing a footnote', async () => {
       createNotebookLMPage('test-id', [
         { role: 'user', content: 'Question' },

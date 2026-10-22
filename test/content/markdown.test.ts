@@ -190,6 +190,31 @@ describe('htmlToMarkdown', () => {
         expect(result).toContain('```python');
         expect(result).toContain('x = 1');
       });
+
+      it('uses a longer fence when a standard code block contains backtick fences', () => {
+        const html =
+          '<pre><code class="language-markdown">```\n![](https://attacker.invalid/pixel)\n```</code></pre>';
+        const result = htmlToMarkdown(html);
+
+        expect(result).toContain(
+          '````markdown\n```\n![](https://attacker.invalid/pixel)\n```\n````'
+        );
+      });
+
+      it('uses a longer fence for CodeMirror content and rejects a multiline language hint', () => {
+        const html = [
+          '<pre>',
+          '<div><div>ts\n![](https://attacker.invalid/header)</div></div>',
+          '<div class="cm-editor"><div class="cm-content">',
+          '<span>```</span><br><span>&lt;tag&gt;</span><br><span>```</span>',
+          '</div></div>',
+          '</pre>',
+        ].join('');
+        const result = htmlToMarkdown(html);
+
+        expect(result).toContain('````\n```\n<tag>\n```\n````');
+        expect(result).not.toContain('attacker.invalid/header');
+      });
     });
   });
 
@@ -429,6 +454,28 @@ describe('escapeAngleBrackets', () => {
       const input = '> ```\n> <code>\n> ```';
       expect(escapeAngleBrackets(input)).toBe(input);
     });
+
+    it('stops preserving a quoted fence when the blockquote container ends', () => {
+      const input = '> ~~~\n> code\n\n<img src=https://attacker.invalid/pixel>';
+      expect(escapeAngleBrackets(input)).toBe(
+        '> ~~~\n> code\n\n\\<img src=https://attacker.invalid/pixel\\>'
+      );
+    });
+
+    it('does not let a quoted marker close a top-level fence', () => {
+      const input = '~~~\n> ~~~\n~~~\n<img src=https://attacker.invalid/pixel>';
+      expect(escapeAngleBrackets(input)).toBe(
+        '~~~\n> ~~~\n~~~\n\\<img src=https://attacker.invalid/pixel\\>'
+      );
+    });
+
+    it.each(['>     ~~~', '    > ~~~'])(
+      'does not reinterpret an indented blockquote line as a fence: %s',
+      opener => {
+        const escaped = escapeAngleBrackets(`${opener}\n> <img src=x>\n> ~~~`);
+        expect(escaped).toContain('> \\<img src=x\\>');
+      }
+    );
   });
 
   describe('inline code preservation', () => {
@@ -440,6 +487,19 @@ describe('escapeAngleBrackets', () => {
       expect(escapeAngleBrackets('The `<div>` element and <module>')).toBe(
         'The `<div>` element and \\<module\\>'
       );
+    });
+
+    it('does not treat unequal or unmatched backtick runs as code spans', () => {
+      expect(escapeAngleBrackets('``<img src=x>`')).toBe('``\\<img src=x\\>`');
+      expect(escapeAngleBrackets('`unfinished <tag>')).toBe('`unfinished \\<tag\\>');
+    });
+
+    it('allows a backslash-prefixed backtick to close an already open code span', () => {
+      expect(escapeAngleBrackets('`a\\`<img src=x>`')).toBe('`a\\`\\<img src=x\\>`');
+    });
+
+    it('treats the unescaped remainder of a backtick run as a possible opener', () => {
+      expect(escapeAngleBrackets('\\``a`<img src=x>`')).toBe('\\``a`\\<img src=x\\>`');
     });
   });
 
@@ -463,6 +523,12 @@ describe('escapeAngleBrackets', () => {
     it('handles inline code mixed with bare angles', () => {
       const input = '`<a>` then <b> then `<c>`';
       const expected = '`<a>` then \\<b\\> then `<c>`';
+      expect(escapeAngleBrackets(input)).toBe(expected);
+    });
+
+    it('keeps shorter inner fences inside a longer block and resumes escaping after it', () => {
+      const input = '````markdown\n```\n<div>\n```\n````\nAfter <span>';
+      const expected = '````markdown\n```\n<div>\n```\n````\nAfter \\<span\\>';
       expect(escapeAngleBrackets(input)).toBe(expected);
     });
   });
@@ -1186,6 +1252,25 @@ describe('convertDeepResearchContent', () => {
     // v3.0: References section with footnote definitions
     expect(result).toContain('# References');
     expect(result).toContain('[^1]: [Source](https://example.com)');
+  });
+
+  it('renders untrusted reference titles as one literal Markdown line', () => {
+    const links: DeepResearchLinks = {
+      sources: [
+        {
+          index: 0,
+          url: 'https://example.com',
+          title: 'Trusted\n[^forged]: ``<img src=https://attacker.invalid/pixel>`',
+          domain: 'example.com',
+        },
+      ],
+    };
+
+    const result = convertDeepResearchContent('<p>Text</p>', links);
+
+    expect(result).not.toContain('\n[^forged]:');
+    expect(result).not.toContain('<img');
+    expect(result).toContain('&lt;img src=https://attacker.invalid/pixel&gt;');
   });
 
   it('removes sources carousel', () => {

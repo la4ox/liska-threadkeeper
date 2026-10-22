@@ -7,11 +7,9 @@
 
 import TurndownService from 'turndown';
 import { MAX_LANG_HINT_LENGTH, MAX_MATH_LENGTH } from '../lib/constants';
+import { markdownBlockquotePrefix } from '../lib/markdown-syntax';
+import { markdownCodeFence } from './markdown-code';
 
-/** Leading blockquote prefix (one or more `> ` markers) to preserve as-is. */
-const BLOCKQUOTE_PREFIX_PATTERN = /^(\s*>\s*)+/;
-/** Inline code segments — capture group means odd split indices are code. */
-const INLINE_CODE_SPLIT_PATTERN = /(`[^`]+`)/;
 /** Angle brackets, including backslash-escaped forms (`\<`, `\>`). */
 const ANGLE_BRACKET_PATTERN = /\\[<>]|[<>]/g;
 /**
@@ -22,56 +20,163 @@ const ANGLE_BRACKET_PATTERN = /\\[<>]|[<>]/g;
  */
 const ANGLE_BRACKET_DOLLAR_PATTERN = /\\[<>]|[<>$]/g;
 
-/**
- * Escape special characters in a single line of Markdown text, preserving
- * blockquote markers and inline code segments. `pattern` selects which
- * characters are escaped.
- */
+interface CodeSpanRange {
+  start: number;
+  end: number;
+}
+
+interface BacktickRun {
+  start: number;
+  end: number;
+  length: number;
+  escaped: boolean;
+}
+
+interface FenceState {
+  marker: '`' | '~';
+  length: number;
+  blockquoteDepth: number;
+}
+
+function isEscaped(text: string, index: number): boolean {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
+/** Find only complete code spans whose opening and closing runs have equal length. */
+function inlineCodeRanges(text: string): CodeSpanRange[] {
+  const runs: BacktickRun[] = [];
+  for (let cursor = 0; cursor < text.length; ) {
+    if (text[cursor] !== '`') {
+      cursor += 1;
+      continue;
+    }
+    let end = cursor + 1;
+    while (text[end] === '`') end += 1;
+    runs.push({ start: cursor, end, length: end - cursor, escaped: isEscaped(text, cursor) });
+    cursor = end;
+  }
+
+  const indicesByLength = new Map<number, number[]>();
+  runs.forEach((run, index) => {
+    const indices = indicesByLength.get(run.length) ?? [];
+    indices.push(index);
+    indicesByLength.set(run.length, indices);
+  });
+
+  const nextRunOfLength = (length: number, afterIndex: number): number => {
+    const indices = indicesByLength.get(length) ?? [];
+    let low = 0;
+    let high = indices.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (indices[middle] <= afterIndex) low = middle + 1;
+      else high = middle;
+    }
+    return indices[low] ?? -1;
+  };
+
+  const openerFor = (run: BacktickRun): { start: number; length: number } | null => {
+    if (!run.escaped) return { start: run.start, length: run.length };
+    // Outside code, a backslash escapes only the first backtick in a run.
+    return run.length > 1 ? { start: run.start + 1, length: run.length - 1 } : null;
+  };
+
+  const ranges: CodeSpanRange[] = [];
+  for (let index = 0; index < runs.length; ) {
+    const opener = openerFor(runs[index]);
+    if (!opener) {
+      index += 1;
+      continue;
+    }
+    // Inside a code span backslashes are literal, so a physical run closes
+    // only when its full length equals the opener length.
+    const closingIndex = nextRunOfLength(opener.length, index);
+    if (closingIndex < 0) {
+      index += 1;
+      continue;
+    }
+    ranges.push({ start: opener.start, end: runs[closingIndex].end });
+    index = closingIndex + 1;
+  }
+  return ranges;
+}
+
+function escapeTextSegment(text: string, pattern: RegExp): string {
+  return text.replace(pattern, match => {
+    if (match.length === 2) {
+      return '\\\\' + '\\' + match[1];
+    }
+    return '\\' + match;
+  });
+}
+
+/** Escape special characters while preserving only complete inline code spans. */
 function escapeSpecialCharsInLine(line: string, pattern: RegExp): string {
-  // 1. Extract blockquote prefix (preserve as-is)
-  const bqMatch = line.match(BLOCKQUOTE_PREFIX_PATTERN);
-  const prefix = bqMatch ? bqMatch[0] : '';
-  const rest = line.slice(prefix.length);
-
-  // 2. Split by inline code segments (capture group → odd indices are code)
-  const parts = rest.split(INLINE_CODE_SPLIT_PATTERN);
-
-  // 3. Escape target characters in non-code segments.
-  //    Also handle \< and \> (backslash+angle) to prevent incomplete escaping (CodeQL js/incomplete-sanitization).
-  const escaped = parts
-    .map((part, i) => {
-      if (i % 2 === 1) return part; // inline code — preserve
-      return part.replace(pattern, match => {
-        if (match.length === 2) {
-          // \< or \> → escaped backslash + escaped angle bracket
-          return '\\\\' + '\\' + match[1];
-        }
-        return '\\' + match;
-      });
-    })
-    .join('');
-
+  const blockquote = markdownBlockquotePrefix(line);
+  const prefix = line.slice(0, blockquote.length);
+  const rest = line.slice(blockquote.length);
+  const ranges = inlineCodeRanges(rest);
+  let cursor = 0;
+  let escaped = '';
+  for (const range of ranges) {
+    escaped += escapeTextSegment(rest.slice(cursor, range.start), pattern);
+    escaped += rest.slice(range.start, range.end);
+    cursor = range.end;
+  }
+  escaped += escapeTextSegment(rest.slice(cursor), pattern);
   return prefix + escaped;
 }
 
-/**
- * Escape target characters across Markdown text, skipping fenced code blocks
- * (where the characters are already literal in Obsidian).
- */
+function fenceMarker(
+  line: string
+): { marker: '`' | '~'; length: number; tail: string; blockquoteDepth: number } | null {
+  const blockquote = markdownBlockquotePrefix(line);
+  const stripped = line.slice(blockquote.length);
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(stripped);
+  if (!match) return null;
+  return {
+    marker: match[1][0] as '`' | '~',
+    length: match[1].length,
+    tail: match[2],
+    blockquoteDepth: blockquote.depth,
+  };
+}
+
+/** Escape text outside complete, length-matched CommonMark fenced blocks. */
 function escapeByLine(text: string, pattern: RegExp): string {
   const lines = text.split('\n');
-  let inFencedBlock = false;
+  let fence: FenceState | null = null;
 
   const result = lines.map(line => {
-    // Detect fenced code delimiter (may be inside a blockquote)
-    const stripped = line.replace(/^(\s*>\s*)*/, '');
-    if (/^`{3,}/.test(stripped)) {
-      inFencedBlock = !inFencedBlock;
+    const marker = fenceMarker(line);
+    const lineBlockquoteDepth = markdownBlockquotePrefix(line).depth;
+    if (fence && fence.blockquoteDepth > 0 && lineBlockquoteDepth < fence.blockquoteDepth) {
+      fence = null;
+    }
+    if (fence) {
+      if (
+        marker &&
+        marker.marker === fence.marker &&
+        marker.length >= fence.length &&
+        marker.blockquoteDepth === fence.blockquoteDepth &&
+        marker.tail.trim() === ''
+      ) {
+        fence = null;
+      }
       return line;
     }
-
-    if (inFencedBlock) return line;
-
+    if (marker && !(marker.marker === '`' && marker.tail.includes('`'))) {
+      fence = {
+        marker: marker.marker,
+        length: marker.length,
+        blockquoteDepth: marker.blockquoteDepth,
+      };
+      return line;
+    }
     return escapeSpecialCharsInLine(line, pattern);
   });
 
@@ -126,7 +231,7 @@ turndown.addRule('codeBlocks', {
     const lang = langMatch ? langMatch[1] : '';
 
     const code = codeElement.textContent || '';
-    return `\n\`\`\`${lang}\n${code.trim()}\n\`\`\`\n`;
+    return `\n${markdownCodeFence(code.trim(), lang)}\n`;
   },
 });
 
@@ -180,7 +285,7 @@ turndown.addRule('codemirrorCodeBlocks', {
       }
     }
 
-    return `\n\`\`\`${lang}\n${code.trim()}\n\`\`\`\n`;
+    return `\n${markdownCodeFence(code.trim(), lang)}\n`;
   },
 });
 
