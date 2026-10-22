@@ -356,6 +356,40 @@ raw capture with `opaque-replay-source-http-error`; it produced no new output
 and was not retried. The generated trusted-click smoke hook was never added to
 source or packaging and was removed after verification.
 
+Content-free archive reconnaissance found no ordinary GIF example and exactly
+one WebP record among the newest snapshots for 16 distinct conversation IDs.
+That WebP is a pointerless `metadata.attachments` record with explicit
+Library-ID evidence; no `.webp` binary was present in its capture. It therefore
+does not justify widening the ordinary active image allowlist and instead
+becomes evidence for the separate Library contract.
+
+The first offline Library checkpoint classifies only ledger records reached by
+their exact committed-raw source references. Its exported result contains only
+opaque asset IDs split into `associated` and `ambiguous` sets; Library ID values
+never leave the pure classifier, and no request, URL, endpoint or acquisition
+authority is created. Empty aliases and `source: local` alone prove nothing;
+conflicting aliases, malformed values, duplicate ledger IDs, missing or
+duplicate raw pointers and malformed conversation artifact IDs fail closed as
+ambiguous. Separate assets that share one Library association are not merged.
+Synthetic inventory plus content-free checks against the saved Library JPEG and
+pointerless WebP keep both assets `not-attempted` with null local claims.
+
+Canonical privacy now treats exact Library, gizmo, project and conversation
+template identifier aliases as raw-only structured provider context. Direct and
+nested values are omitted with fixed value-free diagnostics at exact raw
+pointers. Root gizmo/template evidence retains only `isCustomGpt: true` and
+`hasConversationTemplate: true`; authored text, ordinary provider fields, raw
+bytes, opaque asset IDs, source references and acquisition states remain
+unchanged. Transport and ownership remain explicitly unimplemented.
+
+Exact-tree validation for this offline Library checkpoint passes all 152 test
+files / 4,216 tests. Coverage is 95.20% statements, 90.93% branches, 98.45%
+functions and 97.70% lines. TypeScript plus the production build, formatting
+and lint also pass; lint retains the same three pre-existing warnings. An
+independent review of the complete offline Library checkpoint found no P0-P2 or
+material P3 issue and confirmed that this slice creates no acquisition
+authority.
+
 Final exact-tree validation for this JPEG slice uses Node 24.18.0 and npm
 11.16.0. All 152 test files / 4,192 tests pass; coverage is 95.20% statements,
 90.90% branches, 98.45% functions, and 97.70% lines. TypeScript, the production
@@ -397,6 +431,14 @@ Pull request 12 merged to `main` as `950f775`. Its final reviewed source head
 was `21cebb6`; CI and the final independent review were clean. This JPEG work
 continues from that exact merge on `codex/chatgpt-jpeg-assets`.
 
+Pull request 13 merged to `main` as `6c64fd1`; its reviewed source head was
+`bc6a6a3`, CI was green and Security review was clean. The repeated ordinary
+code-review indicator remained externally stuck after both actionable threads
+were resolved, so the merge used the clean CI/Security result, the resolved
+review evidence and an independent local review. The offline Library branch is
+rebased onto that exact merge and remains unpublished while its runtime
+contract is still evidence-gated.
+
 The upstream `v2.7.13` → `v2.14.9` audit is retained in
 [`docs/upstream-2.14.9-audit.md`](docs/upstream-2.14.9-audit.md). This branch now
 adapts the Perplexity rollout fixes, strict popup settings reads, a length-aware
@@ -404,7 +446,7 @@ append reader, and compatible dependency/build-chain updates. Claude current
 DOM, ChatGPT DOM fallback, typed truncation guards, Gemini completeness/title
 and the exact Google image redirect permission remain explicit later slices.
 
-Next: checkpoint ordinary JPEG in its own reviewable pull request, then inspect
-real GIF/WebP raw shapes and helper responses before admitting either MIME.
-Library-ID, custom-GPT/project, and Calpico families remain separate later
-contracts.
+Next: finish and merge PR 13, then run a bounded Library metadata/transport
+observation on the existing Library JPEG before defining any runtime request
+contract. Treat the archived WebP and custom-GPT/project context as separate
+evidence gates; do not widen ordinary GIF/WebP acquisition.

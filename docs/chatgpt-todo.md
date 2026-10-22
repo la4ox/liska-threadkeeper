@@ -30,6 +30,9 @@ terminal states, and the existing no-credential-export boundary.
 - JPEG is live-verified and enabled for the ordinary route. Explicit Library-ID
   evidence fails closed before active and passive winner selection, and
   PNG/JPEG bytes receive bounded structural validation before hashing.
+- Archive reconnaissance found no ordinary GIF and only one WebP, which carries
+  explicit Library-ID metadata and no captured binary. It is not ordinary-route
+  evidence; GIF/WebP active widening remains deferred.
 - Keep derived previews and ordinary images distinct before resolver dispatch.
 - Preserve original bytes; do not introduce compression as an archival default.
 - Live gate: fresh and historical examples, exact PNG/JPEG signatures,
@@ -39,6 +42,11 @@ terminal states, and the existing no-credential-export boundary.
 ### 2. Special ChatGPT attachment families
 
 - Classify and implement Library-ID assets separately.
+- Offline classification is implemented without transport authority: exact raw
+  source refs produce only opaque associated/ambiguous asset IDs, while
+  malformed, conflicting or stale evidence fails closed.
+- Library/gizmo/project/template identifiers are raw-only in canonical output;
+  custom-GPT/template context retains only bounded boolean association facts.
 - Derive custom-GPT/project context only from exact committed-raw evidence; never
   guess `gizmo_id` or broaden the ordinary-chat route.
 - Keep file-ID, interpreter/sandbox, Library, and future provider families
@@ -137,8 +145,8 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Checkpoint the live-verified ordinary JPEG slice in its own pull request. Then
-classify real GIF/WebP raw records and helper responses without widening the
-allowlist; admit each MIME only after exact signatures, animation/container
-structure, length/SHA-256/path reconciliation, byte-identical Downloads and
-Obsidian copies, and explicit historical/unavailable behavior are proven.
+Finish and merge PR 13. Then observe the existing Library JPEG through a bounded
+metadata-only/live transport probe before defining a Library request contract.
+Keep the sole archived WebP as separate Library-family evidence; do not infer a
+WebP route, custom-GPT/project ownership, or ordinary GIF/WebP support from its
+metadata.

@@ -558,6 +558,32 @@ transport scans of manifest/canonical were empty. A temporary generated-dist
 trusted-click harness was removed after the canary and never entered source or
 the packaged build.
 
+### Library association is not acquisition authority
+
+The next archive scan found no ordinary GIF and only one WebP record. That WebP
+is pointerless metadata with explicit Library-ID evidence and no captured
+binary, so it cannot justify widening the ordinary image planner.
+
+Library evidence is classified in a separate pure pass over exact manifest
+source refs. The result exposes only opaque ledger asset IDs as `associated` or
+`ambiguous`; provider Library values never cross the function boundary.
+Malformed or conflicting aliases, duplicate asset IDs, stale or duplicate raw
+pointers and malformed conversation artifact IDs remain ambiguous. Empty
+aliases and `source: local` alone prove no association. Shared Library values do
+not merge distinct ledger assets. The classifier creates no request object,
+endpoint, URL, attempt timestamp or terminal acquisition claim.
+
+Exact Library, gizmo, project and conversation-template identifier aliases are
+raw-only canonical privacy fields. Direct and nested values are omitted with a
+fixed diagnostic anchored to the raw pointer. Root gizmo/template evidence is
+reduced to `isCustomGpt: true` and `hasConversationTemplate: true`; it does not
+claim that any attachment belongs to that context. Existing opaque asset IDs,
+source refs, raw bytes and acquisition state remain unchanged.
+
+This establishes association and privacy only. Library transport, identity
+equivalence, custom-GPT/project ownership, WebP structure validation and binary
+acquisition remain evidence-gated later work.
+
 Discovering every reference does not make `completeness.assets` complete. Until
 all required binary acquisitions reach an evidenced terminal state, a
 metadata-only required inventory remains `not-attempted` (or `partial` after a

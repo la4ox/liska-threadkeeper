@@ -142,6 +142,14 @@
       references remain explicitly <code>not-attempted</code>.
     </p>
     <p>
+      ChatGPT Library, gizmo, project, and conversation-template identifiers remain only in the
+      immutable raw snapshot. Canonical output removes exact structured identifier fields at any
+      nesting depth and records value-free diagnostics that point back to their raw locations. It
+      may retain the boolean facts that a conversation has custom-GPT or template context, but this
+      does not establish attachment ownership or enable a Library request. Library-associated assets
+      remain <code>not-attempted</code> until a separately verified transport contract exists.
+    </p>
+    <p>
       When a ChatGPT raw or canonical JSON artifact is too large for the bounded inline extension
       message, Liska temporarily stages it in the browser's extension-private local storage in
       independently verified chunks. This staging area is not an additional export destination:
