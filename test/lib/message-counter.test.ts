@@ -69,7 +69,7 @@ describe('message-counter', () => {
 
     it('strips fenced code blocks at column 0 before counting', () => {
       // Real fenced code block (unlike blockquote-nested) exercises the
-      // code-fence toggle — only ``` at column 0 opens/closes a block.
+      // reader's fence state.
       const body = [
         '**User:**',
         '',
@@ -92,6 +92,85 @@ describe('message-counter', () => {
 
       // Only 3 real messages: User, Claude, User. The ones inside ``` must be stripped.
       expect(countExistingMessages(body)).toBe(3);
+    });
+
+    describe.each(['\n', '\r\n'])('length-aware backtick fences with %j endings', eol => {
+      const f3 = '`'.repeat(3);
+      const f4 = '`'.repeat(4);
+      const f5 = '`'.repeat(5);
+      const tail = ['## Next question', '', '**User:**', '', 'q2', '', '**Assistant:**', '', 'a2'];
+
+      it.each([
+        { name: 'shorter nested fences', lines: [`${f4}md`, `${f3}js`, 'x', f3, f4] },
+        { name: 'an inner opening fence only', lines: [`${f4}md`, `${f3}js`, f4] },
+        {
+          name: 'fake plain and callout labels inside code',
+          lines: [
+            `${f4}md`,
+            f3,
+            '**User:**',
+            '**Assistant:**',
+            '> [!QUESTION] User',
+            '> [!NOTE] Assistant',
+            f3,
+            f4,
+          ],
+        },
+        { name: 'a longer closing fence', lines: [`${f4}md`, '**User:**', f5] },
+        {
+          name: 'trailing text does not close a fence',
+          lines: [`${f4}md`, `${f5} trailing text`, '**Assistant:**', f4],
+        },
+        {
+          name: 'a closing fence cannot carry an info string',
+          lines: [`${f4}md`, `${f4}markdown`, '> [!NOTE] Assistant', f4],
+        },
+        {
+          name: 'a different character cannot close a fence',
+          lines: [`${f4}md`, '~~~~~', '**User:**', f4],
+        },
+        {
+          name: 'up to three spaces of indentation',
+          lines: [`   ${f4}md`, `${f3}js`, '**User:**', `  ${f5}\t `],
+        },
+        {
+          name: 'four spaces cannot close a fence',
+          lines: [`${f4}md`, `    ${f5}`, '**Assistant:**', f4],
+        },
+        { name: 'four spaces cannot open a fence', lines: [`    ${f3}md`] },
+        { name: 'a tab cannot open a fence', lines: [`\t${f3}md`] },
+        { name: 'backticks invalidate a backtick info string', lines: [`${f3}m\`d`] },
+        { name: 'tilde fences stay inert for this backtick-only writer', lines: ['~~~'] },
+        { name: 'quoted fences do not swallow later message headings', lines: [`> ${f3}md`] },
+      ])('$name: counts and extracts the same real boundaries', ({ lines }) => {
+        const prefix = ['**User:**', '', 'q1', '', '**Assistant:**', '', ...lines];
+        const body = [...prefix, '', ...tail].join(eol);
+
+        expect(countExistingMessages(body)).toBe(4);
+        expect(extractTailMessages(body, 2)).toBe(tail.join(eol));
+        for (let skip = 0; skip < 4; skip++) {
+          expect(countExistingMessages(extractTailMessages(body, skip))).toBe(4 - skip);
+        }
+        expect(extractTailMessages(body, 4)).toBe('');
+      });
+
+      it('keeps an unterminated outer fence open after shorter runs and fake labels', () => {
+        const body = [
+          '**User:**',
+          'q1',
+          '**Assistant:**',
+          `${f4}md`,
+          f3,
+          '**User:**',
+          '> [!NOTE] Assistant',
+          `${f5} trailing text`,
+          '**Assistant:**',
+        ].join(eol);
+
+        expect(countExistingMessages(body)).toBe(2);
+        expect(extractTailMessages(body, 1)).toBe(body.split(eol).slice(2).join(eol));
+        expect(extractTailMessages(body, 2)).toBe('');
+      });
     });
 
     it('handles ChatGPT and Perplexity labels', () => {
@@ -289,9 +368,8 @@ describe('message-counter', () => {
       expect(tail).not.toContain('How to format?');
     });
 
-    it('toggles inCodeBlock flag on column-0 fenced markers', () => {
-      // Uses real fenced code blocks at column 0 (not blockquote-wrapped) so that
-      // line.startsWith('```') triggers the inCodeBlock toggle in extractTailMessages.
+    it('tracks column-0 fenced markers while extracting the tail', () => {
+      // Uses real fenced code blocks at column 0, not blockquote-wrapped.
       const body = [
         '**User:**',
         '',
