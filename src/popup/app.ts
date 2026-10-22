@@ -7,7 +7,7 @@
  * inside initPopup() rather than at module scope.
  */
 
-import { getSettings } from '../lib/storage';
+import { getSettingsOrThrow } from '../lib/storage';
 import type {
   ExtensionSettings,
   PopupSettingsUpdate,
@@ -141,15 +141,20 @@ function isOpaqueReplaySettingActive(settings: ExtensionSettings): boolean {
  */
 export async function initPopup(): Promise<void> {
   elements = queryElements();
+  elements.saveBtn.disabled = true;
+  elements.testBtn.disabled = true;
   try {
     initializeI18n();
-    const settings = await getSettings();
+    // Never populate an editable form with defaults after an unreadable store.
+    const settings = await getSettingsOrThrow();
     populateForm(settings);
     setupEventListeners();
     setupToggleSwitchAccessibility();
-  } catch (error) {
+    elements.saveBtn.disabled = false;
+    elements.testBtn.disabled = false;
+  } catch {
     showStatus(getMessage('toast_error_connectionFailed'), 'error');
-    console.error('[G2O Popup] Init error:', error);
+    console.error('[G2O Popup] Failed to initialize settings');
   }
 }
 

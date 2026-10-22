@@ -110,33 +110,44 @@ function syncUpdates(
 }
 
 /**
- * Get extension settings from chrome.storage (local + sync)
+ * Get extension settings from chrome.storage (local + sync), rejecting when
+ * either store cannot be read.
  *
  * Retrieves secure settings from local storage and non-sensitive
  * settings from sync storage, combining them into a unified object.
+ * Settings editors must use this strict read: defaults after a failed read
+ * could otherwise be saved over the user's real settings.
+ */
+export async function getSettingsOrThrow(): Promise<ExtensionSettings> {
+  const [localResult, syncResult] = await Promise.all([
+    chrome.storage.local.get('secureSettings'),
+    chrome.storage.sync.get('settings'),
+  ]);
+
+  const stored = storageRecord(syncResult.settings);
+
+  // Schema-validate/normalize untrusted sync values (L-1): corrupted fields
+  // fall back to defaults; valid fields are preserved. Also resolves the
+  // legacy obsidianPort → obsidianUrl migration.
+  const sync = normalizeSyncSettings(stored);
+
+  // The legacy sync value is migration input only. Runtime use fails closed
+  // until the key has been verified in local storage.
+  const obsidianApiKey = localApiKey(localResult.secureSettings);
+
+  return {
+    obsidianApiKey,
+    ...sync,
+  };
+}
+
+/**
+ * Get extension settings, falling back to defaults when storage cannot be read.
+ * Runtime callers retain this behavior; settings editors use getSettingsOrThrow.
  */
 export async function getSettings(): Promise<ExtensionSettings> {
   try {
-    const [localResult, syncResult] = await Promise.all([
-      chrome.storage.local.get('secureSettings'),
-      chrome.storage.sync.get('settings'),
-    ]);
-
-    const stored = storageRecord(syncResult.settings);
-
-    // Schema-validate/normalize untrusted sync values (L-1): corrupted fields
-    // fall back to defaults; valid fields are preserved. Also resolves the
-    // legacy obsidianPort → obsidianUrl migration.
-    const sync = normalizeSyncSettings(stored);
-
-    // The legacy sync value is migration input only. Runtime use fails closed
-    // until the key has been verified in local storage.
-    const obsidianApiKey = localApiKey(localResult.secureSettings);
-
-    return {
-      obsidianApiKey,
-      ...sync,
-    };
+    return await getSettingsOrThrow();
   } catch {
     console.error('[G2O] Failed to get settings');
     return DEFAULT_SETTINGS;
