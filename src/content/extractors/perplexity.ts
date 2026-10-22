@@ -9,6 +9,7 @@
 import { BaseExtractor } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { isHttpUrl } from '../../lib/validation';
+import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import type { ConversationMessage } from '../../lib/types';
 import {
   createFootnoteRef,
@@ -218,10 +219,13 @@ export class PerplexityExtractor extends BaseExtractor {
    * 3. Default title
    */
   getTitle(): string {
-    return (
-      this.getPageTitle() ??
-      this.getFirstMessageTitle(USER_QUERY_ANY_LAYOUT, 'Untitled Perplexity Conversation')
-    );
+    const pageTitle = this.getPageTitle();
+    if (pageTitle) return pageTitle;
+    for (const element of this.queryAllSelectorUnion<HTMLElement>(USER_QUERY_ANY_LAYOUT)) {
+      const title = this.extractPlainText(element);
+      if (title) return title.substring(0, MAX_CONVERSATION_TITLE_LENGTH);
+    }
+    return 'Untitled Perplexity Conversation';
   }
 
   // ========== Message Extraction ==========
@@ -297,30 +301,33 @@ export class PerplexityExtractor extends BaseExtractor {
   private collectTaggedElements(): TaggedElement[] {
     const tagged: TaggedElement[] = [];
 
-    for (const el of this.queryAllWithFallback<HTMLElement>(SELECTORS.userQuery)) {
+    for (const el of this.queryAllSelectorUnion<HTMLElement>(SELECTORS.userQuery)) {
       tagged.push({ type: 'user', element: el });
     }
 
     // Transitional markup can carry a legacy span inside the renderer-backed
     // query already collected above. Keep the old layout without duplicating it.
-    for (const el of this.queryAllWithFallback<HTMLElement>(LEGACY_USER_QUERY)) {
+    for (const el of this.queryAllSelectorUnion<HTMLElement>(LEGACY_USER_QUERY)) {
       if (this.isInside(el, SELECTORS.userQuery)) continue;
       tagged.push({ type: 'user', element: el });
     }
 
-    for (const el of this.queryAllWithFallback<HTMLElement>(LEGACY_MARKDOWN_CONTENT)) {
+    for (const el of this.queryAllSelectorUnion<HTMLElement>(LEGACY_MARKDOWN_CONTENT)) {
       tagged.push({ type: 'response', element: el });
     }
 
     // New answers render beside an empty placeholder, or without one at all.
     // Old-layout answers and a report's nested inline prose already have owners.
-    for (const prose of this.queryAllWithFallback<HTMLElement>(SELECTORS.answerProse)) {
+    for (const prose of this.queryAllSelectorUnion<HTMLElement>(SELECTORS.answerProse)) {
+      if (this.isInside(prose, USER_QUERY_ANY_LAYOUT)) continue;
       if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) continue;
       if (this.isInside(prose, DEEP_RESEARCH_PROSE)) continue;
       tagged.push({ type: 'response', element: prose });
     }
 
-    for (const prose of this.queryAllWithFallback<HTMLElement>(DEEP_RESEARCH_PROSE)) {
+    for (const prose of this.queryAllSelectorUnion<HTMLElement>(DEEP_RESEARCH_PROSE)) {
+      if (this.isInside(prose, USER_QUERY_ANY_LAYOUT)) continue;
+      if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) continue;
       tagged.push({ type: 'report', element: prose });
     }
 
@@ -332,6 +339,49 @@ export class PerplexityExtractor extends BaseExtractor {
     return selectors.some(selector => {
       try {
         return el.closest(selector) !== null;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /** Collect every rollout selector once, collapse nested aliases, then restore DOM order. */
+  private queryAllSelectorUnion<T extends Element>(
+    selectors: readonly string[],
+    parent: Element | Document = document
+  ): T[] {
+    const seen = new Set<Element>();
+    const candidates: T[] = [];
+    for (const selector of selectors) {
+      for (const element of this.queryAllWithFallback<T>([selector], parent)) {
+        if (seen.has(element)) continue;
+        seen.add(element);
+        candidates.push(element);
+      }
+    }
+    const outermost = candidates.filter(candidate => {
+      let ancestor = candidate.parentElement;
+      while (ancestor) {
+        if (seen.has(ancestor)) return false;
+        if (ancestor === parent) break;
+        ancestor = ancestor.parentElement;
+      }
+      return true;
+    });
+    return outermost.sort((left, right) => {
+      if (left === right) return 0;
+      const position = left.compareDocumentPosition(right);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+  }
+
+  /** True when `el` itself matches one of the selectors. */
+  private matchesAny(el: HTMLElement, selectors: readonly string[]): boolean {
+    return selectors.some(selector => {
+      try {
+        return el.matches(selector);
       } catch {
         return false;
       }
@@ -359,11 +409,16 @@ export class PerplexityExtractor extends BaseExtractor {
    * All HTML is sanitized via DOMPurify to prevent XSS.
    */
   private extractAssistantContent(contentElement: HTMLElement, messageIndex: number): string {
-    const proseEls = this.queryAllWithFallback<HTMLElement>(SELECTORS.proseContent, contentElement);
+    const ownsProseContent = this.matchesAny(contentElement, SELECTORS.proseContent);
+    const proseEls = ownsProseContent
+      ? []
+      : this.queryAllSelectorUnion<HTMLElement>(SELECTORS.proseContent, contentElement);
 
     // Fallback: use the content element's innerHTML directly
     const rawHtml =
-      proseEls.length > 0 ? proseEls.map(el => el.innerHTML).join('\n') : contentElement.innerHTML;
+      ownsProseContent || proseEls.length === 0
+        ? contentElement.innerHTML
+        : proseEls.map(el => el.innerHTML).join('\n');
 
     if (!rawHtml) {
       return '';

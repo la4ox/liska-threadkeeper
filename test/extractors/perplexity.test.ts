@@ -345,6 +345,100 @@ describe('PerplexityExtractor', () => {
       expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0', 'user-1', 'assistant-1']);
       expect(messages[0].content).toBe('legacy question');
       expect(messages[2].content).toBe('current question');
+      expect(extractor.getTitle()).toBe('legacy question');
+    });
+
+    it('collects mixed selector variants without losing turns', () => {
+      const plainAnswer = (html: string): string =>
+        `<div class="prose inline" data-renderer="lm">${html}</div>`;
+      loadFixture(
+        rendererQuery('<p>semantic question</p>', true) +
+          answer('<p>themed answer</p>') +
+          rendererQuery('<p>styled question</p>', false) +
+          plainAnswer('<p>plain answer</p>')
+      );
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.role)).toEqual([
+        'user',
+        'assistant',
+        'user',
+        'assistant',
+      ]);
+      expect(messages.map(message => message.content)).toEqual([
+        'semantic question',
+        expect.stringContaining('themed answer'),
+        'styled question',
+        expect.stringContaining('plain answer'),
+      ]);
+    });
+
+    it('does not reinterpret a prose renderer inside a user bubble as an answer', () => {
+      loadFixture(
+        rendererQuery('<div class="prose" data-renderer="lm">only question</div>', true) +
+          answer('<p>only answer</p>')
+      );
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[0].content).toBe('only question');
+      expect(messages[1].content).toContain('only answer');
+    });
+
+    it('keeps mixed summary and nested report prose once inside a legacy placeholder', () => {
+      loadFixture(`
+        ${legacyQuery('research this')}
+        <div id="markdown-content-0">
+          <div class="prose inline"><p>answer summary</p></div>
+          <div class="prose max-w-none">
+            <div class="prose max-w-none">
+              ${answer('<h1>one report</h1>')}
+            </div>
+          </div>
+          <div class="prose inline"><p>answer afterword</p></div>
+        </div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[1].content).toContain('answer summary');
+      expect(messages[1].content.match(/one report/g)).toHaveLength(1);
+      expect(messages[1].content).toContain('answer afterword');
+    });
+
+    it('does not reinterpret a report-shaped renderer inside a user bubble', () => {
+      loadFixture(`
+        <div class="group/user-bubble">
+          <div class="prose max-w-none" data-renderer="lm"><p>research question</p></div>
+        </div>
+        ${answer('<p>answer</p>')}
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[0].content).toBe('research question');
+    });
+
+    it('preserves root-owned text around a nested prose section in a current answer', () => {
+      loadFixture(`
+        ${legacyQuery('question')}
+        <div class="prose" data-renderer="lm">
+          <p>before section</p>
+          <div class="prose inline"><p>nested section</p></div>
+          <p>after section</p>
+        </div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(message => message.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[1].content).toContain('before section');
+      expect(messages[1].content).toContain('nested section');
+      expect(messages[1].content).toContain('after section');
     });
   });
 
