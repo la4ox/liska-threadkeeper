@@ -286,6 +286,31 @@ inventing expiry for the other three. The current 51,741-byte PDF also remained
 fetched. Downloads and Obsidian each retained five byte-identical archive files
 plus byte-identical Markdown; all temporary tabs closed.
 
+Structural reconciliation showed that the three failed records were not
+independent chat images: they were tool-role `metadata.attachments` named as
+`liska_pdf_render/page-N.png` or `liska_docx_render/page-N.png`, transient page
+previews derived from source documents. Inventory now classifies only the exact
+bounded provider path grammar as policy `declined` with fixed detail
+`derived-document-preview-policy-skipped`. Raw bytes, opaque IDs and every exact
+sourceRef remain unchanged. Ordinary evidence for any provider-key alias cancels
+the policy across the entire connected component; no identities or provenance
+are merged. Similar paths, user/assistant content, metadata files, MIME
+mismatches, traversal/encoding/control variants and malformed prefixes remain
+ordinary assets. Policy-declined records cannot enter interpreter, active,
+passive or binary acquisition, and metadata-only declined records are accepted
+at the initial JSON companion boundary only with null attempt/path/byte/hash
+claims. Completeness ignores declined policy assets while preserving empty and
+unknown ledger semantics.
+
+The post-policy historical canary retained six assets as three `declined`, two
+`fetched` (the real PNG and PDF), and one genuine `not-attempted` old document.
+Only the real PNG was selected: `selected=1/4`, `dispatched-known=1`,
+`observed=1`, with every failure bucket zero. Canonical retained all three fixed
+reasons and sourceRefs with no local artifact claims. Downloads and Obsidian
+again held five byte-identical archive files plus byte-identical Markdown; no
+temporary tab remained. The old source document's HTTP 404, not its discarded
+page thumbnail, is the remaining evidence of loss.
+
 The fresh canary selected its two eligible PNG identities and fetched both:
 1,474,502 and 1,429,642 bytes, each a verified 1122-by-1402 PNG. The first hash
 matches the earlier one-PNG canary; the second had previously remained
@@ -295,9 +320,9 @@ byte-identical between Downloads and Obsidian, with no leftover marker tab.
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 150 test files / 3,912 tests pass;
-- coverage passes at 95.16% statements, 90.67% branches, 98.36% functions, and
-  97.80% lines;
+- 150 test files / 3,995 tests pass;
+- coverage passes at 95.19% statements, 90.74% branches, 98.37% functions, and
+  97.81% lines;
 - TypeScript and the production Vite build pass;
 - full lint has zero errors and only the same three pre-existing advisory
   warnings; platform registry lint and repository formatting pass;
@@ -306,11 +331,12 @@ Fresh exact-tree validation:
   and the same fallback in shared passive/metric evidence. Whole-ledger
   precedence plus per-family fail-closed direct-ID validation now cover all
   three. Batch review additionally reproduced and closed a validation/use
-  mismatch caused by caller-owned iteration; final review reports no residual
-  P0-P3 finding.
+  mismatch caused by caller-owned iteration. Derived-preview review additionally
+  closed transitive alias-cancellation and empty-ledger completeness defects;
+  final review reports no residual P0-P3 finding.
 
 Next: retain the proven sequential cap of four while sampling materially
-different ordinary-chat PNG provenance. Image/jpeg and other asset families,
-custom-GPT, Library-ID, Calpico, retry, concurrent workers, and broad endpoint or
-credential fallback remain separate evidence-gated work. A remote push, pull
-request, merge, release, or tag remains a separate explicit action.
+different ordinary-chat image provenance. Image/jpeg and other true asset
+families, custom-GPT, Library-ID, Calpico, retry, concurrent workers, and broad
+endpoint or credential fallback remain separate evidence-gated work. A remote
+push, pull request, merge, release, or tag remains a separate explicit action.

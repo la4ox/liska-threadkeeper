@@ -315,6 +315,7 @@ export async function extractChatGptInterpreterAssetPlan(
   const orderedAssets = [...assets].sort(compareInterpreterAssets);
   for (const asset of orderedAssets) {
     if (!asset || typeof asset !== 'object' || !isSafeStagedBinaryAssetId(asset.id)) continue;
+    if (asset.state !== 'not-attempted') continue;
     if (!Array.isArray(asset.sourceRefs)) continue;
     const candidates = await interpreterEvidenceForAsset(raw, asset, assetIdForIdentity);
     if (candidates.size !== 1) continue;

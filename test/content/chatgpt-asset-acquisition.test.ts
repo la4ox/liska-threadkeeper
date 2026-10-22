@@ -87,6 +87,49 @@ function responseLike(
 }
 
 describe('ChatGPT page-owned asset acquisition', () => {
+  it('preserves not-attempted completeness for an empty ledger', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [],
+      candidates: [],
+      fetcher,
+    });
+    expect(result).toEqual({ records: [], runtimeAssets: [], completeness: 'not-attempted' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['declined only', [], 'complete'],
+    ['declined plus unattempted', [ledger('b')], 'not-attempted'],
+    ['declined plus terminal failure', [{ ...ledger('b'), state: 'failed' as const }], 'complete'],
+    [
+      'declined plus mixed required',
+      [ledger('b'), { ...ledger('c'), state: 'failed' as const }],
+      'partial',
+    ],
+  ] as const)(
+    'excludes policy-declined assets from %s completeness and network attempts',
+    async (_label, required, completeness) => {
+      const declined = {
+        ...ledger(),
+        state: 'declined' as const,
+        detail: 'derived-document-preview-policy-skipped',
+      };
+      const fetcher = vi.fn<typeof fetch>();
+      const result = await acquireChatGptPageOwnedAssets({
+        conversationId: CONVERSATION_ID,
+        assets: [declined, ...required],
+        candidates: [{ assetId: declined.id, downloadUrl: signedUrl() }],
+        fetcher,
+      });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(result.records[0]).toEqual(declined);
+      expect(result.runtimeAssets).toEqual([]);
+      expect(result.completeness).toBe(completeness);
+    }
+  );
+
   it('performs one browser-authenticated same-origin signed GET without exposing credentials', async () => {
     const record = ledger();
     const bytes = new Uint8Array([0, 1, 2, 3, 254, 255]);

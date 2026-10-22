@@ -58,6 +58,33 @@ function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
 }
 
 describe('ChatGPT page-owned asset resolver matching', () => {
+  it('keeps declined direct evidence in whole-ledger matching so a weaker eligible alias is not promoted', async () => {
+    const raw = {
+      direct: { file_id: 'file_one' },
+      alias: { asset_pointer: 'file-service://file_one' },
+    };
+    const direct = { ...asset('a', '/direct'), state: 'declined' as const };
+    const alias = asset('b', '/alias');
+    const downloadUrl =
+      'https://chatgpt.com/backend-api/estuary/content?cid=123456&id=file_one&p=fs&sig=' +
+      'a'.repeat(64) +
+      '&ts=123456&v=1';
+    for (const assets of [
+      [direct, alias],
+      [alias, direct],
+    ]) {
+      const matched = await matchChatGptPageOwnedAssetResolvers({
+        raw,
+        assets,
+        resolvers: [await resolver('file_one', downloadUrl)],
+        sha256: digest,
+      });
+      expect(matched.map(candidate => candidate.assetId)).toEqual([direct.id]);
+      expect(matched.filter(candidate => candidate.assetId === alias.id)).toEqual([]);
+      expect(extractChatGptActivePngPlan(raw, assets, [alias.id])).toBeUndefined();
+    }
+  });
+
   describe.each(['passive', 'active-metric'] as const)('%s direct identity rejection', route => {
     it.each(['slash', 'Unicode', 'over-limit'] as const)(
       'rejects %s direct identity without sibling/pointer fallback',
@@ -212,12 +239,13 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       const record = assetWithSourceRefs('a', ['/one', '/two']);
       expect(extractChatGptActivePngPlan(raw, [record], [record.id])).toBeUndefined();
     });
-    it.each(['non-PNG', 'attempted', 'unlisted', 'other artifact', 'missing ref'])(
+    it.each(['non-PNG', 'attempted', 'declined', 'unlisted', 'other artifact', 'missing ref'])(
       'skips %s before any network plan',
       mode => {
         const record = asset('a', '/one');
         if (mode === 'non-PNG') record.mediaType = 'application/pdf';
         if (mode === 'attempted') record.state = 'failed';
+        if (mode === 'declined') record.state = 'declined';
         if (mode === 'other artifact') record.sourceRefs[0].artifactId = 'other';
         if (mode === 'missing ref') record.sourceRefs[0].rawPointer = '/missing';
         expect(
@@ -231,6 +259,24 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     );
   });
   describe('interpreter attachment plan', () => {
+    it('never selects declined metadata attachments even when their sandbox path is resolvable', async () => {
+      const record = {
+        ...asset('a', '/mapping/node/message/metadata/attachments/0'),
+        state: 'declined' as const,
+      };
+      const raw = {
+        mapping: {
+          node: {
+            message: {
+              id: 'message_123',
+              metadata: { attachments: [{ name: '/mnt/data/preview.png' }] },
+            },
+          },
+        },
+      };
+      await expect(extractChatGptInterpreterAssetPlan(raw, [record])).resolves.toEqual([]);
+    });
+
     it('matches each assistant Markdown link from one exact text-part ledger source', async () => {
       const raw = {
         mapping: {

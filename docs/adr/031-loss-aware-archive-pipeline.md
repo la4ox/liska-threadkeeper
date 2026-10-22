@@ -500,6 +500,34 @@ Five archive files plus Markdown were byte-identical across Downloads and
 Obsidian, and every temporary tab closed. This establishes historical
 availability without inventing expiry for the three failed identities.
 
+Those three failed identities were then reconciled to exact raw structure. They
+were tool-role `metadata.attachments` named under provider-scoped
+`/mnt/data/liska_pdf_render/page-N.png` or
+`/mnt/data/liska_docx_render/page-N.png`: derived first-page document previews,
+not independent chat images. Inventory now recognizes only the exact bounded
+provider path grammar and records these as policy `declined` with fixed detail
+`derived-document-preview-policy-skipped`. Raw bytes, asset IDs and exact
+sourceRefs remain unchanged. Any ordinary evidence connected through the same
+safe provider-key component cancels the policy transitively without merging
+records; similar paths, other roles/fields/MIME types, traversal, encoding,
+control characters and malformed prefixes remain ordinary assets.
+
+Declined previews cannot enter interpreter, active, passive or binary
+acquisition. The initial JSON companion admits them only as metadata-only
+records with null attempt/path/byte/hash claims. Completeness ignores policy
+declines while retaining prior empty-ledger and unknown semantics; all-declined
+is complete, declined plus genuinely unattempted required evidence is still
+not-attempted, and mixed required outcomes remain partial. No relationship to a
+source PDF/DOCX is guessed from names or adjacency.
+
+The post-policy historical canary retained three derived previews as
+`declined`, the real PNG and PDF as `fetched`, and the genuinely unavailable old
+document as `not-attempted`. Only one PNG helper request was selected and
+observed successfully; no preview request was dispatched. Canonical retained all
+fixed reasons and provenance without local artifact claims. Both destinations
+again held five byte-identical archive files plus byte-identical Markdown, and
+no temporary tab remained.
+
 The fresh canary selected both of its eligible PNG identities and fetched both:
 1,474,502 and 1,429,642 verified bytes, each 1122 by 1402. The first repeats the
 earlier one-PNG hash; the second had previously remained `not-attempted`.
@@ -509,10 +537,11 @@ fallback, custom-GPT/Library-ID widening and concurrent workers still require
 separate evidence.
 
 Discovering every reference does not make `completeness.assets` complete. Until
-all selected binary acquisitions reach an evidenced terminal state, a
-metadata-only inventory remains `not-attempted` (or `partial` after a mixed
-attempt); `complete` is reserved for a capture that actually satisfied its
-declared asset-acquisition policy.
+all required binary acquisitions reach an evidenced terminal state, a
+metadata-only required inventory remains `not-attempted` (or `partial` after a
+mixed attempt); `complete` is reserved for a capture that satisfied its declared
+asset-acquisition policy. Explicit policy-declined derived previews do not count
+as required binaries.
 
 The manifest maps an asset to one or more exact raw pointers. Signed URLs and
 provider transport pointers may be used transiently to derive an opaque digest,

@@ -494,11 +494,16 @@ async function resolveAndAcquireAssetCandidates(
     warnings: [],
     matched: false,
   };
-  const allowedAssetIds = new Set(context.rawCaptureBundle.manifest.assets.map(asset => asset.id));
+  const allowedAssetIds = new Set(
+    context.rawCaptureBundle.manifest.assets
+      .filter(asset => asset.state === 'not-attempted')
+      .map(asset => asset.id)
+  );
   const candidates = new Map<string, ChatGptPageOwnedAssetCandidate>();
   const budget = createChatGptPageOwnedAssetAcquisitionBudget();
   let acquired = acquisitionFailure(context);
   let acquisitionFailed = false;
+  if (allowedAssetIds.size === 0) return { resolution, acquired, acquisitionFailed };
   const acquireBatch = async (batch: readonly ChatGptPageOwnedAssetCandidate[]): Promise<void> => {
     if (batch.length === 0) return;
     const next = await acquireObservedAssets(

@@ -600,9 +600,11 @@ function destinationAssetCompleteness(
   original: RawCaptureBundle['manifest']['completeness']['assets'],
   assets: readonly RawCaptureAssetRecord[]
 ): RawCaptureBundle['manifest']['completeness']['assets'] {
-  if (original === 'unknown') return 'unknown';
-  if (assets.every(asset => asset.state === 'not-attempted')) return 'not-attempted';
-  return assets.every(asset => asset.state !== 'not-attempted') ? 'complete' : 'partial';
+  if (assets.length === 0 || original === 'unknown') return original;
+  const required = assets.filter(asset => asset.state !== 'declined');
+  if (required.length === 0) return 'complete';
+  if (required.every(asset => asset.state === 'not-attempted')) return 'not-attempted';
+  return required.every(asset => asset.state !== 'not-attempted') ? 'complete' : 'partial';
 }
 
 // eslint-disable-next-line complexity -- Runtime raw bytes and two transport forms must be bound together before attachment work.

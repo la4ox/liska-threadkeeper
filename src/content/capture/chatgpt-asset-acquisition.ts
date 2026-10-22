@@ -320,8 +320,11 @@ async function fetchOne(
 function acquisitionCompleteness(
   records: readonly RawCaptureAssetRecord[]
 ): CaptureCompletenessState {
-  if (records.every(record => record.state === 'not-attempted')) return 'not-attempted';
-  return records.every(record => record.state !== 'not-attempted') ? 'complete' : 'partial';
+  if (records.length === 0) return 'not-attempted';
+  const required = records.filter(record => record.state !== 'declined');
+  if (required.length === 0) return 'complete';
+  if (required.every(record => record.state === 'not-attempted')) return 'not-attempted';
+  return required.every(record => record.state !== 'not-attempted') ? 'complete' : 'partial';
 }
 
 /** Acquire matched assets sequentially and leave every unmatched ledger record untouched. */

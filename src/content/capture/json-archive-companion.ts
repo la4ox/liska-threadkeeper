@@ -58,10 +58,18 @@ export async function buildJsonRawManifestCompanion(
   if (
     bundle.artifacts.length !== 1 ||
     bundle.assets.length > 0 ||
-    bundle.manifest.assets.some(asset => asset.state !== 'not-attempted')
+    bundle.manifest.assets.some(
+      asset =>
+        asset.state !== 'not-attempted' &&
+        (asset.state !== 'declined' ||
+          asset.attemptedAt !== null ||
+          asset.relativePath !== null ||
+          asset.byteLength !== null ||
+          asset.sha256 !== null)
+    )
   ) {
     throw new Error(
-      'JSON archive companion requires one raw artifact and only metadata-only asset inventory records.'
+      'JSON archive companion requires one raw artifact and only not-attempted or declined metadata-only asset inventory records.'
     );
   }
   const raw = bundle.artifacts[0];
