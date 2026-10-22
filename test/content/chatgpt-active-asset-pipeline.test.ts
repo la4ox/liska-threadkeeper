@@ -14,7 +14,6 @@ import { acquireChatGptPageOwnedAssets } from '../../src/content/capture/chatgpt
 import { CHATGPT_CAPTURE_ENDPOINT } from '../../src/lib/chatgpt-capture-contract';
 import type { ArchiveCompanionBundle, StagedBinaryAssetResult } from '../../src/lib/types';
 import type { RawCaptureManifest, LiskaThreadArchive } from '../../src/archive';
-import { CHATGPT_DERIVED_DOCUMENT_PREVIEW_DETAIL } from '../../src/archive/normalizers/chatgpt/inventory';
 import type {
   ChatGptActiveAssetPlanItem,
   ChatGptActiveAssetResponse,
@@ -428,93 +427,38 @@ async function batchPipeline(
 
 describe('active PNG destination-honest pipeline', () => {
   beforeEach(() => vi.clearAllMocks());
-  it.each([false, true])(
-    'preserves preview policy and required-only completeness (ordinary attachment=%s)',
-    async ordinary => {
-      const raw = syntheticRaw(ordinary ? 1 : 0);
-      const message = raw.mapping.node.message;
-      message.author.role = 'tool';
-      Object.assign(message.metadata, {
-        attachments: [
-          {
-            id: 'preview_id',
-            mime_type: 'image/png',
-            name: `user-synthetic/${'a'.repeat(32)}/mnt/data/liska_pdf_render/page-2.png`,
-          },
-        ],
-      });
-      const captured = await capture(raw);
-      const context = captured.assetExportContext!;
-      const originalRaw = captured.archiveCompanion.artifacts[0];
-      const declined = context.rawCaptureBundle.manifest.assets.find(
-        record => record.state === 'declined'
-      )!;
-      expect(declined).toBeDefined();
-      // Even an injected observer cannot reacquire a policy-excluded asset.
-      const helper = vi.fn(async () => ({
-        kind: 'matched' as const,
-        candidates: [{ assetId: declined.id, downloadUrl: 'must-not-download-preview' }],
-      }));
-      const active = vi.fn();
-      const acquire = vi.fn();
-      const persistBinary = vi.fn();
-      let final: ArchiveCompanionBundle | undefined;
-      const result = await persistChatGptDestinationHonestAttachments(
-        context,
-        captured.archiveCompanion,
-        'synthetic.md',
-        ['file'],
-        {
-          persistArtifacts: async (bundle, _name, _source, outputs, kinds) => {
-            if (kinds.includes('manifest')) final = bundle;
-            return { activeOutputs: outputs as ['file'], warnings: [] };
-          },
-          observeInterpreterResolvers: helper,
-          observeResolvers: helper,
-          ...(!ordinary ? { resolveActiveAsset: active, observeActiveResolvers: active } : {}),
-          acquireAssets: acquire,
-          persistBinaryAssets: persistBinary,
-        }
-      );
-      expect(result.completeDestinations).toEqual(['file']);
-      if (!ordinary) expect(helper).not.toHaveBeenCalled();
-      expect(active).not.toHaveBeenCalled();
-      expect(acquire).not.toHaveBeenCalled();
-      expect(persistBinary).not.toHaveBeenCalled();
-      const manifest = parseArtifact<RawCaptureManifest>(final!, 'manifest');
-      const canonical = parseArtifact<LiskaThreadArchive>(final!, 'canonical');
-      expect(manifest.completeness.assets).toBe(ordinary ? 'not-attempted' : 'complete');
-      expect(manifest.assets.find(asset => asset.id === declined.id)).toEqual(declined);
-      expect(canonical.assets[declined.id].acquisition).toEqual({
-        state: 'declined',
-        attemptedAt: null,
-        detail: CHATGPT_DERIVED_DOCUMENT_PREVIEW_DETAIL,
-      });
-      expect(canonical.assets[declined.id].sourceRefs).toEqual(
-        expect.arrayContaining([expect.objectContaining(declined.sourceRefs[0])])
-      );
-      expect(final!.artifacts[0]).toEqual(originalRaw);
-      if (!ordinary) expect(result.warnings).toEqual([]);
-    }
-  );
-
-  it('counts a fetched required PNG plus a declined preview as complete', async () => {
-    const raw = syntheticRaw(1);
-    raw.mapping.node.message.author.role = 'tool';
-    Object.assign(raw.mapping.node.message.metadata, {
+  it('keeps a preview-shaped orphan PNG unresolved and eligible for active planning', async () => {
+    const raw = syntheticRaw(0);
+    const message = raw.mapping.node.message;
+    message.author.role = 'tool';
+    Object.assign(message.metadata, {
       attachments: [
         {
           id: 'preview_id',
           mime_type: 'image/png',
-          name: `user-synthetic/${'b'.repeat(32)}/mnt/data/liska_docx_render/page-1.png`,
+          name: `user-synthetic/${'a'.repeat(32)}/mnt/data/liska_pdf_render/page-2.png`,
         },
       ],
     });
     const captured = await capture(raw);
     const context = captured.assetExportContext!;
-    const original = context.rawCaptureBundle.manifest.assets.find(
-      record => record.state === 'not-attempted'
-    )!;
+    const asset = context.rawCaptureBundle.manifest.assets[0];
+    expect(asset).toMatchObject({ state: 'not-attempted', mediaType: 'image/png' });
+    expect(context.rawCaptureBundle.manifest.completeness.assets).toBe('not-attempted');
+    await expect(planChatGptActivePngAsset(context, [asset.id])).resolves.toEqual(
+      expect.objectContaining({ assetId: asset.id })
+    );
+  });
+
+  it('counts a fetched required PNG plus an explicit policy decline as complete', async () => {
+    const captured = await capture(syntheticRaw(2));
+    const context = captured.assetExportContext!;
+    const [declinedOriginal, original] = context.rawCaptureBundle.manifest.assets;
+    const declined = {
+      ...declinedOriginal,
+      state: 'declined' as const,
+      detail: 'explicit-policy-skipped',
+    };
     const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1]);
     const sha256 = activeDigest(bytes);
     const fetched = {
@@ -528,9 +472,7 @@ describe('active PNG destination-honest pipeline', () => {
     };
     const final = await buildChatGptBinaryAwareArchiveCompanion(
       context,
-      context.rawCaptureBundle.manifest.assets.map(record =>
-        record.id === original.id ? fetched : record
-      ),
+      [declined, fetched],
       [{ record: fetched, bytes }]
     );
     const manifest = parseArtifact<RawCaptureManifest>(final, 'manifest');
@@ -545,7 +487,7 @@ describe('active PNG destination-honest pipeline', () => {
     const declined = context.rawCaptureBundle.manifest.assets.map(record => ({
       ...record,
       state: 'declined' as const,
-      detail: CHATGPT_DERIVED_DOCUMENT_PREVIEW_DETAIL,
+      detail: 'explicit-policy-skipped',
     }));
     const final = await buildChatGptBinaryAwareArchiveCompanion(context, declined, []);
     expect(parseArtifact<RawCaptureManifest>(final, 'manifest').completeness.assets).toBe(

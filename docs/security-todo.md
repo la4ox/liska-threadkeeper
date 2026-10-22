@@ -6,7 +6,7 @@ reconciled with source and verification evidence.
 
 ## Current checkpoint
 
-The first fix wave covered six statically confirmed findings:
+The first fix wave covered seven statically confirmed findings:
 
 - collision-safe code fences and literal citation titles across ChatGPT DOM,
   Perplexity, NotebookLM, and Deep Research;
@@ -18,6 +18,9 @@ The first fix wave covered six statically confirmed findings:
   companion creation;
 - DeepSeek signed-path redaction across punctuation, encoded query keys, and
   Markdown character-reference spellings.
+- fail-safe ChatGPT attachment inventory: provider-shaped role/MIME/filename
+  metadata cannot silently turn an unproven PNG into a policy-declined asset or
+  falsely complete the ledger.
 
 Source finding IDs:
 
@@ -27,6 +30,7 @@ Source finding IDs:
 - `commit:4aba4e52d3f8819182681100d1fe1368`
 - `commit:2387521a87f48191a526e99985492f83`
 - `commit:6c0253bdf58c8191bd85f1e507823ec0`
+- `commit:7f599e3e531481918b44b12cc641daed`
 
 Pull request 11 merged as `6e9098a`. Continuous scans completed successfully
 for its newly reachable commits; the security-fix commits `1509bfc` and
@@ -34,8 +38,13 @@ for its newly reachable commits; the security-fix commits `1509bfc` and
 These scans are diff-scoped, not a repository-wide proof. Historical occurrence
 rows remain separate records until explicitly reconciled and closed.
 
-Current follow-up validation: 150 test files / 4,114 tests; 95.17% statements,
-90.73% branches, 98.42% functions, and 97.65% lines; production build, exact ZIP
+The first six findings above are closed as fixed in Security Cloud. The seventh
+is fixed and independently reviewed on the current local branch, but remains
+open in Cloud until this patch is published; local evidence must not be
+presented as a remotely reachable fix.
+
+Current follow-up validation: 150 test files / 4,057 tests; 95.15% statements,
+90.70% branches, 98.42% functions, and 97.64% lines; production build and ZIP
 reconciliation, formatting, platform-registry lint and source lint pass with
 only the same three pre-existing advisory warnings. A dated fresh `npm audit`
 reports zero known vulnerabilities.

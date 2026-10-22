@@ -12,7 +12,6 @@ import { hasOwn, isPlainRecord, pointerAt } from './privacy';
  */
 export const CHATGPT_ASSET_INVENTORY_WARNING = 'chatgpt-asset-inventory-unavailable';
 export const CHATGPT_ASSET_INVENTORY_DETAIL = 'raw-inventory-not-attempted';
-export const CHATGPT_DERIVED_DOCUMENT_PREVIEW_DETAIL = 'derived-document-preview-policy-skipped';
 
 const ASSET_TYPES = new Set([
   'attachment',
@@ -60,10 +59,6 @@ const KNOWN_MIME_TYPES = new Set([
 const MAX_IDENTITY_LENGTH = 8_192;
 const MAX_CONTENT_DEPTH = 64;
 const MAX_DISCOVERED_ASSETS = 50_000;
-const POLICY_PROVIDER_ID = /^[A-Za-z0-9._-]{1,512}$/;
-const POLICY_POINTER_ID = /^(?:file-service|sediment):(?:\/\/)?([A-Za-z0-9._-]{1,512})$/;
-const DERIVED_DOCUMENT_PREVIEW_NAME =
-  /^user-[A-Za-z0-9_-]{1,128}\/[a-f0-9]{32}\/mnt\/data\/liska_(?:pdf|docx)_render\/page-[1-9][0-9]{0,5}\.png$/;
 
 export interface ChatGptAssetInventoryInput {
   /** Parsed bytes from an integrity-verified ChatGPT raw artifact. */
@@ -89,8 +84,6 @@ interface Candidate {
   identity: string;
   mediaType: string | null;
   sourceRef: { artifactId: string; rawPointer: string };
-  derivedDocumentPreview: boolean;
-  policyProviderKeys: string[];
 }
 
 interface DiscoveredAsset {
@@ -98,8 +91,6 @@ interface DiscoveredAsset {
   mediaType: string | null;
   sourceRefs: Array<{ artifactId: string; rawPointer: string }>;
   sourceRefKeys: Set<string>;
-  derivedDocumentPreview: boolean;
-  policyProviderKeys: Set<string>;
 }
 
 const HASH_BATCH_SIZE = 16;
@@ -119,11 +110,7 @@ export async function inventoryChatGptRawAssets(
     if (typeof input.sha256 !== 'function') throw new Error();
     const candidates = collectCandidates(input.raw, input.artifactId);
     const assets = await recordsForCandidates(candidates, input.sha256);
-    const completeness =
-      assets.length > 0 && assets.every(asset => asset.state === 'declined')
-        ? 'complete'
-        : 'not-attempted';
-    return { assets, completeness, warnings: [] };
+    return { assets, completeness: 'not-attempted', warnings: [] };
   } catch {
     return {
       assets: [],
@@ -200,8 +187,7 @@ function scanMessage(
         value,
         pointerAt(pointer, 'metadata', field, String(index)),
         artifactId,
-        candidates,
-        field === 'attachments' && isDerivedDocumentPreview(message, value)
+        candidates
       );
     });
   }
@@ -279,16 +265,13 @@ function pushCandidate(
   record: JsonRecord,
   rawPointer: string,
   artifactId: string,
-  candidates: Candidate[],
-  derivedDocumentPreview = false
+  candidates: Candidate[]
 ): void {
   pushIdentityCandidate(
     assetIdentity(record, rawPointer),
     knownMimeType(record),
     { artifactId, rawPointer },
-    candidates,
-    derivedDocumentPreview,
-    policyProviderKeys(record)
+    candidates
   );
 }
 
@@ -296,42 +279,16 @@ function pushIdentityCandidate(
   identity: string,
   mediaType: string | null,
   sourceRef: Candidate['sourceRef'],
-  candidates: Candidate[],
-  derivedDocumentPreview = false,
-  policyProviderKeys: string[] = []
+  candidates: Candidate[]
 ): void {
   if (candidates.length >= MAX_DISCOVERED_ASSETS) throw new Error();
-  candidates.push({ identity, mediaType, sourceRef, derivedDocumentPreview, policyProviderKeys });
+  candidates.push({ identity, mediaType, sourceRef });
 }
 
-/** Policy evidence is narrower than inventory identity and never changes it. */
+/** Read plain data fields without invoking provider-controlled accessors. */
 function ownDataValue(record: JsonRecord, field: string): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(record, field);
   return descriptor && 'value' in descriptor ? descriptor.value : undefined;
-}
-
-function isDerivedDocumentPreview(message: JsonRecord, record: JsonRecord): boolean {
-  const author = ownDataValue(message, 'author');
-  const name = ownDataValue(record, 'name');
-  return (
-    isPlainRecord(author) &&
-    ownDataValue(author, 'role') === 'tool' &&
-    knownMimeType(record) === 'image/png' &&
-    typeof name === 'string' &&
-    DERIVED_DOCUMENT_PREVIEW_NAME.exec(name)?.[0] === name
-  );
-}
-
-function policyProviderKeys(record: JsonRecord): string[] {
-  const keys = new Set<string>();
-  for (const field of ID_FIELDS) {
-    const value = ownDataValue(record, field);
-    if (typeof value === 'string' && POLICY_PROVIDER_ID.exec(value)?.[0] === value) keys.add(value);
-  }
-  const pointer = ownDataValue(record, 'asset_pointer');
-  const match = typeof pointer === 'string' ? POLICY_POINTER_ID.exec(pointer) : null;
-  if (match?.[1] && match[0] === pointer) keys.add(match[1]);
-  return [...keys];
 }
 
 function assetIdentity(record: JsonRecord, rawPointer: string): string {
@@ -396,13 +353,9 @@ function deduplicateCandidates(candidates: Candidate[]): DiscoveredAsset[] {
         mediaType: candidate.mediaType,
         sourceRefs: [candidate.sourceRef],
         sourceRefKeys: new Set([sourceRefKey(candidate.sourceRef)]),
-        derivedDocumentPreview: candidate.derivedDocumentPreview,
-        policyProviderKeys: new Set(candidate.policyProviderKeys),
       });
       continue;
     }
-    existing.derivedDocumentPreview &&= candidate.derivedDocumentPreview;
-    for (const key of candidate.policyProviderKeys) existing.policyProviderKeys.add(key);
     if (existing.mediaType === null) existing.mediaType = candidate.mediaType;
     if (
       candidate.mediaType !== null &&
@@ -417,40 +370,9 @@ function deduplicateCandidates(candidates: Candidate[]): DiscoveredAsset[] {
       existing.sourceRefKeys.add(key);
     }
   }
-  const assets = [...discovered.values()];
-  cancelConnectedPreviewPolicies(assets);
-  return assets.sort((left, right) => compareStrings(left.identity, right.identity));
-}
-
-/**
- * Propagate ordinary evidence across provider-key components without merging
- * records or provenance. Each asset is queued at most once and each key's
- * adjacency list is visited once, keeping policy propagation linear at the
- * bounded 50k inventory limit.
- */
-function cancelConnectedPreviewPolicies(assets: DiscoveredAsset[]): void {
-  const byProvider = new Map<string, DiscoveredAsset[]>();
-  const pending: DiscoveredAsset[] = [];
-  for (const asset of assets) {
-    if (!asset.derivedDocumentPreview) pending.push(asset);
-    for (const key of asset.policyProviderKeys) {
-      const aliases = byProvider.get(key) ?? [];
-      aliases.push(asset);
-      byProvider.set(key, aliases);
-    }
-  }
-  const visitedKeys = new Set<string>();
-  for (let index = 0; index < pending.length; index += 1) {
-    for (const key of pending[index].policyProviderKeys) {
-      if (visitedKeys.has(key)) continue;
-      visitedKeys.add(key);
-      for (const alias of byProvider.get(key) ?? []) {
-        if (!alias.derivedDocumentPreview) continue;
-        alias.derivedDocumentPreview = false;
-        pending.push(alias);
-      }
-    }
-  }
+  return [...discovered.values()].sort((left, right) =>
+    compareStrings(left.identity, right.identity)
+  );
 }
 
 function sourceRefKey(sourceRef: Candidate['sourceRef']): string {
@@ -465,15 +387,13 @@ async function recordForDiscoveredAsset(
   if (!id) throw new Error();
   return {
     id,
-    state: asset.derivedDocumentPreview ? 'declined' : 'not-attempted',
+    state: 'not-attempted',
     attemptedAt: null,
     relativePath: null,
     mediaType: asset.mediaType,
     byteLength: null,
     sha256: null,
-    detail: asset.derivedDocumentPreview
-      ? CHATGPT_DERIVED_DOCUMENT_PREVIEW_DETAIL
-      : CHATGPT_ASSET_INVENTORY_DETAIL,
+    detail: CHATGPT_ASSET_INVENTORY_DETAIL,
     sourceRefs: [...asset.sourceRefs].sort(compareSourceRefs),
   };
 }

@@ -286,30 +286,26 @@ inventing expiry for the other three. The current 51,741-byte PDF also remained
 fetched. Downloads and Obsidian each retained five byte-identical archive files
 plus byte-identical Markdown; all temporary tabs closed.
 
-Structural reconciliation showed that the three failed records were not
-independent chat images: they were tool-role `metadata.attachments` named as
-`liska_pdf_render/page-N.png` or `liska_docx_render/page-N.png`, transient page
-previews derived from source documents. Inventory now classifies only the exact
-bounded provider path grammar as policy `declined` with fixed detail
-`derived-document-preview-policy-skipped`. Raw bytes, opaque IDs and every exact
-sourceRef remain unchanged. Ordinary evidence for any provider-key alias cancels
-the policy across the entire connected component; no identities or provenance
-are merged. Similar paths, user/assistant content, metadata files, MIME
-mismatches, traversal/encoding/control variants and malformed prefixes remain
-ordinary assets. Policy-declined records cannot enter interpreter, active,
-passive or binary acquisition, and metadata-only declined records are accepted
-at the initial JSON companion boundary only with null attempt/path/byte/hash
-claims. Completeness ignores declined policy assets while preserving empty and
-unknown ledger semantics.
+Structural reconciliation showed that three failed records had tool-role
+`metadata.attachments` names shaped as `liska_pdf_render/page-N.png` or
+`liska_docx_render/page-N.png`, consistent with transient document previews in
+that historical sample. The first policy marked the exact role/MIME/name shape
+`declined`, but it had no affirmative source-document relationship. A later
+security reconciliation removed that filename-derived exclusion: role, MIME,
+name, adjacency and provider-key aliases cannot by themselves authorize binary
+omission. Such PNGs now remain ordinary `not-attempted` records, retain opaque
+identity and every exact sourceRef, and stay eligible for the existing bounded
+resolver/acquisition paths. This can spend an existing PNG slot on a historical
+thumbnail but does not expand attempts, bytes, retries or endpoints. Generic
+explicit `declined` records remain supported downstream for a user decision or
+a future policy with structural proof.
 
-The post-policy historical canary retained six assets as three `declined`, two
-`fetched` (the real PNG and PDF), and one genuine `not-attempted` old document.
-Only the real PNG was selected: `selected=1/4`, `dispatched-known=1`,
-`observed=1`, with every failure bucket zero. Canonical retained all three fixed
-reasons and sourceRefs with no local artifact claims. Downloads and Obsidian
-again held five byte-identical archive files plus byte-identical Markdown; no
-temporary tab remained. The old source document's HTTP 404, not its discarded
-page thumbnail, is the remaining evidence of loss.
+The old canary that retained three previews as `declined`, two assets as
+`fetched`, and one document as `not-attempted` remains historical evidence of
+the retired heuristic. Current regression evidence instead uses an isolated
+preview-shaped PNG with no source document: inventory reports
+`not-attempted`, completeness remains honest, and active planning accepts the
+asset. Raw and canonical losslessness continue to be the repair authority.
 
 The fresh canary selected its two eligible PNG identities and fetched both:
 1,474,502 and 1,429,642 bytes, each a verified 1122-by-1402 PNG. The first hash

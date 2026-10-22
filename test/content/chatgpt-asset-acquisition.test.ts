@@ -114,7 +114,7 @@ describe('ChatGPT page-owned asset acquisition', () => {
       const declined = {
         ...ledger(),
         state: 'declined' as const,
-        detail: 'derived-document-preview-policy-skipped',
+        detail: 'explicit-policy-skipped',
       };
       const fetcher = vi.fn<typeof fetch>();
       const result = await acquireChatGptPageOwnedAssets({
