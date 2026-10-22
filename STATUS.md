@@ -420,15 +420,16 @@ Temporary screenshots, browser-History copy and both canary builds were removed;
 captures remain append-only.
 
 Final exact-tree validation for the combined Library slice passes all 153 test
-files / 4,288 tests. Coverage is 95.24% statements, 91.00% branches, 98.46%
+files / 4,292 tests. Coverage is 95.23% statements, 90.99% branches, 98.47%
 functions and 97.72% lines. TypeScript, the production build, source/platform
 lint and repository formatting pass; lint retains the same three pre-existing
-warnings. The package has 29 of 29 files byte-identical to `dist`, is 228,104
+warnings. The package has 29 of 29 files byte-identical to `dist`, is 228,231
 bytes and has SHA-256
-`0314a8a6fd043c971879dedb140f3e0c791384a80e07ac73318f2d7122fa5d39`.
+`c18d0af1ac2e7a37286d8e83222ba628557fb5379e1e21a4aa044cf07eafcd2c`.
 Independent review found and closed the merged-ledger interpreter-precedence
 and pointer-alias ambiguity defects, including interpreter ownership on a
-separate alias record; its final pass found no remaining P0-P2.
+separate alias record. GitHub review then exposed and closed nested-envelope
+pointer and owner-selection gaps; the final pass found no remaining P0-P2.
 
 Exact-tree validation for this offline Library checkpoint passes all 152 test
 files / 4,216 tests. Coverage is 95.20% statements, 90.93% branches, 98.45%

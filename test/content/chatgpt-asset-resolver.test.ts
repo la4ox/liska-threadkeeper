@@ -101,6 +101,45 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ).toEqual([]);
     });
 
+    it('supports the canonical nested conversation envelope and reads its owner guard', () => {
+      const { raw, record } = libraryFixture();
+      const nestedRecord = {
+        ...record,
+        sourceRefs: record.sourceRefs.map(ref => ({
+          ...ref,
+          rawPointer: `/conversation${ref.rawPointer}`,
+        })),
+      };
+      expect(
+        extractChatGptLibraryJpegPlan({ conversation: raw }, [nestedRecord], [nestedRecord.id])
+      ).toEqual({ assetId: nestedRecord.id, providerFileId: 'file_library_direct' });
+      expect(
+        extractChatGptLibraryJpegPlan(
+          { conversation: { ...raw, project_id: 'private-project' } },
+          [nestedRecord],
+          [nestedRecord.id]
+        )
+      ).toBeUndefined();
+    });
+
+    it('selects owner context from the same unambiguous graph envelope as inventory', () => {
+      const { raw, record } = libraryFixture();
+      expect(
+        extractChatGptLibraryJpegPlan(
+          { ...raw, project_id: 'private-project', conversation: {} },
+          [record],
+          [record.id]
+        )
+      ).toBeUndefined();
+      expect(
+        extractChatGptLibraryJpegPlan(
+          { ...raw, conversation: { mapping: {} } },
+          [record],
+          [record.id]
+        )
+      ).toBeUndefined();
+    });
+
     it.each([
       { id: undefined },
       { id: undefined, asset_pointer: 'file-service://file_library_direct' },
@@ -1104,6 +1143,40 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ).resolves.toEqual(plan);
     });
 
+    it('matches assistant sandbox links inside the supported nested conversation envelope', async () => {
+      const raw = {
+        conversation: {
+          mapping: {
+            node: {
+              message: {
+                id: 'assistant-message',
+                author: { role: 'assistant' },
+                content: {
+                  content_type: 'text',
+                  parts: ['[document](sandbox:/mnt/data/nested.docx)'],
+                },
+              },
+            },
+          },
+        },
+      };
+      const inventory = await inventoryChatGptRawAssets({
+        raw,
+        artifactId: 'conversation',
+        sha256: digest,
+      });
+
+      await expect(
+        extractChatGptInterpreterAssetPlan(raw, inventory.assets, digest)
+      ).resolves.toEqual([
+        {
+          assetId: inventory.assets[0].id,
+          messageId: 'assistant-message',
+          sandboxPath: '/mnt/data/nested.docx',
+        },
+      ]);
+    });
+
     it('rejects a matching opaque ledger ID when its source link is inside indented code', async () => {
       const messageId = 'assistant-message';
       const sandboxPath = '/mnt/data/private.txt';
@@ -1173,6 +1246,36 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       expect(plan[0]).not.toHaveProperty('downloadUrl');
       expect(plan[0]).not.toHaveProperty('headers');
       expect(plan[0]).not.toHaveProperty('body');
+    });
+
+    it('extracts metadata attachments inside the supported nested conversation envelope', async () => {
+      const metadata = asset(
+        'a',
+        '/conversation/mapping/node~1current/message/metadata/attachments/0'
+      );
+      await expect(
+        extractChatGptInterpreterAssetPlan(
+          {
+            conversation: {
+              mapping: {
+                'node/current': {
+                  message: {
+                    id: 'message_123',
+                    metadata: { attachments: [{ name: '/mnt/data/nested.txt' }] },
+                  },
+                },
+              },
+            },
+          },
+          [metadata]
+        )
+      ).resolves.toEqual([
+        {
+          assetId: metadata.id,
+          messageId: 'message_123',
+          sandboxPath: '/mnt/data/nested.txt',
+        },
+      ]);
     });
 
     it('ignores incidental sandbox-looking strings and first-slice content parts', async () => {

@@ -132,6 +132,7 @@ function atJsonPointer(raw: unknown, pointer: string): unknown {
 
 interface ChatGptInterpreterAttachmentPointer {
   nodeSegment: string;
+  conversationPointer: '' | '/conversation';
 }
 
 interface ChatGptInterpreterAttachmentEvidence {
@@ -141,6 +142,25 @@ interface ChatGptInterpreterAttachmentEvidence {
 
 interface ChatGptInterpreterAssistantTextPartPointer {
   nodeSegment: string;
+  conversationPointer: '' | '/conversation';
+}
+
+function conversationMappingPointer(
+  segments: readonly string[],
+  rootLength: number
+): { offset: 0 | 1; conversationPointer: '' | '/conversation' } | undefined {
+  if (segments[0] !== '') return undefined;
+  if (segments.length === rootLength && segments[1] === 'mapping') {
+    return { offset: 0, conversationPointer: '' };
+  }
+  if (
+    segments.length === rootLength + 1 &&
+    segments[1] === 'conversation' &&
+    segments[2] === 'mapping'
+  ) {
+    return { offset: 1, conversationPointer: '/conversation' };
+  }
+  return undefined;
 }
 
 function interpreterAttachmentPointer(
@@ -155,20 +175,22 @@ function interpreterAttachmentPointer(
     return undefined;
   }
   const segments = pointer.split('/');
+  const location = conversationMappingPointer(segments, 7);
   if (
-    segments.length !== 7 ||
-    segments[0] !== '' ||
-    segments[1] !== 'mapping' ||
-    segments[3] !== 'message' ||
-    segments[4] !== 'metadata' ||
-    segments[5] !== 'attachments' ||
-    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6])
+    location === undefined ||
+    segments[3 + location.offset] !== 'message' ||
+    segments[4 + location.offset] !== 'metadata' ||
+    segments[5 + location.offset] !== 'attachments' ||
+    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6 + location.offset])
   ) {
     return undefined;
   }
-  const node = decodePointerSegment(segments[2]);
+  const node = decodePointerSegment(segments[2 + location.offset]);
   if (node === undefined || node.length === 0 || hasControlCharacters(node)) return undefined;
-  return { nodeSegment: segments[2] };
+  return {
+    nodeSegment: segments[2 + location.offset],
+    conversationPointer: location.conversationPointer,
+  };
 }
 
 function interpreterAttachmentEvidence(
@@ -181,7 +203,10 @@ function interpreterAttachmentEvidence(
   if (!isPlainRecord(attachment) || !Object.prototype.hasOwnProperty.call(attachment, 'name'))
     return undefined;
   if (!isChatGptInterpreterSandboxPath(attachment.name)) return undefined;
-  const messageId = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message/id`);
+  const messageId = atJsonPointer(
+    raw,
+    `${location.conversationPointer}/mapping/${location.nodeSegment}/message/id`
+  );
   if (!isChatGptInterpreterMessageId(messageId)) return undefined;
   return { messageId, sandboxPath: attachment.name };
 }
@@ -198,20 +223,22 @@ function interpreterAssistantTextPartPointer(
     return undefined;
   }
   const segments = pointer.split('/');
+  const location = conversationMappingPointer(segments, 7);
   if (
-    segments.length !== 7 ||
-    segments[0] !== '' ||
-    segments[1] !== 'mapping' ||
-    segments[3] !== 'message' ||
-    segments[4] !== 'content' ||
-    segments[5] !== 'parts' ||
-    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6])
+    location === undefined ||
+    segments[3 + location.offset] !== 'message' ||
+    segments[4 + location.offset] !== 'content' ||
+    segments[5 + location.offset] !== 'parts' ||
+    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6 + location.offset])
   ) {
     return undefined;
   }
-  const node = decodePointerSegment(segments[2]);
+  const node = decodePointerSegment(segments[2 + location.offset]);
   if (node === undefined || node.length === 0 || hasControlCharacters(node)) return undefined;
-  return { nodeSegment: segments[2] };
+  return {
+    nodeSegment: segments[2 + location.offset],
+    conversationPointer: location.conversationPointer,
+  };
 }
 
 /**
@@ -231,7 +258,10 @@ async function buildInterpreterSandboxEvidenceIndex(
   const location = interpreterAssistantTextPartPointer(rawPointer);
   if (!location) return index;
   const part = atJsonPointer(raw, rawPointer as string);
-  const message = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message`);
+  const message = atJsonPointer(
+    raw,
+    `${location.conversationPointer}/mapping/${location.nodeSegment}/message`
+  );
   if (
     typeof part !== 'string' ||
     !isPlainRecord(message) ||
@@ -528,6 +558,12 @@ export function classifyChatGptLibraryAssets(
 /** Library admission does not establish custom-GPT, project, or template ownership. */
 function hasUnsupportedLibraryOwnerContext(raw: unknown): boolean {
   if (!isPlainRecord(raw)) return true;
+  const rootGraph = isPlainRecord(raw.mapping);
+  const nested = raw.conversation;
+  const nestedGraph = isPlainRecord(nested) && isPlainRecord(nested.mapping);
+  if (rootGraph === nestedGraph) return true;
+  const conversation = rootGraph ? raw : nested;
+  if (!isPlainRecord(conversation)) return true;
   return [
     'gizmo_id',
     'gizmoId',
@@ -536,7 +572,7 @@ function hasUnsupportedLibraryOwnerContext(raw: unknown): boolean {
     'conversation_template_id',
     'conversationTemplateId',
   ].some(field => {
-    const value = raw[field];
+    const value = conversation[field];
     return value !== undefined && value !== null && value !== '';
   });
 }
