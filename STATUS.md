@@ -317,36 +317,39 @@ matches the earlier one-PNG canary; the second had previously remained
 `not-attempted`. Raw/manifest/canonical plus both binaries and Markdown were
 byte-identical between Downloads and Obsidian, with no leftover marker tab.
 
-Fresh exact-tree validation:
+Fresh exact-tree validation on `codex/upstream-2.14.9-audit`:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 150 test files / 4,029 tests pass;
+- 150 test files / 4,114 tests pass;
 - coverage passes at 95.17% statements, 90.73% branches, 98.42% functions, and
-  97.78% lines;
-- TypeScript and the production Vite build pass;
-- full lint has zero errors and only the same three pre-existing advisory
-  warnings; platform registry lint and repository formatting pass;
-- independent review reproduced and then invalidated three resolver-boundary
-  defects: duplicate direct/pointer fetching, invalid-direct pointer fallback,
-  and the same fallback in shared passive/metric evidence. Whole-ledger
-  precedence plus per-family fail-closed direct-ID validation now cover all
-  three. Batch review additionally reproduced and closed a validation/use
-  mismatch caused by caller-owned iteration. Derived-preview review additionally
-  closed transitive alias-cancellation and empty-ledger completeness defects;
-  final review reports no residual P0-P3 finding.
+  97.65% lines;
+- TypeScript, the production Vite build, extension ZIP packaging, source lint,
+  platform-registry lint and repository formatting pass; lint retains only the
+  same three pre-existing advisory warnings;
+- the ZIP contains exactly the same 29 files as `dist`; every hash matches and
+  both English and Japanese locale files are present;
+- a clean `npm ci` is reproducible and the dated registry `npm audit` result is
+  zero known vulnerabilities after the compatible toolchain refresh and removal
+  of the single-purpose static-copy plugin;
+- independent review reproduced and closed Perplexity mixed-layout ownership,
+  duplicate-role, title-order and nested-prose defects; no residual material
+  source finding remains in the reviewed upstream-port diff.
 
-The first repository-security fix wave now closes six confirmed source paths:
-collision-safe Markdown code/citation rendering; bounded linear sandbox-link
-parsing; indexed canonical asset provenance; linear shared and ChatGPT graph
-symmetry checks; a post-raw DeepSeek graph limit; and punctuation/entity-aware
-DeepSeek capability redaction. Independent review reproduced escaped-backtick,
-fenced-container, and Markdown character-reference bypasses before their final
-regressions passed. Security Cloud state has not been mutated or treated as
-closed yet.
+Pull request 11 merged to `main` as `6e9098a`. Continuous Security Cloud scans
+completed successfully for every newly reachable commit; the fix commits
+`1509bfc` and `e676428` and the final source-head commit `493df81` each produced
+zero new findings. These are diff-scoped commit scans, not a repository-wide
+proof of absence. Older finding occurrences have not been silently treated as
+closed and remain a separate reconciliation task.
 
-Next: push the two verified security commits to pull request 11, reconcile CI
-and its security review, then continue from
-[`docs/security-todo.md`](docs/security-todo.md). That plan includes the
-remaining repository findings and a narrow latest-upstream audit of provider and
-shared blocks Liska has not substantially changed. Product work then returns to
-the JPEG evidence checkpoint in [`docs/chatgpt-todo.md`](docs/chatgpt-todo.md).
+The upstream `v2.7.13` → `v2.14.9` audit is retained in
+[`docs/upstream-2.14.9-audit.md`](docs/upstream-2.14.9-audit.md). This branch now
+adapts the Perplexity rollout fixes, strict popup settings reads, a length-aware
+append reader, and compatible dependency/build-chain updates. Claude current
+DOM, ChatGPT DOM fallback, typed truncation guards, Gemini completeness/title
+and the exact Google image redirect permission remain explicit later slices.
+
+Next: perform one authenticated Perplexity canary before calling the selector
+port live-verified, then choose between the small Gemini-title/redirect slices
+and the larger Claude/truncation work. Publishing this new branch or opening a
+pull request remains an explicit external action.

@@ -28,11 +28,17 @@ Source finding IDs:
 - `commit:2387521a87f48191a526e99985492f83`
 - `commit:6c0253bdf58c8191bd85f1e507823ec0`
 
-Verification at this checkpoint: 150 test files / 4,029 tests; 95.17%
-statements, 90.73% branches, 98.42% functions, and 97.78% lines; production
-build, formatting, platform registry lint, and source lint pass with only the
-same three pre-existing advisory warnings. Independent review found and closed
-escaped-backtick, fenced-container, and Markdown character-reference bypasses.
+Pull request 11 merged as `6e9098a`. Continuous scans completed successfully
+for its newly reachable commits; the security-fix commits `1509bfc` and
+`e676428` and final source-head commit `493df81` returned zero new findings.
+These scans are diff-scoped, not a repository-wide proof. Historical occurrence
+rows remain separate records until explicitly reconciled and closed.
+
+Current follow-up validation: 150 test files / 4,114 tests; 95.17% statements,
+90.73% branches, 98.42% functions, and 97.65% lines; production build, exact ZIP
+reconciliation, formatting, platform-registry lint and source lint pass with
+only the same three pre-existing advisory warnings. A dated fresh `npm audit`
+reports zero known vulnerabilities.
 
 ## Remaining finding triage
 
@@ -54,8 +60,9 @@ silence a cloud finding merely because a nearby path changed.
 
 ## Upstream delta audit
 
-Fetch the latest `sho7650/obsidian-AI-exporter` `main` and compare it with the
-fork without merging wholesale.
+The first source audit is complete in
+[`upstream-2.14.9-audit.md`](upstream-2.14.9-audit.md). It compares upstream
+`v2.7.13` through `v2.14.9` without merging wholesale.
 
 - Inspect provider blocks that Liska has changed least: Perplexity,
   Gemini/NotebookLM, Claude, common Markdown conversion, storage/Obsidian, UI,
@@ -69,14 +76,13 @@ fork without merging wholesale.
 
 ## Reconciliation sequence
 
-1. Push the verified fix commits to the existing pull request.
-2. Let CI and the PR security review evaluate the new head.
-3. Re-list Security Cloud findings and classify fixed, current, duplicate, or
-   hardening-only items by exact source path and observed revision.
-4. Close a finding only after the corresponding current-head invariant and
+1. Re-list historical Security Cloud findings and classify fixed, current,
+   duplicate, or hardening-only items against the zero-finding final scan.
+2. Close a finding only after the corresponding current-head invariant and
    verification evidence are explicit.
-5. Perform the upstream delta audit before returning to untouched provider
-   feature work.
+3. Continue the evidence-gated ports recorded in the completed upstream audit.
+4. Send each later provider/security slice through its own focused pull request
+   and final-main continuous scan.
 
 ## Exit criteria
 
