@@ -210,7 +210,8 @@ describe('ChatGPT page-owned asset resolver matching', () => {
 
     it.each([
       { id: 'file_library_direct' },
-      { asset_pointer: 'file-service://file_library_direct' },
+      { id: 42, asset_pointer: 'sediment://file_library_direct' },
+      { id: 'file_other', asset_pointer: 'file-service://file_library_direct' },
       { id: 'unsupported/value', asset_pointer: 'sediment://file_library_direct' },
       { id: 'file_other', file_id: 'file_library_direct' },
       { id: 'file_library_direct', library_file_id: 'another-library' },
@@ -229,6 +230,24 @@ describe('ChatGPT page-owned asset resolver matching', () => {
         }
       }
     );
+
+    it('allows a weaker pointer-only ledger alias while selecting the exact Library direct ID', () => {
+      const { raw, record } = libraryFixture();
+      const alias = { ...asset('b', '/pointer-alias'), mediaType: null };
+      const withAlias = {
+        ...raw,
+        'pointer-alias': { asset_pointer: 'sediment://file_library_direct' },
+      };
+      for (const assets of [
+        [record, alias],
+        [alias, record],
+      ]) {
+        expect(extractChatGptLibraryJpegPlan(withAlias, assets, [record.id])).toEqual({
+          assetId: record.id,
+          providerFileId: 'file_library_direct',
+        });
+      }
+    });
 
     it('selects only one Library JPEG deterministically, without treating shared Library ID as a direct collision', () => {
       const { raw, record } = libraryFixture();

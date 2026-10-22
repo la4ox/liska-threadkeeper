@@ -612,10 +612,20 @@ function libraryProviderIdentityCollides(
     if (asset === selected || !asset || !Array.isArray(asset.sourceRefs)) return false;
     return asset.sourceRefs.some(ref => {
       if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') return false;
-      return denyOnlyProviderIdentityFacts(
-        atJsonPointer(raw, ref.rawPointer),
-        isChatGptActiveResolverProviderFileId
-      ).denyIdentities.includes(providerFileId);
+      const value = atJsonPointer(raw, ref.rawPointer);
+      if (!isRecord(value)) return false;
+      const facts = denyOnlyProviderIdentityFacts(value, isChatGptActiveResolverProviderFileId);
+      if (facts.hardBlock && facts.denyIdentities.includes(providerFileId)) return true;
+      const direct = libraryDirectProviderFileIds(value);
+      const pointer =
+        typeof value.asset_pointer === 'string'
+          ? POINTER_FILE_ID_PATTERN.exec(value.asset_pointer)?.[1]
+          : undefined;
+      if (direct === undefined) return pointer === providerFileId;
+      if (direct.has(providerFileId)) return true;
+      // The sole admissible sibling is a literal pointer-only alias. Any
+      // nonempty direct field, even for another valid ID, makes it conflicting.
+      return pointer === providerFileId && direct.size > 0;
     });
   });
 }
