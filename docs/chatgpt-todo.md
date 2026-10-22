@@ -15,8 +15,8 @@ The minimum useful ChatGPT path is live-verified:
 - Canvas and loss-aware canonical blocks;
 - current DOCX/PDF interpreter attachments;
 - bounded sequential PNG acquisition, including historical assets;
-- policy-declined document-render previews that retain provenance without being
-  misreported as missing user images.
+- preview-shaped records retained with provenance and ordinary eligibility
+  unless a future structural relationship proves a narrower asset family.
 
 Every new slice must preserve raw bytes, append-only capture history, explicit
 terminal states, and the existing no-credential-export boundary.
@@ -25,8 +25,11 @@ terminal states, and the existing no-credential-export boundary.
 
 ### 1. Ordinary image families
 
-- Add evidence-gated support for `image/jpeg`, then GIF/WebP where live raw shapes
-  and helper behavior actually match supported routes.
+- Add evidence-gated active support for `image/jpeg`, then GIF/WebP where live
+  raw shapes and helper behavior actually match supported routes.
+- JPEG is live-verified and enabled for the ordinary route. Explicit Library-ID
+  evidence fails closed before active and passive winner selection, and
+  PNG/JPEG bytes receive bounded structural validation before hashing.
 - Keep derived previews and ordinary images distinct before resolver dispatch.
 - Preserve original bytes; do not introduce compression as an archival default.
 - Live gate: fresh and historical examples, exact PNG/JPEG signatures,
@@ -134,7 +137,8 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Start with the existing fresh ordinary-chat fixture containing unresolved JPEG
-ledger records. Determine its structural source shapes and whether the proven
-ordinary image helper returns original JPEG bytes. Do not widen MIME eligibility
-before that evidence.
+Checkpoint the live-verified ordinary JPEG slice in its own pull request. Then
+classify real GIF/WebP raw records and helper responses without widening the
+allowlist; admit each MIME only after exact signatures, animation/container
+structure, length/SHA-256/path reconciliation, byte-identical Downloads and
+Obsidian copies, and explicit historical/unavailable behavior are proven.

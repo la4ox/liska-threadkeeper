@@ -58,7 +58,7 @@ import { requestChatGptConversationCapture } from './chatgpt-request';
 import {
   extractChatGptInterpreterAssetPlan,
   extractChatGptActiveResolverPlan,
-  extractChatGptActivePngPlan,
+  extractChatGptActiveImagePlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
@@ -829,7 +829,7 @@ export async function observeChatGptActiveAssetResolvers(
 }
 
 /** Exact committed-raw sourceRefs only; whole-ledger ambiguity is resolved before eligibility. */
-export async function planChatGptActivePngAsset(
+export async function planChatGptActiveImageAsset(
   context: ChatGptAssetExportContext,
   eligibleAssetIds: readonly string[]
 ): Promise<ChatGptActiveAssetPlanItem | undefined> {
@@ -839,7 +839,7 @@ export async function planChatGptActivePngAsset(
   const interpreterIds = new Set(
     (await extractChatGptInterpreterAssetPlan(raw, assets)).map(item => item.assetId)
   );
-  return extractChatGptActivePngPlan(
+  return extractChatGptActiveImagePlan(
     raw,
     assets,
     eligibleAssetIds.filter(assetId => !interpreterIds.has(assetId))
@@ -859,12 +859,12 @@ export async function planChatGptInterpreterAssetIds(
   ).map(item => item.assetId);
 }
 
-export async function resolveChatGptActivePngAsset(
+export async function resolveChatGptActiveImageAsset(
   context: ChatGptAssetExportContext,
   item: ChatGptActiveAssetPlanItem
 ): Promise<ChatGptActiveAssetResponse> {
   try {
-    const verified = await planChatGptActivePngAsset(context, [item.assetId]);
+    const verified = await planChatGptActiveImageAsset(context, [item.assetId]);
     if (
       !verified ||
       verified.assetId !== item.assetId ||

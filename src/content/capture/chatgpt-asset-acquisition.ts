@@ -23,6 +23,7 @@ import {
 import { MAX_STAGED_BINARY_ASSET_BYTES } from '../../lib/constants';
 import { sha256Hex } from '../../lib/sha256';
 import type { ChatGptPageOwnedAssetCandidate } from './chatgpt-asset-resolver';
+import { validateChatGptImageBytes } from './chatgpt-image-validation';
 
 const MAX_PAGE_OWNED_ASSET_ATTEMPTS = 20;
 const MAX_PAGE_OWNED_ASSET_BYTES_TOTAL = 128 * 1024 * 1024;
@@ -276,6 +277,15 @@ async function fetchOne(
       };
     }
     const { bytes } = read;
+    if (
+      (mediaType === 'image/png' || mediaType === 'image/jpeg') &&
+      !validateChatGptImageBytes(bytes, mediaType).ok
+    ) {
+      return {
+        record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
+        byteCost: read.byteCost,
+      };
+    }
     const extension = binaryAssetExtension(mediaType);
     let sha256: string;
     try {

@@ -48,10 +48,13 @@ describe('ChatGPT active resolver durable audit', () => {
     const attempts = [metric];
     Object.setPrototypeOf(attempts, prototype);
     const expected = chatGptActiveResolverAuditWarning({
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: [completeMetric()],
     });
-    const warning = chatGptActiveResolverAuditWarning({ acquisitionMode: 'png-batch-4', attempts });
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'image-batch-4',
+      attempts,
+    });
     expect(warning).toBe(expected);
     expect(warning).not.toContain('private-');
     expect(iterator).not.toHaveBeenCalled();
@@ -67,10 +70,10 @@ describe('ChatGPT active resolver durable audit', () => {
       if (location === 'counts') metric.outcomeCounts = new Proxy(metric.outcomeCounts!, { get });
       const attempt = location === 'metric' ? new Proxy(metric, { get }) : metric;
       const attempts = location === 'attempts' ? new Proxy([attempt], { get }) : [attempt];
-      const audit = { acquisitionMode: 'png-batch-4' as const, attempts };
+      const audit = { acquisitionMode: 'image-batch-4' as const, attempts };
       const input = location === 'audit' ? new Proxy(audit, { get }) : audit;
       const expected = chatGptActiveResolverAuditWarning({
-        acquisitionMode: 'png-batch-4',
+        acquisitionMode: 'image-batch-4',
         attempts: [completeMetric()],
       });
       expect(chatGptActiveResolverAuditWarning(input)).toBe(expected);
@@ -106,9 +109,9 @@ describe('ChatGPT active resolver durable audit', () => {
     metric.outcomeCounts = once(metric.outcomeCounts!, 'counts');
     const sharedMetric = once(metric, 'metric');
     const attempts = once([sharedMetric, sharedMetric], 'attempts');
-    const audit = once({ acquisitionMode: 'png-batch-4' as const, attempts }, 'audit');
+    const audit = once({ acquisitionMode: 'image-batch-4' as const, attempts }, 'audit');
     const expected = chatGptActiveResolverAuditWarning({
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: [completeMetric(), completeMetric()],
     });
     const warning = chatGptActiveResolverAuditWarning(audit);
@@ -126,7 +129,7 @@ describe('ChatGPT active resolver durable audit', () => {
     notDispatched.outcomeCounts!.observed = 0;
     notDispatched.outcomeCounts!['not-dispatched'] = 1;
     const warning = chatGptActiveResolverAuditWarning({
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: [
         completeMetric(),
         notDispatched,
@@ -140,20 +143,20 @@ describe('ChatGPT active resolver durable audit', () => {
     expect(warning).toContain('outcomes=observed:1,http-error:0,');
     expect(warning).toContain('not-dispatched:1;');
     expect(warning).toContain('run-failures=resolver-result-invalid:1,source-http-error:1;');
-    expect(warning).toContain('acquisition is limited to four sequential PNGs.');
+    expect(warning).toContain('acquisition is limited to four sequential PNG/JPEG images.');
     expect(warning).not.toContain(ATTEMPTED_AT);
   });
 
   it('represents a completed batch with no run failures explicitly', () => {
     expect(
       chatGptActiveResolverAuditWarning({
-        acquisitionMode: 'png-batch-4',
+        acquisitionMode: 'image-batch-4',
         attempts: [completeMetric()],
       })
     ).toContain('selected=1/4; completed=1; dispatched-known=1; dispatch-unknown=0; observed=1;');
     expect(
       chatGptActiveResolverAuditWarning({
-        acquisitionMode: 'png-batch-4',
+        acquisitionMode: 'image-batch-4',
         attempts: [completeMetric()],
       })
     ).toContain('run-failures=none;');
@@ -161,7 +164,7 @@ describe('ChatGPT active resolver durable audit', () => {
 
   it('counts repeated unknown-dispatch failures without inventing completed outcomes', () => {
     const warning = chatGptActiveResolverAuditWarning({
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: Array.from({ length: 4 }, () =>
         chatGptActiveResolverFailureMetric(1, 'resolver-result-timeout')
       ),
@@ -178,7 +181,7 @@ describe('ChatGPT active resolver durable audit', () => {
     location => {
       const metric = completeMetric();
       const attempts = [metric];
-      const audit = { acquisitionMode: 'png-batch-4' as const, attempts };
+      const audit = { acquisitionMode: 'image-batch-4' as const, attempts };
       const accessor = {
         get: () => {
           throw new Error('private getter must not execute');
@@ -197,25 +200,39 @@ describe('ChatGPT active resolver durable audit', () => {
   );
 
   it.each([
-    { acquisitionMode: 'png-batch-4', attempts: [] },
-    { acquisitionMode: 'png-batch-4', attempts: Array.from({ length: 5 }, completeMetric) },
-    { acquisitionMode: 'png-batch-4', attempts: [{ ...completeMetric(), requestedCount: 0 }] },
+    { acquisitionMode: 'png-batch-4', attempts: [completeMetric()] },
+    { acquisitionMode: 'image-batch-4', attempts: [] },
+    { acquisitionMode: 'image-batch-4', attempts: Array.from({ length: 5 }, completeMetric) },
+    { acquisitionMode: 'image-batch-4', attempts: [{ ...completeMetric(), requestedCount: 0 }] },
     {
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: [{ ...completeMetric(), acquisitionMode: 'one-png' }],
     },
     {
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: [{ ...completeMetric(), acquisitionMode: undefined }],
     },
     {
-      acquisitionMode: 'png-batch-4',
+      acquisitionMode: 'image-batch-4',
       attempts: [{ ...completeMetric(), attemptedAt: ATTEMPTED_AT }],
     },
-    { acquisitionMode: 'png-batch-4', attempts: [{ ...completeMetric(), outcomeCounts: null }] },
-    { acquisitionMode: 'png-batch-4', attempts: new Array(1) },
-    { acquisitionMode: 'png-batch-4', attempts: [completeMetric()], providerFileId: 'private' },
-    { acquisitionMode: 'png-batch-4', attempts: [completeMetric()], requestedCount: 1 },
+    { acquisitionMode: 'image-batch-4', attempts: [{ ...completeMetric(), outcomeCounts: null }] },
+    { acquisitionMode: 'image-batch-4', attempts: new Array(1) },
+    { acquisitionMode: 'image-batch-4', attempts: [completeMetric()], providerFileId: 'private' },
+    {
+      acquisitionMode: 'image-batch-4',
+      attempts: [completeMetric()],
+      downloadUrl: 'https://private',
+    },
+    {
+      acquisitionMode: 'image-batch-4',
+      attempts: [{ ...completeMetric(), providerFileId: 'private' }],
+    },
+    {
+      acquisitionMode: 'image-batch-4',
+      attempts: [{ ...completeMetric(), downloadUrl: 'https://private' }],
+    },
+    { acquisitionMode: 'image-batch-4', attempts: [completeMetric()], requestedCount: 1 },
   ])('rejects a non-exact or unsafe content batch %#', audit => {
     expect(() => chatGptActiveResolverAuditWarning(audit as ChatGptActiveResolverAudit)).toThrow(
       'invalid active resolver metric'
