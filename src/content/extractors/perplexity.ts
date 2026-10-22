@@ -20,6 +20,21 @@ import type { CitationTransformResult } from './footnotes';
 
 import { SELECTORS } from './selectors/perplexity';
 
+// Layout-specific detection stays outside the live selector contract: old
+// placeholders/query spans no longer appear on current pages, and a collapsed
+// Deep Research card has no report body until the user opens its preview.
+const LEGACY_MARKDOWN_CONTENT: readonly string[] = ['div[id^="markdown-content-"]'];
+const LEGACY_USER_QUERY: readonly string[] = ['span.select-text'];
+const USER_QUERY_ANY_LAYOUT: readonly string[] = [...SELECTORS.userQuery, ...LEGACY_USER_QUERY];
+
+// The report's outer prose wraps its own inline answer prose under both the
+// old inline card and the open preview layout. Card styling is not a stable
+// anchor, and matching the wrapper also lets us exclude nested answer prose.
+const DEEP_RESEARCH_PROSE: readonly string[] = [
+  '.prose.max-w-none',
+  '.prose.dark\\:prose-invert.max-w-none',
+];
+
 // ========== Citation transformation (issue #291) ==========
 //
 // Perplexity renders inline source citations as "pill" spans:
@@ -205,7 +220,7 @@ export class PerplexityExtractor extends BaseExtractor {
   getTitle(): string {
     return (
       this.getPageTitle() ??
-      this.getFirstMessageTitle(SELECTORS.userQuery, 'Untitled Perplexity Conversation')
+      this.getFirstMessageTitle(USER_QUERY_ANY_LAYOUT, 'Untitled Perplexity Conversation')
     );
   }
 
@@ -286,18 +301,41 @@ export class PerplexityExtractor extends BaseExtractor {
       tagged.push({ type: 'user', element: el });
     }
 
-    for (const el of this.queryAllWithFallback<HTMLElement>(SELECTORS.markdownContent)) {
+    // Transitional markup can carry a legacy span inside the renderer-backed
+    // query already collected above. Keep the old layout without duplicating it.
+    for (const el of this.queryAllWithFallback<HTMLElement>(LEGACY_USER_QUERY)) {
+      if (this.isInside(el, SELECTORS.userQuery)) continue;
+      tagged.push({ type: 'user', element: el });
+    }
+
+    for (const el of this.queryAllWithFallback<HTMLElement>(LEGACY_MARKDOWN_CONTENT)) {
       tagged.push({ type: 'response', element: el });
     }
 
-    for (const card of this.queryAllWithFallback<HTMLElement>(SELECTORS.deepResearchCard)) {
-      const proseEl = this.queryWithFallback<HTMLElement>(SELECTORS.deepResearchProse, card);
-      if (proseEl) {
-        tagged.push({ type: 'report', element: card });
-      }
+    // New answers render beside an empty placeholder, or without one at all.
+    // Old-layout answers and a report's nested inline prose already have owners.
+    for (const prose of this.queryAllWithFallback<HTMLElement>(SELECTORS.answerProse)) {
+      if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) continue;
+      if (this.isInside(prose, DEEP_RESEARCH_PROSE)) continue;
+      tagged.push({ type: 'response', element: prose });
+    }
+
+    for (const prose of this.queryAllWithFallback<HTMLElement>(DEEP_RESEARCH_PROSE)) {
+      tagged.push({ type: 'report', element: prose });
     }
 
     return tagged;
+  }
+
+  /** True when `el` matches or sits inside any of the given selectors. */
+  private isInside(el: HTMLElement, selectors: readonly string[]): boolean {
+    return selectors.some(selector => {
+      try {
+        return el.closest(selector) !== null;
+      } catch {
+        return false;
+      }
+    });
   }
 
   /**
@@ -335,23 +373,17 @@ export class PerplexityExtractor extends BaseExtractor {
   }
 
   /**
-   * Extract Deep Research report content from a report card element
+   * Extract Deep Research report content from its outer prose element
    *
-   * The report card contains prose with max-w-none, and potentially
-   * an inner prose element with the actual content. Citations are
-   * converted to footnotes the same way as normal answers.
+   * Both inline cards and opened preview panels wrap the actual content in
+   * max-w-none prose. Prefer the inner prose when present. Citations use the
+   * same footnote transformation as normal answers.
    */
-  private extractReportContent(card: HTMLElement, messageIndex: number): string {
-    const proseEl = this.queryWithFallback<HTMLElement>(SELECTORS.deepResearchProse, card);
-    if (proseEl) {
-      const innerProse = this.queryWithFallback<HTMLElement>(SELECTORS.proseContent, proseEl);
-      const targetEl = innerProse ?? proseEl;
-      const content = this.toSanitizedHtmlWithFootnotes(targetEl.innerHTML, messageIndex);
-      if (content.trim()) {
-        return content;
-      }
-    }
-    return '';
+  private extractReportContent(reportProse: HTMLElement, messageIndex: number): string {
+    const innerProse = this.queryWithFallback<HTMLElement>(SELECTORS.proseContent, reportProse);
+    const targetEl = innerProse ?? reportProse;
+    const content = this.toSanitizedHtmlWithFootnotes(targetEl.innerHTML, messageIndex);
+    return content.trim() ? content : '';
   }
 
   /**

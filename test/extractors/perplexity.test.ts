@@ -179,6 +179,175 @@ describe('PerplexityExtractor', () => {
     });
   });
 
+  // Regressions adapted from upstream #450/#464/#518. These synthetic shapes
+  // cover concurrent rollouts without relying on a signed-in browser session.
+  describe('Layout rollouts: answer prose, reports, and renderer-backed queries', () => {
+    const ANSWER_PROSE_CLASS =
+      'prose dark:prose-invert inline leading-relaxed break-words min-w-0 [word-break:break-word]';
+
+    const legacyQuery = (text: string): string => `
+      <div class="bg-subtle rounded-2xl"><span class="select-text">${text}</span></div>
+    `;
+
+    const answer = (html: string): string => `
+      <div class="contents"><div class="break-words min-w-0 flex-1">
+        <div><div class="${ANSWER_PROSE_CLASS}" data-renderer="lm">${html}</div></div>
+      </div></div>
+    `;
+
+    const rendererQuery = (html: string, semanticBubble = true): string => `
+      <div class="${semanticBubble ? 'group/user-bubble ' : ''}flex min-w-0 justify-end">
+        <div class="min-w-0 max-w-[600px] bg-subtle px-4 py-3 rounded-2xl">
+          <div class="max-h-[144px] overflow-hidden">
+            <div><div data-renderer="lm">${html}</div></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const collapsedReport = `
+      <div class="bg-raised rounded-xl border border-subtlest">
+        <button><span>A Deep Research Report</span><span>Deep research report</span></button>
+      </div>
+    `;
+
+    beforeEach(() => {
+      setPerplexityLocation('layout-rollout');
+    });
+
+    it('extracts sibling answer prose beside an empty placeholder with citation footnotes', async () => {
+      const citation = createPerplexityPillCitation('https://source.example/article', 'source');
+      loadFixture(`
+        ${legacyQuery('question')}
+        <div class="relative font-sans text-base"><div id="markdown-content-0"></div></div>
+        ${answer(`<p>answer outside the placeholder.${citation}</p>`)}
+      `);
+
+      const result = await extractor.extract();
+      const messages = result.data!.messages;
+
+      expect(result.success).toBe(true);
+      expect(result.warnings ?? []).not.toContain('No assistant messages found');
+      expect(messages.map(m => m.role)).toEqual(['user', 'assistant']);
+      expect(messages[1].content).toContain('answer outside the placeholder');
+      expect(messages[1].content).toContain('data-footnote-ref="m1-1"');
+      expect(messages[1].content).toContain('[^m1-1]: [source](https://source.example/article)');
+      expect(messages[1].content).not.toContain('source+1');
+    });
+
+    it('keeps multi-turn order and IDs when placeholders have been removed', () => {
+      loadFixture(
+        legacyQuery('first question') +
+          answer('<p>first answer</p>') +
+          legacyQuery('second question') +
+          answer('<p>second answer</p>')
+      );
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0', 'user-1', 'assistant-1']);
+      expect(messages.map(m => m.index)).toEqual([0, 1, 2, 3]);
+      expect(messages[1].content).toContain('first answer');
+      expect(messages[3].content).toContain('second answer');
+      expect(extractor.getTitle()).toBe('first question');
+    });
+
+    it('does not double-count old-layout prose inside a placeholder', () => {
+      loadFixture(`
+        ${legacyQuery('old question')}
+        <div id="markdown-content-0">
+          <div class="has-inline-images"><div>${answer('<p>only answer</p>')}</div></div>
+        </div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[1].content.match(/only answer/g)).toHaveLength(1);
+    });
+
+    it.each(['renamed inline card', 'opened preview panel'])(
+      'extracts a %s report once without also counting its nested inline prose',
+      layout => {
+        const reportProse = `
+          <div class="relative prose dark:prose-invert max-w-none p-6">
+            <div class="@container/artifact-comment"><div>
+              ${answer('<h1>Executive summary</h1><p>full report body</p>')}
+            </div></div>
+          </div>
+        `;
+        const report =
+          layout === 'renamed inline card'
+            ? `<div class="bg-raised rounded-xl">${reportProse}</div>`
+            : `<div class="scrollbar-subtle overflow-auto">${reportProse}</div>`;
+        loadFixture(legacyQuery('research this') + answer('<p>summary</p>') + report);
+
+        const messages = extractor.extractMessages();
+
+        expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0', 'report-0']);
+        expect(messages[2].role).toBe('assistant');
+        expect(messages[2].content).toContain('Executive summary');
+        expect(messages[2].content.match(/full report body/g)).toHaveLength(1);
+      }
+    );
+
+    it('keeps the inline summary without inventing body text for a collapsed report', () => {
+      loadFixture(legacyQuery('research this') + collapsedReport + answer('<p>summary</p>'));
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[1].content).toContain('summary');
+      expect(messages[1].content).not.toContain('Deep Research Report');
+      expect(messages[1].content).not.toContain('Deep research report');
+    });
+
+    it.each([true, false])(
+      'extracts and titles renderer-backed user bubbles (semantic anchor: %s)',
+      semanticBubble => {
+        loadFixture(
+          rendererQuery('<p>first question</p>', semanticBubble) +
+            answer('<p>first answer</p>') +
+            rendererQuery('<p>second question</p>', semanticBubble) +
+            answer('<p>second answer</p>')
+        );
+
+        const messages = extractor.extractMessages();
+
+        expect(messages.map(m => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+        expect(messages[0].content).toBe('first question');
+        expect(messages[2].content).toBe('second question');
+        expect(extractor.getTitle()).toBe('first question');
+      }
+    );
+
+    it('reads a clipped renderer query fully and counts a transitional legacy span once', () => {
+      const query = `<p><span class="select-text">first line</span></p><p>${'long prompt '.repeat(30)}last line</p>`;
+      loadFixture(rendererQuery(query) + answer('<p>answer</p>'));
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0']);
+      expect(messages[0].content).toContain('first line');
+      expect(messages[0].content).toContain('last line');
+    });
+
+    it('preserves DOM order when legacy and renderer-backed queries coexist', () => {
+      loadFixture(
+        legacyQuery('legacy question') +
+          answer('<p>legacy answer</p>') +
+          rendererQuery('<p>current question</p>') +
+          answer('<p>current answer</p>')
+      );
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(m => m.id)).toEqual(['user-0', 'assistant-0', 'user-1', 'assistant-1']);
+      expect(messages[0].content).toBe('legacy question');
+      expect(messages[2].content).toBe('current question');
+    });
+  });
+
   // ========== Citation Handling (issue #291) ==========
   //
   // Perplexity renders inline citations as "pill" spans carrying the source

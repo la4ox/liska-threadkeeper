@@ -9,16 +9,11 @@ import type { SelectorGroup } from './types';
 
 export const SELECTORS = {
   // User query text
-  // 2026-07: the bubble class bg-offset became bg-subtle; the group/query
-  // ancestor is the stabler anchor
+  // 2026-09: queries are markdown-rendered inside a semantic user bubble.
+  // Legacy select-text spans remain private detection selectors in perplexity.ts.
   userQuery: [
-    'span.select-text', // Semantic (HIGH)
-    'div[class~="group/query"] span.select-text', // Query container (MEDIUM)
-  ],
-
-  // Assistant response content container
-  markdownContent: [
-    'div[id^="markdown-content-"]', // ID pattern (HIGH)
+    '[class*="group/user-bubble"] [data-renderer="lm"]', // Semantic bubble + renderer (HIGH)
+    'div.bg-subtle.rounded-2xl [data-renderer="lm"]', // Styled bubble + renderer (MEDIUM)
   ],
 
   // Prose content within response
@@ -27,19 +22,14 @@ export const SELECTORS = {
     '.prose', // Fallback (LOW)
   ],
 
-  // Deep Research report card container. Matches generic raised panels too;
-  // the extractor only tags a card as a report when deepResearchProse is
-  // found inside it (perplexity.ts collectTaggedElements).
-  // 2026-07: the border-borderMain token disappeared site-wide (removed
-  // under the zero-match baseline contract).
-  deepResearchCard: [
-    'div.bg-raised.rounded-lg', // Style (HIGH)
-  ],
-
-  // Prose content within a Deep Research report card (max-w-none distinguishes it)
-  deepResearchProse: [
-    '.prose.max-w-none', // Specific to report (HIGH)
-    '.prose.dark\\:prose-invert.max-w-none', // Full match (MEDIUM)
+  // Answers now mount beside an empty markdown-content placeholder or without
+  // one. Legacy placeholders remain private detection selectors in perplexity.ts.
+  // `inline` narrows the match, but reports also nest inline prose: the extractor
+  // excludes anything inside the report's max-w-none wrapper to avoid duplicates.
+  answerProse: [
+    '.prose.dark\\:prose-invert.inline', // Answer block (HIGH)
+    '.prose.inline', // Without the theme class (MEDIUM)
+    '.prose[data-renderer="lm"]', // Renderer hook, added 2026-08 (LOW)
   ],
 
   // Inline citation pill carrying the source URL (issue #291).
