@@ -208,14 +208,17 @@ function interpreterAssistantTextPartPointer(
  * derived from a link rendered by that same assistant message node. This never
  * scans unrelated raw strings or nested tool/code data.
  */
-async function interpreterSandboxLinkEvidence(
+type InterpreterSandboxEvidenceIndex = Map<string, ChatGptInterpreterAttachmentEvidence[]>;
+type InterpreterSandboxEvidenceCache = Map<string, Promise<InterpreterSandboxEvidenceIndex>>;
+
+async function buildInterpreterSandboxEvidenceIndex(
   raw: unknown,
   rawPointer: unknown,
-  assetId: string,
   assetIdForIdentity: (identity: string) => Promise<string | undefined>
-): Promise<ChatGptInterpreterAttachmentEvidence[]> {
+): Promise<InterpreterSandboxEvidenceIndex> {
+  const index: InterpreterSandboxEvidenceIndex = new Map();
   const location = interpreterAssistantTextPartPointer(rawPointer);
-  if (!location) return [];
+  if (!location) return index;
   const part = atJsonPointer(raw, rawPointer as string);
   const message = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message`);
   if (
@@ -228,16 +231,32 @@ async function interpreterSandboxLinkEvidence(
     !Array.isArray(message.content.parts) ||
     !isChatGptInterpreterMessageId(message.id)
   ) {
-    return [];
+    return index;
   }
-  const matches: ChatGptInterpreterAttachmentEvidence[] = [];
   for (const link of chatGptSandboxLinksFromAssistantTextPart(message.id, part)) {
     const expectedAssetId = await assetIdForIdentity(link.identity);
-    if (expectedAssetId === assetId) {
-      matches.push({ messageId: link.messageId, sandboxPath: link.sandboxPath });
-    }
+    if (!expectedAssetId) continue;
+    const matches = index.get(expectedAssetId) ?? [];
+    matches.push({ messageId: link.messageId, sandboxPath: link.sandboxPath });
+    index.set(expectedAssetId, matches);
   }
-  return matches;
+  return index;
+}
+
+async function interpreterSandboxLinkEvidence(
+  raw: unknown,
+  rawPointer: unknown,
+  assetId: string,
+  assetIdForIdentity: (identity: string) => Promise<string | undefined>,
+  cache: InterpreterSandboxEvidenceCache
+): Promise<ChatGptInterpreterAttachmentEvidence[]> {
+  if (typeof rawPointer !== 'string') return [];
+  let pending = cache.get(rawPointer);
+  if (!pending) {
+    pending = buildInterpreterSandboxEvidenceIndex(raw, rawPointer, assetIdForIdentity);
+    cache.set(rawPointer, pending);
+  }
+  return (await pending).get(assetId) ?? [];
 }
 
 function sourceRefsSortKey(value: unknown): string {
@@ -270,7 +289,8 @@ function compareInterpreterAssets(
 async function interpreterEvidenceForAsset(
   raw: unknown,
   asset: RawCaptureAssetRecord,
-  assetIdForIdentity: (identity: string) => Promise<string | undefined>
+  assetIdForIdentity: (identity: string) => Promise<string | undefined>,
+  sandboxEvidenceCache: InterpreterSandboxEvidenceCache
 ): Promise<Map<string, ChatGptInterpreterAttachmentEvidence>> {
   const candidates = new Map<string, ChatGptInterpreterAttachmentEvidence>();
   for (const sourceRef of asset.sourceRefs) {
@@ -283,7 +303,8 @@ async function interpreterEvidenceForAsset(
       raw,
       sourceRef.rawPointer,
       asset.id,
-      assetIdForIdentity
+      assetIdForIdentity,
+      sandboxEvidenceCache
     )) {
       candidates.set(`${sandboxLink.messageId}\u0000${sandboxLink.sandboxPath}`, sandboxLink);
     }
@@ -305,6 +326,7 @@ export async function extractChatGptInterpreterAssetPlan(
   const selectedPairs = new Set<string>();
   const selected: ChatGptInterpreterAssetCandidate[] = [];
   const sandboxAssetIds = new Map<string, Promise<string | undefined>>();
+  const sandboxEvidenceCache: InterpreterSandboxEvidenceCache = new Map();
   const assetIdForIdentity = (identity: string): Promise<string | undefined> => {
     const existing = sandboxAssetIds.get(identity);
     if (existing) return existing;
@@ -317,7 +339,12 @@ export async function extractChatGptInterpreterAssetPlan(
     if (!asset || typeof asset !== 'object' || !isSafeStagedBinaryAssetId(asset.id)) continue;
     if (asset.state !== 'not-attempted') continue;
     if (!Array.isArray(asset.sourceRefs)) continue;
-    const candidates = await interpreterEvidenceForAsset(raw, asset, assetIdForIdentity);
+    const candidates = await interpreterEvidenceForAsset(
+      raw,
+      asset,
+      assetIdForIdentity,
+      sandboxEvidenceCache
+    );
     if (candidates.size !== 1) continue;
     const evidence = candidates.values().next().value;
     if (!evidence) continue;

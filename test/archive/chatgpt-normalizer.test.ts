@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildCaptureManifest,
   type RawCaptureBundle,
@@ -179,6 +179,43 @@ describe('ChatGPT raw-byte normalizer', () => {
     expect(archive.graph.nodes['node/current'].message?.sourceRefs[0].rawPointer).toBe(
       '/mapping/node~1current/message'
     );
+  });
+
+  it('normalizes wide parent-child links without repeated array membership scans', async () => {
+    const childCount = 2_000;
+    const raw = rawClone();
+    const rootId = 'wide-root';
+    const childIds = Array.from({ length: childCount }, (_, index) => `wide-child-${index}`);
+    raw.current_node = childIds[childIds.length - 1];
+    raw.mapping = {
+      [rootId]: { id: rootId, parent: null, children: childIds, message: null },
+      ...Object.fromEntries(
+        childIds.map(childId => [
+          childId,
+          { id: childId, parent: rootId, children: [], message: null },
+        ])
+      ),
+    };
+
+    const originalIncludes = Array.prototype.includes;
+    let wideArrayScans = 0;
+    const includesSpy = vi.spyOn(Array.prototype, 'includes').mockImplementation(function (
+      this: unknown[],
+      searchElement: unknown,
+      fromIndex?: number
+    ) {
+      if (this.length === childCount) wideArrayScans += 1;
+      return originalIncludes.call(this, searchElement, fromIndex);
+    });
+    try {
+      const { archive } = await normalize(raw, {
+        manifest: captureManifest(bytesFor(raw), { assets: [] }),
+      });
+      expect(Object.keys(archive.graph.nodes)).toHaveLength(childCount + 1);
+    } finally {
+      includesSpy.mockRestore();
+    }
+    expect(wideArrayScans).toBe(0);
   });
 
   it('validates a deeply linear graph without consuming the JavaScript call stack', async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import schema from '../../src/archive/schema/liska-thread-1.schema.json';
 import {
   ArchiveTraversalError,
@@ -78,6 +78,58 @@ describe('liska-thread/1 archive core', () => {
       'attachment',
       'unknown',
     ]);
+  });
+
+  it('validates a wide graph without repeated linear parent-child membership scans', () => {
+    const childCount = 2_000;
+    const candidate = cloneFixture(archive);
+    const rootId = 'wide-root';
+    const childIds = Array.from({ length: childCount }, (_, index) => `wide-child-${index}`);
+    candidate.graph = {
+      rootIds: [rootId],
+      nodes: {
+        [rootId]: {
+          id: rootId,
+          parentId: null,
+          childIds,
+          sourceRefs: [sourceRef],
+          extensions: {},
+        },
+        ...Object.fromEntries(
+          childIds.map(childId => [
+            childId,
+            {
+              id: childId,
+              parentId: rootId,
+              childIds: [],
+              sourceRefs: [sourceRef],
+              extensions: {},
+            },
+          ])
+        ),
+      },
+    };
+    candidate.conversation.currentNodeId = childIds[childIds.length - 1];
+
+    const originalIncludes = Array.prototype.includes;
+    let wideArrayScans = 0;
+    const includesSpy = vi.spyOn(Array.prototype, 'includes').mockImplementation(function (
+      this: unknown[],
+      searchElement: unknown,
+      fromIndex?: number
+    ) {
+      if (this.length === childCount) wideArrayScans += 1;
+      return originalIncludes.call(this, searchElement, fromIndex);
+    });
+    let result;
+    try {
+      result = validateLiskaThreadArchive(candidate);
+    } finally {
+      includesSpy.mockRestore();
+    }
+
+    expect(result).toEqual({ valid: true, issues: [] });
+    expect(wideArrayScans).toBe(0);
   });
 
   it('retains an attachment manifest and an unknown provider block without flattening either', () => {

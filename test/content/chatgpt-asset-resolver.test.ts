@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import type { RawCaptureAssetRecord } from '../../src/archive/capture';
 import { inventoryChatGptRawAssets } from '../../src/archive/normalizers/chatgpt/inventory';
 import {
+  CHATGPT_SANDBOX_LINK_IDENTITY_LIMIT,
   chatGptAssetIdForIdentity,
   chatGptSandboxLinkIdentity,
+  chatGptSandboxLinksFromAssistantTextPart,
 } from '../../src/archive/chatgpt-sandbox-link';
 import {
   CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
@@ -58,6 +60,58 @@ function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
 }
 
 describe('ChatGPT page-owned asset resolver matching', () => {
+  describe('bounded sandbox-link parsing', () => {
+    it('handles dense unmatched link openers without inventing evidence', () => {
+      expect(chatGptSandboxLinksFromAssistantTextPart('message-1', '['.repeat(100_000))).toEqual(
+        []
+      );
+    });
+
+    it('fails explicitly before retaining an unbounded number of unique links', () => {
+      const markdown = Array.from(
+        { length: CHATGPT_SANDBOX_LINK_IDENTITY_LIMIT + 1 },
+        (_, index) => `[file-${index}](sandbox:/mnt/data/file-${index}.txt)`
+      ).join(' ');
+
+      expect(() => chatGptSandboxLinksFromAssistantTextPart('message-1', markdown)).toThrow(
+        RangeError
+      );
+    });
+
+    it('keeps code masking and ordinary link discovery deterministic at scale', () => {
+      const code = Array.from(
+        { length: 2_000 },
+        (_, index) => `\`[ignored-${index}](sandbox:/mnt/data/ignored-${index}.txt)\``
+      ).join(' ');
+      const visible = '[report](sandbox:/mnt/data/report.txt)';
+
+      expect(chatGptSandboxLinksFromAssistantTextPart('message-1', `${code} ${visible}`)).toEqual([
+        {
+          messageId: 'message-1',
+          sandboxPath: '/mnt/data/report.txt',
+          identity: 'sandbox-link:message-1\u0000/mnt/data/report.txt',
+        },
+      ]);
+    });
+
+    it('masks quoted fenced-code examples without letting another container close the fence', () => {
+      const quoted =
+        '> ~~~\n> [hidden](sandbox:/mnt/data/hidden.txt)\n> ~~~\n\n[visible](sandbox:/mnt/data/visible.txt)';
+      const topLevel =
+        '~~~\n> ~~~\n[hidden](sandbox:/mnt/data/hidden.txt)\n~~~\n[visible](sandbox:/mnt/data/visible.txt)';
+
+      for (const markdown of [quoted, topLevel]) {
+        expect(chatGptSandboxLinksFromAssistantTextPart('message-1', markdown)).toEqual([
+          {
+            messageId: 'message-1',
+            sandboxPath: '/mnt/data/visible.txt',
+            identity: 'sandbox-link:message-1\u0000/mnt/data/visible.txt',
+          },
+        ]);
+      }
+    });
+  });
+
   it('keeps declined direct evidence in whole-ledger matching so a weaker eligible alias is not promoted', async () => {
     const raw = {
       direct: { file_id: 'file_one' },

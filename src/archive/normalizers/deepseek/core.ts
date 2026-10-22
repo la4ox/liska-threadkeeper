@@ -49,6 +49,8 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const ENVELOPE_POINTER = '/data/biz_data';
 const SESSION_POINTER = `${ENVELOPE_POINTER}/chat_session`;
 const MESSAGES_POINTER = `${ENVELOPE_POINTER}/chat_messages`;
+/** Preserves verified raw evidence while bounding synchronous graph materialization. */
+const MAX_DEEPSEEK_GRAPH_NODES = 20_000;
 const KNOWN_FRAGMENT_TYPES = new Set(['REQUEST', 'RESPONSE', 'TEMPLATE_RESPONSE', 'THINK', 'FILE']);
 const MAPPED_MESSAGE_FIELDS = new Set([
   'message_id',
@@ -442,6 +444,12 @@ function normalizeGraph(
   envelope: DeepSeekEnvelope,
   context: NormalizationContext
 ): { rootIds: string[]; nodes: LiskaThreadArchive['graph']['nodes']; currentNodeId: string } {
+  if (envelope.messages.length > MAX_DEEPSEEK_GRAPH_NODES) {
+    deepSeekFail(
+      'graph-node-limit-exceeded',
+      `DeepSeek graph exceeds the ${MAX_DEEPSEEK_GRAPH_NODES}-node normalization limit.`
+    );
+  }
   const parsed: ParsedMessage[] = [];
   const byId = new Map<string, ParsedMessage>();
   envelope.messages.forEach((value, index) => {

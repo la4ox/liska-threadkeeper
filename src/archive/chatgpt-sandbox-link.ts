@@ -4,11 +4,15 @@
  * publishing an asset record.
  */
 
+import { markdownBlockquotePrefix } from '../lib/markdown-syntax';
+
 const CHATGPT_ASSET_ID_DOMAIN = 'liska-chatgpt-asset/1\u0000';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-const MARKDOWN_SANDBOX_LINK = /\[([^\]\r\n]*)\]\((sandbox:[^\s()<>{}]+)\)/gu;
+const MARKDOWN_SANDBOX_LINK = /\[([^\u005b\u005d\r\n]*)\]\((sandbox:[^\s()<>{}]+)\)/gu;
 const MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const SANDBOX_PATH_PREFIX = '/mnt/data/';
+export const CHATGPT_SANDBOX_CODE_RANGE_LIMIT = 8_192;
+export const CHATGPT_SANDBOX_LINK_IDENTITY_LIMIT = 4_096;
 
 export function isChatGptInterpreterMessageId(value: unknown): value is string {
   return typeof value === 'string' && MESSAGE_ID_PATTERN.test(value);
@@ -50,6 +54,16 @@ export interface ChatGptSandboxLinkIdentity {
 
 export type ChatGptAssetIdentityDigest = (bytes: Uint8Array) => Promise<string>;
 
+function retainSandboxLinkIdentity(
+  identities: Map<string, ChatGptSandboxLinkIdentity>,
+  value: ChatGptSandboxLinkIdentity
+): void {
+  if (!identities.has(value.identity) && identities.size >= CHATGPT_SANDBOX_LINK_IDENTITY_LIMIT) {
+    throw new RangeError('ChatGPT sandbox-link identity limit exceeded.');
+  }
+  identities.set(value.identity, value);
+}
+
 function isEscaped(source: string, index: number): boolean {
   let slashCount = 0;
   for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor -= 1) {
@@ -61,6 +75,13 @@ function isEscaped(source: string, index: number): boolean {
 interface MarkdownCodeRange {
   start: number;
   end: number;
+}
+
+function pushCodeRange(ranges: MarkdownCodeRange[], range: MarkdownCodeRange): void {
+  if (ranges.length >= CHATGPT_SANDBOX_CODE_RANGE_LIMIT) {
+    throw new RangeError('ChatGPT sandbox-link code-range limit exceeded.');
+  }
+  ranges.push(range);
 }
 
 function repeatedCharacterLength(source: string, index: number, character: string): number {
@@ -93,21 +114,33 @@ function markdownCodeRanges(source: string): MarkdownCodeRange[] {
   let fenceStart: number | undefined;
   let fenceCharacter = '';
   let fenceLength = 0;
+  let fenceBlockquoteDepth = 0;
   let inlineStart: number | undefined;
   let inlineLength = 0;
   let cursor = 0;
   while (cursor < source.length) {
     const atLineStart = cursor === 0 || source[cursor - 1] === '\n';
     if (atLineStart && inlineStart === undefined) {
+      const currentLineEnd = lineEnd(source, cursor);
+      const line = source.slice(cursor, currentLineEnd);
+      const blockquote = markdownBlockquotePrefix(line);
+      const contentStart = cursor + blockquote.length;
+      if (fenceStart !== undefined && blockquote.depth < fenceBlockquoteDepth) {
+        pushCodeRange(ranges, { start: fenceStart, end: cursor });
+        fenceStart = undefined;
+        fenceCharacter = '';
+        fenceLength = 0;
+        fenceBlockquoteDepth = 0;
+      }
       const indentedEnd =
-        fenceStart === undefined ? indentedCodeLineEnd(source, cursor) : undefined;
+        fenceStart === undefined ? indentedCodeLineEnd(source, contentStart) : undefined;
       if (indentedEnd !== undefined) {
-        ranges.push({ start: cursor, end: indentedEnd });
+        pushCodeRange(ranges, { start: cursor, end: indentedEnd });
         cursor = indentedEnd;
         continue;
       }
-      let markerStart = cursor;
-      while (markerStart - cursor < 4 && source[markerStart] === ' ') markerStart += 1;
+      let markerStart = contentStart;
+      while (markerStart - contentStart < 4 && source[markerStart] === ' ') markerStart += 1;
       const marker = source[markerStart] ?? '';
       const markerLength =
         marker === '`' || marker === '~' ? repeatedCharacterLength(source, markerStart, marker) : 0;
@@ -116,16 +149,19 @@ function markdownCodeRanges(source: string): MarkdownCodeRange[] {
           fenceStart = cursor;
           fenceCharacter = marker;
           fenceLength = markerLength;
+          fenceBlockquoteDepth = blockquote.depth;
         } else if (
           marker === fenceCharacter &&
           markerLength >= fenceLength &&
+          blockquote.depth === fenceBlockquoteDepth &&
           source.slice(markerStart + markerLength, lineEnd(source, markerStart)).trim() === ''
         ) {
           const end = lineEnd(source, markerStart);
-          ranges.push({ start: fenceStart, end });
+          pushCodeRange(ranges, { start: fenceStart, end });
           fenceStart = undefined;
           fenceCharacter = '';
           fenceLength = 0;
+          fenceBlockquoteDepth = 0;
         }
         cursor = lineEnd(source, markerStart);
         continue;
@@ -141,7 +177,7 @@ function markdownCodeRanges(source: string): MarkdownCodeRange[] {
         inlineStart = cursor;
         inlineLength = runLength;
       } else if (runLength === inlineLength) {
-        ranges.push({ start: inlineStart, end: cursor + runLength });
+        pushCodeRange(ranges, { start: inlineStart, end: cursor + runLength });
         inlineStart = undefined;
         inlineLength = 0;
       }
@@ -150,8 +186,8 @@ function markdownCodeRanges(source: string): MarkdownCodeRange[] {
     }
     cursor += 1;
   }
-  if (fenceStart !== undefined) ranges.push({ start: fenceStart, end: source.length });
-  if (inlineStart !== undefined) ranges.push({ start: inlineStart, end: source.length });
+  if (fenceStart !== undefined) pushCodeRange(ranges, { start: fenceStart, end: source.length });
+  if (inlineStart !== undefined) pushCodeRange(ranges, { start: inlineStart, end: source.length });
   return ranges;
 }
 
@@ -195,6 +231,7 @@ export function chatGptSandboxLinksFromAssistantTextPart(
   if (!isChatGptInterpreterMessageId(messageId) || typeof part !== 'string') return [];
   const identities = new Map<string, ChatGptSandboxLinkIdentity>();
   const codeRanges = markdownCodeRanges(part);
+  let codeRangeIndex = 0;
   MARKDOWN_SANDBOX_LINK.lastIndex = 0;
   for (
     let match = MARKDOWN_SANDBOX_LINK.exec(part);
@@ -202,17 +239,21 @@ export function chatGptSandboxLinksFromAssistantTextPart(
     match = MARKDOWN_SANDBOX_LINK.exec(part)
   ) {
     const start = match.index;
+    while (codeRangeIndex < codeRanges.length && codeRanges[codeRangeIndex].end <= start) {
+      codeRangeIndex += 1;
+    }
+    const codeRange = codeRanges[codeRangeIndex];
     if (
       isEscaped(part, start) ||
       part[start - 1] === '!' ||
-      codeRanges.some(range => start >= range.start && start < range.end)
+      (codeRange !== undefined && start >= codeRange.start && start < codeRange.end)
     ) {
       continue;
     }
     const sandboxPath = decodedSandboxPath(match[2] ?? '');
     const identity = chatGptSandboxLinkIdentity(messageId, sandboxPath);
     if (!identity || !sandboxPath) continue;
-    identities.set(identity, { messageId, sandboxPath, identity });
+    retainSandboxLinkIdentity(identities, { messageId, sandboxPath, identity });
   }
   return [...identities.values()].sort((left, right) =>
     left.identity < right.identity ? -1 : left.identity > right.identity ? 1 : 0

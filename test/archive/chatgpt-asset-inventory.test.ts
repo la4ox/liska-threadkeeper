@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CHATGPT_ASSET_INVENTORY_DETAIL,
   CHATGPT_ASSET_INVENTORY_WARNING,
@@ -851,6 +851,49 @@ describe('ChatGPT raw attachment inventory', () => {
     expect(context.assets[assetId]?.sourceRefs).toContainEqual(
       expect.objectContaining({ id: 'different-provider-id', rawPointer: pointer })
     );
+  });
+
+  it('indexes a manifest-populated source-ref ledger instead of rescanning it per occurrence', () => {
+    const sourceRefs = Array.from({ length: 2_000 }, (_, index) => ({
+      artifactId: 'conversation',
+      rawPointer: `/mapping/node-${index}/message/content/parts/0`,
+    }));
+    const manifestId = `chatgpt-asset-${'c'.repeat(64)}`;
+    const context: AssetContext = {
+      assets: {},
+      assetIdsByIdentity: new Map(),
+      manifestAssets: manifestAssetsById([
+        {
+          id: manifestId,
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          mediaType: null,
+          byteLength: null,
+          sha256: null,
+          detail: CHATGPT_ASSET_INVENTORY_DETAIL,
+          sourceRefs,
+        },
+      ]),
+      artifactId: 'conversation',
+      format: 'synthetic',
+      privacy: { redactions: [] },
+    };
+    const attachment = { content_type: 'file', file_id: 'one-repeated-id' };
+    const assetId = upsertAsset(attachment, sourceRefs[0].rawPointer, context);
+    const canonicalRefs = context.assets[assetId].sourceRefs;
+    const linearScan = vi.spyOn(canonicalRefs, 'find');
+
+    try {
+      for (const sourceRef of sourceRefs.slice(1)) {
+        upsertAsset(attachment, sourceRef.rawPointer, context);
+      }
+      expect(linearScan).not.toHaveBeenCalled();
+      expect(canonicalRefs).toHaveLength(sourceRefs.length);
+      expect(canonicalRefs.every(sourceRef => sourceRef.id === 'one-repeated-id')).toBe(true);
+    } finally {
+      linearScan.mockRestore();
+    }
   });
 
   it('preserves manifest references to another artifact and rejects conflicting source IDs', () => {
