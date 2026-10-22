@@ -320,9 +320,9 @@ byte-identical between Downloads and Obsidian, with no leftover marker tab.
 Fresh exact-tree validation:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 150 test files / 3,995 tests pass;
-- coverage passes at 95.19% statements, 90.74% branches, 98.37% functions, and
-  97.81% lines;
+- 150 test files / 4,029 tests pass;
+- coverage passes at 95.17% statements, 90.73% branches, 98.42% functions, and
+  97.78% lines;
 - TypeScript and the production Vite build pass;
 - full lint has zero errors and only the same three pre-existing advisory
   warnings; platform registry lint and repository formatting pass;
@@ -335,8 +335,18 @@ Fresh exact-tree validation:
   closed transitive alias-cancellation and empty-ledger completeness defects;
   final review reports no residual P0-P3 finding.
 
-Next: continue from [`docs/chatgpt-todo.md`](docs/chatgpt-todo.md), beginning with
-the existing fresh ordinary-chat JPEG evidence. Image/jpeg and other true asset
-families, custom-GPT, Library-ID, Calpico, retry, concurrent workers, and broad
-endpoint or credential fallback remain separate evidence-gated work. A remote
-push, pull request, merge, release, or tag remains a separate explicit action.
+The first repository-security fix wave now closes six confirmed source paths:
+collision-safe Markdown code/citation rendering; bounded linear sandbox-link
+parsing; indexed canonical asset provenance; linear shared and ChatGPT graph
+symmetry checks; a post-raw DeepSeek graph limit; and punctuation/entity-aware
+DeepSeek capability redaction. Independent review reproduced escaped-backtick,
+fenced-container, and Markdown character-reference bypasses before their final
+regressions passed. Security Cloud state has not been mutated or treated as
+closed yet.
+
+Next: push the two verified security commits to pull request 11, reconcile CI
+and its security review, then continue from
+[`docs/security-todo.md`](docs/security-todo.md). That plan includes the
+remaining repository findings and a narrow latest-upstream audit of provider and
+shared blocks Liska has not substantially changed. Product work then returns to
+the JPEG evidence checkpoint in [`docs/chatgpt-todo.md`](docs/chatgpt-todo.md).

@@ -86,10 +86,13 @@ terminal states, and the existing no-credential-export boundary.
 
 ### 8. Remaining hardening
 
-- Add shared structural work budgets to recursive ChatGPT/DeepSeek normalization.
+- Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
+  is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Finish aggregate limits for branch materialization and destination writes.
 - Re-run focused security/diff review at meaningful boundaries, not after every
   cosmetic change.
+- Continue repository-wide triage and the untouched-provider upstream audit in
+  the [security follow-up plan](security-todo.md).
 
 ### 9. Adjacent provider: Dots chat export
 

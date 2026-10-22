@@ -16,6 +16,7 @@
 ## Active implementation plans
 
 - [ChatGPT follow-up plan](chatgpt-todo.md)
+- [Security follow-up and upstream delta plan](security-todo.md)
 
 ## Chrome Web Store
 
