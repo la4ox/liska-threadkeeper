@@ -76,6 +76,11 @@
 - Two scan-derived hardening items remain outside this checkpoint: shared structural work budgets for recursive ChatGPT/DeepSeek normalization, and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
 - One earlier settings run attempted an Obsidian archive write after the user had visually disabled that output without a confirmed persisted update. Destination toggles now send an acknowledged popup-only background update, apply an in-memory override before `chrome.storage.sync` completes, and serialize rapid changes. Live Obsidian-only followed immediately by File+Obsidian smokes confirmed the toggle/readback path.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
+- Provider-controlled frontmatter strings now quote leading `?`/`,` indicators
+  and encode forbidden C0/C1/BOM-sentinel characters as `\\uXXXX`. Existing
+  newline/tab/YAML escapes and byte-stable ordinary strings remain unchanged;
+  focused coverage includes provider titles, block-sequence tags, append
+  parsing and the common note generator used by File, Clipboard and Obsidian.
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
 - Append mode does not upload images into an existing note yet; it appends text and reports the skipped new images.
 - DOM-only auto-scroll is intentionally bounded to five minutes. Provider markup changes can still require extractor maintenance.
@@ -286,30 +291,26 @@ inventing expiry for the other three. The current 51,741-byte PDF also remained
 fetched. Downloads and Obsidian each retained five byte-identical archive files
 plus byte-identical Markdown; all temporary tabs closed.
 
-Structural reconciliation showed that the three failed records were not
-independent chat images: they were tool-role `metadata.attachments` named as
-`liska_pdf_render/page-N.png` or `liska_docx_render/page-N.png`, transient page
-previews derived from source documents. Inventory now classifies only the exact
-bounded provider path grammar as policy `declined` with fixed detail
-`derived-document-preview-policy-skipped`. Raw bytes, opaque IDs and every exact
-sourceRef remain unchanged. Ordinary evidence for any provider-key alias cancels
-the policy across the entire connected component; no identities or provenance
-are merged. Similar paths, user/assistant content, metadata files, MIME
-mismatches, traversal/encoding/control variants and malformed prefixes remain
-ordinary assets. Policy-declined records cannot enter interpreter, active,
-passive or binary acquisition, and metadata-only declined records are accepted
-at the initial JSON companion boundary only with null attempt/path/byte/hash
-claims. Completeness ignores declined policy assets while preserving empty and
-unknown ledger semantics.
+Structural reconciliation showed that three failed records had tool-role
+`metadata.attachments` names shaped as `liska_pdf_render/page-N.png` or
+`liska_docx_render/page-N.png`, consistent with transient document previews in
+that historical sample. The first policy marked the exact role/MIME/name shape
+`declined`, but it had no affirmative source-document relationship. A later
+security reconciliation removed that filename-derived exclusion: role, MIME,
+name, adjacency and provider-key aliases cannot by themselves authorize binary
+omission. Such PNGs now remain ordinary `not-attempted` records, retain opaque
+identity and every exact sourceRef, and stay eligible for the existing bounded
+resolver/acquisition paths. This can spend an existing PNG slot on a historical
+thumbnail but does not expand attempts, bytes, retries or endpoints. Generic
+explicit `declined` records remain supported downstream for a user decision or
+a future policy with structural proof.
 
-The post-policy historical canary retained six assets as three `declined`, two
-`fetched` (the real PNG and PDF), and one genuine `not-attempted` old document.
-Only the real PNG was selected: `selected=1/4`, `dispatched-known=1`,
-`observed=1`, with every failure bucket zero. Canonical retained all three fixed
-reasons and sourceRefs with no local artifact claims. Downloads and Obsidian
-again held five byte-identical archive files plus byte-identical Markdown; no
-temporary tab remained. The old source document's HTTP 404, not its discarded
-page thumbnail, is the remaining evidence of loss.
+The old canary that retained three previews as `declined`, two assets as
+`fetched`, and one document as `not-attempted` remains historical evidence of
+the retired heuristic. Current regression evidence instead uses an isolated
+preview-shaped PNG with no source document: inventory reports
+`not-attempted`, completeness remains honest, and active planning accepts the
+asset. Raw and canonical losslessness continue to be the repair authority.
 
 The fresh canary selected its two eligible PNG identities and fetched both:
 1,474,502 and 1,429,642 bytes, each a verified 1122-by-1402 PNG. The first hash
@@ -317,36 +318,39 @@ matches the earlier one-PNG canary; the second had previously remained
 `not-attempted`. Raw/manifest/canonical plus both binaries and Markdown were
 byte-identical between Downloads and Obsidian, with no leftover marker tab.
 
-Fresh exact-tree validation:
+Fresh exact-tree validation on `codex/upstream-2.14.9-audit`:
 
 - Node 24.18.0 and npm 11.16.0 match the project contract;
-- 150 test files / 4,029 tests pass;
+- 150 test files / 4,114 tests pass;
 - coverage passes at 95.17% statements, 90.73% branches, 98.42% functions, and
-  97.78% lines;
-- TypeScript and the production Vite build pass;
-- full lint has zero errors and only the same three pre-existing advisory
-  warnings; platform registry lint and repository formatting pass;
-- independent review reproduced and then invalidated three resolver-boundary
-  defects: duplicate direct/pointer fetching, invalid-direct pointer fallback,
-  and the same fallback in shared passive/metric evidence. Whole-ledger
-  precedence plus per-family fail-closed direct-ID validation now cover all
-  three. Batch review additionally reproduced and closed a validation/use
-  mismatch caused by caller-owned iteration. Derived-preview review additionally
-  closed transitive alias-cancellation and empty-ledger completeness defects;
-  final review reports no residual P0-P3 finding.
+  97.65% lines;
+- TypeScript, the production Vite build, extension ZIP packaging, source lint,
+  platform-registry lint and repository formatting pass; lint retains only the
+  same three pre-existing advisory warnings;
+- the ZIP contains exactly the same 29 files as `dist`; every hash matches and
+  both English and Japanese locale files are present;
+- a clean `npm ci` is reproducible and the dated registry `npm audit` result is
+  zero known vulnerabilities after the compatible toolchain refresh and removal
+  of the single-purpose static-copy plugin;
+- independent review reproduced and closed Perplexity mixed-layout ownership,
+  duplicate-role, title-order and nested-prose defects; no residual material
+  source finding remains in the reviewed upstream-port diff.
 
-The first repository-security fix wave now closes six confirmed source paths:
-collision-safe Markdown code/citation rendering; bounded linear sandbox-link
-parsing; indexed canonical asset provenance; linear shared and ChatGPT graph
-symmetry checks; a post-raw DeepSeek graph limit; and punctuation/entity-aware
-DeepSeek capability redaction. Independent review reproduced escaped-backtick,
-fenced-container, and Markdown character-reference bypasses before their final
-regressions passed. Security Cloud state has not been mutated or treated as
-closed yet.
+Pull request 11 merged to `main` as `6e9098a`. Continuous Security Cloud scans
+completed successfully for every newly reachable commit; the fix commits
+`1509bfc` and `e676428` and the final source-head commit `493df81` each produced
+zero new findings. These are diff-scoped commit scans, not a repository-wide
+proof of absence. Older finding occurrences have not been silently treated as
+closed and remain a separate reconciliation task.
 
-Next: push the two verified security commits to pull request 11, reconcile CI
-and its security review, then continue from
-[`docs/security-todo.md`](docs/security-todo.md). That plan includes the
-remaining repository findings and a narrow latest-upstream audit of provider and
-shared blocks Liska has not substantially changed. Product work then returns to
-the JPEG evidence checkpoint in [`docs/chatgpt-todo.md`](docs/chatgpt-todo.md).
+The upstream `v2.7.13` → `v2.14.9` audit is retained in
+[`docs/upstream-2.14.9-audit.md`](docs/upstream-2.14.9-audit.md). This branch now
+adapts the Perplexity rollout fixes, strict popup settings reads, a length-aware
+append reader, and compatible dependency/build-chain updates. Claude current
+DOM, ChatGPT DOM fallback, typed truncation guards, Gemini completeness/title
+and the exact Google image redirect permission remain explicit later slices.
+
+Next: perform one authenticated Perplexity canary before calling the selector
+port live-verified, then choose between the small Gemini-title/redirect slices
+and the larger Claude/truncation work. Publishing this new branch or opening a
+pull request remains an explicit external action.

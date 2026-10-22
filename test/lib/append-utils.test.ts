@@ -6,7 +6,11 @@ import {
 } from '../../src/lib/append-utils';
 import type { ObsidianNote, ExtensionSettings, NoteFrontmatter } from '../../src/lib/types';
 import { SCAN_MAX_REQUESTS } from '../../src/lib/constants';
-import { applyLineEnding } from '../../src/lib/frontmatter-parser';
+import { applyLineEnding, parseFrontmatter } from '../../src/lib/frontmatter-parser';
+import { countExistingMessages } from '../../src/lib/message-counter';
+import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
+import { formatMessage } from '../../src/content/markdown-formatting';
+import { markdownCodeFence } from '../../src/content/markdown-code';
 
 // ========== extractIdSuffix ==========
 
@@ -571,6 +575,63 @@ describe('buildAppendContent', () => {
     expect(result!.content).toContain('> Hello');
     expect(result!.content).toContain('> Hi there!');
   });
+
+  describe.each(['plain', 'blockquote', 'callout'] as const)(
+    'append across nested fences in %s format',
+    messageFormat => {
+      it.each(['\n', '\r\n'])('preserves the old code and appends only new messages (%j)', eol => {
+        const options = {
+          ...testSettings.templateOptions,
+          messageFormat,
+          includeQuestionHeaders: true,
+        };
+        const payload = [
+          '```markdown',
+          '**User:**',
+          '**Assistant:**',
+          '> [!QUESTION] User',
+          '> [!NOTE] Assistant',
+          '```',
+          '```` trailing text',
+          '   ```js',
+        ].join('\n');
+        const messages = [
+          formatMessage('First question', 'user', options, 'claude'),
+          formatMessage(
+            markdownCodeFence(payload, 'md'),
+            'assistant',
+            options,
+            'claude',
+            'markdown'
+          ),
+          formatMessage('Next question', 'user', options, 'claude'),
+          formatMessage('New answer', 'assistant', options, 'claude'),
+        ];
+        const onDiskBody = flattenLargeCallouts(messages.slice(0, 2).join('\n\n'), 3);
+        const existing = ['---', 'id: claude_test-id', 'message_count: 2', '---', onDiskBody]
+          .join('\n')
+          .replace(/\n/g, eol);
+        const note = createTestNote({
+          frontmatter: createTestFrontmatter({ message_count: messages.length }),
+          body: messages.join('\n\n'),
+        });
+
+        const result = buildAppendContent(existing, note, testSettings);
+        expect(result).not.toBeNull();
+        expect(result!.messagesAppended).toBe(2);
+        expect(result!.eol).toBe(eol);
+        expect(result!.content).not.toContain('\r');
+        expect(result!.content).toContain(onDiskBody);
+        expect(result!.content.endsWith(messages.slice(2).join('\n\n'))).toBe(true);
+
+        const written = applyLineEnding(flattenLargeCallouts(result!.content, 3), result!.eol);
+        const saved = parseFrontmatter(written)!;
+        expect(countExistingMessages(saved.body)).toBe(messages.length);
+        expect(saved.body.split('## Next question')).toHaveLength(2);
+        expect(buildAppendContent(written, note, testSettings)).toBeNull();
+      });
+    }
+  );
 
   // ===== line endings (issue #365) =====
   //

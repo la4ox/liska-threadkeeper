@@ -9,14 +9,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ExtensionSettings, PopupSettingsUpdate } from '../../src/lib/types';
 
 vi.mock('../../src/lib/storage', () => ({
-  getSettings: vi.fn(),
+  getSettingsOrThrow: vi.fn(),
 }));
 
 vi.mock('../../src/lib/messaging', () => ({
   sendMessage: vi.fn(),
 }));
 
-import { getSettings } from '../../src/lib/storage';
+import { getSettingsOrThrow } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
 import { initPopup } from '../../src/popup/app';
 
@@ -119,7 +119,7 @@ function statusEl(): HTMLDivElement {
 
 async function initWithDefaults(settings: ExtensionSettings = storedSettings): Promise<void> {
   buildPopupDom();
-  vi.mocked(getSettings).mockResolvedValue(settings);
+  vi.mocked(getSettingsOrThrow).mockResolvedValue(settings);
   await initPopup();
 }
 
@@ -152,9 +152,63 @@ describe('popup/app', () => {
       expect(el<HTMLSelectElement>('messageFormat').value).toBe('callout');
     });
 
+    it('keeps settings actions disabled until the strict read succeeds', async () => {
+      buildPopupDom();
+      let resolveSettings!: (settings: ExtensionSettings) => void;
+      vi.mocked(getSettingsOrThrow).mockReturnValue(
+        new Promise(resolve => {
+          resolveSettings = resolve;
+        })
+      );
+
+      const initialization = initPopup();
+
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(true);
+      expect(el<HTMLButtonElement>('testBtn').disabled).toBe(true);
+      expect(el<HTMLInputElement>('vaultPath').value).toBe('');
+      expect(sendMessage).not.toHaveBeenCalled();
+
+      resolveSettings(storedSettings);
+      await initialization;
+
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
+      expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
+      expect(el<HTMLInputElement>('vaultPath').value).toBe('AI/Gemini');
+    });
+
+    it('initializes an editable default form for genuinely empty storage', async () => {
+      buildPopupDom();
+      const storage =
+        await vi.importActual<typeof import('../../src/lib/storage')>('../../src/lib/storage');
+      vi.mocked(getSettingsOrThrow).mockImplementation(storage.getSettingsOrThrow);
+      vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+      vi.mocked(chrome.storage.sync.get).mockResolvedValue({});
+
+      await initPopup();
+
+      expect(el<HTMLInputElement>('apiKey').value).toBe('');
+      expect(el<HTMLInputElement>('vaultPath').value).toBe('AI/{platform}');
+      expect(el<HTMLInputElement>('outputObsidian').checked).toBe(true);
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
+      expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+
+      const file = el<HTMLInputElement>('outputFile');
+      file.checked = true;
+      file.dispatchEvent(new Event('change'));
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'updateOutputOptions',
+          outputOptions: { obsidian: true, file: true, clipboard: false },
+        })
+      );
+    });
+
     it('canonicalizes stale dual experiment settings to probe-only before saving', async () => {
       buildPopupDom();
-      vi.mocked(getSettings).mockResolvedValue({
+      vi.mocked(getSettingsOrThrow).mockResolvedValue({
         ...storedSettings,
         enableChatGptOpaqueProbe: true,
         enableChatGptOpaqueReplay: true,
@@ -213,7 +267,7 @@ describe('popup/app', () => {
         enableToolContent: undefined,
         templateOptions: { messageFormat: '', userCalloutType: '', assistantCalloutType: '' },
       } as unknown as ExtensionSettings;
-      vi.mocked(getSettings).mockResolvedValue(partial);
+      vi.mocked(getSettingsOrThrow).mockResolvedValue(partial);
 
       await initPopup();
 
@@ -239,7 +293,7 @@ describe('popup/app', () => {
       document.querySelectorAll('title').forEach(t => t.remove());
       document.head.insertAdjacentHTML('beforeend', '<title data-i18n="extName"></title>');
       vi.mocked(chrome.i18n.getMessage).mockImplementation((key: string) => `T_${key}`);
-      vi.mocked(getSettings).mockResolvedValue(storedSettings);
+      vi.mocked(getSettingsOrThrow).mockResolvedValue(storedSettings);
 
       try {
         await initPopup();
@@ -258,7 +312,7 @@ describe('popup/app', () => {
     it('rejects when a required element is missing from the DOM', async () => {
       buildPopupDom();
       document.getElementById('saveBtn')!.remove();
-      vi.mocked(getSettings).mockResolvedValue(storedSettings);
+      vi.mocked(getSettingsOrThrow).mockResolvedValue(storedSettings);
 
       await expect(initPopup()).rejects.toThrow('Missing element: #saveBtn');
     });
@@ -272,23 +326,68 @@ describe('popup/app', () => {
       expect(el<HTMLSelectElement>('timezone').options.length).toBe(countAfterFirst);
     });
 
-    it('shows an error status when settings cannot be loaded', async () => {
-      buildPopupDom();
-      vi.mocked(getSettings).mockRejectedValue(new Error('storage down'));
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    it.each(['local', 'sync'] as const)(
+      'fails closed without writes, listeners, or actions after a %s read failure',
+      async area => {
+        buildPopupDom();
+        const storage =
+          await vi.importActual<typeof import('../../src/lib/storage')>('../../src/lib/storage');
+        vi.mocked(getSettingsOrThrow).mockImplementation(storage.getSettingsOrThrow);
+        vi.mocked(chrome.storage.local.get).mockResolvedValue({
+          secureSettings: { obsidianApiKey: VALID_API_KEY },
+        });
+        vi.mocked(chrome.storage.sync.get).mockResolvedValue({ settings: storedSettings });
+        vi.mocked(chrome.storage[area].get).mockRejectedValue(
+          new Error('synthetic-sensitive-storage-error-detail')
+        );
+        const listenerSpies = [...document.querySelectorAll('input, select, button')].map(target =>
+          vi.spyOn(target, 'addEventListener')
+        );
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      await initPopup();
+        try {
+          await initPopup();
 
-      expect(statusEl().textContent).toBe('toast_error_connectionFailed');
-      expect(statusEl().className).toBe('status error');
-      errorSpy.mockRestore();
-    });
+          expect(statusEl().textContent).toBe('toast_error_connectionFailed');
+          expect(statusEl().className).toBe('status error');
+          expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+            '[G2O Popup] Failed to initialize settings'
+          );
+          expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(true);
+          expect(el<HTMLButtonElement>('testBtn').disabled).toBe(true);
+          expect(el<HTMLInputElement>('apiKey').value).toBe('');
+          expect(el<HTMLInputElement>('vaultPath').value).toBe('');
+          expect(document.querySelector('.api-key-toggle')).toBeNull();
+          for (const listenerSpy of listenerSpies) expect(listenerSpy).not.toHaveBeenCalled();
+
+          // Dispatch directly so disabled buttons cannot conceal an attached handler.
+          el<HTMLButtonElement>('saveBtn').dispatchEvent(new Event('click'));
+          el<HTMLButtonElement>('testBtn').dispatchEvent(new Event('click'));
+          for (const id of SWITCH_IDS) {
+            const toggle = el<HTMLInputElement>(id);
+            toggle.checked = true;
+            toggle.dispatchEvent(new Event('change'));
+          }
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(sendMessage).not.toHaveBeenCalled();
+          expect(chrome.storage.local.set).not.toHaveBeenCalled();
+          expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+          expect(statusEl().textContent).toBe('toast_error_connectionFailed');
+          expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(true);
+          expect(el<HTMLButtonElement>('testBtn').disabled).toBe(true);
+        } finally {
+          errorSpy.mockRestore();
+          for (const listenerSpy of listenerSpies) listenerSpy.mockRestore();
+        }
+      }
+    );
   });
 
   describe('section visibility', () => {
     it('disables the Obsidian section when Obsidian output is off', async () => {
       buildPopupDom();
-      vi.mocked(getSettings).mockResolvedValue({
+      vi.mocked(getSettingsOrThrow).mockResolvedValue({
         ...storedSettings,
         outputOptions: { obsidian: false, file: true, clipboard: false },
       });
@@ -299,7 +398,7 @@ describe('popup/app', () => {
 
     it('re-enables the Obsidian section when the toggle is switched on', async () => {
       buildPopupDom();
-      vi.mocked(getSettings).mockResolvedValue({
+      vi.mocked(getSettingsOrThrow).mockResolvedValue({
         ...storedSettings,
         outputOptions: { obsidian: false, file: true, clipboard: false },
       });
@@ -643,7 +742,7 @@ describe('popup/app', () => {
 
     it('skips Obsidian validation when Obsidian output is disabled', async () => {
       buildPopupDom();
-      vi.mocked(getSettings).mockResolvedValue({
+      vi.mocked(getSettingsOrThrow).mockResolvedValue({
         ...storedSettings,
         obsidianApiKey: '',
         outputOptions: { obsidian: false, file: true, clipboard: false },

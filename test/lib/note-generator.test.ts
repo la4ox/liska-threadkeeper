@@ -180,4 +180,24 @@ describe('generateNoteContent', () => {
     expect(content).toContain('branch_point_count: 7');
     expect(content).toContain('archive_capture_id: capture-chatgpt-safe_123');
   });
+
+  it.each([
+    ['? malformed', 'title: "? malformed"'],
+    [',malformed', 'title: ",malformed"'],
+    ['control\u0007title', 'title: "control\\u0007title"'],
+  ])('serializes an unsafe provider title as one YAML string: %j', (title, expected) => {
+    const unsafeTitleNote = createTestNote({
+      frontmatter: {
+        ...note.frontmatter,
+        title,
+        tags: ['? topic', ',topic'],
+      },
+    });
+
+    const content = generateNoteContent(unsafeTitleNote, createTestSettings());
+
+    expect(content).toContain(expected);
+    expect(content).toContain('  - "? topic"');
+    expect(content).toContain('  - ",topic"');
+  });
 });

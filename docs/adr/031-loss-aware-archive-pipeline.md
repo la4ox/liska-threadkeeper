@@ -503,30 +503,27 @@ availability without inventing expiry for the three failed identities.
 Those three failed identities were then reconciled to exact raw structure. They
 were tool-role `metadata.attachments` named under provider-scoped
 `/mnt/data/liska_pdf_render/page-N.png` or
-`/mnt/data/liska_docx_render/page-N.png`: derived first-page document previews,
-not independent chat images. Inventory now recognizes only the exact bounded
-provider path grammar and records these as policy `declined` with fixed detail
-`derived-document-preview-policy-skipped`. Raw bytes, asset IDs and exact
-sourceRefs remain unchanged. Any ordinary evidence connected through the same
-safe provider-key component cancels the policy transitively without merging
-records; similar paths, other roles/fields/MIME types, traversal, encoding,
-control characters and malformed prefixes remain ordinary assets.
+`/mnt/data/liska_docx_render/page-N.png`, consistent with derived document
+previews in that historical sample. An initial policy classified that exact
+role/MIME/name shape as `declined` without proving a relationship to a source
+PDF or DOCX.
 
-Declined previews cannot enter interpreter, active, passive or binary
-acquisition. The initial JSON companion admits them only as metadata-only
-records with null attempt/path/byte/hash claims. Completeness ignores policy
-declines while retaining prior empty-ledger and unknown semantics; all-declined
-is complete, declined plus genuinely unattempted required evidence is still
-not-attempted, and mixed required outcomes remain partial. No relationship to a
-source PDF/DOCX is guessed from names or adjacency.
+A later security reconciliation rejected that inference. Provider-shaped names
+are not structural derivation evidence: an isolated real PNG with the same
+metadata would otherwise be silently excluded from every resolver and could
+make asset completeness falsely `complete`. Raw inventory therefore never
+auto-declines an attachment from role, MIME type, filename, adjacency or a
+provider-key alias. Preview-shaped records remain ordinary `not-attempted`
+assets with exact sourceRefs and are eligible for the same bounded acquisition
+paths as other PNGs. This may spend an existing resolver slot on a historical
+thumbnail, but it cannot silently omit an unproven binary and does not widen any
+attempt, byte, retry or endpoint limit.
 
-The post-policy historical canary retained three derived previews as
-`declined`, the real PNG and PDF as `fetched`, and the genuinely unavailable old
-document as `not-attempted`. Only one PNG helper request was selected and
-observed successfully; no preview request was dispatched. Canonical retained all
-fixed reasons and provenance without local artifact claims. Both destinations
-again held five byte-identical archive files plus byte-identical Markdown, and
-no temporary tab remained.
+The generic `declined` state remains part of the archive contract for an
+explicit user choice or a future policy backed by affirmative structural
+evidence. Downstream acquisition and completeness semantics for such explicit
+records are unchanged. The earlier canary that skipped three previews remains
+dated evidence of the retired heuristic, not the current inventory behavior.
 
 The fresh canary selected both of its eligible PNG identities and fetched both:
 1,474,502 and 1,429,642 verified bytes, each 1122 by 1402. The first repeats the

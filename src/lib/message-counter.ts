@@ -6,6 +6,7 @@
  */
 
 import { ALL_PLATFORM_LABELS } from './constants';
+import { nextMarkdownBacktickFence, type MarkdownBacktickFence } from '../archive/markdown-syntax';
 
 /**
  * Build label alternation from ALL_PLATFORM_LABELS: "User|Gemini Notebook|...".
@@ -43,18 +44,17 @@ const MESSAGE_START_PATTERN = new RegExp(
  */
 function scanMessageStarts(lines: readonly string[]): number[] {
   const starts: number[] = [];
-  let inCodeBlock = false;
+  let fence: MarkdownBacktickFence | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Only column-0 fences are tracked: inside a callout every line carries a
-    // `> ` prefix, and a nested `> > [!TYPE] Label` cannot match a start anyway.
-    if (line.startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
-      continue;
-    }
-    if (inCodeBlock) continue;
+    // Do not strip container markers: quoted code cannot match a message start
+    // anyway. Flattening moves its fences onto unquoted lines, where shorter
+    // nested runs must not close the longer fence emitted by the writer.
+    const wasInCodeBlock = fence !== null;
+    fence = nextMarkdownBacktickFence(fence, line);
+    if (wasInCodeBlock || fence !== null) continue;
 
     if (MESSAGE_START_PATTERN.test(line)) starts.push(i);
   }

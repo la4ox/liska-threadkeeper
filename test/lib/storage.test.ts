@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getSettings, saveSettings, migrateSettings } from '../../src/lib/storage';
+import {
+  getSettings,
+  getSettingsOrThrow,
+  saveSettings,
+  migrateSettings,
+} from '../../src/lib/storage';
 
 describe('storage', () => {
   beforeEach(() => {
@@ -177,12 +182,81 @@ describe('storage', () => {
       expect(settings.enableToolContent).toBe(false);
     });
 
-    it('returns default settings on error', async () => {
-      vi.mocked(chrome.storage.local.get).mockRejectedValue(new Error('Storage error'));
+    it.each(['local', 'sync'] as const)('returns default settings on %s read error', async area => {
+      vi.mocked(chrome.storage[area].get).mockRejectedValue(new Error('Storage error'));
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const settings = await getSettings();
-      expect(settings.obsidianApiKey).toBe('');
-      expect(settings.obsidianUrl).toBe('http://127.0.0.1:27123');
+      try {
+        const settings = await getSettings();
+        expect(settings.obsidianApiKey).toBe('');
+        expect(settings.obsidianUrl).toBe('http://127.0.0.1:27123');
+        expect(errorSpy).toHaveBeenCalledExactlyOnceWith('[G2O] Failed to get settings');
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('getSettingsOrThrow', () => {
+    it.each(['local', 'sync'] as const)('rejects a %s read failure without writes', async area => {
+      const failure = new Error('Storage read failed');
+      vi.mocked(chrome.storage[area].get).mockRejectedValue(failure);
+
+      await expect(getSettingsOrThrow()).rejects.toBe(failure);
+
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+    });
+
+    it('returns normalized defaults for genuinely empty storage without writes', async () => {
+      vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+      vi.mocked(chrome.storage.sync.get).mockResolvedValue({});
+
+      const settings = await getSettingsOrThrow();
+
+      expect(settings).toEqual(await getSettings());
+      expect(settings).toMatchObject({
+        obsidianApiKey: '',
+        obsidianUrl: 'http://127.0.0.1:27123',
+        vaultPath: 'AI/{platform}',
+        outputOptions: { obsidian: true, file: false, clipboard: false },
+        templateOptions: { messageFormat: 'callout', filenameScheme: 'title-id' },
+        enableChatGptOpaqueProbe: false,
+        enableChatGptOpaqueReplay: false,
+      });
+      expect(chrome.storage.local.get).toHaveBeenCalledWith('secureSettings');
+      expect(chrome.storage.sync.get).toHaveBeenCalledWith('settings');
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+    });
+
+    it('keeps normalization and local-only credential authority on the strict read', async () => {
+      vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+      vi.mocked(chrome.storage.sync.get).mockResolvedValue({
+        settings: {
+          obsidianApiKey: 'legacy-sync-key',
+          vaultPath: 'AI/StrictRead',
+          enableChatGptOpaqueProbe: false,
+          enableChatGptOpaqueReplay: true,
+          enableImageExport: false,
+          maxCalloutLines: 'invalid',
+          templateOptions: { messageFormat: 'plain', filenameScheme: 'title-date' },
+        },
+      });
+
+      const settings = await getSettingsOrThrow();
+
+      expect(settings).toMatchObject({
+        obsidianApiKey: '',
+        vaultPath: 'AI/StrictRead',
+        enableChatGptOpaqueProbe: false,
+        enableChatGptOpaqueReplay: true,
+        enableImageExport: false,
+        maxCalloutLines: 200,
+        templateOptions: { messageFormat: 'plain', filenameScheme: 'title-date', includeId: true },
+      });
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
     });
   });
 

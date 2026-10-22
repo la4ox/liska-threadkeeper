@@ -8,7 +8,9 @@
 
 import { BaseExtractor } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
+import { htmlToMarkdownRaw } from '../markdown-rules';
 import { isHttpUrl } from '../../lib/validation';
+import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import type { ConversationMessage } from '../../lib/types';
 import {
   createFootnoteRef,
@@ -19,6 +21,21 @@ import {
 import type { CitationTransformResult } from './footnotes';
 
 import { SELECTORS } from './selectors/perplexity';
+
+// Layout-specific detection stays outside the live selector contract: old
+// placeholders/query spans no longer appear on current pages, and a collapsed
+// Deep Research card has no report body until the user opens its preview.
+const LEGACY_MARKDOWN_CONTENT: readonly string[] = ['div[id^="markdown-content-"]'];
+const LEGACY_USER_QUERY: readonly string[] = ['span.select-text'];
+const USER_QUERY_ANY_LAYOUT: readonly string[] = [...SELECTORS.userQuery, ...LEGACY_USER_QUERY];
+
+// The report's outer prose wraps its own inline answer prose under both the
+// old inline card and the open preview layout. Card styling is not a stable
+// anchor, and matching the wrapper also lets us exclude nested answer prose.
+const DEEP_RESEARCH_PROSE: readonly string[] = [
+  '.prose.max-w-none',
+  '.prose.dark\\:prose-invert.max-w-none',
+];
 
 // ========== Citation transformation (issue #291) ==========
 //
@@ -203,10 +220,13 @@ export class PerplexityExtractor extends BaseExtractor {
    * 3. Default title
    */
   getTitle(): string {
-    return (
-      this.getPageTitle() ??
-      this.getFirstMessageTitle(SELECTORS.userQuery, 'Untitled Perplexity Conversation')
-    );
+    const pageTitle = this.getPageTitle();
+    if (pageTitle) return pageTitle;
+    for (const element of this.queryAllSelectorUnion<HTMLElement>(USER_QUERY_ANY_LAYOUT)) {
+      const title = this.sanitizeText(this.extractUserContent(element));
+      if (title) return title.substring(0, MAX_CONVERSATION_TITLE_LENGTH);
+    }
+    return 'Untitled Perplexity Conversation';
   }
 
   // ========== Message Extraction ==========
@@ -236,7 +256,7 @@ export class PerplexityExtractor extends BaseExtractor {
 
     for (const item of sorted) {
       if (item.type === 'user') {
-        const content = this.extractPlainText(item.element);
+        const content = this.extractUserContent(item.element);
         if (content) {
           messages.push({
             id: `user-${userIdx}`,
@@ -282,22 +302,130 @@ export class PerplexityExtractor extends BaseExtractor {
   private collectTaggedElements(): TaggedElement[] {
     const tagged: TaggedElement[] = [];
 
-    for (const el of this.queryAllWithFallback<HTMLElement>(SELECTORS.userQuery)) {
+    for (const el of this.queryAllSelectorUnion<HTMLElement>(SELECTORS.userQuery)) {
       tagged.push({ type: 'user', element: el });
     }
 
-    for (const el of this.queryAllWithFallback<HTMLElement>(SELECTORS.markdownContent)) {
+    // Transitional markup can carry a legacy span inside the renderer-backed
+    // query already collected above. Keep the old layout without duplicating it.
+    for (const el of this.queryAllSelectorUnion<HTMLElement>(LEGACY_USER_QUERY)) {
+      if (this.isInside(el, SELECTORS.userQuery)) continue;
+      tagged.push({ type: 'user', element: el });
+    }
+
+    for (const el of this.queryAllSelectorUnion<HTMLElement>(LEGACY_MARKDOWN_CONTENT)) {
       tagged.push({ type: 'response', element: el });
     }
 
-    for (const card of this.queryAllWithFallback<HTMLElement>(SELECTORS.deepResearchCard)) {
-      const proseEl = this.queryWithFallback<HTMLElement>(SELECTORS.deepResearchProse, card);
-      if (proseEl) {
-        tagged.push({ type: 'report', element: card });
-      }
+    // New answers render beside an empty placeholder, or without one at all.
+    // Old-layout answers and a report's nested inline prose already have owners.
+    const answerOwners = new Set<HTMLElement>();
+    for (const prose of this.queryAllSelectorUnion<HTMLElement>(SELECTORS.answerProse)) {
+      if (this.isInside(prose, USER_QUERY_ANY_LAYOUT)) continue;
+      if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) continue;
+      if (this.isInside(prose, DEEP_RESEARCH_PROSE)) continue;
+
+      const owner =
+        this.closestWithFallback<HTMLElement>(prose, SELECTORS.answerContainer) ?? prose;
+      if (answerOwners.has(owner)) continue;
+      answerOwners.add(owner);
+      tagged.push({ type: 'response', element: owner });
+    }
+
+    for (const prose of this.queryAllSelectorUnion<HTMLElement>(DEEP_RESEARCH_PROSE)) {
+      if (this.isInside(prose, USER_QUERY_ANY_LAYOUT)) continue;
+      if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) continue;
+      tagged.push({ type: 'report', element: prose });
     }
 
     return tagged;
+  }
+
+  /** True when `el` matches or sits inside any of the given selectors. */
+  private isInside(el: HTMLElement, selectors: readonly string[]): boolean {
+    return selectors.some(selector => {
+      try {
+        return el.closest(selector) !== null;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /** Collect every rollout selector once, collapse nested aliases, then restore DOM order. */
+  private queryAllSelectorUnion<T extends Element>(
+    selectors: readonly string[],
+    parent: Element | Document = document
+  ): T[] {
+    const seen = new Set<Element>();
+    const candidates: T[] = [];
+    for (const selector of selectors) {
+      for (const element of this.queryAllWithFallback<T>([selector], parent)) {
+        if (seen.has(element)) continue;
+        seen.add(element);
+        candidates.push(element);
+      }
+    }
+    const outermost = candidates.filter(candidate => {
+      let ancestor = candidate.parentElement;
+      while (ancestor) {
+        if (seen.has(ancestor)) return false;
+        if (ancestor === parent) break;
+        ancestor = ancestor.parentElement;
+      }
+      return true;
+    });
+    return outermost.sort((left, right) => {
+      if (left === right) return 0;
+      const position = left.compareDocumentPosition(right);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+  }
+
+  /** True when `el` itself matches one of the selectors. */
+  private matchesAny(el: HTMLElement, selectors: readonly string[]): boolean {
+    return selectors.some(selector => {
+      try {
+        return el.matches(selector);
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /** Find the first stable ancestor in selector-priority order. */
+  private closestWithFallback<T extends Element>(
+    el: Element,
+    selectors: readonly string[]
+  ): T | null {
+    for (const selector of selectors) {
+      try {
+        const match = el.closest<T>(selector);
+        if (match) return match;
+      } catch {
+        // Invalid rollout selectors are treated as absent rather than fatal.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Extract one user query without flattening renderer-owned block structure.
+   *
+   * Current queries are HTML rendered from Markdown, so sanitizing and turning
+   * that HTML back into Markdown preserves paragraph/list boundaries. Legacy
+   * single-span queries retain their established plain-text path. The shared
+   * formatter still performs final user-text escaping when the note is built.
+   */
+  private extractUserContent(element: HTMLElement): string {
+    if (this.matchesAny(element, SELECTORS.userQuery) && element.innerHTML) {
+      const markdown = htmlToMarkdownRaw(sanitizeHtml(element.innerHTML)).trim();
+      if (markdown) return markdown;
+    }
+
+    return this.extractPlainText(element);
   }
 
   /**
@@ -321,11 +449,19 @@ export class PerplexityExtractor extends BaseExtractor {
    * All HTML is sanitized via DOMPurify to prevent XSS.
    */
   private extractAssistantContent(contentElement: HTMLElement, messageIndex: number): string {
-    const proseEls = this.queryAllWithFallback<HTMLElement>(SELECTORS.proseContent, contentElement);
+    const extractionRoot = this.prunedAnswerOwner(contentElement);
+    const ownsProseContent = this.matchesAny(extractionRoot, SELECTORS.proseContent);
+    const proseEls = ownsProseContent
+      ? []
+      : this.queryAllSelectorUnion<HTMLElement>(SELECTORS.proseContent, extractionRoot).filter(
+          prose => this.isOwnedAnswerProse(prose, extractionRoot)
+        );
 
     // Fallback: use the content element's innerHTML directly
     const rawHtml =
-      proseEls.length > 0 ? proseEls.map(el => el.innerHTML).join('\n') : contentElement.innerHTML;
+      ownsProseContent || proseEls.length === 0
+        ? extractionRoot.innerHTML
+        : proseEls.map(el => el.innerHTML).join('\n');
 
     if (!rawHtml) {
       return '';
@@ -334,24 +470,48 @@ export class PerplexityExtractor extends BaseExtractor {
     return this.toSanitizedHtmlWithFootnotes(rawHtml, messageIndex);
   }
 
-  /**
-   * Extract Deep Research report content from a report card element
-   *
-   * The report card contains prose with max-w-none, and potentially
-   * an inner prose element with the actual content. Citations are
-   * converted to footnotes the same way as normal answers.
-   */
-  private extractReportContent(card: HTMLElement, messageIndex: number): string {
-    const proseEl = this.queryWithFallback<HTMLElement>(SELECTORS.deepResearchProse, card);
-    if (proseEl) {
-      const innerProse = this.queryWithFallback<HTMLElement>(SELECTORS.proseContent, proseEl);
-      const targetEl = innerProse ?? proseEl;
-      const content = this.toSanitizedHtmlWithFootnotes(targetEl.innerHTML, messageIndex);
-      if (content.trim()) {
-        return content;
+  /** Remove descendants already owned by another message before selector aliases collapse. */
+  private prunedAnswerOwner(contentElement: HTMLElement): HTMLElement {
+    if (!this.matchesAny(contentElement, SELECTORS.answerContainer)) return contentElement;
+    const clone = contentElement.cloneNode(true) as HTMLElement;
+    for (const selectors of [
+      USER_QUERY_ANY_LAYOUT,
+      LEGACY_MARKDOWN_CONTENT,
+      DEEP_RESEARCH_PROSE,
+      SELECTORS.answerContainer,
+    ]) {
+      for (const selector of selectors) {
+        try {
+          clone.querySelectorAll(selector).forEach(element => element.remove());
+        } catch {
+          // Invalid rollout selectors are treated as absent rather than fatal.
+        }
       }
     }
-    return '';
+    return clone;
+  }
+
+  /** Keep a widened current-answer owner from absorbing nested content with another owner. */
+  private isOwnedAnswerProse(prose: HTMLElement, owner: HTMLElement): boolean {
+    if (!this.matchesAny(owner, SELECTORS.answerContainer)) return true;
+    if (this.isInside(prose, USER_QUERY_ANY_LAYOUT)) return false;
+    if (this.isInside(prose, LEGACY_MARKDOWN_CONTENT)) return false;
+    if (this.isInside(prose, DEEP_RESEARCH_PROSE)) return false;
+    return this.closestWithFallback(prose, SELECTORS.answerContainer) === owner;
+  }
+
+  /**
+   * Extract Deep Research report content from its outer prose element
+   *
+   * Both inline cards and opened preview panels wrap the actual content in
+   * max-w-none prose. Prefer the inner prose when present. Citations use the
+   * same footnote transformation as normal answers.
+   */
+  private extractReportContent(reportProse: HTMLElement, messageIndex: number): string {
+    const innerProse = this.queryWithFallback<HTMLElement>(SELECTORS.proseContent, reportProse);
+    const targetEl = innerProse ?? reportProse;
+    const content = this.toSanitizedHtmlWithFootnotes(targetEl.innerHTML, messageIndex);
+    return content.trim() ? content : '';
   }
 
   /**

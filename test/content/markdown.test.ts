@@ -117,6 +117,11 @@ describe('htmlToMarkdown', () => {
       expect(htmlToMarkdown('Use <code>npm install</code>')).toBe('Use `npm install`');
     });
 
+    it('uses a collision-safe inline-code delimiter for embedded backticks', () => {
+      const payload = 'x`![tracking](https://attacker.invalid/pixel)`y';
+      expect(htmlToMarkdown(`<code>${payload}</code>`)).toBe(`\`\`${payload}\`\``);
+    });
+
     // ChatGPT CodeMirror code blocks (2026-03 DOM change)
     // ChatGPT replaced <pre><code> with <pre> containing CodeMirror editor
     describe('ChatGPT CodeMirror structure', () => {

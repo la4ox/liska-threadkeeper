@@ -69,4 +69,26 @@ describe('escapeYamlValue', () => {
     expect(escapeYamlValue('item & item')).toBe('"item & item"');
     expect(escapeYamlValue('important!')).toBe('"important!"');
   });
+
+  it.each(['?', '? malformed', '?plain', ',', ',malformed', ',,topic'])(
+    'quotes the leading YAML indicator in %j',
+    value => {
+      expect(escapeYamlValue(value)).toBe(`"${value}"`);
+    }
+  );
+
+  it.each(['why?', 'hello, world'])('keeps safe internal punctuation in %j byte-stable', value => {
+    expect(escapeYamlValue(value)).toBe(value);
+  });
+
+  it.each([
+    ['A\u0000B', '"A\\u0000B"'],
+    ['A\u0007B', '"A\\u0007B"'],
+    ['A\u0080B', '"A\\u0080B"'],
+    ['A\ufeffB', '"A\\uFEFFB"'],
+    ['A\ufffeB', '"A\\uFFFEB"'],
+    ['A\uffffB', '"A\\uFFFFB"'],
+  ])('escapes a non-printable YAML character in %j', (value, expected) => {
+    expect(escapeYamlValue(value)).toBe(expected);
+  });
 });
