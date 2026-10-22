@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Keep the platform bootstrap and its destination-specific dependency wiring in one orchestration module. */
 /**
  * Content Script Bootstrap
  *
@@ -35,6 +36,7 @@ import {
 import {
   observeChatGptAssetResolversViaOpaqueSource,
   resolveChatGptActiveImageAsset,
+  resolveChatGptLibraryJpegAsset,
   observeChatGptInterpreterAssetResolvers,
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
@@ -795,6 +797,7 @@ const chatGptAttachmentDependencies = (strictReplay: boolean) => ({
     ? {
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
         resolveActiveAsset: resolveChatGptActiveImageAsset,
+        resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
       }
     : {}),
 });

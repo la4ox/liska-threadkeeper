@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Keep Library admission beside ordinary deny-only evidence so its separate authority and whole-ledger checks remain auditable. */
 /**
  * Match transient page-owned ChatGPT resolver observations to the existing
  * credential-free capture ledger. Provider file IDs are read only from the
@@ -42,6 +43,8 @@ const DIRECT_ID_FIELDS = ['asset_id', 'assetId', 'file_id', 'fileId', 'id'] as c
 const CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 const CHATGPT_INTERPRETER_MAX_POINTER_LENGTH = 4_096;
 const CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES = new Set<string>(['image/png', 'image/jpeg']);
+const CHATGPT_LIBRARY_ID_FIELDS = ['library_file_id', 'libraryFileId'] as const;
+const CHATGPT_LIBRARY_ID_MAX_LENGTH = 512;
 
 export interface ChatGptTransientResolverRecord {
   resolverKey: string;
@@ -68,6 +71,12 @@ export interface MatchChatGptAssetResolversInput {
  */
 export interface ChatGptActiveResolverPlan {
   providerFileIds: string[];
+}
+
+/** Offline-only association evidence. It carries opaque ledger IDs, never Library IDs. */
+export interface ChatGptLibraryAssetClassification {
+  associatedAssetIds: string[];
+  ambiguousAssetIds: string[];
 }
 
 interface ProviderFileEvidence {
@@ -123,6 +132,7 @@ function atJsonPointer(raw: unknown, pointer: string): unknown {
 
 interface ChatGptInterpreterAttachmentPointer {
   nodeSegment: string;
+  conversationPointer: '' | '/conversation';
 }
 
 interface ChatGptInterpreterAttachmentEvidence {
@@ -132,6 +142,25 @@ interface ChatGptInterpreterAttachmentEvidence {
 
 interface ChatGptInterpreterAssistantTextPartPointer {
   nodeSegment: string;
+  conversationPointer: '' | '/conversation';
+}
+
+function conversationMappingPointer(
+  segments: readonly string[],
+  rootLength: number
+): { offset: 0 | 1; conversationPointer: '' | '/conversation' } | undefined {
+  if (segments[0] !== '') return undefined;
+  if (segments.length === rootLength && segments[1] === 'mapping') {
+    return { offset: 0, conversationPointer: '' };
+  }
+  if (
+    segments.length === rootLength + 1 &&
+    segments[1] === 'conversation' &&
+    segments[2] === 'mapping'
+  ) {
+    return { offset: 1, conversationPointer: '/conversation' };
+  }
+  return undefined;
 }
 
 function interpreterAttachmentPointer(
@@ -146,20 +175,22 @@ function interpreterAttachmentPointer(
     return undefined;
   }
   const segments = pointer.split('/');
+  const location = conversationMappingPointer(segments, 7);
   if (
-    segments.length !== 7 ||
-    segments[0] !== '' ||
-    segments[1] !== 'mapping' ||
-    segments[3] !== 'message' ||
-    segments[4] !== 'metadata' ||
-    segments[5] !== 'attachments' ||
-    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6])
+    location === undefined ||
+    segments[3 + location.offset] !== 'message' ||
+    segments[4 + location.offset] !== 'metadata' ||
+    segments[5 + location.offset] !== 'attachments' ||
+    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6 + location.offset])
   ) {
     return undefined;
   }
-  const node = decodePointerSegment(segments[2]);
+  const node = decodePointerSegment(segments[2 + location.offset]);
   if (node === undefined || node.length === 0 || hasControlCharacters(node)) return undefined;
-  return { nodeSegment: segments[2] };
+  return {
+    nodeSegment: segments[2 + location.offset],
+    conversationPointer: location.conversationPointer,
+  };
 }
 
 function interpreterAttachmentEvidence(
@@ -172,7 +203,10 @@ function interpreterAttachmentEvidence(
   if (!isPlainRecord(attachment) || !Object.prototype.hasOwnProperty.call(attachment, 'name'))
     return undefined;
   if (!isChatGptInterpreterSandboxPath(attachment.name)) return undefined;
-  const messageId = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message/id`);
+  const messageId = atJsonPointer(
+    raw,
+    `${location.conversationPointer}/mapping/${location.nodeSegment}/message/id`
+  );
   if (!isChatGptInterpreterMessageId(messageId)) return undefined;
   return { messageId, sandboxPath: attachment.name };
 }
@@ -189,20 +223,22 @@ function interpreterAssistantTextPartPointer(
     return undefined;
   }
   const segments = pointer.split('/');
+  const location = conversationMappingPointer(segments, 7);
   if (
-    segments.length !== 7 ||
-    segments[0] !== '' ||
-    segments[1] !== 'mapping' ||
-    segments[3] !== 'message' ||
-    segments[4] !== 'content' ||
-    segments[5] !== 'parts' ||
-    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6])
+    location === undefined ||
+    segments[3 + location.offset] !== 'message' ||
+    segments[4 + location.offset] !== 'content' ||
+    segments[5 + location.offset] !== 'parts' ||
+    !CHATGPT_INTERPRETER_ATTACHMENT_INDEX_PATTERN.test(segments[6 + location.offset])
   ) {
     return undefined;
   }
-  const node = decodePointerSegment(segments[2]);
+  const node = decodePointerSegment(segments[2 + location.offset]);
   if (node === undefined || node.length === 0 || hasControlCharacters(node)) return undefined;
-  return { nodeSegment: segments[2] };
+  return {
+    nodeSegment: segments[2 + location.offset],
+    conversationPointer: location.conversationPointer,
+  };
 }
 
 /**
@@ -222,7 +258,10 @@ async function buildInterpreterSandboxEvidenceIndex(
   const location = interpreterAssistantTextPartPointer(rawPointer);
   if (!location) return index;
   const part = atJsonPointer(raw, rawPointer as string);
-  const message = atJsonPointer(raw, `/mapping/${location.nodeSegment}/message`);
+  const message = atJsonPointer(
+    raw,
+    `${location.conversationPointer}/mapping/${location.nodeSegment}/message`
+  );
   if (
     typeof part !== 'string' ||
     !isPlainRecord(message) ||
@@ -395,15 +434,274 @@ function activeProviderFileEvidence(value: unknown): string[] {
   return match?.[1] && isChatGptActiveResolverProviderFileId(match[1]) ? [match[1]] : [];
 }
 
-/** Library-backed records require a separate provider contract, never the ordinary file-ID route. */
-function hasLibraryFileIdentity(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  for (const field of ['library_file_id', 'libraryFileId']) {
+interface LibraryIdentityEvidence {
+  present: boolean;
+  ambiguous: boolean;
+  /** Runtime-only comparison values. Never return these from an exported API. */
+  identities: Set<string>;
+}
+
+function libraryIdentityEvidence(value: unknown): LibraryIdentityEvidence {
+  const identities = new Set<string>();
+  let malformed = false;
+  if (!isRecord(value)) return { present: false, ambiguous: false, identities };
+  for (const field of CHATGPT_LIBRARY_ID_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
     const candidate = value[field];
-    if (candidate !== undefined && candidate !== null && candidate !== '') return true;
+    if (candidate === undefined || candidate === null || candidate === '') continue;
+    if (
+      typeof candidate !== 'string' ||
+      candidate.length > CHATGPT_LIBRARY_ID_MAX_LENGTH ||
+      hasControlCharacters(candidate)
+    ) {
+      malformed = true;
+      continue;
+    }
+    identities.add(candidate);
   }
-  return false;
+  return {
+    present: malformed || identities.size > 0,
+    ambiguous: malformed || identities.size > 1,
+    identities,
+  };
+}
+
+/** Library-backed records require a separate provider contract, never the ordinary file-ID route. */
+function hasLibraryFileIdentity(value: unknown): boolean {
+  return libraryIdentityEvidence(value).present;
+}
+
+function libraryEvidenceForAsset(
+  raw: unknown,
+  asset: RawCaptureAssetRecord
+): LibraryIdentityEvidence {
+  const identities = new Set<string>();
+  const seenPointers = new Set<string>();
+  let present = false;
+  let ambiguous = false;
+  for (const sourceRef of asset.sourceRefs) {
+    if (!isPlainRecord(sourceRef)) {
+      ambiguous = true;
+      continue;
+    }
+    if (typeof sourceRef.artifactId !== 'string') {
+      ambiguous = true;
+      continue;
+    }
+    if (sourceRef.artifactId !== 'conversation') continue;
+    if (typeof sourceRef.rawPointer !== 'string' || seenPointers.has(sourceRef.rawPointer)) {
+      ambiguous = true;
+      continue;
+    }
+    seenPointers.add(sourceRef.rawPointer);
+    const value = atJsonPointer(raw, sourceRef.rawPointer);
+    if (value === undefined) {
+      ambiguous = true;
+      continue;
+    }
+    const evidence = libraryIdentityEvidence(value);
+    if (!evidence.present) continue;
+    present = true;
+    if (evidence.ambiguous) ambiguous = true;
+    for (const identity of evidence.identities) identities.add(identity);
+  }
+  return { present, ambiguous: present && (ambiguous || identities.size > 1), identities };
+}
+
+function libraryAssetDisposition(
+  raw: unknown,
+  asset: RawCaptureAssetRecord,
+  duplicate: boolean
+): 'associated' | 'ambiguous' | undefined {
+  if (!isChatGptActiveAssetId(asset.id) || !Array.isArray(asset.sourceRefs)) return undefined;
+  const evidence = libraryEvidenceForAsset(raw, asset);
+  if (!evidence.present) return undefined;
+  return duplicate || evidence.ambiguous || evidence.identities.size !== 1
+    ? 'ambiguous'
+    : 'associated';
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Classify exact ledger records as Library-associated without creating any
+ * dispatchable request. Conflicts remain ambiguous and all provider identity
+ * values stay inside this pure function.
+ */
+export function classifyChatGptLibraryAssets(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[]
+): ChatGptLibraryAssetClassification {
+  if (!Array.isArray(assets)) return { associatedAssetIds: [], ambiguousAssetIds: [] };
+  const assetIdCounts = new Map<string, number>();
+  for (const asset of assets) {
+    if (asset && typeof asset === 'object' && typeof asset.id === 'string') {
+      assetIdCounts.set(asset.id, (assetIdCounts.get(asset.id) ?? 0) + 1);
+    }
+  }
+  const associatedAssetIds: string[] = [];
+  const ambiguousAssetIds: string[] = [];
+  for (const asset of assets) {
+    if (!asset || typeof asset !== 'object' || typeof asset.id !== 'string') continue;
+    const disposition = libraryAssetDisposition(raw, asset, assetIdCounts.get(asset.id) !== 1);
+    if (disposition === 'ambiguous') ambiguousAssetIds.push(asset.id);
+    else if (disposition === 'associated') associatedAssetIds.push(asset.id);
+  }
+  return {
+    associatedAssetIds: [...new Set(associatedAssetIds)].sort(compareStrings),
+    ambiguousAssetIds: [...new Set(ambiguousAssetIds)].sort(compareStrings),
+  };
+}
+
+/** Library admission does not establish custom-GPT, project, or template ownership. */
+function hasUnsupportedLibraryOwnerContext(raw: unknown): boolean {
+  if (!isPlainRecord(raw)) return true;
+  const rootGraph = isPlainRecord(raw.mapping);
+  const nested = raw.conversation;
+  const nestedGraph = isPlainRecord(nested) && isPlainRecord(nested.mapping);
+  if (rootGraph === nestedGraph) return true;
+  const conversation = rootGraph ? raw : nested;
+  if (!isPlainRecord(conversation)) return true;
+  return [
+    'gizmo_id',
+    'gizmoId',
+    'project_id',
+    'projectId',
+    'conversation_template_id',
+    'conversationTemplateId',
+  ].some(field => {
+    const value = conversation[field];
+    return value !== undefined && value !== null && value !== '';
+  });
+}
+
+/** Direct attachment identities only; malformed aliases never fall back to a pointer. */
+function libraryDirectProviderFileIds(value: Record<string, unknown>): Set<string> | undefined {
+  const direct = new Set<string>();
+  for (const field of DIRECT_ID_FIELDS) {
+    const candidate = value[field];
+    if (candidate === undefined || candidate === null || candidate === '') continue;
+    if (!isChatGptActiveResolverProviderFileId(candidate)) return undefined;
+    direct.add(candidate);
+  }
+  return direct;
+}
+
+function hasConflictingLibraryPointer(
+  value: Record<string, unknown>,
+  direct: ReadonlySet<string>
+): boolean {
+  const pointer = value.asset_pointer;
+  if (typeof pointer !== 'string' || pointer.length === 0) return false;
+  const match = POINTER_FILE_ID_PATTERN.exec(pointer);
+  return !match?.[1] || !direct.has(match[1]);
+}
+
+function isLibraryJpegAttachment(raw: unknown, pointer: unknown): boolean {
+  // Interpreter ownership is evidence, not membership in its bounded dispatch
+  // plan: an attachment beyond that family's cap must not fall through here.
+  return (
+    interpreterAttachmentPointer(pointer) !== undefined &&
+    interpreterAttachmentEvidence(raw, pointer) === undefined
+  );
+}
+
+function libraryJpegProviderFileId(raw: unknown, asset: RawCaptureAssetRecord): string | undefined {
+  const direct = new Set<string>();
+  let libraryAttachmentCount = 0;
+  for (const ref of asset.sourceRefs) {
+    if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') continue;
+    // Interpreter ownership applies to the whole merged ledger record, not
+    // only to the sourceRef that carries Library metadata. This must remain
+    // independent of the interpreter dispatch cap and planner ordering.
+    if (interpreterAttachmentEvidence(raw, ref.rawPointer) !== undefined) return undefined;
+    const value = atJsonPointer(raw, ref.rawPointer);
+    if (!isPlainRecord(value)) return undefined;
+    const evidence = libraryIdentityEvidence(value);
+    const localIds = libraryDirectProviderFileIds(value);
+    if (!localIds) return undefined;
+    for (const id of localIds) direct.add(id);
+    if (evidence.present) {
+      if (
+        evidence.ambiguous ||
+        !isLibraryJpegAttachment(raw, ref.rawPointer) ||
+        localIds.size !== 1
+      )
+        return undefined;
+      libraryAttachmentCount += 1;
+    }
+    // A disagreeing transport identity is ambiguity, never a fallback authority.
+    if (hasConflictingLibraryPointer(value, localIds)) return undefined;
+  }
+  return libraryAttachmentCount > 0 && direct.size === 1 ? [...direct][0] : undefined;
+}
+
+function libraryProviderIdentityCollides(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  selected: RawCaptureAssetRecord,
+  providerFileId: string
+): boolean {
+  return assets.some(asset => {
+    if (asset === selected || !asset || !Array.isArray(asset.sourceRefs)) return false;
+    const interpreterOwned = asset.sourceRefs.some(
+      ref =>
+        isPlainRecord(ref) &&
+        ref.artifactId === 'conversation' &&
+        interpreterAttachmentEvidence(raw, ref.rawPointer) !== undefined
+    );
+    return asset.sourceRefs.some(ref => {
+      if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') return false;
+      const value = atJsonPointer(raw, ref.rawPointer);
+      if (!isRecord(value)) return false;
+      const facts = denyOnlyProviderIdentityFacts(value, isChatGptActiveResolverProviderFileId);
+      if (interpreterOwned && facts.denyIdentities.includes(providerFileId)) return true;
+      if (facts.hardBlock && facts.denyIdentities.includes(providerFileId)) return true;
+      const direct = libraryDirectProviderFileIds(value);
+      const pointer =
+        typeof value.asset_pointer === 'string'
+          ? POINTER_FILE_ID_PATTERN.exec(value.asset_pointer)?.[1]
+          : undefined;
+      if (direct === undefined) return pointer === providerFileId;
+      if (direct.has(providerFileId)) return true;
+      // The sole admissible sibling is a literal pointer-only alias. Any
+      // nonempty direct field, even for another valid ID, makes it conflicting.
+      return pointer === providerFileId && direct.size > 0;
+    });
+  });
+}
+
+/**
+ * Separate, one-item Library JPEG admission. Association alone is not transport
+ * authority: exact attachment direct-ID evidence and whole-ledger uniqueness
+ * are required before eligibility, and ordinary active/passive denial is unchanged.
+ */
+export function extractChatGptLibraryJpegPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  eligibleAssetIds: readonly string[]
+): ChatGptActiveAssetPlanItem | undefined {
+  if (!Array.isArray(assets) || hasUnsupportedLibraryOwnerContext(raw)) return undefined;
+  const classification = classifyChatGptLibraryAssets(raw, assets);
+  const associated = new Set(classification.associatedAssetIds);
+  const eligible = new Set(eligibleAssetIds);
+  const selected: ChatGptActiveAssetPlanItem[] = [];
+  for (const asset of assets) {
+    if (!asset || !associated.has(asset.id)) continue;
+    const providerFileId = libraryJpegProviderFileId(raw, asset);
+    if (!providerFileId || libraryProviderIdentityCollides(raw, assets, asset, providerFileId))
+      continue;
+    if (
+      !eligible.has(asset.id) ||
+      asset.state !== 'not-attempted' ||
+      asset.mediaType !== 'image/jpeg'
+    )
+      continue;
+    selected.push({ assetId: asset.id, providerFileId });
+  }
+  return selected.sort((left, right) => compareStrings(left.assetId, right.assetId))[0];
 }
 
 /** Deny-only evidence; this never authorizes a request or chooses a winner. */

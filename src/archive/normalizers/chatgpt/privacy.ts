@@ -12,6 +12,16 @@ const MAX_DEPTH = 16;
 const MAX_ENTRIES = 512;
 const MAX_STRING_LENGTH = 32_768;
 const UNSAFE_MAP_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const RAW_ONLY_CONTEXT_ID_FIELDS = new Set([
+  'library_file_id',
+  'libraryFileId',
+  'gizmo_id',
+  'gizmoId',
+  'project_id',
+  'projectId',
+  'conversation_template_id',
+  'conversationTemplateId',
+]);
 const SENSITIVE_QUERY_KEY =
   /^(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|session[_-]?token|api[_-]?key|x[_-]?api[_-]?key|auth|authorization|jwt|credential|credentials|client[_-]?secret|private[_-]?key|password|sig|signature|x-goog-(?:signature|credential|algorithm|date|expires|signedheaders)|x-amz-(?:signature|credential|security-token|expires)|expires|se|sp)$/i;
 const SENSITIVE_URI_PREFIX = /^(?:data:|blob:|file:|file-service:|sediment:|attachment:)/i;
@@ -174,12 +184,16 @@ export function providerFields(
   for (const key of Object.keys(record)) {
     if (excluded.has(key)) continue;
     if (isSensitiveFieldName(key)) {
-      recordPrivacyRedaction(
-        privacy,
-        'privacy-redacted-sensitive-extension-field',
-        'A sensitive provider field was omitted from canonical extensions.',
-        pointerAt(pointer, key)
-      );
+      if (RAW_ONLY_CONTEXT_ID_FIELDS.has(key)) {
+        recordProviderContextRedaction(privacy, pointerAt(pointer, key));
+      } else {
+        recordPrivacyRedaction(
+          privacy,
+          'privacy-redacted-sensitive-extension-field',
+          'A sensitive provider field was omitted from canonical extensions.',
+          pointerAt(pointer, key)
+        );
+      }
       continue;
     }
     defineOwn(selected, key, sanitizeJson(record[key], privacy, pointerAt(pointer, key)).value);
@@ -236,6 +250,18 @@ export function recordPrivacyRedaction(
   if (!privacy) return;
   if (privacy.redactions.some(entry => entry.code === code && entry.pointer === pointer)) return;
   privacy.redactions.push({ code, message, pointer });
+}
+
+export function recordProviderContextRedaction(
+  privacy: PrivacyTracker | undefined,
+  pointer: string
+): void {
+  recordPrivacyRedaction(
+    privacy,
+    'privacy-redacted-provider-context-id',
+    'A provider context identifier was omitted from canonical data and remains in raw capture only.',
+    pointer
+  );
 }
 
 export function isFiniteSafeInteger(value: unknown): value is number {
@@ -313,12 +339,16 @@ function cloneObject(
     state.entries += 1;
     if (isSensitiveFieldName(key)) {
       state.redacted = true;
-      recordPrivacyRedaction(
-        privacy,
-        'privacy-redacted-sensitive-value',
-        'A sensitive provider value was omitted from canonical data.',
-        pointerAt(pointer, key)
-      );
+      if (RAW_ONLY_CONTEXT_ID_FIELDS.has(key)) {
+        recordProviderContextRedaction(privacy, pointerAt(pointer, key));
+      } else {
+        recordPrivacyRedaction(
+          privacy,
+          'privacy-redacted-sensitive-value',
+          'A sensitive provider value was omitted from canonical data.',
+          pointerAt(pointer, key)
+        );
+      }
       continue;
     }
     defineOwn(
@@ -368,6 +398,7 @@ function truncate(state: CloneState, marker: string): string {
 }
 
 function isSensitiveFieldName(key: string): boolean {
+  if (RAW_ONLY_CONTEXT_ID_FIELDS.has(key)) return true;
   const compact = key.replace(/[_-]/g, '').toLowerCase();
   if (
     new Set([

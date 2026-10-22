@@ -16,10 +16,12 @@ import {
   looksLikeUrl,
   providerFields,
   recordPrivacyRedaction,
+  recordProviderContextRedaction,
   sourceRef,
 } from './privacy';
 
 const ID_FIELDS = ['asset_id', 'assetId', 'file_id', 'fileId', 'id'];
+const LIBRARY_ID_FIELDS = ['library_file_id', 'libraryFileId'];
 const RAW_POINTER_PATTERN = /^(?:\/(?:[^~/]|~[01])*)+$/;
 
 export function manifestAssetsById(manifestAssets: unknown): ProviderAssetIndex {
@@ -267,6 +269,10 @@ function assetProviderFields(
   context: AssetContext,
   pointer: string
 ): ReturnType<typeof providerFields> {
+  for (const field of LIBRARY_ID_FIELDS) {
+    if (!hasOwn(attachment, field)) continue;
+    recordProviderContextRedaction(context.privacy, `${pointer}/${field}`);
+  }
   for (const field of [...ID_FIELDS, 'url', 'download_url', 'asset_pointer']) {
     const value = attachment[field];
     if (typeof value !== 'string') continue;
@@ -283,6 +289,7 @@ function assetProviderFields(
     attachment,
     new Set([
       ...ID_FIELDS,
+      ...LIBRARY_ID_FIELDS,
       'content_type',
       'filename',
       'file_name',

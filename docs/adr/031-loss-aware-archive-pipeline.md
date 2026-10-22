@@ -558,6 +558,50 @@ transport scans of manifest/canonical were empty. A temporary generated-dist
 trusted-click harness was removed after the canary and never entered source or
 the packaged build.
 
+### Library association is not acquisition authority
+
+The next archive scan found no ordinary GIF and only one WebP record. That WebP
+is pointerless metadata with explicit Library-ID evidence and no captured
+binary, so it cannot justify widening the ordinary image planner.
+
+Library evidence is classified in a separate pure pass over exact manifest
+source refs. The result exposes only opaque ledger asset IDs as `associated` or
+`ambiguous`; provider Library values never cross the function boundary.
+Malformed or conflicting aliases, duplicate asset IDs, stale or duplicate raw
+pointers and malformed conversation artifact IDs remain ambiguous. Empty
+aliases and `source: local` alone prove no association. Shared Library values do
+not merge distinct ledger assets. The classifier creates no request object,
+endpoint, URL, attempt timestamp or terminal acquisition claim.
+
+Exact Library, gizmo, project and conversation-template identifier aliases are
+raw-only canonical privacy fields. Direct and nested values are omitted with a
+fixed diagnostic anchored to the raw pointer. Root gizmo/template evidence is
+reduced to `isCustomGpt: true` and `hasConversationTemplate: true`; it does not
+claim that any attachment belongs to that context. Existing opaque asset IDs,
+source refs, raw bytes and acquisition state remain unchanged.
+
+Association alone still creates no request authority. A later live observation
+established one narrower transport contract: in an ordinary conversation, one
+exact Library-associated `image/jpeg` may use its direct attachment file ID
+through the existing page-owned resolver. The planner re-reads committed raw,
+requires a unique direct-ID winner across the whole ledger, gives interpreter
+evidence precedence regardless of its dispatch cap, rejects custom-GPT/project/
+template context and consumes one of the existing four active image slots.
+`library_file_id`, filename, `source: local` and pointer-only evidence never
+become request identifiers.
+
+The production canary confirmed the full durable path. The browser-owned helper
+and signed content GET returned the same 9,949 JPEG bytes as ChatGPT's preview
+download, while a cookie-less fetch of the signed URL returned 403. Therefore
+credentials and the transient signed URL remain inside the existing page-owned
+boundary. Downloads and Obsidian retained byte-identical raw, manifest,
+canonical and binary files; the aggregate audit records one Library JPEG and
+three ordinary image attempts without provider values.
+
+This does not establish general Library identity equivalence, Library PNG/WebP,
+custom-GPT/project ownership, WebP structure validation or a new endpoint.
+Those remain separately evidence-gated work.
+
 Discovering every reference does not make `completeness.assets` complete. Until
 all required binary acquisitions reach an evidenced terminal state, a
 metadata-only required inventory remains `not-attempted` (or `partial` after a
@@ -777,11 +821,12 @@ later staged begin.
 ## ChatGPT-first implementation plan
 
 Progress as of 2026-09-19: steps 1–6 are implemented and live-verified for
-ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images and
-interpreter/sandbox documents with explicit completeness diagnostics; custom-GPT,
-Library-ID, Calpico fallback, and general Deep Research binary acquisition remain
-outside the current checkpoint. Step 8 is implemented and live-verified for
-DeepSeek exact history bytes, complete graph normalization, current-branch
+ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images,
+interpreter/sandbox documents and one exact Library-associated JPEG with
+explicit completeness diagnostics; custom-GPT/project ownership, other Library
+binary families, Calpico fallback, and general Deep Research binary acquisition
+remain outside the current checkpoint. Step 8 is implemented and live-verified
+for DeepSeek exact history bytes, complete graph normalization, current-branch
 projection, and raw/manifest/canonical persistence. Step 9 remains a separate
 future phase.
 

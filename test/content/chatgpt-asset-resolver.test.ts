@@ -10,8 +10,10 @@ import {
 } from '../../src/archive/chatgpt-sandbox-link';
 import {
   CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT,
+  classifyChatGptLibraryAssets,
   extractChatGptActiveResolverPlan,
   extractChatGptActiveImagePlan,
+  extractChatGptLibraryJpegPlan,
   extractChatGptInterpreterAssetPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptTransientResolverRecord,
@@ -60,6 +62,459 @@ function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
 }
 
 describe('ChatGPT page-owned asset resolver matching', () => {
+  describe('separate Library JPEG admission', () => {
+    function libraryFixture(extra: Record<string, unknown> = {}) {
+      const raw = {
+        mapping: {
+          node: {
+            message: {
+              metadata: {
+                attachments: [
+                  { id: 'file_library_direct', library_file_id: 'private-library-id', ...extra },
+                ],
+              },
+            },
+          },
+        },
+      };
+      const record = {
+        ...asset('a', '/mapping/node/message/metadata/attachments/0'),
+        mediaType: 'image/jpeg',
+      };
+      return { raw, record };
+    }
+
+    it('admits one exact direct attachment while ordinary active/passive stay denied', async () => {
+      const { raw, record } = libraryFixture();
+      expect(extractChatGptLibraryJpegPlan(raw, [record], [record.id])).toEqual({
+        assetId: record.id,
+        providerFileId: 'file_library_direct',
+      });
+      expect(extractChatGptActiveImagePlan(raw, [record], [record.id])).toBeUndefined();
+      expect(
+        await matchChatGptPageOwnedAssetResolvers({
+          raw,
+          assets: [record],
+          resolvers: [await resolver('file_library_direct', 'https://private-download')],
+          sha256: digest,
+        })
+      ).toEqual([]);
+    });
+
+    it('supports the canonical nested conversation envelope and reads its owner guard', () => {
+      const { raw, record } = libraryFixture();
+      const nestedRecord = {
+        ...record,
+        sourceRefs: record.sourceRefs.map(ref => ({
+          ...ref,
+          rawPointer: `/conversation${ref.rawPointer}`,
+        })),
+      };
+      expect(
+        extractChatGptLibraryJpegPlan({ conversation: raw }, [nestedRecord], [nestedRecord.id])
+      ).toEqual({ assetId: nestedRecord.id, providerFileId: 'file_library_direct' });
+      expect(
+        extractChatGptLibraryJpegPlan(
+          { conversation: { ...raw, project_id: 'private-project' } },
+          [nestedRecord],
+          [nestedRecord.id]
+        )
+      ).toBeUndefined();
+    });
+
+    it('selects owner context from the same unambiguous graph envelope as inventory', () => {
+      const { raw, record } = libraryFixture();
+      expect(
+        extractChatGptLibraryJpegPlan(
+          { ...raw, project_id: 'private-project', conversation: {} },
+          [record],
+          [record.id]
+        )
+      ).toBeUndefined();
+      expect(
+        extractChatGptLibraryJpegPlan(
+          { ...raw, conversation: { mapping: {} } },
+          [record],
+          [record.id]
+        )
+      ).toBeUndefined();
+    });
+
+    it.each([
+      { id: undefined },
+      { id: undefined, asset_pointer: 'file-service://file_library_direct' },
+      { id: undefined, name: 'file_library_direct', source: 'local' },
+      { id: 'unsupported/value' },
+      { id: 42 },
+      { file_id: { private: true } },
+      { file_id: 'file_conflicting' },
+      { asset_pointer: 'file-service://file_conflicting' },
+      { libraryFileId: 'private-conflict' },
+      { library_file_id: null },
+      { library_file_id: undefined, source: 'local' },
+    ])(
+      'association cannot authorize missing, malformed, or conflicting direct evidence %#',
+      extra => {
+        const { raw, record } = libraryFixture(extra);
+        expect(extractChatGptLibraryJpegPlan(raw, [record], [record.id])).toBeUndefined();
+      }
+    );
+
+    it('does not authorize a non-attachment Library record or a foreign source ref', () => {
+      const { raw, record } = libraryFixture();
+      const other = { ...asset('b', '/library'), mediaType: 'image/jpeg' };
+      const evidence = { id: 'file_other', library_file_id: 'private-library' };
+      expect(
+        extractChatGptLibraryJpegPlan({ ...raw, library: evidence }, [other], [other.id])
+      ).toBeUndefined();
+      record.sourceRefs[0].artifactId = 'foreign';
+      expect(extractChatGptLibraryJpegPlan(raw, [record], [record.id])).toBeUndefined();
+    });
+
+    it.each([
+      'gizmo_id',
+      'gizmoId',
+      'project_id',
+      'projectId',
+      'conversation_template_id',
+      'conversationTemplateId',
+    ])('blocks unsupported root %s context, including malformed values', field => {
+      const { raw, record } = libraryFixture();
+      for (const value of ['private-owner', {}, [], false, 0]) {
+        expect(
+          extractChatGptLibraryJpegPlan({ ...raw, [field]: value }, [record], [record.id])
+        ).toBeUndefined();
+      }
+      for (const value of [undefined, null, '']) {
+        expect(
+          extractChatGptLibraryJpegPlan({ ...raw, [field]: value }, [record], [record.id])
+        ).toBeDefined();
+      }
+    });
+
+    it.each([
+      'image/png',
+      'image/webp',
+      'image/jpg',
+      'IMAGE/JPEG',
+      'image/jpeg; charset=utf-8',
+      null,
+    ])('does not admit MIME %s', mediaType => {
+      const { raw, record } = libraryFixture();
+      expect(
+        extractChatGptLibraryJpegPlan(raw, [{ ...record, mediaType }], [record.id])
+      ).toBeUndefined();
+    });
+
+    it('requires unique opaque ID, eligibility, and not-attempted state', () => {
+      const { raw, record } = libraryFixture();
+      expect(
+        extractChatGptLibraryJpegPlan(raw, [record, { ...record }], [record.id])
+      ).toBeUndefined();
+      expect(extractChatGptLibraryJpegPlan(raw, [record], [])).toBeUndefined();
+      expect(
+        extractChatGptLibraryJpegPlan(raw, [{ ...record, state: 'failed' }], [record.id])
+      ).toBeUndefined();
+      expect(
+        extractChatGptLibraryJpegPlan(raw, [{ ...record, id: 'not-opaque' }], ['not-opaque'])
+      ).toBeUndefined();
+    });
+
+    it('keeps interpreter ownership separate from its bounded dispatch plan', () => {
+      const { raw, record } = libraryFixture();
+      Object.assign(raw.mapping.node.message, { id: 'message-library' });
+      Object.assign(raw.mapping.node.message.metadata.attachments[0], {
+        name: '/mnt/data/library.jpg',
+      });
+      expect(classifyChatGptLibraryAssets(raw, [record]).associatedAssetIds).toEqual([record.id]);
+      expect(extractChatGptLibraryJpegPlan(raw, [record], [record.id])).toBeUndefined();
+    });
+
+    it('gives any merged sibling interpreter sourceRef ownership before Library admission', () => {
+      const { raw, record } = libraryFixture();
+      Object.assign(raw.mapping.node.message, { id: 'message-library' });
+      raw.mapping.node.message.metadata.attachments.push({
+        id: 'file_library_direct',
+        name: '/mnt/data/sibling-interpreter.jpg',
+        mime_type: 'image/jpeg',
+      });
+      record.sourceRefs.push({
+        artifactId: 'conversation',
+        rawPointer: '/mapping/node/message/metadata/attachments/1',
+      });
+
+      expect(classifyChatGptLibraryAssets(raw, [record]).associatedAssetIds).toEqual([record.id]);
+      expect(extractChatGptLibraryJpegPlan(raw, [record], [record.id])).toBeUndefined();
+    });
+
+    it.each([
+      { id: 'file_library_direct' },
+      { id: 42, asset_pointer: 'sediment://file_library_direct' },
+      { id: 'file_other', asset_pointer: 'file-service://file_library_direct' },
+      { id: 'unsupported/value', asset_pointer: 'sediment://file_library_direct' },
+      { id: 'file_other', file_id: 'file_library_direct' },
+      { id: 'file_library_direct', library_file_id: 'another-library' },
+    ])(
+      'resolves whole-ledger identity collisions before eligibility and independently of order %#',
+      collision => {
+        const { raw, record } = libraryFixture();
+        const other = { ...asset('b', '/collision'), state: 'failed' as const };
+        for (const assets of [
+          [record, other],
+          [other, record],
+        ]) {
+          expect(
+            extractChatGptLibraryJpegPlan({ ...raw, collision }, assets, [record.id])
+          ).toBeUndefined();
+        }
+      }
+    );
+
+    it('allows a weaker pointer-only ledger alias while selecting the exact Library direct ID', () => {
+      const { raw, record } = libraryFixture();
+      const alias = { ...asset('b', '/pointer-alias'), mediaType: null };
+      const withAlias = {
+        ...raw,
+        'pointer-alias': { asset_pointer: 'sediment://file_library_direct' },
+      };
+      for (const assets of [
+        [record, alias],
+        [alias, record],
+      ]) {
+        expect(extractChatGptLibraryJpegPlan(withAlias, assets, [record.id])).toEqual({
+          assetId: record.id,
+          providerFileId: 'file_library_direct',
+        });
+      }
+    });
+
+    it('blocks a matching pointer-only sibling with exact interpreter ownership', () => {
+      const { raw, record } = libraryFixture();
+      const interpreterRaw = {
+        ...raw,
+        mapping: {
+          ...raw.mapping,
+          interpreter: {
+            message: {
+              id: 'message-interpreter',
+              metadata: {
+                attachments: [
+                  {
+                    asset_pointer: 'sediment://file_library_direct',
+                    name: '/mnt/data/sibling-interpreter.jpg',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
+      const alias = {
+        ...asset('b', '/mapping/interpreter/message/metadata/attachments/0'),
+        mediaType: null,
+      };
+      for (const assets of [
+        [record, alias],
+        [alias, record],
+      ]) {
+        expect(extractChatGptLibraryJpegPlan(interpreterRaw, assets, [record.id])).toBeUndefined();
+      }
+    });
+
+    it('selects only one Library JPEG deterministically, without treating shared Library ID as a direct collision', () => {
+      const { raw, record } = libraryFixture();
+      raw.mapping.node.message.metadata.attachments.push({
+        id: 'file_second',
+        library_file_id: 'private-library-id',
+      });
+      const second = {
+        ...asset('b', '/mapping/node/message/metadata/attachments/1'),
+        mediaType: 'image/jpeg',
+      };
+      for (const records of [
+        [record, second],
+        [second, record],
+      ]) {
+        expect(extractChatGptLibraryJpegPlan(raw, records, [record.id, second.id])).toEqual({
+          assetId: record.id,
+          providerFileId: 'file_library_direct',
+        });
+      }
+    });
+  });
+
+  describe('offline Library association classification', () => {
+    it('classifies only the exact Library ledger record and returns no provider identity', () => {
+      const raw = {
+        library: {
+          file_id: 'file_one',
+          library_file_id: 'library-private',
+          libraryFileId: 'library-private',
+        },
+        pointerAlias: { asset_pointer: 'sediment://file_one' },
+        ordinary: { file_id: 'file_two', source: 'local' },
+      };
+      const library = asset('b', '/library');
+      const pointerAlias = asset('a', '/pointerAlias');
+      const ordinary = asset('c', '/ordinary');
+      const classification = classifyChatGptLibraryAssets(raw, [pointerAlias, ordinary, library]);
+      expect(classification).toEqual({
+        associatedAssetIds: [library.id],
+        ambiguousAssetIds: [],
+      });
+      expect(JSON.stringify(classification)).not.toContain('library-private');
+    });
+
+    it.each([
+      ['conflicting aliases', { library_file_id: 'library-one', libraryFileId: 'library-two' }],
+      ['non-string identity', { library_file_id: { malformed: true } }],
+      ['control character', { library_file_id: 'library\u0000one' }],
+      ['overlong identity', { library_file_id: 'x'.repeat(513) }],
+    ])('retains %s as ambiguous non-dispatchable evidence', (_label, value) => {
+      const record = asset('a', '/candidate');
+      expect(classifyChatGptLibraryAssets({ candidate: value }, [record])).toEqual({
+        associatedAssetIds: [],
+        ambiguousAssetIds: [record.id],
+      });
+    });
+
+    it('treats disagreement across exact source refs as ambiguous', () => {
+      const record = assetWithSourceRefs('a', ['/one', '/two']);
+      expect(
+        classifyChatGptLibraryAssets(
+          {
+            one: { library_file_id: 'library-one' },
+            two: { library_file_id: 'library-two' },
+          },
+          [record]
+        )
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+    });
+
+    it.each(['missing', 'duplicate'] as const)(
+      'fails closed when Library evidence has a %s conversation source ref',
+      mode => {
+        const record = assetWithSourceRefs(
+          'a',
+          mode === 'missing' ? ['/library', '/missing'] : ['/library', '/library']
+        );
+        expect(
+          classifyChatGptLibraryAssets({ library: { library_file_id: 'library-one' } }, [record])
+        ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+      }
+    );
+
+    it('fails closed on malformed artifact identity beside valid Library evidence', () => {
+      const record = asset('a', '/library');
+      record.sourceRefs.push({ artifactId: 42 as never, rawPointer: '/other' });
+      expect(
+        classifyChatGptLibraryAssets({ library: { library_file_id: 'library-one' } }, [record])
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+    });
+
+    it('does not merge different ledger assets that share one Library association', () => {
+      const first = asset('a', '/first');
+      const second = asset('b', '/second');
+      expect(
+        classifyChatGptLibraryAssets(
+          {
+            first: { file_id: 'file_one', library_file_id: 'library-shared' },
+            second: { file_id: 'file_two', library_file_id: 'library-shared' },
+          },
+          [second, first]
+        )
+      ).toEqual({ associatedAssetIds: [first.id, second.id], ambiguousAssetIds: [] });
+    });
+
+    it('classifies pointerless JPEG/WebP inventory records without acquisition authority', async () => {
+      const raw = {
+        mapping: {
+          node: {
+            id: 'node',
+            parent: null,
+            children: [],
+            message: {
+              id: 'message',
+              author: { role: 'user' },
+              content: { content_type: 'text', parts: ['synthetic'] },
+              metadata: {
+                attachments: [
+                  {
+                    id: 'file_one',
+                    library_file_id: 'library-one',
+                    mime_type: 'image/jpeg',
+                  },
+                  {
+                    id: 'file_two',
+                    library_file_id: 'library-two',
+                    mime_type: 'image/webp',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
+      const inventory = await inventoryChatGptRawAssets({
+        raw,
+        artifactId: 'conversation',
+        sha256: digest,
+      });
+      expect(inventory.assets).toHaveLength(2);
+      expect(
+        inventory.assets.map(record => ({
+          state: record.state,
+          attemptedAt: record.attemptedAt,
+          relativePath: record.relativePath,
+          sha256: record.sha256,
+        }))
+      ).toEqual(
+        Array.from({ length: 2 }, () => ({
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          sha256: null,
+        }))
+      );
+      const classification = classifyChatGptLibraryAssets(raw, inventory.assets);
+      expect(classification).toEqual({
+        associatedAssetIds: inventory.assets.map(record => record.id).sort(),
+        ambiguousAssetIds: [],
+      });
+      expect(JSON.stringify({ inventory, classification })).not.toMatch(
+        /file_one|file_two|library-one|library-two/
+      );
+    });
+
+    it('does not infer Library association from source=local or empty aliases', () => {
+      const local = asset('a', '/local');
+      const empty = asset('b', '/empty');
+      expect(
+        classifyChatGptLibraryAssets(
+          {
+            local: { file_id: 'file_one', source: 'local' },
+            empty: { library_file_id: '', libraryFileId: null },
+          },
+          [local, empty]
+        )
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [] });
+    });
+
+    it('fails closed on duplicate ledger IDs and malformed asset arrays', () => {
+      const record = asset('a', '/library');
+      expect(
+        classifyChatGptLibraryAssets({ library: { library_file_id: 'library-one' } }, [
+          record,
+          record,
+        ])
+      ).toEqual({ associatedAssetIds: [], ambiguousAssetIds: [record.id] });
+      expect(classifyChatGptLibraryAssets({}, null as never)).toEqual({
+        associatedAssetIds: [],
+        ambiguousAssetIds: [],
+      });
+    });
+  });
+
   describe('bounded sandbox-link parsing', () => {
     it('handles dense unmatched link openers without inventing evidence', () => {
       expect(chatGptSandboxLinksFromAssistantTextPart('message-1', '['.repeat(100_000))).toEqual(
@@ -688,6 +1143,40 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       ).resolves.toEqual(plan);
     });
 
+    it('matches assistant sandbox links inside the supported nested conversation envelope', async () => {
+      const raw = {
+        conversation: {
+          mapping: {
+            node: {
+              message: {
+                id: 'assistant-message',
+                author: { role: 'assistant' },
+                content: {
+                  content_type: 'text',
+                  parts: ['[document](sandbox:/mnt/data/nested.docx)'],
+                },
+              },
+            },
+          },
+        },
+      };
+      const inventory = await inventoryChatGptRawAssets({
+        raw,
+        artifactId: 'conversation',
+        sha256: digest,
+      });
+
+      await expect(
+        extractChatGptInterpreterAssetPlan(raw, inventory.assets, digest)
+      ).resolves.toEqual([
+        {
+          assetId: inventory.assets[0].id,
+          messageId: 'assistant-message',
+          sandboxPath: '/mnt/data/nested.docx',
+        },
+      ]);
+    });
+
     it('rejects a matching opaque ledger ID when its source link is inside indented code', async () => {
       const messageId = 'assistant-message';
       const sandboxPath = '/mnt/data/private.txt';
@@ -757,6 +1246,36 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       expect(plan[0]).not.toHaveProperty('downloadUrl');
       expect(plan[0]).not.toHaveProperty('headers');
       expect(plan[0]).not.toHaveProperty('body');
+    });
+
+    it('extracts metadata attachments inside the supported nested conversation envelope', async () => {
+      const metadata = asset(
+        'a',
+        '/conversation/mapping/node~1current/message/metadata/attachments/0'
+      );
+      await expect(
+        extractChatGptInterpreterAssetPlan(
+          {
+            conversation: {
+              mapping: {
+                'node/current': {
+                  message: {
+                    id: 'message_123',
+                    metadata: { attachments: [{ name: '/mnt/data/nested.txt' }] },
+                  },
+                },
+              },
+            },
+          },
+          [metadata]
+        )
+      ).resolves.toEqual([
+        {
+          assetId: metadata.id,
+          messageId: 'message_123',
+          sandboxPath: '/mnt/data/nested.txt',
+        },
+      ]);
     });
 
     it('ignores incidental sandbox-looking strings and first-slice content parts', async () => {

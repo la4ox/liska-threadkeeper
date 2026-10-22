@@ -19,6 +19,7 @@ import {
   CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
   observeChatGptAssetResolvers,
   planChatGptActiveImageAsset,
+  planChatGptLibraryJpegAsset,
   planChatGptInterpreterAssetIds,
   verifyChatGptAssetExportContext,
   type ChatGptAssetResolverObservation,
@@ -96,6 +97,11 @@ export interface ChatGptAssetExportDependencies {
   ) => Promise<ChatGptAssetResolverObservation>;
   /** Separate single-item route, called sequentially at most four times in strict replay. */
   resolveActiveAsset?: (
+    context: ChatGptAssetExportContext,
+    item: ChatGptActiveAssetPlanItem
+  ) => Promise<ChatGptActiveAssetResponse>;
+  /** Separate evidence-gated Library JPEG route; shares one of the four active slots. */
+  resolveLibraryAsset?: (
     context: ChatGptAssetExportContext,
     item: ChatGptActiveAssetPlanItem
   ) => Promise<ChatGptActiveAssetResponse>;
@@ -429,12 +435,17 @@ async function resolveOneUnattemptedImage(
   candidates: ReadonlyMap<string, ChatGptPageOwnedAssetCandidate>,
   excludedAssetIds: ReadonlySet<string>,
   activeOwnedAssetIds: Set<string>,
-  resolution: ChatGptAssetCandidateResolution
+  resolution: ChatGptAssetCandidateResolution,
+  family: 'ordinary' | 'library-jpeg' = 'ordinary'
 ): Promise<ActiveImageAttempt | undefined> {
-  if (dependencies.resolveActiveAsset === undefined) return undefined;
+  const resolver =
+    family === 'library-jpeg' ? dependencies.resolveLibraryAsset : dependencies.resolveActiveAsset;
+  if (resolver === undefined) return undefined;
   let item: ChatGptActiveAssetPlanItem | undefined;
   try {
-    item = await planChatGptActiveImageAsset(
+    const planner =
+      family === 'library-jpeg' ? planChatGptLibraryJpegAsset : planChatGptActiveImageAsset;
+    item = await planner(
       context,
       records
         .filter(
@@ -453,15 +464,7 @@ async function resolveOneUnattemptedImage(
   const bound = { ...item };
   // Ownership begins before dispatch, including helper/run/binary failures.
   activeOwnedAssetIds.add(bound.assetId);
-  let response: ChatGptActiveAssetResponse;
-  try {
-    const result = await dependencies.resolveActiveAsset(context, { ...bound });
-    response = (await isBoundChatGptActiveAssetResponse(result, bound, context.conversationId))
-      ? result
-      : activeAssetFailure('resolver-result-invalid');
-  } catch {
-    response = activeAssetFailure('resolver-result-invalid');
-  }
+  const response = await resolveBoundActiveImage(context, bound, resolver);
   return {
     assetId: bound.assetId,
     response,
@@ -472,12 +475,36 @@ async function resolveOneUnattemptedImage(
   };
 }
 
+async function resolveBoundActiveImage(
+  context: ChatGptAssetExportContext,
+  bound: ChatGptActiveAssetPlanItem,
+  resolver: NonNullable<ChatGptAssetExportDependencies['resolveActiveAsset']>
+): Promise<ChatGptActiveAssetResponse> {
+  try {
+    const result = await resolver(context, { ...bound });
+    return (await isBoundChatGptActiveAssetResponse(result, bound, context.conversationId))
+      ? result
+      : activeAssetFailure('resolver-result-invalid');
+  } catch {
+    return activeAssetFailure('resolver-result-invalid');
+  }
+}
+
+function hasAssetBudget(budget: ChatGptPageOwnedAssetAcquisitionBudget): boolean {
+  return budget.attemptsRemaining > 0 && budget.bytesRemaining > 0;
+}
+
 function addActiveBatchAudit(
   resolution: ChatGptAssetCandidateResolution,
-  attempts: ChatGptActiveResolverMetric[]
+  attempts: ChatGptActiveResolverMetric[],
+  libraryJpegAttemptCount: 0 | 1
 ): void {
   if (attempts.length === 0) return;
-  resolution.activeResolverMetric = { acquisitionMode: 'image-batch-4', attempts };
+  resolution.activeResolverMetric = {
+    acquisitionMode: 'image-batch-4',
+    attempts,
+    libraryJpegAttemptCount,
+  };
   addWarning(
     resolution.warnings,
     chatGptActiveResolverAuditWarning(resolution.activeResolverMetric)
@@ -540,9 +567,41 @@ async function resolveAndAcquireAssetCandidates(
   );
   const activeOwnedAssetIds = new Set<string>();
   const activeMetrics: ChatGptActiveResolverMetric[] = [];
+  let libraryJpegAttemptCount: 0 | 1 = 0;
+  const applyActiveAttempt = async (active: ActiveImageAttempt): Promise<void> => {
+    activeMetrics.push(active.metric);
+    acquired.records = applyChatGptActiveAssetFailure(
+      acquired.records,
+      active.assetId,
+      active.response
+    );
+    if (active.response.success && active.response.data.candidate !== null) {
+      const candidate = active.response.data.candidate;
+      candidates.set(active.assetId, candidate);
+      resolution.matched = true;
+      await acquireBatch([candidate]);
+      acquired.records = applyChatGptActiveAcquisitionFailure(acquired.records, active.assetId);
+    }
+  };
+  if (hasAssetBudget(budget)) {
+    const library = await resolveOneUnattemptedImage(
+      context,
+      dependencies,
+      acquired.records,
+      candidates,
+      interpreterAssetIds,
+      activeOwnedAssetIds,
+      resolution,
+      'library-jpeg'
+    );
+    if (library) {
+      libraryJpegAttemptCount = 1;
+      await applyActiveAttempt(library);
+    }
+  }
   if (dependencies.resolveActiveAsset !== undefined) {
-    for (let index = 0; index < CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT; index += 1) {
-      if (budget.attemptsRemaining <= 0 || budget.bytesRemaining <= 0) break;
+    while (activeMetrics.length < CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT) {
+      if (!hasAssetBudget(budget)) break;
       const active = await resolveOneUnattemptedImage(
         context,
         dependencies,
@@ -553,22 +612,9 @@ async function resolveAndAcquireAssetCandidates(
         resolution
       );
       if (!active) break;
-      activeMetrics.push(active.metric);
-      acquired.records = applyChatGptActiveAssetFailure(
-        acquired.records,
-        active.assetId,
-        active.response
-      );
-      if (active.response.success && active.response.data.candidate !== null) {
-        const candidate = active.response.data.candidate;
-        candidates.set(active.assetId, candidate);
-        resolution.matched = true;
-        await acquireBatch([candidate]);
-        acquired.records = applyChatGptActiveAcquisitionFailure(acquired.records, active.assetId);
-      }
+      await applyActiveAttempt(active);
     }
-    addActiveBatchAudit(resolution, activeMetrics);
-  } else {
+  } else if (activeMetrics.length === 0) {
     await observeOneUnattemptedPng(
       context,
       dependencies,
@@ -578,6 +624,7 @@ async function resolveAndAcquireAssetCandidates(
       resolution
     );
   }
+  addActiveBatchAudit(resolution, activeMetrics, libraryJpegAttemptCount);
 
   const remainingAssetIds = [...allowedAssetIds]
     .filter(

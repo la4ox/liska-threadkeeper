@@ -356,6 +356,89 @@ raw capture with `opaque-replay-source-http-error`; it produced no new output
 and was not retried. The generated trusted-click smoke hook was never added to
 source or packaging and was removed after verification.
 
+Content-free archive reconnaissance found no ordinary GIF example and exactly
+one WebP record among the newest snapshots for 16 distinct conversation IDs.
+That WebP is a pointerless `metadata.attachments` record with explicit
+Library-ID evidence; no `.webp` binary was present in its capture. It therefore
+does not justify widening the ordinary active image allowlist and instead
+becomes evidence for the separate Library contract.
+
+The first offline Library checkpoint classifies only ledger records reached by
+their exact committed-raw source references. Its exported result contains only
+opaque asset IDs split into `associated` and `ambiguous` sets; Library ID values
+never leave the pure classifier, and no request, URL, endpoint or acquisition
+authority is created. Empty aliases and `source: local` alone prove nothing;
+conflicting aliases, malformed values, duplicate ledger IDs, missing or
+duplicate raw pointers and malformed conversation artifact IDs fail closed as
+ambiguous. Separate assets that share one Library association are not merged.
+Synthetic inventory plus content-free checks against the saved Library JPEG and
+pointerless WebP originally kept both assets `not-attempted` with null local
+claims; that frozen offline checkpoint remains the no-authority baseline.
+
+Canonical privacy now treats exact Library, gizmo, project and conversation
+template identifier aliases as raw-only structured provider context. Direct and
+nested values are omitted with fixed value-free diagnostics at exact raw
+pointers. Root gizmo/template evidence retains only `isCustomGpt: true` and
+`hasConversationTemplate: true`; authored text, ordinary provider fields, raw
+bytes, opaque asset IDs, source references and acquisition states remain
+unchanged. Custom-GPT/project ownership remains explicitly unimplemented.
+
+The first live Library transport observation proved that ChatGPT's preview
+downloads a `blob:https://chatgpt.com/...`, while the underlying page-owned
+flow uses `/backend-api/files/download/<direct attachment id>` and a transient
+signed `/backend-api/estuary/content` URL. A browser-owned content GET returned
+200; the same signed URL without the authenticated browser session returned 403. The contract therefore reuses the existing MAIN-world credential-bearing
+resolver and content-script acquisition seam; it never exports cookies,
+Authorization headers, signed URLs or Library IDs and never moves the signed
+URL into a background fetch.
+
+The initial production-path canary correctly left the Library JPEG
+`not-attempted` and exposed a stricter-than-intended collision rule: a separate
+pointer-only inventory record referenced the same provider file as the exact
+Library metadata record. The fix permits only that weaker pointer-only alias;
+malformed, unsupported, Library-bearing or nonempty direct siblings still fail
+closed. Independent review also found and closed a separate merged-ledger
+interpreter-precedence defect before the successful canary.
+
+The successful trusted-click canary produced capture
+`capture-chatgpt-4bb552a8-ce71-43ce-ae2a-b8632e9a0c4b`. It selected four of four
+active slots: one Library JPEG and three ordinary images, with four known
+dispatches, four observed helpers and no run failure. The Library JPEG is 9,949
+bytes at SHA-256
+`29c102f25e517ef317efcd548d120335fd7d146ed42b1482eac8b075be4dcebb`;
+it is byte-identical to ChatGPT's own preview download and passes the existing
+155 by 194 JPEG structural validator. A second 145,482-byte ordinary JPEG and
+two PNGs were also preserved. File and Obsidian contain seven of seven
+byte-identical raw/manifest/canonical/binary files. `library_file_id`, signed
+transport URLs and credential/header markers are absent from manifest and
+canonical output; the immutable raw retains original provider evidence.
+
+The installed extension was returned to its pre-canary `dist` with the exact
+29-file tree hash
+`8d74d2458ec5f5a6fa978f574ef07896f0f657fa2af539a1df3a21066286d955`.
+Temporary screenshots, browser-History copy and both canary builds were removed;
+captures remain append-only.
+
+Final exact-tree validation for the combined Library slice passes all 153 test
+files / 4,292 tests. Coverage is 95.23% statements, 90.99% branches, 98.47%
+functions and 97.72% lines. TypeScript, the production build, source/platform
+lint and repository formatting pass; lint retains the same three pre-existing
+warnings. The package has 29 of 29 files byte-identical to `dist`, is 228,231
+bytes and has SHA-256
+`c18d0af1ac2e7a37286d8e83222ba628557fb5379e1e21a4aa044cf07eafcd2c`.
+Independent review found and closed the merged-ledger interpreter-precedence
+and pointer-alias ambiguity defects, including interpreter ownership on a
+separate alias record. GitHub review then exposed and closed nested-envelope
+pointer and owner-selection gaps; the final pass found no remaining P0-P2.
+
+Exact-tree validation for this offline Library checkpoint passes all 152 test
+files / 4,216 tests. Coverage is 95.20% statements, 90.93% branches, 98.45%
+functions and 97.70% lines. TypeScript plus the production build, formatting
+and lint also pass; lint retains the same three pre-existing warnings. An
+independent review of the complete offline Library checkpoint found no P0-P2 or
+material P3 issue and confirmed that this slice creates no acquisition
+authority.
+
 Final exact-tree validation for this JPEG slice uses Node 24.18.0 and npm
 11.16.0. All 152 test files / 4,192 tests pass; coverage is 95.20% statements,
 90.90% branches, 98.45% functions, and 97.70% lines. TypeScript, the production
@@ -397,6 +480,15 @@ Pull request 12 merged to `main` as `950f775`. Its final reviewed source head
 was `21cebb6`; CI and the final independent review were clean. This JPEG work
 continues from that exact merge on `codex/chatgpt-jpeg-assets`.
 
+Pull request 13 merged to `main` as `6c64fd1`; its reviewed source head was
+`bc6a6a3`, CI was green and Security review was clean. The repeated ordinary
+code-review indicator remained externally stuck after both actionable threads
+were resolved, so the merge used the clean CI/Security result, the resolved
+review evidence and an independent local review. The Library branch is
+rebased onto that exact merge. Its offline privacy and association checkpoint
+plus the one-JPEG runtime contract remain unpublished pending their own
+reviewable pull request.
+
 The upstream `v2.7.13` → `v2.14.9` audit is retained in
 [`docs/upstream-2.14.9-audit.md`](docs/upstream-2.14.9-audit.md). This branch now
 adapts the Perplexity rollout fixes, strict popup settings reads, a length-aware
@@ -404,7 +496,7 @@ append reader, and compatible dependency/build-chain updates. Claude current
 DOM, ChatGPT DOM fallback, typed truncation guards, Gemini completeness/title
 and the exact Google image redirect permission remain explicit later slices.
 
-Next: checkpoint ordinary JPEG in its own reviewable pull request, then inspect
-real GIF/WebP raw shapes and helper responses before admitting either MIME.
-Library-ID, custom-GPT/project, and Calpico families remain separate later
-contracts.
+Next: checkpoint the independently reviewed, live-verified one-Library-JPEG
+slice in its own pull request. Then collect exact custom-GPT/project attachment
+evidence as a separate ownership contract. Treat the archived WebP as separate
+Library-family evidence and do not widen ordinary GIF/WebP acquisition.

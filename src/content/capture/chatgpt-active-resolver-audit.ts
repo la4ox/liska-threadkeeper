@@ -31,6 +31,8 @@ export const CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT = 4;
 export interface ChatGptActiveResolverBatchAudit {
   acquisitionMode: 'image-batch-4';
   attempts: ChatGptActiveResolverMetric[];
+  /** Value-free family count; absent on historical ordinary-only audits. */
+  libraryJpegAttemptCount?: 0 | 1;
 }
 
 export type ChatGptActiveResolverAudit =
@@ -279,14 +281,23 @@ function validatedBatchSnapshot(
   fields: DataFields,
   snapshots: DataSnapshots
 ): ChatGptActiveResolverBatchAudit {
+  const hasLibraryCount = Object.prototype.hasOwnProperty.call(fields, 'libraryJpegAttemptCount');
   if (
-    !hasExactFields(fields, ['acquisitionMode', 'attempts']) ||
-    fields.acquisitionMode !== 'image-batch-4'
+    !hasExactFields(fields, [
+      'acquisitionMode',
+      'attempts',
+      ...(hasLibraryCount ? ['libraryJpegAttemptCount'] : []),
+    ]) ||
+    fields.acquisitionMode !== 'image-batch-4' ||
+    (hasLibraryCount &&
+      fields.libraryJpegAttemptCount !== 0 &&
+      fields.libraryJpegAttemptCount !== 1)
   )
     invalidMetric();
   return {
     acquisitionMode: 'image-batch-4',
     attempts: validatedAttemptSnapshots(fields.attempts, snapshots),
+    ...(hasLibraryCount && { libraryJpegAttemptCount: fields.libraryJpegAttemptCount as 0 | 1 }),
   };
 }
 
@@ -311,7 +322,8 @@ function batchAuditWarning(audit: ChatGptActiveResolverBatchAudit): string {
   const runFailures = CHATGPT_ACTIVE_RESOLVER_ERROR_CODES.filter(code => failures.has(code))
     .map(code => `${code}:${failures.get(code)}`)
     .join(',');
-  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; file-ID binary acquisition is limited to four sequential PNG/JPEG images.`;
+  const libraryCount = audit.libraryJpegAttemptCount ?? 0;
+  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; library-jpeg-attempts=${libraryCount}; ordinary-image-attempts=${audit.attempts.length - libraryCount}; outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; file-ID binary acquisition is limited to four sequential PNG/JPEG images.`;
 }
 
 export function chatGptActiveResolverAuditWarning(
