@@ -169,6 +169,7 @@ describe('generateNoteContent', () => {
         branch_count: 12,
         branch_point_count: 7,
         archive_capture_id: 'capture-chatgpt-safe_123',
+        archive_manifest_sha256: 'a'.repeat(64),
       },
     });
 
@@ -179,6 +180,17 @@ describe('generateNoteContent', () => {
     expect(content).toContain('branch_count: 12');
     expect(content).toContain('branch_point_count: 7');
     expect(content).toContain('archive_capture_id: capture-chatgpt-safe_123');
+    expect(content).toContain(`archive_manifest_sha256: ${'a'.repeat(64)}`);
+  });
+
+  it('escapes manifest provenance as YAML evidence independently of optional fields', () => {
+    const archiveNote = createTestNote({
+      frontmatter: { ...note.frontmatter, archive_manifest_sha256: 'hash\ninjected: true' },
+    });
+    const content = generateNoteContent(archiveNote, createTestSettings({ includeId: false }));
+
+    expect(content).toContain('archive_manifest_sha256: "hash\\ninjected: true"');
+    expect(content).not.toMatch(/^injected:/m);
   });
 
   it.each([

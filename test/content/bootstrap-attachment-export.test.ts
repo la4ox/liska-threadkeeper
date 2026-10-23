@@ -151,6 +151,22 @@ const successfulSave: MultiOutputResponse = {
   anySuccessful: true,
 };
 
+const archivedDocxSha256 = 'd'.repeat(64);
+const fileReceipt = {
+  destination: 'file' as const,
+  captureId: companion.captureId,
+  conversationKey: companion.conversationKey,
+  manifestSha256: 'e'.repeat(64),
+  assets: [
+    {
+      sha256: archivedDocxSha256,
+      relativePath: `assets/${archivedDocxSha256}.docx`,
+      mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      byteLength: 45_036,
+    },
+  ],
+};
+
 function mockSettingsAndSave(): void {
   mocks.sendMessage.mockImplementation((message: { action: string }) => {
     if (message.action === 'getSettings') return Promise.resolve(settings);
@@ -163,12 +179,14 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     settings.enableChatGptOpaqueReplay = false;
+    settings.outputOptions = { obsidian: false, file: true, clipboard: false };
     setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
     mockSettingsAndSave();
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
     mocks.attachmentExport.mockResolvedValue({
       rawSuccessfulDestinations: ['file'],
       completeDestinations: ['file'],
+      destinationReceipts: [fileReceipt],
       warnings: ['ChatGPT attachment export recorded one destination caveat.'],
     });
   });
@@ -197,12 +215,127 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'saveToOutputs', outputs: ['file'] })
       );
+      const saveMessage = mocks.sendMessage.mock.calls
+        .map(call => call[0])
+        .find(message => message.action === 'saveToOutputs');
+      expect(saveMessage.data.frontmatter).toMatchObject({
+        archive_capture_id: companion.captureId,
+        archive_manifest_sha256: fileReceipt.manifestSha256,
+      });
+      expect(saveMessage.data.body).toContain(
+        `_liska-archive/${companion.conversationKey}/${companion.captureId}/assets/${archivedDocxSha256}.docx`
+      );
       expect(mocks.showWarningToast).toHaveBeenCalledWith(
         'ChatGPT attachment export recorded one destination caveat.'
       );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('writes per-destination archive provenance and never gives Clipboard a local archive link', async () => {
+    settings.outputOptions = { obsidian: true, file: true, clipboard: true };
+    const obsidianReceipt = {
+      destination: 'obsidian' as const,
+      captureId: companion.captureId,
+      conversationKey: companion.conversationKey,
+      manifestSha256: 'f'.repeat(64),
+      assets: [],
+    };
+    mocks.attachmentExport.mockResolvedValue({
+      rawSuccessfulDestinations: ['obsidian', 'file'],
+      completeDestinations: ['obsidian', 'file'],
+      destinationReceipts: [obsidianReceipt, fileReceipt],
+      warnings: [],
+    });
+    mocks.extract.mockResolvedValue(noteResult);
+    mocks.sendMessage.mockImplementation(
+      (message: { action: string; outputs?: Array<'obsidian' | 'file' | 'clipboard'> }) => {
+        if (message.action === 'getSettings') return Promise.resolve(settings);
+        if (message.action === 'testConnection') return Promise.resolve({ success: true });
+        if (message.action === 'saveToOutputs') {
+          const destination = message.outputs?.[0];
+          return Promise.resolve({
+            results: [{ destination, success: true }],
+            allSuccessful: true,
+            anySuccessful: true,
+          });
+        }
+        return Promise.reject(new Error(`unexpected background message: ${message.action}`));
+      }
+    );
+
+    await handleSync();
+
+    const saveMessages = mocks.sendMessage.mock.calls
+      .map(call => call[0])
+      .filter(message => message.action === 'saveToOutputs');
+    expect(saveMessages.map(message => message.outputs)).toEqual([
+      ['obsidian'],
+      ['file'],
+      ['clipboard'],
+    ]);
+    const obsidianNote = saveMessages[0].data;
+    const fileNote = saveMessages[1].data;
+    const clipboardNote = saveMessages[2].data;
+    expect(obsidianNote.frontmatter).toMatchObject({
+      archive_capture_id: companion.captureId,
+      archive_manifest_sha256: obsidianReceipt.manifestSha256,
+    });
+    expect(obsidianNote.body).not.toContain('## Local archive attachments');
+    expect(fileNote.frontmatter).toMatchObject({
+      archive_capture_id: companion.captureId,
+      archive_manifest_sha256: fileReceipt.manifestSha256,
+    });
+    expect(fileNote.body).toContain('## Local archive attachments');
+    expect(fileNote.body).toContain(`/assets/${archivedDocxSha256}.docx`);
+    expect(clipboardNote.frontmatter).not.toHaveProperty('archive_capture_id');
+    expect(clipboardNote.frontmatter).not.toHaveProperty('archive_manifest_sha256');
+    expect(clipboardNote.body).not.toContain('_liska-archive/');
+  });
+
+  it('continues with later destinations when one destination note message rejects', async () => {
+    settings.outputOptions = { obsidian: true, file: true, clipboard: false };
+    const obsidianReceipt = {
+      ...fileReceipt,
+      destination: 'obsidian' as const,
+      manifestSha256: 'f'.repeat(64),
+    };
+    mocks.attachmentExport.mockResolvedValue({
+      rawSuccessfulDestinations: ['obsidian', 'file'],
+      completeDestinations: ['obsidian', 'file'],
+      destinationReceipts: [obsidianReceipt, fileReceipt],
+      warnings: [],
+    });
+    mocks.extract.mockResolvedValue(noteResult);
+    mocks.sendMessage.mockImplementation(
+      (message: { action: string; outputs?: Array<'obsidian' | 'file'> }) => {
+        if (message.action === 'getSettings') return Promise.resolve(settings);
+        if (message.action === 'testConnection') return Promise.resolve({ success: true });
+        if (message.action === 'saveToOutputs' && message.outputs?.[0] === 'obsidian') {
+          return Promise.reject(new Error('synthetic message transport failure'));
+        }
+        if (message.action === 'saveToOutputs' && message.outputs?.[0] === 'file') {
+          return Promise.resolve({
+            results: [{ destination: 'file', success: true }],
+            allSuccessful: true,
+            anySuccessful: true,
+          });
+        }
+        return Promise.reject(new Error(`unexpected background message: ${message.action}`));
+      }
+    );
+
+    await handleSync();
+
+    const saveMessages = mocks.sendMessage.mock.calls
+      .map(call => call[0])
+      .filter(message => message.action === 'saveToOutputs');
+    expect(saveMessages.map(message => message.outputs)).toEqual([['obsidian'], ['file']]);
+    expect(mocks.showWarningToast).toHaveBeenCalledWith(
+      'Saved to: file. Failed: obsidian: Note write failed'
+    );
+    expect(mocks.showErrorToast).not.toHaveBeenCalled();
   });
 
   it('injects passive observation and separate ordinary/Library image routes only for strict replay', async () => {
@@ -301,6 +434,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     mocks.attachmentExport.mockResolvedValue({
       rawSuccessfulDestinations: ['file'],
       completeDestinations: [],
+      destinationReceipts: [],
       warnings: ['ChatGPT original raw archive companion could not be finalized.'],
     });
 
@@ -323,6 +457,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     mocks.attachmentExport.mockResolvedValue({
       rawSuccessfulDestinations: ['file'],
       completeDestinations: [],
+      destinationReceipts: [],
       warnings: ['Synthetic destination failure after resolver composition.'],
     });
 

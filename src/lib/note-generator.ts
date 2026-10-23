@@ -31,6 +31,9 @@ function appendArchiveEvidence(lines: string[], frontmatter: NoteFrontmatter): v
   if (frontmatter.archive_capture_id) {
     lines.push(`archive_capture_id: ${escapeYamlValue(frontmatter.archive_capture_id)}`);
   }
+  if (frontmatter.archive_manifest_sha256) {
+    lines.push(`archive_manifest_sha256: ${escapeYamlValue(frontmatter.archive_manifest_sha256)}`);
+  }
 }
 
 /**

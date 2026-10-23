@@ -8,6 +8,7 @@ import type { ExtensionSettings, MultiOutputResponse, ObsidianNote } from '../..
 import { generateHash } from '../../src/lib/hash';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
+import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
 
 // Mock client instance - defined at module level
 const mockClient = {
@@ -2905,6 +2906,169 @@ describe('background/index', () => {
         'AI/claude/test--branch-002--555555555555.md',
         expect.any(String)
       );
+    });
+
+    it.each([false, true])(
+      'bypasses append for receipt-bound notes (attachments: %s)',
+      async withAssets => {
+        mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+        const sha256 = 'a'.repeat(64);
+        const archiveNote = decorateChatGptArchiveNote(
+          {
+            ...appendNote,
+            frontmatter: { ...appendNote.frontmatter, id: 'chatgpt_archive', source: 'chatgpt' },
+          },
+          {
+            destination: 'obsidian',
+            captureId: 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd',
+            conversationKey: 'c'.repeat(64),
+            manifestSha256: 'd'.repeat(64),
+            assets: withAssets
+              ? [
+                  {
+                    sha256,
+                    relativePath: `assets/${sha256}.pdf`,
+                    mediaType: 'application/pdf',
+                    byteLength: 123,
+                  },
+                ]
+              : [],
+          }
+        );
+        const basePath = 'AI/chatgpt/test-abc12345.md';
+        const snapshotPath =
+          'AI/chatgpt/test-abc12345--capture-01234567-89ab-4cde-8f01-23456789abcd.md';
+        mockClient.getFile.mockImplementation((path: string) =>
+          Promise.resolve(
+            path === basePath ? existingContent.replace('claude_abc-def', 'chatgpt_archive') : null
+          )
+        );
+        mockClient.putFile.mockResolvedValue(undefined);
+
+        const sendResponse = vi.fn();
+        capturedListener(
+          { action: 'saveToOutputs', outputs: ['obsidian'], data: archiveNote },
+          validSender as chrome.runtime.MessageSender,
+          sendResponse
+        );
+
+        await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+        const response = sendResponse.mock.calls[0][0];
+        expect(response.allSuccessful).toBe(true);
+        expect(response.messagesAppended).toBeUndefined();
+        expect(mockClient.listFiles).not.toHaveBeenCalled();
+        expect(mockClient.getFile).toHaveBeenCalledTimes(1);
+        expect(mockClient.putFile).toHaveBeenCalledTimes(1);
+        const [path, content] = mockClient.putFile.mock.calls[0] as [string, string];
+        expect(mockClient.getFile).toHaveBeenCalledWith(snapshotPath);
+        expect(mockClient.getFile).not.toHaveBeenCalledWith(basePath);
+        expect(path).toBe(snapshotPath);
+        expect(content).toContain(`archive_manifest_sha256: ${'d'.repeat(64)}`);
+        expect(content).toContain(archiveNote.body);
+        expect(content.includes('## Local archive attachments')).toBe(withAssets);
+      }
+    );
+
+    it('never overwrites an occupied receipt-bound path, even for the same conversation and capture', async () => {
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      const captureId = 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd';
+      const archiveNote = decorateChatGptArchiveNote(
+        {
+          ...appendNote,
+          frontmatter: { ...appendNote.frontmatter, id: 'chatgpt_archive', source: 'chatgpt' },
+        },
+        {
+          destination: 'obsidian',
+          captureId,
+          conversationKey: 'c'.repeat(64),
+          manifestSha256: 'd'.repeat(64),
+          assets: [],
+        }
+      );
+      const occupiedPath = `AI/chatgpt/${archiveNote.fileName}`;
+      const suffix = generateHash('chatgpt_archive');
+      const alternateFileName = archiveNote.fileName.replace(/\.md$/, `-${suffix}.md`);
+      const alternatePath = `AI/chatgpt/${alternateFileName}`;
+      const existingSnapshot = `---\nid: chatgpt_archive\narchive_capture_id: ${captureId}\n---\nKeep this snapshot`;
+      mockClient.getFile.mockImplementation((path: string) =>
+        Promise.resolve(path === occupiedPath ? existingSnapshot : null)
+      );
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: archiveNote },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(mockClient.getFile.mock.calls.map(call => call[0])).toEqual([
+        occupiedPath,
+        alternatePath,
+      ]);
+      expect(mockClient.putFile).toHaveBeenCalledTimes(1);
+      expect(mockClient.putFile).toHaveBeenCalledWith(alternatePath, expect.any(String));
+      expect(mockClient.putFile).not.toHaveBeenCalledWith(occupiedPath, expect.any(String));
+      expect(sendResponse.mock.calls[0][0].results[0]).toMatchObject({
+        success: true,
+        savedAs: alternateFileName,
+      });
+    });
+
+    it('protects a same-title foreign note and preserves archive targets through collision renaming', async () => {
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      const sha256 = 'a'.repeat(64);
+      const archiveNote = decorateChatGptArchiveNote(
+        {
+          ...appendNote,
+          frontmatter: { ...appendNote.frontmatter, id: 'chatgpt_new', source: 'chatgpt' },
+        },
+        {
+          destination: 'obsidian',
+          captureId: 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd',
+          conversationKey: 'c'.repeat(64),
+          manifestSha256: 'd'.repeat(64),
+          assets: [
+            {
+              sha256,
+              relativePath: `assets/${sha256}.pdf`,
+              mediaType: 'application/pdf',
+              byteLength: 123,
+            },
+          ],
+        }
+      );
+      const occupiedPath =
+        'AI/chatgpt/test-abc12345--capture-01234567-89ab-4cde-8f01-23456789abcd.md';
+      const existingNote = `---\nid: chatgpt_old\ntitle: Test Chat\n---\nPreserve my content`;
+      mockClient.getFile.mockImplementation((path: string) =>
+        Promise.resolve(path === occupiedPath ? existingNote : null)
+      );
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: archiveNote },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0];
+      expect(response.allSuccessful).toBe(true);
+      expect(response.messagesAppended).toBeUndefined();
+      expect(mockClient.listFiles).not.toHaveBeenCalled();
+      expect(mockClient.getFile).toHaveBeenCalledTimes(2);
+      expect(mockClient.putFile).toHaveBeenCalledTimes(1);
+      const [path, content] = mockClient.putFile.mock.calls[0] as [string, string];
+      expect(path).not.toBe(occupiedPath);
+      expect(path).toBe(occupiedPath.replace(/\.md$/, `-${generateHash('chatgpt_new')}.md`));
+      expect(content).toContain(archiveNote.body);
+      expect(content).toContain(
+        `](_liska-archive/${'c'.repeat(64)}/capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd/assets/${sha256}.pdf)`
+      );
+      expect(content).not.toContain('Preserve my content');
     });
 
     it('falls back to overwrite when append throws error', async () => {

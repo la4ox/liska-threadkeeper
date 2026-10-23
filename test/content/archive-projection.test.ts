@@ -91,6 +91,41 @@ describe('canonical archive to legacy ConversationData projection', () => {
     );
   });
 
+  it('accounts for standalone citations and Canvas events without flattening canonical evidence', () => {
+    const archive = cloneArchive();
+    const message = archive.graph.nodes['node-current'].message!;
+    const visible = message.blocks.find(block => block.type === 'text')!;
+    message.blocks = [
+      visible,
+      {
+        id: 'synthetic-standalone-citation',
+        type: 'citation',
+        label: 'Synthetic source',
+        url: 'https://example.invalid/source',
+        content: null,
+        sourceRefs: message.sourceRefs,
+        extensions: {},
+      },
+      {
+        id: 'synthetic-canvas-event',
+        type: 'canvas_event',
+        event: { kind: 'synthetic-update' },
+        sourceRefs: message.sourceRefs,
+        extensions: {},
+      },
+    ];
+    const canonicalBefore = JSON.stringify(archive);
+
+    const result = projectArchiveBranch(archive);
+
+    expect(result.data.messages[1].content).toBe('Current answer starts here.');
+    expect(result.warnings).toEqual([
+      'Legacy Markdown omitted 1 Canvas event block(s); the canonical archive companion preserves them only when its selected output write succeeds.',
+      'Legacy Markdown omitted 1 standalone citation block(s); the canonical archive companion preserves them only when its selected output write succeeds.',
+    ]);
+    expect(JSON.stringify(archive)).toBe(canonicalBefore);
+  });
+
   it.each([undefined, 'DeepSeek reasoning'])(
     'labels generated reasoning headings only (presentation label: %s)',
     reasoningLabel => {

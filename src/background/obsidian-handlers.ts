@@ -496,7 +496,8 @@ async function tryAppendMode(
   if (
     !settings.enableAppendMode ||
     note.frontmatter.type === 'deep-research' ||
-    note.frontmatter.presentation_mode !== undefined
+    note.frontmatter.presentation_mode !== undefined ||
+    note.frontmatter.archive_manifest_sha256 !== undefined
   ) {
     return null;
   }
@@ -776,7 +777,10 @@ async function resolveCollisionFreePath(
     if (probe.state === 'absent') {
       return { path, fileName, isNewFile: true, renamed: attempt > 0, probes };
     }
-    if (isSameConversation(probe)) {
+    // Receipt-bound notes are immutable presentation snapshots. Even an exact
+    // same-conversation/same-capture retry must choose a fresh absent path so
+    // user edits and earlier provenance are never overwritten implicitly.
+    if (isSameConversation(probe) && note.frontmatter.archive_manifest_sha256 === undefined) {
       return { path, fileName, isNewFile: false, renamed: attempt > 0, probes };
     }
     // Occupied by a different conversation, or holding something we cannot

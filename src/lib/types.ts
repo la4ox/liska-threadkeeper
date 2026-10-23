@@ -179,6 +179,8 @@ export interface NoteFrontmatter {
   branch_point_count?: number;
   /** Opaque extension-generated snapshot identity, never a provider node ID. */
   archive_capture_id?: string;
+  /** SHA-256 of the exact destination-persisted archive manifest bytes. */
+  archive_manifest_sha256?: string;
 }
 
 /**
