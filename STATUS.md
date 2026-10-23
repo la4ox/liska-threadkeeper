@@ -677,11 +677,54 @@ This live gate rechecked File output only; the Obsidian variant remains covered
 by destination-divergence regressions rather than a fresh vault read in this
 checkpoint.
 
+The finalized physical-byte checkpoint is implemented on
+`codex/chatgpt-physical-budget` at `6ca7a26`, stacked on the destination-receipt
+checkpoint. Every strict destination receipt now owns detached byte lengths for
+its exact finalized raw, manifest, and canonical artifacts. All-branches
+accounting seeds each successful destination from that trio plus each confirmed
+receipt asset exactly once, independently of branch count and without
+cross-destination deduplication. Supplied receipts must also bind their raw byte
+length to the original capture companion; malformed, accessor-backed,
+overflowing, or mismatched receipts isolate only that destination.
+
+The same checked destination seed drives summary dispatched/confirmed bytes and
+the 2 GiB aggregate physical budget. A representable initial seed above that cap
+rejects before any Markdown fingerprint or write, while logical Markdown remains
+a separate per-destination counter. Stop after archive finalization retains the
+already confirmed physical seed in its summary. This is exact accounting for
+successful finalized destinations, not a whole-operation pre-write disk gate:
+raw/binary residue from a destination that fails later finalization still needs
+a broader per-write ledger before it can be budgeted or summarized exactly.
+
+Final validation passes 162 test files / 4,732 tests. Coverage passes at 95.26%
+statements, 91.12% branches, 98.57% functions, and 97.77% lines. TypeScript,
+production build, ZIP packaging, repository formatting, independent review,
+and source/platform lint pass; lint retains only the same three pre-existing
+advisory warnings. The ZIP is 235,223 bytes with SHA-256
+`9f5c613dbf2d236fbc3a86b29a8d046b08f11f0e8383a959e5425913f9fb0286`.
+The installed Comet tree matches its 29-file production build exactly; its clean
+pre-live rollback is retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\physical-budget-prelive-20261023-102928-8692fc9f`.
+
+A fresh two-destination canary created capture
+`capture-chatgpt-513c3dd9-f332-412e-b417-28cdb81b0fc8` and reported one branch
+plus an index saved to both Obsidian and File. Both destinations retained
+byte-identical raw (287,632 bytes), manifest (8,959), canonical (612,899), and
+DOCX (45,036) artifacts; raw and canonical provenance reconcile, and the DOCX
+hash remains
+`45e080f46c285def0978eb7c26133b728cc2928cb5a9f90f7f1a1a2bc055a7ee`.
+Both leaf/index pairs bind to manifest SHA-256
+`83beb122d73065038858f9b806da2afeca351d3293595f7cad9efe8ebcbe720d`,
+their index links and capture-level asset links resolve, and their filenames
+remain exact. File serialized the leaf to 47,904 bytes; Obsidian serialized the
+same logical leaf to 47,096 bytes because its enabled long-message flattening is
+measured separately. Both indexes are 1,224 bytes.
+
 Next: let PR 16 finish its current-head external reviews and merge it if clean;
-then rebase and publish the stacked wide-branch and destination-receipt
-checkpoints in order. Decide whether the 1 GiB source-work limit should remain a
-deliberate refusal or become a reviewed 1.25 GiB bound for the known 1.051 GiB
-graph. Destination-specific finalized archive/binary physical-byte accounting,
-identity-safe replacement of provider `sandbox:` links, and a live multi-output
-same-title sample remain separate presentation follow-ups. Custom-GPT/project
-binaries and the archived Library WebP remain separately evidence-gated.
+then rebase and publish the stacked wide-branch, destination-receipt, and
+physical-byte checkpoints in order. Decide whether the 1 GiB source-work limit
+should remain a deliberate refusal or become a reviewed 1.25 GiB bound for the
+known 1.051 GiB graph. A failed-finalization write ledger, identity-safe
+replacement of provider `sandbox:` links, and a live multi-output same-title
+sample remain separate follow-ups. Custom-GPT/project binaries and the archived
+Library WebP remain separately evidence-gated.
