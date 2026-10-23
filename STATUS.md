@@ -1111,7 +1111,7 @@ canonicalized as `-hello` (also bypassing numeric shorthand rejection), and the
 reusable prepared all-branches renderer shallow-copied tag arrays. The parser
 now retrims after removing `#`; prepared sessions normalize, clone, and freeze
 both arrays plus their owned options. The final review found no residual P0-P3
-issue. Exact-tree validation passes 174 test files / 5,439 tests; coverage is
+issue. Exact-tree validation passes 174 test files / 5,487 tests; coverage is
 95.37% statements, 91.49% branches, 98.69% functions, and 97.81% lines.
 TypeScript/build, source/platform lint, formatting, and diff checks pass; lint
 retains only the two unrelated pre-existing advisory warnings. Live popup

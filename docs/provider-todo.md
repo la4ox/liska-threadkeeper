@@ -108,7 +108,7 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
   Stored and worker arrays, popup input, operation freezes, routing snapshots,
   branches/stubs/indexes, Deep Research, append preservation, and secret
   separation have explicit coverage. Exact-tree validation passes 174 files /
-  5,439 tests and final review is clean; live popup save/reopen and real
+  5,487 tests and final review is clean; live popup save/reopen and real
   File/Clipboard/Obsidian exports remain the evidence gate.
 - Pure writer/reader seam and tracked-source control-byte tests where they add
   coverage without restoring the removed E2E infrastructure.
