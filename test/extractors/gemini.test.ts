@@ -1213,6 +1213,8 @@ describe('GeminiExtractor', () => {
       const timeoutWarning = result.warnings!.find(w => w.includes('Auto-scroll timed out'));
       expect(timeoutWarning).toBeDefined();
       expect(timeoutWarning).toContain('turns loaded');
+      expect(result.data?.truncated).toBe(true);
+      expect(result).not.toHaveProperty('truncated');
     });
 
     it('keeps loading a long conversation past the old 30s wall while turns keep arriving (issue #360)', async () => {

@@ -10,6 +10,10 @@ import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
 import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
+import {
+  TRUNCATED_OVERWRITE_ERROR,
+  TRUNCATION_PROTECTION_UNAVAILABLE_WARNING,
+} from '../../src/lib/truncation-guard';
 
 // Mock client instance - defined at module level
 const mockClient = {
@@ -2678,6 +2682,314 @@ describe('background/index', () => {
   });
 
   // ========== Append Mode Tests ==========
+
+  describe('detected DOM truncation protection', () => {
+    const validSender = { url: `chrome-extension://${chrome.runtime.id}/popup.html` };
+    const originalPath = 'AI/Gemini/truncated-abc12345.md';
+    const note: ObsidianNote = {
+      fileName: 'truncated-abc12345.md',
+      contentHash: 'hash',
+      body: Array.from({ length: 27 }, (_, i) => `> [!QUESTION] User\n> private message ${i}`).join(
+        '\n\n'
+      ),
+      images: [{ id: 'img', mimeType: 'image/png', data: 'UE5H', alt: 'private image' }],
+      truncated: true,
+      frontmatter: {
+        id: 'gemini_private-id',
+        title: 'private title',
+        source: 'gemini',
+        url: 'https://gemini.google.com/app/private-id',
+        created: '2026-01-01',
+        modified: '2026-01-01',
+        tags: ['test'],
+        message_count: 27,
+      },
+    };
+    const prior = (count: string | undefined = '446', id = note.frontmatter.id) =>
+      `---\nid: ${id}\n${count === undefined ? '' : `message_count: ${count}\n`}---\n> [!QUESTION] User\n> earlier`;
+    const send = async (data: unknown = note, outputs = ['obsidian']) => {
+      const response = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', data, outputs },
+        validSender as chrome.runtime.MessageSender,
+        response
+      );
+      await vi.waitFor(() => expect(response).toHaveBeenCalled());
+      return response.mock.calls[0][0] as MultiOutputResponse;
+    };
+    const configure = (enableAppendMode: boolean) => {
+      mockGetSettings = vi.fn(() => Promise.resolve({ ...defaultSettings, enableAppendMode }));
+      mockClient.putFile.mockResolvedValue(undefined);
+      mockClient.getFile.mockResolvedValue(prior());
+      mockClient.listFiles.mockResolvedValue([]);
+      vi.mocked(chrome.offscreen.createDocument).mockResolvedValue(undefined);
+      vi.mocked(chrome.downloads.download).mockImplementation((_options, callback) => {
+        callback?.(1);
+        return Promise.resolve(1);
+      });
+    };
+
+    it.each([false, true])('446 -> 27 refuses before any write (append: %s)', async append => {
+      configure(append);
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const response = await send({ ...note, body: `${note.body}\n> ![image](g2o-image://img)` });
+      expect(response).toMatchObject({ allSuccessful: false, anySuccessful: false });
+      expect(response.results).toEqual([
+        { destination: 'obsidian', success: false, error: TRUNCATED_OVERWRITE_ERROR },
+      ]);
+      expect(mockClient.getFile).toHaveBeenCalledTimes(1);
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+      expect(mockClient.listFiles).not.toHaveBeenCalled();
+      expect(warning).not.toHaveBeenCalled();
+      expect(JSON.stringify(response)).not.toMatch(/private|446|27/);
+    });
+
+    it('refuses a reused deterministic collision suffix without allocating another path', async () => {
+      configure(false);
+      const suffixPath = `AI/Gemini/truncated-abc12345-${generateHash(note.frontmatter.id)}.md`;
+      mockClient.getFile.mockImplementation((path: string) =>
+        Promise.resolve(
+          path === originalPath ? prior('446', 'foreign') : path === suffixPath ? prior() : null
+        )
+      );
+      expect((await send()).results[0].error).toBe(TRUNCATED_OVERWRITE_ERROR);
+      expect(mockClient.getFile.mock.calls.map(call => call[0])).toEqual([
+        originalPath,
+        suffixPath,
+      ]);
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+    });
+
+    it('refuses an ID-scan target and rechecks the same memo target on the next save', async () => {
+      configure(true);
+      const scannedPath = 'AI/Gemini/old-abc12345.md';
+      mockClient.getFile.mockImplementation((path: string) =>
+        Promise.resolve(path === scannedPath ? prior() : null)
+      );
+      mockClient.listFiles.mockResolvedValue(['old-abc12345.md']);
+      expect((await send()).results[0].error).toBe(TRUNCATED_OVERWRITE_ERROR);
+      expect(mockClient.getFile.mock.calls.map(call => call[0])).toEqual([
+        originalPath,
+        scannedPath,
+      ]);
+      mockClient.getFile.mockClear();
+      mockClient.listFiles.mockClear();
+      expect((await send()).results[0].error).toBe(TRUNCATED_OVERWRITE_ERROR);
+      expect(mockClient.getFile).toHaveBeenCalledExactlyOnceWith(scannedPath);
+      expect(mockClient.listFiles).not.toHaveBeenCalled();
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])('allows equal/larger truncated counts (append: %s)', async append => {
+      configure(append);
+      for (const count of ['27', '26']) {
+        mockClient.getFile.mockResolvedValue(prior(count));
+        const response = await send();
+        expect(response.results[0].success).toBe(true);
+        expect(response.results[0].warning).toBeUndefined();
+      }
+    });
+
+    it.each([undefined, false])(
+      'does not change a shorter complete/unmarked save (%s)',
+      async truncated => {
+        configure(false);
+        expect((await send({ ...note, truncated })).results[0].success).toBe(true);
+        expect(mockClient.putFile).toHaveBeenCalledExactlyOnceWith(
+          originalPath,
+          expect.any(String)
+        );
+      }
+    );
+
+    it.each(['new', 'foreign', 'immutable', 'incoming-immutable'] as const)(
+      'preserves %s allocation behavior',
+      async kind => {
+        configure(true);
+        const occupied =
+          kind === 'new'
+            ? null
+            : kind === 'foreign'
+              ? prior('446', 'foreign')
+              : kind === 'immutable'
+                ? prior().replace('message_count:', 'archive_capture_id: retained\nmessage_count:')
+                : prior();
+        mockClient.getFile.mockImplementation((path: string) =>
+          Promise.resolve(path === originalPath ? occupied : null)
+        );
+        const incoming =
+          kind === 'incoming-immutable'
+            ? {
+                ...note,
+                frontmatter: {
+                  ...note.frontmatter,
+                  archive_capture_id: 'capture-chatgpt-immutable',
+                },
+              }
+            : note;
+        const result = (await send(incoming)).results[0];
+        expect(result.success).toBe(true);
+        expect(result.warning).toBeUndefined();
+        expect(mockClient.putFile).toHaveBeenCalledTimes(1);
+        if (kind !== 'new') expect(mockClient.putFile.mock.calls[0][0]).not.toBe(originalPath);
+      }
+    );
+
+    it.each([false, true])(
+      'missing/malformed prior counts allow but warn honestly (append: %s)',
+      async append => {
+        configure(append);
+        for (const count of [
+          undefined,
+          '-1',
+          '27.5',
+          'NaN',
+          'Infinity',
+          '446junk',
+          '[446]',
+          '\n  - 446',
+          '9007199254740992',
+        ]) {
+          // Pass undefined explicitly, without the fixture helper default.
+          mockClient.getFile.mockResolvedValue(
+            count === undefined ? `---\nid: ${note.frontmatter.id}\n---\nBody` : prior(count)
+          );
+          const result = (await send()).results[0];
+          expect(result.success).toBe(true);
+          expect(result.warning).toBe(TRUNCATION_PROTECTION_UNAVAILABLE_WARNING);
+        }
+      }
+    );
+
+    it.each([false, true])(
+      'merges unavailable protection with bounded image warning (append: %s)',
+      async append => {
+        configure(append);
+        mockClient.getFile.mockResolvedValue(
+          `---\nid: ${note.frontmatter.id}\n---\n> [!QUESTION] User\n> earlier`
+        );
+        mockClient.putBinaryFile.mockRejectedValue(new Error('private sink failure'));
+        const result = (await send({ ...note, body: `${note.body}\n> ![image](g2o-image://img)` }))
+          .results[0];
+        expect(result.success).toBe(true);
+        expect(result.warning).toContain(TRUNCATION_PROTECTION_UNAVAILABLE_WARNING);
+        expect(result.warning).toContain(
+          append ? 'Images in newly appended messages' : '1 image could not be saved'
+        );
+        expect(result.warning).not.toContain('private');
+      }
+    );
+
+    it.each([false, true])(
+      'allows a continued YAML count with an honest unavailable warning (append: %s)',
+      async append => {
+        configure(append);
+        mockClient.getFile.mockResolvedValue(prior('446\n  messages'));
+        const result = (await send()).results[0];
+        expect(result.success).toBe(true);
+        expect(result.error).toBeUndefined();
+        expect(result.warning).toBe(TRUNCATION_PROTECTION_UNAVAILABLE_WARNING);
+        expect(mockClient.getFile).toHaveBeenCalledExactlyOnceWith(originalPath);
+        expect(mockClient.putFile).toHaveBeenCalledExactlyOnceWith(
+          originalPath,
+          expect.any(String)
+        );
+        expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([false, true])('keeps probe read errors as errors (append: %s)', async append => {
+      configure(append);
+      mockClient.getFile.mockRejectedValue(new Error('synthetic read error'));
+      const result = (await send()).results[0];
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('synthetic read error');
+      expect(result.warning).toBeUndefined();
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+    });
+
+    it.each([0, Number.MAX_SAFE_INTEGER])(
+      'accepts safe nonnegative incoming count %s',
+      async message_count => {
+        configure(false);
+        const response = await send(
+          { ...note, frontmatter: { ...note.frontmatter, message_count } },
+          ['file']
+        );
+        expect(response.allSuccessful).toBe(true);
+        expect(mockClient.getFile).not.toHaveBeenCalled();
+      }
+    );
+
+    it('preserves legacy append exception fallback', async () => {
+      configure(true);
+      mockClient.getFile
+        .mockRejectedValueOnce(new Error('temporary append lookup error'))
+        .mockResolvedValue(null);
+      const result = (await send()).results[0];
+      expect(result.success).toBe(true);
+      expect(mockClient.putFile).toHaveBeenCalledExactlyOnceWith(originalPath, expect.any(String));
+    });
+
+    it('File and Clipboard succeed independently of an Obsidian refusal', async () => {
+      configure(false);
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: true });
+      const response = await send(note, ['obsidian', 'file', 'clipboard']);
+      expect(response).toMatchObject({ allSuccessful: false, anySuccessful: true });
+      expect(response.results).toEqual(
+        expect.arrayContaining([
+          { destination: 'obsidian', success: false, error: TRUNCATED_OVERWRITE_ERROR },
+          { destination: 'file', success: true },
+          { destination: 'clipboard', success: true },
+        ])
+      );
+      expect(mockClient.getFile).toHaveBeenCalledTimes(1);
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+    });
+
+    it('File/Clipboard-only never probe the vault, and transport evidence is not rendered', async () => {
+      configure(false);
+      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({ success: true });
+      const response = await send(note, ['file', 'clipboard']);
+      expect(response.allSuccessful).toBe(true);
+      expect(mockClient.getFile).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(vi.mocked(chrome.runtime.sendMessage).mock.calls);
+      expect(rendered).not.toContain('truncated');
+    });
+
+    it.each(['true', 1, 0, null, {}, []].map(value => [value]))(
+      'rejects invalid runtime truncated flag %s before dispatch',
+      async truncated => {
+        configure(false);
+        const response = await send({ ...note, truncated }, ['obsidian', 'file', 'clipboard']);
+        expect(response).toMatchObject({ success: false, error: 'Invalid message content' });
+        expect(mockClient.getFile).not.toHaveBeenCalled();
+        expect(mockClient.putFile).not.toHaveBeenCalled();
+        expect(chrome.downloads.download).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([undefined, null, '27', -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+      'rejects invalid incoming count %s before dispatch',
+      async message_count => {
+        configure(false);
+        const response = await send(
+          { ...note, frontmatter: { ...note.frontmatter, message_count } },
+          ['obsidian', 'file', 'clipboard']
+        );
+        expect(response).toMatchObject({ success: false, error: 'Invalid message content' });
+        expect(mockClient.getFile).not.toHaveBeenCalled();
+        expect(mockClient.putFile).not.toHaveBeenCalled();
+        expect(chrome.downloads.download).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      }
+    );
+  });
 
   describe('append mode', () => {
     const validSender = { url: `chrome-extension://${chrome.runtime.id}/popup.html` };

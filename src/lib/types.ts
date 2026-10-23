@@ -67,6 +67,8 @@ export interface ConversationData {
   messages: ConversationMessage[];
   /** Images captured from the conversation (e.g. Gemini-generated images) */
   images?: ExtractedImage[];
+  /** Runtime-only evidence that DOM auto-scroll ended before history was loaded. */
+  truncated?: boolean;
   extractedAt: Date;
   metadata: ConversationMetadata;
   /** Presence describes whether this export came from a complete archive capture. */
@@ -150,6 +152,8 @@ export interface ObsidianNote {
    * downloaded file, or stripped for clipboard).
    */
   images?: ExtractedImage[];
+  /** Runtime-only DOM deadline evidence; never rendered into note content. */
+  truncated?: boolean;
 }
 
 /**

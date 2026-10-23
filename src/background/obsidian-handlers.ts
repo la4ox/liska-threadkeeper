@@ -19,8 +19,10 @@ import {
   classifyNoteProbe,
   hasImmutableArchivePresentationFields,
   isAppendEligibleConversation,
+  type NoteProbe,
   type ProbeState,
 } from '../lib/note-identity';
+import { guardTruncatedOverwrite } from '../lib/truncation-guard';
 import { resolveImagesForObsidian, stripImagePlaceholders } from '../lib/image-output';
 import { flattenLargeCallouts } from '../lib/callout-flatten';
 import { base64ToBytes } from '../lib/image-utils';
@@ -526,9 +528,8 @@ async function tryAppendMode(
     !settings.enableAppendMode ||
     note.frontmatter.type === 'deep-research' ||
     hasImmutableArchivePresentationFields(note.frontmatter)
-  ) {
+  )
     return null;
-  }
 
   try {
     const lookup = await lookupExistingFile(client, fullPath, resolvedPath, note, {
@@ -547,6 +548,14 @@ async function tryAppendMode(
     }
     rememberAppendPath(note.frontmatter.id, lookup.path);
 
+    const protection = guardTruncatedOverwrite(
+      note.truncated,
+      note.frontmatter.message_count,
+      classifyNoteProbe(lookup.content, note.frontmatter.id)
+    );
+    // Return, never throw: append exceptions intentionally fall through to overwrite.
+    if (!protection.allowed) return { success: false, error: protection.error };
+
     const appendResult = buildAppendContent(lookup.content, note, settings);
     if (appendResult !== null) {
       // Flatten first, restore the file's own line ending last (ADR-026).
@@ -556,9 +565,13 @@ async function tryAppendMode(
       // made the message invisible to countExistingMessages() (#406, #407).
       const flattened = maybeFlatten(appendResult.content, settings);
       await client.putFile(lookup.path, applyLineEnding(flattened, appendResult.eol));
-      return { success: true, isNewFile: false, messagesAppended: appendResult.messagesAppended };
     }
-    return { success: true, isNewFile: false, messagesAppended: 0 };
+    return {
+      success: true,
+      isNewFile: false,
+      messagesAppended: appendResult?.messagesAppended ?? 0,
+      ...(protection.warning && { warning: protection.warning }),
+    };
   } catch (error) {
     console.warn('[G2O Background] Append mode failed, falling back to overwrite:', error);
     return null;
@@ -584,8 +597,10 @@ function withAppendImageWarning(
 
   return {
     ...appendResult,
-    warning:
-      'Images in newly appended messages were skipped because append mode does not export images yet',
+    warning: mergeWarnings(
+      appendResult.warning,
+      'Images in newly appended messages were skipped because append mode does not export images yet'
+    ),
   };
 }
 
@@ -658,6 +673,12 @@ async function saveFreshNote(
   if ('error' in target) {
     return { success: false, error: target.error };
   }
+  const protection = guardTruncatedOverwrite(
+    note.truncated,
+    note.frontmatter.message_count,
+    target.priorProbe ?? { state: 'absent' }
+  );
+  if (!protection.allowed) return { success: false, error: protection.error };
   if (target.renamed) {
     // The canonical name was taken by something we could not identify as ours.
     // This is the moment a duplicate note is born, so say exactly what each
@@ -682,13 +703,18 @@ async function saveFreshNote(
   const content = generateNoteContent({ ...saveNote, body: flattenedBody }, settings);
   await client.putFile(target.path, content);
 
-  const warning = imageWarning(failedImageCount);
+  const warning = mergeWarnings(protection.warning, imageWarning(failedImageCount));
   return {
     success: true,
     isNewFile: target.isNewFile,
     ...(target.renamed && { savedAs: target.fileName }),
     ...(warning && { warning }),
   };
+}
+
+/** Only fixed protection text and bounded image diagnostics are combined here. */
+function mergeWarnings(...warnings: (string | undefined)[]): string | undefined {
+  return warnings.filter(Boolean).join('; ') || undefined;
 }
 
 /** Outcome of the image-writing pass: the note to save, plus any images lost. */
@@ -764,6 +790,8 @@ interface WritableTarget {
   renamed: boolean;
   /** What each probed candidate name held, in probe order (issue #365). */
   probes: readonly ProbeOutcome[];
+  /** Present only when collision resolution proves reuse of a mutable same-ID note. */
+  priorProbe?: NoteProbe;
 }
 
 /** What one candidate file name held when it was probed. */
@@ -812,7 +840,7 @@ async function resolveCollisionFreePath(
       isAppendEligibleConversation(probe) &&
       !hasImmutableArchivePresentationFields(note.frontmatter)
     ) {
-      return { path, fileName, isNewFile: false, renamed: attempt > 0, probes };
+      return { path, fileName, isNewFile: false, renamed: attempt > 0, probes, priorProbe: probe };
     }
     // Occupied by a different conversation, or holding something we cannot
     // identify (empty / unparseable / no id): never overwrite — try the next

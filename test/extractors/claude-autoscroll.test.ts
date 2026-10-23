@@ -137,6 +137,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     expect(result.data?.metadata.userMessageCount).toBe(3);
     expect(result.data?.metadata.assistantMessageCount).toBe(3);
     expect(result.warnings).toBeUndefined();
+    expect(result.data).not.toHaveProperty('truncated');
   });
 
   it('scrolls the thread instead of a same-class sidebar preceding it', async () => {
@@ -243,6 +244,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     expect(result.success).toBe(true);
     // Without scrolling, only the bottom window (last 3 turns) is visible.
     expect(result.data?.messages).toHaveLength(3);
+    expect(result.data).not.toHaveProperty('truncated');
   });
 
   it('warns when accumulation times out without ever reaching the top', async () => {
@@ -274,5 +276,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
     expect(result.success).toBe(true);
     expect(result.warnings?.some(w => w.includes('Auto-scroll timed out'))).toBe(true);
+    expect(result.data?.truncated).toBe(true);
+    expect(result).not.toHaveProperty('truncated');
   });
 });

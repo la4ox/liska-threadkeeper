@@ -446,6 +446,7 @@ describe('structured archive companion message validation', () => {
       contentHash: 'coverage-hash',
       frontmatter: {
         title: 'Coverage',
+        message_count: 1,
         source: 'chatgpt',
         url: 'https://chatgpt.com/',
         tags: ['coverage'],

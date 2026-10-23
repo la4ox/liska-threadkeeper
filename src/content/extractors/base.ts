@@ -104,10 +104,11 @@ export abstract class BaseExtractor implements IConversationExtractor {
       }
 
       console.info(`[G2O] Extracting ${this.platformLabel} conversation`);
-      const { messages, warning } = await this.collectMessages();
+      const { messages, warning, truncated } = await this.collectMessages();
       const conversationId = this.getConversationId() || `${this.platform}-${Date.now()}`;
       const title = this.getTitle();
       const result = this.buildConversationResult(messages, conversationId, title, this.platform);
+      if (truncated && result.data) result.data.truncated = true;
       if (warning && result.success) {
         return { ...result, warnings: [...(result.warnings ?? []), warning] };
       }
@@ -160,6 +161,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
   protected async collectMessages(): Promise<{
     messages: ConversationMessage[];
     warning?: string;
+    truncated?: true;
   }> {
     const config = this.getScrollConfig();
     if (!this.enableAutoScroll || !config) {
@@ -181,6 +183,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
     }
     return {
       messages,
+      truncated: true,
       warning:
         `Auto-scroll timed out before reaching the top. ` +
         `Some earlier messages may be missing (${result.itemCount} turns loaded).`,

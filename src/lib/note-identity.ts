@@ -45,6 +45,8 @@ export interface NoteProbe {
   foundId?: string;
   /** Archive-bound and branch presentations are immutable append targets. */
   immutableArchivePresentation?: true;
+  /** Strict prior scalar count, trusted only after proving conversation identity. */
+  messageCount?: number;
 }
 
 const IMMUTABLE_ARCHIVE_FIELDS = [
@@ -87,11 +89,43 @@ export function classifyNoteProbe(content: string | null, expectedId: string): N
     parsed.fields,
     parsed.raw
   );
+  const messageCount = parseMessageCount(parsed.fields.message_count, parsed.raw);
   return {
     state: 'same-conversation',
     foundId: id,
     ...(immutableArchivePresentation && { immutableArchivePresentation: true }),
+    ...(messageCount !== undefined && { messageCount }),
   };
+}
+
+/** No numeric-prefix, fractional, exponent, list, or unsafe-integer coercion. */
+function parseMessageCount(
+  value: string | string[] | undefined,
+  rawFrontmatter: string
+): number | undefined {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return undefined;
+  if (!hasSingleLineMessageCount(rawFrontmatter)) return undefined;
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+}
+
+/** The lightweight field parser does not retain YAML scalar continuations. */
+function hasSingleLineMessageCount(rawFrontmatter: string): boolean {
+  let found = false;
+  let inCount = false;
+  for (const line of rawFrontmatter.split('\n')) {
+    if (/^(?:message_count|"message_count"|'message_count')[ \t]*:/.test(line)) {
+      if (found) return false;
+      found = true;
+      inCount = true;
+      continue;
+    }
+    if (!inCount || /^[ \t]*(?:#.*)?$/.test(line)) continue;
+    // Any indented non-comment after the scalar makes it continued or ambiguous.
+    if (/^[ \t]/.test(line)) return false;
+    inCount = false;
+  }
+  return found;
 }
 
 /** True when the probe proves the file holds the conversation being saved. */
