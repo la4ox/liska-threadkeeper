@@ -102,9 +102,11 @@ terminal states, and the existing no-credential-export boundary.
   sample retained citations, reasoning, code, execution output, tool roles and
   attachment blocks; projection regressions account explicitly for citation
   and Canvas omissions.
-- Still open in the presentation layer: identity-safe replacement (rather than
-  additive retention) of provider `sandbox:` links and a live chat containing
-  multiple same-title produced files. None authorizes a broader resolver route.
+- Current and selected single-branch notes now replace only an exact
+  destination-owned, fetched `sandbox:` occurrence. Every mismatch retains the
+  provider link and verified appendix; raw/canonical evidence is unchanged.
+- Still open in the presentation layer: a live chat containing multiple
+  same-title produced files. This does not authorize a broader resolver route.
 
 ### 4. Real wide-branch stress
 
@@ -217,10 +219,11 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Validate and merge the physical-budget checkpoint from pull request 19 on top of
-the landed PR 16-18 stack. The 1 GiB source-work limit remains a deliberate
-refusal for the measured 1.051 GiB graph; only a separately reviewed limit change
-may authorize that full 239-leaf run. Continue with sandbox-link localization
-after the stack is linear again. Keep failed-finalization write accounting,
-custom-GPT/project binaries, and the sole archived Library WebP separately
+Checkpoint the live-verified sandbox-link localization slice in its own pull
+request. Then choose the next independent evidence gate: a real staged capture
+above 16 MiB, a live multi-output same-title sample, failed-finalization write
+accounting, or one additional binary family. The 1 GiB source-work limit remains
+a deliberate refusal for the measured 1.051 GiB graph; only a separately
+reviewed limit change may authorize that full 239-leaf run. Keep
+custom-GPT/project binaries and the sole archived Library WebP separately
 evidence-gated.

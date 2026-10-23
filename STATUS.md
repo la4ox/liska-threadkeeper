@@ -737,10 +737,71 @@ remain exact. File serialized the leaf to 47,904 bytes; Obsidian serialized the
 same logical leaf to 47,096 bytes because its enabled long-message flattening is
 measured separately. Both indexes are 1,224 bytes.
 
-PR 16 merged to `main` as `9fb7835`, PR 17 as `cbf38c1`, and PR 18 as
-`429d2a5`. Next: validate this exact base integration and merge PR 19 if clean.
+PR 16 merged to `main` as `9fb7835`, PR 17 as `cbf38c1`, PR 18 as `429d2a5`,
+and PR 19 as `c112b84`. Every merged reviewed head is an ancestor of the fetched
+remote `main`; the four staged checkpoints are now linear.
+
+The current sandbox-link localization checkpoint is implemented on
+`codex/chatgpt-sandbox-links` in parser commit `5fc033f`, integration commit
+`7dff1b9`, and merge checkpoint `4f9d203`. It does not add a resolver or binary
+authority. The bounded presentation parser accepts only ordinary inline links
+from exact assistant text parts and rejects code, HTML/angle ambiguity,
+blockquotes, reference definitions, malformed nesting, unsafe paths, and
+unsupported raw shapes. After one durable destination has finalized its exact
+raw/manifest/canonical trio and fetched binaries, detached runtime evidence is
+rebound to that destination's strict receipt, original raw bytes, canonical
+digest, selected path, whole ledger, exact source pointer, and content-addressed
+asset tuple. Only then does a copy-on-write presentation replace the destination
+span; raw, manifest, and canonical bytes remain untouched. Clipboard, DOM
+fallback, and all-branches presentations remain unchanged, and every mismatch
+fails soft to the provider link plus the existing verified appendix.
+
+Independent review found and closed a cross-part Markdown fence edge: matching
+identity counts were insufficient when one identical link was hidden in code
+and another was visible. The final implementation derives exact text-block
+spans from the same projection helper used by legacy rendering and requires the
+identity, encoded destination, and absolute UTF-16 start/end to match the
+combined visible message. Both the spanning-fence and same-identity swap
+regressions now remain unchanged rather than rewriting a code example. The
+final independent pass found no residual P0-P3 issue. GitHub current-head review
+then found one fail-soft false negative: a reference definition inside an
+unambiguous inline or top-level fenced code example vetoed a later ordinary
+link. Presentation scanning now computes code ranges first and ignores only
+those unambiguous code-only definitions; paragraph-ambiguous indented code
+remains conservative. Focused regressions cover both code forms and the later
+link, while current-head Security review remains clean.
+
+Live Comet verification used two append-only current-branch captures. The broad
+attachment chat created `capture-chatgpt-f6014b81-99b1-4961-9a9d-45b5a5b1d9f1`
+in both Downloads and Obsidian, retained byte-identical raw/manifest/canonical
+and a 2,313,476-byte PNG, and honestly left its unfetched DOCX/PDF provider links
+untouched. The exact DOCX gate then created
+`capture-chatgpt-cafbe981-4baf-4458-97af-5a3cb0f5e7c0` in both destinations:
+raw 287,632 bytes, manifest 8,966, canonical 612,891, and one 45,036-byte DOCX
+with SHA-256
+`45e080f46c285def0978eb7c26133b728cc2928cb5a9f90f7f1a1a2bc055a7ee`.
+All four artifact hashes match across destinations; raw length/hash and canonical
+manifest provenance reconcile. File and Obsidian Markdown are 47,915 and 47,107
+bytes respectively because long-message flattening remains destination-specific.
+Both bind to manifest SHA-256
+`ed019fbcc67720a1500f6da93ebe0ba5eb54cff285662736571a5afe52763aec`,
+contain zero `sandbox:` references, and contain exactly two links to the same
+existing content-addressed DOCX: the localized inline link and the appendix.
+
+Final exact-tree validation passes 164 test files / 4,898 tests. Coverage is
+95.34% statements, 91.27% branches, 98.64% functions, and 97.81% lines.
+TypeScript, production build, source/platform lint, repository formatting, ZIP
+packaging, diff checks, and independent review pass; lint retains only the same
+three pre-existing advisory warnings. The final reviewed-build ZIP is 239,473
+bytes with SHA-256
+`945d12385e1c2292891a02440d550f5b5e66ef71b68dd26cfa88671fde206408`.
+The live-smoke build was 29/29 files byte-identical to the installed Comet tree;
+its verified rollback is retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\sandbox-links-prelive-20261023-123622-e87f98df`.
+
+Next: checkpoint this live-verified sandbox-link slice in its own pull request.
 The 1 GiB source-work limit remains a deliberate refusal for the known 1.051 GiB
-graph rather than an implicitly widened safety boundary. A failed-finalization
-write ledger, sandbox-link localization, and the live multi-output same-title
-sample remain separate follow-ups. Custom-GPT/project binaries and the archived
+graph. A failed-finalization write ledger, a live multi-output same-title sample,
+real staged capture above 16 MiB, additional binary families, and Dots remain
+separate evidence-gated follow-ups. Custom-GPT/project binaries and the archived
 Library WebP remain separately evidence-gated.

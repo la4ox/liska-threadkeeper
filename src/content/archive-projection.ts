@@ -18,6 +18,7 @@ import type {
   AIPlatform,
   ArchiveCompanionBundle,
   ChatGptAssetExportContext,
+  ChatGptStructuredPresentationContext,
   ConversationData,
   ConversationMessage,
 } from '../lib/types';
@@ -60,6 +61,18 @@ export interface ArchiveProjectionResult {
   archiveCompanion?: ArchiveCompanionBundle;
   /** Runtime-only original evidence for optional destination-honest attachment export. */
   chatGptAssetExportContext?: ChatGptAssetExportContext;
+  chatGptStructuredPresentationContext?: ChatGptStructuredPresentationContext;
+}
+
+export interface ArchiveVisibleTextBlockSpan {
+  readonly blockIndex: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface ArchiveVisibleMessageProjection {
+  readonly content: string;
+  readonly textBlockSpans: readonly ArchiveVisibleTextBlockSpan[];
 }
 
 /** Internal render session: validation is mandatory and paths are never supplied by callers. */
@@ -134,6 +147,41 @@ function renderVisibleBlock(
   }
 }
 
+interface InternalVisibleMessageProjection extends ArchiveVisibleMessageProjection {
+  visibleBlockIndexes: Set<number>;
+}
+
+function projectVisibleMessage(
+  message: ArchiveMessage,
+  omissions: Map<OmissionKind, number>
+): InternalVisibleMessageProjection {
+  const parts: string[] = [];
+  const textBlockSpans: ArchiveVisibleTextBlockSpan[] = [];
+  const visibleBlockIndexes = new Set<number>();
+  let contentLength = 0;
+  for (let blockIndex = 0; blockIndex < message.blocks.length; blockIndex += 1) {
+    const block = message.blocks[blockIndex];
+    const rendered = renderVisibleBlock(block, omissions);
+    if (rendered === null) continue;
+    visibleBlockIndexes.add(blockIndex);
+    if (rendered.length === 0) continue;
+    if (parts.length > 0) contentLength += 2;
+    const start = contentLength;
+    parts.push(rendered);
+    contentLength += rendered.length;
+    if (block.type === 'text') textBlockSpans.push({ blockIndex, start, end: contentLength });
+  }
+  return { content: parts.join('\n\n'), textBlockSpans, visibleBlockIndexes };
+}
+
+/** Exact visible Markdown layout used by the legacy projection. */
+export function projectArchiveMessageVisibleContent(
+  message: ArchiveMessage
+): ArchiveVisibleMessageProjection {
+  const { content, textBlockSpans } = projectVisibleMessage(message, new Map());
+  return { content, textBlockSpans };
+}
+
 function renderToolBlock(block: ArchiveBlock, reasoningLabel: string): string | null {
   switch (block.type) {
     case 'reasoning':
@@ -178,14 +226,11 @@ function projectMessage(
     return null;
   }
 
-  const visible: string[] = [];
+  const visible = projectVisibleMessage(message, omissions);
   const tool: string[] = [];
-  for (const block of message.blocks) {
-    const rendered = renderVisibleBlock(block, omissions);
-    if (rendered !== null) {
-      visible.push(rendered);
-      continue;
-    }
+  for (let blockIndex = 0; blockIndex < message.blocks.length; blockIndex += 1) {
+    const block = message.blocks[blockIndex];
+    if (visible.visibleBlockIndexes.has(blockIndex)) continue;
 
     const renderedTool = renderToolBlock(block, reasoningLabel);
     if (renderedTool !== null) {
@@ -201,7 +246,7 @@ function projectMessage(
     if (omitted) omissions.set(omitted, (omissions.get(omitted) ?? 0) + 1);
   }
 
-  const content = visible.filter(part => part.length > 0).join('\n\n');
+  const content = visible.content;
   if (!content) {
     omissions.set('empty', (omissions.get('empty') ?? 0) + 1);
     return null;

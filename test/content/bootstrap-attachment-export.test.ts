@@ -6,6 +6,7 @@ import type {
   ContentScriptSettings,
   ExtractionResult,
   MultiOutputResponse,
+  ChatGptStructuredPresentationContext,
 } from '../../src/lib/types';
 import { resetLocation, setChatGPTLocation } from '../fixtures/dom-helpers';
 
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => {
     stopDispose,
     applySettings: vi.fn(),
     attachmentExport: vi.fn(),
+    localize: vi.fn(),
     extract: vi.fn(),
     prepareAllBranchesPersistence: vi.fn(() => ({
       session: {},
@@ -56,6 +58,10 @@ vi.mock('../../src/content/chatgpt-asset-export', () => ({
   persistChatGptDestinationHonestAttachments: mocks.attachmentExport,
 }));
 
+vi.mock('../../src/content/chatgpt-sandbox-localization', () => ({
+  localizeChatGptSandboxLinks: mocks.localize,
+}));
+
 vi.mock('../../src/content/archive-branch-persistence', () => ({
   prepareAllBranchesPersistence: mocks.prepareAllBranchesPersistence,
   persistAllBranchesPresentation: mocks.persistAllBranchesPresentation,
@@ -74,6 +80,9 @@ vi.mock('../../src/content/ui', () => ({
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 
 import { handleSync, persistArchiveCompanionArtifacts } from '../../src/content/bootstrap';
+import { conversationToNote } from '../../src/content/markdown';
+import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
   resolveChatGptActiveImageAsset,
@@ -202,6 +211,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
     mockSettingsAndSave();
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
+    mocks.localize.mockImplementation(async data => data);
     mocks.attachmentExport.mockResolvedValue({
       rawSuccessfulDestinations: ['file'],
       completeDestinations: ['file'],
@@ -209,6 +219,143 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       warnings: ['ChatGPT attachment export recorded one destination caveat.'],
     });
   });
+
+  it.each(['file', 'obsidian'] as const)(
+    'localizes only verified %s text and keeps one rendering/settings identity across awaits',
+    async destination => {
+      vi.useFakeTimers();
+      const previousTemplate = { ...settings.templateOptions };
+      const renderedAt = new Date('2026-10-23T23:59:59.000Z');
+      vi.setSystemTime(renderedAt);
+      try {
+        settings.templateOptions.filenameScheme = 'title-date';
+        settings.outputOptions = { file: true, obsidian: true, clipboard: true };
+        const frozenSettings = structuredClone(settings);
+        const data = {
+          ...noteResult.data!,
+          capture: { mode: 'structured-api' as const, completeness: 'complete' as const },
+          messages: [
+            {
+              id: 'assistant',
+              role: 'assistant' as const,
+              index: 0,
+              contentFormat: 'markdown' as const,
+              content: '[document](sandbox:/mnt/data/document.docx)',
+            },
+          ],
+        };
+        const retained = {} as ChatGptStructuredPresentationContext;
+        const receipt = { ...fileReceipt, destination };
+        const evidence = { receipt, records: [{ id: 'runtime-only-source-ref-must-not-leak' }] };
+        mocks.extract.mockResolvedValue({
+          ...noteResult,
+          data,
+          chatGptStructuredPresentationContext: retained,
+        });
+        mocks.attachmentExport.mockImplementationOnce(async () => {
+          vi.setSystemTime(new Date('2026-10-24T00:05:00.000Z'));
+          settings.templateOptions.filenameScheme = 'title-id';
+          settings.vaultPath = 'Changed/{platform}';
+          return {
+            completeDestinations: [destination],
+            rawSuccessfulDestinations: [destination],
+            destinationReceipts: [receipt],
+            destinationLocalizationEvidence: [evidence],
+            warnings: [],
+          };
+        });
+        mocks.localize.mockImplementationOnce(async original => ({
+          ...original,
+          messages: original.messages.map(message => ({
+            ...message,
+            content: `[document](_liska-archive/${receipt.conversationKey}/${receipt.captureId}/${receipt.assets[0].relativePath})`,
+          })),
+        }));
+        mocks.sendMessage.mockImplementation(async message => {
+          if (message.action === 'getSettings') return settings;
+          if (message.action === 'testConnection') return { success: true };
+          if (message.action === 'saveToOutputs')
+            return {
+              results: [{ destination: message.outputs[0], success: true }],
+              allSuccessful: true,
+              anySuccessful: true,
+            };
+          throw new Error('unexpected-message');
+        });
+        await handleSync();
+        const writes = mocks.sendMessage.mock.calls
+          .map(([message]) => message)
+          .filter(message => message.action === 'saveToOutputs');
+        expect(writes).toHaveLength(3);
+        expect(mocks.localize).toHaveBeenCalledExactlyOnceWith(
+          data,
+          retained,
+          evidence,
+          receipt,
+          destination
+        );
+        const baseNote = conversationToNote(data, frozenSettings.templateOptions, renderedAt);
+        for (const write of writes) {
+          expect(write.expectedSyncSettingsSnapshot).toBe(
+            serializeSyncSettingsSnapshot(frozenSettings)
+          );
+          expect(write.data.frontmatter.modified).toBe(baseNote.frontmatter.modified);
+          if (write.outputs[0] === destination) {
+            expect(write.data.fileName).toBe(
+              decorateChatGptArchiveNote(baseNote, receipt).fileName
+            );
+            expect(write.data.body).not.toContain('sandbox:');
+            expect(write.data.body.match(/## Local archive attachments/g)).toHaveLength(1);
+            expect(write.data.frontmatter).toEqual(
+              decorateChatGptArchiveNote(baseNote, receipt).frontmatter
+            );
+          } else {
+            expect(write.data).toEqual(baseNote);
+            expect(write.data.body).toContain('sandbox:');
+          }
+          expect(JSON.stringify(write)).not.toContain('runtime-only-source-ref-must-not-leak');
+        }
+      } finally {
+        settings.templateOptions = previousTemplate;
+        settings.vaultPath = 'AI/{platform}';
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  it.each(['throws', 'changes-identity'] as const)(
+    'keeps original text and the appendix if localization %s',
+    async failure => {
+      const retained = {} as ChatGptStructuredPresentationContext;
+      mocks.extract.mockResolvedValue({
+        ...noteResult,
+        chatGptStructuredPresentationContext: retained,
+      });
+      mocks.attachmentExport.mockResolvedValue({
+        completeDestinations: ['file'],
+        rawSuccessfulDestinations: ['file'],
+        destinationReceipts: [fileReceipt],
+        destinationLocalizationEvidence: [{ receipt: fileReceipt }],
+        warnings: [],
+      });
+      if (failure === 'throws')
+        mocks.localize.mockRejectedValueOnce(new Error('private-diagnostic'));
+      else
+        mocks.localize.mockResolvedValueOnce({
+          ...noteResult.data,
+          title: 'unexpected-title',
+          url: 'https://example.invalid',
+        });
+      await handleSync();
+      const write = mocks.sendMessage.mock.calls
+        .map(([message]) => message)
+        .find(message => message.action === 'saveToOutputs');
+      expect(write.data.frontmatter.title).toBe(noteResult.data!.title);
+      expect(write.data.body).toContain('Question');
+      expect(write.data.body.match(/## Local archive attachments/g)).toHaveLength(1);
+      expect(mocks.showErrorToast).not.toHaveBeenCalled();
+    }
+  );
 
   it('runs attachment finalization before the current-branch Markdown note and propagates its caveat', async () => {
     vi.useFakeTimers();

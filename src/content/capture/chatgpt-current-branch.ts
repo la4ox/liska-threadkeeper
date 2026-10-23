@@ -50,6 +50,7 @@ import {
   type ArchiveCompanionArtifact,
   type ArchiveCompanionBundle,
   type ChatGptAssetExportContext,
+  type ChatGptStructuredPresentationContext,
   type InlineArchiveCompanionArtifact,
   type StagedArchiveCompanionArtifact,
 } from '../../lib/types';
@@ -1180,12 +1181,43 @@ export async function captureChatGptCurrentBranch(
   );
 
   try {
+    const projection = projectArchiveBranch(archive, { includeToolContent });
     return {
-      ...projectArchiveBranch(archive, { includeToolContent }),
+      ...projection,
       archiveCompanion,
       chatGptAssetExportContext: assetExportContext,
+      chatGptStructuredPresentationContext: retainChatGptStructuredPresentation(
+        { archive, archiveCompanion, assetExportContext },
+        projection,
+        includeToolContent
+      ),
     };
   } catch {
     throw new ChatGptCurrentBranchError('projection-failed', { archiveCompanion });
   }
+}
+
+/** Retain only immutable identities/path/options around the validated archive reference. */
+export function retainChatGptStructuredPresentation(
+  capture: Pick<ChatGptArchiveCapture, 'archive' | 'archiveCompanion' | 'assetExportContext'>,
+  projection: ArchiveProjectionResult,
+  includeToolContent: boolean
+): ChatGptStructuredPresentationContext | undefined {
+  const { archive, archiveCompanion, assetExportContext } = capture;
+  if (!assetExportContext) return undefined;
+  const canonical = archiveCompanion.artifacts.filter(artifact => artifact.kind === 'canonical');
+  const manifest = archiveCompanion.artifacts.filter(artifact => artifact.kind === 'manifest');
+  if (canonical.length !== 1 || manifest.length !== 1) return undefined;
+  const { kind, relativePath, mediaType, byteLength, sha256 } = canonical[0];
+  return Object.freeze({
+    archive,
+    assetExportContext,
+    captureId: archiveCompanion.captureId,
+    conversationKey: archiveCompanion.conversationKey,
+    manifestSha256: manifest[0].sha256,
+    canonical: Object.freeze({ kind, relativePath, mediaType, byteLength, sha256 }),
+    targetNodeId: projection.selectedNodeIds[projection.selectedNodeIds.length - 1] ?? null,
+    selectedNodeIds: Object.freeze([...projection.selectedNodeIds]),
+    includeToolContent,
+  });
 }

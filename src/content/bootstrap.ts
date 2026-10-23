@@ -20,6 +20,7 @@ import type {
   ArchiveCompanionKind,
   ArchiveCompanionBundle,
   ConversationData,
+  ChatGptStructuredPresentationContext,
   ExtractionResult,
   IConversationExtractor,
 } from '../lib/types';
@@ -34,6 +35,8 @@ import {
 import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-export';
 import type { ChatGptAssetExportResult } from './chatgpt-asset-export';
 import { decorateChatGptArchiveNote } from './chatgpt-archive-links';
+import { snapshotChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
+import { localizeChatGptSandboxLinks } from './chatgpt-sandbox-localization';
 import { persistDeepSeekDestinationHonestAttachments } from './deepseek-asset-export';
 import {
   canExportChatGptAttachments,
@@ -916,6 +919,7 @@ export async function persistAllBranchesBundle(
 function freezeSettingsSnapshot(settings: ContentScriptSettings): ContentScriptSettings {
   const snapshot = structuredClone(settings);
   Object.freeze(snapshot.templateOptions);
+  Object.freeze(snapshot.outputOptions);
   return Object.freeze(snapshot);
 }
 
@@ -1003,22 +1007,65 @@ function archiveBoundNoteForDestination(
  * output so every local link and manifest hash describes only bytes confirmed
  * at that destination; Clipboard deliberately receives no local archive links.
  */
+interface ChatGptNotePresentation {
+  data: ConversationData;
+  context?: ChatGptStructuredPresentationContext;
+  settings: ContentScriptSettings;
+  renderedAt: Date;
+  expectedSyncSettingsSnapshot: string;
+}
+
+function snapshotChatGptNoteEvidence(result: ChatGptAssetExportResult): ChatGptAssetExportResult {
+  const destinationReceipts: ChatGptAssetExportResult['destinationReceipts'] = [];
+  for (const value of result.destinationReceipts) {
+    const receipt = snapshotChatGptDestinationArchiveReceipt(value);
+    if (receipt) destinationReceipts.push(receipt);
+  }
+  let destinationLocalizationEvidence: ChatGptAssetExportResult['destinationLocalizationEvidence'];
+  try {
+    destinationLocalizationEvidence = structuredClone(result.destinationLocalizationEvidence);
+  } catch {
+    /* Optional localization failure keeps the provider links and existing appendix. */
+  }
+  return { ...result, destinationReceipts, destinationLocalizationEvidence };
+}
+
+// eslint-disable-next-line max-lines-per-function -- One destination-at-a-time note outcome preserves existing partial-success reporting.
 async function persistDestinationHonestChatGptNote(
   note: ObsidianNote,
   outputs: OutputDestination[],
   messageCount: number,
   attachmentExport: ChatGptAssetExportResult,
   extractionWarnings: string[],
-  capturedAt?: string
+  capturedAt: string | undefined,
+  presentation: ChatGptNotePresentation
 ): Promise<void> {
+  const destinationEvidence = snapshotChatGptNoteEvidence(attachmentExport);
   showToast('Saving...', 'info', INFO_TOAST_DURATION);
   const results: OutputResult[] = [];
   const provenanceWarnings: string[] = [];
   for (const destination of outputs) {
-    const decorated = archiveBoundNoteForDestination(note, destination, attachmentExport);
+    const destinationNote = await localizedNoteForDestination(
+      note,
+      destination,
+      destinationEvidence,
+      presentation
+    );
+    const decorated = archiveBoundNoteForDestination(
+      destinationNote,
+      destination,
+      destinationEvidence
+    );
     let attempt: NoteWriteAttempt;
     try {
-      attempt = await writeNoteToOutputs(decorated.note, [destination], messageCount, capturedAt);
+      attempt = await writeNoteToOutputs(
+        decorated.note,
+        [destination],
+        messageCount,
+        capturedAt,
+        undefined,
+        presentation.expectedSyncSettingsSnapshot
+      );
     } catch {
       results.push({ destination, success: false, error: 'Note write failed' });
       continue;
@@ -1038,6 +1085,43 @@ async function persistDestinationHonestChatGptNote(
     messagesAppended: results.find(result => result.destination === 'obsidian')?.messagesAppended,
   };
   displaySaveResults(response, [...extractionWarnings, ...provenanceWarnings]);
+}
+
+async function localizedNoteForDestination(
+  original: ObsidianNote,
+  destination: OutputDestination,
+  attachmentExport: ChatGptAssetExportResult,
+  presentation: ChatGptNotePresentation
+): Promise<ObsidianNote> {
+  if (destination === 'clipboard' || !presentation.context) return original;
+  try {
+    const receipts = attachmentExport.destinationReceipts.filter(
+      value => value.destination === destination
+    );
+    const evidence = attachmentExport.destinationLocalizationEvidence?.filter(
+      value => value.receipt.destination === destination
+    );
+    if (receipts.length !== 1 || evidence?.length !== 1) return original;
+    const data = await localizeChatGptSandboxLinks(
+      presentation.data,
+      presentation.context,
+      evidence[0],
+      receipts[0],
+      destination
+    );
+    if (data === presentation.data) return original;
+    const localized = conversationToNote(
+      data,
+      presentation.settings.templateOptions,
+      presentation.renderedAt
+    );
+    return localized.fileName === original.fileName &&
+      JSON.stringify(localized.frontmatter) === JSON.stringify(original.frontmatter)
+      ? localized
+      : original;
+  } catch {
+    return original;
+  }
 }
 
 const chatGptAttachmentDependencies = (strictReplay: boolean) => ({
@@ -1190,7 +1274,9 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       return;
     }
     if (canExportChatGptAttachments(result, settings, enabledOutputs)) {
-      const note = conversationToNote(result.data, settings.templateOptions);
+      const renderedAt = new Date();
+      const expectedSyncSettingsSnapshot = serializeSyncSettingsSnapshot(settings);
+      const note = conversationToNote(result.data, settings.templateOptions, renderedAt);
       stage = 'saving the original ChatGPT raw archive companion';
       const attachmentExport = await persistChatGptDestinationHonestAttachments(
         result.chatGptAssetExportContext,
@@ -1207,7 +1293,14 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         result.data.messages.length,
         attachmentExport,
         warnings,
-        result.archiveCompanion?.capturedAt
+        result.archiveCompanion?.capturedAt,
+        {
+          data: result.data,
+          context: result.chatGptStructuredPresentationContext,
+          settings,
+          renderedAt,
+          expectedSyncSettingsSnapshot,
+        }
       );
       return;
     }
