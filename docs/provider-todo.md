@@ -43,16 +43,23 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
 
 ### 2. Truncated DOM overwrite guard
 
-- Port the small structured signal from upstream `7b9532c`, including the
-  Gemini correction from `c2edc47`.
-- Propagate an explicit truncated flag through base and Gemini extraction,
-  rendered note metadata, same-conversation identity probes, and both ordinary
-  Obsidian save paths.
-- Refuse a shorter overwrite only when the existing note has a usable
-  `message_count`; absence of trustworthy prior count must remain an explicit
-  limitation, not fabricated certainty.
-- Preserve immutable archive/branch snapshots and ensure an explicit refusal
-  cannot fall through into the ordinary overwrite path.
+- Implemented on `codex/truncation-guard` with the small structured signal from
+  upstream `7b9532c` and the Gemini correction identified in `c2edc47`.
+- Base and Gemini extraction propagate a runtime-only truncated flag exactly
+  for a detected DOM deadline. The worker validates it, while generated
+  Markdown and frontmatter remain unchanged.
+- Append and ordinary Obsidian replacement now refuse a smaller truncated
+  capture only for a proven mutable same-conversation note with one trustworthy
+  prior `message_count`. The refusal returns directly and cannot fall through
+  into overwrite or collision allocation.
+- Missing, malformed, continued, duplicate, list, fractional, negative, or
+  unsafe prior counts allow the save with a fixed protection-unavailable
+  warning. Immutable archive/branch snapshots, foreign collisions, complete
+  captures, File, and Clipboard preserve their previous behavior.
+- Exact-tree validation passes 169 files / 5,179 tests; build, lint, formatting,
+  diff checks, and independent review pass. Remaining boundary: this detects
+  loader-deadline truncation, not arbitrary provider omission or concurrent
+  vault mutation. No live provider/vault claim is attached to this checkpoint.
 
 ### 3. Selector-derived readiness and Gemini title
 

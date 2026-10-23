@@ -795,6 +795,7 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
   if (typeof note.fileName !== 'string' || typeof note.body !== 'string') {
     return false;
   }
+  if (note.truncated !== undefined && typeof note.truncated !== 'boolean') return false;
 
   // File name length limits (filesystem constraints)
   if (note.fileName.length === 0 || note.fileName.length > MAX_FILENAME_LENGTH) {
@@ -831,6 +832,8 @@ function validateFrontmatter(frontmatter: ObsidianNote['frontmatter'] | undefine
   if (!frontmatter) {
     return false;
   }
+  if (!Number.isSafeInteger(frontmatter.message_count) || frontmatter.message_count < 0)
+    return false;
   if (
     typeof frontmatter.title !== 'string' ||
     frontmatter.title.length > MAX_FRONTMATTER_TITLE_LENGTH

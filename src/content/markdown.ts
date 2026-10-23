@@ -213,6 +213,7 @@ export function conversationToNote(
     body,
     contentHash,
     images: data.images ?? [],
+    ...(data.truncated !== undefined && { truncated: data.truncated }),
   };
 }
 

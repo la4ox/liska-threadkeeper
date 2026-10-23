@@ -86,6 +86,7 @@ export class GeminiExtractor extends BaseExtractor {
       const result = await this.attachImages(baseResult);
 
       if (scrollResult && !scrollResult.fullyLoaded && !scrollResult.skipped) {
+        if (result.data) result.data.truncated = true;
         const warning =
           `Auto-scroll timed out before reaching the top. ` +
           `Some earlier messages may be missing (${scrollResult.elementCount} turns loaded).`;

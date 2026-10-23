@@ -10,7 +10,13 @@ import {
 } from '../../src/content/markdown';
 import { sanitizeHtml } from '../../src/lib/sanitize';
 import { MAX_MATH_LENGTH } from '../../src/lib/constants';
-import type { ConversationData, TemplateOptions, DeepResearchLinks } from '../../src/lib/types';
+import type {
+  ConversationData,
+  TemplateOptions,
+  DeepResearchLinks,
+  ExtensionSettings,
+} from '../../src/lib/types';
+import { generateNoteContent } from '../../src/lib/note-generator';
 
 describe('escapeUserText — math dollar escaping (Obsidian hang fix)', () => {
   it('escapes $ so shell/YAML text is not parsed as math', () => {
@@ -650,6 +656,28 @@ describe('conversationToNote', () => {
     userCalloutType: 'QUESTION',
     assistantCalloutType: 'NOTE',
   };
+
+  it.each([undefined, false, true])(
+    'carries runtime truncation %s without rendering it',
+    truncated => {
+      const renderedAt = new Date('2026-01-01');
+      const baseline = conversationToNote(mockData, defaultOptions, renderedAt);
+      const note = conversationToNote({ ...mockData, truncated }, defaultOptions, renderedAt);
+      expect(note.truncated).toBe(truncated);
+      expect(note.frontmatter).not.toHaveProperty('truncated');
+      expect(note.frontmatter).toEqual(baseline.frontmatter);
+      expect(note.body).toBe(baseline.body);
+      expect(note.fileName).toBe(baseline.fileName);
+      expect(note.contentHash).toBe(baseline.contentHash);
+      for (const includeMessageCount of [true, false]) {
+        const settings = {
+          templateOptions: { ...defaultOptions, includeMessageCount },
+        } as ExtensionSettings;
+        expect(generateNoteContent(note, settings)).toBe(generateNoteContent(baseline, settings));
+        expect(note.frontmatter.message_count).toBe(2);
+      }
+    }
+  );
 
   it('attaches captured images to the note', () => {
     const dataWithImages: ConversationData = {

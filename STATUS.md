@@ -972,3 +972,33 @@ lines. TypeScript/build, source/platform lint, formatting, and diff checks pass;
 lint retains only the same three unrelated advisory warnings. This checkpoint
 has synthetic old/new DOM coverage but no live Claude claim. A user-selected,
 content-minimized Claude chat remains the next evidence gate before release.
+
+The structured truncated-overwrite guard is implemented on
+`codex/truncation-guard`. Base extraction and Gemini now mark only a detected
+DOM loading deadline (`!fullyLoaded && !skipped`) as truncated; disabled
+scrolling, missing containers, complete structured captures, Deep Research,
+and ordinary short conversations do not acquire the flag. The signal is
+runtime-only and is validated across the content/background boundary without
+appearing in generated Markdown or frontmatter.
+
+Before either append or ordinary Obsidian replacement, a truncated capture may
+reuse only a proven mutable same-conversation note. If its incoming message
+count is smaller than a trustworthy prior `message_count`, the write is refused
+before note or image PUT. Equal/larger counts, new targets, immutable archives,
+foreign collisions, and complete captures retain their established behavior.
+Missing, malformed, continued, duplicate, or unsafe prior counts fail open with
+one fixed protection-unavailable warning rather than fabricated certainty.
+File and Clipboard destinations remain independent of an Obsidian refusal.
+
+Independent review found one P3 false-refusal edge in the lightweight YAML
+parser: a continued scalar such as `message_count: 446` followed by an indented
+continuation could be mistaken for the scalar prefix. The final probe checks
+the raw frontmatter for exactly one uncontinued top-level count; focused append
+and fresh-save regressions prove allow-plus-warning for the ambiguous form. The
+follow-up review found no residual P0-P3 issue. Exact-tree validation passes 169
+test files / 5,179 tests; coverage is 95.33% statements, 91.39% branches, 98.68%
+functions, and 97.78% lines. TypeScript/build, source/platform lint, formatting,
+and diff checks pass; lint retains only the same three pre-existing advisory
+warnings. This protects affirmative DOM-deadline truncation, not arbitrary
+provider incompleteness or concurrent read-to-write vault races; no live
+browser/vault claim is made for this checkpoint.

@@ -16,6 +16,7 @@ import {
   isSameConversation,
 } from '../../src/lib/note-identity';
 import type { ProbeState } from '../../src/lib/note-identity';
+import { parseFrontmatter } from '../../src/lib/frontmatter-parser';
 
 const ID = 'claude_1a07d605-561d-46ba-86ea-79227969c0a1';
 
@@ -131,6 +132,7 @@ describe('line endings (issue #365 regression)', () => {
     expect(classifyNoteProbe(lines.join('\r\n'), ID)).toEqual({
       state: 'same-conversation',
       foundId: ID,
+      messageCount: 239,
     });
   });
 
@@ -138,6 +140,7 @@ describe('line endings (issue #365 regression)', () => {
     expect(classifyNoteProbe(lines.join('\r'), ID)).toEqual({
       state: 'same-conversation',
       foundId: ID,
+      messageCount: 239,
     });
   });
 
@@ -149,6 +152,93 @@ describe('line endings (issue #365 regression)', () => {
       foundId: 'claude_ffffffff',
     });
   });
+});
+
+describe('trusted prior message count', () => {
+  it.each(['0', '446', '"446"', "'446'", String(Number.MAX_SAFE_INTEGER)])(
+    'accepts only a whole safe decimal scalar: %s',
+    scalar => {
+      expect(
+        classifyNoteProbe(`---\nid: ${ID}\nmessage_count: ${scalar}\n---\nBody`, ID)
+      ).toMatchObject({
+        state: 'same-conversation',
+        messageCount: Number(scalar.replace(/['"]/g, '')),
+      });
+    }
+  );
+
+  it.each([
+    '',
+    '-1',
+    '1.5',
+    'NaN',
+    'Infinity',
+    '446messages',
+    '446 # comment',
+    '1e3',
+    '+446',
+    '[446]',
+    '\n  - 446',
+    String(Number.MAX_SAFE_INTEGER + 1),
+    '" 446 "',
+  ])('does not coerce malformed scalar %s', scalar => {
+    const probe = classifyNoteProbe(`---\nid: ${ID}\nmessage_count: ${scalar}\n---\nBody`, ID);
+    expect(probe.state).toBe('same-conversation');
+    expect(probe).not.toHaveProperty('messageCount');
+  });
+
+  it('never trusts counts from a foreign note or from the body/nested YAML', () => {
+    expect(
+      classifyNoteProbe('---\nid: foreign\nmessage_count: 446\n---\nBody', ID)
+    ).not.toHaveProperty('messageCount');
+    expect(
+      classifyNoteProbe(
+        `---\nid: ${ID}\nmetadata:\n  message_count: 446\n---\nmessage_count: 446`,
+        ID
+      )
+    ).not.toHaveProperty('messageCount');
+  });
+
+  it.each([
+    '446\n  messages',
+    '446\n\n  messages',
+    '446\n  # comment\n  messages',
+    '446\n\tmessages',
+    '446\n  447',
+    '"446"\n  messages',
+  ])('does not trust a continued/ambiguous scalar: %s', scalar => {
+    const content = `---\nid: ${ID}\nmessage_count: ${scalar}\n---\nBody`;
+    // Preserve the general lightweight parser; the identity probe adds the strict check.
+    expect(parseFrontmatter(content)?.fields.message_count).toBe('446');
+    expect(classifyNoteProbe(content, ID)).toEqual({ state: 'same-conversation', foundId: ID });
+  });
+
+  it.each(['message_count', '"message_count"', "'message_count'"])(
+    'does not trust ambiguous duplicate %s fields',
+    key => {
+      const content = `---\nid: ${ID}\nmessage_count: 446\n${key}: 27\n---\nBody`;
+      expect(classifyNoteProbe(content, ID)).not.toHaveProperty('messageCount');
+    }
+  );
+
+  it.each(['\n', '\r\n', '\r'])(
+    'allows blank/comments after the scalar and indented content under the next key (%j)',
+    eol => {
+      const content = [
+        '---',
+        `id: ${ID}`,
+        'message_count: 446',
+        '',
+        '  # count comment',
+        '# another comment',
+        'metadata:',
+        '  label: messages',
+        '---',
+        'Body',
+      ].join(eol);
+      expect(classifyNoteProbe(content, ID).messageCount).toBe(446);
+    }
+  );
 });
 
 describe('isSameConversation', () => {
