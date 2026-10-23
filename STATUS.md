@@ -894,16 +894,19 @@ archive writes hid allowlisted cleanup-deferred evidence, and a receipt-qualifie
 destination could hide unknown binary bytes omitted from its final manifest.
 Both are fixed in `e0d3246`; cleanup warnings are now independent of write
 success, and unknown artifact bytes are disclosed across every requested
-destination. Exact-tree validation passes 166 test files / 5,007 tests. Coverage
-is 95.28% statements, 91.32% branches, 98.60% functions, and 97.73% lines.
+destination. A later current-head review found that the ledger accepted shorter
+capture IDs than the existing ChatGPT/DeepSeek contracts; `b6c451a` aligns both
+provider-specific maxima and adds boundary/one-over regressions. Exact-tree
+validation passes 166 test files / 5,011 tests. Coverage is 95.28% statements,
+91.33% branches, 98.60% functions, and 97.73% lines.
 TypeScript, production build, source/platform lint, repository formatting, ZIP
 packaging, and diff checks pass; lint retains only the same three pre-existing
 advisory warnings. A parent rerun of the ten decisive suites passes 286 tests.
-The final review-fixed ZIP is 242,557 bytes with SHA-256
-`470f1d1915987850f342bd016270bb791953d54e0acca1f7675ea2709de27327`.
+The final review-fixed ZIP is 242,564 bytes with SHA-256
+`d056682127b5985200925e05bc3fdc3c62497acbf247949c628e170077c79e27`.
 Its 29-file production tree is byte-identical to the build installed in Comet.
 The clean pre-live rollback is retained at
-`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\write-ledger-review-fix-prelive-20261023-150802-e0d3246`.
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\write-ledger-capture-id-fix-prelive-20261023-152409-b6c451a`.
 
 A fresh positive all-branches Comet canary created
 `capture-chatgpt-0b38fe0b-d061-406b-a3ef-4b3d05a07b41` from the final
@@ -920,7 +923,9 @@ the verified DOCX is linked once from every branch/index view, while the
 remaining unfetched sandbox reference stays honest. Temporary resolver tabs
 exact-closed. This proves the unchanged-settings positive ledger path, not a
 live failure race or worker-restart guarantee; those remain deterministic/static
-evidence only.
+evidence only. The subsequent capture-ID boundary fix does not alter this
+ordinary UUID path; its 29-file build is installed, reloaded, and byte-identical
+to `dist`.
 
 Next: checkpoint this live-verified write-ledger slice in its own pull request.
 The next ChatGPT live gates still require a real provider response above 16 MiB,
