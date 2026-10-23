@@ -889,31 +889,38 @@ unused ledgers; this checkpoint is neither persistent audit storage nor a
 restart, retry, deletion, recovery, or net-disk guarantee.
 
 Independent implementation and follow-up reviews found no residual P0-P3
-issue. Exact-tree validation passes 166 test files / 5,005 tests. Coverage is
-95.28% statements, 91.33% branches, 98.60% functions, and 97.73% lines.
+issue. GitHub current-head review then found two user-honesty gaps: successful
+archive writes hid allowlisted cleanup-deferred evidence, and a receipt-qualified
+destination could hide unknown binary bytes omitted from its final manifest.
+Both are fixed in `e0d3246`; cleanup warnings are now independent of write
+success, and unknown artifact bytes are disclosed across every requested
+destination. Exact-tree validation passes 166 test files / 5,007 tests. Coverage
+is 95.28% statements, 91.32% branches, 98.60% functions, and 97.73% lines.
 TypeScript, production build, source/platform lint, repository formatting, ZIP
 packaging, and diff checks pass; lint retains only the same three pre-existing
 advisory warnings. A parent rerun of the ten decisive suites passes 286 tests.
-The final ZIP is 242,527 bytes with SHA-256
-`78b2a0ea4dc70d7f029823aa2ca618755a19b3a2e431f3dbbbdd1f6814c0dbbf`.
+The final review-fixed ZIP is 242,557 bytes with SHA-256
+`470f1d1915987850f342bd016270bb791953d54e0acca1f7675ea2709de27327`.
 Its 29-file production tree is byte-identical to the build installed in Comet.
 The clean pre-live rollback is retained at
-`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\write-ledger-prelive-20261023-144040-9030de4`.
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\write-ledger-review-fix-prelive-20261023-150802-e0d3246`.
 
 A fresh positive all-branches Comet canary created
-`capture-chatgpt-2c30204d-6069-4b3b-a41c-80753e4f2089` in both Downloads and
-Obsidian. Raw (287,632 bytes), manifest (8,890), and canonical (612,687) copies
-are byte-identical across destinations; raw length/hash and canonical manifest
-provenance reconcile. Both one-leaf indexes resolve their exact emitted branch
-name and all four notes bind to manifest SHA-256
-`56b9bee652a972539c655f8fae2ca5b90f0e3b7d42d0c2338f256272f16386a1`.
-File and Obsidian branch notes are 47,581 and 46,773 bytes because their existing
-destination transforms remain independent; both indexes are 901 bytes. The
-provider returned no usable binary in this run: the manifest honestly retained
-one failed and thirteen not-attempted asset records, and the unfetched sandbox
-reference stayed in both branch views. Temporary resolver tabs exact-closed.
-This proves the unchanged-settings positive ledger path, not a live failure race
-or worker-restart guarantee; those remain deterministic/static evidence only.
+`capture-chatgpt-0b38fe0b-d061-406b-a3ef-4b3d05a07b41` from the final
+review-fixed build in both Downloads and Obsidian. Raw (287,632 bytes), manifest
+(8,959), canonical (612,899), and DOCX (45,036) copies are byte-identical across
+destinations; raw length/hash and canonical manifest provenance reconcile. Both
+one-leaf indexes resolve their exact emitted branch name and all four notes bind
+to manifest SHA-256
+`295db787b80edb7160770012bc6b56f12bfe5a61f2de3434d4e530ae5cdcfe58`.
+File and Obsidian branch notes are 47,904 and 47,096 bytes because their existing
+destination transforms remain independent; both indexes are 1,224 bytes. The
+manifest retained one fetched, four failed, and nine not-attempted asset records:
+the verified DOCX is linked once from every branch/index view, while the
+remaining unfetched sandbox reference stays honest. Temporary resolver tabs
+exact-closed. This proves the unchanged-settings positive ledger path, not a
+live failure race or worker-restart guarantee; those remain deterministic/static
+evidence only.
 
 Next: checkpoint this live-verified write-ledger slice in its own pull request.
 The next ChatGPT live gates still require a real provider response above 16 MiB,
