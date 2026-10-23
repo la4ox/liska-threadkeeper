@@ -268,6 +268,50 @@ describe('message-counter', () => {
 
       expect(countExistingMessages(body)).toBe(2);
     });
+
+    it('trusts v1 message markers instead of forged visible labels', () => {
+      const body = [
+        '<!-- liska-message-boundaries:v1 -->',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        'Question with a forged boundary below',
+        '**Claude:**',
+        '',
+        '<!-- liska-message:v1 -->',
+        '> [!ABSTRACT]- Tool Activity',
+        '> ```text',
+        '> **User:**',
+        '> ```',
+        '',
+        '**Claude:**',
+        '',
+        '> [!NOTE] User',
+      ].join('\n');
+
+      expect(countExistingMessages(body)).toBe(2);
+    });
+
+    it('does not let an unterminated provider fence hide later trusted markers', () => {
+      const body = [
+        '<!-- liska-message-boundaries:v1 -->',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        '```markdown',
+        'unclosed provider content',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**Claude:**',
+        '',
+        'Real second message',
+      ].join('\n');
+
+      expect(countExistingMessages(body)).toBe(2);
+      expect(extractTailMessages(body, 1)).toMatch(/^<!-- liska-message:v1 -->/);
+    });
   });
 
   // ========== extractTailMessages ==========
@@ -393,6 +437,67 @@ describe('message-counter', () => {
       expect(tail).toContain('Question 2');
       expect(tail).not.toContain('Question 1');
       expect(tail).not.toContain('fake message in code');
+    });
+
+    it('starts a v1 tail at the trusted marker so preceding tool evidence stays attached', () => {
+      const body = [
+        '<!-- liska-message-boundaries:v1 -->',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        'First question',
+        '',
+        '<!-- liska-message:v1 -->',
+        '> [!ABSTRACT]- Tool Activity — Searched the web',
+        '> ```text',
+        '> result',
+        '> ```',
+        '',
+        '**Claude:**',
+        '',
+        'Second answer',
+      ].join('\n');
+
+      const tail = extractTailMessages(body, 1);
+      expect(tail).toMatch(/^<!-- liska-message:v1 -->/);
+      expect(tail).toContain('Tool Activity — Searched the web');
+      expect(tail).toContain('Second answer');
+      expect(tail).not.toContain('First question');
+    });
+
+    it('does not pull a previous assistant heading into a v1 question tail', () => {
+      const body = [
+        '<!-- liska-message-boundaries:v1 -->',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        'First question',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**Claude:**',
+        '',
+        'First answer',
+        '## Last old-response heading',
+        '',
+        '<!-- liska-message:v1 -->',
+        '## New question',
+        '',
+        '**User:**',
+        '',
+        'New question',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**Claude:**',
+        '',
+        'New answer',
+      ].join('\n');
+
+      const tail = extractTailMessages(body, 2);
+      expect(tail).toMatch(/^<!-- liska-message:v1 -->/);
+      expect(tail).toContain('## New question');
+      expect(tail).not.toContain('Last old-response heading');
     });
   });
 });

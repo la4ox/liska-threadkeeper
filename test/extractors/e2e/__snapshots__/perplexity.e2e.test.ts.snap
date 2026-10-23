@@ -14,22 +14,36 @@ tags:
 message_count: 6
 ---
 
+<!-- liska-message-boundaries:v1 -->
+
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > erplexityのhtml構造をテストするための質問です。「はい」とだけ答えて。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Perplexity
 > はい。[^m1-1]​
 > 
 > [^m1-1]: [perplexity](https://docs.perplexity.ai/docs/agent-api/presets)
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > 次は「いいえ」だけ答えて
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Perplexity
 > いいえ。
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > LaTeX 形式でいくつか数式を表示して
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Perplexity
 > いくつか代表的な数式を LaTeX 形式で書きます。
@@ -61,8 +75,14 @@ tags:
 message_count: 3
 ---
 
+<!-- liska-message-boundaries:v1 -->
+
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > Perplexity の提供する機能についてまとめてください。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Perplexity
 > # Perplexity AI 提供機能まとめ
@@ -230,6 +250,8 @@ message_count: 3
 > [^m1-16]: [perplexity](https://www.perplexity.ai/help-center/en/articles/11187416-which-perplexity-subscription-plan-is-right-for-you)
 > 
 > [^m1-17]: [perplexity](https://www.perplexity.ai/hub/blog/more-value-in-every-answer-new-benefits-for-every-level-of-perplexity-user)
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Perplexity
 > Perplexity AI の提供機能をレポートにまとめました。検索モード（Best / Pro Search / Research / Create Files and Apps）、コア機能（モデルセレクター、Model Council、メモリ、ファイル分析）、メディア生成、Spaces、Tasks、MCP 連携、Comet ブラウザ、Computer、そしてサブスクリプションプラン別の比較まで網羅しています。詳細はレポートをご確認ください。"

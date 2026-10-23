@@ -1049,7 +1049,7 @@ clean.
 
 ## Local tool-content boundary security checkpoint
 
-Branch `codex/security-tool-content` addresses Security Cloud occurrence
+PR 29, merged as `f58758f`, addresses Security Cloud occurrence
 `commit:1a0101353b0c819183fb067d15974853`. Provider-controlled tool/search
 metadata previously reached generated Markdown as active links, images,
 Obsidian embeds/callouts, or message-shaped labels. The shared formatter now
@@ -1071,6 +1071,42 @@ the independent final review passed seven focused suites / 431 tests and found
 no remaining P0-P3 issue after three converter regressions were fixed. Production
 build, repository formatting, diff checks, and source/platform lint pass with
 only the same three pre-existing warnings. No live Claude-page or Obsidian-render
-smoke was repeated. Next: commit, publish, and obtain current-head CI/Code Review
-before merging; use Security Review only if it starts without a quota spend or
-retry loop.
+smoke was repeated. Reviewed source head `5e88298` is an ancestor of fetched
+`origin/main`; CI and current-head Code Review were clean. The historical Cloud
+occurrence is closed as fixed. Security Review was still running when the
+non-blocking merge completed and was not retried.
+
+## Local append-boundary security checkpoint
+
+Branch `codex/security-append-boundaries` addresses Security Cloud occurrence
+`commit:65c64c5574f08191871348273e586bf6`. Visible `**User:**` and provider
+labels were both presentation and identity, so hostile plain-format content
+could inflate the old body count and turn a real append into a successful
+zero-message no-op.
+
+Ordinary conversation bodies now declare boundary format v1 and place one
+exact extension-owned sentinel before each complete message group. Tool/search
+evidence and question headers sit inside that group. Provider, user, and tool
+content reserve the exact spellings. Image placeholder stripping and
+destination-specific resolution preserve only pre-existing service lines in a
+declared v1 body and neutralize marker substrings newly composed by each
+transform; unterminated provider fences cannot hide later sentinels.
+
+V1 notes count exact markers. Unmarked legacy notes recover from their valid
+extension-generated frontmatter count, so already-poisoned bodies can append
+the right tail while remaining byte-preserved. An unmarked legacy note without
+a trustworthy count returns fixed error `append-message-boundaries-untrusted`,
+writes nothing, and cannot fall through to overwrite. ADR-033 records the
+format, compatibility, image-transform, CRLF, and explicit-migration rules.
+
+All 167 test files / 5,103 tests pass in six memory-bounded batches. Focused
+source-to-sink tests cover the historical forged-label suppression,
+plain/callout/blockquote, question headers, tool groups, LF/CRLF, optional
+counts, unclosed fences, image-composed markers, repeated no-op, personal
+annotations, and multi-output refusal. Independent review found and rechecked
+the frontmatter separator, post-image transform, and v1 heading-lookback seams
+with 240 round-trip scenarios plus 26 probes; no P0-P3 issue remains. Production
+build, repository formatting, diff checks, and source/platform lint pass with
+only the same three pre-existing warnings. A live browser/Obsidian append was
+not repeated. Next: commit, publish, and obtain current-head CI/Code Review
+before merge.

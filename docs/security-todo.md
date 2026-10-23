@@ -91,9 +91,12 @@ stripping, and visible-length truncation, then converts backslashes and ASCII
 angle brackets to numeric entities. Direct tags, code-wrapped tags,
 stripping-synthesized tags, and odd/even backslash runs therefore remain literal
 heading text without altering the established 60-character visible limit.
+The overlapping earlier occurrence `commit:b5198215444c81919473f54504506272`
+and the backtick-specific occurrence are both closed as fixed in Security
+Cloud against that same merged boundary.
 
 The tool-metadata occurrence `commit:1a0101353b0c819183fb067d15974853`
-is being repaired on `codex/security-tool-content`. The shared presentation
+is fixed through PR 29 as `f58758f` and closed in Security Cloud. The shared presentation
 boundary promotes only a punctuation-encoded title and places the complete
 tool/search body inside a collision-safe literal fence. Markdown links and
 images, raw HTML, Obsidian embeds/callouts, and forged message labels therefore
@@ -103,6 +106,18 @@ text, marker collisions, and adjacent block boundaries. Its whole-response
 fallback now removes status headers from a clone before sanitization, so the
 disabled tool-content setting cannot leak those headers through ordinary
 assistant content.
+
+The append-boundary occurrence `commit:65c64c5574f08191871348273e586bf6`
+is being repaired on `codex/security-append-boundaries`. New ordinary
+conversation bodies carry one exact format sentinel and one exact sentinel per
+complete message group. Provider/tool content reserves those spellings, while
+image stripping/resolution preserves only existing service lines and
+neutralizes newly composed marker substrings. V1 tails therefore keep tool
+evidence and question headers without trusting visible role labels. Legacy
+notes recover from a valid extension-generated `message_count`; an unmarked
+count-less note fails explicitly without overwrite rather than guessing or
+reporting a false no-op. ADR-033 records the compatibility and migration
+contract.
 
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
@@ -151,6 +166,18 @@ repository formatting, diff checks, and source/platform lint pass with only the
 same three pre-existing advisory warnings. A live Claude page and the actual
 Obsidian renderer were not repeated for this slice.
 
+Append-boundary slice validation: all 167 test files / 5,103 tests pass in six
+memory-bounded batches. Focused source-to-sink and integration coverage includes
+the historical forged-label no-op, marker reservation, legacy recovery,
+count-less v1 notes, LF/CRLF, question headers, tool evidence, annotations,
+image strip/File/Obsidian transformations, callout flattening, and explicit
+multi-output refusal without overwrite. Independent review found three P2/P3
+seams—the generated frontmatter separator, post-image marker composition, and
+legacy heading lookback—and rechecked their fixes with 240 round-trip scenarios
+plus 26 probes; no P0-P3 remains. Production build, formatting, diff checks, and
+source/platform lint pass with only the same three pre-existing warnings. A
+live browser/Obsidian append was not repeated.
+
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR
 GitHub Security Review does not block an intermediate merge when current-head
 CI, current-head Code Review, focused/full tests, and one independent local
@@ -165,8 +192,8 @@ head, preserving one verdict per finding:
 
 1. Markdown/frontmatter boundaries: YAML quoting, math attributes, tool
    metadata, citation URLs/titles, and raw DeepSeek Markdown; publish the
-   current tool-content fix and reconcile both it and the merged
-   question-heading fix.
+   current append-boundary fix and continue the remaining citation/DeepSeek
+   items. Question-heading and tool-content occurrences are reconciled closed.
 2. Resource bounds: branch fan-out, image response buffering/timeouts, and
    frontmatter parsing; reconcile the merged Canmore fix.
 3. Capture integrity: reconcile the merged TypedArray primordial fix and retain

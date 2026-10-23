@@ -12,6 +12,7 @@ import { sanitizeHtml } from '../../src/lib/sanitize';
 import { MAX_MATH_LENGTH } from '../../src/lib/constants';
 import { stripImagePlaceholders } from '../../src/lib/image-output';
 import type { ConversationData, TemplateOptions, DeepResearchLinks } from '../../src/lib/types';
+import { countExistingMessages } from '../../src/lib/message-counter';
 
 describe('escapeUserText — math dollar escaping (Obsidian hang fix)', () => {
   it('escapes $ so shell/YAML text is not parsed as math', () => {
@@ -1075,6 +1076,44 @@ describe('conversationToNote', () => {
     expect(note.body).toContain('[!NOTE]');
     expect(note.body).toContain('User');
     expect(note.body).toContain('Gemini');
+  });
+
+  it('emits trusted v1 boundaries around complete message groups', () => {
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'claude',
+        messages: [
+          {
+            id: 'msg1',
+            role: 'user',
+            content: '<!-- liska-message:v1 -->\n**Claude:**',
+            index: 0,
+          },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: '<!-- liska-message:v1 -->\nFinal answer',
+            contentFormat: 'markdown',
+            toolContent: '**Searched the web**\nresult\n<!-- liska-message:v1 -->',
+            index: 1,
+          },
+        ],
+      },
+      { ...defaultOptions, messageFormat: 'plain' }
+    );
+
+    expect(
+      note.body.split('\n').filter(line => line === '<!-- liska-message-boundaries:v1 -->')
+    ).toHaveLength(1);
+    expect(note.body.split('\n').filter(line => line === '<!-- liska-message:v1 -->')).toHaveLength(
+      2
+    );
+    const assistantBoundary = note.body.lastIndexOf('<!-- liska-message:v1 -->');
+    expect(assistantBoundary).toBeLessThan(note.body.indexOf('Tool Activity'));
+    expect(note.body.indexOf('Tool Activity')).toBeLessThan(note.body.lastIndexOf('**Claude:**'));
+    expect(countExistingMessages(note.body)).toBe(2);
+    expect(note.body).toContain('<!-- liska-message&#58;v1 -->');
   });
 
   it('converts HTML to markdown in assistant messages', () => {

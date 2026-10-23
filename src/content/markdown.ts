@@ -23,6 +23,7 @@ import type {
 } from '../lib/types';
 import { formatDateWithTimezone } from '../lib/date-utils';
 import { getDateVariables } from '../lib/path-utils';
+import { MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER } from '../lib/message-counter';
 
 // Re-exports (preserve existing import paths)
 export { htmlToMarkdown, escapeAngleBrackets, escapeUserText } from './markdown-rules';
@@ -189,15 +190,17 @@ export function conversationToNote(
     const bodyParts: string[] = [];
 
     for (const message of data.messages) {
+      const messageParts: string[] = [];
       // Render tool content as separate collapsible callout before assistant message
       if (message.toolContent) {
-        bodyParts.push(formatToolContent(message.toolContent, options));
+        messageParts.push(formatToolContent(message.toolContent, options));
       }
       const formatted = formatConversationMessage(message, options, data.source);
-      bodyParts.push(formatted);
+      messageParts.push(formatted);
+      bodyParts.push(`${MESSAGE_BOUNDARY_MARKER}\n\n${messageParts.join('\n\n')}`);
     }
 
-    body = bodyParts.join('\n\n');
+    body = `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n${bodyParts.join('\n\n')}`;
   }
 
   // Generate filename and content hash

@@ -13,7 +13,7 @@ import {
   getDateVariables,
   getSearchBasePath,
 } from '../lib/path-utils';
-import { lookupExistingFile, buildAppendContent } from '../lib/append-utils';
+import { lookupExistingFile, buildAppendContent, AppendBoundaryError } from '../lib/append-utils';
 import { applyLineEnding } from '../lib/frontmatter-parser';
 import {
   classifyNoteProbe,
@@ -560,6 +560,10 @@ async function tryAppendMode(
     }
     return { success: true, isNewFile: false, messagesAppended: 0 };
   } catch (error) {
+    if (error instanceof AppendBoundaryError) {
+      console.warn('[G2O Background] Append refused: message boundaries are untrusted');
+      return { success: false, error: error.code };
+    }
     console.warn('[G2O Background] Append mode failed, falling back to overwrite:', error);
     return null;
   }
