@@ -74,6 +74,22 @@ terminal states, and the existing no-credential-export boundary.
   research outputs use similar titles.
 - Verify that legacy Markdown omissions are completely explained by canonical
   blocks and asset states.
+- The current-branch destination-receipt slice is implemented and live-verified
+  on a standard research-heavy chat. One produced DOCX reached Downloads and
+  Obsidian under the same SHA-256 path; each note carries its destination's
+  exact final manifest hash and one verified local archive link.
+- Archive-bound Markdown now uses capture-scoped filenames and never overwrites
+  an occupied path. Synthetic regressions cover identical display intent with
+  distinct content paths, destination divergence, repeated capture writes, and
+  equal bytes retained under distinct allowed MIME-derived targets.
+- Canonical research evidence remains typed rather than flattened. The live
+  sample retained citations, reasoning, code, execution output, tool roles and
+  attachment blocks; projection regressions account explicitly for citation
+  and Canvas omissions.
+- Still open in the presentation layer: all-branches receipt decoration,
+  identity-safe replacement (rather than additive retention) of provider
+  `sandbox:` links, and a live chat containing multiple same-title produced
+  files. None authorizes a broader resolver route.
 
 ### 4. Real wide-branch stress
 
@@ -158,9 +174,9 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Checkpoint the independently reviewed owner-context archive-only slice in its
-own pull request. Then use a standard conversation to implement and verify Deep
-Research binaries, provenance, and same-title collision handling. Keep
-custom-GPT/project binaries separately evidence-gated, and keep the sole
-archived WebP as separate Library-family evidence rather than inferring an
-ordinary GIF/WebP route.
+Checkpoint the independently reviewed destination-receipt/current-branch
+research-output slice in its own pull request. Then run the real wide-branch
+stress checkpoint with aggregate work/write ceilings and cancellation evidence.
+Keep all-branches receipt decoration and inline `sandbox:` replacement as
+separate presentation work; keep custom-GPT/project binaries and the sole
+archived Library WebP separately evidence-gated.
