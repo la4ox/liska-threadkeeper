@@ -6,6 +6,7 @@
  */
 
 import { htmlToMarkdown, escapeAngleBrackets, escapeUserText } from './markdown-rules';
+import { markdownCodeFence } from './markdown-code';
 import { PLATFORM_LABELS } from '../lib/constants';
 import type { AIPlatform, TemplateOptions } from '../lib/types';
 
@@ -126,6 +127,41 @@ export function formatMessage(
   return formatted;
 }
 
+function trimOuterBlankLines(lines: string[]): string[] {
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start].trim() === '') start++;
+  while (end > start && lines[end - 1].trim() === '') end--;
+  return lines.slice(start, end);
+}
+
+function literalToolTitle(title: string): string {
+  let literal = '';
+  for (const character of title) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    const isAsciiPunctuation =
+      (codePoint >= 0x21 && codePoint <= 0x2f) ||
+      (codePoint >= 0x3a && codePoint <= 0x40) ||
+      (codePoint >= 0x5b && codePoint <= 0x60) ||
+      (codePoint >= 0x7b && codePoint <= 0x7e);
+    literal += isAsciiPunctuation ? `&#${codePoint};` : character;
+  }
+  return literal;
+}
+
+function toolPresentation(toolContent: string): { title: string; fencedBody: string } {
+  const lines = trimOuterBlankLines(toolContent.replace(/\r\n?|[\u2028\u2029]/g, '\n').split('\n'));
+  const hasPromotedTitle = lines[0]?.startsWith('**') && lines[0]?.endsWith('**');
+  const title = hasPromotedTitle ? lines[0].slice(2, -2).replace(/\s+/g, ' ').trim() : '';
+  const bodyLines = trimOuterBlankLines(hasPromotedTitle ? lines.slice(1) : lines);
+  const literalTitle = literalToolTitle(title);
+
+  return {
+    title: literalTitle ? `Tool Activity — ${literalTitle}` : 'Tool Activity',
+    fencedBody: bodyLines.length > 0 ? markdownCodeFence(bodyLines.join('\n'), 'text') : '',
+  };
+}
+
 /**
  * Format tool-use content as a collapsible callout or equivalent format
  *
@@ -136,40 +172,27 @@ export function formatMessage(
  * @param options Template options for format selection
  */
 export function formatToolContent(toolContent: string, options: TemplateOptions): string {
-  // Tool content can come from provider APIs as Markdown. Escape raw angle
-  // brackets before emitting it into Obsidian so HTML-like payloads cannot
-  // become active tags; fenced and inline code remain literal.
-  const lines = escapeAngleBrackets(toolContent)
-    .split('\n')
-    .filter(l => l.trim());
-
-  // Extract first bold line as callout title (e.g., "**Searched the web**" → "Searched the web")
-  let title = 'Tool Activity';
-  let bodyLines = lines;
-  if (lines[0]?.startsWith('**') && lines[0]?.endsWith('**')) {
-    title = lines[0].slice(2, -2);
-    bodyLines = lines.slice(1);
-  }
+  const { title, fencedBody } = toolPresentation(toolContent);
 
   switch (options.messageFormat) {
     case 'callout': {
       // Collapsible callout: [!ABSTRACT]- collapsed by default
-      if (bodyLines.length === 0) {
+      if (!fencedBody) {
         return `> [!ABSTRACT]- ${title}`;
       }
-      const formatted = bodyLines.map(line => `> ${line}`);
+      const formatted = fencedBody.split('\n').map(line => `> ${line}`);
       return `> [!ABSTRACT]- ${title}\n${formatted.join('\n')}`;
     }
 
     case 'blockquote': {
       const header = `**${title}**`;
-      const quoted = bodyLines.map(line => `> ${line}`);
+      const quoted = fencedBody ? fencedBody.split('\n').map(line => `> ${line}`) : [];
       return quoted.length > 0 ? `${header}\n${quoted.join('\n')}` : header;
     }
 
     case 'plain':
     default: {
-      return bodyLines.length > 0 ? `**${title}**\n${bodyLines.join('\n')}` : `**${title}**`;
+      return fencedBody ? `**${title}**\n${fencedBody}` : `**${title}**`;
     }
   }
 }
