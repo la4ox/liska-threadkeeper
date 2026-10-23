@@ -1936,6 +1936,33 @@ describe('background/index', () => {
       expect(response.results).toHaveLength(3);
       expect(response.allSuccessful).toBe(true);
     });
+
+    it('keeps File and clipboard outputs when a partial DOM overwrite is refused', async () => {
+      mockClient.getFile.mockResolvedValue(
+        '---\nid: test-id\nmessage_count: 3\n---\n' +
+          v1MessageBody(['**User:**\n\nOne', '**Gemini:**\n\nTwo', '**User:**\n\nThree'])
+      );
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveToOutputs',
+          data: { ...validNote, domHistoryLoad: 'partial' },
+          outputs: ['obsidian', 'file', 'clipboard'],
+        },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response).toMatchObject({ allSuccessful: false, anySuccessful: true });
+      expect(response.results).toEqual([
+        { destination: 'obsidian', success: false, error: 'partial-capture-would-shrink-note' },
+        { destination: 'file', success: true },
+        { destination: 'clipboard', success: true },
+      ]);
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleDownloadToFile', () => {

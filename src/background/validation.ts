@@ -816,6 +816,13 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
     return false;
   }
 
+  if (
+    'domHistoryLoad' in note &&
+    !['complete', 'partial', 'unknown'].includes(note.domHistoryLoad as string)
+  ) {
+    return false;
+  }
+
   // Validate attached images (content scripts are semi-trusted; cap count/size)
   if (note.images !== undefined && !validateImages(note.images)) {
     return false;
@@ -829,6 +836,9 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
  */
 function validateFrontmatter(frontmatter: ObsidianNote['frontmatter'] | undefined): boolean {
   if (!frontmatter) {
+    return false;
+  }
+  if (!Number.isSafeInteger(frontmatter.message_count) || frontmatter.message_count < 0) {
     return false;
   }
   if (

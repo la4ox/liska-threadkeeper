@@ -113,6 +113,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
     expect(result.success).toBe(true);
     expect(result.data?.messages).toHaveLength(6);
+    expect(result.data?.domHistoryLoad).toBe('complete');
     expect(result.data?.messages.map(m => plainText(m.content))).toEqual([
       'Q1',
       'A1',
@@ -137,6 +138,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     expect(result.success).toBe(true);
     // Without scrolling, only the bottom window (last 3 turns) is visible.
     expect(result.data?.messages).toHaveLength(3);
+    expect(result.data?.domHistoryLoad).toBe('unknown');
   });
 
   it('shares the tool work budget across overlapping windows before deduplication, then resets it', async () => {
@@ -194,5 +196,6 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
     expect(result.success).toBe(true);
     expect(result.warnings?.some(w => w.includes('Auto-scroll timed out'))).toBe(true);
+    expect(result.data?.domHistoryLoad).toBe('partial');
   });
 });

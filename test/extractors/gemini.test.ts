@@ -1096,6 +1096,7 @@ describe('GeminiExtractor', () => {
       expect(result.data?.messages.length).toBe(2);
       // No timeout warning — scroll was not attempted
       expect(result.warnings).toBeUndefined();
+      expect(result.data?.domHistoryLoad).toBe('unknown');
     });
 
     it('skips scroll when scrollTop === 0 (short conversation)', async () => {
@@ -1115,6 +1116,7 @@ describe('GeminiExtractor', () => {
       expect(result.data?.messages.length).toBe(2);
       // No timeout warning
       expect(result.warnings).toBeUndefined();
+      expect(result.data?.domHistoryLoad).toBe('unknown');
     });
 
     it('skips scroll when no scroll container exists', async () => {
@@ -1174,6 +1176,7 @@ describe('GeminiExtractor', () => {
       expect(result.data).toBeDefined();
       // All turns should be in result
       expect(result.data!.messages.length).toBeGreaterThanOrEqual(4);
+      expect(result.data?.domHistoryLoad).toBe('complete');
       // No timeout warning
       const timeoutWarning = result.warnings?.find(w => w.includes('Auto-scroll timed out'));
       expect(timeoutWarning).toBeUndefined();
@@ -1213,6 +1216,7 @@ describe('GeminiExtractor', () => {
       const timeoutWarning = result.warnings!.find(w => w.includes('Auto-scroll timed out'));
       expect(timeoutWarning).toBeDefined();
       expect(timeoutWarning).toContain('turns loaded');
+      expect(result.data?.domHistoryLoad).toBe('partial');
     });
 
     it('keeps loading a long conversation past the old 30s wall while turns keep arriving (issue #360)', async () => {
