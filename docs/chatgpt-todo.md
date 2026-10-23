@@ -82,14 +82,23 @@ terminal states, and the existing no-credential-export boundary.
   an occupied path. Synthetic regressions cover identical display intent with
   distinct content paths, destination divergence, repeated capture writes, and
   equal bytes retained under distinct allowed MIME-derived targets.
+- All-branches leaf notes and their index now consume strict destination-owned
+  archive receipts. They preserve their prepared filenames, carry the exact
+  final manifest hash, and expose only that destination's confirmed
+  capture-level local attachment links. Missing or hostile receipt input blocks
+  only the affected destination before presentation dispatch.
+- A live File canary reconciled raw, manifest and canonical provenance; both its
+  leaf and index contain the same exact manifest SHA-256 and the same resolving
+  content-addressed DOCX link. The index points to the exact emitted leaf name,
+  with no doubled capture suffix. Fresh Obsidian vault reconciliation remains a
+  later live gate for this specific all-branches presentation slice.
 - Canonical research evidence remains typed rather than flattened. The live
   sample retained citations, reasoning, code, execution output, tool roles and
   attachment blocks; projection regressions account explicitly for citation
   and Canvas omissions.
-- Still open in the presentation layer: all-branches receipt decoration,
-  identity-safe replacement (rather than additive retention) of provider
-  `sandbox:` links, and a live chat containing multiple same-title produced
-  files. None authorizes a broader resolver route.
+- Still open in the presentation layer: identity-safe replacement (rather than
+  additive retention) of provider `sandbox:` links and a live chat containing
+  multiple same-title produced files. None authorizes a broader resolver route.
 
 ### 4. Real wide-branch stress
 
@@ -118,6 +127,10 @@ terminal states, and the existing no-credential-export boundary.
   visits, and 1,128,535,662 expanded source bytes (1.051 GiB). Do not raise the
   ceiling silently. Maintainer decision: keep the refusal, or review a 1.25 GiB
   bound and then run the complete File/Obsidian write/index reconciliation.
+- Exact Markdown accounting now includes destination-finalized provenance and
+  attachment-link decoration, guarded by filename/length/SHA parity between dry
+  and write passes. Exact physical accounting for destination-divergent finalized
+  companions and acquired binary bytes remains a separate bounded follow-up.
 
 ### 5. Real staged capture above 16 MiB
 
@@ -194,9 +207,10 @@ The ChatGPT block is ready to call broadly complete when:
 ## Exact next step
 
 Let the current-head reviews on PR 16 finish and merge that research-output
-checkpoint if clean. Rebase `codex/chatgpt-wide-branch` onto the merge, then make
-the explicit 1 GiB versus reviewed 1.25 GiB source-work decision above. Only a
+checkpoint if clean. Rebase and publish `codex/chatgpt-wide-branch`, followed by
+the stacked `codex/chatgpt-all-branches-receipts` checkpoint. Then make the
+explicit 1 GiB versus reviewed 1.25 GiB source-work decision above. Only a
 reviewed limit change authorizes the real 239-leaf File/Obsidian completion run.
-Keep all-branches receipt decoration and inline `sandbox:` replacement as a
-separate presentation task; keep custom-GPT/project binaries and the sole
-archived Library WebP separately evidence-gated.
+Keep finalized archive/binary physical-byte accounting and inline `sandbox:`
+replacement as separate bounded tasks; keep custom-GPT/project binaries and the
+sole archived Library WebP separately evidence-gated.

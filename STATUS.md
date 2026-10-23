@@ -633,10 +633,55 @@ visits, and 1,128,535,662 expanded source bytes (1.051 GiB). The ceiling remains
 unchanged: raising it, for example to 1.25 GiB, requires an explicit maintainer
 decision followed by the real full-write/index run.
 
+The next all-branches destination-receipt checkpoint is implemented on
+`codex/chatgpt-all-branches-receipts` at `77a82dc`, stacked on
+`codex/chatgpt-wide-branch`. Every File/Obsidian branch note and index now
+requires one strict destination-owned archive receipt. The plain
+attachments-disabled path first confirms that destination's complete
+raw/manifest/canonical trio and then constructs an empty-assets receipt; the
+attachment-enabled path uses only the receipt emitted after destination-specific
+archive finalization. Receipt containers are descriptor-snapshotted without
+invoking caller accessors or methods. Missing, duplicate, malformed, or
+identity-mismatched receipts fail closed for only that destination.
+
+Each leaf and index is decorated before both exact measurement and writing,
+while its already capture-scoped filename is preserved. The second pass must
+reproduce the same filename, UTF-8 byte length, and SHA-256 before dispatch;
+same-length drift therefore cannot evade the guard. Branch and index notes carry
+the exact final manifest hash plus only that destination's confirmed local
+capture-level attachment links. Provider links remain untouched and the text
+explicitly avoids asserting that a capture-level file belongs to every branch.
+An independent adversarial review found and closed one P2 in outer receipt-array
+snapshotting; the final review found no residual P0-P2.
+
+Final validation passes 161 test files / 4,710 tests. Coverage passes at 95.22%
+statements, 91.06% branches, 98.53% functions, and 97.74% lines. TypeScript,
+production build, ZIP packaging, repository formatting, independent review,
+and source/platform lint pass; lint retains only the same three pre-existing
+advisory warnings. The ZIP is 234,972 bytes with SHA-256
+`5f7e920f69b8853091ce3d7e51ce74f9d41fa27e38dcc6c182409c81ef8d18d0`.
+The installed Comet tree matches its 29-file production build; rollback is
+retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\all-branches-receipts-prelive-20261023-100236-e9cf9886`.
+
+A new append-only File canary created capture
+`capture-chatgpt-92ae2c7b-362e-496a-989a-5e76cd3c567d`: raw 287,632 bytes,
+manifest 8,959 bytes, canonical 612,899 bytes, one 47,904-byte branch, and one
+1,224-byte index. Raw length/hash and canonical input provenance reconcile with
+the persisted manifest. Both Markdown frontmatters contain the exact manifest
+SHA-256 `9912a092738e39997f8818d1b44a743ac9693733a68d4b04daa4e86e52b71d18`;
+the index link resolves to the exact branch filename, with no doubled capture
+suffix. Both notes link the same existing 45,036-byte DOCX whose SHA-256 is
+`45e080f46c285def0978eb7c26133b728cc2928cb5a9f90f7f1a1a2bc055a7ee`.
+This live gate rechecked File output only; the Obsidian variant remains covered
+by destination-divergence regressions rather than a fresh vault read in this
+checkpoint.
+
 Next: let PR 16 finish its current-head external reviews and merge it if clean;
-then rebase this stacked checkpoint. Decide whether the 1 GiB source-work limit
-should remain a deliberate refusal or become a reviewed 1.25 GiB bound for the
-known 1.051 GiB graph. All-branches receipt decoration, identity-safe replacement
-of provider `sandbox:` links, and a live multi-output same-title sample remain
-separate presentation follow-ups. Custom-GPT/project binaries and the archived
-Library WebP remain separately evidence-gated.
+then rebase and publish the stacked wide-branch and destination-receipt
+checkpoints in order. Decide whether the 1 GiB source-work limit should remain a
+deliberate refusal or become a reviewed 1.25 GiB bound for the known 1.051 GiB
+graph. Destination-specific finalized archive/binary physical-byte accounting,
+identity-safe replacement of provider `sandbox:` links, and a live multi-output
+same-title sample remain separate presentation follow-ups. Custom-GPT/project
+binaries and the archived Library WebP remain separately evidence-gated.
