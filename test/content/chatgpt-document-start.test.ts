@@ -223,6 +223,7 @@ function fakePage(
     Uint8Array: globalThis.Uint8Array,
     ArrayBuffer: globalThis.ArrayBuffer,
     String: globalThis.String,
+    RegExp: globalThis.RegExp,
   } as unknown as Window & typeof globalThis;
   const page = { pageWindow, originalFetch, timers };
   pages.push(page);
@@ -3539,6 +3540,78 @@ describe('startChatGptDocumentStartCapture', () => {
     }
   });
 
+  it('keeps replay authority across same-family provider slug canonicalization', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const sourceResponse = new Response('{}', {
+      headers: { 'content-type': 'application/json' },
+    });
+    const replayResponse = new Response('{}', {
+      headers: { 'content-type': 'application/json' },
+    });
+    const page = fakePage(
+      markedOpaqueReplayUrl(`/g/g-p-project-title/c/${CONVERSATION_ID}`),
+      async input =>
+        (input as OpaqueTestRequest).url === sourceUrl ? sourceResponse : replayResponse,
+      OpaqueTestRequest
+    );
+    page.pageWindow.crypto = {
+      subtle: { digest: async () => new Uint8Array(32).buffer },
+    } as unknown as Crypto;
+    const request = new OpaqueTestRequest(sourceUrl, {
+      credentials: 'include',
+      headers: { authorization: 'synthetic-sentinel' },
+    }) as unknown as Request;
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    page.pageWindow.location.href = markedOpaqueReplayUrl(`/g/g-p-project/c/${CONVERSATION_ID}`);
+
+    await page.pageWindow.fetch(request);
+
+    await vi.waitFor(() =>
+      expect(opaqueReplaySnapshotOf(page)).toMatchObject({
+        kind: 'captured',
+        conversationId: CONVERSATION_ID,
+        singularDispatchCount: 1,
+      })
+    );
+    expect(page.originalFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([`/G/g-p-project/C/${CONVERSATION_ID}`, `/g/G-P-project/c/${CONVERSATION_ID}`])(
+    'rejects case drift in an owner route: %s',
+    async changedPath => {
+      let resolveSource: ((response: Response) => void) | undefined;
+      const sourcePromise = new Promise<Response>(resolve => {
+        resolveSource = resolve;
+      });
+      const page = fakePage(
+        markedOpaqueReplayUrl(`/g/g-p-project/c/${CONVERSATION_ID}`),
+        () => sourcePromise,
+        OpaqueTestRequest
+      );
+      const request = new OpaqueTestRequest(
+        `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+          '?include_has_versions=true&num_turns=10',
+        { credentials: 'include', headers: { authorization: 'synthetic-sentinel' } }
+      ) as unknown as Request;
+      startChatGptDocumentStartCapture(page.pageWindow);
+      expect(page.pageWindow.fetch(request)).toBe(sourcePromise);
+      page.pageWindow.location.href = markedOpaqueReplayUrl(changedPath);
+      resolveSource?.(new Response('{}', { headers: { 'content-type': 'application/json' } }));
+
+      await sourcePromise;
+      await vi.waitFor(() =>
+        expect(opaqueReplaySnapshotOf(page)).toEqual({
+          kind: 'error',
+          code: 'document-target-mismatch',
+          singularDispatchCount: 0,
+        })
+      );
+      expect(page.originalFetch).toHaveBeenCalledOnce();
+    }
+  );
+
   it.each([
     ['ordinary empty init', {}],
     ['ordinary signal-only init', { signal: new AbortController().signal }],
@@ -3977,7 +4050,7 @@ describe('startChatGptDocumentStartCapture', () => {
 
   it.each([
     ['other conversation', OTHER_CONVERSATION_ID, 'GET', undefined, 'ready'],
-    [CONVERSATION_ID, CONVERSATION_ID, 'POST', undefined, 'target-mismatch'],
+    [CONVERSATION_ID, CONVERSATION_ID, 'POST', undefined, 'source-request-method-mismatch'],
     [CONVERSATION_ID, CONVERSATION_ID, 'GET', { headers: {} }, 'authorization-absent'],
     [CONVERSATION_ID, CONVERSATION_ID, 'GET', undefined, 'source-http-error'],
   ] as const)(
@@ -4105,7 +4178,7 @@ describe('startChatGptDocumentStartCapture', () => {
     [
       'a cross-origin source URL',
       `https://example.com/backend-api/conversations/${CONVERSATION_ID}?include_has_versions=true&num_turns=10`,
-      'target-mismatch',
+      'source-request-target-mismatch',
     ],
     [
       'a wrong source path',
@@ -4115,7 +4188,7 @@ describe('startChatGptDocumentStartCapture', () => {
     [
       'a duplicate source query key',
       `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}?include_has_versions=true&num_turns=10&num_turns=10`,
-      'target-mismatch',
+      'source-request-target-mismatch',
     ],
   ])('never clones or replays %s', async (_label, sourceUrl, expectedState) => {
     const clone = vi.spyOn(OpaqueTestRequest.prototype, 'clone');
@@ -4677,6 +4750,7 @@ describe('startChatGptDocumentStartCapture', () => {
     ['conversation', markedOpaqueReplayUrl(`/c/${OTHER_CONVERSATION_ID}`)],
     ['query', markedOpaqueReplayUrl().replace('#', '?changed=1#')],
     ['marker', markedOpaqueReplayUrl().replace(NONCE, '11111111-2222-3333-4444-555555555555')],
+    ['family', markedOpaqueReplayUrl(`/g/custom-owner/c/${CONVERSATION_ID}`)],
   ])('fails closed on %s href drift before singular dispatch', async (_label, changedHref) => {
     let resolveSource: ((response: Response) => void) | undefined;
     const sourcePromise = new Promise<Response>(resolve => {
@@ -4699,7 +4773,7 @@ describe('startChatGptDocumentStartCapture', () => {
     await vi.waitFor(() =>
       expect(opaqueReplaySnapshotOf(page)).toEqual({
         kind: 'error',
-        code: 'target-mismatch',
+        code: 'document-target-mismatch',
         singularDispatchCount: 0,
       })
     );
@@ -4743,7 +4817,7 @@ describe('startChatGptDocumentStartCapture', () => {
       await vi.waitFor(() =>
         expect(opaqueReplaySnapshotOf(page)).toEqual({
           kind: 'error',
-          code: 'target-mismatch',
+          code: 'document-target-mismatch',
           singularDispatchCount: 0,
         })
       );
@@ -4783,7 +4857,7 @@ describe('startChatGptDocumentStartCapture', () => {
     await vi.waitFor(() =>
       expect(opaqueReplaySnapshotOf(page)).toEqual({
         kind: 'error',
-        code: 'target-mismatch',
+        code: 'document-target-mismatch',
         singularDispatchCount: 1,
       })
     );
@@ -4853,7 +4927,7 @@ describe('startChatGptDocumentStartCapture', () => {
       }
       const terminal = {
         kind: 'error',
-        code: terminalCause === 'timeout' ? 'replay-response-timeout' : 'target-mismatch',
+        code: terminalCause === 'timeout' ? 'replay-response-timeout' : 'document-target-mismatch',
         singularDispatchCount: 1,
       };
       if (terminalCause === 'timeout') expect(opaqueReplaySnapshotOf(page)).toEqual(terminal);

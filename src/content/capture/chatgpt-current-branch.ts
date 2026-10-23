@@ -1003,13 +1003,14 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
   context: ChatGptAssetExportContext,
   assetRecords: readonly RawCaptureAssetRecord[],
   runtimeAssets: readonly RawCaptureAsset[],
-  activeResolverMetric?: ChatGptActiveResolverAudit
+  activeResolverMetric?: ChatGptActiveResolverAudit,
+  additionalWarnings: readonly string[] = []
 ): Promise<ArchiveCompanionBundle> {
   const originalRaw = await verifiedOriginalRaw(context);
   try {
     const originalManifest = context.rawCaptureBundle.manifest;
     const metricWarning = chatGptActiveResolverAuditWarning(activeResolverMetric);
-    const warnings = [...originalManifest.warnings];
+    const warnings = [...originalManifest.warnings, ...additionalWarnings];
     if (metricWarning !== undefined) warnings.push(metricWarning);
     if (hasInterpreterResolverFailure(assetRecords)) {
       warnings.push(CHATGPT_INTERPRETER_DIAGNOSTIC_WARNING);

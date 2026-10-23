@@ -26,7 +26,11 @@ import type {
 } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
 import type { ChatGptRouteFamily } from '../lib/chatgpt-owner-context';
-import { isChatGptCaptureTarget, type ChatGptCaptureTarget } from './chatgpt-route-target';
+import {
+  isChatGptCaptureTarget,
+  isEquivalentChatGptCaptureTargetUrl,
+  type ChatGptCaptureTarget,
+} from './chatgpt-route-target';
 import {
   ARCHIVE_STAGE_CHUNK_BYTES,
   ARCHIVE_STAGE_RELATIVE_PATHS,
@@ -679,7 +683,8 @@ async function readTemporaryTabReadiness(
       if (url.origin !== CHATGPT_ORIGIN || url.username !== '' || url.password !== '') {
         return { kind: 'origin-rejected' };
       }
-      return tab.url === temporaryTargetUrl(target, nonce, observeAssetResolvers)
+      const expectedHash = new URL(temporaryTargetUrl(target, nonce, observeAssetResolvers)).hash;
+      return isEquivalentChatGptCaptureTargetUrl(tab.url, target, expectedHash)
         ? { kind: 'ready' }
         : { kind: 'path-rejected' };
     } catch {

@@ -46,7 +46,7 @@ import { applyInterpreterResolverDetails } from './capture/chatgpt-interpreter-r
 import { sha256Hex } from './capture/response';
 import { persistVerifiedBinaryAssets } from './staged-binary-persistence';
 import { ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
-import { allowsChatGptAttachmentAcquisition } from '../lib/chatgpt-owner-context';
+import { allowsChatGptAttachmentAcquisitionFromJsonBytes } from '../lib/chatgpt-owner-context';
 import type {
   ArchiveCompanionBundle,
   ArchiveCompanionKind,
@@ -128,6 +128,7 @@ interface AssetAttempt {
   acquired: AcquiredAssets;
   binaryResults: StagedBinaryAssetResult[];
   warnings: string[];
+  archiveWarnings?: readonly string[];
   activeResolverMetric?: ChatGptActiveResolverAudit;
 }
 
@@ -191,20 +192,6 @@ export async function validateChatGptAssetExportBinding(
   companion: ArchiveCompanionBundle
 ): Promise<boolean> {
   return (await verifiedBoundRawBytes(context, companion)) !== undefined;
-}
-
-function rawAllowsAttachmentAcquisition(
-  bytes: Uint8Array,
-  context: ChatGptAssetExportContext
-): boolean {
-  try {
-    return allowsChatGptAttachmentAcquisition(
-      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
-      context.routeFamily
-    );
-  } catch {
-    return false;
-  }
 }
 
 function persistentOutputs(outputs: readonly OutputDestination[]): PersistentOutputDestination[] {
@@ -759,6 +746,7 @@ async function finalizeDestination(
   acquired: AcquiredAssets,
   binaryResults: readonly StagedBinaryAssetResult[],
   activeResolverMetric: ChatGptActiveResolverAudit | undefined,
+  archiveWarnings: readonly string[],
   dependencies: ChatGptAssetExportDependencies
 ): Promise<{ complete: boolean; warnings: string[] }> {
   const destinationState = destinationAssets(acquired, binaryResults, destination);
@@ -771,7 +759,13 @@ async function finalizeDestination(
   try {
     const destinationCompanion = await (
       dependencies.buildDestinationCompanion ?? buildChatGptBinaryAwareArchiveCompanion
-    )(context, destinationState.records, destinationState.runtimeAssets, activeResolverMetric);
+    )(
+      context,
+      destinationState.records,
+      destinationState.runtimeAssets,
+      activeResolverMetric,
+      archiveWarnings
+    );
     const outcome = await dependencies.persistArtifacts(
       destinationCompanion,
       noteFileName,
@@ -839,7 +833,10 @@ export async function persistChatGptDestinationHonestAttachments(
     return { rawSuccessfulDestinations, completeDestinations: [], warnings };
   }
 
-  const assetAttempt: AssetAttempt = rawAllowsAttachmentAcquisition(originalRawBytes, context)
+  const assetAttempt: AssetAttempt = allowsChatGptAttachmentAcquisitionFromJsonBytes(
+    originalRawBytes,
+    context.routeFamily
+  )
     ? await attemptAssets(context, companion, rawSuccessfulDestinations, dependencies)
     : {
         acquired: {
@@ -848,8 +845,9 @@ export async function persistChatGptDestinationHonestAttachments(
         },
         binaryResults: [],
         warnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
+        archiveWarnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
       };
-  const { acquired, binaryResults, activeResolverMetric } = assetAttempt;
+  const { acquired, binaryResults, activeResolverMetric, archiveWarnings = [] } = assetAttempt;
   warnings.push(...assetAttempt.warnings);
 
   const completeDestinations: PersistentOutputDestination[] = [];
@@ -862,6 +860,7 @@ export async function persistChatGptDestinationHonestAttachments(
       acquired,
       binaryResults,
       activeResolverMetric,
+      archiveWarnings,
       dependencies
     );
     warnings.push(...finalized.warnings);

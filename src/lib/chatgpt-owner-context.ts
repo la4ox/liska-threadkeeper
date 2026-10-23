@@ -136,3 +136,15 @@ export function allowsChatGptAttachmentAcquisition(
 ): boolean {
   return classifyChatGptOwnerContext(raw, routeFamily).allowAttachments;
 }
+
+export function allowsChatGptAttachmentAcquisitionFromJsonBytes(
+  bytes: Uint8Array,
+  routeFamily?: ChatGptRouteFamily
+): boolean {
+  try {
+    const raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    return allowsChatGptAttachmentAcquisition(raw, routeFamily);
+  } catch {
+    return false;
+  }
+}

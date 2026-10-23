@@ -74,3 +74,30 @@ export function isChatGptCaptureTarget(value: unknown): value is ChatGptCaptureT
   const parsed = parseChatGptCaptureTarget(`https://chatgpt.com${pathname}`, conversationId);
   return parsed !== undefined && parsed.routeFamily === routeFamily;
 }
+
+/** Allow only provider slug canonicalization inside the same owner family and UUID. */
+export function isEquivalentChatGptCaptureTargetUrl(
+  rawUrl: string,
+  target: ChatGptCaptureTarget,
+  expectedHash: string
+): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (
+      url.origin !== 'https://chatgpt.com' ||
+      url.username !== '' ||
+      url.password !== '' ||
+      url.search !== '' ||
+      url.hash !== expectedHash
+    ) {
+      return false;
+    }
+    const actual = parseChatGptCaptureTarget(
+      `https://chatgpt.com${url.pathname}`,
+      target.conversationId
+    );
+    return actual?.routeFamily === target.routeFamily;
+  } catch {
+    return false;
+  }
+}

@@ -7,6 +7,7 @@ import {
 import {
   deriveChatGptCaptureTarget,
   isChatGptCaptureTarget,
+  isEquivalentChatGptCaptureTargetUrl,
   parseChatGptCaptureTarget,
 } from '../../src/background/chatgpt-route-target';
 
@@ -101,6 +102,30 @@ describe('ChatGPT capture message validation', () => {
     });
     expect(() => isChatGptCaptureTarget(accessor)).not.toThrow();
     expect(isChatGptCaptureTarget(accessor)).toBe(false);
+  });
+
+  it('accepts only same-family provider slug canonicalization with the exact marker', () => {
+    const target = parseChatGptCaptureTarget(
+      `https://chatgpt.com/g/g-p-project/c/${CONVERSATION_ID}`,
+      CONVERSATION_ID
+    )!;
+    const marker = '#liska-capture=11111111-2222-3333-4444-555555555555';
+    expect(
+      isEquivalentChatGptCaptureTargetUrl(
+        `https://chatgpt.com/g/g-p-project-canonical-title/c/${CONVERSATION_ID}/${marker}`,
+        target,
+        marker
+      )
+    ).toBe(true);
+    for (const url of [
+      `https://chatgpt.com/g/custom-owner/c/${CONVERSATION_ID}${marker}`,
+      `https://chatgpt.com/g/g-p-project/c/${OTHER_CONVERSATION_ID}${marker}`,
+      `https://chatgpt.com/g/g-p-project/c/${CONVERSATION_ID}#other`,
+      `https://chatgpt.com/g/g-p-project/c/${CONVERSATION_ID}?query=1${marker}`,
+      `https://example.com/g/g-p-project/c/${CONVERSATION_ID}${marker}`,
+    ]) {
+      expect(isEquivalentChatGptCaptureTargetUrl(url, target, marker)).toBe(false);
+    }
   });
 
   it('validates only the separate one-item active asset action with exact keys', () => {

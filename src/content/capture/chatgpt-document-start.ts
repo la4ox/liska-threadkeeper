@@ -19,6 +19,9 @@ const ACTIVE_RESOLVER_FRAGMENT_PATTERN =
 const INTERPRETER_RESOLVER_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})&liska-interpreter-resolver=1$/i;
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const STANDARD_CONVERSATION_ROUTE_PATTERN = /^\/c\/([^/]+)\/?$/;
+const OWNER_CONVERSATION_ROUTE_PATTERN =
+  /^\/g\/([a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?)\/c\/([^/]+)\/?$/;
 const INLINE_CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
 const STAGED_CAPTURE_MAX_BYTES = 64 * 1024 * 1024;
 const STAGED_CAPTURE_CHUNK_BYTES = 512 * 1024;
@@ -191,6 +194,7 @@ type DocumentPrimordials = {
   stringToLowerCase: CapturedCallable | undefined;
   stringToUpperCase: CapturedCallable | undefined;
   stringEndsWith: CapturedCallable | undefined;
+  regExpExec: CapturedCallable | undefined;
 };
 
 type PagePrimordials = {
@@ -231,6 +235,7 @@ type MarkerTarget = {
   conversationId: string;
   nonce: string;
   observeAssetResolvers: boolean;
+  routeFamily: 'standard' | 'custom-gpt' | 'project';
   mode:
     | 'capture'
     | 'opaque-probe'
@@ -280,6 +285,7 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
   const NativeUint8Array = pageWindow.Uint8Array;
   const NativeArrayBuffer = pageWindow.ArrayBuffer;
   const NativeString = pageWindow.String;
+  const NativeRegExp = pageWindow.RegExp;
   const responsePrototype = NativeResponse?.prototype;
   const headersPrototype = NativeHeaders?.prototype;
   const requestPrototype = NativeRequest?.prototype;
@@ -361,6 +367,7 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     stringToLowerCase: methodAt(NativeString?.prototype, 'toLowerCase'),
     stringToUpperCase: methodAt(NativeString?.prototype, 'toUpperCase'),
     stringEndsWith: methodAt(NativeString?.prototype, 'endsWith'),
+    regExpExec: methodAt(NativeRegExp?.prototype, 'exec'),
   };
 }
 
@@ -416,16 +423,21 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
     const nonce = marker?.[1];
     if (nonce === undefined) return undefined;
 
-    const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
-    const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/i.exec(
-      url.pathname
-    );
-    const conversationId = standard?.[1] ?? custom?.[1];
+    const standard = STANDARD_CONVERSATION_ROUTE_PATTERN.exec(url.pathname);
+    const owner = OWNER_CONVERSATION_ROUTE_PATTERN.exec(url.pathname);
+    const ownerSlug = owner?.[1];
+    const conversationId = standard?.[1] ?? owner?.[2];
     return conversationId !== undefined && CONVERSATION_ID_PATTERN.test(conversationId)
       ? {
           conversationId,
           nonce,
           observeAssetResolvers: marker?.[2] === '1',
+          routeFamily:
+            standard !== null
+              ? 'standard'
+              : ownerSlug?.toLowerCase().startsWith('g-p-')
+                ? 'project'
+                : 'custom-gpt',
           mode:
             interpreterResolverMarker !== null
               ? 'interpreter-resolver'
@@ -3016,6 +3028,10 @@ type OpaqueReplayErrorCode =
   | 'init-unsupported-accessor'
   | 'init-unsupported-reflection'
   | 'target-mismatch'
+  | 'document-target-mismatch'
+  | 'source-request-target-mismatch'
+  | 'source-request-method-mismatch'
+  | 'source-response-target-mismatch'
   | 'clone-failed'
   | 'authorization-absent'
   | 'credentials-rejected'
@@ -3053,6 +3069,7 @@ type OpaqueReplayPageState = {
   primordials: PagePrimordials;
   originalFetch: typeof window.fetch;
   armedHref: string;
+  target: MarkerTarget;
   wrappedFetch: typeof window.fetch | undefined;
   timeoutId: ReturnType<typeof window.setTimeout> | undefined;
   abortController: AbortController | undefined;
@@ -3133,12 +3150,102 @@ function opaqueReplayTargetStillExact(
 ): boolean {
   if (state.settled) return false;
   try {
-    if (pageWindow.location.href === state.armedHref) return true;
+    const currentHref = pageWindow.location.href;
+    if (currentHref === state.armedHref) return true;
+    const URLConstructor = state.primordials.document.URL;
+    if (URLConstructor === undefined || typeof currentHref !== 'string') throw new Error();
+    const current = new URLConstructor(currentHref);
+    const armed = new URLConstructor(state.armedHref);
+    const currentOrigin = applyCaptured<string>(
+      state.primordials,
+      state.primordials.document.urlOrigin,
+      current,
+      []
+    );
+    const currentUsername = applyCaptured<string>(
+      state.primordials,
+      state.primordials.document.urlUsername,
+      current,
+      []
+    );
+    const currentPassword = applyCaptured<string>(
+      state.primordials,
+      state.primordials.document.urlPassword,
+      current,
+      []
+    );
+    const currentSearch = applyCaptured<string>(
+      state.primordials,
+      state.primordials.document.urlSearch,
+      current,
+      []
+    );
+    const currentHash = applyCaptured<string>(
+      state.primordials,
+      state.primordials.document.urlHash,
+      current,
+      []
+    );
+    const armedHash = applyCaptured<string>(
+      state.primordials,
+      state.primordials.document.urlHash,
+      armed,
+      []
+    );
+    const currentPath = applyCaptured<string>(
+      state.primordials,
+      state.primordials.document.urlPathname,
+      current,
+      []
+    );
+    if (
+      currentOrigin === CHATGPT_ORIGIN &&
+      currentUsername === '' &&
+      currentPassword === '' &&
+      currentSearch === '' &&
+      currentHash === armedHash &&
+      opaqueReplayRouteFamily(state.primordials, currentPath, state.target.conversationId) ===
+        state.target.routeFamily
+    ) {
+      return true;
+    }
   } catch {
     // An unreadable href cannot authorize this old document's replay.
   }
-  finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'target-mismatch'));
+  finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'document-target-mismatch'));
   return false;
+}
+
+function opaqueReplayRouteFamily(
+  primordials: PagePrimordials,
+  pathname: string,
+  conversationId: string
+): MarkerTarget['routeFamily'] | undefined {
+  const exec = primordials.document.regExpExec;
+  const standard = applyCaptured<RegExpExecArray | null>(
+    primordials,
+    exec,
+    STANDARD_CONVERSATION_ROUTE_PATTERN,
+    [pathname]
+  );
+  if (standard?.[1] === conversationId) return 'standard';
+  const owner = applyCaptured<RegExpExecArray | null>(
+    primordials,
+    exec,
+    OWNER_CONVERSATION_ROUTE_PATTERN,
+    [pathname]
+  );
+  if (owner?.[2] !== conversationId || typeof owner[1] !== 'string') return undefined;
+  const slug = applyCaptured<string>(
+    primordials,
+    primordials.document.stringToLowerCase,
+    owner[1],
+    []
+  );
+  return applyCaptured<number>(primordials, primordials.document.stringIndexOf, slug, ['g-p-']) ===
+    0
+    ? 'project'
+    : 'custom-gpt';
 }
 
 function opaqueReplayTimeout(state: OpaqueReplayPageState): OpaqueReplayHookResult {
@@ -3215,7 +3322,8 @@ function prepareOpaqueReplay(
   ) {
     return `init-${candidate.initKind}` as OpaqueReplayErrorCode;
   }
-  if (!candidate.exactTarget || !candidate.methodAccepted) return 'target-mismatch';
+  if (!candidate.exactTarget) return 'source-request-target-mismatch';
+  if (!candidate.methodAccepted) return 'source-request-method-mismatch';
   if (!candidate.sourceIsNativeRequest) return 'source-not-native-request';
   if (candidate.cloneFailed || candidate.sourceClone === undefined) return 'clone-failed';
   try {
@@ -3264,7 +3372,8 @@ function prepareOpaqueReplayRequest(
     let headers: Record<string, string> | undefined;
     let credentials: RequestCredentials;
     if (candidate.initKind === 'plain-headers') {
-      if (!candidate.exactTarget || !candidate.methodAccepted) return 'target-mismatch';
+      if (!candidate.exactTarget) return 'source-request-target-mismatch';
+      if (!candidate.methodAccepted) return 'source-request-method-mismatch';
       const effective =
         candidate.credentialsOverride ??
         (candidate.sourceIsNativeRequest ? candidate.sourceCredentials : 'same-origin');
@@ -3523,7 +3632,11 @@ function observeOpaqueReplaySourceResponse(
           try {
             if (state.settled) return;
             if (!isExactOpaqueSourceResponse(state.primordials, response, target.conversationId)) {
-              finishOpaqueReplay(pageWindow, state, opaqueReplayError(state, 'target-mismatch'));
+              finishOpaqueReplay(
+                pageWindow,
+                state,
+                opaqueReplayError(state, 'source-response-target-mismatch')
+              );
               return;
             }
             const status = applyCaptured<number>(
@@ -3596,6 +3709,7 @@ function armOpaqueReplay(
     primordials,
     originalFetch,
     armedHref,
+    target,
     wrappedFetch: undefined,
     timeoutId: undefined,
     abortController: undefined,

@@ -250,6 +250,7 @@ describe('ChatGPT owner-context attachment gate', () => {
           const manifest = JSON.parse(Buffer.from(artifact.bodyBase64, 'base64').toString('utf8'));
           expect(manifest.assets).toEqual(originalRecords);
           expect(JSON.stringify(manifest)).not.toContain('active resolver');
+          expect(manifest.warnings).toEqual([CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING]);
           const canonical = bundle.artifacts.find(artifact => artifact.kind === 'canonical')!;
           expect(canonical.transport).toBe('inline');
           if (canonical.transport !== 'inline')
@@ -393,12 +394,15 @@ describe('ChatGPT owner-context attachment gate', () => {
       };
       const optional = optionalDependencies();
       const order: string[] = [];
-      const buildDestinationCompanion = vi.fn(async (_context, assets, runtimeAssets, audit) => {
-        expect(assets).toEqual(original.assets);
-        expect(runtimeAssets).toEqual([]);
-        expect(audit).toBeUndefined();
-        return companion;
-      });
+      const buildDestinationCompanion = vi.fn(
+        async (_context, assets, runtimeAssets, audit, additionalWarnings) => {
+          expect(assets).toEqual(original.assets);
+          expect(runtimeAssets).toEqual([]);
+          expect(audit).toBeUndefined();
+          expect(additionalWarnings).toEqual([CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING]);
+          return companion;
+        }
+      );
       const result = await persistChatGptDestinationHonestAttachments(
         context,
         companion,

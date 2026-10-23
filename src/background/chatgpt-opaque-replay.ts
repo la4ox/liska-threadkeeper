@@ -6,7 +6,11 @@
 
 import { canonicalBase64ByteLength } from '../lib/base64';
 import { CHATGPT_CAPTURE_ENDPOINT } from '../lib/chatgpt-capture-contract';
-import { isChatGptCaptureTarget, type ChatGptCaptureTarget } from './chatgpt-route-target';
+import {
+  isChatGptCaptureTarget,
+  isEquivalentChatGptCaptureTargetUrl,
+  type ChatGptCaptureTarget,
+} from './chatgpt-route-target';
 import {
   createChatGptOpaqueReplayFailure,
   isChatGptOpaqueReplayHookResult,
@@ -168,7 +172,7 @@ async function waitForTemporaryTarget(
         const url = new URL(tab.url);
         if (url.origin !== CHATGPT_ORIGIN || url.username !== '' || url.password !== '') {
           readiness = 'unexpected-origin';
-        } else if (tab.url === targetUrl(target, nonce)) {
+        } else if (isEquivalentChatGptCaptureTargetUrl(tab.url, target, marker(nonce))) {
           readiness = 'ready';
         } else {
           readiness = 'unexpected-path';
@@ -481,6 +485,10 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
       'init-unsupported-accessor',
       'init-unsupported-reflection',
       'target-mismatch',
+      'document-target-mismatch',
+      'source-request-target-mismatch',
+      'source-request-method-mismatch',
+      'source-response-target-mismatch',
       'clone-failed',
       'authorization-absent',
       'credentials-rejected',
