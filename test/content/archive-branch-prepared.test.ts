@@ -245,6 +245,8 @@ describe('prepared all-branches render session', () => {
   });
 
   it('uses copied structural metadata and compact catalog facts during the owned session', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 1, 12, 0, 0));
     const value = archive();
     const catalog = getArchiveBranchCatalog(value);
     const session = prepareArchiveBranchPresentation(value, catalog, templateOptions, captureId);
