@@ -799,9 +799,66 @@ The live-smoke build was 29/29 files byte-identical to the installed Comet tree;
 its verified rollback is retained at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\sandbox-links-prelive-20261023-123622-e87f98df`.
 
-Next: checkpoint this live-verified sandbox-link slice in its own pull request.
-The 1 GiB source-work limit remains a deliberate refusal for the known 1.051 GiB
-graph. A failed-finalization write ledger, a live multi-output same-title sample,
-real staged capture above 16 MiB, additional binary families, and Dots remain
-separate evidence-gated follow-ups. Custom-GPT/project binaries and the archived
-Library WebP remain separately evidence-gated.
+PR 20 merged the live-verified sandbox-link checkpoint to `main` as `c3c6e82`;
+its reviewed head `257ee47` is an ancestor of fetched remote `main`.
+
+The next settings-stable routing checkpoint is implemented on
+`codex/chatgpt-stable-routing`. Every first-party structured durable write now
+carries one detached, canonical, secret-free snapshot of the routing settings
+that authorized it: inline and staged archive companions, staged binaries, and
+Markdown. Background re-reads current settings and combines them with any
+in-flight output override immediately before admitting a durable dispatch. A
+different snapshot, or a requested destination that is now disabled, returns
+the fixed `settings-changed` result without writing, retrying, stripping guards,
+or borrowing authority from a sibling destination. Legacy callers that omit
+the snapshot remain compatible but receive no new stability guarantee.
+
+Staged mismatch cleanup remains narrowly authorized. Only a valid
+sender-authorized message can exact-abort its named temporary archive or binary
+stage; malformed or untrusted messages gain no cleanup authority. A cleanup
+failure is retained only as the allowlisted
+`archive-stage-cleanup-deferred`/`binary-stage-cleanup-deferred` warning, while
+arbitrary private errors remain excluded. ChatGPT binary companion builders now
+also preserve the original capture timestamp instead of silently replacing it
+at finalization. Final destination receipts remain the sole provenance and link
+authority. This checkpoint guarantees routing consistency at message admission;
+it does not claim atomic cancellation, a fixed physical vault identity, or
+restart recovery.
+
+Independent review found and closed two bounded defects before the live gate:
+the real ChatGPT companion builders had dropped `capturedAt`, and exact staged
+cleanup warnings were being swallowed by orchestration. The final review found
+no residual P0-P3 issue. Exact-tree validation passes 165 test files / 4,950
+tests. Coverage is 95.36% statements, 91.30% branches, 98.68% functions, and
+97.82% lines. TypeScript, production build, source/platform lint, repository
+formatting, ZIP packaging, and diff checks pass; lint retains only the same
+three pre-existing advisory warnings. The final ZIP is 239,904 bytes with
+SHA-256
+`6ad44eb98899bfe559b686cec94c2dc3c772ef17f645a4d856af2ecb07f38dcf`.
+Its 29-file production tree is byte-identical to the build currently installed
+in Comet.
+
+A fresh positive Comet canary, with settings deliberately left unchanged during
+the operation, created
+`capture-chatgpt-dadab422-4fae-4f15-8317-68df19f64f0c` in both Downloads and
+Obsidian. The destinations retained byte-identical raw (287,632 bytes), manifest
+(8,959), canonical (612,899), and DOCX (45,036) artifacts. The DOCX SHA-256 is
+`45e080f46c285def0978eb7c26133b728cc2928cb5a9f90f7f1a1a2bc055a7ee`;
+raw length/hash, canonical input provenance, and all cross-destination hashes
+reconcile. File and Obsidian notes are 47,917 and 47,109 bytes respectively,
+contain zero `sandbox:` references, and each contains exactly two resolving
+content-addressed links. The negative mid-operation settings race is covered by
+the deterministic admission matrix, not claimed as a live UI proof. The clean
+pre-live rollback is retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\stable-routing-prelive-20261023-134118-40ac6dab`.
+
+Next: checkpoint the settings-stable routing slice in its own pull request.
+Then implement the separate operation-local append-only write-fact ledger so a
+confirmed raw or binary write remains countable when later destination
+finalization fails. That ledger must distinguish confirmed, unknown, and
+not-dispatched facts without becoming a retry, deletion, recovery, or net-disk
+claim. The 1 GiB source-work limit remains a deliberate refusal for the known
+1.051 GiB graph. A live multi-output same-title sample, real staged capture
+above 16 MiB, additional binary families, and Dots remain separate
+evidence-gated follow-ups. Custom-GPT/project binaries and the archived Library
+WebP remain separately evidence-gated.
