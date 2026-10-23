@@ -763,7 +763,13 @@ spans from the same projection helper used by legacy rendering and requires the
 identity, encoded destination, and absolute UTF-16 start/end to match the
 combined visible message. Both the spanning-fence and same-identity swap
 regressions now remain unchanged rather than rewriting a code example. The
-final independent pass found no residual P0-P3 issue.
+final independent pass found no residual P0-P3 issue. GitHub current-head review
+then found one fail-soft false negative: a reference definition inside an
+unambiguous inline or top-level fenced code example vetoed a later ordinary
+link. Presentation scanning now computes code ranges first and ignores only
+those unambiguous code-only definitions; paragraph-ambiguous indented code
+remains conservative. Focused regressions cover both code forms and the later
+link, while current-head Security review remains clean.
 
 Live Comet verification used two append-only current-branch captures. The broad
 attachment chat created `capture-chatgpt-f6014b81-99b1-4961-9a9d-45b5a5b1d9f1`
@@ -782,14 +788,15 @@ Both bind to manifest SHA-256
 contain zero `sandbox:` references, and contain exactly two links to the same
 existing content-addressed DOCX: the localized inline link and the appendix.
 
-Final exact-tree validation passes 164 test files / 4,897 tests. Coverage is
+Final exact-tree validation passes 164 test files / 4,898 tests. Coverage is
 95.34% statements, 91.27% branches, 98.64% functions, and 97.81% lines.
 TypeScript, production build, source/platform lint, repository formatting, ZIP
 packaging, diff checks, and independent review pass; lint retains only the same
-three pre-existing advisory warnings. The ZIP is 239,433 bytes with SHA-256
-`a0908dde5a9febc69bfa29ca78f275dafb0af50a8e0de18ba918063e128ae24b`.
-The installed Comet tree is 29/29 files byte-identical to that build; its verified
-rollback is retained at
+three pre-existing advisory warnings. The final reviewed-build ZIP is 239,473
+bytes with SHA-256
+`945d12385e1c2292891a02440d550f5b5e66ef71b68dd26cfa88671fde206408`.
+The live-smoke build was 29/29 files byte-identical to the installed Comet tree;
+its verified rollback is retained at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\sandbox-links-prelive-20261023-123622-e87f98df`.
 
 Next: checkpoint this live-verified sandbox-link slice in its own pull request.
