@@ -39,6 +39,11 @@ export const SELECTORS = {
     '.whitespace-pre-wrap.break-words', // Legacy inner <p> (LOW fallback)
   ],
 
+  // Virtual row of one conversation turn: the numeric index gives the
+  // accumulation order, and the row boundary distinguishes a collapsed
+  // prompt's inert overflow from a dismissed panel enclosing the whole row.
+  conversationRow: ['[data-index]'],
+
   // Assistant response selectors
   assistantResponse: [
     '.font-claude-response', // Semantic (HIGH)
@@ -62,13 +67,13 @@ export const SELECTORS = {
   // that reads them, measured against the DOM of that day.
 
   // Scroll container for virtualized-conversation auto-scroll (ADR-017).
-  // Claude windows/evicts turns; this is the overflow-y-auto element that
-  // scrolls the message list (observed live 2026-07: the div also carries
-  // overflow-x-hidden, flex-1, and [scrollbar-gutter:stable]).
+  // Claude windows/evicts turns. The sidebar now shares the thread's overflow
+  // classes and precedes it in the DOM (upstream #499). Prefer the semantic
+  // thread root; only accept the class fallback when it contains virtual rows.
+  // Broad overflow-only fallbacks can scroll the sidebar instead of the chat.
   scrollContainer: [
-    '.overflow-y-auto.overflow-x-hidden.flex-1', // Composite (HIGH)
-    '.overflow-y-auto.overflow-x-hidden', // Style pair (MEDIUM)
-    'div[class*="overflow-y-auto"]', // Partial match (LOW)
+    '[data-autoscroll-container]', // Semantic scroll root (HIGH)
+    '.overflow-y-auto.overflow-x-hidden.flex-1:has([data-index])', // Thread-only fallback (MEDIUM)
   ],
 } as const satisfies SelectorGroup;
 
