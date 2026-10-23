@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import { describe, expect, it, vi } from 'vitest';
 import { buildCaptureManifest, type RawCaptureAssetRecord } from '../../src/archive';
 import { chatGptActiveResolverMetricFromResponse } from '../../src/content/capture/chatgpt-active-resolver-audit';
@@ -281,6 +283,37 @@ describe('destination-honest ChatGPT attachment export', () => {
       expect(JSON.stringify(result.warnings)).not.toContain(ASSET_ID);
     }
   );
+
+  it('surfaces fixed binary cleanup-deferred evidence without changing receipt authority', async () => {
+    const asset = fetchedAsset();
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(),
+      companion(),
+      'synthetic.md',
+      ['file', 'obsidian'],
+      {
+        persistArtifacts: async (_companion, _name, _source, outputs) =>
+          persisted(outputs as ('file' | 'obsidian')[]),
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: asset.record.id, downloadUrl: 'https://example.invalid/test' }],
+        }),
+        acquireAssets: async () => ({
+          records: [asset.record],
+          runtimeAssets: [asset],
+          completeness: 'complete',
+        }),
+        persistBinaryAssets: async () => {
+          const values = binaryResult(asset.record, false, false);
+          values[0].results[0].warning = 'binary-stage-cleanup-deferred';
+          return values;
+        },
+      }
+    );
+
+    expect(result.warnings).toContain('binary-stage-cleanup-deferred');
+    expect(result.destinationReceipts.every(receipt => receipt.assets.length === 0)).toBe(true);
+  });
 
   it.each([false, true])(
     'runs interpreter acquisition, one opaque PNG metric probe, then passive observation (failure=%s), retaining the metric for both destinations',
@@ -607,7 +640,8 @@ describe('destination-honest ChatGPT attachment export', () => {
       'thread.md',
       'chatgpt',
       ['file'],
-      ['raw']
+      ['raw'],
+      undefined
     );
     expect(result).toEqual({
       rawSuccessfulDestinations: ['file'],
@@ -763,6 +797,8 @@ describe('destination-honest ChatGPT attachment export', () => {
   });
 
   it('acquires once and makes each destination manifest reflect only its verified binary write', async () => {
+    const originalCompanion = { ...companion(), capturedAt: '2026-08-21T12:00:00.000Z' };
+    const snapshot = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
     const signedSentinel = 'signed-url-must-not-persist';
     const asset = fetchedAsset();
     const persistArtifacts = vi
@@ -787,6 +823,7 @@ describe('destination-honest ChatGPT attachment export', () => {
       })
     );
     const dependencies: ChatGptAssetExportDependencies = {
+      expectedSyncSettingsSnapshot: snapshot,
       persistArtifacts,
       observeResolvers,
       acquireAssets,
@@ -796,7 +833,7 @@ describe('destination-honest ChatGPT attachment export', () => {
 
     const result = await persistChatGptDestinationHonestAttachments(
       context(),
-      companion(),
+      originalCompanion,
       'note.md',
       ['file', 'obsidian', 'clipboard'],
       dependencies
@@ -806,6 +843,16 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(acquireAssets).toHaveBeenCalledOnce();
     expect(persistBinaryAssets).toHaveBeenCalledOnce();
     expect(persistBinaryAssets.mock.calls[0]?.[0].outputs).toEqual(['file', 'obsidian']);
+    expect(persistBinaryAssets.mock.calls[0]?.[0]).toMatchObject({
+      capturedAt: originalCompanion.capturedAt,
+      expectedSyncSettingsSnapshot: snapshot,
+    });
+    expect(persistArtifacts.mock.calls.every(call => call[5] === snapshot)).toBe(true);
+    expect(
+      persistArtifacts.mock.calls.every(
+        call => !JSON.stringify(call[0]).includes('expectedSyncSettingsSnapshot')
+      )
+    ).toBe(true);
     expect(buildDestinationCompanion).toHaveBeenCalledTimes(2);
     const fileRecords = buildDestinationCompanion.mock.calls[0]?.[1] as RawCaptureAssetRecord[];
     const obsidianRecords = buildDestinationCompanion.mock.calls[1]?.[1] as RawCaptureAssetRecord[];
@@ -863,6 +910,7 @@ describe('destination-honest ChatGPT attachment export', () => {
       result.destinationReceipts[1].manifestSha256
     );
     const serializedReceipts = JSON.stringify(result.destinationReceipts);
+    expect(serializedReceipts).not.toContain('expectedSyncSettingsSnapshot');
     for (const excluded of [ASSET_ID, signedSentinel, '/asset', 'sourceRefs', 'detail']) {
       expect(serializedReceipts).not.toContain(excluded);
     }

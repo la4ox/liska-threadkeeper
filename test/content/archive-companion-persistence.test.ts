@@ -5,6 +5,8 @@ import {
   persistFailedExtractionArchive,
 } from '../../src/content/bootstrap';
 import type { ArchiveCompanionBundle } from '../../src/lib/types';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 
 const companion: ArchiveCompanionBundle = {
   captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
@@ -82,7 +84,14 @@ describe('content archive companion persistence', () => {
     );
 
     await expect(
-      persistArchiveCompanionArtifacts(staged, 'note.md', 'chatgpt', ['file'])
+      persistArchiveCompanionArtifacts(
+        staged,
+        'note.md',
+        'chatgpt',
+        ['file'],
+        undefined,
+        serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS)
+      )
     ).resolves.toEqual({ activeOutputs: ['file'], warnings: [] });
 
     const messages = vi.mocked(chrome.runtime.sendMessage).mock.calls.map(call => call[0]);
@@ -95,6 +104,38 @@ describe('content archive companion persistence', () => {
       staged.capturedAt,
     ]);
     expect(JSON.stringify(messages[0])).not.toContain('bodyBase64');
+    expect(
+      messages.every(
+        message =>
+          message.expectedSyncSettingsSnapshot ===
+          serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS)
+      )
+    ).toBe(true);
+  });
+
+  it('retains the local stage claim long enough to abort on malformed snapshot metadata', async () => {
+    const stageId = `archive-stage-${'A'.repeat(32)}`;
+    const staged: ArchiveCompanionBundle = {
+      ...companion,
+      artifacts: [{ ...companion.artifacts[0], transport: 'staged', stageId }],
+    };
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => callback?.({ success: true })
+    );
+    expect(
+      await persistArchiveCompanionArtifacts(
+        staged,
+        'note.md',
+        'chatgpt',
+        ['file'],
+        undefined,
+        '{}'
+      )
+    ).toEqual({ activeOutputs: [], warnings: ['archive-settings-snapshot-invalid'] });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledExactlyOnceWith(
+      { action: 'abortStagedArchiveArtifact', source: 'chatgpt', stageId },
+      expect.any(Function)
+    );
   });
 
   it('keeps the DeepSeek source on staged commit and cleanup messages', async () => {
@@ -236,6 +277,25 @@ describe('content archive companion persistence', () => {
         .mock.calls.map(call => (call[0] as { artifact: { kind: string } }).artifact.kind)
     ).toEqual(['raw', 'manifest']);
     expect(warnings).toEqual(['archive manifest companion was not saved to file']);
+  });
+
+  it.each([
+    ['archive-stage-cleanup-deferred', ' (archive-stage-cleanup-deferred)'],
+    ['private-warning-must-not-escape', ''],
+  ])('surfaces only allowlisted archive cleanup evidence: %s', async (warning, suffix) => {
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [{ destination: 'file', success: false, error: 'settings-changed', warning }],
+          allSuccessful: false,
+          anySuccessful: false,
+        });
+      }
+    );
+
+    const warnings = await persistArchiveCompanions(companion, 'note.md', 'chatgpt', ['file']);
+
+    expect(warnings).toEqual([`raw archive companion was not saved to file${suffix}`]);
   });
 
   it('propagates an allowlisted Obsidian archive diagnostic without arbitrary error text', async () => {

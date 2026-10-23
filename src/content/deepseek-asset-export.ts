@@ -31,7 +31,10 @@ import {
 import { deriveDeepSeekAssetCandidates } from './capture/deepseek-asset-resolver';
 import { appendJsonCanonicalCompanion } from './capture/json-archive-companion';
 import { hashCaptureManifest, sha256Hex } from './capture/response';
-import { persistVerifiedBinaryAssets } from './staged-binary-persistence';
+import {
+  persistVerifiedBinaryAssets,
+  stagedBinaryCleanupWarnings,
+} from './staged-binary-persistence';
 import { DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING } from './extractors/deepseek-api';
 
 const ARTIFACT_ID = 'conversation';
@@ -55,12 +58,15 @@ export interface ArchiveCompanionPersistenceOutcome {
 }
 
 export interface DeepSeekAssetExportDependencies {
+  /** Original runtime-only guard, shared by every durable write in this operation. */
+  expectedSyncSettingsSnapshot?: string;
   persistArtifacts: (
     companion: ArchiveCompanionBundle,
     noteFileName: string,
     source: 'deepseek',
     outputs: OutputDestination[],
-    artifactKinds: readonly ArchiveCompanionKind[]
+    artifactKinds: readonly ArchiveCompanionKind[],
+    expectedSyncSettingsSnapshot?: string
   ) => Promise<ArchiveCompanionPersistenceOutcome>;
   deriveCandidates?: typeof deriveDeepSeekAssetCandidates;
   acquireAssets?: typeof acquireDeepSeekSignedAssets;
@@ -378,6 +384,9 @@ async function persistBinaries(
     captureId: companion.captureId,
     conversationKey: companion.conversationKey,
     ...(companion.capturedAt !== undefined && { capturedAt: companion.capturedAt }),
+    ...(dependencies.expectedSyncSettingsSnapshot !== undefined && {
+      expectedSyncSettingsSnapshot: dependencies.expectedSyncSettingsSnapshot,
+    }),
     assets: acquisition.runtimeAssets,
     outputs,
   });
@@ -411,7 +420,8 @@ export async function persistDeepSeekDestinationHonestAttachments(
       noteFileName,
       'deepseek',
       requested,
-      ['raw']
+      ['raw'],
+      dependencies.expectedSyncSettingsSnapshot
     );
   } catch {
     return {
@@ -454,6 +464,7 @@ export async function persistDeepSeekDestinationHonestAttachments(
   } catch {
     // Destination finalization below converts every fetched claim to a failed write.
   }
+  warnings.push(...stagedBinaryCleanupWarnings(binaryResults));
 
   const completeDestinations: PersistentOutputDestination[] = [];
   for (const destination of rawSuccessfulDestinations) {
@@ -472,7 +483,8 @@ export async function persistDeepSeekDestinationHonestAttachments(
         noteFileName,
         'deepseek',
         [destination],
-        ['manifest', 'canonical']
+        ['manifest', 'canonical'],
+        dependencies.expectedSyncSettingsSnapshot
       );
       warnings.push(...outcome.warnings);
       if (outcome.activeOutputs.includes(destination)) completeDestinations.push(destination);

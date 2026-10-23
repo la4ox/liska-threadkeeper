@@ -559,6 +559,7 @@ async function buildRawManifestCompanionBundle(
   return {
     captureId: bundle.manifest.captureId,
     conversationKey,
+    capturedAt: bundle.manifest.capturedAt,
     artifacts: artifacts as readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact],
   };
 }
@@ -1080,6 +1081,7 @@ async function buildBinaryAwareRawManifestCompanionBundle(
   return {
     captureId: bundle.manifest.captureId,
     conversationKey,
+    capturedAt: bundle.manifest.capturedAt,
     artifacts: artifacts as readonly [ArchiveCompanionArtifact, ArchiveCompanionArtifact],
   };
 }

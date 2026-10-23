@@ -3,7 +3,10 @@ import type { SyncSettings } from './types';
 
 const MAX_SYNC_SETTINGS_SNAPSHOT_LENGTH = 16_384;
 
-/** Canonical, secret-free settings snapshot used to bind a measured export to its writer. */
+/**
+ * Canonical, secret-free routing guard. It binds message admission to the
+ * original settings, not atomic cancellation or the physical identity of a vault.
+ */
 export function serializeSyncSettingsSnapshot(settings: SyncSettings): string {
   return JSON.stringify(normalizeSyncSettings(settings));
 }

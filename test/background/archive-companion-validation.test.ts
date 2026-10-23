@@ -8,6 +8,8 @@ import {
 import { BINARY_STAGE_CHUNK_BYTES } from '../../src/lib/constants';
 import { bytesToBase64 } from '../../src/lib/image-utils';
 import { ARCHIVE_STAGE_CHUNK_BYTES } from '../../src/lib/archive-stage-contract';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 
 function archiveMessage(source: 'chatgpt' | 'deepseek' = 'chatgpt') {
   return {
@@ -108,6 +110,27 @@ describe('structured archive companion message validation', () => {
 
     for (const message of [archive, stagedArchive, binary]) {
       expect(validateMessageContent(message)).toBe(true);
+      const snapshot = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
+      expect(validateMessageContent({ ...message, expectedSyncSettingsSnapshot: snapshot })).toBe(
+        true
+      );
+      const { capturedAt: _capturedAt, ...legacy } = message;
+      expect(validateMessageContent(legacy)).toBe(true);
+      expect(validateMessageContent({ ...legacy, expectedSyncSettingsSnapshot: snapshot })).toBe(
+        true
+      );
+      for (const invalid of [
+        undefined,
+        null,
+        '{}',
+        'not-json',
+        snapshot + ' ',
+        'x'.repeat(16_385),
+      ]) {
+        expect(validateMessageContent({ ...message, expectedSyncSettingsSnapshot: invalid })).toBe(
+          false
+        );
+      }
       expect(validateMessageContent({ ...message, capturedAt: undefined })).toBe(false);
       expect(validateMessageContent({ ...message, capturedAt: '2026-09-19' })).toBe(false);
       expect(

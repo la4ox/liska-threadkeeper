@@ -24,6 +24,7 @@ import {
   type RawCaptureBundle,
 } from '../../src/archive';
 import { sha256Hex } from '../../src/content/capture/response';
+import { buildArchivePersistenceMessage } from '../../src/content/capture-routing';
 import {
   extractChatGptActiveResolverPlan,
   extractChatGptInterpreterAssetPlan,
@@ -166,6 +167,17 @@ describe('ChatGPT current-branch capture composition', () => {
         now: fixedNow,
       });
       expect(capture.assetExportContext?.routeFamily).toBe(routeFamily);
+      expect(capture.archiveCompanion.capturedAt).toBe(CAPTURE_TIME);
+      expect(
+        buildArchivePersistenceMessage({
+          companion: capture.archiveCompanion,
+          noteFileName: 'synthetic.md',
+          source: 'chatgpt',
+          stageSource: 'chatgpt',
+          artifact: capture.archiveCompanion.artifacts[0],
+          outputs: ['file'],
+        }).capturedAt
+      ).toBe(CAPTURE_TIME);
       expect(Object.keys(capture.assetExportContext!).sort()).toEqual([
         'conversationId',
         'rawArtifact',
@@ -641,6 +653,7 @@ describe('ChatGPT current-branch capture composition', () => {
       [{ record: fetched, bytes }]
     );
 
+    expect(companion.capturedAt).toBe(CAPTURE_TIME);
     expect(companion.artifacts.map(artifact => artifact.kind)).toEqual([
       'raw',
       'manifest',

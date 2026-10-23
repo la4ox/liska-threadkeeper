@@ -26,12 +26,16 @@ export function buildArchivePersistenceMessage(input: {
   stageSource: StructuredArchiveSource | undefined;
   artifact: ArchiveCompanionArtifact;
   outputs: PersistentOutputDestination[];
+  expectedSyncSettingsSnapshot?: string;
 }): ArchivePersistenceMessage {
   const shared = {
     noteFileName: input.noteFileName,
     captureId: input.companion.captureId,
     conversationKey: input.companion.conversationKey,
     ...routingMetadata(input.companion.capturedAt),
+    ...(input.expectedSyncSettingsSnapshot !== undefined && {
+      expectedSyncSettingsSnapshot: input.expectedSyncSettingsSnapshot,
+    }),
     outputs: input.outputs,
   };
   if (input.artifact.transport === 'inline') {
