@@ -15,7 +15,44 @@ import { describe, it, expect } from 'vitest';
 import { countExistingMessages, extractTailMessages } from '../../src/lib/message-counter';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { formatMessage } from '../../src/content/markdown-formatting';
-import type { TemplateOptions } from '../../src/lib/types';
+import { conversationToNote } from '../../src/content/markdown';
+import type { ConversationData, TemplateOptions } from '../../src/lib/types';
+
+/**
+ * Independent CommonMark backtick decoder for the writer's top-level or quoted
+ * blocks. Remove only the fence's own quote container, never literal `>` code.
+ * CommonMark normalizes CRLF to LF; all other payload whitespace is literal.
+ * No production fence writer/reader participates in this recovery oracle.
+ */
+function decodeBacktickFences(markdown: string): { code: string; quoted: boolean }[] {
+  const blocks: { code: string; quoted: boolean }[] = [];
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+
+  for (let index = 0; index < lines.length; index++) {
+    const quoted = lines[index].startsWith('>');
+    const openingLine = quoted ? lines[index].replace(/^> ?/, '') : lines[index];
+    const opening = /^( {0,3})(`{3,})([^`]*)$/.exec(openingLine);
+    if (!opening) continue;
+
+    const code: string[] = [];
+    for (index += 1; index < lines.length; index++) {
+      if (quoted && !lines[index].startsWith('>')) {
+        // A quoted fence cannot consume text outside its blockquote container.
+        index -= 1;
+        break;
+      }
+      const line = quoted ? lines[index].replace(/^> ?/, '') : lines[index];
+      const closing = /^ {0,3}(`{3,})[ \t]*$/.exec(line);
+      if (closing && closing[1].length >= opening[2].length) break;
+
+      // CommonMark removes up to the opener's indentation from each code line.
+      const indentation = /^ */.exec(line)![0].length;
+      code.push(line.slice(Math.min(opening[1].length, indentation)));
+    }
+    blocks.push({ code: code.join('\n'), quoted });
+  }
+  return blocks;
+}
 
 /** Build a `messages`-long callout body; every `longEvery`-th message is tall. */
 function buildBody(messages: number, longEvery: number, longLines = 40): string {
@@ -92,7 +129,16 @@ describe.each(['plain', 'blockquote', 'callout'] as const)(
         code: [f3, '**User:**', '**Assistant:**', '> [!QUESTION] User', '> [!NOTE] Assistant', f3],
       },
       { name: 'an inner opening fence only', code: [`${f3}md`, '**Assistant:**'] },
+      { name: 'an inner closing fence only', code: ['before', f3, '**User:**'] },
       { name: 'multiple nested fence lengths', code: [`${f4}md`, f3, '**User:**', f3, f4] },
+      {
+        name: 'inner fence lines with trailing spaces',
+        code: [`${f3}md  `, '**User:**', `${f3}   `, '> [!NOTE] Assistant'],
+      },
+      {
+        name: 'longer backtick runs and literal backslashes',
+        code: ['`'.repeat(12), '**Assistant:**', 'C:\\code\\file', '\\`literal\\', '`'.repeat(20)],
+      },
       {
         name: 'indentation, trailing text, tildes and literal HTML',
         code: ['lead', `   ${f3}md`, `    ${f4}`, `${f4} trailing text`, '~~~', '<div>$VAR</div>'],
@@ -107,13 +153,31 @@ describe.each(['plain', 'blockquote', 'callout'] as const)(
           writer === 'pre/code'
             ? `<pre><code class="language-markdown">${htmlText}</code></pre>`
             : `<pre><div class="cm-content">${htmlText}</div></pre>`;
-        const messages = [
-          formatMessage('First question', 'user', options, 'chatgpt'),
-          formatMessage(html, 'assistant', options, 'chatgpt'),
-          formatMessage('Next question', 'user', options, 'chatgpt'),
-          formatMessage('<p>Final answer</p>', 'assistant', options, 'chatgpt'),
-        ];
-        const body = messages.join('\n\n');
+        const data: ConversationData = {
+          id: 'fence-seam',
+          title: 'Fence seam',
+          url: 'https://chatgpt.com/c/fence-seam',
+          source: 'chatgpt',
+          extractedAt: new Date('2026-01-01T00:00:00Z'),
+          metadata: {
+            messageCount: 4,
+            userMessageCount: 2,
+            assistantMessageCount: 2,
+            hasCodeBlocks: true,
+          },
+          messages: [
+            { id: 'first', role: 'user', content: 'First question', index: 0 },
+            { id: 'code', role: 'assistant', content: html, index: 1 },
+            { id: 'next', role: 'user', content: 'Next question', index: 2 },
+            { id: 'final', role: 'assistant', content: '<p>Final answer</p>', index: 3 },
+          ],
+        };
+        const note = conversationToNote(data, options, data.extractedAt);
+        const messages = data.messages.map(message =>
+          formatMessage(message.content, message.role, options, data.source)
+        );
+        expect(note.body).toBe(messages.join('\n\n'));
+        expect(note.frontmatter.message_count).toBe(messages.length);
         const plainCode =
           messageFormat === 'plain'
             ? messages[1]
@@ -128,19 +192,30 @@ describe.each(['plain', 'blockquote', 'callout'] as const)(
         const fence = '`'.repeat(Math.max(3, longestRun + 1));
         const language = writer === 'pre/code' ? 'markdown' : '';
         expect(plainCode).toContain(`${fence}${language}\n${payload}\n${fence}`);
+        expect(decodeBacktickFences(messages[1])).toEqual([
+          { code: payload, quoted: messageFormat !== 'plain' },
+        ]);
 
-        for (const threshold of [3, 5, 100]) {
-          const flattened = flattenLargeCallouts(body, threshold);
+        for (const threshold of [undefined, 3, 5, 100]) {
+          const flatten = (body: string): string =>
+            threshold === undefined ? body : flattenLargeCallouts(body, threshold);
+          const flattened = flatten(note.body);
+          const quoteLines = messages[1].split('\n').filter(line => line.startsWith('>')).length;
+          const quoted =
+            messageFormat !== 'plain' && (threshold === undefined || quoteLines <= threshold);
           for (const eol of ['\n', '\r\n']) {
             const onDisk = flattened.replace(/\n/g, eol);
             expect(countExistingMessages(onDisk)).toBe(messages.length);
-            for (let skip = 0; skip < messages.length; skip++) {
-              const expected = flattenLargeCallouts(messages.slice(skip).join('\n\n'), threshold);
+            expect(decodeBacktickFences(onDisk)).toEqual([{ code: payload, quoted }]);
+            for (let skip = 0; skip <= messages.length; skip++) {
+              const expected = flatten(messages.slice(skip).join('\n\n'));
               const tail = extractTailMessages(onDisk, skip);
               expect(tail).toBe(expected.replace(/\n/g, eol));
               expect(countExistingMessages(tail)).toBe(messages.length - skip);
+              expect(decodeBacktickFences(tail)).toEqual(
+                skip < 2 ? [{ code: payload, quoted }] : []
+              );
             }
-            expect(extractTailMessages(onDisk, messages.length)).toBe('');
           }
         }
       });

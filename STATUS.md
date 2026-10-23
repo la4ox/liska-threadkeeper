@@ -1132,3 +1132,22 @@ contained historical prior-bundle entries, with no new current-bundle stack
 observed. Actual transient-popup save/reopen and real exports remain open live
 gates because the popup HWND is not independently targetable by the current
 Windows automation surface.
+
+The upstream writer/reader audit is closed with a Liska-native test-only slice
+on `codex/text-contracts`; no upstream production fence helper or removed E2E
+harness was imported. The existing seam now drives real `conversationToNote`
+assembly and checks seven adversarial code payloads through both HTML writer
+paths, all three message formats, four flatten modes, LF/CRLF, exact independent
+CommonMark recovery, message counts, and every tail offset. It covers standalone
+opening/closing fences, trailing spaces, long backtick runs, fake message labels,
+literal backslashes, blockquote containment, and terminal-empty tails. A second
+architecture test obtains only tracked `src`, `test`, and `scripts` text paths
+through NUL-delimited `git ls-files`, rejects every forbidden C0 byte while
+reporting only path/offset/hex, and proves untracked/private/binary artifacts are
+never read. Every path component is checked with `lstat` first, so a tracked
+symlink or junction is rejected before its target can be opened. The staged
+inventory contains 374 files / 7,794,752 bytes with no violation. Full validation
+passes 175 test files / 5,511 tests; TypeScript/build,
+platform/source lint, formatting, and diff checks pass with only the two existing
+advisory lint warnings. Production, archive bytes, configuration, dependencies,
+and live provider behavior are unchanged.

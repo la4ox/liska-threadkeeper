@@ -112,8 +112,16 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
   rendering/defaults, and full-tab sender rejection are verified without a
   settings write; actual transient-popup save/reopen and real
   File/Clipboard/Obsidian exports remain the evidence gate.
-- Pure writer/reader seam and tracked-source control-byte tests where they add
-  coverage without restoring the removed E2E infrastructure.
+- Pure writer/reader and tracked-source text contracts are implemented on
+  `codex/text-contracts` without changing production code or restoring the
+  removed E2E infrastructure. The real `conversationToNote` path is decoded by
+  an independent test-local CommonMark oracle across nested/partial/long fences,
+  all message formats, flattening thresholds, LF/CRLF, counts, and every tail
+  offset. A tracked-only `git ls-files -z` scanner covers explicit text types in
+  `src`, `test`, and `scripts`, rejects hidden C0 bytes without echoing source
+  content, rejects linked/reparse path components before opening a file, and
+  never walks untracked/private artifacts. Full validation passes 175 test files
+  / 5,511 tests; build, lint, formatting, and diff checks pass.
 
 ### 5. Compact floating Liska launcher
 
