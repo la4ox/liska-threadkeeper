@@ -869,6 +869,7 @@ async function readBoundedClone(
 }
 
 const BASE64_DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const BASE64_TRIPLETS_PER_BLOCK = 4_096;
 
 /** Encode indexed bytes directly; TypedArray subarray/species and array-like getters stay unused. */
 function base64FromByteRange(
@@ -886,15 +887,21 @@ function base64FromByteRange(
   let index = start;
   const completeEnd = end - ((end - start) % 3);
   while (index < completeEnd) {
-    const first = bytes[index];
-    const second = bytes[index + 1];
-    const third = bytes[index + 2];
-    base64 +=
-      BASE64_DIGITS[first >>> 2] +
-      BASE64_DIGITS[((first & 0x03) << 4) | (second >>> 4)] +
-      BASE64_DIGITS[((second & 0x0f) << 2) | (third >>> 6)] +
-      BASE64_DIGITS[third & 0x3f];
-    index += 3;
+    const requestedBlockEnd = index + BASE64_TRIPLETS_PER_BLOCK * 3;
+    const blockEnd = requestedBlockEnd < completeEnd ? requestedBlockEnd : completeEnd;
+    let block = '';
+    while (index < blockEnd) {
+      const first = bytes[index];
+      const second = bytes[index + 1];
+      const third = bytes[index + 2];
+      block +=
+        BASE64_DIGITS[first >>> 2] +
+        BASE64_DIGITS[((first & 0x03) << 4) | (second >>> 4)] +
+        BASE64_DIGITS[((second & 0x0f) << 2) | (third >>> 6)] +
+        BASE64_DIGITS[third & 0x3f];
+      index += 3;
+    }
+    base64 += block;
   }
   if (index === end) return base64;
 

@@ -1011,7 +1011,9 @@ covered.
 Evidence: 166 test files / 5,069 tests, the focused 22-file / 758-test
 capture-resolver matrix, production build, formatting, diff checks, and
 source/platform lint with only the same three pre-existing warnings. Independent
-review found the additional async-then path; it is fixed and covered. A live
-browser MAIN-world smoke was not repeated for this slice. Next: commit, publish,
-and require current-head CI plus Code Review; defer unavailable per-PR Security
-Review to the planned final full-repository Cloud scan.
+review found the additional async-then path; it is fixed and covered. The first
+GitHub Code Review then found that direct Base64 concatenation could create one
+multi-million-node rope; encoding now flushes bounded 4,096-triplet blocks. A
+live browser MAIN-world smoke was not repeated for this slice. Next: publish the
+review fix and require fresh current-head CI plus Code Review; retain the planned
+final full-repository Cloud scan.

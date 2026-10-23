@@ -105,8 +105,11 @@ TypedArray-slice validation: 166 test files / 5,069 tests and the focused
 capture/resolver matrix of 22 files / 758 tests pass. Production build,
 formatting, diff checks, and source/platform lint pass with the same three
 pre-existing warnings. Independent review found an additional async
-`Uint8Array.prototype.then` assimilation route; it is fixed and covered. A live
-browser MAIN-world capture was not repeated for this slice.
+`Uint8Array.prototype.then` assimilation route; it is fixed and covered. The
+first GitHub Code Review then found that direct Base64 concatenation built one
+multi-million-node rope for a 16 MiB inline payload; encoding now flushes bounded
+4,096-triplet blocks. A live browser MAIN-world capture was not repeated for
+this slice.
 
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR
 GitHub Security Review does not block an intermediate merge when current-head
