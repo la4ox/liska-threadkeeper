@@ -212,6 +212,28 @@ describe('all-branches user summary', () => {
     );
   });
 
+  it('surfaces unknown artifact bytes even when the destination finalized', () => {
+    const completed = summary().destinations[0];
+    displayAllBranchesSummary(
+      summary({
+        destinations: [
+          {
+            ...completed,
+            dispatchedBytes: completed.dispatchedBytes + 50,
+            unknownArtifactBytes: 50,
+          },
+        ],
+      })
+    );
+
+    expect(showToast).not.toHaveBeenCalledWith('Saved 2 branches and an index to file', 'success');
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '50 artifact byte(s) were conservatively charged because their write outcome is unknown'
+      )
+    );
+  });
+
   it('summarizes legacy omissions, canonical-only stubs, and skipped Clipboard', () => {
     displayAllBranchesSummary(
       summary({ omissionBranchCount: 2, canonicalOnlyCount: 1, clipboardSkipped: true })

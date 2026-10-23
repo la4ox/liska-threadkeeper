@@ -464,15 +464,22 @@ function archiveWriteOutcome(
     activeOutputs: response.results
       .filter(result => result.success)
       .map(result => result.destination) as ('file' | 'obsidian')[],
-    warnings: response.results
-      .filter(result => !result.success)
-      .map(result => {
-        const diagnostic = safeArchiveObsidianDiagnostic(result);
-        const cleanupWarning = safeArchiveCleanupWarning(result);
-        return `${label} was not saved to ${result.destination}${
-          diagnostic ? ` (${diagnostic})` : ''
-        }${cleanupWarning ? ` (${cleanupWarning})` : ''}`;
-      }),
+    warnings: response.results.flatMap(result => {
+      const diagnostic = safeArchiveObsidianDiagnostic(result);
+      const cleanupWarning = safeArchiveCleanupWarning(result);
+      if (!result.success) {
+        return [
+          `${label} was not saved to ${result.destination}${
+            diagnostic ? ` (${diagnostic})` : ''
+          }${cleanupWarning ? ` (${cleanupWarning})` : ''}`,
+        ];
+      }
+      return cleanupWarning
+        ? [
+            `${label} was saved to ${result.destination}, but temporary artifact cleanup was not confirmed (${cleanupWarning})`,
+          ]
+        : [];
+    }),
   };
 }
 
@@ -920,7 +927,7 @@ export function displayAllBranchesSummary(
     (total, destination) => total + destination.confirmedArtifactBytes,
     0
   );
-  const unknownIncompleteArtifactBytes = incompleteDestinations.reduce(
+  const unknownArtifactBytes = summary.destinations.reduce(
     (total, destination) => total + destination.unknownArtifactBytes,
     0
   );
@@ -937,9 +944,9 @@ export function displayAllBranchesSummary(
           `${confirmedIncompleteArtifactBytes} artifact byte(s) were confirmed before incomplete archive finalization`,
         ]
       : []),
-    ...(unknownIncompleteArtifactBytes > 0
+    ...(unknownArtifactBytes > 0
       ? [
-          `${unknownIncompleteArtifactBytes} artifact byte(s) were conservatively charged because their write outcome is unknown`,
+          `${unknownArtifactBytes} artifact byte(s) were conservatively charged because their write outcome is unknown`,
         ]
       : []),
     ...(summary.omissionBranchCount > 0
