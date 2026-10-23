@@ -1080,3 +1080,36 @@ test files / 5,360 tests; coverage is 95.35% statements, 91.44% branches, 98.69%
 functions, and 97.80% lines. TypeScript/build, source/platform lint, formatting,
 and diff checks pass; lint retains only the two unrelated pre-existing advisory
 warnings. Live popup layout and provider throttling behavior remain unverified.
+
+Bounded frontmatter tag templates are implemented on `codex/tag-templates`.
+Fresh defaults preserve every historical output exactly: ordinary notes use
+`ai-conversation` plus the provider ID, while Deep Research uses `ai-research`,
+`deep-research`, and the provider ID. Users may supply comma-separated literal
+tags or the exact standalone `{platform}` token; leading `#` and whitespace are
+canonicalized, Unicode letters/numbers and nested `/` tags are supported, and
+unknown/embedded tokens, control characters, numeric-only tags, oversized
+entries/lists, and invalid YAML-like syntax are rejected without logging the
+input. Resolution expands the existing six-provider ID once and deduplicates
+case-insensitively in first-spelling order.
+
+The two optional settings remain compatible with old popup callers, while
+normalized settings always own fresh bounded arrays. Invalid stored lists reset
+independently; present worker lists must already be canonical. Save/Test reject
+invalid nonempty fields even when tag emission is disabled, but destination-only
+autosave remains independent. Operation snapshots clone/freeze both arrays and
+canonical routing snapshots bind them, so mid-operation tag drift refuses before
+output. Tags resolve once in `conversationToNote`, covering File, Clipboard,
+Obsidian, selected/all-branch leaves, canonical-only stubs, indexes, and Deep
+Research without changing archive bytes, provenance, filenames, identities, or
+binaries. Existing append retains the note's original tags.
+
+Independent review found and closed two correctness edges: `# hello` initially
+canonicalized as `-hello` (also bypassing numeric shorthand rejection), and the
+reusable prepared all-branches renderer shallow-copied tag arrays. The parser
+now retrims after removing `#`; prepared sessions normalize, clone, and freeze
+both arrays plus their owned options. The final review found no residual P0-P3
+issue. Exact-tree validation passes 174 test files / 5,439 tests; coverage is
+95.37% statements, 91.49% branches, 98.69% functions, and 97.81% lines.
+TypeScript/build, source/platform lint, formatting, and diff checks pass; lint
+retains only the two unrelated pre-existing advisory warnings. Live popup
+save/reopen and real multi-destination exports remain unverified.

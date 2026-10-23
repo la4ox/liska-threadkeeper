@@ -100,8 +100,14 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
   structured-first overrides. Exact-tree validation passes 173 files / 5,360
   tests and final independent review is clean; live popup/provider behavior is
   not claimed.
-- Configurable frontmatter tag templates, including exact settings transport and
-  routing-snapshot serialization.
+- Bounded frontmatter tag templates are implemented on `codex/tag-templates`.
+  Historical conversation/research defaults remain byte-compatible; users may
+  choose canonical Unicode/nested literals and exact `{platform}` expansion.
+  Stored and worker arrays, popup input, operation freezes, routing snapshots,
+  branches/stubs/indexes, Deep Research, append preservation, and secret
+  separation have explicit coverage. Exact-tree validation passes 174 files /
+  5,439 tests and final review is clean; live popup save/reopen and real
+  File/Clipboard/Obsidian exports remain the evidence gate.
 - Pure writer/reader seam and tracked-source control-byte tests where they add
   coverage without restoring the removed E2E infrastructure.
 
