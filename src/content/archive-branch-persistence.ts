@@ -8,6 +8,12 @@ import type {
   TemplateOptions,
 } from '../lib/types';
 import {
+  snapshotChatGptDestinationArchiveReceipt,
+  type ChatGptDestinationArchiveReceipt,
+} from '../lib/chatgpt-archive-receipt';
+import { decorateChatGptArchivePresentation } from './chatgpt-archive-links';
+import { buildChatGptDestinationArchiveReceipt } from './chatgpt-destination-receipt';
+import {
   checkedAdd,
   companionPhysicalBytes,
   ExactPresentationBudget,
@@ -70,25 +76,39 @@ export interface AllBranchesPersistenceSummary {
 }
 
 export interface AllBranchesPersistenceDependencies {
-  persistCompanions: (
+  persistArtifacts: (
     companion: ArchiveCompanionBundle,
     noteFileName: string,
     source: AIPlatform,
     outputs: OutputDestination[]
-  ) => Promise<string[]>;
+  ) => Promise<{ activeOutputs: PersistentOutputDestination[]; warnings: string[] }>;
   writeNote: (
     note: ObsidianNote,
     destination: PersistentOutputDestination,
     messageCount: number
   ) => Promise<AllBranchesWriteOutcome>;
-  measureNoteBytes: (note: ObsidianNote, destination: PersistentOutputDestination) => number;
+  fingerprintNote: (
+    note: ObsidianNote,
+    destination: PersistentOutputDestination
+  ) => Promise<AllBranchesNoteFingerprint>;
   signal?: AbortSignal;
   yieldTask?: () => Promise<void>;
   prepared?: PreparedAllBranchesPersistence;
-  /** The caller already completed raw -> manifest -> canonical for every output. */
-  archiveAlreadyPersisted?: boolean;
+  /** Exact destination-owned evidence; absence selects the original full-trio persistence path. */
+  destinationReceipts?: readonly unknown[];
   onProgress?: (completedBranches: number, totalBranches: number) => void;
 }
+
+export interface AllBranchesNoteFingerprint {
+  byteLength: number;
+  sha256: string;
+}
+
+interface MeasuredNote extends AllBranchesNoteFingerprint {
+  fileName: string;
+}
+
+type DestinationReceipts = Map<PersistentOutputDestination, ChatGptDestinationArchiveReceipt>;
 
 /** Opaque owned session created before any optional attachment/companion writes. */
 export interface PreparedAllBranchesPersistence {
@@ -99,8 +119,8 @@ export interface PreparedAllBranchesPersistence {
 
 interface Measurement {
   entries: ArchiveBranchIndexEntry[];
-  leafBytes: Map<PersistentOutputDestination, number[]>;
-  indexBytes: Map<PersistentOutputDestination, number>;
+  leafNotes: Map<PersistentOutputDestination, MeasuredNote[]>;
+  indexNotes: Map<PersistentOutputDestination, MeasuredNote>;
   omissionBranchCount: number;
   canonicalOnlyCount: number;
   measuredLeaves: number;
@@ -151,13 +171,12 @@ export function prepareAllBranchesPersistence(
 }
 
 function destinationSummary(
-  destination: PersistentOutputDestination,
-  archiveAlreadyPersisted: boolean
+  destination: PersistentOutputDestination
 ): AllBranchesDestinationSummary {
   return {
     destination,
-    archiveSaved: archiveAlreadyPersisted,
-    archiveState: archiveAlreadyPersisted ? 'confirmed' : 'not-attempted',
+    archiveSaved: false,
+    archiveState: 'not-attempted',
     branchFilesSaved: 0,
     branchWrites: { confirmed: 0, failed: 0, unknown: 0 },
     indexSaved: false,
@@ -168,9 +187,69 @@ function destinationSummary(
 }
 
 function requireCompleteCompanion(companion: ArchiveCompanionBundle): void {
-  if (!companion.artifacts.some(artifact => artifact.kind === 'canonical')) {
+  if (
+    !['raw', 'manifest', 'canonical'].every(
+      kind => companion.artifacts.filter(artifact => artifact.kind === kind).length === 1
+    )
+  ) {
     throw new Error('All-branches presentation requires a complete canonical archive companion.');
   }
+}
+
+function snapshotReceiptArray(values: unknown): unknown[] | undefined {
+  try {
+    if (!Array.isArray(values) || Object.getPrototypeOf(values) !== Array.prototype)
+      return undefined;
+    const length = Object.getOwnPropertyDescriptor(values, 'length')?.value;
+    if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0 || length > 16) {
+      return undefined;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(values);
+    if (Reflect.ownKeys(values).length !== length + 1) return undefined;
+    const snapshot: unknown[] = [];
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) return undefined;
+      snapshot.push(descriptor.value);
+    }
+    return snapshot;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Snapshot once, count malformed duplicates too, and never borrow another capture's evidence. */
+function snapshotOwnedReceipts(
+  values: readonly unknown[] | undefined,
+  companion: ArchiveCompanionBundle,
+  requested: readonly PersistentOutputDestination[]
+): DestinationReceipts {
+  const receipts: DestinationReceipts = new Map();
+  const candidatesSnapshot = snapshotReceiptArray(values);
+  if (!candidatesSnapshot) return receipts;
+  for (const destination of requested) {
+    const candidates = candidatesSnapshot.filter(value => {
+      try {
+        return (
+          typeof value === 'object' &&
+          value !== null &&
+          Object.getOwnPropertyDescriptor(value, 'destination')?.value === destination
+        );
+      } catch {
+        return false;
+      }
+    });
+    if (candidates.length !== 1) continue;
+    const receipt = snapshotChatGptDestinationArchiveReceipt(candidates[0]);
+    if (
+      receipt?.destination === destination &&
+      receipt.captureId === companion.captureId &&
+      receipt.conversationKey === companion.conversationKey
+    ) {
+      receipts.set(destination, receipt);
+    }
+  }
+  return receipts;
 }
 
 function indexEntry(leaf: ArchiveBranchLeafRender): ArchiveBranchIndexEntry {
@@ -212,21 +291,33 @@ async function safeWrite(
 async function prepareDestinations(
   companion: ArchiveCompanionBundle,
   destinations: AllBranchesDestinationSummary[],
+  receipts: DestinationReceipts,
+  suppliedReceipts: boolean,
   dependencies: AllBranchesPersistenceDependencies
 ): Promise<void> {
-  if (dependencies.archiveAlreadyPersisted === true) return;
   const archiveBytes = companionPhysicalBytes(companion);
   for (const destination of destinations) {
     if (aborted(dependencies)) return;
     try {
-      const warnings = await dependencies.persistCompanions(
-        companion,
-        'chatgpt-all-branches.md',
-        'chatgpt',
-        [destination.destination]
-      );
-      destination.archiveSaved = warnings.length === 0;
-      destination.archiveState = warnings.length === 0 ? 'confirmed' : 'failed';
+      if (!suppliedReceipts) {
+        const outcome = await dependencies.persistArtifacts(
+          companion,
+          'chatgpt-all-branches.md',
+          'chatgpt',
+          [destination.destination]
+        );
+        if (
+          outcome.activeOutputs.length === 1 &&
+          outcome.activeOutputs[0] === destination.destination
+        ) {
+          receipts.set(
+            destination.destination,
+            buildChatGptDestinationArchiveReceipt(companion, destination.destination, [])
+          );
+        }
+      }
+      destination.archiveSaved = receipts.has(destination.destination);
+      destination.archiveState = destination.archiveSaved ? 'confirmed' : 'failed';
       if (destination.archiveSaved) {
         destination.dispatchedBytes = archiveBytes;
         destination.confirmedBytes = archiveBytes;
@@ -236,15 +327,15 @@ async function prepareDestinations(
       destination.archiveState = 'failed';
     }
     if (aborted(dependencies)) return;
-    await yieldTask(dependencies);
+    if (!suppliedReceipts) await yieldTask(dependencies);
   }
 }
 
 function emptyMeasurement(destinations: readonly AllBranchesDestinationSummary[]): Measurement {
   return {
     entries: [],
-    leafBytes: new Map(destinations.map(({ destination }) => [destination, []])),
-    indexBytes: new Map(),
+    leafNotes: new Map(destinations.map(({ destination }) => [destination, []])),
+    indexNotes: new Map(),
     omissionBranchCount: 0,
     canonicalOnlyCount: 0,
     measuredLeaves: 0,
@@ -254,11 +345,49 @@ function emptyMeasurement(destinations: readonly AllBranchesDestinationSummary[]
   };
 }
 
+async function fingerprintPresentation(
+  note: ObsidianNote,
+  destination: PersistentOutputDestination,
+  receipts: DestinationReceipts,
+  dependencies: AllBranchesPersistenceDependencies
+): Promise<{ note: ObsidianNote; measured: MeasuredNote }> {
+  const decorated = decorateChatGptArchivePresentation(note, receipts.get(destination));
+  const { byteLength, sha256 } = await dependencies.fingerprintNote(decorated, destination);
+  if (!Number.isSafeInteger(byteLength) || byteLength < 0 || !/^[a-f0-9]{64}$/.test(sha256)) {
+    throw new Error('Invalid serialized presentation fingerprint.');
+  }
+  return { note: decorated, measured: { fileName: decorated.fileName, byteLength, sha256 } };
+}
+
+function sameMeasuredNote(left: MeasuredNote, right: MeasuredNote | undefined): boolean {
+  return (
+    left.fileName === right?.fileName &&
+    left.byteLength === right.byteLength &&
+    left.sha256 === right.sha256
+  );
+}
+
+async function recreateMeasuredPresentation(
+  note: ObsidianNote,
+  destination: PersistentOutputDestination,
+  expected: MeasuredNote | undefined,
+  receipts: DestinationReceipts,
+  dependencies: AllBranchesPersistenceDependencies
+): Promise<Awaited<ReturnType<typeof fingerprintPresentation>> | undefined> {
+  try {
+    const recreated = await fingerprintPresentation(note, destination, receipts, dependencies);
+    return sameMeasuredNote(recreated.measured, expected) ? recreated : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // eslint-disable-next-line max-lines-per-function -- Measurement is a single fail-closed pass with one release point per leaf.
 async function measurePresentation(
   session: PreparedArchiveBranchPresentation,
   companion: ArchiveCompanionBundle,
   destinations: AllBranchesDestinationSummary[],
+  receipts: DestinationReceipts,
   dependencies: AllBranchesPersistenceDependencies
 ): Promise<Measurement> {
   const measurement = emptyMeasurement(destinations);
@@ -281,14 +410,19 @@ async function measurePresentation(
       }
       if (leaf.status === 'canonical-only') measurement.canonicalOnlyCount += 1;
       for (const { destination } of destinations) {
-        const bytes = dependencies.measureNoteBytes(leaf.note, destination);
-        const exceeded = budget.addNote(destination, bytes);
+        const { measured } = await fingerprintPresentation(
+          leaf.note,
+          destination,
+          receipts,
+          dependencies
+        );
+        const exceeded = budget.addNote(destination, measured.byteLength);
         if (exceeded) {
           measurement.budgetKind = exceeded;
           measurement.plannedPhysicalBytes = budget.totalPhysicalBytes;
           return measurement;
         }
-        measurement.leafBytes.get(destination)!.push(bytes);
+        measurement.leafNotes.get(destination)!.push(measured);
       }
       measurement.plannedPhysicalBytes = budget.totalPhysicalBytes;
       await yieldTask(dependencies);
@@ -299,14 +433,19 @@ async function measurePresentation(
     }
     const index = session.renderIndex(measurement.entries);
     for (const { destination } of destinations) {
-      const bytes = dependencies.measureNoteBytes(index, destination);
-      const exceeded = budget.addNote(destination, bytes);
+      const { measured } = await fingerprintPresentation(
+        index,
+        destination,
+        receipts,
+        dependencies
+      );
+      const exceeded = budget.addNote(destination, measured.byteLength);
       if (exceeded) {
         measurement.budgetKind = exceeded;
         measurement.plannedPhysicalBytes = budget.totalPhysicalBytes;
         return measurement;
       }
-      measurement.indexBytes.set(destination, bytes);
+      measurement.indexNotes.set(destination, measured);
     }
     measurement.plannedPhysicalBytes = budget.totalPhysicalBytes;
     return measurement;
@@ -347,6 +486,7 @@ async function writeLeaves(
   session: PreparedArchiveBranchPresentation,
   destinations: AllBranchesDestinationSummary[],
   measurement: Measurement,
+  receipts: DestinationReceipts,
   dependencies: AllBranchesPersistenceDependencies
 ): Promise<number> {
   let renderedLeaves = 0;
@@ -358,14 +498,26 @@ async function writeLeaves(
     for (const destination of destinations) {
       if (aborted(dependencies)) return renderedLeaves;
       if (blockedDestinations.has(destination.destination)) continue;
-      const bytes = measurement.leafBytes.get(destination.destination)![ordinal - 1];
+      const recreated = await recreateMeasuredPresentation(
+        leaf.note,
+        destination.destination,
+        measurement.leafNotes.get(destination.destination)?.[ordinal - 1],
+        receipts,
+        dependencies
+      );
+      if (!recreated) {
+        recordWrite(destination, 'failed', 0, false);
+        blockedDestinations.add(destination.destination);
+        continue;
+      }
+      if (aborted(dependencies)) return renderedLeaves;
       const outcome = await safeWrite(
         dependencies,
-        leaf.note,
+        recreated.note,
         destination.destination,
         leaf.renderedMessageCount
       );
-      recordWrite(destination, outcome, bytes, false);
+      recordWrite(destination, outcome, recreated.measured.byteLength, false);
       if (outcome === 'unknown') blockedDestinations.add(destination.destination);
       await yieldTask(dependencies);
       if (aborted(dependencies)) return renderedLeaves;
@@ -380,6 +532,7 @@ async function writeIndex(
   session: PreparedArchiveBranchPresentation,
   measurement: Measurement,
   destinations: AllBranchesDestinationSummary[],
+  receipts: DestinationReceipts,
   dependencies: AllBranchesPersistenceDependencies
 ): Promise<boolean> {
   const completeDestinations = destinations.filter(
@@ -391,14 +544,25 @@ async function writeIndex(
   const index = session.renderIndex(measurement.entries);
   for (const [destinationIndex, destination] of completeDestinations.entries()) {
     if (aborted(dependencies)) return true;
-    const bytes = measurement.indexBytes.get(destination.destination)!;
+    const recreated = await recreateMeasuredPresentation(
+      index,
+      destination.destination,
+      measurement.indexNotes.get(destination.destination),
+      receipts,
+      dependencies
+    );
+    if (!recreated) {
+      recordWrite(destination, 'failed', 0, true);
+      continue;
+    }
+    if (aborted(dependencies)) return true;
     const outcome = await safeWrite(
       dependencies,
-      index,
+      recreated.note,
       destination.destination,
       index.frontmatter.message_count
     );
-    recordWrite(destination, outcome, bytes, true);
+    recordWrite(destination, outcome, recreated.measured.byteLength, true);
     await yieldTask(dependencies);
     if (aborted(dependencies) && destinationIndex + 1 < completeDestinations.length) return true;
   }
@@ -426,7 +590,7 @@ function finalizeSummary(
 }
 
 /** Persist one bounded capture as archive evidence plus exact sequential leaf views. */
-// eslint-disable-next-line max-lines-per-function, complexity -- Keep the phase ordering visible: preflight, evidence, dry measure, writes, index.
+// eslint-disable-next-line max-lines-per-function -- Keep the phase ordering visible: preflight, evidence, dry measure, writes, index.
 export async function persistAllBranchesPresentation(
   plan: AllBranchesPresentationPlan,
   companion: ArchiveCompanionBundle,
@@ -436,30 +600,29 @@ export async function persistAllBranchesPresentation(
   dependencies: AllBranchesPersistenceDependencies
 ): Promise<AllBranchesPersistenceSummary> {
   const requested = durableOutputs(outputs);
+  const ownedCompanion = structuredClone(companion);
+  requireCompleteCompanion(ownedCompanion);
+  const suppliedReceipts = dependencies.destinationReceipts !== undefined;
+  const receipts = snapshotOwnedReceipts(
+    dependencies.destinationReceipts,
+    ownedCompanion,
+    requested
+  );
   const prepared =
     dependencies.prepared ??
     prepareAllBranchesPersistence(
       plan,
-      companion,
+      ownedCompanion,
       templateOptions,
       includeToolContent,
       outputs,
-      dependencies.archiveAlreadyPersisted === true
+      suppliedReceipts
     );
   if (requested.some(destination => !prepared.requestedOutputs.includes(destination))) {
     throw new Error('All-branches outputs exceed their structural preflight.');
   }
   const { session, structural } = prepared;
-  const destinations = requested.map(destination =>
-    destinationSummary(destination, dependencies.archiveAlreadyPersisted === true)
-  );
-  if (dependencies.archiveAlreadyPersisted === true) {
-    const archiveBytes = companionPhysicalBytes(companion);
-    for (const destination of destinations) {
-      destination.dispatchedBytes = archiveBytes;
-      destination.confirmedBytes = archiveBytes;
-    }
-  }
+  const destinations = requested.map(destinationSummary);
   const base = {
     version: 1 as const,
     phase: 'structural-preflight' as AllBranchesPersistencePhase,
@@ -481,14 +644,20 @@ export async function persistAllBranchesPresentation(
   if (base.cancelRequested) return finalizeSummary(base, 'cancelled');
   if (destinations.length === 0) return finalizeSummary(base, 'failed');
 
-  await prepareDestinations(companion, destinations, dependencies);
+  await prepareDestinations(ownedCompanion, destinations, receipts, suppliedReceipts, dependencies);
   if (aborted(dependencies)) {
     return finalizeSummary({ ...base, phase: 'archive', cancelRequested: true }, 'cancelled');
   }
   const active = destinations.filter(destination => destination.archiveSaved);
   if (active.length === 0) return finalizeSummary({ ...base, phase: 'archive' }, 'failed');
 
-  const measurement = await measurePresentation(session, companion, active, dependencies);
+  const measurement = await measurePresentation(
+    session,
+    ownedCompanion,
+    active,
+    receipts,
+    dependencies
+  );
   const measured = {
     ...base,
     phase: 'measurement' as const,
@@ -505,12 +674,18 @@ export async function persistAllBranchesPresentation(
   }
   if (measurement.failed) return finalizeSummary(measured, 'failed');
 
-  const renderedLeaves = await writeLeaves(session, active, measurement, dependencies);
+  const renderedLeaves = await writeLeaves(session, active, measurement, receipts, dependencies);
   const written = { ...measured, phase: 'writing' as const, renderedLeaves };
   if (aborted(dependencies)) {
     return finalizeSummary({ ...written, cancelRequested: true }, 'cancelled');
   }
-  const stoppedBeforeAllIndexes = await writeIndex(session, measurement, active, dependencies);
+  const stoppedBeforeAllIndexes = await writeIndex(
+    session,
+    measurement,
+    active,
+    receipts,
+    dependencies
+  );
   if (stoppedBeforeAllIndexes) {
     return finalizeSummary({ ...written, phase: 'index', cancelRequested: true }, 'cancelled');
   }

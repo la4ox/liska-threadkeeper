@@ -1,4 +1,7 @@
-import { snapshotChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
+import {
+  snapshotChatGptDestinationArchiveReceipt,
+  type ChatGptDestinationArchiveReceipt,
+} from '../lib/chatgpt-archive-receipt';
 import { generateHash } from '../lib/hash';
 import type { ObsidianNote } from '../lib/types';
 
@@ -7,11 +10,12 @@ function captureScopedFileName(fileName: string, captureId: string): string {
   return `${stem}--capture-${captureId.slice(-36).toLowerCase()}.md`;
 }
 
-/** Add only destination-confirmed, content-addressed archive links. */
-export function decorateChatGptArchiveNote(note: ObsidianNote, receipt: unknown): ObsidianNote {
-  const snapshot = snapshotChatGptDestinationArchiveReceipt(receipt);
-  if (!snapshot) throw new TypeError('Invalid ChatGPT destination archive receipt.');
-
+function decorateNote(
+  note: ObsidianNote,
+  snapshot: ChatGptDestinationArchiveReceipt,
+  fileName: string,
+  captureLevel = false
+): ObsidianNote {
   const targets = [
     ...new Set(
       snapshot.assets.map(
@@ -27,11 +31,13 @@ export function decorateChatGptArchiveNote(note: ObsidianNote, receipt: unknown)
   const body =
     links.length === 0
       ? note.body
-      : `${note.body}${note.body ? '\n\n' : ''}## Local archive attachments\n\n${links.join('\n')}`;
+      : `${note.body}${note.body ? '\n\n' : ''}## Local archive attachments\n\n${
+          captureLevel ? 'Capture-level files; branch membership is not asserted.\n\n' : ''
+        }${links.join('\n')}`;
 
   return {
     ...note,
-    fileName: captureScopedFileName(note.fileName, snapshot.captureId),
+    fileName,
     frontmatter: {
       ...note.frontmatter,
       tags: [...note.frontmatter.tags],
@@ -42,4 +48,28 @@ export function decorateChatGptArchiveNote(note: ObsidianNote, receipt: unknown)
     body,
     contentHash: generateHash(body),
   };
+}
+
+/** Add only destination-confirmed, content-addressed archive links. */
+export function decorateChatGptArchiveNote(note: ObsidianNote, receipt: unknown): ObsidianNote {
+  const snapshot = snapshotChatGptDestinationArchiveReceipt(receipt);
+  if (!snapshot) throw new TypeError('Invalid ChatGPT destination archive receipt.');
+  return decorateNote(note, snapshot, captureScopedFileName(note.fileName, snapshot.captureId));
+}
+
+/** Bind a prepared presentation without changing filenames referenced by its index. */
+export function decorateChatGptArchivePresentation(
+  note: ObsidianNote,
+  receipt: unknown
+): ObsidianNote {
+  const snapshot = snapshotChatGptDestinationArchiveReceipt(receipt);
+  if (
+    !snapshot ||
+    (note.frontmatter.presentation_mode !== 'all-branches-leaf' &&
+      note.frontmatter.presentation_mode !== 'all-branches-index') ||
+    note.frontmatter.archive_capture_id !== snapshot.captureId
+  ) {
+    throw new TypeError('Invalid ChatGPT presentation archive receipt.');
+  }
+  return decorateNote(note, snapshot, note.fileName, true);
 }
