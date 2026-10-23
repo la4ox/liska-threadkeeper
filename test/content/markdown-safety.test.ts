@@ -123,6 +123,14 @@ describe('neutralizeActiveProviderMarkdown', () => {
     expect(activeNodeTypes(output)).not.toContain('image');
   });
 
+  it('neutralizes hidden syntax throughout a rejected definition', () => {
+    const output = neutralizeActiveProviderMarkdown(
+      '[x]: javascript:blocked "![probe](http://127.0.0.1:43199/admin)"'
+    );
+    expect(output).toBe('&#91;x]: javascript:blocked "!&#91;probe](http://127.0.0.1:43199/admin)"');
+    expect(activeNodeTypes(output)).not.toContain('image');
+  });
+
   it('does not expose nested image syntax when the outer image becomes literal', () => {
     const output = neutralizeActiveProviderMarkdown(
       '![![pixel](https://attacker.example/pixel)](https://example.com/outer)'

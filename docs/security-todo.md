@@ -219,7 +219,7 @@ formatting, diff checks, and source/platform lint pass with only the same three
 pre-existing warnings. Live provider sharing and Obsidian rendering were not
 repeated.
 
-Provider-Markdown slice validation: all 169 test files / 5,159 tests pass in
+Provider-Markdown slice validation: all 169 test files / 5,160 tests pass in
 memory-bounded batches. Focused coverage includes the historical DeepSeek
 assistant/reasoning payload, structured user records, inline/reference images,
 multiline labels, list-contained definitions/fences, indented and multiline

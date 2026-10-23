@@ -1168,8 +1168,8 @@ formatter requires membership in that runtime set plus the established
 content-addressed path grammar. Provider-authored lookalikes stay literal.
 ADR-035 records the contract.
 
-All 169 test files / 5,159 tests pass in memory-bounded batches. Nine focused
-source-to-sink suites pass 415 tests. The first independent patch review found
+All 169 test files / 5,160 tests pass in memory-bounded batches. Nine focused
+source-to-sink suites pass 416 tests. The first independent patch review found
 seven concrete issues in the discarded bespoke scanner: malformed-container
 nesting, list-fence lifetime, multiline/reference parsing, entity/backslash URL
 decoding, path-shape-only trust, code corruption, and quadratic escape scans.
