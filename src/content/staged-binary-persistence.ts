@@ -16,6 +16,10 @@ import {
 import { bytesToBase64 } from '../lib/image-utils';
 import { sendMessage } from '../lib/messaging';
 import { isSerializedSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
+import {
+  durableWriteOutcomeFromResult,
+  type OperationWriteLedger,
+} from '../lib/operation-write-ledger';
 import type {
   AIPlatform,
   MultiOutputResponse,
@@ -36,6 +40,7 @@ export interface VerifiedBinaryAssetRuntime {
 }
 
 export interface StagedBinaryPersistenceInput {
+  writeLedger?: OperationWriteLedger;
   source: AIPlatform;
   captureId: string;
   conversationKey: string;
@@ -122,12 +127,15 @@ function isSafeOutputResult(
   const result = value as Record<string, unknown>;
   const keys = Object.keys(result);
   return (
-    keys.every(key => ['destination', 'success', 'error', 'warning'].includes(key)) &&
+    keys.every(key =>
+      ['destination', 'success', 'error', 'warning', 'writeOutcome'].includes(key)
+    ) &&
     result.destination === destination &&
     typeof result.success === 'boolean' &&
     (result.error === undefined ||
       (typeof result.error === 'string' && /^[a-z0-9-]{1,96}$/.test(result.error))) &&
-    (result.warning === undefined || result.warning === 'binary-stage-cleanup-deferred')
+    (result.warning === undefined || result.warning === 'binary-stage-cleanup-deferred') &&
+    (result.writeOutcome === undefined || durableWriteOutcomeFromResult(result) !== undefined)
   );
 }
 
@@ -209,6 +217,7 @@ async function commitStage(
     source: input.source,
     descriptor,
     outputs: [...input.outputs],
+    ...(input.writeLedger && { reportDurableWriteOutcome: true }),
   });
 }
 
@@ -219,6 +228,10 @@ async function stageOneAsset(
 ): Promise<StagedBinaryAssetResult> {
   let stageId: string | undefined;
   let committed = false;
+  let observedResults: unknown[] | undefined;
+  const attempts = input.outputs.map(destination =>
+    input.writeLedger?.begin(destination, 'binary', descriptor.byteLength)
+  );
   try {
     stageId = safeStageId();
     if (!(await beginStage(input.source, stageId, descriptor))) {
@@ -228,8 +241,16 @@ async function stageOneAsset(
       return failureResult(asset.assetId, descriptor, input.outputs, 'binary-stage-append-failed');
     }
     committed = true;
+    attempts.forEach(attempt => attempt?.issue());
     const response = await commitStage(input, stageId, descriptor);
     if (!isBinaryCommitResponse(response, input.outputs)) {
+      return failureResult(asset.assetId, descriptor, input.outputs, 'binary-stage-commit-failed');
+    }
+    observedResults = response.results;
+    if (
+      input.writeLedger &&
+      response.results.some(result => !durableWriteOutcomeFromResult(result))
+    ) {
       return failureResult(asset.assetId, descriptor, input.outputs, 'binary-stage-commit-failed');
     }
     return {
@@ -241,6 +262,9 @@ async function stageOneAsset(
   } catch {
     return failureResult(asset.assetId, descriptor, input.outputs, 'binary-stage-operation-failed');
   } finally {
+    attempts.forEach((attempt, index) =>
+      attempt?.observe(durableWriteOutcomeFromResult(observedResults?.[index]))
+    );
     if (stageId && !committed) await abortStage(input.source, stageId);
   }
 }

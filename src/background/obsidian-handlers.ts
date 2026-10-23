@@ -36,6 +36,7 @@ import {
 import type {
   AIPlatform,
   ArchiveCompanionArtifact,
+  DurableWriteState,
   ExtensionSettings,
   ObsidianNote,
   SaveResponse,
@@ -240,8 +241,10 @@ async function writeAndVerifyArchiveCompanion(
   client: ObsidianApiClient,
   path: string,
   bytes: Uint8Array,
-  expectedSha256: string
+  expectedSha256: string,
+  observe?: (state: DurableWriteState) => void
 ): Promise<SaveResponse> {
+  observe?.('unknown');
   try {
     await client.putBinaryFile(
       path,
@@ -265,7 +268,9 @@ async function writeAndVerifyArchiveCompanion(
   }
 
   try {
-    return (await sha256Hex(readBack)) === expectedSha256
+    const exact = (await sha256Hex(readBack)) === expectedSha256;
+    if (exact) observe?.('confirmed');
+    return exact
       ? { success: true }
       : { success: false, error: 'archive-obsidian-readback-hash-mismatch' };
   } catch {
@@ -281,7 +286,8 @@ async function writeAndVerifyArchiveCompanion(
  */
 export async function handleSaveArchiveCompanion(
   settings: ExtensionSettings,
-  request: ArchiveCompanionWriteRequest
+  request: ArchiveCompanionWriteRequest,
+  observe?: (state: DurableWriteState) => void
 ): Promise<SaveResponse> {
   const client = createObsidianClient(settings);
   if (isClientError(client)) {
@@ -300,7 +306,13 @@ export async function handleSaveArchiveCompanion(
   if (existing !== null) {
     return { success: false, error: 'archive-obsidian-preflight-existing' };
   }
-  return writeAndVerifyArchiveCompanion(client, path, request.bytes, request.artifact.sha256);
+  return writeAndVerifyArchiveCompanion(
+    client,
+    path,
+    request.bytes,
+    request.artifact.sha256,
+    observe
+  );
 }
 
 function stagedBinaryFailureCode(
@@ -361,7 +373,8 @@ async function readVerifiedArchiveStageBlob(
 /** Persist one sealed raw/canonical stage through the existing exact vault contract. */
 export async function handleSaveStagedArchiveCompanion(
   settings: ExtensionSettings,
-  request: StagedArchiveCompanionWriteRequest
+  request: StagedArchiveCompanionWriteRequest,
+  observe?: (state: DurableWriteState) => void
 ): Promise<SaveResponse> {
   const client = createObsidianClient(settings);
   if (isClientError(client)) return { success: false, error: 'archive-obsidian-preflight-failed' };
@@ -388,15 +401,23 @@ export async function handleSaveStagedArchiveCompanion(
   } catch (error) {
     return { success: false, error: archiveObsidianFailureCode('preflight', error) };
   }
-  return writeAndVerifyArchiveCompanion(client, path, staged.bytes, request.descriptor.sha256);
+  return writeAndVerifyArchiveCompanion(
+    client,
+    path,
+    staged.bytes,
+    request.descriptor.sha256,
+    observe
+  );
 }
 
 async function writeAndVerifyStagedBinary(
   client: ObsidianApiClient,
   path: string,
   bytes: Uint8Array,
-  descriptor: StagedBinaryAssetDescriptor
+  descriptor: StagedBinaryAssetDescriptor,
+  observe?: (state: DurableWriteState) => void
 ): Promise<SaveResponse> {
+  observe?.('unknown');
   try {
     await client.putBinaryFile(
       path,
@@ -419,7 +440,9 @@ async function writeAndVerifyStagedBinary(
     return { success: false, error: 'binary-obsidian-readback-size-mismatch' };
   }
   try {
-    return (await sha256Hex(readBack)) === descriptor.sha256
+    const exact = (await sha256Hex(readBack)) === descriptor.sha256;
+    if (exact) observe?.('confirmed');
+    return exact
       ? { success: true }
       : { success: false, error: 'binary-obsidian-readback-hash-mismatch' };
   } catch {
@@ -434,7 +457,8 @@ async function writeAndVerifyStagedBinary(
  */
 export async function handleSaveStagedBinaryAsset(
   settings: ExtensionSettings,
-  request: StagedBinaryAssetWriteRequest
+  request: StagedBinaryAssetWriteRequest,
+  observe?: (state: DurableWriteState) => void
 ): Promise<SaveResponse> {
   const client = createObsidianClient(settings);
   if (isClientError(client)) return { success: false, error: 'binary-obsidian-preflight-failed' };
@@ -453,7 +477,7 @@ export async function handleSaveStagedBinaryAsset(
 
   const staged = await readVerifiedStagedBlob(request);
   if (!staged.bytes) return { success: false, error: staged.error };
-  return writeAndVerifyStagedBinary(client, path, staged.bytes, request.descriptor);
+  return writeAndVerifyStagedBinary(client, path, staged.bytes, request.descriptor, observe);
 }
 
 /**

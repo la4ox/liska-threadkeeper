@@ -32,6 +32,27 @@ function archiveMessage(source: 'chatgpt' | 'deepseek' = 'chatgpt') {
 }
 
 describe('structured archive companion message validation', () => {
+  it('accepts only a true own-data opt-in on artifact commits, not Markdown or stage preparation', () => {
+    const base = archiveMessage();
+    expect(validateMessageContent({ ...base, reportDurableWriteOutcome: true })).toBe(true);
+    for (const value of [false, undefined, 'true', 1, null])
+      expect(validateMessageContent({ ...base, reportDurableWriteOutcome: value })).toBe(false);
+    const getter = Object.defineProperty({ ...base }, 'reportDurableWriteOutcome', {
+      enumerable: true,
+      get() {
+        throw new Error('must not execute');
+      },
+    });
+    expect(validateMessageContent(getter)).toBe(false);
+    expect(
+      validateMessageContent(
+        Object.assign(Object.create({ reportDurableWriteOutcome: true }), base)
+      )
+    ).toBe(false);
+    expect(
+      validateMessageContent({ ...base, action: 'saveToOutputs', reportDurableWriteOutcome: true })
+    ).toBe(false);
+  });
   const stagedDescriptor = {
     assetId: `chatgpt-asset-${'a'.repeat(64)}`,
     byteLength: 0,

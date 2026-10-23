@@ -9,6 +9,7 @@ import {
   type AllBranchesPersistenceDependencies,
 } from '../../src/content/archive-branch-persistence';
 import type { ChatGptDestinationArchiveReceipt } from '../../src/lib/chatgpt-archive-receipt';
+import { createOperationWriteLedger } from '../../src/lib/operation-write-ledger';
 import * as receiptBuilder from '../../src/content/chatgpt-destination-receipt';
 import type {
   AllBranchesPresentationPlan,
@@ -133,6 +134,202 @@ function widePlan(leafCount: number): AllBranchesPresentationPlan {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('all-branches operation write-fact accounting', () => {
+  function add(
+    ledger: ReturnType<typeof createOperationWriteLedger>,
+    destination: PersistentOutputDestination,
+    kind: 'raw' | 'manifest' | 'canonical' | 'binary',
+    byteLength: number,
+    state: 'confirmed' | 'unknown' | 'not-dispatched',
+    cleanupDeferred = false
+  ) {
+    const attempt = ledger.begin(destination, kind, byteLength);
+    attempt.issue();
+    attempt.observe({ state, ...(cleanupDeferred && { cleanupDeferred: true }) });
+  }
+
+  function run(
+    writeLedgerSnapshot: unknown,
+    destinationReceipts: readonly unknown[] = [],
+    signal?: AbortSignal
+  ) {
+    const writeNote = vi.fn().mockResolvedValue('confirmed');
+    const fingerprint = vi.fn().mockResolvedValue({ byteLength: 10, sha256: 'f'.repeat(64) });
+    const promise = persistAllBranchesPresentation(
+      plan(),
+      companion,
+      templateOptions,
+      false,
+      ['file', 'obsidian'],
+      {
+        persistArtifacts: vi.fn(),
+        writeNote,
+        fingerprintNote: fingerprint,
+        destinationReceipts,
+        writeLedgerSnapshot,
+        signal,
+        yieldTask: async () => {},
+      }
+    );
+    return { promise, writeNote, fingerprint };
+  }
+
+  it('counts failed-finalization artifacts for every requested destination without double-counting receipts', async () => {
+    const ledger = createOperationWriteLedger(captureId);
+    for (const destination of ['file', 'obsidian'] as const) {
+      add(ledger, destination, 'raw', 2, 'confirmed');
+      add(ledger, destination, 'binary', 8, 'confirmed', true);
+      add(ledger, destination, 'manifest', 2, destination === 'file' ? 'confirmed' : 'unknown');
+      add(
+        ledger,
+        destination,
+        'canonical',
+        2,
+        destination === 'file' ? 'confirmed' : 'not-dispatched'
+      );
+    }
+    const { promise, writeNote } = run(ledger.snapshot(), [receipts()[0]]);
+    const summary = await promise;
+    expect(summary).toMatchObject({
+      status: 'partial',
+      accountingMode: 'write-ledger',
+      writeLedgerValid: true,
+      plannedPhysicalBytes: 56,
+    });
+    expect(summary.destinations).toMatchObject([
+      {
+        destination: 'file',
+        archiveSaved: true,
+        confirmedArtifactBytes: 14,
+        unknownArtifactBytes: 0,
+        confirmedBytes: 44,
+        cleanupDeferredArtifactWrites: 1,
+        indexSaved: true,
+      },
+      {
+        destination: 'obsidian',
+        archiveSaved: false,
+        confirmedArtifactBytes: 10,
+        unknownArtifactBytes: 2,
+        dispatchedBytes: 12,
+        confirmedBytes: 10,
+        cleanupDeferredArtifactWrites: 1,
+        branchFilesSaved: 0,
+        indexSaved: false,
+      },
+    ]);
+    expect(writeNote).toHaveBeenCalledTimes(3);
+    expect(writeNote.mock.calls.every(call => call[1] === 'file')).toBe(true);
+  });
+
+  it('reports prior raw/binary writes even with no complete destination and never authorizes Markdown', async () => {
+    const ledger = createOperationWriteLedger(captureId);
+    add(ledger, 'file', 'raw', 2, 'confirmed');
+    add(ledger, 'file', 'binary', 100, 'unknown');
+    add(ledger, 'obsidian', 'raw', 2, 'not-dispatched');
+    const { promise, writeNote, fingerprint } = run(() => ledger.snapshot());
+    const summary = await promise;
+    expect(summary).toMatchObject({
+      status: 'failed',
+      phase: 'archive',
+      plannedPhysicalBytes: 102,
+      writeLedgerValid: true,
+    });
+    expect(summary.destinations).toHaveLength(2);
+    expect(summary.destinations[0]).toMatchObject({
+      archiveSaved: false,
+      confirmedArtifactBytes: 2,
+      unknownArtifactBytes: 100,
+    });
+    expect(writeNote).not.toHaveBeenCalled();
+    expect(fingerprint).not.toHaveBeenCalled();
+  });
+
+  it('reports attachment-phase facts on cancellation and writes zero new Markdown', async () => {
+    const ledger = createOperationWriteLedger(captureId);
+    add(ledger, 'obsidian', 'raw', 2, 'confirmed');
+    add(ledger, 'obsidian', 'binary', 12, 'confirmed');
+    const controller = new AbortController();
+    controller.abort();
+    const { promise, writeNote } = run(ledger.snapshot(), [], controller.signal);
+    expect(await promise).toMatchObject({
+      status: 'cancelled',
+      cancelRequested: true,
+      plannedPhysicalBytes: 14,
+      destinations: [
+        { confirmedArtifactBytes: 0 },
+        { archiveSaved: false, confirmedArtifactBytes: 14, branchFilesSaved: 0, indexSaved: false },
+      ],
+    });
+    expect(writeNote).not.toHaveBeenCalled();
+  });
+
+  it.each(['foreign', 'conflict', 'overflow', 'accessor', 'throw'])(
+    'fails closed on %s ledger evidence instead of falling back to receipts',
+    async mode => {
+      const ledger = createOperationWriteLedger(captureId);
+      add(ledger, 'file', 'raw', 2, 'confirmed');
+      const snapshot = ledger.snapshot();
+      let supplied: unknown = snapshot;
+      if (mode === 'foreign') supplied = { ...snapshot, operationId: 'capture-chatgpt-other' };
+      if (mode === 'conflict')
+        supplied = {
+          ...snapshot,
+          observations: [snapshot.observations[0], { ...snapshot.observations[0], byteLength: 3 }],
+        };
+      if (mode === 'overflow')
+        supplied = {
+          ...snapshot,
+          observations: [
+            { ...snapshot.observations[0], byteLength: Number.MAX_SAFE_INTEGER },
+            { ...snapshot.observations[0], attempt: 2, byteLength: 1 },
+          ],
+        };
+      if (mode === 'accessor')
+        supplied = Object.defineProperty({ ...snapshot }, 'observations', {
+          get() {
+            throw new Error('must not run');
+          },
+          enumerable: true,
+        });
+      if (mode === 'throw')
+        supplied = () => {
+          throw new Error('private error');
+        };
+      const { promise, writeNote, fingerprint } = run(supplied, receipts());
+      expect(await promise).toMatchObject({
+        status: 'rejected',
+        accountingMode: 'write-ledger',
+        writeLedgerValid: false,
+      });
+      expect(writeNote).not.toHaveBeenCalled();
+      expect(fingerprint).not.toHaveBeenCalled();
+    }
+  );
+
+  it('enforces the physical cap on unknown attempts before measuring a receipt-qualified destination', async () => {
+    const ledger = createOperationWriteLedger(captureId);
+    for (const kind of ['raw', 'manifest', 'canonical'] as const)
+      add(ledger, 'file', kind, 2, 'confirmed');
+    add(ledger, 'obsidian', 'binary', 2 * 1024 ** 3 + 1, 'unknown');
+    const { promise, fingerprint } = run(ledger.snapshot(), [receipts()[0]]);
+    expect(await promise).toMatchObject({
+      status: 'rejected',
+      budgetKind: 'physical-planned-bytes',
+      plannedPhysicalBytes: 2 * 1024 ** 3 + 1,
+    });
+    expect(fingerprint).not.toHaveBeenCalled();
+  });
+
+  it('rejects an incomplete supplied ledger instead of undercounting writes already proven by receipts', async () => {
+    const ledger = createOperationWriteLedger(captureId);
+    const { promise, fingerprint, writeNote } = run(ledger.snapshot(), receipts());
+    expect(await promise).toMatchObject({ status: 'rejected', writeLedgerValid: false });
+    expect(fingerprint).not.toHaveBeenCalled();
+    expect(writeNote).not.toHaveBeenCalled();
+  });
+});
 
 describe('all-branches sequential persistence', () => {
   it('writes companions once per durable destination, then every leaf and one index', async () => {

@@ -109,6 +109,35 @@ describe('Obsidian archive companion persistence', () => {
     expect(result).toEqual({ success: true });
   });
 
+  it.each(['preflight', 'put', 'readback-size', 'readback-hash', 'confirmed'])(
+    'observes the actual durable boundary for %s',
+    async mode => {
+      const value = await request();
+      const observe = vi.fn();
+      mocks.getBinaryFile.mockResolvedValue(value.bytes);
+      if (mode === 'preflight') mocks.getFile.mockResolvedValue('already exists');
+      if (mode === 'put')
+        mocks.putBinaryFile.mockRejectedValue(new DOMException('timeout', 'TimeoutError'));
+      if (mode === 'readback-size') mocks.getBinaryFile.mockResolvedValue(new Uint8Array([1]));
+      if (mode === 'readback-hash')
+        mocks.getBinaryFile.mockResolvedValue(new Uint8Array(value.bytes.byteLength));
+      await handleSaveArchiveCompanion(settings, value, observe);
+      expect(observe.mock.calls.map(call => call[0])).toEqual(
+        mode === 'preflight' ? [] : mode === 'confirmed' ? ['unknown', 'confirmed'] : ['unknown']
+      );
+      expect(mocks.putBinaryFile).toHaveBeenCalledTimes(mode === 'preflight' ? 0 : 1);
+    }
+  );
+
+  it('does not report a durable dispatch when staged blob verification fails', async () => {
+    const staged = await stagedRequest();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new Uint8Array([1]))));
+    const observe = vi.fn();
+    await handleSaveStagedBinaryAsset(settings, staged.request, observe);
+    expect(observe).not.toHaveBeenCalled();
+    expect(mocks.putBinaryFile).not.toHaveBeenCalled();
+  });
+
   it('keeps raw, binary, manifest, and canonical writes under the capture-date prefix across midnight', async () => {
     vi.useFakeTimers();
     const capturedDate = new Date(2026, 0, 31, 23, 59, 0);

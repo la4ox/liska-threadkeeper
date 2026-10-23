@@ -5,6 +5,7 @@ import { sha256Hex } from '../../src/lib/binary-asset-contract';
 import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import type { StagedBinaryAssetResult } from '../../src/lib/types';
+import { createOperationWriteLedger } from '../../src/lib/operation-write-ledger';
 
 const mocks = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 
@@ -29,6 +30,57 @@ async function runtimeAsset(letter: string, bytes: Uint8Array) {
 }
 
 describe('content staged binary persistence', () => {
+  it.each(['confirmed', 'lost', 'malformed', 'preflight', 'settings'])(
+    'records %s binary attempts without trusting success alone',
+    async mode => {
+      const ledger = createOperationWriteLedger('capture-chatgpt-test');
+      const asset = await runtimeAsset('a', new Uint8Array([1, 2, 3]));
+      mocks.sendMessage.mockImplementation(async message => {
+        if (message.action === 'beginStagedBinaryAsset') return { success: mode !== 'preflight' };
+        if (message.action !== 'commitStagedBinaryAsset') return { success: true };
+        expect(message.reportDurableWriteOutcome).toBe(true);
+        if (mode === 'lost') throw new Error('reply lost');
+        const state = mode === 'settings' ? 'not-dispatched' : 'confirmed';
+        const results = message.outputs.map((destination: string) => ({
+          destination,
+          success: state === 'confirmed',
+          ...(mode !== 'malformed' && { writeOutcome: { state, cleanupDeferred: true } }),
+        }));
+        return {
+          results,
+          allSuccessful: state === 'confirmed',
+          anySuccessful: state === 'confirmed',
+        };
+      });
+      const results = await persistVerifiedBinaryAssets({
+        source: 'chatgpt',
+        captureId: 'capture-chatgpt-test',
+        conversationKey: 'a'.repeat(64),
+        assets: [asset],
+        outputs: ['file', 'obsidian'],
+        writeLedger: ledger,
+      });
+      const expected =
+        mode === 'confirmed'
+          ? 'confirmed'
+          : ['settings', 'preflight'].includes(mode)
+            ? 'not-dispatched'
+            : 'unknown';
+      expect(
+        ledger.snapshot().observations.map(entry => ({
+          destination: entry.destination,
+          kind: entry.kind,
+          byteLength: entry.byteLength,
+          state: entry.state,
+        }))
+      ).toEqual([
+        { destination: 'file', kind: 'binary', byteLength: 3, state: expected },
+        { destination: 'obsidian', kind: 'binary', byteLength: 3, state: expected },
+      ]);
+      expect(results[0].allSuccessful).toBe(mode === 'confirmed');
+    }
+  );
+
   it('surfaces only the fixed cleanup warning from binary destination results', () => {
     const value = (warning: string): StagedBinaryAssetResult => ({
       assetId: `chatgpt-asset-${'a'.repeat(64)}`,

@@ -9,6 +9,7 @@ import {
 } from '../lib/archive-stage-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
 import { bytesToBase64 } from '../lib/image-utils';
+import { withDurableWriteOutcome } from '../lib/operation-write-ledger';
 import type {
   ArchiveStageReadResponse,
   ArchiveStageResponse,
@@ -21,6 +22,7 @@ import type {
   OffscreenArchiveStageReadMessage,
   OffscreenArchiveStageSealMessage,
   OutputResult,
+  DurableWriteState,
   StagedArchiveCompanionArtifact,
 } from '../lib/types';
 import { handleSaveStagedArchiveCompanion } from './obsidian-handlers';
@@ -308,7 +310,11 @@ async function downloadStagedArchiveToFile(
   ) {
     return {
       terminal: true,
-      result: { destination: 'file', success: false, error: 'archive-stage-write-failed' },
+      result: withDurableWriteOutcome(
+        { destination: 'file', success: false, error: 'archive-stage-write-failed' },
+        'not-dispatched',
+        message.reportDurableWriteOutcome
+      ),
     };
   }
 
@@ -332,15 +338,23 @@ async function downloadStagedArchiveToFile(
     return {
       terminal: outcome.terminal,
       recovery,
-      result: outcome.error
-        ? { destination: 'file', success: false, error: outcome.error }
-        : exactPath
-          ? { destination: 'file', success: true }
-          : {
-              destination: 'file',
-              success: false,
-              error: 'archive-stage-path-unconfirmed',
-            },
+      result: withDurableWriteOutcome(
+        outcome.error
+          ? { destination: 'file', success: false, error: outcome.error }
+          : exactPath
+            ? { destination: 'file', success: true }
+            : {
+                destination: 'file',
+                success: false,
+                error: 'archive-stage-path-unconfirmed',
+              },
+        outcome.error === 'Archive download could not be started'
+          ? 'not-dispatched'
+          : exactPath && !outcome.error
+            ? 'confirmed'
+            : 'unknown',
+        message.reportDurableWriteOutcome
+      ),
     };
   } catch {
     // Preserve durable ownership. The late terminal listener remains the only
@@ -348,7 +362,11 @@ async function downloadStagedArchiveToFile(
     return {
       terminal: false,
       recovery,
-      result: { destination: 'file', success: false, error: 'archive-stage-write-failed' },
+      result: withDurableWriteOutcome(
+        { destination: 'file', success: false, error: 'archive-stage-write-failed' },
+        'unknown',
+        message.reportDurableWriteOutcome
+      ),
     };
   }
 }
@@ -359,23 +377,42 @@ async function saveStagedArchiveToObsidian(
   settings: ExtensionSettings,
   descriptor: ArchiveStageDescriptor
 ): Promise<OutputResult> {
+  let state: DurableWriteState = 'not-dispatched';
   try {
-    const saved = await handleSaveStagedArchiveCompanion(settings, {
-      source: message.source,
-      captureId: message.captureId,
-      conversationKey: message.conversationKey,
-      ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
-      stageId: message.artifact.stageId,
-      descriptor,
-      blobUrl,
-    });
-    return {
-      destination: 'obsidian',
-      success: saved.success,
-      ...(saved.error && { error: saved.error }),
-    };
+    const saved = await handleSaveStagedArchiveCompanion(
+      settings,
+      {
+        source: message.source,
+        captureId: message.captureId,
+        conversationKey: message.conversationKey,
+        ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
+        stageId: message.artifact.stageId,
+        descriptor,
+        blobUrl,
+      },
+      ...(message.reportDurableWriteOutcome === true
+        ? [
+            (observed: DurableWriteState) => {
+              state = observed;
+            },
+          ]
+        : [])
+    );
+    return withDurableWriteOutcome(
+      {
+        destination: 'obsidian',
+        success: saved.success,
+        ...(saved.error && { error: saved.error }),
+      },
+      state,
+      message.reportDurableWriteOutcome
+    );
   } catch {
-    return { destination: 'obsidian', success: false, error: 'archive-stage-write-failed' };
+    return withDurableWriteOutcome(
+      { destination: 'obsidian', success: false, error: 'archive-stage-write-failed' },
+      state,
+      message.reportDurableWriteOutcome
+    );
   }
 }
 
@@ -398,11 +435,17 @@ async function commitStagedArchiveCompanion(
 ): Promise<MultiOutputResponse> {
   const descriptor = descriptorFromArtifact(message.artifact);
   if (!descriptor) {
-    const results = message.outputs.map(destination => ({
-      destination,
-      success: false,
-      error: 'archive-stage-descriptor-invalid',
-    })) as OutputResult[];
+    const results = message.outputs.map(destination =>
+      withDurableWriteOutcome(
+        {
+          destination,
+          success: false,
+          error: 'archive-stage-descriptor-invalid',
+        },
+        'not-dispatched',
+        message.reportDurableWriteOutcome
+      )
+    );
     return { results, allSuccessful: false, anySuccessful: false };
   }
 
@@ -414,9 +457,16 @@ async function commitStagedArchiveCompanion(
   let released = false;
   let cleanupConfirmed: boolean | undefined;
   let recoveryRecord: ArchiveStageDownloadRecoveryRecord | undefined;
+  const results = message.outputs.map(destination =>
+    withDurableWriteOutcome(
+      { destination, success: false, error: 'archive-stage-write-failed' },
+      'not-dispatched',
+      message.reportDurableWriteOutcome
+    )
+  );
   const clearRecoveryAfterConfirmedCleanup = async (): Promise<void> => {
     if (cleanupConfirmed === true && recoveryRecord) {
-      await forgetArchiveStageDownloadRecovery(recoveryRecord);
+      if (!(await forgetArchiveStageDownloadRecovery(recoveryRecord))) cleanupConfirmed = false;
     }
   };
   const relinquishDeferredRecovery = (): void => {
@@ -426,7 +476,11 @@ async function commitStagedArchiveCompanion(
   };
   const releaseWhenOwned = async (): Promise<boolean | undefined> => {
     if (released) {
-      await clearRecoveryAfterConfirmedCleanup();
+      try {
+        await clearRecoveryAfterConfirmedCleanup();
+      } catch {
+        cleanupConfirmed = false;
+      }
       return cleanupConfirmed;
     }
     if (!destinationsFinished || !downloadTerminal || !lease || !url) return undefined;
@@ -436,9 +490,12 @@ async function commitStagedArchiveCompanion(
     } catch {
       cleanupConfirmed = false;
       if (recoveryRecord) relinquishArchiveStageDownloadRecovery(recoveryRecord.stageId);
-      throw new Error('archive-stage-cleanup-failed');
     }
-    await clearRecoveryAfterConfirmedCleanup();
+    try {
+      await clearRecoveryAfterConfirmedCleanup();
+    } catch {
+      cleanupConfirmed = false;
+    }
     relinquishDeferredRecovery();
     return cleanupConfirmed;
   };
@@ -450,19 +507,31 @@ async function commitStagedArchiveCompanion(
       await abortArchiveStage(message.artifact.stageId);
       lease.release();
       lease = undefined;
-      const results = message.outputs.map(destination => ({
-        destination,
-        success: false,
-        error: 'archive-stage-write-failed',
-      })) as OutputResult[];
+      const results = message.outputs.map(destination =>
+        withDurableWriteOutcome(
+          {
+            destination,
+            success: false,
+            error: 'archive-stage-write-failed',
+          },
+          'not-dispatched',
+          message.reportDurableWriteOutcome
+        )
+      );
       return { results, allSuccessful: false, anySuccessful: false };
     }
 
-    const results = await Promise.all(
-      message.outputs.map(async destination => {
+    await Promise.allSettled(
+      message.outputs.map(async (destination, index) => {
         if (destination === 'obsidian') {
-          return saveStagedArchiveToObsidian(url!, message, settings, descriptor);
+          results[index] = await saveStagedArchiveToObsidian(url!, message, settings, descriptor);
+          return;
         }
+        results[index] = withDurableWriteOutcome(
+          { destination, success: false, error: 'archive-stage-write-failed' },
+          'unknown',
+          message.reportDurableWriteOutcome
+        );
         const download = await downloadStagedArchiveToFile(
           url!,
           message,
@@ -478,11 +547,25 @@ async function commitStagedArchiveCompanion(
         recoveryRecord = download.recovery ?? recoveryRecord;
         // A late terminal callback can race this outcome. Latch true forever.
         downloadTerminal = downloadTerminal || download.terminal;
-        return download.result;
+        results[index] = download.result;
       })
     );
     destinationsFinished = true;
-    await releaseWhenOwned();
+    const cleaned = await releaseWhenOwned();
+    if (cleaned === false) {
+      for (let index = 0; index < results.length; index += 1) {
+        const result = results[index];
+        const state =
+          (result as { writeOutcome?: { state: DurableWriteState } }).writeOutcome?.state ??
+          (result.success ? 'confirmed' : 'unknown');
+        results[index] = withDurableWriteOutcome(
+          { ...result, warning: 'archive-stage-cleanup-deferred' },
+          state,
+          message.reportDurableWriteOutcome,
+          true
+        );
+      }
+    }
     return {
       results,
       allSuccessful: results.every(result => result.success),
@@ -492,12 +575,11 @@ async function commitStagedArchiveCompanion(
     destinationsFinished = true;
     if (!fileDownloadStarted) downloadTerminal = true;
     await releaseWhenOwned();
-    const results = message.outputs.map(destination => ({
-      destination,
-      success: false,
-      error: 'archive-stage-write-failed',
-    })) as OutputResult[];
-    return { results, allSuccessful: false, anySuccessful: false };
+    return {
+      results,
+      allSuccessful: results.every(result => result.success),
+      anySuccessful: results.some(result => result.success),
+    };
   } finally {
     if (destinationsFinished && downloadTerminal) await releaseWhenOwned();
   }
@@ -540,6 +622,9 @@ export async function handleArchiveStageMessage(
         destination,
         success: false,
         error: 'archive-stage-settings-unavailable',
+        ...(message.reportDurableWriteOutcome === true && {
+          writeOutcome: { state: 'not-dispatched' as const },
+        }),
       })),
       allSuccessful: false,
       anySuccessful: false,

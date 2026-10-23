@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
+import { createOperationWriteLedger } from '../../src/lib/operation-write-ledger';
 import { describe, expect, it, vi } from 'vitest';
 import { buildCaptureManifest, type RawCaptureAssetRecord } from '../../src/archive';
 import { chatGptActiveResolverMetricFromResponse } from '../../src/content/capture/chatgpt-active-resolver-audit';
@@ -185,6 +186,67 @@ function binaryResult(
 }
 
 describe('destination-honest ChatGPT attachment export', () => {
+  it('retains confirmed raw and binary facts when destination builders fail without creating receipts or localization evidence', async () => {
+    const ledger = createOperationWriteLedger(CAPTURE_ID);
+    const asset = fetchedAsset();
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(),
+      companion(),
+      'thread.md',
+      ['file', 'obsidian'],
+      {
+        writeLedger: ledger,
+        persistArtifacts: async (bundle, _name, _source, outputs, kinds, _guard, received) => {
+          expect(received).toBe(ledger);
+          for (const destination of outputs as ('file' | 'obsidian')[]) {
+            for (const kind of kinds) {
+              const attempt = received!.begin(
+                destination,
+                kind,
+                bundle.artifacts.find(artifact => artifact.kind === kind)!.byteLength
+              );
+              attempt.issue();
+              attempt.observe({ state: 'confirmed' });
+            }
+          }
+          return persisted(outputs as ('file' | 'obsidian')[]);
+        },
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: asset.record.id, downloadUrl: 'https://example.invalid/test' }],
+        }),
+        acquireAssets: async () => ({
+          records: [asset.record],
+          runtimeAssets: [asset],
+          completeness: 'complete',
+        }),
+        persistBinaryAssets: async input => {
+          expect(input.writeLedger).toBe(ledger);
+          for (const destination of input.outputs) {
+            const attempt = input.writeLedger!.begin(destination, 'binary', asset.bytes.byteLength);
+            attempt.issue();
+            attempt.observe({ state: 'confirmed' });
+          }
+          return binaryResult(asset.record, true, true);
+        },
+        buildDestinationCompanion: async () => {
+          throw new Error('synthetic builder failure');
+        },
+      }
+    );
+    expect(result.completeDestinations).toEqual([]);
+    expect(result.destinationReceipts).toEqual([]);
+    expect(result.destinationLocalizationEvidence).toBeUndefined();
+    expect(
+      ledger.snapshot().observations.map(entry => [entry.destination, entry.kind, entry.state])
+    ).toEqual([
+      ['file', 'raw', 'confirmed'],
+      ['obsidian', 'raw', 'confirmed'],
+      ['file', 'binary', 'confirmed'],
+      ['obsidian', 'binary', 'confirmed'],
+    ]);
+  });
+
   it.each(['binary-failure', 'finalization-failure', 'success'] as const)(
     'emits detached localization evidence only for successful final destination persistence (%s)',
     async outcome => {

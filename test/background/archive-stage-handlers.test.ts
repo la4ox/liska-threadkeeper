@@ -158,6 +158,85 @@ describe('archive-stage background handlers', () => {
     expect(release).toHaveBeenCalledTimes(3);
   });
 
+  it('preserves a confirmed staged sink when temporary release and bookkeeping fail', async () => {
+    mocks.acquireLease.mockResolvedValue({
+      release: vi.fn(() => {
+        throw new Error('private bookkeeping');
+      }),
+    });
+    installStageUrlResponses();
+    mocks.saveStagedArchive.mockImplementation(async (_settings, _request, observe) => {
+      observe('unknown');
+      observe('confirmed');
+      return { success: true };
+    });
+    const response = await handleArchiveStageMessage(
+      { ...commitMessage('raw', ['obsidian']), reportDurableWriteOutcome: true },
+      settings
+    );
+    expect(response).toMatchObject({
+      allSuccessful: true,
+      results: [
+        {
+          success: true,
+          warning: 'archive-stage-cleanup-deferred',
+          writeOutcome: { state: 'confirmed', cleanupDeferred: true },
+        },
+      ],
+    });
+  });
+
+  it('keeps confirmed File evidence when forgetting its cleanup record returns false', async () => {
+    const store = installRecoveryStorage();
+    installLease();
+    installStageUrlResponses();
+    vi.mocked(chrome.storage.local.set).mockImplementation(async items => {
+      if (
+        Array.isArray(items['archive-stage-download-recovery-v1']) &&
+        items['archive-stage-download-recovery-v1'].length === 0
+      )
+        throw new Error('registry unavailable');
+      Object.assign(store, items);
+    });
+    mocks.downloadArchiveBlob.mockResolvedValue({ terminal: true, error: null, downloadId: 17 });
+    const response = await handleArchiveStageMessage(
+      { ...commitMessage('raw', ['file']), reportDurableWriteOutcome: true },
+      settings
+    );
+    expect(response).toMatchObject({
+      allSuccessful: true,
+      results: [{ success: true, writeOutcome: { state: 'confirmed', cleanupDeferred: true } }],
+    });
+  });
+
+  it.each(['interrupted', 'path', 'start-refused'])(
+    'reports %s staged download evidence conservatively',
+    async mode => {
+      installLease();
+      installStageUrlResponses();
+      mocks.downloadArchiveBlob.mockResolvedValue(
+        mode === 'interrupted'
+          ? { terminal: true, error: 'Archive download was interrupted', downloadId: 1 }
+          : mode === 'start-refused'
+            ? { terminal: true, error: 'Archive download could not be started' }
+            : { terminal: true, error: null, downloadId: 1 }
+      );
+      mocks.confirmArchiveDownloadPath.mockResolvedValue(false);
+      const response = await handleArchiveStageMessage(
+        { ...commitMessage('canonical', ['file']), reportDurableWriteOutcome: true },
+        settings
+      );
+      expect(response).toMatchObject({
+        results: [
+          {
+            success: false,
+            writeOutcome: { state: mode === 'start-refused' ? 'not-dispatched' : 'unknown' },
+          },
+        ],
+      });
+    }
+  );
+
   it.each(ARCHIVE_STAGE_BEGIN_OFFSCREEN_FAILURES)(
     'returns only the fixed begin diagnostic %s from offscreen',
     async error => {

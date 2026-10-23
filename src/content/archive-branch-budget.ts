@@ -1,5 +1,6 @@
 import type { ChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
 import type { PersistentOutputDestination } from '../lib/types';
+import type { OperationWriteLedgerSnapshot } from '../lib/operation-write-ledger';
 
 export const ALL_BRANCHES_BUDGET_LIMITS = Object.freeze({
   nodeCount: 50_000,
@@ -97,6 +98,26 @@ export function destinationRetainedBytes(receipt: ChatGptDestinationArchiveRecei
     (total, asset) => checkedAdd(total, asset.byteLength, 'retained archive bytes'),
     archiveBytes
   );
+}
+
+/** Counts attempts, not unique assets; receipts must not be added again in ledger mode. */
+export function operationArtifactBytes(
+  ledger: OperationWriteLedgerSnapshot,
+  destination: PersistentOutputDestination
+): { confirmed: number; unknown: number; cleanupDeferred: number } {
+  const totals = { confirmed: 0, unknown: 0, cleanupDeferred: 0 };
+  for (const observation of ledger.observations) {
+    if (observation.destination !== destination) continue;
+    if (observation.state === 'confirmed' || observation.state === 'unknown') {
+      totals[observation.state] = checkedAdd(
+        totals[observation.state],
+        observation.byteLength,
+        'artifact bytes'
+      );
+    }
+    if (observation.cleanupDeferred) totals.cleanupDeferred += 1;
+  }
+  return totals;
 }
 
 export class ExactPresentationBudget {
