@@ -60,12 +60,34 @@ export class ClaudeExtractor extends BaseExtractor {
    * Claude does not unmount a closed Deep Research / Artifact panel — it moves
    * the off-screen subtree into `inert` + `aria-hidden="true"` (verified live
    * 2026-07-16). Such content is neither the active view nor a real conversation
-   * turn, so both DR detection and message collection ignore it — otherwise the
-   * lingering report (which also carries `.font-claude-response`) would leak into
-   * the conversation as a stale extra assistant turn.
+   * turn. Keep this guard strict for DR detection and artifact messages; normal
+   * conversation rows separately allow collapsed inert-only content below a row.
    */
   private isInDismissedPanel(element: Element): boolean {
     return element.closest('[inert], [aria-hidden="true"]') !== null;
+  }
+
+  /**
+   * Conversation turns can keep their collapsed long content under an inert
+   * wrapper INSIDE a virtual row (upstream #452). Only that inert-only shape
+   * is exempt: a hidden/inert row or enclosing panel is still dismissed.
+   * Walk the full ancestor chain so a nearer collapsed wrapper cannot mask a
+   * closed outer panel. Artifact visibility retains the stricter panel guard.
+   */
+  private isInDismissedConversationPanel(element: Element): boolean {
+    if (
+      DEEP_RESEARCH_SELECTORS.artifact.some(selector => element.closest(selector)) &&
+      this.isInDismissedPanel(element)
+    ) {
+      return true;
+    }
+
+    const row = element.closest(SELECTORS.conversationRow[0]);
+    for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+      if (ancestor.matches('[aria-hidden="true"], [hidden]')) return true;
+      if (ancestor.hasAttribute('inert') && (row === null || ancestor.contains(row))) return true;
+    }
+    return false;
   }
 
   // ========== ID & Title Extraction ==========
@@ -148,7 +170,7 @@ export class ClaudeExtractor extends BaseExtractor {
    *
    * User messages nested inside an assistant response (e.g. quoted content) are
    * skipped, as is anything inside a dismissed artifact panel (a closed report
-   * lingers with `.font-claude-response`; see {@link isInDismissedPanel}).
+   * lingers with `.font-claude-response`; see {@link isInDismissedConversationPanel}).
    * Shared by extractMessages() (single pass) and harvestWindow() (per-scroll-
    * window pass for virtualized conversations).
    */
@@ -157,7 +179,7 @@ export class ClaudeExtractor extends BaseExtractor {
 
     const userMessages = this.queryAllWithFallback<HTMLElement>(SELECTORS.userMessage);
     userMessages.forEach(el => {
-      if (this.isInDismissedPanel(el)) return;
+      if (this.isInDismissedConversationPanel(el)) return;
       const assistantParent = el.closest('.font-claude-response, [class*="font-claude-response"]');
       if (!assistantParent) {
         allElements.push({ element: el, type: 'user' });
@@ -166,7 +188,7 @@ export class ClaudeExtractor extends BaseExtractor {
 
     const assistantResponses = this.queryAllWithFallback<HTMLElement>(SELECTORS.assistantResponse);
     assistantResponses.forEach(el => {
-      if (this.isInDismissedPanel(el)) return;
+      if (this.isInDismissedConversationPanel(el)) return;
       allElements.push({ element: el, type: 'assistant' });
     });
 
@@ -202,7 +224,8 @@ export class ClaudeExtractor extends BaseExtractor {
       // `data-index` is monotonic in conversation order; use it both as the
       // stable de-dup key and as the ordering signal so accumulation can sort by
       // it (robust against mergeWindow scramble — issue #352).
-      const dataIndex = item.element.closest('[data-index]')?.getAttribute('data-index');
+      const row = item.element.closest(SELECTORS.conversationRow[0]);
+      const dataIndex = row?.getAttribute('data-index');
       const parsed = dataIndex !== undefined && dataIndex !== null ? Number(dataIndex) : NaN;
       const key = dataIndex ? `idx-${dataIndex}` : `${item.type}-${generateHash(content)}`;
       const order = Number.isFinite(parsed) ? parsed : undefined;
