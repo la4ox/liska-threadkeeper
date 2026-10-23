@@ -934,3 +934,25 @@ family. Until such evidence exists, the 1 GiB source-work limit remains a
 deliberate refusal for the known 1.051 GiB graph, and custom-GPT/project binaries
 plus the archived Library WebP remain separately evidence-gated. The untouched
 provider/upstream audit can proceed independently after this checkpoint.
+
+## Local math-Markdown security checkpoint
+
+Branch `codex/security-math-markdown` repairs the still-reachable fallback behind
+Security Cloud occurrence `commit:eb1705ab69ac8191a043d3d6cb44fe4c`.
+Delimiter-containing, oversized, malformed, or internal-placeholder-shaped
+`data-math` values now become readable entity literals instead of active
+Markdown. Display lines retain their boundaries without becoming indented code;
+math-bearing table cells isolate neighboring punctuation; valid inline/display
+TeX remains math, with formatting-only line wraps collapsed and `%` comment
+line endings preserved through display promotion. The internal image grammar
+now rejects matches spanning math delimiters, while punctuation-rich generated
+alt text still resolves.
+
+The Cloud occurrence currently says fixed, but its own saved fix-check records
+that the earlier backslash/dollar-only fallback remained active. That status was
+therefore premature and must not be treated as published remediation. Current
+evidence is local only: 166 test files / 5,039 tests, the 362-test focused/E2E
+matrix, production build, formatting, diff checks, source/platform lint with the
+same three pre-existing warnings, and an independent parser-backed review all
+pass. Live Obsidian rendering has not been repeated. Next: commit, publish, and
+review this branch before relying on the Cloud status.

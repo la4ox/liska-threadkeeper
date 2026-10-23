@@ -10,6 +10,7 @@ import {
 } from '../../src/content/markdown';
 import { sanitizeHtml } from '../../src/lib/sanitize';
 import { MAX_MATH_LENGTH } from '../../src/lib/constants';
+import { stripImagePlaceholders } from '../../src/lib/image-output';
 import type { ConversationData, TemplateOptions, DeepResearchLinks } from '../../src/lib/types';
 
 describe('escapeUserText — math dollar escaping (Obsidian hang fix)', () => {
@@ -59,6 +60,13 @@ describe('htmlToMarkdown — image placeholders', () => {
     expect(md).toContain('![a](g2o-image://img-3)');
     expect(md).toContain('Before');
     expect(md).toContain('After');
+  });
+
+  it('entity-encodes punctuation in placeholder alt text without breaking resolution', () => {
+    const md = htmlToMarkdown('<img data-g2o-image="img-4" alt="cost $5 [draft] &amp; ready">');
+
+    expect(md).toContain('![cost &#36;5 &#91;draft&#93; &#38; ready](g2o-image://img-4)');
+    expect(stripImagePlaceholders(md)).not.toContain('g2o-image://');
   });
 });
 
@@ -330,26 +338,142 @@ describe('htmlToMarkdown', () => {
 
       it('escapes a literal $ in an inline value instead of emitting math', () => {
         const result = htmlToMarkdown('<span data-math="a$b">x</span>');
-        expect(result).toBe('a\\$b');
+        expect(result).toBe('a&#36;b');
       });
 
-      it('escapes literal $ in a display value instead of emitting a math block', () => {
+      it('keeps literal $ in a display value inert instead of emitting a math block', () => {
         const result = htmlToMarkdown('<div data-math="a$$b">x</div>');
-        expect(result).not.toContain('$$\na');
-        expect(result).toContain('a\\$\\$b');
+        expect(result).toBe('a&#36;&#36;b');
       });
 
-      it('keeps multi-line inline LaTeX as math (real KaTeX matrices span lines)', () => {
+      it('keeps adjacent rejected display values as separate blocks', () => {
+        const result = htmlToMarkdown(
+          '<div data-math="a$b">one</div><div data-math="c$d">two</div>'
+        );
+        expect(result).toBe('a&#36;b\nc&#36;d');
+      });
+
+      it('entity-encodes display-literal indentation so it stays readable text', () => {
+        const payload = '$\n\n    ![pixel](https://attacker.example/pixel)';
+        const attribute = payload.replace(/\n/g, '&#10;');
+        const result = htmlToMarkdown(`<div data-math="${attribute}">rendered</div>`);
+
+        expect(result).toContain(
+          '&#36;\n\n&#32;&#32;&#32;&#32;&#33;&#91;pixel&#93;&#40;https&#58;&#47;&#47;'
+        );
+        expect(result).not.toMatch(/^ {4}/m);
+      });
+
+      it('keeps TeX row separators in inline LaTeX math', () => {
         const latex = '\\det\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}';
         const result = htmlToMarkdown(`<span data-math="${latex}">x</span>`);
         expect(result).toBe(`$${latex}$`);
       });
 
-      it('escapes backslashes before $ so a preceding \\ cannot re-open math', () => {
-        // data-math value is `\a$b`: the backslash must be escaped first, else the
-        // inserted `\` before `$` pairs with it and leaves the $ unescaped.
+      it('keeps a preceding backslash and literal $ inert in the literal fallback', () => {
         const result = htmlToMarkdown('<span data-math="\\a$b">x</span>');
-        expect(result).toBe('\\\\a\\$b');
+        expect(result).toBe('&#92;a&#36;b');
+      });
+
+      it.each(['    ', '\t'])(
+        'trims rejected inline boundary whitespace %j so entities stay readable',
+        whitespace => {
+          const result = htmlToMarkdown(`<span data-math="${whitespace}a$b${whitespace}">x</span>`);
+          expect(result).toBe('a&#36;b');
+        }
+      );
+
+      it.each(['\n', '\r\n', '\r', '\u2028', '\u2029'])(
+        'normalizes formatting-only inline line separator %j without changing TeX semantics',
+        separator => {
+          const result = htmlToMarkdown(`<span data-math="a${separator}b">x</span>`);
+          expect(result).toBe('$a b$');
+        }
+      );
+
+      it('trims inline boundary whitespace before creating math', () => {
+        expect(htmlToMarkdown('<span data-math="  x^2  ">x</span>')).toBe('$x^2$');
+      });
+
+      it('keeps an odd trailing backslash inert instead of escaping the closing delimiter', () => {
+        expect(htmlToMarkdown('<span data-math="a\\">x</span>')).toBe('a&#92;');
+      });
+
+      it('promotes a physical newline after a TeX percent comment to display math', () => {
+        const latex = '\\begin{matrix} a & b % note\n\\\\ c & d \\end{matrix}';
+        const attribute = latex.replace(/\n/g, '&#10;');
+
+        expect(htmlToMarkdown(`<span data-math="${attribute}">x</span>`)).toBe(`$$\n${latex}\n$$`);
+      });
+
+      it('keeps adjacent rejected inline-math values context-independent', () => {
+        const html =
+          '<span data-math="a$b">first</span>' +
+          '<span data-math="x`![pixel](https://attacker.example/pixel)`$">second</span>';
+        const result = htmlToMarkdown(html);
+
+        expect(result).toContain('a&#36;bx&#96;&#33;&#91;pixel&#93;&#40;');
+        expect(result).not.toContain('![');
+        expect(stripImagePlaceholders(result)).toBe(result);
+      });
+
+      it.each([
+        ['inline', 'span', false],
+        ['display', 'div', true],
+      ] as const)(
+        'keeps rejected %s math inert across active Markdown forms',
+        (_kind, tag, preservesLines) => {
+          const payload = [
+            'x',
+            '$$',
+            '![pixel](https://attacker.example/pixel)',
+            '![[private-note]]',
+            '> [!warning]',
+            '# forged heading',
+            '<img src=x>',
+            '```md',
+            'code',
+            '```',
+            '$$',
+            'y',
+          ].join('\n');
+          const attribute = payload
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/\n/g, '&#10;');
+
+          const result = htmlToMarkdown(`<${tag} data-math="${attribute}">rendered</${tag}>`);
+          expect(result).toContain('&#33;&#91;pixel&#93;&#40;https&#58;&#47;&#47;');
+          expect(result).toContain('&#33;&#91;&#91;private&#45;note&#93;&#93;');
+          expect(result).toContain('&#60;img src&#61;x&#62;');
+          expect(result).toContain('&#96;&#96;&#96;md');
+          expect(result).not.toMatch(/!\[|\[\[|```|<img/);
+          expect(result.includes('\n')).toBe(preservesLines);
+          expect(stripImagePlaceholders(result)).toBe(result);
+        }
+      );
+
+      it('survives cross-boundary image-placeholder stripping unchanged', () => {
+        const first = '$x\n``![x](g2o-image://missing';
+        const second = '$y)\n```\n![pixel](https://attacker.example/pixel)';
+        const html = `<div data-math="${first.replace(/\n/g, '&#10;')}">one</div><div data-math="${second.replace(/\n/g, '&#10;')}">two</div>`;
+        const result = htmlToMarkdown(html);
+
+        expect(result).not.toContain('g2o-image://');
+        expect(result).not.toContain('![');
+        expect(stripImagePlaceholders(result)).toBe(result);
+      });
+
+      it('does not let placeholder stripping span adjacent accepted math nodes', () => {
+        const html =
+          '<span data-math="![x](g2o-image://missing">one</span>' +
+          '<span data-math=")">two</span>';
+        const result = htmlToMarkdown(html);
+
+        expect(result).toContain('$![x](g2o-image://missing$$)$');
+        expect(stripImagePlaceholders(result)).toBe(result);
       });
     });
   });
@@ -368,6 +492,55 @@ describe('htmlToMarkdown', () => {
       const html = buildKatexHtml('E = mc^2', true);
       const result = htmlToMarkdown(sanitizeHtml(html));
       expect(result).toContain('$$\nE = mc^2\n$$');
+    });
+
+    it.each([
+      ['inline', false, false],
+      ['display', true, true],
+    ] as const)(
+      'keeps rejected standard KaTeX %s content inert',
+      (_kind, display, preservesLines) => {
+        const payload = ['x', '$$', '![pixel](https://attacker.example/pixel)', '$$', 'y'].join(
+          '\n'
+        );
+        const result = htmlToMarkdown(sanitizeHtml(buildKatexHtml(payload, display)));
+
+        expect(result).toContain('&#36;&#36;');
+        expect(result).toContain('&#33;&#91;pixel&#93;&#40;https&#58;&#47;&#47;');
+        expect(result).not.toContain('![');
+        expect(result.includes('\n')).toBe(preservesLines);
+        expect(stripImagePlaceholders(result)).toBe(result);
+      }
+    );
+
+    it('keeps rejected standard KaTeX inert inside a custom Markdown table', () => {
+      const payload = '$ | ![pixel](https://attacker.example/pixel)';
+      const html = `<table><tr><th>Formula</th><th>Kind</th></tr><tr><td>\\${buildKatexHtml(payload)}</td><td>ordinary</td></tr></table>`;
+
+      expect(htmlToMarkdown(sanitizeHtml(html))).toContain(
+        '| &#92;&#36; &#124; &#33;&#91;pixel&#93;&#40;https&#58;&#47;&#47;attacker&#46;example&#47;pixel&#41; | ordinary |'
+      );
+    });
+
+    it('does not let surrounding table backticks capture rejected KaTeX Markdown', () => {
+      const payload = '$ ![pixel](https://attacker.example/pixel)';
+      const html = `<table><tr><th>Formula</th><th>Kind</th></tr><tr><td>\`${buildKatexHtml(payload)}\`</td><td>ordinary</td></tr></table>`;
+      const result = htmlToMarkdown(sanitizeHtml(html));
+
+      expect(result).toContain(
+        '| &#96;&#36; &#33;&#91;pixel&#93;&#40;https&#58;&#47;&#47;attacker&#46;example&#47;pixel&#41;&#96; | ordinary |'
+      );
+      expect(result).not.toContain('![');
+      expect(stripImagePlaceholders(result)).toBe(result);
+    });
+
+    it.each([
+      ['|x|', '&#124;x&#124;'],
+      ['\\|x\\|', '&#92;&#124;x&#92;&#124;'],
+    ])('keeps legitimate pipe formula %s inside one Markdown table cell', (latex, expected) => {
+      const html = `<table><tr><th>Formula</th><th>Kind</th></tr><tr><td>${buildKatexHtml(latex)}</td><td>ordinary</td></tr></table>`;
+
+      expect(htmlToMarkdown(sanitizeHtml(html))).toContain(`| ${expected} | ordinary |`);
     });
 
     it('converts standard KaTeX inline math to $ delimiters', () => {
@@ -650,6 +823,43 @@ describe('conversationToNote', () => {
     userCalloutType: 'QUESTION',
     assistantCalloutType: 'NOTE',
   };
+
+  it.each(['plain', 'blockquote', 'callout'] as const)(
+    'keeps rejected math inert in %s conversation output',
+    messageFormat => {
+      const payload = ['$danger', '![pixel](https://attacker.example/pixel)'].join('\n');
+      const attribute = payload.replace(/\n/g, '&#10;');
+      const data: ConversationData = {
+        ...mockData,
+        messages: [
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: `<div data-math="${attribute}">rendered</div>`,
+            index: 0,
+          },
+        ],
+        metadata: {
+          messageCount: 1,
+          userMessageCount: 0,
+          assistantMessageCount: 1,
+          hasCodeBlocks: false,
+        },
+      };
+      const note = conversationToNote(data, { ...defaultOptions, messageFormat });
+      const literal = [
+        '&#36;danger',
+        '&#33;&#91;pixel&#93;&#40;https&#58;&#47;&#47;attacker&#46;example&#47;pixel&#41;',
+      ];
+      const expected = (
+        messageFormat === 'plain' ? literal : literal.map(line => `> ${line}`)
+      ).join('\n');
+
+      expect(note.body).toContain(expected);
+      expect(note.body).not.toContain('![pixel]');
+      expect(stripImagePlaceholders(note.body)).toBe(note.body);
+    }
+  );
 
   it('attaches captured images to the note', () => {
     const dataWithImages: ConversationData = {

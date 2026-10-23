@@ -36,8 +36,7 @@ message_count: 6
 > 
 > 一次方程式の解の例 $2x + 3 = 7$
 > 
-> 二次方程式の一般形と解の公式 $ax^2 + bx + c = 0$ $x = \\dfrac{-b \\pm \\sqrt{b^2 -
->                                                       4ac}}{2a}$
+> 二次方程式の一般形と解の公式 $ax^2 + bx + c = 0$ $x = \\dfrac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$
 > 
 > 三角関数の恒等式 $\\sin^2\\theta + \\cos^2\\theta = 1$
 > 
@@ -45,8 +44,7 @@ message_count: 6
 > 
 > 微分の基本公式 $\\dfrac{d}{dx} x^n = nx^{n-1}$
 > 
-> 積分の例 $\\displaystyle \\int_0^1 x^2\\,dx =
->                                                       \\dfrac{1}{3}$"
+> 積分の例 $\\displaystyle \\int_0^1 x^2\\,dx = \\dfrac{1}{3}$"
 `;
 
 exports[`Perplexity E2E Extraction > Deep Research > should generate correct markdown output 1`] = `

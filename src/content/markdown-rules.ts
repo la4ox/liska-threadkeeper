@@ -300,6 +300,14 @@ function markdownInlineCode(content: string): string {
   return `${delimiter}${padding}${normalized}${padding}${delimiter}`;
 }
 
+/** Encode Markdown-significant ASCII punctuation without creating delimiters. */
+function asciiPunctuationEntities(value: string): string {
+  return value.replace(
+    /[\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e]/g,
+    character => `&#${character.charCodeAt(0)};`
+  );
+}
+
 // Custom rule for inline code
 turndown.addRule('inlineCode', {
   filter: node => {
@@ -323,7 +331,11 @@ turndown.addRule('g2oImage', {
     const el = node as HTMLElement;
     const id = el.getAttribute('data-g2o-image');
     if (!id) return '';
-    const alt = el.getAttribute('alt') ?? '';
+    // Keep the internal placeholder grammar unambiguous even when provider alt
+    // text contains Markdown delimiters or physical line separators.
+    const alt = asciiPunctuationEntities(
+      (el.getAttribute('alt') ?? '').replace(/\s+/g, ' ').trim()
+    );
     return `\n\n![${alt}](g2o-image://${id})\n\n`;
   },
 });
@@ -355,24 +367,68 @@ turndown.addRule('footnoteDef', {
 });
 
 /**
- * Render a page-derived LaTeX value as Markdown math, or fall back to plain
- * text when the value would degrade or break Obsidian's math rendering:
+ * Render a page-derived LaTeX value as Markdown math, or fall back to a
+ * context-independent entity literal when the value would degrade or break
+ * Obsidian's math rendering:
  * - longer than {@link MAX_MATH_LENGTH} (malformed/abusive input), or
  * - contains a literal `$` (breaks the `$…$` / `$$…$$` delimiters).
  *
- * Multi-line LaTeX is left intact — real KaTeX inline formulas (e.g. matrices
- * with `\\` row breaks) legitimately span lines.
- *
- * On fallback, backslashes are escaped first, then `$` → `\$`, so the plain
- * text is not re-parsed as math (escaping the escape character prevents a
- * preceding `\` from pairing with the inserted one and re-opening a delimiter).
+ * Formatting-only line wraps in inline math collapse to spaces. A wrap after
+ * an unescaped TeX `%` comment is promoted to display math so the line ending
+ * remains semantic. Boundary whitespace is trimmed, while an odd trailing
+ * backslash cannot precede the generated closing `$`. Display math keeps
+ * legitimate line breaks.
  */
-function formatMath(latex: string, display: boolean): string {
-  if (latex.length > MAX_MATH_LENGTH || latex.includes('$')) {
-    const plain = latex.replace(/\\/g, '\\\\').replace(/\$/g, '\\$');
-    return display ? `\n${plain}\n` : plain;
+function mathLiteral(latex: string, display: boolean): string {
+  const normalized = display
+    ? latex.replace(/\r\n?|[\u2028\u2029]/g, '\n')
+    : latex.replace(/\r\n?|\n|[\u2028\u2029]/g, ' ').trim();
+  const encoded = asciiPunctuationEntities(normalized);
+  if (!display) return encoded;
+
+  // Four raw leading spaces or one tab would make entity text an indented
+  // Markdown code block, where entities display verbatim instead of decoding.
+  return encoded.replace(/(^|\n)([ \t]+)/g, (_match, lineStart: string, whitespace: string) => {
+    const literalWhitespace = Array.from(whitespace, character =>
+      character === '\t' ? '&#9;' : '&#32;'
+    ).join('');
+    return `${lineStart}${literalWhitespace}`;
+  });
+}
+
+/** True when collapsing a physical line break would extend a TeX `%` comment. */
+function hasTeXCommentBeforeLineBreak(latex: string): boolean {
+  for (let index = 0; index < latex.length; index += 1) {
+    if (latex[index] !== '%' || isEscaped(latex, index)) continue;
+    if (/\r|\n|[\u2028\u2029]/.test(latex.slice(index + 1))) return true;
   }
-  return display ? `\n$$\n${latex}\n$$\n` : `$${latex}$`;
+  return false;
+}
+
+function formatMath(latex: string, display: boolean): string {
+  if (
+    latex.length > MAX_MATH_LENGTH ||
+    latex.includes('$') ||
+    /!\[[^\]]*\]\(g2o-image:\/\/[^)]+\)/.test(latex)
+  ) {
+    const literal = mathLiteral(latex, display);
+    return display ? `\n${literal}\n` : literal;
+  }
+  if (display) return `\n$$\n${latex.replace(/\r\n?|[\u2028\u2029]/g, '\n')}\n$$\n`;
+
+  const hasPhysicalLineBreak = /\r|\n|[\u2028\u2029]/.test(latex);
+  if (hasPhysicalLineBreak && hasTeXCommentBeforeLineBreak(latex)) {
+    const normalizedLines = latex.replace(/\r\n?|[\u2028\u2029]/g, '\n').trim();
+    return `\n$$\n${normalizedLines}\n$$\n`;
+  }
+
+  const normalized = (
+    hasPhysicalLineBreak ? latex.replace(/\s*(?:\r\n?|\n|[\u2028\u2029])\s*/g, ' ') : latex
+  ).trim();
+  if (!normalized || isEscaped(normalized, normalized.length)) {
+    return mathLiteral(latex, false);
+  }
+  return `$${normalized}$`;
 }
 
 // Custom rule for display math blocks (Gemini KaTeX: <div data-math="...">)
@@ -407,11 +463,34 @@ turndown.addRule('mathInline', {
 // Turndown rules do not run inside the custom table rule), so footnote-ref
 // placeholder spans must be converted to `[^label]` here or their marker
 // text would leak into the cell verbatim.
+function encodeTableTextAroundStructuredNodes(root: Element): void {
+  const visit = (parent: Node): void => {
+    Array.from(parent.childNodes).forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        child.textContent = asciiPunctuationEntities(child.textContent ?? '');
+        return;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) return;
+      const element = child as Element;
+      if (element.matches('[data-math], [data-footnote-ref]')) return;
+      visit(element);
+    });
+  };
+  visit(root);
+}
+
 function tableCellText(cell: Element): string {
-  if (!cell.querySelector('[data-footnote-ref]')) {
+  if (!cell.querySelector('[data-footnote-ref], [data-math]')) {
     return cell.textContent?.trim() || '';
   }
   const clone = cell.cloneNode(true) as Element;
+  // Once a cell contains generated math literal text, raw punctuation in
+  // neighboring text must not capture or escape that generated output.
+  if (clone.querySelector('[data-math]')) encodeTableTextAroundStructuredNodes(clone);
+  clone.querySelectorAll<HTMLElement>('[data-math]').forEach(math => {
+    const latex = math.getAttribute('data-math');
+    if (latex) math.replaceWith(mathLiteral(latex, false));
+  });
   clone.querySelectorAll('[data-footnote-ref]').forEach(ref => {
     const label = ref.getAttribute('data-footnote-ref');
     ref.replaceWith(label ? `[^${label}]` : '');
