@@ -13,11 +13,17 @@ const LITERAL_OPEN_BRACKET = '&#91;';
 const LITERAL_IMAGE_OPEN = '&#33;&#91;';
 const TRUSTED_CHATGPT_ARCHIVE_TARGET =
   /^_liska-archive\/[a-f0-9]{64}\/capture-chatgpt-[A-Za-z0-9_-]{1,240}\/assets\/[a-f0-9]{64}\.[a-z0-9]{1,16}$/u;
+const TRUSTED_IMAGE_PLACEHOLDER = /^g2o-image:\/\/[^)$\r\n]{1,256}$/u;
 
 interface SourceEdit {
   readonly start: number;
   readonly deleteCount: 1 | 2;
   readonly replacement: string;
+}
+
+interface SourceRange {
+  readonly start: number;
+  readonly end: number;
 }
 
 type MarkdownNode = Root | RootContent;
@@ -33,6 +39,71 @@ function nodeOffsets(node: Node): { start: number; end: number } | null {
 function childNodes(node: MarkdownNode): readonly MarkdownNode[] {
   const children = (node as { children?: unknown }).children;
   return Array.isArray(children) ? (children as MarkdownNode[]) : [];
+}
+
+function codeRanges(tree: Root): SourceRange[] {
+  const ranges: SourceRange[] = [];
+  const pending: MarkdownNode[] = [tree];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (node.type === 'code' || node.type === 'inlineCode') {
+      const position = nodeOffsets(node);
+      if (position) ranges.push(position);
+    }
+    for (const child of childNodes(node)) pending.push(child);
+  }
+  return ranges.sort((left, right) => left.start - right.start);
+}
+
+function containingRange(ranges: readonly SourceRange[], index: number): SourceRange | null {
+  let low = 0;
+  let high = ranges.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (ranges[middle].end <= index) low = middle + 1;
+    else high = middle;
+  }
+  const candidate = ranges[low];
+  return candidate && candidate.start <= index ? candidate : null;
+}
+
+/** Obsidian math is opaque to CommonMark; protect only complete delimiters outside code. */
+function mathRanges(source: string, tree: Root): SourceRange[] {
+  const protectedCode = codeRanges(tree);
+  const ranges: SourceRange[] = [];
+  let state: { start: number; length: 1 | 2 } | null = null;
+  let slashParity = 0;
+  for (let cursor = 0; cursor < source.length; ) {
+    const code = containingRange(protectedCode, cursor);
+    if (code) {
+      state = null;
+      slashParity = 0;
+      cursor = code.end;
+      continue;
+    }
+    const character = source[cursor];
+    if (character === '\\') {
+      slashParity ^= 1;
+      cursor += 1;
+      continue;
+    }
+    const escaped = slashParity === 1;
+    slashParity = 0;
+    if (state?.length === 1 && (character === '\r' || character === '\n')) state = null;
+    if (character !== '$' || escaped) {
+      cursor += 1;
+      continue;
+    }
+    const length: 1 | 2 = source[cursor + 1] === '$' ? 2 : 1;
+    if (!state) {
+      state = { start: cursor, length };
+    } else if (state.length === length) {
+      ranges.push({ start: state.start, end: cursor + length });
+      state = null;
+    }
+    cursor += length;
+  }
+  return ranges;
 }
 
 function ipv4Octets(hostname: string): number[] | null {
@@ -139,7 +210,11 @@ function trustedLocalDestination(
   destination: string,
   trustedDestinations: ReadonlySet<string>
 ): boolean {
-  return TRUSTED_CHATGPT_ARCHIVE_TARGET.test(destination) && trustedDestinations.has(destination);
+  return (
+    trustedDestinations.has(destination) &&
+    (TRUSTED_CHATGPT_ARCHIVE_TARGET.test(destination) ||
+      TRUSTED_IMAGE_PLACEHOLDER.test(destination))
+  );
 }
 
 /** URLs supplied by mdast are already CommonMark entity/backslash decoded. */
@@ -189,6 +264,24 @@ function neutralizeBracketsInRange(
   }
 }
 
+function mergeShiftedEdits(
+  target: Map<number, SourceEdit>,
+  nested: ReadonlyMap<number, SourceEdit>,
+  offset: number
+): void {
+  for (const edit of nested.values()) {
+    addEdit(target, { ...edit, start: edit.start + offset });
+  }
+}
+
+function footnoteBodyStart(source: string, position: SourceRange): number | null {
+  const delimiter = source.indexOf(']:', position.start + 2);
+  if (delimiter < 0 || delimiter >= position.end) return null;
+  let start = delimiter + 2;
+  while (start < position.end && (source[start] === ' ' || source[start] === '\t')) start += 1;
+  return start;
+}
+
 function neutralizeImage(
   source: string,
   node: Image | ImageReference,
@@ -213,7 +306,8 @@ function neutralizeUnsafeLink(
   source: string,
   node: Link | Definition,
   trustedDestinations: ReadonlySet<string>,
-  edits: Map<number, SourceEdit>
+  edits: Map<number, SourceEdit>,
+  preserveFootnotes: boolean
 ): void {
   const position = nodeOffsets(node);
   if (!position || source[position.start] !== '[') return;
@@ -221,20 +315,45 @@ function neutralizeUnsafeLink(
   // single-token body as a link destination. Preserve the footnote marker.
   // Active syntax inside ordinary multi-token bodies remains separate mdast
   // nodes and is neutralized normally.
-  if (node.type === 'definition' && source.startsWith('[^', position.start)) return;
+  if (preserveFootnotes && node.type === 'definition' && source.startsWith('[^', position.start)) {
+    const bodyStart = footnoteBodyStart(source, position);
+    if (bodyStart !== null && bodyStart < position.end) {
+      const body = source.slice(bodyStart, position.end);
+      if (body.includes('[')) {
+        mergeShiftedEdits(
+          edits,
+          collectEdits(body, fromMarkdown(body), trustedDestinations, false),
+          bodyStart
+        );
+      }
+    }
+    return;
+  }
   if (safeLinkDestination(node.url, trustedDestinations)) return;
   addEdit(edits, {
     start: position.start,
     deleteCount: 1,
     replacement: LITERAL_OPEN_BRACKET,
   });
+  neutralizeBracketsInRange(source, position.start + 1, position.end, edits);
 }
 
-function wikiEdits(source: string, node: Text, edits: Map<number, SourceEdit>): void {
+function wikiEdits(
+  source: string,
+  node: Text,
+  edits: Map<number, SourceEdit>,
+  protectedMath: readonly SourceRange[]
+): void {
   const position = nodeOffsets(node);
   if (!position) return;
   let slashParity = 0;
   for (let cursor = position.start; cursor < position.end; cursor += 1) {
+    const math = containingRange(protectedMath, cursor);
+    if (math) {
+      slashParity = 0;
+      cursor = math.end - 1;
+      continue;
+    }
     const character = source[cursor];
     if (character === '\\') {
       slashParity ^= 1;
@@ -254,18 +373,24 @@ function wikiEdits(source: string, node: Text, edits: Map<number, SourceEdit>): 
 function collectEdits(
   source: string,
   tree: Root,
-  trustedDestinations: ReadonlySet<string>
+  trustedDestinations: ReadonlySet<string>,
+  preserveFootnotes = true
 ): Map<number, SourceEdit> {
   const edits = new Map<number, SourceEdit>();
+  const protectedMath = mathRanges(source, tree);
   const pending: MarkdownNode[] = [tree];
   while (pending.length > 0) {
     const node = pending.pop()!;
+    const position = nodeOffsets(node);
+    const startsInMath =
+      position !== null && containingRange(protectedMath, position.start) !== null;
     if (node.type === 'image' || node.type === 'imageReference') {
-      neutralizeImage(source, node, trustedDestinations, edits);
+      if (!startsInMath) neutralizeImage(source, node, trustedDestinations, edits);
     } else if (node.type === 'link' || node.type === 'definition') {
-      neutralizeUnsafeLink(source, node, trustedDestinations, edits);
+      if (!startsInMath)
+        neutralizeUnsafeLink(source, node, trustedDestinations, edits, preserveFootnotes);
     } else if (node.type === 'text') {
-      wikiEdits(source, node, edits);
+      wikiEdits(source, node, edits, protectedMath);
     }
     for (const child of childNodes(node)) pending.push(child);
   }

@@ -7,7 +7,6 @@
 
 import { htmlToMarkdown, escapeAngleBrackets, escapeUserText } from './markdown-rules';
 import { markdownCodeFence } from './markdown-code';
-import { neutralizeActiveProviderMarkdown } from './markdown-safety';
 import { PLATFORM_LABELS } from '../lib/constants';
 import type { AIPlatform, TemplateOptions } from '../lib/types';
 import { neutralizeMessageBoundaryMarkers } from '../lib/message-counter';
@@ -71,13 +70,10 @@ export function buildQuestionHeader(content: string): string {
 function messageMarkdown(
   content: string,
   role: 'user' | 'assistant',
-  contentFormat: 'html' | 'markdown',
-  trustedMarkdownDestinations: readonly string[]
+  contentFormat: 'html' | 'markdown'
 ): string {
-  if (role === 'user') return neutralizeActiveProviderMarkdown(escapeUserText(content));
-  return contentFormat === 'markdown'
-    ? neutralizeActiveProviderMarkdown(escapeAngleBrackets(content), trustedMarkdownDestinations)
-    : htmlToMarkdown(content);
+  if (role === 'user') return escapeUserText(content);
+  return contentFormat === 'markdown' ? escapeAngleBrackets(content) : htmlToMarkdown(content);
 }
 
 /**
@@ -88,14 +84,11 @@ export function formatMessage(
   role: 'user' | 'assistant',
   options: TemplateOptions,
   source: AIPlatform,
-  contentFormat: 'html' | 'markdown' = 'html',
-  trustedMarkdownDestinations: readonly string[] = []
+  contentFormat: 'html' | 'markdown' = 'html'
 ): string {
   // Convert HTML to Markdown for assistant messages; escape angle brackets and
   // `$` (Obsidian math) for user messages, which are plain pasted text.
-  const markdown = neutralizeMessageBoundaryMarkers(
-    messageMarkdown(content, role, contentFormat, trustedMarkdownDestinations)
-  );
+  const markdown = neutralizeMessageBoundaryMarkers(messageMarkdown(content, role, contentFormat));
   const assistantLabel = PLATFORM_LABELS[source];
 
   let formatted: string;

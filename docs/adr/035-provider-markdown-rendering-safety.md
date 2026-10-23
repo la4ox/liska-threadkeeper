@@ -49,6 +49,18 @@ child node that the parser recognizes is still neutralized. A parser failure
 falls back to disabling bracket syntax instead of returning the original active
 text.
 
+The complete ordinary-note body is checked after message boundaries, labels,
+callouts, and tool evidence have been composed. This final pass uses the union
+of exact trusted destinations and therefore sees cross-message reference and
+code-fence state exactly as the eventual renderer does.
+When an unsafe link or image becomes literal, bracket syntax inside its opaque
+title, destination, or description is neutralized too, so the edit cannot expose
+a new child node.
+
+Complete Obsidian `$...$` and `$$...$$` math ranges outside Markdown code are
+treated as opaque during active-syntax edits. Double brackets inside TeX remain
+mathematical notation rather than becoming wiki links or HTML entities.
+
 ### 2. Link destinations use a narrow policy
 
 The parser's decoded destination is classified, so CommonMark backslash escapes

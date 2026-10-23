@@ -1310,7 +1310,48 @@ describe('conversationToNote', () => {
       { ...defaultOptions, messageFormat: 'plain' }
     );
 
-    expect(note.body).toContain('&#33;&#91;pixel][tracking]');
+    expect(note.body).toContain('&#33;&#91;pixel]&#91;tracking]');
+    const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(note.body)];
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      expect(node.type).not.toBe('image');
+      expect(node.type).not.toBe('imageReference');
+      if (Array.isArray(node.children)) {
+        for (const child of node.children) {
+          if (typeof child === 'object' && child !== null && 'type' in child) {
+            pending.push(child as { type: string; children?: unknown[] });
+          }
+        }
+      }
+    }
+  });
+
+  it('rechecks code-fence state after separate Markdown messages are composed', () => {
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'deepseek',
+        messages: [
+          {
+            id: 'msg1',
+            role: 'assistant',
+            content: '```',
+            contentFormat: 'markdown',
+            index: 0,
+          },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: '```\n![pixel](https://attacker.example/pixel)\n```',
+            contentFormat: 'markdown',
+            index: 1,
+          },
+        ],
+      },
+      { ...defaultOptions, messageFormat: 'plain' }
+    );
+
+    expect(note.body).toContain('&#33;&#91;pixel](https://attacker.example/pixel)');
     const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(note.body)];
     while (pending.length > 0) {
       const node = pending.pop()!;

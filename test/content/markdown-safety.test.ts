@@ -75,7 +75,7 @@ describe('neutralizeActiveProviderMarkdown', () => {
     'http://[::ffff:127.0.0.1]/admin',
   ])('neutralizes unsupported or private link destination %s', destination => {
     expect(neutralizeActiveProviderMarkdown(`[target](${destination})`)).toBe(
-      `&#91;target](${destination})`
+      `&#91;target](${destination.replaceAll('[', '&#91;')})`
     );
   });
 
@@ -111,6 +111,16 @@ describe('neutralizeActiveProviderMarkdown', () => {
       '[x](https://example.com a &#33;&#91;remote](https://attacker.example/pixel) ' +
         '&#91;probe](http://127.0.0.1/admin) &#91;[Private]])'
     );
+  });
+
+  it('neutralizes Markdown exposed by rejecting an unsafe link title', () => {
+    const output = neutralizeActiveProviderMarkdown(
+      '[blocked](file:///private "![pixel](https://attacker.example/pixel)")'
+    );
+    expect(output).toBe(
+      '&#91;blocked](file:///private "!&#91;pixel](https://attacker.example/pixel)")'
+    );
+    expect(activeNodeTypes(output)).not.toContain('image');
   });
 
   it('does not expose nested image syntax when the outer image becomes literal', () => {
@@ -154,6 +164,18 @@ describe('neutralizeActiveProviderMarkdown', () => {
         '[^link]: &#91;bad](javascript:alert%281%29)',
       ].join('\n')
     );
+  });
+
+  it('handles isolated footnotes that CommonMark classifies as definitions', () => {
+    expect(neutralizeActiveProviderMarkdown('[^note]: Explanation.')).toBe('[^note]: Explanation.');
+    expect(
+      neutralizeActiveProviderMarkdown('[^note]: ![pixel](https://attacker.example/pixel)')
+    ).toBe('[^note]: &#33;&#91;pixel](https://attacker.example/pixel)');
+  });
+
+  it('preserves Obsidian inline and display math containing double brackets', () => {
+    const math = ['$\\mathbb{Z}[[t]]$', '$$', 'A[[i]] + B[[j]]', '$$'].join('\n');
+    expect(neutralizeActiveProviderMarkdown(math)).toBe(math);
   });
 
   it('neutralizes Obsidian links and embeds while keeping literal examples intact', () => {
