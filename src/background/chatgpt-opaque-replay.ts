@@ -5,7 +5,8 @@
  */
 
 import { canonicalBase64ByteLength } from '../lib/base64';
-import { CHATGPT_CAPTURE_ENDPOINT, isChatGptConversationId } from '../lib/chatgpt-capture-contract';
+import { CHATGPT_CAPTURE_ENDPOINT } from '../lib/chatgpt-capture-contract';
+import { isChatGptCaptureTarget, type ChatGptCaptureTarget } from './chatgpt-route-target';
 import {
   createChatGptOpaqueReplayFailure,
   isChatGptOpaqueReplayHookResult,
@@ -92,16 +93,12 @@ function safeNonce(createNonce: () => string): string | undefined {
   }
 }
 
-function targetPath(conversationId: string): string {
-  return `/c/${encodeURIComponent(conversationId)}`;
-}
-
 function marker(nonce: string): string {
   return `#liska-capture=${nonce}&liska-opaque-replay=1`;
 }
 
-function targetUrl(conversationId: string, nonce: string): string {
-  return `${CHATGPT_ORIGIN}${targetPath(conversationId)}${marker(nonce)}`;
+function targetUrl(target: ChatGptCaptureTarget, nonce: string): string {
+  return `${CHATGPT_ORIGIN}${target.pathname}${marker(nonce)}`;
 }
 
 function remainingTimeout(deadline: number, now: () => number): number {
@@ -156,7 +153,7 @@ async function removeTemporaryTab(
 async function waitForTemporaryTarget(
   chromeApi: ReplayChromeApi,
   tabId: number,
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   nonce: string,
   deadline: number,
   now: () => number,
@@ -171,11 +168,7 @@ async function waitForTemporaryTarget(
         const url = new URL(tab.url);
         if (url.origin !== CHATGPT_ORIGIN || url.username !== '' || url.password !== '') {
           readiness = 'unexpected-origin';
-        } else if (
-          url.pathname === targetPath(conversationId) &&
-          url.search === '' &&
-          url.hash === marker(nonce)
-        ) {
+        } else if (tab.url === targetUrl(target, nonce)) {
           readiness = 'ready';
         } else {
           readiness = 'unexpected-path';
@@ -239,10 +232,10 @@ function strictBase64Bytes(value: string): Uint8Array | undefined {
 
 async function artifactFromHookResult(
   result: Extract<ChatGptOpaqueReplayHookResult, { kind: 'captured' }>,
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   digestSha256: (bytes: Uint8Array) => Promise<string>
 ): Promise<ChatGptOpaqueReplayArtifact | undefined> {
-  if (result.conversationId !== conversationId || result.singularDispatchCount !== 1)
+  if (result.conversationId !== target.conversationId || result.singularDispatchCount !== 1)
     return undefined;
   const bytes = strictBase64Bytes(result.capture.bodyBase64);
   if (bytes === undefined || bytes.byteLength !== result.capture.byteLength) return undefined;
@@ -255,6 +248,7 @@ async function artifactFromHookResult(
     return undefined;
   }
   return {
+    routeFamily: target.routeFamily,
     bodyBase64: result.capture.bodyBase64,
     byteLength: result.capture.byteLength,
     sha256: result.capture.sha256.toLowerCase(),
@@ -264,31 +258,71 @@ async function artifactFromHookResult(
   };
 }
 
+async function verifiedReplayResponse(
+  resolved: ReturnType<typeof resolvedDependencies>,
+  tabId: number,
+  nonce: string,
+  target: ChatGptCaptureTarget,
+  state: Extract<ChatGptOpaqueReplayHookResult, { kind: 'captured' }>,
+  deadline: number
+): Promise<ChatGptOpaqueReplayResponse> {
+  let artifact: ChatGptOpaqueReplayArtifact | undefined;
+  try {
+    artifact = await withinDeadline(
+      artifactFromHookResult(state, target, resolved.digestSha256),
+      remainingTimeout(deadline, resolved.now)
+    );
+  } catch {
+    return createChatGptOpaqueReplayFailure('replay-result-timeout', 1);
+  }
+  const readiness = await waitForTemporaryTarget(
+    resolved.chromeApi,
+    tabId,
+    target,
+    nonce,
+    deadline,
+    resolved.now,
+    resolved.sleep,
+    resolved.pollIntervalMs
+  );
+  if (readiness !== 'ready')
+    return createChatGptOpaqueReplayFailure(
+      readiness === 'waiting' ? 'temporary-tab-ready-timeout' : readiness,
+      1
+    );
+  return artifact === undefined
+    ? createChatGptOpaqueReplayFailure('replay-result-invalid', 1)
+    : { success: true, data: artifact };
+}
+
 async function waitForReplayResult(
   resolved: ReturnType<typeof resolvedDependencies>,
   tabId: number,
   nonce: string,
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   deadline: number
 ): Promise<ChatGptOpaqueReplayResponse> {
   while (resolved.now() <= deadline) {
+    const readiness = await waitForTemporaryTarget(
+      resolved.chromeApi,
+      tabId,
+      target,
+      nonce,
+      deadline,
+      resolved.now,
+      resolved.sleep,
+      resolved.pollIntervalMs
+    );
+    if (readiness !== 'ready')
+      return createChatGptOpaqueReplayFailure(
+        readiness === 'waiting' ? 'temporary-tab-ready-timeout' : readiness
+      );
     const state = await readHookState(resolved.chromeApi, tabId, nonce, deadline, resolved.now);
     if (state.kind === 'error') {
       return createChatGptOpaqueReplayFailure(state.code, state.singularDispatchCount);
     }
     if (state.kind === 'captured') {
-      let artifact: ChatGptOpaqueReplayArtifact | undefined;
-      try {
-        artifact = await withinDeadline(
-          artifactFromHookResult(state, conversationId, resolved.digestSha256),
-          remainingTimeout(deadline, resolved.now)
-        );
-      } catch {
-        return createChatGptOpaqueReplayFailure('replay-result-timeout', 1);
-      }
-      return artifact === undefined
-        ? createChatGptOpaqueReplayFailure('replay-result-invalid', 1)
-        : { success: true, data: artifact };
+      return verifiedReplayResponse(resolved, tabId, nonce, target, state, deadline);
     }
     const remaining = deadline - resolved.now();
     if (remaining <= 0) break;
@@ -312,12 +346,17 @@ async function waitForReplayResult(
  */
 // eslint-disable-next-line max-lines-per-function -- Lifecycle cleanup stays linear so each deadline exit has one bounded, auditable path.
 export async function captureChatGptConversationViaOpaqueReplay(
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   overrides: ChatGptOpaqueReplayDependencies = {}
 ): Promise<ChatGptOpaqueReplayResponse> {
-  if (!isChatGptConversationId(conversationId)) {
+  if (!isChatGptCaptureTarget(target)) {
     return createChatGptOpaqueReplayFailure('invalid-conversation-id');
   }
+  const immutableTarget = Object.freeze({
+    conversationId: target.conversationId,
+    pathname: target.pathname,
+    routeFamily: target.routeFamily,
+  });
   const resolved = resolvedDependencies(overrides);
   const nonce = safeNonce(resolved.createNonce);
   if (nonce === undefined) return createChatGptOpaqueReplayFailure('nonce-invalid');
@@ -328,7 +367,7 @@ export async function captureChatGptConversationViaOpaqueReplay(
     let creation: Promise<{ id?: number }>;
     try {
       creation = Promise.resolve(
-        resolved.chromeApi.tabs.create({ url: targetUrl(conversationId, nonce), active: false })
+        resolved.chromeApi.tabs.create({ url: targetUrl(immutableTarget, nonce), active: false })
       );
     } catch {
       return createChatGptOpaqueReplayFailure('temporary-tab-create-failed');
@@ -355,7 +394,7 @@ export async function captureChatGptConversationViaOpaqueReplay(
     const readiness = await waitForTemporaryTarget(
       resolved.chromeApi,
       tabId,
-      conversationId,
+      immutableTarget,
       nonce,
       deadline,
       resolved.now,
@@ -371,7 +410,7 @@ export async function captureChatGptConversationViaOpaqueReplay(
     if (readiness !== 'ready') {
       return createChatGptOpaqueReplayFailure('temporary-tab-ready-timeout');
     }
-    return await waitForReplayResult(resolved, tabId, nonce, conversationId, deadline);
+    return await waitForReplayResult(resolved, tabId, nonce, immutableTarget, deadline);
   } catch {
     return createChatGptOpaqueReplayFailure('replay-result-invalid');
   } finally {

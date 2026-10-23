@@ -4,6 +4,11 @@ import {
   validateChatGptStandardConversationSender,
   validateMessageContent,
 } from '../../src/background/validation';
+import {
+  deriveChatGptCaptureTarget,
+  isChatGptCaptureTarget,
+  parseChatGptCaptureTarget,
+} from '../../src/background/chatgpt-route-target';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const OTHER_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555';
@@ -16,6 +21,88 @@ function contentSender(tabUrl: string, senderUrl?: string): chrome.runtime.Messa
 }
 
 describe('ChatGPT capture message validation', () => {
+  it.each([
+    ['/c/', 'standard'],
+    ['/g/my-custom-gpt/c/', 'custom-gpt'],
+    ['/g/g-p-private-project/c/', 'project'],
+  ] as const)('preserves exact %s routes including trailing slashes', (prefix, routeFamily) => {
+    for (const trailing of ['', '/']) {
+      const pathname = `${prefix}${CONVERSATION_ID}${trailing}`;
+      const target = deriveChatGptCaptureTarget(
+        contentSender(
+          `https://chatgpt.com${pathname}`,
+          `https://chatgpt.com/c/${OTHER_CONVERSATION_ID}`
+        ),
+        CONVERSATION_ID
+      );
+      expect(target).toEqual({ conversationId: CONVERSATION_ID, pathname, routeFamily });
+      expect(Object.isFrozen(target)).toBe(true);
+    }
+  });
+
+  it('rejects URL normalization, malformed owners, and mismatched UUIDs', () => {
+    const paths = [
+      `/c/${OTHER_CONVERSATION_ID}`,
+      `/c/${CONVERSATION_ID}?`,
+      `/c/${CONVERSATION_ID}#`,
+      `/g/Owner/c/${CONVERSATION_ID}`,
+      `/g/%6fwner/c/${CONVERSATION_ID}`,
+      `/g/g-p-/c/${CONVERSATION_ID}`,
+      `/g/-owner/c/${CONVERSATION_ID}`,
+      `/g/owner-/c/${CONVERSATION_ID}`,
+      `/g/${'a'.repeat(129)}/c/${CONVERSATION_ID}`,
+      `/g/owner/../owner/c/${CONVERSATION_ID}`,
+      `/g/owner/c/%30${CONVERSATION_ID.slice(1)}`,
+      `/c/${CONVERSATION_ID}/\n`,
+    ];
+    const urls = [
+      ...paths.map(path => `https://chatgpt.com${path}`),
+      `https://chatgpt.com:443/c/${CONVERSATION_ID}`,
+      `https://user@chatgpt.com/c/${CONVERSATION_ID}`,
+      `https://CHATGPT.com/c/${CONVERSATION_ID}`,
+      ` https://chatgpt.com/c/${CONVERSATION_ID}`,
+      `https://chatgpt.com/g/owner/c/${CONVERSATION_ID}?query=value`,
+      `https://chatgpt.com/g/owner/c/${CONVERSATION_ID}#fragment`,
+    ];
+    for (const url of urls) expect(parseChatGptCaptureTarget(url, CONVERSATION_ID)).toBeUndefined();
+    expect(
+      deriveChatGptCaptureTarget(
+        contentSender(`https://chatgpt.com/c/${CONVERSATION_ID}`, 'https://example.com/'),
+        CONVERSATION_ID
+      )
+    ).toBeUndefined();
+    expect(
+      parseChatGptCaptureTarget(
+        `https://chatgpt.com/g/${'a'.repeat(128)}/c/${CONVERSATION_ID}`,
+        CONVERSATION_ID
+      )?.routeFamily
+    ).toBe('custom-gpt');
+  });
+
+  it('accepts only exact own-data capture targets without invoking accessors', () => {
+    const target = {
+      conversationId: CONVERSATION_ID,
+      pathname: `/c/${CONVERSATION_ID}`,
+      routeFamily: 'standard',
+    } as const;
+    expect(isChatGptCaptureTarget(target)).toBe(true);
+    expect(isChatGptCaptureTarget(Object.assign(Object.create(null), target))).toBe(true);
+    expect(isChatGptCaptureTarget({ ...target, extra: true })).toBe(false);
+    expect(isChatGptCaptureTarget(Object.create(target))).toBe(false);
+    expect(isChatGptCaptureTarget({ ...target, [Symbol('extra')]: true })).toBe(false);
+    expect(isChatGptCaptureTarget({ ...target, routeFamily: 'project' })).toBe(false);
+
+    const accessor = { ...target } as Record<string, unknown>;
+    Object.defineProperty(accessor, 'pathname', {
+      enumerable: true,
+      get() {
+        throw new Error('must not be invoked');
+      },
+    });
+    expect(() => isChatGptCaptureTarget(accessor)).not.toThrow();
+    expect(isChatGptCaptureTarget(accessor)).toBe(false);
+  });
+
   it('validates only the separate one-item active asset action with exact keys', () => {
     const message = {
       action: 'resolveChatGptActiveAsset',

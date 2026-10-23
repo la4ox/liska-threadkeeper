@@ -14,6 +14,9 @@ import {
   observeChatGptActiveAssetResolvers,
   observeChatGptAssetResolvers,
   observeChatGptInterpreterAssetResolvers,
+  planChatGptActiveImageAsset,
+  planChatGptLibraryJpegAsset,
+  planChatGptInterpreterAssetIds,
 } from '../../src/content/capture/chatgpt-current-branch';
 import {
   CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING,
@@ -21,6 +24,7 @@ import {
   type ChatGptAssetExportDependencies,
 } from '../../src/content/chatgpt-asset-export';
 import { CHATGPT_CAPTURE_ENDPOINT } from '../../src/lib/chatgpt-capture-contract';
+import type { ChatGptRouteFamily } from '../../src/lib/chatgpt-owner-context';
 import type {
   ArchiveCompanionBundle,
   ChatGptAssetExportContext,
@@ -63,7 +67,8 @@ function ordinaryRaw() {
 
 async function capture(
   raw: unknown,
-  matchPageOwnedAssetResolvers = matchChatGptPageOwnedAssetResolvers
+  matchPageOwnedAssetResolvers = matchChatGptPageOwnedAssetResolvers,
+  routeFamily: ChatGptRouteFamily = 'standard'
 ) {
   const bytes = new TextEncoder().encode(JSON.stringify(raw));
   return captureChatGptArchive(ACTIVE_CONVERSATION_ID, {
@@ -76,6 +81,7 @@ async function capture(
         sha256: activeDigest(bytes),
         mediaType: 'application/json',
         endpoint: CHATGPT_CAPTURE_ENDPOINT,
+        routeFamily,
         transientAssetResolvers: [resolver],
       },
     }),
@@ -192,21 +198,39 @@ describe('ChatGPT owner-context attachment gate', () => {
   );
 
   it.each(
-    deniedEvidence
+    [...deniedEvidence, {}]
       .filter(evidence => !('gizmoId' in evidence && 'gizmo_id' in evidence))
-      .flatMap(evidence => [
-        { evidence, nested: false },
-        { evidence, nested: true },
-      ])
+      .flatMap(evidence =>
+        (['standard', 'custom-gpt', 'project'] as const)
+          .filter(routeFamily => routeFamily !== 'standard' || Object.keys(evidence).length > 0)
+          .flatMap(routeFamily => [
+            { evidence, nested: false, routeFamily },
+            { evidence, nested: true, routeFamily },
+          ])
+      )
   )(
     'writes real raw then unchanged manifest/canonical without optional calls or audit %#',
-    async ({ evidence, nested }) => {
+    async ({ evidence, nested, routeFamily }) => {
       const matcher = vi.fn(matchChatGptPageOwnedAssetResolvers);
       const conversation = { ...ordinaryRaw(), ...evidence };
-      const captured = await capture(nested ? { conversation } : conversation, matcher);
+      const captured = await capture(
+        nested ? { conversation } : conversation,
+        matcher,
+        routeFamily
+      );
       expect(matcher).not.toHaveBeenCalled();
       expect(captured.transientAssetCandidates).toEqual([]);
       const context = captured.assetExportContext!;
+      expect(context.routeFamily).toBe(routeFamily);
+      for (const artifact of captured.archiveCompanion.artifacts) {
+        expect(JSON.stringify(artifact)).not.toContain('routeFamily');
+        if (artifact.transport === 'inline') {
+          const serialized = Buffer.from(artifact.bodyBase64, 'base64').toString('utf8');
+          expect(serialized).not.toContain('/g/');
+          expect(serialized).not.toContain('pathname');
+          expect(serialized).not.toContain('routeFamily');
+        }
+      }
       const originalRecords = structuredClone(context.rawCaptureBundle.manifest.assets);
       const optional = optionalDependencies();
       const order: string[] = [];
@@ -256,31 +280,48 @@ describe('ChatGPT owner-context attachment gate', () => {
     }
   );
 
-  it('guards independently callable observers before their dependencies and creates no zero-dispatch audit', async () => {
-    const captured = await capture({ ...ordinaryRaw(), project_id: 'private-owner' });
-    const context = captured.assetExportContext!;
-    const requestCapture = vi.fn();
-    const requestResolvers = vi.fn();
-    expect(await observeChatGptAssetResolvers(context, { requestCapture })).toEqual({
-      kind: 'matched',
-      candidates: [],
-    });
-    expect(await observeChatGptAssetResolvers(context, { requestResolvers })).toEqual({
-      kind: 'matched',
-      candidates: [],
-    });
-    expect(await observeChatGptActiveAssetResolvers(context)).toEqual({
-      kind: 'matched',
-      candidates: [],
-    });
-    expect(await observeChatGptInterpreterAssetResolvers(context)).toEqual({
-      kind: 'matched',
-      candidates: [],
-    });
-    expect(requestCapture).not.toHaveBeenCalled();
-    expect(requestResolvers).not.toHaveBeenCalled();
-    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
-  });
+  it.each([
+    ['standard', true],
+    ['custom-gpt', false],
+    ['project', false],
+    ['custom-gpt', true],
+    ['project', true],
+  ] as const)(
+    'guards observers and context planners on %s (raw owner=%s)',
+    async (routeFamily, hasOwner) => {
+      const captured = await capture(
+        { ...ordinaryRaw(), ...(hasOwner ? { project_id: 'private-owner' } : {}) },
+        undefined,
+        routeFamily
+      );
+      const context = captured.assetExportContext!;
+      const requestCapture = vi.fn();
+      const requestResolvers = vi.fn();
+      const eligible = context.rawCaptureBundle.manifest.assets.map(asset => asset.id);
+      expect(await planChatGptActiveImageAsset(context, eligible)).toBeUndefined();
+      expect(await planChatGptLibraryJpegAsset(context, eligible)).toBeUndefined();
+      expect(await planChatGptInterpreterAssetIds(context)).toEqual([]);
+      expect(await observeChatGptAssetResolvers(context, { requestCapture })).toEqual({
+        kind: 'matched',
+        candidates: [],
+      });
+      expect(await observeChatGptAssetResolvers(context, { requestResolvers })).toEqual({
+        kind: 'matched',
+        candidates: [],
+      });
+      expect(await observeChatGptActiveAssetResolvers(context)).toEqual({
+        kind: 'matched',
+        candidates: [],
+      });
+      expect(await observeChatGptInterpreterAssetResolvers(context)).toEqual({
+        kind: 'matched',
+        candidates: [],
+      });
+      expect(requestCapture).not.toHaveBeenCalled();
+      expect(requestResolvers).not.toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     { ...ordinaryRaw(), gizmo_id: false },

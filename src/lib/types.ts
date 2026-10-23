@@ -6,6 +6,7 @@ import type { ArchiveBranchCatalog } from '../archive/branches';
 import type { RawCaptureBundle } from '../archive/capture';
 import type { LiskaThreadArchive } from '../archive/types';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
+import type { ChatGptRouteFamily } from './chatgpt-owner-context';
 
 /**
  * Supported AI platform identifiers
@@ -258,6 +259,7 @@ export interface ArchiveCompanionBundle {
  */
 export interface ChatGptAssetExportContext {
   conversationId: string;
+  routeFamily: ChatGptRouteFamily;
   rawCaptureBundle: RawCaptureBundle;
   rawArtifact: ArchiveCompanionArtifact;
 }

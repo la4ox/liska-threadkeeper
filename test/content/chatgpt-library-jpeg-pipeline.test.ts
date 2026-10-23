@@ -100,6 +100,7 @@ async function capture(raw: unknown = libraryRaw()) {
         sha256: activeDigest(bytes),
         mediaType: 'application/json',
         endpoint: CHATGPT_CAPTURE_ENDPOINT,
+        routeFamily: 'standard' as const,
         transientAssetResolvers: [],
       },
     }),

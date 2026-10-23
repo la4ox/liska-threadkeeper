@@ -8,6 +8,7 @@
  */
 
 import { canonicalBase64ByteLength } from './base64';
+import { isChatGptRouteFamily, type ChatGptRouteFamily } from './chatgpt-owner-context';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
   CHATGPT_INLINE_CAPTURE_MAX_BYTES,
@@ -98,6 +99,7 @@ export type ChatGptOpaqueReplayHookResult =
 
 /** Equivalent to the ordinary capture artifact, but replay never emits resolvers. */
 export interface ChatGptOpaqueReplayArtifact {
+  routeFamily: ChatGptRouteFamily;
   bodyBase64: string;
   byteLength: number;
   sha256: string;
@@ -202,6 +204,7 @@ export function isChatGptOpaqueReplayArtifact(
       'sha256',
       'mediaType',
       'endpoint',
+      'routeFamily',
       'transientAssetResolvers',
     ])
   ) {
@@ -216,6 +219,7 @@ export function isChatGptOpaqueReplayArtifact(
       mediaType: record.mediaType,
     }) &&
     isExactEndpoint(record.endpoint) &&
+    isChatGptRouteFamily(record.routeFamily) &&
     isExactEmptyResolverList(record.transientAssetResolvers)
   );
 }

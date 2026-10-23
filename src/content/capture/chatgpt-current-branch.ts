@@ -40,7 +40,11 @@ import {
 import { MAX_CONTENT_SIZE } from '../../lib/constants';
 import { bytesToBase64 } from '../../lib/image-utils';
 import { canonicalBase64ByteLength } from '../../lib/base64';
-import { allowsChatGptAttachmentAcquisition } from '../../lib/chatgpt-owner-context';
+import {
+  allowsChatGptAttachmentAcquisition,
+  isChatGptRouteFamily,
+  type ChatGptRouteFamily,
+} from '../../lib/chatgpt-owner-context';
 import {
   ARCHIVE_COMPANION_RELATIVE_PATHS,
   type ArchiveCompanionArtifact,
@@ -264,6 +268,7 @@ function captureId(createCaptureId: (() => string) | undefined): string {
 }
 
 interface CapturedArtifact {
+  routeFamily: ChatGptRouteFamily;
   artifact: RawCaptureArtifact;
   /** Inline bytes or an opaque sealed stage retained for durable raw persistence. */
   rawArtifact: InlineArchiveCompanionArtifact | StagedArchiveCompanionArtifact;
@@ -332,6 +337,7 @@ async function captureArtifact(response: ChatGptCaptureResponse): Promise<Captur
   };
   return {
     artifact: { record, bytes },
+    routeFamily: data.routeFamily,
     rawArtifact,
     transientAssetResolvers: data.transientAssetResolvers.map(resolver => ({ ...resolver })),
   };
@@ -451,11 +457,12 @@ function captureManifest(
 
 async function captureTransientAssetCandidates(
   raw: unknown,
+  routeFamily: ChatGptRouteFamily,
   manifest: RawCaptureBundle['manifest'],
   transientAssetResolvers: readonly ChatGptTransientAssetResolver[],
   matchPageOwnedAssetResolvers: typeof matchChatGptPageOwnedAssetResolvers
 ): Promise<ChatGptPageOwnedAssetCandidate[]> {
-  if (!allowsChatGptAttachmentAcquisition(raw)) return [];
+  if (!allowsChatGptAttachmentAcquisition(raw, routeFamily)) return [];
   return matchPageOwnedAssetResolvers({
     raw,
     assets: manifest.assets,
@@ -466,6 +473,7 @@ async function captureTransientAssetCandidates(
 
 async function buildCaptureBundle(
   conversationId: string,
+  routeFamily: ChatGptRouteFamily,
   artifact: RawCaptureArtifact,
   transientAssetResolvers: readonly ChatGptTransientAssetResolver[],
   createCaptureId: (() => string) | undefined,
@@ -486,6 +494,7 @@ async function buildCaptureBundle(
   };
   const transientAssetCandidates = await captureTransientAssetCandidates(
     raw,
+    routeFamily,
     manifest,
     transientAssetResolvers,
     matchPageOwnedAssetResolvers
@@ -617,6 +626,7 @@ async function verifiedOriginalRaw(
   try {
     if (
       !isChatGptConversationId(context.conversationId) ||
+      !isChatGptRouteFamily(context.routeFamily) ||
       context.conversationId !== context.rawCaptureBundle.manifest.conversationId ||
       context.rawCaptureBundle.manifest.provider !== 'chatgpt'
     ) {
@@ -712,7 +722,7 @@ export async function observeChatGptAssetResolvers(
   }
 
   const raw = parseRawForInventory(original.bytes);
-  if (!allowsChatGptAttachmentAcquisition(raw)) {
+  if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) {
     return { kind: 'matched', candidates: [] };
   }
 
@@ -747,6 +757,7 @@ export async function observeChatGptAssetResolvers(
     try {
       await verifyCapturedArtifactIntegrity(recaptured.artifact);
       if (
+        recaptured.routeFamily !== context.routeFamily ||
         recaptured.artifact.record.byteLength !== original.record.byteLength ||
         recaptured.artifact.record.sha256 !== original.record.sha256 ||
         !bytesEqual(recaptured.artifact.bytes, original.bytes)
@@ -807,7 +818,7 @@ export async function observeChatGptActiveAssetResolvers(
     return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
   }
   const raw = parseRawForInventory(original.bytes);
-  if (!allowsChatGptAttachmentAcquisition(raw)) {
+  if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) {
     return { kind: 'matched', candidates: [] };
   }
   const plan = extractChatGptActiveResolverPlan(
@@ -847,6 +858,7 @@ export async function planChatGptActiveImageAsset(
 ): Promise<ChatGptActiveAssetPlanItem | undefined> {
   const original = await verifiedOriginalRaw(context);
   const raw = parseRawForInventory(original.bytes);
+  if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) return undefined;
   const assets = context.rawCaptureBundle.manifest.assets;
   const interpreterIds = new Set(
     (await extractChatGptInterpreterAssetPlan(raw, assets)).map(item => item.assetId)
@@ -865,6 +877,7 @@ export async function planChatGptLibraryJpegAsset(
 ): Promise<ChatGptActiveAssetPlanItem | undefined> {
   const original = await verifiedOriginalRaw(context);
   const raw = parseRawForInventory(original.bytes);
+  if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) return undefined;
   const assets = context.rawCaptureBundle.manifest.assets;
   const interpreterIds = new Set(
     (await extractChatGptInterpreterAssetPlan(raw, assets)).map(item => item.assetId)
@@ -881,11 +894,10 @@ export async function planChatGptInterpreterAssetIds(
   context: ChatGptAssetExportContext
 ): Promise<string[]> {
   const original = await verifiedOriginalRaw(context);
+  const raw = parseRawForInventory(original.bytes);
+  if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) return [];
   return (
-    await extractChatGptInterpreterAssetPlan(
-      parseRawForInventory(original.bytes),
-      context.rawCaptureBundle.manifest.assets
-    )
+    await extractChatGptInterpreterAssetPlan(raw, context.rawCaptureBundle.manifest.assets)
   ).map(item => item.assetId);
 }
 
@@ -944,8 +956,12 @@ export async function observeChatGptInterpreterAssetResolvers(
       warning: CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
     };
   }
+  const raw = parseRawForInventory(original.bytes);
+  if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) {
+    return { kind: 'matched', candidates: [] };
+  }
   const plan = await extractChatGptInterpreterAssetPlan(
-    parseRawForInventory(original.bytes),
+    raw,
     context.rawCaptureBundle.manifest.assets
   );
   if (plan.length === 0) return { kind: 'matched', candidates: [] };
@@ -1090,6 +1106,7 @@ export async function captureChatGptArchive(
     await verifyCapturedArtifactIntegrity(captured.artifact);
     const { bundle, transientAssetCandidates } = await buildCaptureBundle(
       conversationId,
+      captured.routeFamily,
       captured.artifact,
       captured.transientAssetResolvers,
       dependencies.createCaptureId,
@@ -1132,6 +1149,7 @@ export async function captureChatGptArchive(
       archiveCompanion,
       assetExportContext: {
         conversationId,
+        routeFamily: captured.routeFamily,
         rawCaptureBundle: bundle,
         rawArtifact: captured.rawArtifact,
       },

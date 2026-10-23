@@ -1,7 +1,7 @@
 /**
- * Raw-only attachment policy. This inspects only the graph envelope and its
- * conversation-level owner aliases, never messages, text, or provider values
- * outside those fixed fields. No owner identity leaves this module.
+ * Attachment policy reconciles content-free route evidence with the graph
+ * envelope and its conversation-level owner aliases. Raw-only callers retain
+ * their separate fail-closed guard. No owner identity leaves this module.
  */
 
 const OWNER_ALIASES = [
@@ -13,11 +13,23 @@ const OWNER_ALIASES = [
   'conversationTemplateId',
 ] as const;
 
+/** Content-free runtime evidence; owner paths and identities stay background-only. */
+export type ChatGptRouteFamily = 'standard' | 'custom-gpt' | 'project';
+
+export function isChatGptRouteFamily(value: unknown): value is ChatGptRouteFamily {
+  return value === 'standard' || value === 'custom-gpt' || value === 'project';
+}
+
 export type ChatGptOwnerContextPolicy =
   | { allowAttachments: true; reason: 'ordinary-conversation' }
   | {
       allowAttachments: false;
-      reason: 'invalid-graph' | 'ambiguous-graph' | 'owner-context' | 'wrapper-owner-context';
+      reason:
+        | 'invalid-graph'
+        | 'ambiguous-graph'
+        | 'owner-context'
+        | 'wrapper-owner-context'
+        | 'nonstandard-route';
     };
 
 interface ChatGptOwnerContextSelection {
@@ -98,7 +110,15 @@ function selectChatGptOwnerContext(
   };
 }
 
-export function classifyChatGptOwnerContext(raw: unknown): ChatGptOwnerContextPolicy {
+export function classifyChatGptOwnerContext(
+  raw: unknown,
+  routeFamily?: ChatGptRouteFamily
+): ChatGptOwnerContextPolicy {
+  // Raw-only callers retain their independent guard. Runtime contexts must
+  // additionally prove a standard route, even if the raw omits owner fields.
+  if (routeFamily !== undefined && routeFamily !== 'standard') {
+    return { allowAttachments: false, reason: 'nonstandard-route' };
+  }
   const selected = selectChatGptOwnerContext(raw);
   if ('allowAttachments' in selected) return selected;
   if (selected.wrapper && hasOwnerEvidence(selected.wrapper)) {
@@ -110,6 +130,9 @@ export function classifyChatGptOwnerContext(raw: unknown): ChatGptOwnerContextPo
   return { allowAttachments: true, reason: 'ordinary-conversation' };
 }
 
-export function allowsChatGptAttachmentAcquisition(raw: unknown): boolean {
-  return classifyChatGptOwnerContext(raw).allowAttachments;
+export function allowsChatGptAttachmentAcquisition(
+  raw: unknown,
+  routeFamily?: ChatGptRouteFamily
+): boolean {
+  return classifyChatGptOwnerContext(raw, routeFamily).allowAttachments;
 }

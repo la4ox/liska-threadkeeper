@@ -193,10 +193,14 @@ export async function validateChatGptAssetExportBinding(
   return (await verifiedBoundRawBytes(context, companion)) !== undefined;
 }
 
-function rawAllowsAttachmentAcquisition(bytes: Uint8Array): boolean {
+function rawAllowsAttachmentAcquisition(
+  bytes: Uint8Array,
+  context: ChatGptAssetExportContext
+): boolean {
   try {
     return allowsChatGptAttachmentAcquisition(
-      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+      context.routeFamily
     );
   } catch {
     return false;
@@ -835,7 +839,7 @@ export async function persistChatGptDestinationHonestAttachments(
     return { rawSuccessfulDestinations, completeDestinations: [], warnings };
   }
 
-  const assetAttempt: AssetAttempt = rawAllowsAttachmentAcquisition(originalRawBytes)
+  const assetAttempt: AssetAttempt = rawAllowsAttachmentAcquisition(originalRawBytes, context)
     ? await attemptAssets(context, companion, rawSuccessfulDestinations, dependencies)
     : {
         acquired: {

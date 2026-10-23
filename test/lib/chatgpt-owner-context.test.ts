@@ -14,6 +14,26 @@ const aliases = [
 ] as const;
 
 describe('raw-only ChatGPT owner-context attachment policy', () => {
+  it.each(['standard', 'custom-gpt', 'project'] as const)(
+    'reconciles %s route authority with raw evidence',
+    routeFamily => {
+      const ordinary = { mapping: {} };
+      expect(allowsChatGptAttachmentAcquisition(ordinary, routeFamily)).toBe(
+        routeFamily === 'standard'
+      );
+      expect(
+        allowsChatGptAttachmentAcquisition(
+          { ...ordinary, project_id: 'private-owner' },
+          routeFamily
+        )
+      ).toBe(false);
+      if (routeFamily !== 'standard')
+        expect(classifyChatGptOwnerContext(ordinary, routeFamily)).toEqual({
+          allowAttachments: false,
+          reason: 'nonstandard-route',
+        });
+    }
+  );
   it.each(['direct', 'nested'])('allows only an ordinary %s graph', envelope => {
     const conversation = { mapping: {} };
     const raw = envelope === 'direct' ? conversation : { conversation };

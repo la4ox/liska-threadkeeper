@@ -13,6 +13,7 @@ import {
   validateSender,
   validateStagedBinaryAssetSender,
 } from './validation';
+import { deriveChatGptCaptureTarget, type ChatGptCaptureTarget } from './chatgpt-route-target';
 import { handleTestConnection } from './obsidian-handlers';
 import { handleMultiOutput, handlePersistArchiveCompanion } from './output-handlers';
 import { handleStagedBinaryAssetMessage } from './binary-asset-handlers';
@@ -245,15 +246,17 @@ function isAuthorizedChatGptCaptureRequest(
       validateChatGptStandardConversationSender(sender, message.conversationId)
     );
   }
-  if (message.action === 'resolveChatGptInterpreterAssets') {
+  if (
+    message.action === 'resolveChatGptInterpreterAssets' ||
+    message.action === 'probeChatGptOpaqueRequest' ||
+    message.action === 'observeChatGptAssetResolversViaOpaqueSource' ||
+    message.action === 'probeChatGptActiveAssetResolvers'
+  ) {
     return validateChatGptStandardConversationSender(sender, message.conversationId);
   }
   return (
     (message.action !== 'captureChatGptConversation' &&
-      message.action !== 'probeChatGptOpaqueRequest' &&
-      message.action !== 'captureChatGptConversationViaOpaqueReplay' &&
-      message.action !== 'observeChatGptAssetResolversViaOpaqueSource' &&
-      message.action !== 'probeChatGptActiveAssetResolvers') ||
+      message.action !== 'captureChatGptConversationViaOpaqueReplay') ||
     validateChatGptCaptureSender(sender, message.conversationId)
   );
 }
@@ -381,14 +384,16 @@ function hasScriptingPermission(): Promise<boolean> {
   });
 }
 
-async function handleChatGptCapture(conversationId: string, observeAssetResolvers: boolean) {
+async function handleChatGptCapture(target: ChatGptCaptureTarget, observeAssetResolvers: boolean) {
   if (!(await hasScriptingPermission())) {
     return createChatGptCaptureFailure('permission-unavailable');
   }
 
   let capture: Awaited<ReturnType<typeof captureChatGptInTemporaryTab>>;
   try {
-    capture = await captureChatGptInTemporaryTab(conversationId, { observeAssetResolvers });
+    capture = await captureChatGptInTemporaryTab(target, {
+      observeAssetResolvers: target.routeFamily === 'standard' && observeAssetResolvers,
+    });
   } catch (error) {
     return createChatGptCaptureFailure(
       error instanceof ChatGptTemporaryCaptureError ? error.code : 'background-capture-exception'
@@ -404,6 +409,7 @@ async function handleChatGptCapture(conversationId: string, observeAssetResolver
       success: true as const,
       data: {
         ...payload,
+        routeFamily: target.routeFamily,
         byteLength: capture.byteLength,
         sha256: capture.sha256,
         mediaType: capture.mediaType,
@@ -411,7 +417,10 @@ async function handleChatGptCapture(conversationId: string, observeAssetResolver
           method: CHATGPT_CAPTURE_ENDPOINT.method,
           pathPattern: CHATGPT_CAPTURE_ENDPOINT.pathPattern,
         },
-        transientAssetResolvers: capture.transientAssetResolvers.map(resolver => ({
+        transientAssetResolvers: (target.routeFamily === 'standard'
+          ? capture.transientAssetResolvers
+          : []
+        ).map(resolver => ({
           resolverKey: resolver.resolverKey,
           downloadUrl: resolver.downloadUrl,
         })),
@@ -442,13 +451,14 @@ async function handleChatGptOpaqueProbe(conversationId: string) {
   }
 }
 
-async function handleChatGptOpaqueReplay(conversationId: string) {
+async function handleChatGptOpaqueReplay(target: ChatGptCaptureTarget) {
   if (!(await hasScriptingPermission())) {
     return createChatGptOpaqueReplayFailure('permission-unavailable');
   }
   try {
-    const response = await captureChatGptConversationViaOpaqueReplay(conversationId);
-    return isChatGptOpaqueReplayResponse(response)
+    const response = await captureChatGptConversationViaOpaqueReplay(target);
+    return isChatGptOpaqueReplayResponse(response) &&
+      (!response.success || response.data.routeFamily === target.routeFamily)
       ? response
       : createChatGptOpaqueReplayFailure('replay-result-invalid');
   } catch {
@@ -550,13 +560,20 @@ async function handleChatGptBridgeMessage(
         | 'resolveChatGptActiveAsset'
         | 'resolveChatGptInterpreterAssets';
     }
-  >
+  >,
+  sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
   if (message.action === 'captureChatGptConversation') {
-    return handleChatGptCapture(message.conversationId, message.observeAssetResolvers === true);
+    const target = deriveChatGptCaptureTarget(sender, message.conversationId);
+    return target
+      ? handleChatGptCapture(target, message.observeAssetResolvers === true)
+      : createChatGptCaptureFailure('invalid-conversation-id');
   }
   if (message.action === 'captureChatGptConversationViaOpaqueReplay') {
-    return handleChatGptOpaqueReplay(message.conversationId);
+    const target = deriveChatGptCaptureTarget(sender, message.conversationId);
+    return target
+      ? handleChatGptOpaqueReplay(target)
+      : createChatGptOpaqueReplayFailure('invalid-conversation-id');
   }
   if (message.action === 'observeChatGptAssetResolversViaOpaqueSource') {
     return handleChatGptOpaqueResolver(message.conversationId);
@@ -593,7 +610,7 @@ async function handleMessage(
   sender: chrome.runtime.MessageSender
 ): Promise<unknown> {
   if (isChatGptBridgeAction(message)) {
-    return handleChatGptBridgeMessage(message);
+    return handleChatGptBridgeMessage(message, sender);
   }
 
   if (message.action === 'updateOutputOptions') {

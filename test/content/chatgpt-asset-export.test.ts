@@ -70,6 +70,7 @@ function context(
   });
   return {
     conversationId: CONVERSATION_ID,
+    routeFamily: 'standard',
     rawCaptureBundle: {
       manifest,
       artifacts: [{ record: manifest.artifacts[0], bytes }],
