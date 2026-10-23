@@ -1116,3 +1116,19 @@ issue. Exact-tree validation passes 174 test files / 5,487 tests; coverage is
 TypeScript/build, source/platform lint, formatting, and diff checks pass; lint
 retains only the two unrelated pre-existing advisory warnings. Live popup
 save/reopen and real multi-destination exports remain unverified.
+
+The final integrated tag-template build is installed and reloaded in Comet from
+its verified unpacked path. All 29 installed files are byte-identical to the
+reviewed `dist`; the recoverable prior tree is retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\tag-templates-prelive-20261023-183900-9d25788\dist`.
+The live Advanced Settings view rendered the new numeric fields at 15/300 and
+both historical tag defaults. A content-free full-tab test canonicalized safe
+temporary values client-side, then the worker rejected the write as
+`Unauthorized` because Comet exposes a full extension tab as
+`comet-extension://` rather than the trusted popup sender. Reload restored all
+four defaults, proving no settings mutation occurred and exercising the sender
+boundary. The service worker reactivated after reload; the inspected error list
+contained historical prior-bundle entries, with no new current-bundle stack
+observed. Actual transient-popup save/reopen and real exports remain open live
+gates because the popup HWND is not independently targetable by the current
+Windows automation surface.
