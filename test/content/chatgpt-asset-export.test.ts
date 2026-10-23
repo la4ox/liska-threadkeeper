@@ -518,6 +518,7 @@ describe('destination-honest ChatGPT attachment export', () => {
           captureId: CAPTURE_ID,
           conversationKey: sha256(new TextEncoder().encode(CONVERSATION_ID)),
           manifestSha256: sha256(new TextEncoder().encode('{}')),
+          archiveByteLengths: { raw: ORDINARY_RAW_BYTES.byteLength, manifest: 2, canonical: 2 },
           assets: [],
         },
       ],
@@ -728,6 +729,11 @@ describe('destination-honest ChatGPT attachment export', () => {
         captureId: 'capture-chatgpt-66666666-2222-4333-8444-555555555555',
         conversationKey: sha256(new TextEncoder().encode(CONVERSATION_ID)),
         manifestSha256: sha256(new TextEncoder().encode(JSON.stringify({ assets: fileRecords }))),
+        archiveByteLengths: {
+          raw: ORDINARY_RAW_BYTES.byteLength,
+          manifest: new TextEncoder().encode(JSON.stringify({ assets: fileRecords })).byteLength,
+          canonical: 2,
+        },
         assets: [
           {
             sha256: asset.record.sha256,
@@ -744,6 +750,12 @@ describe('destination-honest ChatGPT attachment export', () => {
         manifestSha256: sha256(
           new TextEncoder().encode(JSON.stringify({ assets: obsidianRecords }))
         ),
+        archiveByteLengths: {
+          raw: ORDINARY_RAW_BYTES.byteLength,
+          manifest: new TextEncoder().encode(JSON.stringify({ assets: obsidianRecords }))
+            .byteLength,
+          canonical: 2,
+        },
         assets: [],
       },
     ]);

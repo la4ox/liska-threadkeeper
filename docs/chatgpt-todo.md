@@ -93,8 +93,11 @@ terminal states, and the existing no-credential-export boundary.
 - A live File canary reconciled raw, manifest and canonical provenance; both its
   leaf and index contain the same exact manifest SHA-256 and the same resolving
   content-addressed DOCX link. The index points to the exact emitted leaf name,
-  with no doubled capture suffix. Fresh Obsidian vault reconciliation remains a
-  later live gate for this specific all-branches presentation slice.
+  with no doubled capture suffix.
+- A later two-destination canary repeated the same provenance checks in both
+  Downloads and Obsidian. Their archive/DOCX bytes and hashes match; File and
+  Obsidian leaf sizes differ only through the expected destination-specific
+  long-message transform, and each exact serialization is budgeted separately.
 - Canonical research evidence remains typed rather than flattened. The live
   sample retained citations, reasoning, code, execution output, tool roles and
   attachment blocks; projection regressions account explicitly for citation
@@ -132,8 +135,13 @@ terminal states, and the existing no-credential-export boundary.
   bound and then run the complete File/Obsidian write/index reconciliation.
 - Exact Markdown accounting now includes destination-finalized provenance and
   attachment-link decoration, guarded by filename/length/SHA parity between dry
-  and write passes. Exact physical accounting for destination-divergent finalized
-  companions and acquired binary bytes remains a separate bounded follow-up.
+  and write passes.
+- Exact retained-byte accounting is implemented for each successfully finalized
+  destination: its final raw/manifest/canonical trio plus every confirmed binary
+  once, never once per branch. Initial representable seeds above 2 GiB reject
+  before Markdown measurement. The remaining broader problem is a per-write
+  ledger for raw/binary residue when a destination fails later finalization;
+  this checkpoint is not a whole-operation pre-write disk cap.
 
 ### 5. Real staged capture above 16 MiB
 
@@ -209,10 +217,10 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Validate and merge the all-branch receipt checkpoint from pull request 18 on top
-of the landed PR 16 and 17 work, then retarget and merge the already reviewed
-physical-budget checkpoint. The 1 GiB source-work limit remains a deliberate
+Validate and merge the physical-budget checkpoint from pull request 19 on top of
+the landed PR 16-18 stack. The 1 GiB source-work limit remains a deliberate
 refusal for the measured 1.051 GiB graph; only a separately reviewed limit change
 may authorize that full 239-leaf run. Continue with sandbox-link localization
-after the stack is linear again. Keep custom-GPT/project binaries and the sole
-archived Library WebP separately evidence-gated.
+after the stack is linear again. Keep failed-finalization write accounting,
+custom-GPT/project binaries, and the sole archived Library WebP separately
+evidence-gated.

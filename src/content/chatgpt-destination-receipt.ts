@@ -128,20 +128,34 @@ export function buildChatGptDestinationArchiveReceipt(
   destination: PersistentOutputDestination,
   assets: readonly RawCaptureAsset[]
 ): ChatGptDestinationArchiveReceipt {
-  const manifests = companion.artifacts.filter(artifact => artifact.kind === 'manifest');
-  const manifest = manifests[0];
-  if (
-    manifests.length !== 1 ||
-    manifest.relativePath !== ARCHIVE_COMPANION_RELATIVE_PATHS.manifest ||
-    manifest.mediaType !== 'application/json'
-  ) {
-    throw new Error('ChatGPT final manifest artifact is invalid.');
+  if (companion.artifacts.length !== 3) {
+    throw new Error('ChatGPT final archive artifact is invalid.');
+  }
+  const archiveByteLengths = { raw: 0, manifest: 0, canonical: 0 };
+  let manifestSha256 = '';
+  for (const kind of ['raw', 'manifest', 'canonical'] as const) {
+    const artifacts = companion.artifacts.filter(artifact => artifact.kind === kind);
+    const artifact = artifacts[0];
+    if (
+      artifacts.length !== 1 ||
+      artifact.relativePath !== ARCHIVE_COMPANION_RELATIVE_PATHS[kind] ||
+      artifact.mediaType !== 'application/json' ||
+      !Number.isSafeInteger(artifact.byteLength) ||
+      artifact.byteLength < 0 ||
+      typeof artifact.sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(artifact.sha256)
+    ) {
+      throw new Error('ChatGPT final archive artifact is invalid.');
+    }
+    archiveByteLengths[kind] = artifact.byteLength;
+    if (kind === 'manifest') manifestSha256 = artifact.sha256;
   }
   const receipt = snapshotChatGptDestinationArchiveReceipt({
     destination,
     captureId: companion.captureId,
     conversationKey: companion.conversationKey,
-    manifestSha256: manifest.sha256,
+    manifestSha256,
+    archiveByteLengths,
     assets: assets.map(({ record }) => {
       if (record.state !== 'fetched') throw new Error('ChatGPT finalized asset is not fetched.');
       return {

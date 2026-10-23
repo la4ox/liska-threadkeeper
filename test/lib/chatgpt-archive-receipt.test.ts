@@ -23,6 +23,7 @@ function receipt(overrides: Record<string, unknown> = {}): ChatGptDestinationArc
     captureId: 'capture-chatgpt-safe_123',
     conversationKey: 'c'.repeat(64),
     manifestSha256: 'd'.repeat(64),
+    archiveByteLengths: { raw: 1, manifest: 2, canonical: 3 },
     assets: [asset()],
     ...overrides,
   } as ChatGptDestinationArchiveReceipt;
@@ -39,9 +40,12 @@ describe('ChatGPT destination archive receipt', () => {
       expect(snapshot).not.toBe(input);
       expect(snapshot?.assets).not.toBe(input.assets);
       expect(snapshot?.assets[0]).not.toBe(input.assets[0]);
+      expect(snapshot?.archiveByteLengths).not.toBe(input.archiveByteLengths);
+      input.archiveByteLengths.raw = 999;
       input.assets[0].byteLength = 999;
       input.assets.length = 0;
       expect(snapshot?.assets).toEqual([asset()]);
+      expect(snapshot?.archiveByteLengths).toEqual({ raw: 1, manifest: 2, canonical: 3 });
       expect(isChatGptDestinationArchiveReceipt(snapshot)).toBe(true);
     }
   );
@@ -118,6 +122,9 @@ describe('ChatGPT destination archive receipt', () => {
     { manifestSha256: 'd'.repeat(65) },
     { manifestSha256: `${'d'.repeat(64)}\n` },
     { manifestSha256: null },
+    { archiveByteLengths: undefined },
+    { archiveByteLengths: null },
+    { archiveByteLengths: [] },
     { assets: {} },
     { assets: null },
     { providerTitle: 'private title' },
@@ -131,6 +138,53 @@ describe('ChatGPT destination archive receipt', () => {
         receipt({ captureId: `capture-chatgpt-${'a'.repeat(240)}` })
       )
     ).toBeDefined();
+  });
+
+  it.each(['raw', 'manifest', 'canonical'] as const)(
+    'rejects malformed %s archive lengths and nested non-data objects',
+    key => {
+      for (const value of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '2', null]) {
+        const archiveByteLengths = { raw: 1, manifest: 2, canonical: 3, [key]: value };
+        expect(
+          snapshotChatGptDestinationArchiveReceipt(receipt({ archiveByteLengths }))
+        ).toBeUndefined();
+      }
+      const getter = vi.fn(() => 1);
+      const missing = { raw: 1, manifest: 2, canonical: 3 };
+      Reflect.deleteProperty(missing, key);
+      const accessor = Object.defineProperty({ raw: 1, manifest: 2, canonical: 3 }, key, {
+        get: getter,
+      });
+      const hidden = Object.defineProperty({ raw: 1, manifest: 2, canonical: 3 }, key, {
+        enumerable: false,
+      });
+      for (const archiveByteLengths of [
+        missing,
+        accessor,
+        hidden,
+        { raw: 1, manifest: 2, canonical: 3, providerId: 'private' },
+        Object.assign(Object.create({ private: true }), { raw: 1, manifest: 2, canonical: 3 }),
+        Object.assign({ raw: 1, manifest: 2, canonical: 3 }, { [Symbol('private')]: 1 }),
+      ]) {
+        expect(
+          snapshotChatGptDestinationArchiveReceipt(receipt({ archiveByteLengths }))
+        ).toBeUndefined();
+      }
+      expect(getter).not.toHaveBeenCalled();
+    }
+  );
+
+  it('accepts detached frozen/null-prototype archive lengths at exact integer boundaries', () => {
+    const archiveByteLengths = Object.freeze(
+      Object.assign(Object.create(null), {
+        raw: 0,
+        manifest: Number.MAX_SAFE_INTEGER,
+        canonical: 0,
+      })
+    );
+    const snapshot = snapshotChatGptDestinationArchiveReceipt(receipt({ archiveByteLengths }));
+    expect(snapshot?.archiveByteLengths).toEqual(archiveByteLengths);
+    expect(snapshot?.archiveByteLengths).not.toBe(archiveByteLengths);
   });
 
   it.each([

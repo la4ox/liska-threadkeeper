@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALL_BRANCHES_BUDGET_LIMITS,
+  checkedAdd,
+  destinationRetainedBytes,
   ExactPresentationBudget,
   structuralBudgetPreflight,
   type ArchiveBranchWorkMetrics,
 } from '../../src/content/archive-branch-budget';
+import type { ChatGptDestinationArchiveReceipt } from '../../src/lib/chatgpt-archive-receipt';
 
 const atLimits = (): ArchiveBranchWorkMetrics => ({
   nodeCount: ALL_BRANCHES_BUDGET_LIMITS.nodeCount,
@@ -106,14 +109,14 @@ describe('all-branches budgets', () => {
   });
 
   it('accepts exact serialized byte boundaries and rejects +1', () => {
-    const exact = new ExactPresentationBudget(['file'], 0);
+    const exact = new ExactPresentationBudget(new Map([['file', 0]]));
     expect(exact.addNote('file', ALL_BRANCHES_BUDGET_LIMITS.individualNoteBytes)).toBeNull();
-    const overNote = new ExactPresentationBudget(['file'], 0);
+    const overNote = new ExactPresentationBudget(new Map([['file', 0]]));
     expect(overNote.addNote('file', ALL_BRANCHES_BUDGET_LIMITS.individualNoteBytes + 1)).toBe(
       'individual-note-bytes'
     );
 
-    const logical = new ExactPresentationBudget(['file'], 0, {
+    const logical = new ExactPresentationBudget(new Map([['file', 0]]), {
       ...ALL_BRANCHES_BUDGET_LIMITS,
       individualNoteBytes: 20,
       logicalMarkdownBytesPerDestination: 20,
@@ -123,13 +126,108 @@ describe('all-branches budgets', () => {
     expect(logical.addNote('file', 10)).toBeNull();
     expect(logical.addNote('file', 1)).toBe('logical-markdown-bytes');
 
-    const physical = new ExactPresentationBudget(['file', 'obsidian'], 40, {
-      ...ALL_BRANCHES_BUDGET_LIMITS,
-      individualNoteBytes: 100,
-      logicalMarkdownBytesPerDestination: 100,
-      physicalPlannedBytes: 100,
-    });
+    const physical = new ExactPresentationBudget(
+      new Map([
+        ['file', 30],
+        ['obsidian', 50],
+      ]),
+      {
+        ...ALL_BRANCHES_BUDGET_LIMITS,
+        individualNoteBytes: 100,
+        logicalMarkdownBytesPerDestination: 100,
+        physicalPlannedBytes: 100,
+      }
+    );
     expect(physical.addNote('file', 20)).toBeNull();
     expect(physical.addNote('obsidian', 1)).toBe('physical-planned-bytes');
+    expect(physical.logicalBytesFor('file')).toBe(20);
+    expect(physical.logicalBytesFor('obsidian')).toBe(0);
+    expect(physical.totalPhysicalBytes).toBe(100);
+  });
+
+  it('counts each finalized trio and unique asset once, independently of branch count', () => {
+    const receipt: ChatGptDestinationArchiveReceipt = {
+      destination: 'file',
+      captureId: 'capture-chatgpt-budget',
+      conversationKey: 'a'.repeat(64),
+      manifestSha256: 'b'.repeat(64),
+      archiveByteLengths: { raw: 10, manifest: 20, canonical: 30 },
+      assets: [
+        {
+          sha256: 'c'.repeat(64),
+          relativePath: `assets/${'c'.repeat(64)}.pdf`,
+          mediaType: 'application/pdf',
+          byteLength: 40,
+        },
+        {
+          sha256: 'd'.repeat(64),
+          relativePath: `assets/${'d'.repeat(64)}.png`,
+          mediaType: 'image/png',
+          byteLength: 50,
+        },
+      ],
+    };
+    const retained = destinationRetainedBytes(receipt);
+    expect(retained).toBe(150);
+    const budget = new ExactPresentationBudget(
+      new Map([
+        ['file', retained],
+        ['obsidian', retained],
+      ])
+    );
+    for (let ordinal = 0; ordinal < 80; ordinal += 1) {
+      expect(budget.addNote('file', 1)).toBeNull();
+      expect(budget.addNote('obsidian', 2)).toBeNull();
+    }
+    expect(budget.logicalBytesFor('file')).toBe(80);
+    expect(budget.logicalBytesFor('obsidian')).toBe(160);
+    expect(budget.totalPhysicalBytes).toBe(300 + 240);
+  });
+
+  it('rejects unsafe retained-byte arithmetic instead of rounding', () => {
+    const receipt = {
+      archiveByteLengths: { raw: Number.MAX_SAFE_INTEGER, manifest: 1, canonical: 0 },
+      assets: [],
+    } as unknown as ChatGptDestinationArchiveReceipt;
+    expect(() => destinationRetainedBytes(receipt)).toThrow('safe integer range');
+    receipt.archiveByteLengths = { raw: 0, manifest: 0, canonical: 0 };
+    receipt.assets = [{ byteLength: -1 }] as ChatGptDestinationArchiveReceipt['assets'];
+    expect(() => destinationRetainedBytes(receipt)).toThrow('Invalid');
+    expect(() => new ExactPresentationBudget(new Map([['file', -1]]))).toThrow('Invalid');
+    expect(() => checkedAdd(Number.MAX_SAFE_INTEGER, 1, 'test')).toThrow('safe integer range');
+  });
+
+  it('checks initial retained bytes at the exact physical cap and +1 before admitting any note', () => {
+    const cap = ALL_BRANCHES_BUDGET_LIMITS.physicalPlannedBytes;
+    const exact = new ExactPresentationBudget(
+      new Map([
+        ['file', cap - 7],
+        ['obsidian', 7],
+      ])
+    );
+    expect(exact.preflight()).toBeNull();
+    expect(exact.addNote('file', 0)).toBeNull();
+    expect(exact.addNote('obsidian', 1)).toBe('physical-planned-bytes');
+    expect(exact.totalPhysicalBytes).toBe(cap);
+    expect(exact.logicalBytesFor('file')).toBe(0);
+    const over = new ExactPresentationBudget(
+      new Map([
+        ['file', cap],
+        ['obsidian', 1],
+      ])
+    );
+    expect(over.preflight()).toBe('physical-planned-bytes');
+    expect(over.addNote('file', 0)).toBe('physical-planned-bytes');
+    expect(over.totalPhysicalBytes).toBe(cap + 1);
+    expect(over.logicalBytesFor('obsidian')).toBe(0);
+
+    const aggregateOverflow = new ExactPresentationBudget(
+      new Map([
+        ['file', Number.MAX_SAFE_INTEGER],
+        ['obsidian', 1],
+      ])
+    );
+    expect(aggregateOverflow.preflight()).toBe('physical-planned-bytes');
+    expect(aggregateOverflow.totalPhysicalBytes).toBe(cap + 1);
   });
 });

@@ -32,6 +32,7 @@ function receipt(): ChatGptDestinationArchiveReceipt {
     captureId: 'capture-chatgpt-01234567-89ab-4cde-8f01-23456789abcd',
     conversationKey: 'c'.repeat(64),
     manifestSha256: 'd'.repeat(64),
+    archiveByteLengths: { raw: 1, manifest: 2, canonical: 3 },
     assets: [],
   };
 }

@@ -15,7 +15,7 @@ import { decorateChatGptArchivePresentation } from './chatgpt-archive-links';
 import { buildChatGptDestinationArchiveReceipt } from './chatgpt-destination-receipt';
 import {
   checkedAdd,
-  companionPhysicalBytes,
+  destinationRetainedBytes,
   ExactPresentationBudget,
   structuralBudgetPreflight,
   type AllBranchesBudgetKind,
@@ -244,9 +244,16 @@ function snapshotOwnedReceipts(
     if (
       receipt?.destination === destination &&
       receipt.captureId === companion.captureId &&
-      receipt.conversationKey === companion.conversationKey
+      receipt.conversationKey === companion.conversationKey &&
+      receipt.archiveByteLengths.raw ===
+        companion.artifacts.find(artifact => artifact.kind === 'raw')?.byteLength
     ) {
-      receipts.set(destination, receipt);
+      try {
+        destinationRetainedBytes(receipt);
+        receipts.set(destination, receipt);
+      } catch {
+        // An unrepresentable retained-byte total cannot authorize this destination.
+      }
     }
   }
   return receipts;
@@ -295,7 +302,6 @@ async function prepareDestinations(
   suppliedReceipts: boolean,
   dependencies: AllBranchesPersistenceDependencies
 ): Promise<void> {
-  const archiveBytes = companionPhysicalBytes(companion);
   for (const destination of destinations) {
     if (aborted(dependencies)) return;
     try {
@@ -319,8 +325,9 @@ async function prepareDestinations(
       destination.archiveSaved = receipts.has(destination.destination);
       destination.archiveState = destination.archiveSaved ? 'confirmed' : 'failed';
       if (destination.archiveSaved) {
-        destination.dispatchedBytes = archiveBytes;
-        destination.confirmedBytes = archiveBytes;
+        const retainedBytes = destinationRetainedBytes(receipts.get(destination.destination)!);
+        destination.dispatchedBytes = retainedBytes;
+        destination.confirmedBytes = retainedBytes;
       }
     } catch {
       destination.archiveSaved = false;
@@ -385,17 +392,18 @@ async function recreateMeasuredPresentation(
 // eslint-disable-next-line max-lines-per-function -- Measurement is a single fail-closed pass with one release point per leaf.
 async function measurePresentation(
   session: PreparedArchiveBranchPresentation,
-  companion: ArchiveCompanionBundle,
   destinations: AllBranchesDestinationSummary[],
   receipts: DestinationReceipts,
-  dependencies: AllBranchesPersistenceDependencies
+  dependencies: AllBranchesPersistenceDependencies,
+  budget: ExactPresentationBudget
 ): Promise<Measurement> {
   const measurement = emptyMeasurement(destinations);
-  const budget = new ExactPresentationBudget(
-    destinations.map(({ destination }) => destination),
-    companionPhysicalBytes(companion)
-  );
   measurement.plannedPhysicalBytes = budget.totalPhysicalBytes;
+  const initialExceeded = budget.preflight();
+  if (initialExceeded) {
+    measurement.budgetKind = initialExceeded;
+    return measurement;
+  }
   try {
     for (let ordinal = 1; ordinal <= session.branchCount; ordinal += 1) {
       if (aborted(dependencies)) {
@@ -645,19 +653,17 @@ export async function persistAllBranchesPresentation(
   if (destinations.length === 0) return finalizeSummary(base, 'failed');
 
   await prepareDestinations(ownedCompanion, destinations, receipts, suppliedReceipts, dependencies);
+  const active = destinations.filter(destination => destination.archiveSaved);
+  const budget = new ExactPresentationBudget(
+    new Map(active.map(({ destination, confirmedBytes }) => [destination, confirmedBytes]))
+  );
+  base.plannedPhysicalBytes = budget.totalPhysicalBytes;
   if (aborted(dependencies)) {
     return finalizeSummary({ ...base, phase: 'archive', cancelRequested: true }, 'cancelled');
   }
-  const active = destinations.filter(destination => destination.archiveSaved);
   if (active.length === 0) return finalizeSummary({ ...base, phase: 'archive' }, 'failed');
 
-  const measurement = await measurePresentation(
-    session,
-    ownedCompanion,
-    active,
-    receipts,
-    dependencies
-  );
+  const measurement = await measurePresentation(session, active, receipts, dependencies, budget);
   const measured = {
     ...base,
     phase: 'measurement' as const,

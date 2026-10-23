@@ -174,6 +174,7 @@ const fileReceipt = {
   captureId: companion.captureId,
   conversationKey: companion.conversationKey,
   manifestSha256: 'e'.repeat(64),
+  archiveByteLengths: { raw: companion.artifacts[0].byteLength, manifest: 2, canonical: 2 },
   assets: [
     {
       sha256: archivedDocxSha256,
@@ -258,6 +259,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       captureId: companion.captureId,
       conversationKey: companion.conversationKey,
       manifestSha256: 'f'.repeat(64),
+      archiveByteLengths: { raw: companion.artifacts[0].byteLength, manifest: 2, canonical: 2 },
       assets: [],
     };
     mocks.attachmentExport.mockResolvedValue({

@@ -1,4 +1,5 @@
-import type { ArchiveCompanionBundle, PersistentOutputDestination } from '../lib/types';
+import type { ChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
+import type { PersistentOutputDestination } from '../lib/types';
 
 export const ALL_BRANCHES_BUDGET_LIMITS = Object.freeze({
   nodeCount: 50_000,
@@ -84,31 +85,56 @@ export function structuralBudgetPreflight(
     : { accepted: true, plannedArtifactWrites };
 }
 
-export function companionPhysicalBytes(companion: ArchiveCompanionBundle): number {
-  return companion.artifacts.reduce(
-    (total, artifact) => checkedAdd(total, artifact.byteLength, 'companion physical bytes'),
-    0
+/** Exact retained bytes for one finalized destination; assets are already unique validated paths. */
+export function destinationRetainedBytes(receipt: ChatGptDestinationArchiveReceipt): number {
+  const { raw, manifest, canonical } = receipt.archiveByteLengths;
+  const archiveBytes = checkedAdd(
+    checkedAdd(raw, manifest, 'retained archive bytes'),
+    canonical,
+    'retained archive bytes'
+  );
+  return receipt.assets.reduce(
+    (total, asset) => checkedAdd(total, asset.byteLength, 'retained archive bytes'),
+    archiveBytes
   );
 }
 
 export class ExactPresentationBudget {
   private readonly logicalBytes = new Map<PersistentOutputDestination, number>();
   private physicalBytes: number;
+  private initialExceeded = false;
 
   constructor(
-    destinations: readonly PersistentOutputDestination[],
-    companionBytesPerDestination: number,
+    retainedBytesByDestination: ReadonlyMap<PersistentOutputDestination, number>,
     private readonly limits = ALL_BRANCHES_BUDGET_LIMITS
   ) {
-    for (const destination of destinations) this.logicalBytes.set(destination, 0);
-    this.physicalBytes = checkedMultiply(
-      companionBytesPerDestination,
-      destinations.length,
-      'physical planned bytes'
-    );
+    this.physicalBytes = 0;
+    checkedAdd(0, this.limits.physicalPlannedBytes, 'physical planned byte cap');
+    for (const [destination, retainedBytes] of retainedBytesByDestination) {
+      this.logicalBytes.set(destination, 0);
+      const validatedBytes = checkedAdd(0, retainedBytes, 'physical planned bytes');
+      if (this.initialExceeded) continue;
+      if (validatedBytes > this.limits.physicalPlannedBytes - this.physicalBytes) {
+        this.initialExceeded = true;
+        this.physicalBytes =
+          this.limits.physicalPlannedBytes < Number.MAX_SAFE_INTEGER
+            ? this.limits.physicalPlannedBytes + 1
+            : this.limits.physicalPlannedBytes;
+        continue;
+      }
+      this.physicalBytes = checkedAdd(this.physicalBytes, validatedBytes, 'physical planned bytes');
+    }
+  }
+
+  preflight(): AllBranchesBudgetKind | null {
+    return this.initialExceeded || this.physicalBytes > this.limits.physicalPlannedBytes
+      ? 'physical-planned-bytes'
+      : null;
   }
 
   addNote(destination: PersistentOutputDestination, bytes: number): AllBranchesBudgetKind | null {
+    const initialExceeded = this.preflight();
+    if (initialExceeded) return initialExceeded;
     if (!Number.isSafeInteger(bytes) || bytes < 0)
       throw new Error('Invalid serialized note bytes.');
     if (bytes > this.limits.individualNoteBytes) return 'individual-note-bytes';

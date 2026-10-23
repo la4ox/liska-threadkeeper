@@ -689,11 +689,58 @@ This live gate rechecked File output only; the Obsidian variant remains covered
 by destination-divergence regressions rather than a fresh vault read in this
 checkpoint.
 
-PR 16 merged to `main` as `9fb7835`, and PR 17 merged as `cbf38c1`.
-Next: validate this exact base integration and merge PR 18 if clean, then retarget
-the already reviewed physical-budget checkpoint. The 1 GiB source-work limit
-remains a deliberate refusal for the known 1.051 GiB graph rather than an
-implicitly widened safety boundary. Sandbox-link localization and the live
-multi-output same-title sample remain separate presentation follow-ups.
-Custom-GPT/project binaries and the archived Library WebP remain separately
-evidence-gated.
+The finalized physical-byte checkpoint is implemented on
+`codex/chatgpt-physical-budget` at `dcdaa49`, now integrating the PR 18 merge
+`429d2a5`. Every strict destination receipt owns detached byte lengths for
+its exact finalized raw, manifest, and canonical artifacts. All-branches
+accounting seeds each successful destination from that trio plus each confirmed
+receipt asset exactly once, independently of branch count and without
+cross-destination deduplication. Supplied receipts must also bind their raw byte
+length to the original capture companion; malformed, accessor-backed,
+overflowing, or mismatched receipts isolate only that destination.
+
+The same checked destination seed drives summary dispatched/confirmed bytes and
+the 2 GiB aggregate physical budget. A representable initial seed above that cap
+rejects before any Markdown fingerprint or write, while logical Markdown remains
+a separate per-destination counter. Stop after archive finalization retains the
+already confirmed physical seed in its summary. This is exact accounting for
+successful finalized destinations, not a whole-operation pre-write disk gate:
+raw/binary residue from a destination that fails later finalization still needs
+a broader per-write ledger before it can be budgeted or summarized exactly.
+GitHub review then exposed the remaining adversarial case where two individually
+representable destination totals overflow the aggregate safe-integer range. The
+budget now short-circuits that aggregate to a bounded over-cap sentinel and
+returns an ordinary `physical-planned-bytes` rejection summary before any
+Markdown fingerprint/write instead of rejecting the persistence promise.
+
+Final validation passes 162 test files / 4,733 tests. Coverage passes at 95.27%
+statements, 91.11% branches, 98.57% functions, and 97.77% lines. TypeScript,
+production build, ZIP packaging, repository formatting, independent review,
+and source/platform lint pass; lint retains only the same three pre-existing
+advisory warnings. The ZIP is 235,317 bytes with SHA-256
+`9c5d2617bf255c04d7fb8a9237d93454df00fdc89dce639af3bf6550f5cd2365`.
+The installed Comet tree matches its 29-file production build exactly; its clean
+pre-live rollback is retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\physical-budget-review-fix-prelive-20261023-104608-f29ded47`.
+
+A fresh two-destination canary created capture
+`capture-chatgpt-513c3dd9-f332-412e-b417-28cdb81b0fc8` and reported one branch
+plus an index saved to both Obsidian and File. Both destinations retained
+byte-identical raw (287,632 bytes), manifest (8,959), canonical (612,899), and
+DOCX (45,036) artifacts; raw and canonical provenance reconcile, and the DOCX
+hash remains
+`45e080f46c285def0978eb7c26133b728cc2928cb5a9f90f7f1a1a2bc055a7ee`.
+Both leaf/index pairs bind to manifest SHA-256
+`83beb122d73065038858f9b806da2afeca351d3293595f7cad9efe8ebcbe720d`,
+their index links and capture-level asset links resolve, and their filenames
+remain exact. File serialized the leaf to 47,904 bytes; Obsidian serialized the
+same logical leaf to 47,096 bytes because its enabled long-message flattening is
+measured separately. Both indexes are 1,224 bytes.
+
+PR 16 merged to `main` as `9fb7835`, PR 17 as `cbf38c1`, and PR 18 as
+`429d2a5`. Next: validate this exact base integration and merge PR 19 if clean.
+The 1 GiB source-work limit remains a deliberate refusal for the known 1.051 GiB
+graph rather than an implicitly widened safety boundary. A failed-finalization
+write ledger, sandbox-link localization, and the live multi-output same-title
+sample remain separate follow-ups. Custom-GPT/project binaries and the archived
+Library WebP remain separately evidence-gated.
