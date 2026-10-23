@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as scrollManager from '../../src/lib/scroll-manager';
 import {
   CHATGPT_RENDERED_BRANCH_FALLBACK_WARNING,
   ChatGPTExtractor,
@@ -136,6 +137,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
   });
 
   it('returns the verified projection and skips rendered-DOM extraction', async () => {
+    const scroll = vi.spyOn(scrollManager, 'accumulateWhileScrolling');
     renderedConversation();
     const retained = {} as ChatGptStructuredPresentationContext;
     const captureCurrentBranch = vi.fn().mockResolvedValue({
@@ -149,7 +151,12 @@ describe('ChatGPTExtractor API-first bridge', () => {
     extractor.extractMessages = vi.fn(() => {
       throw new Error('DOM extraction must not run after a verified projection');
     });
-    extractor.applySettings({ enableToolContent: true } as never);
+    extractor.applySettings({
+      enableAutoScroll: true,
+      enableToolContent: true,
+      scrollIdleTimeoutSec: 5,
+      scrollMaxTimeoutSec: 30,
+    } as never);
 
     const result = await extractor.extract();
 
@@ -160,6 +167,8 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.warnings).toEqual(['A canonical projection warning.']);
     expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
     expect(result.chatGptStructuredPresentationContext).toBe(retained);
+    expect(scroll).not.toHaveBeenCalled();
+    scroll.mockRestore();
   });
 
   it('falls back once to same-origin replay when passive capture observes no request', async () => {

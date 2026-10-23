@@ -305,6 +305,13 @@ export const SCROLL_IDLE_TIMEOUT = 15000;
 /** Absolute safety cap on a single accumulation pass (ms). */
 export const SCROLL_MAX_TIMEOUT = 300000;
 
+/** User-facing DOM scroll budgets (seconds); never raise the five-minute hard cap. */
+export const DEFAULT_SCROLL_IDLE_TIMEOUT_SEC = 15;
+export const DEFAULT_SCROLL_MAX_TIMEOUT_SEC = 300;
+export const MIN_SCROLL_IDLE_TIMEOUT_SEC = 5;
+export const MIN_SCROLL_MAX_TIMEOUT_SEC = 30;
+export const MAX_SCROLL_TIMEOUT_SEC = 300;
+
 /** Number of consecutive unchanged element counts to consider loading complete */
 export const SCROLL_STABILITY_THRESHOLD = 3;
 

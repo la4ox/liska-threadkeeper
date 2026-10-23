@@ -40,9 +40,8 @@ export class DeepSeekExtractor extends BaseExtractor {
   /** Include DeepSeek's expanded reasoning text as a collapsed tool callout. */
   enableToolContent = false;
 
-  /** Apply user-controlled auto-scroll and reasoning-content settings. */
-  applySettings(settings: SyncSettings): void {
-    this.enableAutoScroll = settings.enableAutoScroll ?? false;
+  /** Apply provider-specific reasoning-content settings. */
+  protected applyPlatformSettings(settings: SyncSettings): void {
     this.enableToolContent = settings.enableToolContent ?? false;
   }
 

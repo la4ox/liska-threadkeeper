@@ -6,6 +6,8 @@
  * index.ts entry shim stays a DOMContentLoaded one-liner.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { ExtensionSettings, PopupSettingsUpdate } from '../../src/lib/types';
 
 vi.mock('../../src/lib/storage', () => ({
@@ -29,6 +31,8 @@ const storedSettings: ExtensionSettings = {
   imageVaultPath: 'AI/Gemini/images',
   maxCalloutLines: 200,
   enableAutoScroll: true,
+  scrollIdleTimeoutSec: 15,
+  scrollMaxTimeoutSec: 300,
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
@@ -85,6 +89,8 @@ function buildPopupDom(): void {
       <input type="text" id="vaultPath" />
       <input type="text" id="imageVaultPath" />
       <input type="number" id="maxCalloutLines" />
+      <input type="number" id="scrollIdleTimeoutSec" min="5" max="300" step="1" />
+      <input type="number" id="scrollMaxTimeoutSec" min="30" max="300" step="1" />
     </section>
     ${switches}
     <select id="messageFormat">
@@ -136,6 +142,77 @@ describe('popup/app', () => {
   });
 
   describe('initPopup', () => {
+    it('ships both labeled numeric inputs inside Advanced Extraction with matching bounds', async () => {
+      document.documentElement.innerHTML = readFileSync(
+        path.resolve(import.meta.dirname, '../../src/popup/index.html'),
+        'utf8'
+      );
+      vi.mocked(getSettingsOrThrow).mockResolvedValue(storedSettings);
+      await initPopup();
+      for (const [field, minimum, expected] of [
+        ['scrollIdleTimeoutSec', '5', '15'],
+        ['scrollMaxTimeoutSec', '30', '300'],
+      ]) {
+        const input = el<HTMLInputElement>(field);
+        expect(input.type).toBe('number');
+        expect(input.min).toBe(minimum);
+        expect(input.max).toBe('300');
+        expect(input.step).toBe('1');
+        expect(input.value).toBe(expected);
+        expect(input.closest('details.advanced-settings')).not.toBeNull();
+        expect(input.closest('section')?.querySelector('h2')?.getAttribute('data-i18n')).toBe(
+          'settings_extraction'
+        );
+        expect(document.querySelector(`label[for="${field}"]`)).not.toBeNull();
+        expect(document.getElementById(input.getAttribute('aria-describedby')!)).not.toBeNull();
+      }
+    });
+
+    it('populates and saves configured deadlines, including idle greater than total', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        scrollIdleTimeoutSec: 120,
+        scrollMaxTimeoutSec: 30,
+      });
+      expect(el<HTMLInputElement>('scrollIdleTimeoutSec').value).toBe('120');
+      expect(el<HTMLInputElement>('scrollMaxTimeoutSec').value).toBe('30');
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+      expect(settingsSaveAt(0)).toMatchObject({
+        scrollIdleTimeoutSec: 120,
+        scrollMaxTimeoutSec: 30,
+      });
+    });
+
+    it.each(['saveBtn', 'testBtn'])(
+      '%s rejects invalid numeric deadlines without saving any fields or testing connection',
+      async button => {
+        for (const field of ['scrollIdleTimeoutSec', 'scrollMaxTimeoutSec']) {
+          for (const value of [
+            '',
+            '0',
+            '-1',
+            '4',
+            '301',
+            '30.5',
+            'NaN',
+            'Infinity',
+            '60junk',
+            '1e999',
+          ]) {
+            await initWithDefaults();
+            el<HTMLInputElement>(field).value = value;
+            el<HTMLInputElement>('vaultPath').value = 'Must not save';
+            el<HTMLButtonElement>(button).click();
+            await vi.waitFor(() => expect(statusEl().className).toContain('error'));
+            expect(statusEl().textContent).toBe(`error_${field}`);
+            expect(sendMessage).not.toHaveBeenCalled();
+            expect(el<HTMLButtonElement>(button).disabled).toBe(false);
+          }
+        }
+      }
+    );
+
     it('populates the form from stored settings', async () => {
       await initWithDefaults();
 

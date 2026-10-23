@@ -28,6 +28,8 @@ const SYNC_PASS_THROUGH_KEYS = [
   'vaultPath',
   'imageVaultPath',
   'enableAutoScroll',
+  'scrollIdleTimeoutSec',
+  'scrollMaxTimeoutSec',
   'enableAppendMode',
   'enableToolContent',
   'enableImageExport',

@@ -36,10 +36,9 @@ export class GeminiExtractor extends BaseExtractor {
   private imageFailures: string[] = [];
 
   /**
-   * Apply user settings: enable/disable auto-scroll
+   * Apply provider settings: enable/disable image export.
    */
-  applySettings(settings: SyncSettings): void {
-    this.enableAutoScroll = settings.enableAutoScroll ?? false;
+  protected applyPlatformSettings(settings: SyncSettings): void {
     this.enableImageExport = settings.enableImageExport ?? true;
   }
 
@@ -122,7 +121,11 @@ export class GeminiExtractor extends BaseExtractor {
         skipped: true,
       };
     }
-    return ensureAllElementsLoaded(container, COMPUTED_SELECTORS.conversationTurn);
+    return ensureAllElementsLoaded(
+      container,
+      COMPUTED_SELECTORS.conversationTurn,
+      this.scrollDeadlines
+    );
   }
 
   /** Expose platform selectors to BaseExtractor's DR title/content helpers. */

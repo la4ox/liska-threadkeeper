@@ -210,6 +210,8 @@ describe('background/index', () => {
       imageVaultPath: 'AI/Gemini/images',
       maxCalloutLines: 200,
       enableAutoScroll: true,
+      scrollIdleTimeoutSec: 15,
+      scrollMaxTimeoutSec: 300,
       enableAppendMode: false,
       enableToolContent: false,
       enableImageExport: true,
@@ -1767,11 +1769,15 @@ describe('background/index', () => {
       expect(chrome.downloads.download).not.toHaveBeenCalled();
     });
 
-    it('rejects settings drift before any measured output is dispatched', async () => {
+    it.each([
+      { flattenLargeCallouts: false },
+      { scrollIdleTimeoutSec: 60 },
+      { scrollMaxTimeoutSec: 60 },
+    ])('rejects settings drift %j before any measured output is dispatched', async change => {
       const expected = serializeSyncSettingsSnapshot(defaultSettings as ExtensionSettings);
       mockGetSettings.mockResolvedValueOnce({
         ...defaultSettings,
-        flattenLargeCallouts: false,
+        ...change,
       } as ExtensionSettings);
       const sendResponse = vi.fn();
       capturedListener(

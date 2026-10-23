@@ -424,6 +424,10 @@ export interface SyncSettings {
   outputOptions: OutputOptions;
   /** Enable auto-scroll to load all messages in long conversations (e.g. Gemini) */
   enableAutoScroll: boolean;
+  /** DOM scroll inactivity budget in whole seconds (5–300). */
+  scrollIdleTimeoutSec: number;
+  /** Absolute DOM scroll budget in whole seconds (30–300). */
+  scrollMaxTimeoutSec: number;
   /** Enable append mode to only add new messages to existing notes */
   enableAppendMode: boolean;
   /** Include tool-use / intermediate content (e.g., web search results) */

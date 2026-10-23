@@ -27,6 +27,7 @@ import {
 } from '../lib/constants';
 import { getMessage } from '../lib/i18n';
 import { sendMessage } from '../lib/messaging';
+import { isValidScrollTimeoutSeconds } from '../lib/scroll-deadlines';
 
 /**
  * Initialize i18n for all elements with data-i18n attributes
@@ -101,6 +102,8 @@ function queryElements() {
     includeDates: getElement<HTMLInputElement>('includeDates'),
     includeMessageCount: getElement<HTMLInputElement>('includeMessageCount'),
     enableAutoScroll: getElement<HTMLInputElement>('enableAutoScroll'),
+    scrollIdleTimeoutSec: getElement<HTMLInputElement>('scrollIdleTimeoutSec'),
+    scrollMaxTimeoutSec: getElement<HTMLInputElement>('scrollMaxTimeoutSec'),
     enableAppendMode: getElement<HTMLInputElement>('enableAppendMode'),
     enableToolContent: getElement<HTMLInputElement>('enableToolContent'),
     enableImageExport: getElement<HTMLInputElement>('enableImageExport'),
@@ -170,6 +173,8 @@ function populateForm(settings: ExtensionSettings): void {
 
   // Extraction options
   elements.enableAutoScroll.checked = settings.enableAutoScroll ?? false;
+  elements.scrollIdleTimeoutSec.value = String(settings.scrollIdleTimeoutSec);
+  elements.scrollMaxTimeoutSec.value = String(settings.scrollMaxTimeoutSec);
   elements.enableAppendMode.checked = settings.enableAppendMode ?? false;
   elements.enableToolContent.checked = settings.enableToolContent ?? false;
   elements.enableImageExport.checked = settings.enableImageExport ?? true;
@@ -402,11 +407,33 @@ function validateOutputOptions(outputOptions: OutputOptions): boolean {
   return outputOptions.obsidian || outputOptions.file || outputOptions.clipboard;
 }
 
+/** Validate both deadlines before collecting any settings-save payload. */
+function collectScrollDeadlines(): Pick<
+  ExtensionSettings,
+  'scrollIdleTimeoutSec' | 'scrollMaxTimeoutSec'
+> | null {
+  const scrollIdleTimeoutSec = elements.scrollIdleTimeoutSec.valueAsNumber;
+  const scrollMaxTimeoutSec = elements.scrollMaxTimeoutSec.valueAsNumber;
+  if (!isValidScrollTimeoutSeconds(scrollIdleTimeoutSec, 'idle')) {
+    showStatus(getMessage('error_scrollIdleTimeoutSec'), 'error');
+    elements.scrollIdleTimeoutSec.focus();
+    return null;
+  }
+  if (!isValidScrollTimeoutSeconds(scrollMaxTimeoutSec, 'max')) {
+    showStatus(getMessage('error_scrollMaxTimeoutSec'), 'error');
+    elements.scrollMaxTimeoutSec.focus();
+    return null;
+  }
+  return { scrollIdleTimeoutSec, scrollMaxTimeoutSec };
+}
+
 /**
- * Collect settings from form
- * Normalizes all values at collection time to avoid downstream mutation
+ * Collect settings from form.
+ * Validate deadlines strictly and normalize other values before transport.
  */
-function collectSettings(): ExtensionSettings {
+function collectSettings(): ExtensionSettings | null {
+  const scrollDeadlines = collectScrollDeadlines();
+  if (!scrollDeadlines) return null;
   const formatValue = elements.messageFormat.value;
   const messageFormat = VALID_MESSAGE_FORMATS.includes(
     formatValue as (typeof VALID_MESSAGE_FORMATS)[number]
@@ -438,6 +465,7 @@ function collectSettings(): ExtensionSettings {
     templateOptions,
     outputOptions,
     enableAutoScroll: elements.enableAutoScroll.checked,
+    ...scrollDeadlines,
     enableAppendMode: elements.enableAppendMode.checked,
     enableToolContent: elements.enableToolContent.checked,
     enableImageExport: elements.enableImageExport.checked,
@@ -564,6 +592,7 @@ async function handleSave(): Promise<void> {
     await outputSaveChain;
     const apiKeyValue = elements.apiKey.value.trim();
     const settings = collectSettings();
+    if (!settings) return;
 
     // Validate output options - at least one must be selected
     if (!validateOutputOptions(settings.outputOptions)) {
@@ -618,6 +647,7 @@ async function handleTest(): Promise<void> {
     // First save current settings
     const apiKeyValue = elements.apiKey.value.trim();
     const settings = collectSettings();
+    if (!settings) return;
 
     if (!settings.obsidianApiKey) {
       showStatus(getMessage('toast_error_noApiKey'), 'warning');

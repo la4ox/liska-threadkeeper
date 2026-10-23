@@ -2,6 +2,7 @@
 
 import { VALID_MESSAGE_FORMATS } from '../lib/constants';
 import type { PopupSettingsUpdate } from '../lib/types';
+import { isValidScrollTimeoutSeconds } from '../lib/scroll-deadlines';
 
 const REQUIRED_SETTINGS_UPDATE_KEYS = [
   'obsidianUrl',
@@ -9,6 +10,8 @@ const REQUIRED_SETTINGS_UPDATE_KEYS = [
   'templateOptions',
   'outputOptions',
   'enableAutoScroll',
+  'scrollIdleTimeoutSec',
+  'scrollMaxTimeoutSec',
   'enableAppendMode',
   'enableToolContent',
   'enableImageExport',
@@ -126,6 +129,8 @@ export function validateSettingsUpdate(value: unknown): value is PopupSettingsUp
     validateTemplateOptionsForSettingsUpdate(settings.templateOptions) &&
     validateOutputOptions(settings.outputOptions) &&
     typeof settings.enableAutoScroll === 'boolean' &&
+    isValidScrollTimeoutSeconds(settings.scrollIdleTimeoutSec, 'idle') &&
+    isValidScrollTimeoutSeconds(settings.scrollMaxTimeoutSec, 'max') &&
     typeof settings.enableAppendMode === 'boolean' &&
     typeof settings.enableToolContent === 'boolean' &&
     typeof settings.enableImageExport === 'boolean' &&

@@ -7,6 +7,53 @@ import {
 } from '../../src/lib/settings-schema';
 
 describe('normalizeSyncSettings', () => {
+  it('adds deadline defaults to old saved settings without changing sibling fields', () => {
+    expect(normalizeSyncSettings({ vaultPath: 'Existing', enableAutoScroll: true })).toMatchObject({
+      vaultPath: 'Existing',
+      enableAutoScroll: true,
+      scrollIdleTimeoutSec: 15,
+      scrollMaxTimeoutSec: 300,
+    });
+  });
+
+  it.each([
+    [undefined, 15, 300],
+    [null, 15, 300],
+    ['60', 15, 300],
+    [true, 15, 300],
+    [{}, 15, 300],
+    [[], 15, 300],
+    [Number.NaN, 15, 300],
+    [Number.POSITIVE_INFINITY, 15, 300],
+    [Number.NEGATIVE_INFINITY, 15, 300],
+    [0, 15, 300],
+    [-10, 15, 300],
+    [0.5, 15, 300],
+    [60.5, 15, 300],
+    [301.5, 15, 300],
+    [1, 5, 30],
+    [5, 5, 30],
+    [29, 29, 30],
+    [30, 30, 30],
+    [120, 120, 120],
+    [300, 300, 300],
+    [301, 300, 300],
+    [Number.MAX_VALUE, 300, 300],
+  ])('normalizes stored deadline %s to idle=%s, max=%s', (value, idle, max) => {
+    expect(
+      normalizeSyncSettings({ scrollIdleTimeoutSec: value, scrollMaxTimeoutSec: value })
+    ).toMatchObject({ scrollIdleTimeoutSec: idle, scrollMaxTimeoutSec: max });
+  });
+
+  it('permits an idle budget longer than the total budget', () => {
+    expect(
+      normalizeSyncSettings({ scrollIdleTimeoutSec: 120, scrollMaxTimeoutSec: 30 })
+    ).toMatchObject({
+      scrollIdleTimeoutSec: 120,
+      scrollMaxTimeoutSec: 30,
+    });
+  });
+
   it('returns full defaults for an empty object', () => {
     expect(normalizeSyncSettings({})).toEqual(DEFAULT_SYNC_SETTINGS);
   });

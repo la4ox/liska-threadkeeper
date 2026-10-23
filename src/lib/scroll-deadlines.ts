@@ -1,4 +1,13 @@
-import { SCROLL_IDLE_TIMEOUT, SCROLL_MAX_TIMEOUT } from './constants';
+import {
+  SCROLL_IDLE_TIMEOUT,
+  SCROLL_MAX_TIMEOUT,
+  DEFAULT_SCROLL_IDLE_TIMEOUT_SEC,
+  DEFAULT_SCROLL_MAX_TIMEOUT_SEC,
+  MIN_SCROLL_IDLE_TIMEOUT_SEC,
+  MIN_SCROLL_MAX_TIMEOUT_SEC,
+  MAX_SCROLL_TIMEOUT_SEC,
+} from './constants';
+import type { SyncSettings } from './types';
 
 /** Per-pass limits in milliseconds; the idle limit resets only on engine progress. */
 export interface ScrollDeadlines {
@@ -11,6 +20,63 @@ export const DEFAULT_SCROLL_DEADLINES: Readonly<ScrollDeadlines> = Object.freeze
   maxTimeoutMs: SCROLL_MAX_TIMEOUT,
 });
 
+type ScrollBudget = 'idle' | 'max';
+
+/** Strict popup/worker validation; unlike stored normalization, never repairs input. */
+export function isValidScrollTimeoutSeconds(value: unknown, budget: ScrollBudget): value is number {
+  const minimum = budget === 'idle' ? MIN_SCROLL_IDLE_TIMEOUT_SEC : MIN_SCROLL_MAX_TIMEOUT_SEC;
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= minimum &&
+    value <= MAX_SCROLL_TIMEOUT_SEC
+  );
+}
+
+/** Stale/corrupt storage defaults invalid values and clamps positive whole seconds. */
+export function normalizeScrollTimeoutSeconds(value: unknown, budget: ScrollBudget): number {
+  const fallback =
+    budget === 'idle' ? DEFAULT_SCROLL_IDLE_TIMEOUT_SEC : DEFAULT_SCROLL_MAX_TIMEOUT_SEC;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) return fallback;
+  const minimum = budget === 'idle' ? MIN_SCROLL_IDLE_TIMEOUT_SEC : MIN_SCROLL_MAX_TIMEOUT_SEC;
+  return Math.min(MAX_SCROLL_TIMEOUT_SEC, Math.max(minimum, value));
+}
+
+/** The sole settings-seconds → runtime-milliseconds conversion and defensive boundary. */
+export function resolveScrollDeadlines(
+  settings?: Partial<Pick<SyncSettings, 'scrollIdleTimeoutSec' | 'scrollMaxTimeoutSec'>> | null
+): Readonly<ScrollDeadlines> {
+  return {
+    idleTimeoutMs: Math.min(
+      SCROLL_MAX_TIMEOUT,
+      normalizeScrollTimeoutSeconds(settings?.scrollIdleTimeoutSec, 'idle') * 1000
+    ),
+    maxTimeoutMs: Math.min(
+      SCROLL_MAX_TIMEOUT,
+      normalizeScrollTimeoutSeconds(settings?.scrollMaxTimeoutSec, 'max') * 1000
+    ),
+  };
+}
+
+/** Direct engine callers may bypass settings; keep even their limits finite and capped. */
+function boundedRuntimeTimeout(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.min(SCROLL_MAX_TIMEOUT, value)
+    : fallback;
+}
+
+type RuntimeScrollDeadlineInput = Readonly<Partial<ScrollDeadlines>> | null | undefined;
+
+/** Use the same effective runtime limits for timeout decisions and their diagnostics. */
+function normalizeRuntimeScrollDeadlines(
+  deadlines: RuntimeScrollDeadlineInput
+): Readonly<ScrollDeadlines> {
+  return {
+    idleTimeoutMs: boundedRuntimeTimeout(deadlines?.idleTimeoutMs, SCROLL_IDLE_TIMEOUT),
+    maxTimeoutMs: boundedRuntimeTimeout(deadlines?.maxTimeoutMs, SCROLL_MAX_TIMEOUT),
+  };
+}
+
 /** A stable DOM is an observation, not a claim of provider completeness. */
 export type ScrollStopReason = 'stable' | 'skipped' | 'idle-timeout' | 'max-timeout';
 export type ScrollTimeoutReason = Extract<ScrollStopReason, 'idle-timeout' | 'max-timeout'>;
@@ -20,10 +86,11 @@ export function getScrollTimeoutReason(
   startTime: number,
   lastProgressTime: number,
   now: number,
-  deadlines: Readonly<ScrollDeadlines> = DEFAULT_SCROLL_DEADLINES
+  deadlines: RuntimeScrollDeadlineInput = DEFAULT_SCROLL_DEADLINES
 ): ScrollTimeoutReason | undefined {
-  const idleExpiry = lastProgressTime + deadlines.idleTimeoutMs;
-  const maxExpiry = startTime + deadlines.maxTimeoutMs;
+  const effectiveDeadlines = normalizeRuntimeScrollDeadlines(deadlines);
+  const idleExpiry = lastProgressTime + effectiveDeadlines.idleTimeoutMs;
+  const maxExpiry = startTime + effectiveDeadlines.maxTimeoutMs;
   if (now < Math.min(idleExpiry, maxExpiry)) return undefined;
   return idleExpiry <= maxExpiry ? 'idle-timeout' : 'max-timeout';
 }
@@ -42,16 +109,17 @@ function diagnosticNumber(value: number): number {
 export function logScrollStop(
   reason: ScrollStopReason,
   elapsedMs: number,
-  deadlines: Readonly<ScrollDeadlines>,
+  deadlines: RuntimeScrollDeadlineInput,
   iterations: number,
   count: number
 ): void {
+  const effectiveDeadlines = normalizeRuntimeScrollDeadlines(deadlines);
   const message = `[G2O] Auto-scroll stopped: ${reason}`;
   const diagnostics = {
     reason,
     elapsedMs: diagnosticNumber(elapsedMs),
-    idleTimeoutMs: diagnosticNumber(deadlines.idleTimeoutMs),
-    maxTimeoutMs: diagnosticNumber(deadlines.maxTimeoutMs),
+    idleTimeoutMs: effectiveDeadlines.idleTimeoutMs,
+    maxTimeoutMs: effectiveDeadlines.maxTimeoutMs,
     iterations: diagnosticNumber(iterations),
     count: diagnosticNumber(count),
   };

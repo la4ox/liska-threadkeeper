@@ -108,6 +108,8 @@ const baseSettings: ContentScriptSettings = {
   vaultPath: 'AI/{platform}',
   isApiKeyConfigured: true,
   enableAutoScroll: false,
+  scrollIdleTimeoutSec: 15,
+  scrollMaxTimeoutSec: 300,
   enableAppendMode: false,
   enableToolContent: false,
   enableChatGptOpaqueProbe: false,

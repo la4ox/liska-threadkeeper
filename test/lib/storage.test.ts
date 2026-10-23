@@ -43,6 +43,34 @@ describe('storage', () => {
   });
 
   describe('getSettings', () => {
+    it('supplies old-store defaults without a write, then persists them on a later save', async () => {
+      await chrome.storage.sync.set({ settings: { vaultPath: 'Existing' } });
+      vi.mocked(chrome.storage.sync.set).mockClear();
+      expect(await getSettingsOrThrow()).toMatchObject({
+        scrollIdleTimeoutSec: 15,
+        scrollMaxTimeoutSec: 300,
+        vaultPath: 'Existing',
+      });
+      expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+      const { obsidianApiKey: _localKey, ...normalized } = await getSettingsOrThrow();
+      await saveSettings({ ...normalized, enableAutoScroll: true });
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: expect.objectContaining({ scrollIdleTimeoutSec: 15, scrollMaxTimeoutSec: 300 }),
+      });
+    });
+
+    it('round-trips both custom deadlines only through sync storage', async () => {
+      await saveSettings({ scrollIdleTimeoutSec: 120, scrollMaxTimeoutSec: 30 });
+      expect(await getSettingsOrThrow()).toMatchObject({
+        scrollIdleTimeoutSec: 120,
+        scrollMaxTimeoutSec: 30,
+      });
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: expect.objectContaining({ scrollIdleTimeoutSec: 120, scrollMaxTimeoutSec: 30 }),
+      });
+    });
+
     it('returns default settings when storage is empty', async () => {
       const settings = await getSettings();
 

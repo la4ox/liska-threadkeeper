@@ -17,6 +17,24 @@
     "description": "Text shown while syncing"
   },
 
+  "settings_scrollIdleTimeoutSec": {
+    "message": "Auto-scroll inactivity limit (seconds)"
+  },
+  "settings_scrollIdleTimeoutHelp": {
+    "message": "Stop DOM scrolling after this long without loading progress (5–300; default 15)."
+  },
+  "settings_scrollMaxTimeoutSec": {
+    "message": "Auto-scroll total limit (seconds)"
+  },
+  "settings_scrollMaxTimeoutHelp": {
+    "message": "Maximum time for one DOM scroll pass (30–300; default 300). The earlier limit wins."
+  },
+  "error_scrollIdleTimeoutSec": {
+    "message": "Enter a whole number from 5 to 300 for the auto-scroll inactivity limit."
+  },
+  "error_scrollMaxTimeoutSec": {
+    "message": "Enter a whole number from 30 to 300 for the auto-scroll total limit."
+  },
   "settings_title": {
     "message": "Settings",
     "description": "Settings page title"

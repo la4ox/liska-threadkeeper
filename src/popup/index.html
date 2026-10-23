@@ -205,6 +205,45 @@
                   </span>
                 </label>
               </div>
+              <div class="form-group">
+                <label for="scrollIdleTimeoutSec" data-i18n="settings_scrollIdleTimeoutSec">
+                  Auto-scroll inactivity limit (seconds)
+                </label>
+                <input
+                  type="number"
+                  id="scrollIdleTimeoutSec"
+                  min="5"
+                  max="300"
+                  step="1"
+                  required
+                  aria-describedby="scrollIdleTimeoutHelp"
+                />
+                <p
+                  class="help"
+                  id="scrollIdleTimeoutHelp"
+                  data-i18n="settings_scrollIdleTimeoutHelp"
+                >
+                  Stop DOM scrolling after this long without loading progress (5–300; default 15).
+                </p>
+              </div>
+              <div class="form-group">
+                <label for="scrollMaxTimeoutSec" data-i18n="settings_scrollMaxTimeoutSec">
+                  Auto-scroll total limit (seconds)
+                </label>
+                <input
+                  type="number"
+                  id="scrollMaxTimeoutSec"
+                  min="30"
+                  max="300"
+                  step="1"
+                  required
+                  aria-describedby="scrollMaxTimeoutHelp"
+                />
+                <p class="help" id="scrollMaxTimeoutHelp" data-i18n="settings_scrollMaxTimeoutHelp">
+                  Maximum time for one DOM scroll pass (30–300; default 300). The earlier limit
+                  wins.
+                </p>
+              </div>
             </section>
 
             <!-- Obsidian API Settings -->

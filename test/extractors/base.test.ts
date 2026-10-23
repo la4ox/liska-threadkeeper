@@ -570,16 +570,17 @@ describe('BaseExtractor', () => {
   });
 
   describe('applySettings', () => {
-    it('is a no-op by default (does not throw)', () => {
+    it('applies common settings without requiring a platform hook', () => {
       const settings = { enableAutoScroll: true, enableToolContent: true } as ExtensionSettings;
       expect(() => extractor.applySettings(settings)).not.toThrow();
     });
 
-    it('does not modify base extractor state', () => {
+    it('updates auto-scroll state while retaining the platform', () => {
       const settings = { enableAutoScroll: true, enableToolContent: true } as ExtensionSettings;
       extractor.applySettings(settings);
-      // Base extractor has no settings properties to check,
-      // just confirm it remains functional
+      expect(extractor.enableAutoScroll).toBe(true);
+      extractor.applySettings({ enableAutoScroll: false } as ExtensionSettings);
+      expect(extractor.enableAutoScroll).toBe(false);
       expect(extractor.platform).toBe('gemini');
     });
   });

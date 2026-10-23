@@ -920,6 +920,8 @@ function createTestNote(overrides?: Partial<ObsidianNote>): ObsidianNote {
 
 function createTestSettings(): ExtensionSettings {
   return {
+    scrollIdleTimeoutSec: 15,
+    scrollMaxTimeoutSec: 300,
     obsidianApiKey: 'test-key',
     obsidianUrl: 'http://127.0.0.1:27123',
     vaultPath: 'AI/{platform}',

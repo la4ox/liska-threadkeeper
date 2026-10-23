@@ -8,7 +8,13 @@
  */
 
 import type { SyncSettings, TemplateOptions, OutputOptions } from './types';
-import { DEFAULT_OBSIDIAN_URL, DEFAULT_MAX_CALLOUT_LINES } from './constants';
+import {
+  DEFAULT_OBSIDIAN_URL,
+  DEFAULT_MAX_CALLOUT_LINES,
+  DEFAULT_SCROLL_IDLE_TIMEOUT_SEC,
+  DEFAULT_SCROLL_MAX_TIMEOUT_SEC,
+} from './constants';
+import { normalizeScrollTimeoutSeconds } from './scroll-deadlines';
 
 const MESSAGE_FORMATS = ['callout', 'plain', 'blockquote'] as const;
 const FILENAME_SCHEMES = ['title-id', 'title-date'] as const;
@@ -39,6 +45,8 @@ export const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   templateOptions: DEFAULT_TEMPLATE_OPTIONS,
   outputOptions: DEFAULT_OUTPUT_OPTIONS,
   enableAutoScroll: false,
+  scrollIdleTimeoutSec: DEFAULT_SCROLL_IDLE_TIMEOUT_SEC,
+  scrollMaxTimeoutSec: DEFAULT_SCROLL_MAX_TIMEOUT_SEC,
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
@@ -154,6 +162,8 @@ export function normalizeSyncSettings(raw: unknown): SyncSettings {
     templateOptions: normalizeTemplateOptions(raw.templateOptions),
     outputOptions: normalizeOutputOptions(raw.outputOptions),
     enableAutoScroll: asBoolean(raw.enableAutoScroll, d.enableAutoScroll),
+    scrollIdleTimeoutSec: normalizeScrollTimeoutSeconds(raw.scrollIdleTimeoutSec, 'idle'),
+    scrollMaxTimeoutSec: normalizeScrollTimeoutSeconds(raw.scrollMaxTimeoutSec, 'max'),
     enableAppendMode: asBoolean(raw.enableAppendMode, d.enableAppendMode),
     enableToolContent: asBoolean(raw.enableToolContent, d.enableToolContent),
     enableImageExport: asBoolean(raw.enableImageExport, d.enableImageExport),

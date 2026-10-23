@@ -19,6 +19,8 @@ const validSettings: ExtensionSettings = {
   },
   outputOptions: { obsidian: true, file: true, clipboard: false },
   enableAutoScroll: false,
+  scrollIdleTimeoutSec: 15,
+  scrollMaxTimeoutSec: 300,
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
@@ -30,6 +32,47 @@ const validSettings: ExtensionSettings = {
 };
 
 describe('popup settings transport validation', () => {
+  it.each(['scrollIdleTimeoutSec', 'scrollMaxTimeoutSec'] as const)(
+    'strictly rejects malformed and out-of-range %s without normalization',
+    key => {
+      const min = key === 'scrollIdleTimeoutSec' ? 5 : 30;
+      for (const value of [
+        undefined,
+        null,
+        '60',
+        '60junk',
+        true,
+        {},
+        [],
+        NaN,
+        Infinity,
+        -Infinity,
+        -1,
+        0,
+        min - 1,
+        60.5,
+        301,
+      ]) {
+        expect(validateSettingsUpdate({ ...validSettings, [key]: value }), String(value)).toBe(
+          false
+        );
+      }
+      for (const value of [min, 60, 300]) {
+        expect(validateSettingsUpdate({ ...validSettings, [key]: value })).toBe(true);
+      }
+    }
+  );
+
+  it('accepts idle greater than maximum without swapping or rejecting limits', () => {
+    expect(
+      validateSettingsUpdate({
+        ...validSettings,
+        scrollIdleTimeoutSec: 120,
+        scrollMaxTimeoutSec: 30,
+      })
+    ).toBe(true);
+  });
+
   it('accepts exact valid settings, optional template fields, and an intentionally empty local key', () => {
     expect(validateSettingsUpdate(validSettings)).toBe(true);
     expect(

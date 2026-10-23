@@ -13,6 +13,24 @@
     "message": "同期中..."
   },
 
+  "settings_scrollIdleTimeoutSec": {
+    "message": "自動スクロールの待機時間上限（秒）"
+  },
+  "settings_scrollIdleTimeoutHelp": {
+    "message": "読み込みが進まない状態がこの時間続くと、DOM のスクロールを停止します（5～300、初期値15）。"
+  },
+  "settings_scrollMaxTimeoutSec": {
+    "message": "自動スクロールの合計時間上限（秒）"
+  },
+  "settings_scrollMaxTimeoutHelp": {
+    "message": "1回の DOM スクロール処理の最大時間です（30～300、初期値300）。先に達した上限で停止します。"
+  },
+  "error_scrollIdleTimeoutSec": {
+    "message": "自動スクロールの待機時間上限には、5～300の整数を入力してください。"
+  },
+  "error_scrollMaxTimeoutSec": {
+    "message": "自動スクロールの合計時間上限には、30～300の整数を入力してください。"
+  },
   "settings_title": {
     "message": "設定"
   },

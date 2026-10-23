@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as scrollManager from '../../src/lib/scroll-manager';
 import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
 import * as deepSeekApi from '../../src/content/extractors/deepseek-api';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../src/lib/constants';
@@ -247,6 +248,8 @@ describe('DeepSeekExtractor', () => {
     });
 
     it('fetches the complete active API branch without scrolling', async () => {
+      const scroll = vi.spyOn(scrollManager, 'accumulateWhileScrolling');
+      const extractMessages = vi.spyOn(extractor, 'extractMessages');
       createDeepSeekPage('chat-123', [
         { role: 'user', content: 'Only the latest mounted question' },
         { role: 'assistant', content: '<p>Only the latest mounted answer</p>' },
@@ -302,12 +305,22 @@ describe('DeepSeekExtractor', () => {
           { status: 200, headers: { 'content-type': 'application/json' } }
         )
       );
-      extractor.applySettings({ enableAutoScroll: true } as SyncSettings);
+      extractor.applySettings({
+        enableAutoScroll: true,
+        scrollIdleTimeoutSec: 5,
+        scrollMaxTimeoutSec: 30,
+      } as SyncSettings);
 
       const result = await extractor.extract();
 
       expect(result.success).toBe(true);
       expect(result.data?.title).toBe('Complete API conversation');
+      expect(result.data?.capture).toMatchObject({
+        mode: 'structured-api',
+        completeness: 'complete',
+      });
+      expect(scroll).not.toHaveBeenCalled();
+      expect(extractMessages).not.toHaveBeenCalled();
       expect(result.data?.messages.map(message => message.content)).toEqual([
         'First question',
         '**First answer**',

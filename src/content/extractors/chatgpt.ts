@@ -216,10 +216,9 @@ export class ChatGPTExtractor extends BaseExtractor {
   }
 
   /**
-   * Apply user settings for virtualized history and canonical tool-content projection.
+   * Apply provider settings for tool-content projection and experimental capture modes.
    */
-  applySettings(settings: SyncSettings): void {
-    this.enableAutoScroll = settings.enableAutoScroll ?? false;
+  protected applyPlatformSettings(settings: SyncSettings): void {
     this.enableToolContent = settings.enableToolContent ?? false;
     this.enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe ?? false;
     this.enableChatGptOpaqueReplay = settings.enableChatGptOpaqueReplay ?? false;

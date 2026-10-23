@@ -95,6 +95,8 @@ interface FrontmatterValidationOptions {
  * Default E2E test settings
  */
 const DEFAULT_E2E_SETTINGS: ExtensionSettings = {
+  scrollIdleTimeoutSec: 15,
+  scrollMaxTimeoutSec: 300,
   obsidianApiKey: 'test-api-key',
   obsidianUrl: 'http://127.0.0.1:27123',
   vaultPath: 'AI Conversations',

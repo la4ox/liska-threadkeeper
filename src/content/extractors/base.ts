@@ -23,7 +23,13 @@ import {
   PLATFORM_LABELS,
 } from '../../lib/constants';
 import { accumulateWhileScrolling, type HarvestEntry } from '../../lib/scroll-manager';
-import { buildScrollTimeoutWarning, isScrollTimeoutReason } from '../../lib/scroll-deadlines';
+import {
+  buildScrollTimeoutWarning,
+  isScrollTimeoutReason,
+  DEFAULT_SCROLL_DEADLINES,
+  resolveScrollDeadlines,
+  type ScrollDeadlines,
+} from '../../lib/scroll-deadlines';
 import { platformForHost } from '../../lib/platform-registry';
 
 /**
@@ -48,6 +54,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
 
   /** Whether to auto-scroll to load lazily-rendered history (set from settings). */
   enableAutoScroll = false;
+  protected scrollDeadlines: Readonly<ScrollDeadlines> = DEFAULT_SCROLL_DEADLINES;
 
   abstract getConversationId(): string | null;
   abstract getTitle(): string;
@@ -175,7 +182,11 @@ export abstract class BaseExtractor implements IConversationExtractor {
       return { messages: this.extractMessages() };
     }
 
-    const result = await accumulateWhileScrolling(container, () => config.harvest());
+    const result = await accumulateWhileScrolling(
+      container,
+      () => config.harvest(),
+      this.scrollDeadlines
+    );
     // Re-index into contiguous conversation order after de-duplication.
     const messages = result.items.map((message, index) => ({ ...message, index }));
 
@@ -193,10 +204,17 @@ export abstract class BaseExtractor implements IConversationExtractor {
 
   /**
    * Apply user settings before extraction.
-   * Override in subclasses that have platform-specific settings.
+   * Common settings cannot be skipped by platform-specific hooks.
    */
-  applySettings(_settings: SyncSettings): void {
-    // no-op by default
+  applySettings(settings: SyncSettings): void {
+    this.enableAutoScroll = settings.enableAutoScroll ?? false;
+    this.scrollDeadlines = resolveScrollDeadlines(settings);
+    this.applyPlatformSettings(settings);
+  }
+
+  /** Hook for provider-only flags; leave common settings to applySettings(). */
+  protected applyPlatformSettings(_settings: SyncSettings): void {
+    // no platform-specific settings by default
   }
 
   // ========== Deep Research Builder ==========
