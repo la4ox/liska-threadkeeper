@@ -120,6 +120,8 @@ describe('prepared all-branches render session', () => {
   it.each([false, true])(
     'is byte- and fact-equivalent to defensive wrappers for rendered and canonical-only leaves (tools %s)',
     includeToolContent => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 12, 0, 0));
       const value = mixedArchive();
       const catalog = getArchiveBranchCatalog(value);
       const session = prepareArchiveBranchPresentation(

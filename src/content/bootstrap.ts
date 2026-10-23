@@ -27,6 +27,7 @@ import {
   prepareAllBranchesPersistence,
   persistAllBranchesPresentation,
   type AllBranchesPersistenceSummary,
+  type AllBranchesNoteFingerprint,
   type AllBranchesWriteOutcome,
   type PreparedAllBranchesPersistence,
 } from './archive-branch-persistence';
@@ -66,6 +67,7 @@ import {
 } from '../lib/constants';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 import { generateNoteContent } from '../lib/note-generator';
+import { sha256Hex } from '../lib/sha256';
 import { flattenLargeCallouts } from '../lib/callout-flatten';
 import { stripImagePlaceholders } from '../lib/image-output';
 import { serializeSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
@@ -870,7 +872,7 @@ export async function persistAllBranchesBundle(
   companion: ArchiveCompanionBundle,
   settings: ContentScriptSettings,
   outputs: OutputDestination[],
-  archiveAlreadyPersisted = false,
+  destinationReceipts?: readonly unknown[],
   archiveWarnings: readonly string[] = [],
   signal?: AbortSignal,
   prepared?: PreparedAllBranchesPersistence
@@ -886,12 +888,12 @@ export async function persistAllBranchesBundle(
     settings.enableToolContent,
     outputs,
     {
-      persistCompanions: persistArchiveCompanions,
-      archiveAlreadyPersisted,
+      persistArtifacts: persistArchiveCompanionArtifacts,
+      destinationReceipts,
       signal,
       prepared,
-      measureNoteBytes: (note, destination) =>
-        measureAllBranchesNoteBytes(note, destination, settings),
+      fingerprintNote: (note, destination) =>
+        fingerprintAllBranchesNote(note, destination, settings),
       writeNote: (note, destination, messageCount) =>
         writeAllBranchesNote(
           note,
@@ -917,12 +919,12 @@ function freezeSettingsSnapshot(settings: ContentScriptSettings): ContentScriptS
   return Object.freeze(snapshot);
 }
 
-/** Mirror the destination's pure Markdown transform for exact dry-run budgeting. */
-export function measureAllBranchesNoteBytes(
+/** Mirror the destination's pure Markdown transform for exact dry-run parity. */
+function serializeAllBranchesNote(
   note: ObsidianNote,
   destination: PersistentOutputDestination,
   settings: ContentScriptSettings
-): number {
+): string {
   if ((note.images?.length ?? 0) > 0) {
     throw new Error('All-branches image notes require a dedicated exact serializer.');
   }
@@ -935,7 +937,24 @@ export function measureAllBranchesNoteBytes(
       ? flattenLargeCallouts(destinationBody, settings.maxCalloutLines)
       : destinationBody;
   const generationSettings: ExtensionSettings = { ...settings, obsidianApiKey: '' };
-  return utf8ByteLength(generateNoteContent({ ...note, body }, generationSettings));
+  return generateNoteContent({ ...note, body }, generationSettings);
+}
+
+export function measureAllBranchesNoteBytes(
+  note: ObsidianNote,
+  destination: PersistentOutputDestination,
+  settings: ContentScriptSettings
+): number {
+  return utf8ByteLength(serializeAllBranchesNote(note, destination, settings));
+}
+
+export async function fingerprintAllBranchesNote(
+  note: ObsidianNote,
+  destination: PersistentOutputDestination,
+  settings: ContentScriptSettings
+): Promise<AllBranchesNoteFingerprint> {
+  const bytes = new TextEncoder().encode(serializeAllBranchesNote(note, destination, settings));
+  return { byteLength: bytes.byteLength, sha256: await sha256Hex(bytes) };
 }
 
 async function persistNote(
@@ -1091,7 +1110,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           result.archiveCompanion,
           settings,
           enabledOutputs,
-          false,
+          undefined,
           [],
           allBranchesAbortController.signal,
           preparedAllBranches
@@ -1132,7 +1151,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           result.archiveCompanion,
           settings,
           attachmentExport.completeDestinations,
-          true,
+          attachmentExport.destinationReceipts ?? [],
           attachmentExport.warnings,
           allBranchesAbortController.signal,
           preparedAllBranches
@@ -1145,7 +1164,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         result.archiveCompanion,
         settings,
         enabledOutputs,
-        false,
+        undefined,
         [],
         allBranchesAbortController.signal,
         preparedAllBranches

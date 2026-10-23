@@ -73,7 +73,7 @@ vi.mock('../../src/content/ui', () => ({
 
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 
-import { handleSync } from '../../src/content/bootstrap';
+import { handleSync, persistArchiveCompanionArtifacts } from '../../src/content/bootstrap';
 import {
   observeChatGptAssetResolversViaOpaqueSource,
   resolveChatGptActiveImageAsset,
@@ -195,6 +195,7 @@ function mockSettingsAndSave(): void {
 describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    settings.enableImageExport = true;
     settings.enableChatGptOpaqueReplay = false;
     settings.outputOptions = { obsidian: false, file: true, clipboard: false };
     setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
@@ -442,11 +443,52 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       settings.templateOptions,
       settings.enableToolContent,
       ['file'],
-      expect.objectContaining({ archiveAlreadyPersisted: true, signal: expect.any(AbortSignal) })
+      expect.objectContaining({
+        destinationReceipts: [fileReceipt],
+        signal: expect.any(AbortSignal),
+        persistArtifacts: expect.any(Function),
+        fingerprintNote: expect.any(Function),
+      })
     );
     expect(mocks.showWarningToast).toHaveBeenCalledWith(
       expect.stringContaining('ChatGPT attachment export recorded one destination caveat.')
     );
+  });
+
+  it('wires the full-trio plain path without acquiring attachments when image export is disabled', async () => {
+    settings.enableImageExport = false;
+    mocks.extract.mockResolvedValue({
+      success: true,
+      archiveCompanion: companion,
+      chatGptAssetExportContext: context,
+      allBranches: {} as AllBranchesPresentationPlan,
+    });
+    mocks.persistAllBranchesPresentation.mockResolvedValue({
+      status: 'complete',
+      branchCount: 2,
+      omissionBranchCount: 0,
+      canonicalOnlyCount: 0,
+      clipboardSkipped: false,
+      allSuccessful: true,
+      destinations: [
+        { destination: 'file', archiveSaved: true, branchFilesSaved: 2, indexSaved: true },
+      ],
+    });
+    await handleSync('selected');
+    expect(mocks.attachmentExport).not.toHaveBeenCalled();
+    expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledWith(
+      expect.any(Object),
+      companion,
+      settings.templateOptions,
+      settings.enableToolContent,
+      ['file'],
+      expect.objectContaining({
+        persistArtifacts: persistArchiveCompanionArtifacts,
+        destinationReceipts: undefined,
+        fingerprintNote: expect.any(Function),
+      })
+    );
+    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
   });
 
   it('rejects structural over-budget work before the attachment pipeline writes anything', async () => {

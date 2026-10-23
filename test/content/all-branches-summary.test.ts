@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash, webcrypto } from 'node:crypto';
 import type { LiskaThreadArchive } from '../../src/archive';
 import { getArchiveBranchCatalog } from '../../src/archive';
 import branchingFixture from '../fixtures/archive/branching-chatgpt-thread.json';
@@ -17,6 +18,7 @@ vi.mock('../../src/lib/messaging', () => ({ sendMessage: vi.fn() }));
 
 import {
   displayAllBranchesSummary,
+  fingerprintAllBranchesNote,
   measureAllBranchesNoteBytes,
   persistAllBranchesBundle,
 } from '../../src/content/bootstrap';
@@ -75,9 +77,13 @@ function summary(
 }
 
 describe('all-branches user summary', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('crypto', webcrypto);
+  });
+  afterAll(() => vi.unstubAllGlobals());
 
-  it('measures multibyte File and Obsidian transforms by exact serialized UTF-8 bytes', () => {
+  it('measures and fingerprints exact multibyte File and Obsidian serialization', async () => {
     const note = {
       fileName: 'branch.md',
       frontmatter: {
@@ -130,6 +136,22 @@ describe('all-branches user summary', () => {
     expect(fileBytes).not.toBe(obsidianBytes);
     expect(fileBytes).toBeGreaterThan(note.body.length);
     expect(obsidianBytes).toBeGreaterThan(note.body.length);
+    for (const destination of ['file', 'obsidian'] as const) {
+      const body =
+        destination === 'file'
+          ? stripImagePlaceholders(note.body)
+          : flattenLargeCallouts(stripImagePlaceholders(note.body), 1);
+      const expected = generateNoteContent({ ...note, body }, generationSettings);
+      expect(await fingerprintAllBranchesNote(note, destination, exactSettings)).toEqual({
+        byteLength: new TextEncoder().encode(expected).byteLength,
+        sha256: createHash('sha256').update(expected).digest('hex'),
+      });
+    }
+    const sameLength = { ...note, body: note.body.replace('мир', 'мур') };
+    const original = await fingerprintAllBranchesNote(note, 'file', exactSettings);
+    const changed = await fingerprintAllBranchesNote(sameLength, 'file', exactSettings);
+    expect(changed.byteLength).toBe(original.byteLength);
+    expect(changed.sha256).not.toBe(original.sha256);
   });
 
   it('fails closed when a prepared branch note unexpectedly carries binary images', () => {
@@ -388,6 +410,22 @@ describe('all-branches user summary', () => {
       conversationKey: 'a'.repeat(64),
       artifacts: [
         {
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'b'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+        {
+          kind: 'manifest',
+          relativePath: 'manifest.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'c'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+        {
           kind: 'canonical',
           relativePath: 'canonical/liska-thread-1.json',
           mediaType: 'application/json',
@@ -451,6 +489,22 @@ describe('all-branches user summary', () => {
       captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
       conversationKey: 'a'.repeat(64),
       artifacts: [
+        {
+          kind: 'raw',
+          relativePath: 'responses/conversation.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'b'.repeat(64),
+          bodyBase64: 'e30=',
+        },
+        {
+          kind: 'manifest',
+          relativePath: 'manifest.json',
+          mediaType: 'application/json',
+          byteLength: 2,
+          sha256: 'c'.repeat(64),
+          bodyBase64: 'e30=',
+        },
         {
           kind: 'canonical',
           relativePath: 'canonical/liska-thread-1.json',

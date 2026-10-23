@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
+import {
+  decorateChatGptArchiveNote,
+  decorateChatGptArchivePresentation,
+} from '../../src/content/chatgpt-archive-links';
 import type { ChatGptDestinationArchiveReceipt } from '../../src/lib/chatgpt-archive-receipt';
 import { generateHash } from '../../src/lib/hash';
 import type { ObsidianNote } from '../../src/lib/types';
@@ -143,4 +146,69 @@ describe('decorateChatGptArchiveNote', () => {
     expect(() => decorateChatGptArchiveNote(note(), input)).toThrow(TypeError);
     expect(getter).not.toHaveBeenCalled();
   });
+});
+
+describe('decorateChatGptArchivePresentation', () => {
+  function presentation(): ObsidianNote {
+    const original = note();
+    return {
+      ...original,
+      fileName: 'thread-safe--branch-002--01234567-89ab-4cde-8f01-23456789abcd.md',
+      frontmatter: {
+        ...original.frontmatter,
+        presentation_mode: 'all-branches-leaf',
+        archive_capture_id: receipt().captureId,
+      },
+    };
+  }
+
+  it.each(['all-branches-leaf', 'all-branches-index'] as const)(
+    'preserves the prepared %s filename and detaches provenance and image fields',
+    mode => {
+      const original = presentation();
+      original.frontmatter.presentation_mode = mode;
+      const before = structuredClone(original);
+      const evidence = { ...receipt(), assets: [pdf('a'.repeat(64))] };
+      const decorated = decorateChatGptArchivePresentation(original, evidence);
+      evidence.assets[0].relativePath = 'mutated';
+      evidence.manifestSha256 = 'e'.repeat(64);
+      expect(original).toEqual(before);
+      expect(decorated.fileName).toBe(original.fileName);
+      expect(decorated.frontmatter.archive_manifest_sha256).toBe(receipt().manifestSha256);
+      expect(decorated.body).toContain(original.body);
+      expect(decorated.body).toContain(`/assets/${'a'.repeat(64)}.pdf)`);
+      expect(decorated.body).not.toContain('mutated');
+      expect(decorated.contentHash).toBe(generateHash(decorated.body));
+      expect(decorated.frontmatter.tags).not.toBe(original.frontmatter.tags);
+      expect(decorated.images?.[0]).not.toBe(original.images?.[0]);
+    }
+  );
+
+  it('binds an empty-assets receipt without adding an appendix or another capture suffix', () => {
+    const original = presentation();
+    const decorated = decorateChatGptArchivePresentation(original, receipt());
+    expect(decorated.body).toBe(original.body);
+    expect(decorated.frontmatter.archive_manifest_sha256).toBe(receipt().manifestSha256);
+    expect(decorated.fileName).toBe(original.fileName);
+    expect(decorated.fileName).not.toContain('--capture-');
+  });
+
+  it.each(['missing-mode', 'missing-capture', 'wrong-capture', 'wrong-mode', 'malformed-receipt'])(
+    'rejects %s before decoration',
+    mutation => {
+      const original = presentation();
+      if (mutation === 'missing-mode') delete original.frontmatter.presentation_mode;
+      if (mutation === 'missing-capture') delete original.frontmatter.archive_capture_id;
+      if (mutation === 'wrong-capture') original.frontmatter.archive_capture_id += '-other';
+      if (mutation === 'wrong-mode') original.frontmatter.presentation_mode = undefined;
+      const before = structuredClone(original);
+      expect(() =>
+        decorateChatGptArchivePresentation(
+          original,
+          mutation === 'malformed-receipt' ? { ...receipt(), assets: null } : receipt()
+        )
+      ).toThrow(TypeError);
+      expect(original).toEqual(before);
+    }
+  );
 });
