@@ -15,6 +15,11 @@ import {
   projectArchiveBranch,
   type ArchiveProjectionResult,
 } from './archive-projection';
+import {
+  prepareArchiveBranchGraph,
+  type PreparedArchiveBranchGraph,
+} from './archive-branch-prepared';
+import type { ArchiveBranchWorkMetrics } from './archive-branch-budget';
 import { ALL_PLATFORMS, platformOrigin } from '../lib/platform-registry';
 import type { AIPlatform, ConversationData, ObsidianNote, TemplateOptions } from '../lib/types';
 
@@ -51,6 +56,19 @@ interface CanonicalCounts {
   messageCount: number;
   userMessageCount: number;
   assistantMessageCount: number;
+}
+
+interface BranchCounts {
+  canonicalMessageCount: number;
+  uniqueMessageCount: number;
+}
+
+/** One validated, owned all-branches session; only one leaf body is materialized at a time. */
+export interface PreparedArchiveBranchPresentation {
+  readonly branchCount: number;
+  readonly metrics: ArchiveBranchWorkMetrics;
+  renderLeaf(ordinal: number): ArchiveBranchLeafRender;
+  renderIndex(entries: ArchiveBranchIndexEntry[]): ObsidianNote;
 }
 
 function requireCaptureId(captureId: string): void {
@@ -150,7 +168,7 @@ function assertBranchMatchesProjection(
   archive: LiskaThreadArchive,
   branch: ArchiveBranchDescriptor,
   selectedNodeIds: string[]
-): { canonicalMessageCount: number; uniqueMessageCount: number } {
+): BranchCounts {
   if (selectedNodeIds[selectedNodeIds.length - 1] !== branch.targetNodeId) {
     throw new Error('Archive projection did not resolve the requested catalog leaf.');
   }
@@ -253,11 +271,16 @@ function canonicalOnlyStub(
   catalog: ArchiveBranchCatalog,
   branch: ArchiveBranchDescriptor,
   captureId: string,
-  templateOptions: TemplateOptions
+  templateOptions: TemplateOptions,
+  baseData?: ConversationData,
+  renderedAt?: Date
 ): ObsidianNote {
   const note = conversationToNote(
-    baseConversationData(archive, captureId, leafPresentation(catalog, branch, captureId)),
-    templateOptions
+    baseData
+      ? { ...baseData, presentation: leafPresentation(catalog, branch, captureId) }
+      : baseConversationData(archive, captureId, leafPresentation(catalog, branch, captureId)),
+    templateOptions,
+    renderedAt
   );
   note.body = [
     '> [!WARNING]',
@@ -287,13 +310,11 @@ function renderedLeaf(
   branch: ArchiveBranchDescriptor,
   projection: ArchiveProjectionResult,
   templateOptions: TemplateOptions,
-  captureId: string
+  captureId: string,
+  counts = assertBranchMatchesProjection(archive, branch, projection.selectedNodeIds),
+  renderedAt?: Date
 ): ArchiveBranchLeafRender {
-  const { canonicalMessageCount, uniqueMessageCount } = assertBranchMatchesProjection(
-    archive,
-    branch,
-    projection.selectedNodeIds
-  );
+  const { canonicalMessageCount, uniqueMessageCount } = counts;
   const note = withHumanTitle(
     conversationToNote(
       {
@@ -303,7 +324,8 @@ function renderedLeaf(
         capture: { mode: 'structured-api', completeness: 'complete' },
         presentation: leafPresentation(catalog, branch, captureId),
       },
-      templateOptions
+      templateOptions,
+      renderedAt
     ),
     leafTitle(archive, branch)
   );
@@ -324,16 +346,23 @@ function canonicalOnlyLeaf(
   catalog: ArchiveBranchCatalog,
   branch: ArchiveBranchDescriptor,
   templateOptions: TemplateOptions,
-  captureId: string
+  captureId: string,
+  selectedNodeIds = getNodePath(archive, branch.targetNodeId),
+  counts = assertBranchMatchesProjection(archive, branch, selectedNodeIds),
+  baseData?: ConversationData,
+  renderedAt?: Date
 ): ArchiveBranchLeafRender {
-  const selectedNodeIds = getNodePath(archive, branch.targetNodeId);
-  const { canonicalMessageCount, uniqueMessageCount } = assertBranchMatchesProjection(
-    archive,
-    branch,
-    selectedNodeIds
-  );
+  const { canonicalMessageCount, uniqueMessageCount } = counts;
   return {
-    note: canonicalOnlyStub(archive, catalog, branch, captureId, templateOptions),
+    note: canonicalOnlyStub(
+      archive,
+      catalog,
+      branch,
+      captureId,
+      templateOptions,
+      baseData,
+      renderedAt
+    ),
     warnings: [
       `Branch ${branch.ordinal} has no legacy-renderable user or assistant content; a canonical-only Markdown stub was created.`,
     ],
@@ -500,6 +529,18 @@ export function renderArchiveBranchIndex(
     templateOptions,
     captureId
   );
+  return branchIndexNote(archive, catalog, verifiedEntries, templateOptions, captureId);
+}
+
+function branchIndexNote(
+  archive: LiskaThreadArchive,
+  catalog: ArchiveBranchCatalog,
+  entries: ArchiveBranchIndexEntry[],
+  templateOptions: TemplateOptions,
+  captureId: string,
+  baseData?: ConversationData,
+  renderedAt?: Date
+): ObsidianNote {
   const presentation: ConversationData['presentation'] = {
     mode: 'all-branches-index',
     captureId,
@@ -507,11 +548,145 @@ export function renderArchiveBranchIndex(
     branchPointCount: catalog.branchPointCount,
   };
   const note = conversationToNote(
-    baseConversationData(archive, captureId, presentation),
-    templateOptions
+    baseData
+      ? { ...baseData, presentation }
+      : baseConversationData(archive, captureId, presentation),
+    templateOptions,
+    renderedAt
   );
-  note.body = indexBody(archive, catalog, verifiedEntries);
+  note.body = indexBody(archive, catalog, entries);
   note.contentHash = generateContentHash(note.body);
   note.frontmatter.message_count = completeArchiveMessageCount(archive);
   return withHumanTitle(note, `${archiveTitle(archive)} — All branches`);
+}
+
+function preparedLeaf(
+  prepared: PreparedArchiveBranchGraph,
+  ordinal: number,
+  templateOptions: TemplateOptions,
+  captureId: string,
+  includeToolContent: boolean,
+  baseData: ConversationData,
+  renderedAt: Date
+): ArchiveBranchLeafRender {
+  const branch = prepared.branches[ordinal - 1];
+  if (!Number.isSafeInteger(ordinal) || !branch || branch.descriptor.ordinal !== ordinal) {
+    throw new Error('Requested branch is not an exact member of the archive branch catalog.');
+  }
+  const projection = prepared.projection.project({
+    targetNodeId: branch.descriptor.targetNodeId,
+    includeToolContent,
+  });
+  return projection.data.messages.length > 0
+    ? renderedLeaf(
+        prepared.archive,
+        prepared.catalog,
+        branch.descriptor,
+        projection,
+        templateOptions,
+        captureId,
+        branch,
+        renderedAt
+      )
+    : canonicalOnlyLeaf(
+        prepared.archive,
+        prepared.catalog,
+        branch.descriptor,
+        templateOptions,
+        captureId,
+        projection.selectedNodeIds,
+        branch,
+        baseData,
+        renderedAt
+      );
+}
+
+function leafIndexFacts(leaf: ArchiveBranchLeafRender): ArchiveBranchIndexEntry {
+  return {
+    ordinal: leaf.ordinal,
+    fileName: leaf.note.fileName,
+    canonicalMessageCount: leaf.canonicalMessageCount,
+    renderedMessageCount: leaf.renderedMessageCount,
+    uniqueMessageCount: leaf.uniqueMessageCount,
+    isCurrent: leaf.isCurrent,
+    status: leaf.status,
+  };
+}
+
+function requirePreparedIndexEntries(
+  entries: ArchiveBranchIndexEntry[],
+  facts: Map<number, ArchiveBranchIndexEntry>,
+  branchCount: number
+): void {
+  if (entries.length !== branchCount || facts.size !== branchCount) {
+    throw new Error('Archive branch index entries must cover every catalog leaf exactly once.');
+  }
+  for (const [index, entry] of entries.entries()) {
+    if (entry.ordinal !== index + 1) {
+      throw new Error(
+        'Archive branch index entries must follow deterministic catalog ordinal order.'
+      );
+    }
+    requireSafeLeafFilename(entry.fileName);
+    const expected = facts.get(entry.ordinal)!;
+    if (
+      entry.fileName !== expected.fileName ||
+      entry.canonicalMessageCount !== expected.canonicalMessageCount ||
+      entry.renderedMessageCount !== expected.renderedMessageCount ||
+      entry.uniqueMessageCount !== expected.uniqueMessageCount ||
+      entry.isCurrent !== expected.isCurrent ||
+      entry.status !== expected.status
+    ) {
+      throw new Error('Archive branch index entry does not match its prepared leaf.');
+    }
+  }
+}
+
+/**
+ * Validate a complete graph/catalog once, then render by O(1) ordinal lookup.
+ * The session owns copied structure and content-free index facts, never sibling
+ * bodies or all root-to-leaf paths. Message bodies must stay immutable until it ends.
+ */
+export function prepareArchiveBranchPresentation(
+  archive: LiskaThreadArchive,
+  catalog: ArchiveBranchCatalog,
+  templateOptions: TemplateOptions,
+  captureId: string,
+  includeToolContent = false
+): PreparedArchiveBranchPresentation {
+  requireCaptureId(captureId);
+  const prepared = prepareArchiveBranchGraph(archive, catalog);
+  const options = { ...templateOptions };
+  const baseData = baseConversationData(prepared.archive, captureId, undefined);
+  const renderedAt = new Date();
+  const facts = new Map<number, ArchiveBranchIndexEntry>();
+  return {
+    branchCount: prepared.branches.length,
+    metrics: prepared.metrics,
+    renderLeaf(ordinal) {
+      const leaf = preparedLeaf(
+        prepared,
+        ordinal,
+        options,
+        captureId,
+        includeToolContent,
+        baseData,
+        renderedAt
+      );
+      facts.set(ordinal, leafIndexFacts(leaf));
+      return leaf;
+    },
+    renderIndex(entries) {
+      requirePreparedIndexEntries(entries, facts, prepared.branches.length);
+      return branchIndexNote(
+        prepared.archive,
+        prepared.catalog,
+        entries,
+        options,
+        captureId,
+        baseData,
+        renderedAt
+      );
+    },
+  };
 }

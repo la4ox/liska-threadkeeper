@@ -4,6 +4,8 @@ import {
   buildSaveToOutputsMessage,
 } from '../../src/content/capture-routing';
 import type { ArchiveCompanionBundle, ObsidianNote } from '../../src/lib/types';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 
 const capturedAt = '2026-09-19T10:00:00.000Z';
 const companion: ArchiveCompanionBundle = {
@@ -78,5 +80,33 @@ describe('capture routing messages', () => {
       outputs: ['file'],
     });
     expect(buildSaveToOutputsMessage(note, ['obsidian'], capturedAt)).toMatchObject({ capturedAt });
+  });
+
+  it('adds strict Markdown File confirmation only when explicitly requested', () => {
+    expect(buildSaveToOutputsMessage(note, ['file'], capturedAt, true)).toEqual({
+      action: 'saveToOutputs',
+      data: note,
+      outputs: ['file'],
+      capturedAt,
+      strictFileDownload: true,
+    });
+    expect(buildSaveToOutputsMessage(note, ['file'], undefined, true)).toMatchObject({
+      strictFileDownload: true,
+    });
+    expect(buildSaveToOutputsMessage(note, ['file'])).not.toHaveProperty('strictFileDownload');
+  });
+
+  it('binds an exact measured-settings snapshot only when explicitly supplied', () => {
+    const snapshot = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
+    expect(buildSaveToOutputsMessage(note, ['obsidian'], capturedAt, undefined, snapshot)).toEqual({
+      action: 'saveToOutputs',
+      data: note,
+      outputs: ['obsidian'],
+      capturedAt,
+      expectedSyncSettingsSnapshot: snapshot,
+    });
+    expect(buildSaveToOutputsMessage(note, ['obsidian'])).not.toHaveProperty(
+      'expectedSyncSettingsSnapshot'
+    );
   });
 });

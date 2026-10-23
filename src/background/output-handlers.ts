@@ -233,6 +233,7 @@ function downloadDataUrl(url: string, filename: string): Promise<string | null> 
 }
 
 const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 30_000;
+const DOWNLOAD_SEARCH_TIMEOUT_MS = 5_000;
 
 function decodeCanonicalBase64(value: string): Uint8Array | undefined {
   const expectedLength = canonicalBase64ByteLength(value);
@@ -369,19 +370,42 @@ function archiveDownloadPathMatches(filename: unknown, expectedRelativePath: str
   return normalized.endsWith(`/${expectedRelativePath}`);
 }
 
+type ArchiveDownloadPathStatus = 'confirmed' | 'mismatch' | 'unconfirmed';
+
 /** A completed download is owned only when Chrome retained the exact requested archive path. */
-export async function confirmArchiveDownloadPath(
+export function confirmArchiveDownloadPath(
   outcome: ArchiveDownloadOutcome,
   expectedRelativePath: string
-): Promise<boolean> {
-  if (!outcome.terminal || outcome.error !== null || outcome.downloadId === undefined) return false;
-  try {
-    const downloads = await chrome.downloads.search({ id: outcome.downloadId });
-    const item = downloads.find(download => download.id === outcome.downloadId);
-    return archiveDownloadPathMatches(item?.filename, expectedRelativePath);
-  } catch {
-    return false;
+): Promise<boolean>;
+export function confirmArchiveDownloadPath(
+  outcome: ArchiveDownloadOutcome,
+  expectedRelativePath: string,
+  detailed: true
+): Promise<ArchiveDownloadPathStatus>;
+export async function confirmArchiveDownloadPath(
+  outcome: ArchiveDownloadOutcome,
+  expectedRelativePath: string,
+  detailed?: true
+): Promise<boolean | ArchiveDownloadPathStatus> {
+  let status: ArchiveDownloadPathStatus = 'unconfirmed';
+  if (outcome.terminal && outcome.error === null && outcome.downloadId !== undefined) {
+    try {
+      const downloads = await withTimeout(
+        chrome.downloads.search({ id: outcome.downloadId }),
+        DOWNLOAD_SEARCH_TIMEOUT_MS,
+        'Download path lookup timed out'
+      );
+      const item = downloads.find(download => download.id === outcome.downloadId);
+      if (typeof item?.filename === 'string') {
+        status = archiveDownloadPathMatches(item.filename, expectedRelativePath)
+          ? 'confirmed'
+          : 'mismatch';
+      }
+    } catch {
+      // Terminal ownership is known, but filename ownership is not.
+    }
   }
+  return detailed ? status : status === 'confirmed';
 }
 
 function isTerminalDownloadState(state: string | undefined): state is 'complete' | 'interrupted' {
@@ -401,7 +425,11 @@ async function inspectArchiveDownload(
   downloadId: number
 ): Promise<chrome.downloads.DownloadState | undefined> {
   try {
-    const downloads = await chrome.downloads.search({ id: downloadId });
+    const downloads = await withTimeout(
+      chrome.downloads.search({ id: downloadId }),
+      DOWNLOAD_SEARCH_TIMEOUT_MS,
+      'Download state lookup timed out'
+    );
     return downloads.find(download => download.id === downloadId)?.state;
   } catch {
     return undefined;
@@ -686,14 +714,76 @@ export async function handlePersistArchiveCompanion(
   };
 }
 
-/**
- * Download note as a file, plus each captured image as a separate file.
- * The markdown references images by filename only (issue #186).
- */
+/** In-worker admission only: service-worker restarts do not retain this gate. */
+let strictFileDownloadOwner: symbol | undefined;
+
+function releaseStrictFileDownload(owner: symbol): void {
+  if (strictFileDownloadOwner === owner) strictFileDownloadOwner = undefined;
+}
+
+async function downloadStrictMarkdown(url: string, filename: string): Promise<OutputResult> {
+  if (strictFileDownloadOwner !== undefined) {
+    return {
+      destination: 'file',
+      success: false,
+      strictFileOutcome: 'blocked',
+      error: 'strict-file-download-busy',
+    };
+  }
+  const owner = Symbol('strict-file-download');
+  strictFileDownloadOwner = owner;
+  try {
+    const outcome = await downloadArchiveBlob(url, filename, async () => {
+      releaseStrictFileDownload(owner);
+    });
+    // Only this download's terminal evidence can release admission. A failed
+    // post-terminal filename lookup is still unconfirmed, but cannot leave an
+    // already-finished transfer permanently holding the gate.
+    if (outcome.terminal) releaseStrictFileDownload(owner);
+    if (!outcome.terminal || outcome.error !== null) {
+      return {
+        destination: 'file',
+        success: false,
+        strictFileOutcome: outcome.terminal ? 'confirmed-failure' : 'unconfirmed',
+        error: outcome.terminal
+          ? 'strict-file-download-failed'
+          : 'strict-file-download-unconfirmed',
+      };
+    }
+    const path = await confirmArchiveDownloadPath(outcome, filename, true);
+    if (path === 'confirmed') {
+      return {
+        destination: 'file',
+        success: true,
+        strictFileOutcome: 'confirmed-success',
+        savedAs: filename,
+      };
+    }
+    return {
+      destination: 'file',
+      success: false,
+      strictFileOutcome: path === 'mismatch' ? 'confirmed-failure' : 'unconfirmed',
+      error: `strict-file-download-path-${path === 'mismatch' ? 'mismatch' : 'unconfirmed'}`,
+    };
+  } catch {
+    // A thrown Downloads channel can have started a transfer. Its exact late
+    // terminal callback, not a subsequent operation, owns gate release.
+    return {
+      destination: 'file',
+      success: false,
+      strictFileOutcome: 'unconfirmed',
+      error: 'strict-file-download-unconfirmed',
+    };
+  }
+}
+
+/** Download Markdown and then each captured image; ordinary images retain their existing behavior. */
 async function handleDownloadToFile(
   note: ObsidianNote,
-  settings: ExtensionSettings
+  settings: ExtensionSettings,
+  strictFileDownload?: true
 ): Promise<OutputResult> {
+  let markdownResult: OutputResult | undefined;
   try {
     const images = settings.enableImageExport ? (note.images ?? []) : [];
     const { body, files } =
@@ -702,13 +792,16 @@ async function handleDownloadToFile(
         : { body: stripImagePlaceholders(note.body), files: [] };
 
     const content = generateNoteContent({ ...note, body }, settings);
-    const mdError = await downloadDataUrl(
-      `data:text/markdown;charset=utf-8;base64,${stringToBase64(content)}`,
-      note.fileName
-    );
-    if (mdError) {
-      return { destination: 'file', success: false, error: mdError };
-    }
+    const url = `data:text/markdown;charset=utf-8;base64,${stringToBase64(content)}`;
+    const mdError = strictFileDownload ? null : await downloadDataUrl(url, note.fileName);
+    markdownResult = strictFileDownload
+      ? await downloadStrictMarkdown(url, note.fileName)
+      : {
+          destination: 'file',
+          success: !mdError,
+          ...(mdError && { error: mdError }),
+        };
+    if (!markdownResult.success) return markdownResult;
 
     for (const file of files) {
       const imgError = await downloadDataUrl(
@@ -717,18 +810,21 @@ async function handleDownloadToFile(
       );
       if (imgError) {
         return {
-          destination: 'file',
+          ...markdownResult,
           success: false,
           error: 'Image download failed (1 image)',
         };
       }
     }
 
-    return { destination: 'file', success: true };
+    return markdownResult;
   } catch (error) {
     return {
+      ...markdownResult,
       destination: 'file',
       success: false,
+      ...(strictFileDownload &&
+        !markdownResult && { strictFileOutcome: 'confirmed-failure' as const }),
       error: extractErrorMessage(error),
     };
   }
@@ -788,14 +884,15 @@ export async function handleMultiOutput(
   note: ObsidianNote,
   outputs: OutputDestination[],
   settings: ExtensionSettings,
-  capturedAt?: string
+  capturedAt?: string,
+  strictFileDownload?: true
 ): Promise<MultiOutputResponse> {
   const promises = outputs.map(dest => {
     switch (dest) {
       case 'obsidian':
         return handleSaveToObsidian(note, settings, capturedAt);
       case 'file':
-        return handleDownloadToFile(note, settings);
+        return handleDownloadToFile(note, settings, strictFileDownload);
       case 'clipboard':
         return handleCopyToClipboard(note, settings);
     }

@@ -24,8 +24,11 @@ import type {
   IConversationExtractor,
 } from '../lib/types';
 import {
+  prepareAllBranchesPersistence,
   persistAllBranchesPresentation,
   type AllBranchesPersistenceSummary,
+  type AllBranchesWriteOutcome,
+  type PreparedAllBranchesPersistence,
 } from './archive-branch-persistence';
 import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-export';
 import type { ChatGptAssetExportResult } from './chatgpt-asset-export';
@@ -46,10 +49,12 @@ import {
   injectBranchExportButton,
   injectSyncButton,
   setButtonLoading,
+  showAllBranchesStopControl,
   showErrorToast,
   showWarningToast,
   showToast,
 } from './ui';
+import type { AllBranchesStopControl } from './ui';
 import { sendMessage } from '../lib/messaging';
 import {
   AUTO_SAVE_CHECK_INTERVAL,
@@ -60,9 +65,14 @@ import {
   MUTATION_DEBOUNCE_DELAY,
 } from '../lib/constants';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
+import { generateNoteContent } from '../lib/note-generator';
+import { flattenLargeCallouts } from '../lib/callout-flatten';
+import { stripImagePlaceholders } from '../lib/image-output';
+import { serializeSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 import type {
   AIPlatform,
   ContentScriptSettings,
+  ExtensionSettings,
   ObsidianNote,
   OutputDestination,
   OutputResult,
@@ -624,6 +634,16 @@ function isMultiOutputResponse(
   return response.allSuccessful === allSuccessful && response.anySuccessful === anySuccessful;
 }
 
+function isStrictFileOutcome(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === 'confirmed-success' ||
+    value === 'confirmed-failure' ||
+    value === 'unconfirmed' ||
+    value === 'blocked'
+  );
+}
+
 function isOutputResult(value: unknown): value is OutputResult {
   if (!value || typeof value !== 'object') return false;
   const result = value as Record<string, unknown>;
@@ -632,6 +652,7 @@ function isOutputResult(value: unknown): value is OutputResult {
   if (result.error !== undefined && typeof result.error !== 'string') return false;
   if (result.savedAs !== undefined && typeof result.savedAs !== 'string') return false;
   if (result.warning !== undefined && typeof result.warning !== 'string') return false;
+  if (!isStrictFileOutcome(result.strictFileOutcome)) return false;
   return (
     result.messagesAppended === undefined ||
     (typeof result.messagesAppended === 'number' &&
@@ -650,23 +671,36 @@ function backgroundResponseError(value: unknown): string {
 
 type NoteWriteAttempt =
   | { success: true; response: MultiOutputResponse }
-  | { success: false; error: string };
+  | { success: false; error: string; outcome: 'failed' | 'unknown' };
 
 async function writeNoteToOutputs(
   note: ObsidianNote,
   outputs: OutputDestination[],
   messageCount: number,
-  capturedAt?: string
+  capturedAt?: string,
+  strictFileDownload?: true,
+  expectedSyncSettingsSnapshot?: string
 ): Promise<NoteWriteAttempt> {
   if (utf8ByteLength(note.body) > MAX_CONTENT_SIZE) {
-    return { success: false, error: 'Conversation is too large to export safely (32 MiB limit)' };
+    return {
+      success: false,
+      error: 'Conversation is too large to export safely (32 MiB limit)',
+      outcome: 'failed',
+    };
   }
 
-  const saveMessage = buildSaveToOutputsMessage(note, outputs, capturedAt);
+  const saveMessage = buildSaveToOutputsMessage(
+    note,
+    outputs,
+    capturedAt,
+    strictFileDownload,
+    expectedSyncSettingsSnapshot
+  );
   if (jsonUtf8ByteLength(saveMessage) > MAX_EXTENSION_MESSAGE_SIZE) {
     return {
       success: false,
       error: 'Conversation and images are too large to export safely (60 MiB limit)',
+      outcome: 'failed',
     };
   }
 
@@ -675,7 +709,11 @@ async function writeNoteToOutputs(
   const saveResponse: unknown = await sendMessage(saveMessage);
   if (!isMultiOutputResponse(saveResponse, outputs)) {
     console.info('[G2O] Note write response invalid');
-    return { success: false, error: backgroundResponseError(saveResponse) };
+    return {
+      success: false,
+      error: backgroundResponseError(saveResponse),
+      outcome: strictFileDownload ? 'unknown' : 'failed',
+    };
   }
   console.info('[G2O] Note write result:', {
     allSuccessful: saveResponse.allSuccessful,
@@ -689,12 +727,79 @@ function allBranchesDestinationNames(summary: AllBranchesPersistenceSummary): st
   return summary.destinations.map(destination => destination.destination).join(', ');
 }
 
+function classifyStrictFileWrite(
+  note: ObsidianNote,
+  result: OutputResult
+): AllBranchesWriteOutcome {
+  if (
+    result.strictFileOutcome === 'confirmed-success' &&
+    result.success &&
+    result.savedAs === note.fileName
+  ) {
+    return 'confirmed';
+  }
+  if (
+    result.strictFileOutcome === 'confirmed-failure' ||
+    (result.strictFileOutcome === 'confirmed-success' && !result.success)
+  ) {
+    return 'failed';
+  }
+  return 'unknown';
+}
+
+function classifyAllBranchesWrite(
+  note: ObsidianNote,
+  destination: PersistentOutputDestination,
+  result: OutputResult
+): AllBranchesWriteOutcome {
+  if (result.error === 'settings-changed') return 'unknown';
+  if (destination === 'file') return classifyStrictFileWrite(note, result);
+  return result.success && (result.savedAs === undefined || result.savedAs === note.fileName)
+    ? 'confirmed'
+    : 'failed';
+}
+
+async function writeAllBranchesNote(
+  note: ObsidianNote,
+  destination: PersistentOutputDestination,
+  messageCount: number,
+  capturedAt: string | undefined,
+  expectedSyncSettingsSnapshot: string
+): Promise<AllBranchesWriteOutcome> {
+  let attempt: NoteWriteAttempt;
+  try {
+    attempt = await writeNoteToOutputs(
+      note,
+      [destination],
+      messageCount,
+      capturedAt,
+      destination === 'file' ? true : undefined,
+      expectedSyncSettingsSnapshot
+    );
+  } catch {
+    return destination === 'file' ? 'unknown' : 'failed';
+  }
+  if (!attempt.success) return attempt.outcome;
+  return classifyAllBranchesWrite(note, destination, attempt.response.results[0]);
+}
+
+// eslint-disable-next-line max-lines-per-function, complexity -- Receipt rendering deliberately enumerates every closed terminal state.
 export function displayAllBranchesSummary(
   summary: AllBranchesPersistenceSummary,
   archiveWarnings: readonly string[] = []
 ): void {
   if (summary.destinations.length === 0) {
-    showErrorToast('Exporting all branches requires File or Obsidian output');
+    if (summary.status === 'rejected') {
+      showWarningToast(
+        `All-branches export was rejected by the ${summary.budgetKind ?? 'safety'} budget before any output was written`
+      );
+    } else if (summary.status === 'cancelled') {
+      showWarningToast(
+        'All-branches export was stopped. Any output already saved was retained; no additional branch files were scheduled.'
+      );
+    } else {
+      showErrorToast('Exporting all branches requires File or Obsidian output');
+    }
     return;
   }
 
@@ -721,6 +826,31 @@ export function displayAllBranchesSummary(
     ...(summary.clipboardSkipped ? ['Clipboard was skipped for the multi-file bundle'] : []),
   ];
 
+  if (summary.status === 'rejected') {
+    const timing =
+      summary.phase === 'structural-preflight'
+        ? 'before any output was written'
+        : 'after archive evidence was retained; no branch notes or index were written';
+    showWarningToast(
+      `All-branches export was rejected by the ${summary.budgetKind ?? 'safety'} budget ${timing}${caveats.length > 0 ? `. ${caveats.join('. ')}` : ''}`
+    );
+    return;
+  }
+
+  if (summary.status === 'cancelled') {
+    showWarningToast(
+      `All-branches export was stopped: ${savedBranchWrites} branch write(s) and ${savedIndexes} index(es) were confirmed. Any output already saved was retained; no additional branch files were scheduled${caveats.length > 0 ? `. ${caveats.join('. ')}` : ''}`
+    );
+    return;
+  }
+
+  if (summary.status === 'failed') {
+    showWarningToast(
+      `All-branches export failed during ${summary.phase}; ${archiveDestinations}/${destinationCount} archive bundle(s) were retained and no completion was claimed${caveats.length > 0 ? `. ${caveats.join('. ')}` : ''}`
+    );
+    return;
+  }
+
   if (summary.allSuccessful && caveats.length === 0) {
     showToast(
       `Saved ${summary.branchCount} branches and an index to ${allBranchesDestinationNames(summary)}`,
@@ -741,10 +871,13 @@ export async function persistAllBranchesBundle(
   settings: ContentScriptSettings,
   outputs: OutputDestination[],
   archiveAlreadyPersisted = false,
-  archiveWarnings: readonly string[] = []
+  archiveWarnings: readonly string[] = [],
+  signal?: AbortSignal,
+  prepared?: PreparedAllBranchesPersistence
 ): Promise<void> {
   showToast('Saving all branches...', 'info', 0);
   const capturedAt = companion.capturedAt;
+  const expectedSyncSettingsSnapshot = serializeSyncSettingsSnapshot(settings);
   let lastReported = 0;
   const summary = await persistAllBranchesPresentation(
     plan,
@@ -755,16 +888,18 @@ export async function persistAllBranchesBundle(
     {
       persistCompanions: persistArchiveCompanions,
       archiveAlreadyPersisted,
-      writeNote: async (note, destination, messageCount) => {
-        const attempt = await writeNoteToOutputs(note, [destination], messageCount, capturedAt);
-        return (
-          attempt.success &&
-          attempt.response.allSuccessful &&
-          attempt.response.results.every(
-            result => result.savedAs === undefined || result.savedAs === note.fileName
-          )
-        );
-      },
+      signal,
+      prepared,
+      measureNoteBytes: (note, destination) =>
+        measureAllBranchesNoteBytes(note, destination, settings),
+      writeNote: (note, destination, messageCount) =>
+        writeAllBranchesNote(
+          note,
+          destination,
+          messageCount,
+          capturedAt,
+          expectedSyncSettingsSnapshot
+        ),
       onProgress: (completed, total) => {
         if (completed === total || completed - lastReported >= 10) {
           lastReported = completed;
@@ -774,6 +909,33 @@ export async function persistAllBranchesBundle(
     }
   );
   displayAllBranchesSummary(summary, archiveWarnings);
+}
+
+function freezeSettingsSnapshot(settings: ContentScriptSettings): ContentScriptSettings {
+  const snapshot = structuredClone(settings);
+  Object.freeze(snapshot.templateOptions);
+  return Object.freeze(snapshot);
+}
+
+/** Mirror the destination's pure Markdown transform for exact dry-run budgeting. */
+export function measureAllBranchesNoteBytes(
+  note: ObsidianNote,
+  destination: PersistentOutputDestination,
+  settings: ContentScriptSettings
+): number {
+  if ((note.images?.length ?? 0) > 0) {
+    throw new Error('All-branches image notes require a dedicated exact serializer.');
+  }
+  const destinationBody =
+    destination === 'file' || note.body.includes('g2o-image://')
+      ? stripImagePlaceholders(note.body)
+      : note.body;
+  const body =
+    destination === 'obsidian' && settings.flattenLargeCallouts
+      ? flattenLargeCallouts(destinationBody, settings.maxCalloutLines)
+      : destinationBody;
+  const generationSettings: ExtensionSettings = { ...settings, obsidianApiKey: '' };
+  return utf8ByteLength(generateNoteContent({ ...note, body }, generationSettings));
 }
 
 async function persistNote(
@@ -879,9 +1041,11 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
   console.info('[G2O] Sync initiated');
   setButtonLoading(true);
   let stage = 'loading extension settings';
+  let allBranchesStopControl: AllBranchesStopControl | undefined;
+  let allBranchesAbortController: AbortController | undefined;
 
   try {
-    const settings = await getSettings();
+    const settings = freezeSettingsSnapshot(await getSettings());
     const enabledOutputs = getEnabledOutputs(settings);
     const extractor = getExtractor();
     const isChatGptOpaqueProbe =
@@ -905,8 +1069,39 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     const result = await extractor.extract();
     if (result.cancelled) return;
     if (result.allBranches) {
+      allBranchesAbortController = new AbortController();
+      allBranchesStopControl = showAllBranchesStopControl(() => {
+        allBranchesAbortController?.abort();
+      });
       if (!result.archiveCompanion) {
         showErrorToast('All-branches export requires a complete canonical archive');
+        return;
+      }
+      const preparedAllBranches = prepareAllBranchesPersistence(
+        result.allBranches,
+        result.archiveCompanion,
+        settings.templateOptions,
+        settings.enableToolContent,
+        enabledOutputs
+      );
+      if (!preparedAllBranches.structural.accepted) {
+        stage = 'checking all-branches structural budgets';
+        await persistAllBranchesBundle(
+          result.allBranches,
+          result.archiveCompanion,
+          settings,
+          enabledOutputs,
+          false,
+          [],
+          allBranchesAbortController.signal,
+          preparedAllBranches
+        );
+        return;
+      }
+      if (allBranchesAbortController.signal.aborted) {
+        showWarningToast(
+          'All-branches export was stopped. Any output already saved was retained; no additional branch files were scheduled.'
+        );
         return;
       }
       if (canExportChatGptAttachments(result, settings, enabledOutputs)) {
@@ -918,6 +1113,12 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           enabledOutputs,
           chatGptAttachmentDependencies(settings.enableChatGptOpaqueReplay === true)
         );
+        if (allBranchesAbortController.signal.aborted) {
+          showWarningToast(
+            'All-branches export was stopped after archive processing. Any output already saved was retained; no branch Markdown was scheduled.'
+          );
+          return;
+        }
         if (attachmentExport.completeDestinations.length === 0) {
           showWarningToast(
             attachmentExport.warnings.join('. ') ||
@@ -932,7 +1133,9 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           settings,
           attachmentExport.completeDestinations,
           true,
-          attachmentExport.warnings
+          attachmentExport.warnings,
+          allBranchesAbortController.signal,
+          preparedAllBranches
         );
         return;
       }
@@ -941,7 +1144,11 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         result.allBranches,
         result.archiveCompanion,
         settings,
-        enabledOutputs
+        enabledOutputs,
+        false,
+        [],
+        allBranchesAbortController.signal,
+        preparedAllBranches
       );
       return;
     }
@@ -1018,6 +1225,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     console.error(`[G2O] Sync error while ${stage}:`, error);
     showErrorToast(`Failed while ${stage}: ${extractErrorMessage(error)}`);
   } finally {
+    allBranchesStopControl?.dispose();
     setButtonLoading(false);
   }
 }

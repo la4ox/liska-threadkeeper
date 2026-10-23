@@ -147,9 +147,14 @@ function presentationFileName(
 /**
  * Convert conversation data to Obsidian note
  */
-export function conversationToNote(data: ConversationData, options: TemplateOptions): ObsidianNote {
+// eslint-disable-next-line max-lines-per-function -- One deterministic renderedAt must govern frontmatter, body metadata, and filename.
+export function conversationToNote(
+  data: ConversationData,
+  options: TemplateOptions,
+  renderedAt: Date = new Date()
+): ObsidianNote {
   const timezone = options.timezone ?? 'UTC';
-  const now = formatDateWithTimezone(new Date(), timezone);
+  const now = formatDateWithTimezone(renderedAt, timezone);
 
   // Generate frontmatter
   const frontmatter: NoteFrontmatter = {
@@ -197,7 +202,7 @@ export function conversationToNote(data: ConversationData, options: TemplateOpti
 
   // Generate filename and content hash
   const fileName = presentationFileName(
-    generateFileName(data.title, data.id, options.filenameScheme),
+    generateFileName(data.title, data.id, options.filenameScheme, renderedAt),
     data.presentation
   );
   const contentHash = generateContentHash(body);

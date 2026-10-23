@@ -102,6 +102,25 @@ terminal states, and the existing no-credential-export boundary.
 - Add picker virtualization only if live evidence shows it is necessary.
 - Introduce an aggregate all-branches work/write ceiling before exporting an
   unusually wide graph automatically.
+- Implemented: one prepared validation/catalog session, O(1) ordinal lookup,
+  parent-only path reconstruction, exact two-pass File/Obsidian byte accounting,
+  terminal exact-name File receipts, per-destination failure isolation, and a
+  trusted cooperative Stop control. Structural rejection precedes every write;
+  byte rejection retains confirmed archive evidence but writes no branch view.
+- Synthetic evidence now covers 12,000 depth, 400 shared-prefix leaves, 80-leaf
+  task-yield cancellation, exact cap boundaries, settings drift, midnight
+  filename stability, destination-specific transforms, unknown Downloads
+  ownership, and index suppression.
+- Live evidence: a one-leaf File bundle passed with exact branch/index filenames,
+  a resolved index link, and hash-bound raw/manifest/canonical companions. The
+  239-leaf private graph reached a usable picker in about 65 seconds; picker
+  cancellation wrote nothing.
+- The same live graph correctly refused `Export all branches` before any output
+  at the 1 GiB expanded-source-work ceiling. Its existing matching canonical
+  snapshot measures 2,285 nodes, 239 leaves, 68 branch points, 230,694 path
+  visits, and 1,128,535,662 expanded source bytes (1.051 GiB). Do not raise the
+  ceiling silently. Maintainer decision: keep the refusal, or review a 1.25 GiB
+  bound and then run the complete File/Obsidian write/index reconciliation.
 
 ### 5. Real staged capture above 16 MiB
 
@@ -177,10 +196,11 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Land the independently reviewed destination-receipt/current-branch slice from
-pull request 16, then retarget and merge the already green stacked wide-branch,
-all-branch-receipt, and physical-budget checkpoints in order. Continue with the
-separate sandbox-link localization slice after the stack is linear again.
-Keep all-branches receipt decoration and inline `sandbox:` replacement as
-separate presentation work; keep custom-GPT/project binaries and the sole
+Validate and merge the wide-branch checkpoint from pull request 17 on top of the
+landed PR 16 repair, then retarget and merge the already reviewed
+all-branch-receipt and physical-budget checkpoints in order. The 1 GiB
+source-work limit remains a deliberate refusal for the measured 1.051 GiB graph;
+only a separately reviewed limit change may authorize that full 239-leaf run.
+Continue with sandbox-link localization after the stack is linear again. Keep
+custom-GPT/project binaries and the sole
 archived Library WebP separately evidence-gated.
