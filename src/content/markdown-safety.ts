@@ -168,6 +168,27 @@ function addEdit(edits: Map<number, SourceEdit>, edit: SourceEdit): void {
   if (!existing || existing.deleteCount < edit.deleteCount) edits.set(edit.start, edit);
 }
 
+function neutralizeBracketsInRange(
+  source: string,
+  start: number,
+  end: number,
+  edits: Map<number, SourceEdit>
+): void {
+  let slashParity = 0;
+  for (let cursor = start; cursor < end; cursor += 1) {
+    const character = source[cursor];
+    if (character === '\\') {
+      slashParity ^= 1;
+      continue;
+    }
+    const escaped = slashParity === 1;
+    slashParity = 0;
+    if (character === '[' && !escaped) {
+      addEdit(edits, { start: cursor, deleteCount: 1, replacement: LITERAL_OPEN_BRACKET });
+    }
+  }
+}
+
 function neutralizeImage(
   source: string,
   node: Image | ImageReference,
@@ -182,6 +203,10 @@ function neutralizeImage(
     deleteCount: 2,
     replacement: LITERAL_IMAGE_OPEN,
   });
+  // Image descriptions are stored as one alt string rather than child nodes.
+  // Once the outer opener becomes literal, nested image/link syntax inside the
+  // description would otherwise become independently active on the next parse.
+  neutralizeBracketsInRange(source, position.start + 2, position.end, edits);
 }
 
 function neutralizeUnsafeLink(
@@ -190,9 +215,14 @@ function neutralizeUnsafeLink(
   trustedDestinations: ReadonlySet<string>,
   edits: Map<number, SourceEdit>
 ): void {
-  if (safeLinkDestination(node.url, trustedDestinations)) return;
   const position = nodeOffsets(node);
   if (!position || source[position.start] !== '[') return;
+  // Obsidian footnotes use `[^id]: body`; CommonMark can misclassify a
+  // single-token body as a link destination. Preserve the footnote marker.
+  // Active syntax inside ordinary multi-token bodies remains separate mdast
+  // nodes and is neutralized normally.
+  if (node.type === 'definition' && source.startsWith('[^', position.start)) return;
+  if (safeLinkDestination(node.url, trustedDestinations)) return;
   addEdit(edits, {
     start: position.start,
     deleteCount: 1,
@@ -212,7 +242,7 @@ function wikiEdits(source: string, node: Text, edits: Map<number, SourceEdit>): 
     }
     const escaped = slashParity === 1;
     slashParity = 0;
-    if (!escaped && source.startsWith('![[', cursor)) {
+    if (!escaped && source.startsWith('![', cursor)) {
       addEdit(edits, { start: cursor, deleteCount: 2, replacement: LITERAL_IMAGE_OPEN });
       cursor += 1;
     } else if (!escaped && source.startsWith('[[', cursor)) {

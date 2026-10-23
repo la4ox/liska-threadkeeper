@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import {
   htmlToMarkdown,
   escapeAngleBrackets,
@@ -1225,7 +1226,7 @@ describe('conversationToNote', () => {
     expect(note.body).toContain('&#91;local](../private-note.md)');
     expect(note.body).toContain('&#91;[Sensitive Local Note]]');
     expect(note.body).toContain('&#33;&#91;[Sensitive Local Note]]');
-    expect(note.body).toContain('&#33;&#91;reference image][pixel]');
+    expect(note.body).toContain('&#33;&#91;reference image]&#91;pixel]');
     expect(note.body).toContain('&#91;dangerous-reference]: file:///private/note.md');
     expect(note.body).toContain('![literal example](https://attacker.example/in-code)');
     expect(note.body).toContain('[[literal wiki syntax]]');
@@ -1282,6 +1283,47 @@ describe('conversationToNote', () => {
 
     expect(note.body).toContain('&#33;&#91;track](https://attacker.example/user-pixel)');
     expect(note.body).toContain('&#33;&#91;[Private user embed]]');
+  });
+
+  it('does not compose an image reference from separate Markdown messages', () => {
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'deepseek',
+        messages: [
+          {
+            id: 'msg1',
+            role: 'assistant',
+            content: '![pixel][tracking]',
+            contentFormat: 'markdown',
+            index: 0,
+          },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: '[tracking]: https://attacker.example/pixel',
+            contentFormat: 'markdown',
+            index: 1,
+          },
+        ],
+      },
+      { ...defaultOptions, messageFormat: 'plain' }
+    );
+
+    expect(note.body).toContain('&#33;&#91;pixel][tracking]');
+    const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(note.body)];
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      expect(node.type).not.toBe('image');
+      expect(node.type).not.toBe('imageReference');
+      if (Array.isArray(node.children)) {
+        for (const child of node.children) {
+          if (typeof child === 'object' && child !== null && 'type' in child) {
+            pending.push(child as { type: string; children?: unknown[] });
+          }
+        }
+      }
+    }
   });
 
   it('keeps API tool content literal behind a collision-safe outer fence', () => {

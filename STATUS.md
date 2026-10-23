@@ -92,7 +92,7 @@
 ## Artifacts
 
 - Loadable unpacked extension: `dist/`
-- Current local package: `liska-threadkeeper-3.0.0.zip`, 264,625 bytes, SHA-256 `CBC9C00A54EDA4D5BE14CD63C7D4E1A4E8A887D9E0ABFFFEE64AC80A511E8D48`; all 29 packaged files exactly match the final `dist/` tree.
+- Current local package: `liska-threadkeeper-3.0.0.zip`, 264,671 bytes, SHA-256 `4540C0F1C18EA54424DF3FA7BDDBA0DF0A1FD56736E32EF3319E076B2F2724A8`; all 29 packaged files exactly match the final `dist/` tree.
 - DeepSeek history client/parser: `src/content/extractors/deepseek-api.ts`
 - DeepSeek canonical normalizer and synthetic fixture: `src/archive/normalizers/deepseek.ts`, `src/archive/normalizers/deepseek/`, and `test/fixtures/archive/deepseek-raw/branching-replace.json`
 - Provider-neutral inline/staged JSON companion builder: `src/content/capture/json-archive-companion.ts`
@@ -1168,13 +1168,16 @@ formatter requires membership in that runtime set plus the established
 content-addressed path grammar. Provider-authored lookalikes stay literal.
 ADR-035 records the contract.
 
-All 169 test files / 5,152 tests pass in memory-bounded batches. Nine focused
-source-to-sink suites pass 408 tests. The first independent patch review found
+All 169 test files / 5,155 tests pass in memory-bounded batches. Nine focused
+source-to-sink suites pass 411 tests. The first independent patch review found
 seven concrete issues in the discarded bespoke scanner: malformed-container
 nesting, list-fence lifetime, multiline/reference parsing, entity/backslash URL
 decoding, path-shape-only trust, code corruption, and quadratic escape scans.
 The structural implementation covers every reproducer, including the adjacent
-provider-controlled user-record path. Production build, repository formatting,
-and source/platform lint pass with only the same three pre-existing warnings;
-`npm audit` reports zero known vulnerabilities. Actual Obsidian rendering was
-not repeated, so renderer network behavior remains an explicit live proof gap.
+provider-controlled user-record path. GitHub Code Review then found nested image
+descriptions, single-token Obsidian footnotes, and image references completed by
+a later message; all three are neutralized without flattening code or footnote
+bodies. Production build, repository formatting, and source/platform lint pass
+with only the same three pre-existing warnings; `npm audit` reports zero known
+vulnerabilities. Actual Obsidian rendering was not repeated, so renderer network
+behavior remains an explicit live proof gap.

@@ -31,9 +31,18 @@ at the message-formatting boundary. The parser supplies exact source positions;
 Liska edits only syntax proven to be active in that parse:
 
 - every provider-authored inline or reference image becomes entity-literal;
+- unresolved image-like prose is neutralized before a later message can supply
+  its reference definition;
+- nested bracket syntax inside a neutralized image description is made literal
+  so removing the outer image cannot expose a new active child;
 - links and definitions remain active only for allowed destinations;
 - Obsidian wikilinks and embeds in prose become entity-literal;
 - fenced, indented, list-contained, and multiline inline code remain unchanged.
+
+Obsidian `[^id]: body` footnotes are distinguished from CommonMark link
+definitions even when a single-token body would otherwise satisfy definition
+grammar. Active Markdown inside their bodies is still handled by the normal
+node policy.
 
 Malformed outer syntax is not trusted as a protective container. Any active
 child node that the parser recognizes is still neutralized. A parser failure

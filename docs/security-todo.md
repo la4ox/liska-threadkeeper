@@ -219,7 +219,7 @@ formatting, diff checks, and source/platform lint pass with only the same three
 pre-existing warnings. Live provider sharing and Obsidian rendering were not
 repeated.
 
-Provider-Markdown slice validation: all 169 test files / 5,152 tests pass in
+Provider-Markdown slice validation: all 169 test files / 5,155 tests pass in
 memory-bounded batches. Focused coverage includes the historical DeepSeek
 assistant/reasoning payload, structured user records, inline/reference images,
 multiline labels, list-contained definitions/fences, indented and multiline
@@ -227,8 +227,10 @@ code, entity/backslash destination decoding, private IPv4/IPv6/local names,
 malformed outer syntax, exact ChatGPT receipt provenance, and long escape runs.
 The first independent review found seven concrete parser/provenance/performance
 seams; the candidate was replaced with the structural parser and each reproducer
-is now covered. Production build and source/platform lint pass with only the
-same three pre-existing warnings; `npm audit` reports zero known
+is now covered. GitHub Code Review then found nested image descriptions,
+single-token Obsidian footnotes, and cross-message image references; all three
+are covered and fixed. Production build and source/platform lint pass with only
+the same three pre-existing warnings; `npm audit` reports zero known
 vulnerabilities. Actual Obsidian rendering was not repeated.
 
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR

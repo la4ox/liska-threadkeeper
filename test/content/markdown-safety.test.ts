@@ -2,6 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { neutralizeActiveProviderMarkdown } from '../../src/content/markdown-safety';
 
+function activeNodeTypes(markdown: string): string[] {
+  const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(markdown)];
+  const activeNodes: string[] = [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (['image', 'imageReference', 'link', 'linkReference', 'definition'].includes(node.type)) {
+      activeNodes.push(node.type);
+    }
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (typeof child === 'object' && child !== null && 'type' in child) {
+          pending.push(child as { type: string; children?: unknown[] });
+        }
+      }
+    }
+  }
+  return activeNodes;
+}
+
 describe('neutralizeActiveProviderMarkdown', () => {
   it('keeps public links but makes every provider-authored image literal', () => {
     const input = [
@@ -22,7 +41,7 @@ describe('neutralizeActiveProviderMarkdown', () => {
         '[section](#details)',
         '&#33;&#91;remote](https://example.com/pixel.png)',
         '&#33;&#91;protocol relative](//example.com/pixel.png)',
-        '&#33;&#91;reference][image-id]',
+        '&#33;&#91;reference]&#91;image-id]',
         '',
         '[image-id]: https://example.com/pixel.png',
       ].join('\n')
@@ -94,12 +113,34 @@ describe('neutralizeActiveProviderMarkdown', () => {
     );
   });
 
+  it('does not expose nested image syntax when the outer image becomes literal', () => {
+    const output = neutralizeActiveProviderMarkdown(
+      '![![pixel](https://attacker.example/pixel)](https://example.com/outer)'
+    );
+    expect(output).toBe(
+      '&#33;&#91;!&#91;pixel](https://attacker.example/pixel)](https://example.com/outer)'
+    );
+    expect(activeNodeTypes(output)).toEqual([]);
+  });
+
+  it('neutralizes unresolved image references before later messages can define them', () => {
+    const first = neutralizeActiveProviderMarkdown('![pixel][tracking]');
+    const second = neutralizeActiveProviderMarkdown('[tracking]: https://attacker.example/pixel');
+    expect(first).toBe('&#33;&#91;pixel][tracking]');
+    const activeNodes = activeNodeTypes(`${first}\n\n${second}`);
+    expect(activeNodes).not.toContain('image');
+    expect(activeNodes).not.toContain('imageReference');
+  });
+
   it('preserves footnotes while sanitizing active content inside them', () => {
     const input = [
       'Answer with a footnote.[^detail]',
       '',
       '[^detail]: Read [the public source](https://example.com/source).',
       '[^unsafe]: ![pixel](https://attacker.example/pixel)',
+      '[^single]: Explanation.',
+      '[^wiki]: [[Private note]]',
+      '[^link]: [bad](javascript:alert%281%29)',
     ].join('\n');
 
     expect(neutralizeActiveProviderMarkdown(input)).toBe(
@@ -108,6 +149,9 @@ describe('neutralizeActiveProviderMarkdown', () => {
         '',
         '[^detail]: Read [the public source](https://example.com/source).',
         '[^unsafe]: &#33;&#91;pixel](https://attacker.example/pixel)',
+        '[^single]: Explanation.',
+        '[^wiki]: &#91;[Private note]]',
+        '[^link]: &#91;bad](javascript:alert%281%29)',
       ].join('\n')
     );
   });
@@ -195,21 +239,6 @@ describe('neutralizeActiveProviderMarkdown', () => {
         '[private](http://192.168.1.1/admin)',
       ].join('\n')
     );
-    const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(output)];
-    const activeNodes: string[] = [];
-    while (pending.length > 0) {
-      const node = pending.pop()!;
-      if (['image', 'imageReference', 'link', 'linkReference', 'definition'].includes(node.type)) {
-        activeNodes.push(node.type);
-      }
-      if (Array.isArray(node.children)) {
-        for (const child of node.children) {
-          if (typeof child === 'object' && child !== null && 'type' in child) {
-            pending.push(child as { type: string; children?: unknown[] });
-          }
-        }
-      }
-    }
-    expect(activeNodes).toEqual([]);
+    expect(activeNodeTypes(output)).toEqual([]);
   });
 });
