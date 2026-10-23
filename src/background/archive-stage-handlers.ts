@@ -35,6 +35,7 @@ import {
 } from './archive-stage-download-recovery';
 import {
   acquireOffscreenLeaseForArchiveStage,
+  confirmArchiveDownloadPath,
   downloadArchiveBlob,
   type OffscreenLease,
 } from './output-handlers';
@@ -314,9 +315,10 @@ async function downloadStagedArchiveToFile(
   let recovery: ArchiveStageDownloadRecoveryRecord | undefined = provisional;
   onRecoveryUpdate(recovery);
   try {
+    const expectedPath = archiveDownloadPath(message);
     const outcome = await downloadArchiveBlob(
       blobUrl,
-      archiveDownloadPath(message),
+      expectedPath,
       onLateTerminal,
       async downloadId => {
         if (!recovery || recovery.downloadId !== null) return;
@@ -326,12 +328,19 @@ async function downloadStagedArchiveToFile(
         onRecoveryUpdate(recovery);
       }
     );
+    const exactPath = await confirmArchiveDownloadPath(outcome, expectedPath);
     return {
       terminal: outcome.terminal,
       recovery,
       result: outcome.error
         ? { destination: 'file', success: false, error: outcome.error }
-        : { destination: 'file', success: true },
+        : exactPath
+          ? { destination: 'file', success: true }
+          : {
+              destination: 'file',
+              success: false,
+              error: 'archive-stage-path-unconfirmed',
+            },
     };
   } catch {
     // Preserve durable ownership. The late terminal listener remains the only

@@ -566,21 +566,26 @@ Downloads and Obsidian retained byte-identical raw, manifest, canonical and
 DOCX artifacts. Each capture-scoped Markdown note has one local archive link;
 both targets exist and hash to that exact content address, while the original
 provider `sandbox:` reference remains additive historical text rather than
-being guessed away. Both note frontmatters bind to capture
-`capture-chatgpt-5a2d3d5e-1b26-4c91-bbb5-e3b21ac94615` and the exact persisted
-manifest hash
-`4e8565745d3e8c7d0e4e688a22b9cf38cfef07d59466e9a00799c93c5fd14cdf`.
+being guessed away. Both note frontmatters bind to the final reviewed-build
+capture `capture-chatgpt-8d66dd07-be72-4285-99cf-8791257386a9` and the exact
+persisted manifest hash
+`98551c2aa445df27bcd4ead8729704c1d6c7e3b2aa30b30d89b9d20f450389ec`.
+File companions now require Chrome to confirm the exact requested terminal path
+for both inline and staged archive transport; a uniquified raw, manifest or
+canonical filename fails the destination instead of issuing a misleading
+receipt. Provenance warnings are likewise emitted only after that destination's
+Markdown write succeeds.
 
-Final validation passes 157 test files / 4,581 tests. Coverage is 95.25%
-statements, 91.12% branches, 98.53% functions, and 97.70% lines. TypeScript,
+Final validation passes 157 test files / 4,585 tests. Coverage is 95.25%
+statements, 91.13% branches, 98.53% functions, and 97.70% lines. TypeScript,
 production build, source/platform lint, repository formatting, ZIP packaging,
 and independent review pass; lint retains only the same three pre-existing
 advisory warnings. The ZIP contains 29 of 29 files byte-identical to `dist`, is
-231,314 bytes, and has SHA-256
-`134f3008c46e8181b163a25144a42efd5fed279d05fbc701d233e8c963d9e297`.
+231,422 bytes, and has SHA-256
+`f25080374ac2b6012d62dbe9c49c4be9fcd795baa0bcc18969f3526f1f729494`.
 The installed Comet tree matches that production build exactly; its 29-file
 pre-live rollback is retained at
-`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\deep-research-prelive-20261023-070818-af1974cb`.
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\deep-research-prelive-20261023-074014-d2aba19b`.
 
 Next: checkpoint this destination-receipt/current-branch research-output slice
 in its own pull request, then run the real wide-branch stress checkpoint.

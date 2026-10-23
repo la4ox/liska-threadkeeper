@@ -295,47 +295,54 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
   });
 
   it('continues with later destinations when one destination note message rejects', async () => {
-    settings.outputOptions = { obsidian: true, file: true, clipboard: false };
-    const obsidianReceipt = {
-      ...fileReceipt,
-      destination: 'obsidian' as const,
-      manifestSha256: 'f'.repeat(64),
-    };
-    mocks.attachmentExport.mockResolvedValue({
-      rawSuccessfulDestinations: ['obsidian', 'file'],
-      completeDestinations: ['obsidian', 'file'],
-      destinationReceipts: [obsidianReceipt, fileReceipt],
-      warnings: [],
-    });
-    mocks.extract.mockResolvedValue(noteResult);
-    mocks.sendMessage.mockImplementation(
-      (message: { action: string; outputs?: Array<'obsidian' | 'file'> }) => {
-        if (message.action === 'getSettings') return Promise.resolve(settings);
-        if (message.action === 'testConnection') return Promise.resolve({ success: true });
-        if (message.action === 'saveToOutputs' && message.outputs?.[0] === 'obsidian') {
-          return Promise.reject(new Error('synthetic message transport failure'));
+    vi.useFakeTimers();
+    try {
+      settings.outputOptions = { obsidian: true, file: true, clipboard: false };
+      mocks.attachmentExport.mockResolvedValue({
+        rawSuccessfulDestinations: ['obsidian', 'file'],
+        completeDestinations: ['file'],
+        destinationReceipts: [fileReceipt],
+        warnings: [],
+      });
+      mocks.extract.mockResolvedValue(noteResult);
+      mocks.sendMessage.mockImplementation(
+        (message: { action: string; outputs?: Array<'obsidian' | 'file'> }) => {
+          if (message.action === 'getSettings') return Promise.resolve(settings);
+          if (message.action === 'testConnection') return Promise.resolve({ success: true });
+          if (message.action === 'saveToOutputs' && message.outputs?.[0] === 'obsidian') {
+            return Promise.reject(new Error('synthetic message transport failure'));
+          }
+          if (message.action === 'saveToOutputs' && message.outputs?.[0] === 'file') {
+            return Promise.resolve({
+              results: [{ destination: 'file', success: true }],
+              allSuccessful: true,
+              anySuccessful: true,
+            });
+          }
+          return Promise.reject(new Error(`unexpected background message: ${message.action}`));
         }
-        if (message.action === 'saveToOutputs' && message.outputs?.[0] === 'file') {
-          return Promise.resolve({
-            results: [{ destination: 'file', success: true }],
-            allSuccessful: true,
-            anySuccessful: true,
-          });
-        }
-        return Promise.reject(new Error(`unexpected background message: ${message.action}`));
-      }
-    );
+      );
 
-    await handleSync();
+      await handleSync();
+      await vi.advanceTimersByTimeAsync(10_000);
 
-    const saveMessages = mocks.sendMessage.mock.calls
-      .map(call => call[0])
-      .filter(message => message.action === 'saveToOutputs');
-    expect(saveMessages.map(message => message.outputs)).toEqual([['obsidian'], ['file']]);
-    expect(mocks.showWarningToast).toHaveBeenCalledWith(
-      'Saved to: file. Failed: obsidian: Note write failed'
-    );
-    expect(mocks.showErrorToast).not.toHaveBeenCalled();
+      const saveMessages = mocks.sendMessage.mock.calls
+        .map(call => call[0])
+        .filter(message => message.action === 'saveToOutputs');
+      expect(saveMessages.map(message => message.outputs)).toEqual([['obsidian'], ['file']]);
+      expect(mocks.showWarningToast).toHaveBeenCalledWith(
+        'Saved to: file. Failed: obsidian: Note write failed'
+      );
+      expect(mocks.showWarningToast).toHaveBeenCalledTimes(1);
+      expect(
+        mocks.showWarningToast.mock.calls.some(call =>
+          String(call[0]).includes('without finalized archive provenance')
+        )
+      ).toBe(false);
+      expect(mocks.showErrorToast).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('injects passive observation and separate ordinary/Library image routes only for strict replay', async () => {

@@ -127,6 +127,17 @@ describe('archive companion durable outputs', () => {
       }, 0);
       return 17 as unknown as ReturnType<typeof chrome.downloads.download>;
     });
+    vi.mocked(chrome.downloads.search).mockImplementation(async ({ id }) => {
+      const calls = vi.mocked(chrome.downloads.download).mock.calls;
+      const requested = calls[calls.length - 1]?.[0].filename ?? '';
+      return [
+        {
+          id,
+          state: 'complete',
+          filename: `C:\\Downloads\\${requested.replace(/\//g, '\\')}`,
+        } as chrome.downloads.DownloadItem,
+      ];
+    });
   });
 
   function searchState(
@@ -181,6 +192,56 @@ describe('archive companion durable outputs', () => {
       }),
       expect.any(Function)
     );
+  });
+
+  it('rejects a completed companion download when Chrome uniquified the requested path', async () => {
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      {
+        id: 17,
+        state: 'complete',
+        filename: 'C:\\Downloads\\_liska-archive\\renamed-manifest.json',
+      } as chrome.downloads.DownloadItem,
+    ]);
+
+    await expect(
+      handlePersistArchiveCompanion(await message('manifest', ['file']), settings)
+    ).resolves.toEqual({
+      results: [
+        {
+          destination: 'file',
+          success: false,
+          error: 'archive-download-path-unconfirmed',
+        },
+      ],
+      allSuccessful: false,
+      anySuccessful: false,
+    });
+  });
+
+  it('keeps Obsidian success independent from an unconfirmed File companion path', async () => {
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      {
+        id: 17,
+        state: 'complete',
+        filename: 'C:\\Downloads\\_liska-archive\\renamed-canonical.json',
+      } as chrome.downloads.DownloadItem,
+    ]);
+
+    await expect(
+      handlePersistArchiveCompanion(await message('canonical', ['file', 'obsidian']), settings)
+    ).resolves.toEqual({
+      results: [
+        {
+          destination: 'file',
+          success: false,
+          error: 'archive-download-path-unconfirmed',
+        },
+        { destination: 'obsidian', success: true },
+      ],
+      allSuccessful: false,
+      anySuccessful: true,
+    });
+    expect(mocks.saveArchive).toHaveBeenCalledOnce();
   });
 
   it('uses a terminal uniquified download only when Chrome confirms the canonical staged relative path', async () => {
@@ -895,17 +956,26 @@ describe('archive companion durable outputs', () => {
       callback?.(53);
       return 53 as unknown as ReturnType<typeof chrome.downloads.download>;
     });
+    const request = await message('raw', ['file']);
+    const expected = `_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/responses/conversation.json`;
     vi.mocked(chrome.downloads.search)
       .mockRejectedValueOnce(new Error('search unavailable'))
-      .mockResolvedValueOnce(searchState(53, 'complete'));
+      .mockResolvedValueOnce(searchState(53, 'complete'))
+      .mockResolvedValueOnce([
+        {
+          id: 53,
+          state: 'complete',
+          filename: `C:\\Downloads\\${expected.replace(/\//g, '\\')}`,
+        } as chrome.downloads.DownloadItem,
+      ]);
 
-    const pending = handlePersistArchiveCompanion(await message('raw', ['file']), settings);
+    const pending = handlePersistArchiveCompanion(request, settings);
     await waitForDownloadStart();
     await vi.advanceTimersByTimeAsync(30_000);
     const result = await pending;
 
     expect(result.results).toEqual([{ destination: 'file', success: true }]);
-    expect(chrome.downloads.search).toHaveBeenCalledTimes(2);
+    expect(chrome.downloads.search).toHaveBeenCalledTimes(3);
     expect(chrome.downloads.cancel).not.toHaveBeenCalled();
     vi.useRealTimers();
   });

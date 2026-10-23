@@ -11,12 +11,14 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   acquireLease: vi.fn(),
+  confirmArchiveDownloadPath: vi.fn(),
   downloadArchiveBlob: vi.fn(),
   saveStagedArchive: vi.fn(),
 }));
 
 vi.mock('../../src/background/output-handlers', () => ({
   acquireOffscreenLeaseForArchiveStage: (...args: unknown[]) => mocks.acquireLease(...args),
+  confirmArchiveDownloadPath: (...args: unknown[]) => mocks.confirmArchiveDownloadPath(...args),
   downloadArchiveBlob: (...args: unknown[]) => mocks.downloadArchiveBlob(...args),
 }));
 
@@ -105,6 +107,11 @@ function installRecoveryStorage(initial: unknown = undefined): Record<string, un
 
 function resetChromeMocks(): void {
   mocks.acquireLease.mockReset();
+  mocks.confirmArchiveDownloadPath.mockReset();
+  mocks.confirmArchiveDownloadPath.mockImplementation(
+    (outcome: { error: string | null; terminal: boolean }) =>
+      Promise.resolve(outcome.error === null && outcome.terminal)
+  );
   mocks.downloadArchiveBlob.mockReset();
   mocks.saveStagedArchive.mockReset();
   vi.mocked(chrome.runtime.sendMessage).mockReset();
@@ -594,9 +601,9 @@ describe('archive-stage background handler coverage', () => {
     await expect(
       handlers.handleArchiveStageMessage(commitMessage(['file']), settings)
     ).resolves.toEqual({
-      results: [{ destination: 'file', success: true }],
-      allSuccessful: true,
-      anySuccessful: true,
+      results: [{ destination: 'file', success: false, error: 'archive-stage-path-unconfirmed' }],
+      allSuccessful: false,
+      anySuccessful: false,
     });
     expect(release).not.toHaveBeenCalled();
     expect(store[RECOVERY_STORAGE_KEY]).toEqual([

@@ -835,7 +835,6 @@ async function persistDestinationHonestChatGptNote(
   const provenanceWarnings: string[] = [];
   for (const destination of outputs) {
     const decorated = archiveBoundNoteForDestination(note, destination, attachmentExport);
-    if (decorated.warning) provenanceWarnings.push(decorated.warning);
     let attempt: NoteWriteAttempt;
     try {
       attempt = await writeNoteToOutputs(decorated.note, [destination], messageCount, capturedAt);
@@ -847,7 +846,9 @@ async function persistDestinationHonestChatGptNote(
       results.push({ destination, success: false, error: attempt.error });
       continue;
     }
-    results.push(attempt.response.results[0]);
+    const result = attempt.response.results[0];
+    results.push(result);
+    if (result.success && decorated.warning) provenanceWarnings.push(decorated.warning);
   }
   const response: MultiOutputResponse = {
     results,
