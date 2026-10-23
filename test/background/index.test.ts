@@ -2748,6 +2748,41 @@ describe('background/index', () => {
       expect(response.messagesAppended).toBe(2);
     });
 
+    it('never appends to or overwrites an immutable same-id archive snapshot', async () => {
+      const immutableSnapshot = existingContent.replace(
+        'message_count: 2',
+        `message_count: 2\narchive_capture_id: capture-chatgpt-retained\narchive_manifest_sha256: "${'d'.repeat(64)}"`
+      );
+      const originalPath = 'AI/claude/test-abc12345.md';
+      const alternativeFile = `test-abc12345-${generateHash(appendNote.frontmatter.id)}.md`;
+      const alternativePath = `AI/claude/${alternativeFile}`;
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      mockClient.getFile.mockImplementation((path: string) => {
+        if (path === originalPath) return Promise.resolve(immutableSnapshot);
+        if (path === alternativePath) return Promise.resolve(null);
+        return Promise.resolve(null);
+      });
+      mockClient.listFiles.mockResolvedValue([]);
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: appendNote },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({ success: true, savedAs: alternativeFile });
+      expect(mockClient.putFile).toHaveBeenCalledTimes(1);
+      expect(mockClient.putFile).toHaveBeenCalledWith(
+        alternativePath,
+        expect.not.stringContaining('archive_manifest_sha256')
+      );
+      expect(mockClient.putFile).not.toHaveBeenCalledWith(originalPath, expect.anything());
+    });
+
     it('warns when images in newly appended messages are skipped', async () => {
       const noteWithNewImage: ObsidianNote = {
         ...appendNote,

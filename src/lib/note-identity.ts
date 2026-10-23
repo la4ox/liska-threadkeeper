@@ -9,8 +9,9 @@
  * conversation, a note with no `id` at all, an unreadable file, or an empty
  * body. Naming the outcomes is what makes a field report actionable.
  *
- * This module only *classifies*. Callers keep their existing behaviour: every
- * state other than `same-conversation` still means "do not touch this file".
+ * This module only *classifies*. Identity callers still treat every state other
+ * than `same-conversation` as "do not touch"; append additionally excludes
+ * immutable archive/presentation notes even when their conversation id matches.
  */
 
 import { parseFrontmatter } from './frontmatter-parser';
@@ -42,6 +43,27 @@ export interface NoteProbe {
   state: ProbeState;
   /** The id actually read from the file, when it had a scalar one. */
   foundId?: string;
+  /** Archive-bound and branch presentations are immutable append targets. */
+  immutableArchivePresentation?: true;
+}
+
+const IMMUTABLE_ARCHIVE_FIELDS = [
+  'archive_capture_id',
+  'archive_manifest_sha256',
+  'presentation_mode',
+] as const;
+const IMMUTABLE_ARCHIVE_KEY_LINE =
+  /^(?:(?:archive_capture_id|archive_manifest_sha256|presentation_mode)|"(?:archive_capture_id|archive_manifest_sha256|presentation_mode)"|'(?:archive_capture_id|archive_manifest_sha256|presentation_mode)')\s*:/m;
+
+/** Detect immutable generated fields in parsed data and simple quoted YAML keys. */
+export function hasImmutableArchivePresentationFields(
+  fields: object,
+  rawFrontmatter?: string
+): boolean {
+  return (
+    IMMUTABLE_ARCHIVE_FIELDS.some(field => Object.prototype.hasOwnProperty.call(fields, field)) ||
+    (typeof rawFrontmatter === 'string' && IMMUTABLE_ARCHIVE_KEY_LINE.test(rawFrontmatter))
+  );
 }
 
 /**
@@ -60,12 +82,24 @@ export function classifyNoteProbe(content: string | null, expectedId: string): N
   const id = parsed.fields.id;
   if (typeof id !== 'string' || id === '') return { state: 'no-id' };
 
-  return id === expectedId
-    ? { state: 'same-conversation', foundId: id }
-    : { state: 'different-id', foundId: id };
+  if (id !== expectedId) return { state: 'different-id', foundId: id };
+  const immutableArchivePresentation = hasImmutableArchivePresentationFields(
+    parsed.fields,
+    parsed.raw
+  );
+  return {
+    state: 'same-conversation',
+    foundId: id,
+    ...(immutableArchivePresentation && { immutableArchivePresentation: true }),
+  };
 }
 
 /** True when the probe proves the file holds the conversation being saved. */
 export function isSameConversation(probe: NoteProbe): boolean {
   return probe.state === 'same-conversation';
+}
+
+/** Append may reuse only an ordinary mutable conversation note. */
+export function isAppendEligibleConversation(probe: NoteProbe): boolean {
+  return isSameConversation(probe) && probe.immutableArchivePresentation !== true;
 }
