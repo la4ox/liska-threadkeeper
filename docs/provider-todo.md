@@ -91,11 +91,15 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
   capture truncated. Bottom seeding and delayed iterations share the absolute
   cap. Exact-tree validation passes 172 files / 5,277 tests and independent
   review is clean; no live hidden-tab claim is made.
-- Configurable deadlines remain the next separate settings slice. Preserve
-  Liska's shipped 15-second idle and hard 300-second ceiling: proposed popup
-  bounds are idle 5–300 seconds and maximum 30–300 seconds. Normalize old saved
-  settings without migration, include both fields in guarded routing snapshots,
-  and keep ChatGPT/DeepSeek structured-first `extract()` overrides intact.
+- Configurable deadlines are implemented on `codex/scroll-deadline-settings`
+  while preserving the shipped 15-second idle default and hard 300-second
+  ceiling. Popup/worker bounds are idle 5–300 and maximum 30–300 seconds; old
+  saved settings normalize without migration, malformed direct inputs remain
+  capped, and both fields participate in guarded routing snapshots. Common Base
+  plumbing calls provider-only hooks without changing ChatGPT/DeepSeek
+  structured-first overrides. Exact-tree validation passes 173 files / 5,360
+  tests and final independent review is clean; live popup/provider behavior is
+  not claimed.
 - Configurable frontmatter tag templates, including exact settings transport and
   routing-snapshot serialization.
 - Pure writer/reader seam and tracked-source control-byte tests where they add

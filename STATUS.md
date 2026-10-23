@@ -1050,5 +1050,33 @@ Independent review found no residual P0-P3 issue. Exact-tree validation passes
 tests. TypeScript, formatting, and diff checks pass; owned scroll code has zero
 lint warnings after refactoring, and full build/lint pass with only the two
 unrelated pre-existing advisory warnings. No live hidden-tab/throttling claim
-is made; production callers still use the frozen 15-second idle and 300-second
-maximum defaults, and user configurability remains a separate follow-up.
+is made; that checkpoint itself retained the frozen 15-second idle and
+300-second maximum defaults, with configurability added in the following slice.
+
+Bounded user-configurable DOM-scroll budgets are implemented on
+`codex/scroll-deadline-settings`. The synchronized, non-secret settings default
+to 15 seconds without progress and a 300-second absolute pass ceiling. Popup and
+background transport accept only whole seconds in the explicit 5–300 and
+30–300 ranges; stale or corrupt stored values default or clamp deterministically
+without a destructive migration. Even malformed direct engine inputs are
+defaulted or capped at 300,000 ms, and the same effective limits drive both the
+timeout decision and its content-free diagnostic.
+
+Base extraction now owns auto-scroll plus deadline application and invokes one
+protected provider hook for existing Claude, ChatGPT, DeepSeek, and Gemini
+flags. Their structured-first, branch/probe/replay, reasoning, tool-content,
+and image behavior remains unchanged. The resolved budgets reach both the
+virtualized and Gemini engines. English and Japanese Advanced Extraction fields
+are numeric, labeled, described, keyboard-focusable, and strictly reject a
+partial or out-of-range save. Both fields participate automatically in the
+canonical routing snapshot; deterministic integration tests prove mid-operation
+deadline drift rejects before any measured output is dispatched.
+
+Independent review found and closed one P3 honesty edge: malformed direct limits
+were enforced safely but logged as their raw values, and null could throw during
+finish. Selection and logging now share one effective-runtime normalizer; the
+final review found no residual P0-P3 issue. Exact-tree validation passes 173
+test files / 5,360 tests; coverage is 95.35% statements, 91.44% branches, 98.69%
+functions, and 97.80% lines. TypeScript/build, source/platform lint, formatting,
+and diff checks pass; lint retains only the two unrelated pre-existing advisory
+warnings. Live popup layout and provider throttling behavior remain unverified.
