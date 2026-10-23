@@ -25,8 +25,16 @@ export interface ImageResolution {
   readonly files: ResolvedImageFile[];
 }
 
-/** Matches `![alt](g2o-image://ID)`, capturing alt (1) and id (2). */
-const PLACEHOLDER_PATTERN = /!\[([^\]]*)\]\(g2o-image:\/\/([^)]+)\)/g;
+/**
+ * Matches one complete extension-authored placeholder.
+ *
+ * `$` and physical line separators cannot occur in either field. The content
+ * writer entity-encodes punctuation in alt text, while generated IDs are
+ * single-line tokens. Besides tightening the private grammar, this prevents a
+ * match from spanning adjacent `$…$` / `$$…$$` math nodes and deleting their
+ * delimiters as though they belonged to an image ID.
+ */
+const PLACEHOLDER_PATTERN = /!\[([^\]$\r\n]*)\]\(g2o-image:\/\/([^)$\r\n]+)\)/g;
 
 /** Collapse 3+ consecutive newlines left behind by removed placeholders. */
 function collapseBlankLines(body: string): string {

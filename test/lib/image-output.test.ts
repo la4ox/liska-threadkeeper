@@ -40,6 +40,11 @@ describe('stripImagePlaceholders', () => {
   it('leaves placeholder-free bodies unchanged', () => {
     expect(stripImagePlaceholders('plain body')).toBe('plain body');
   });
+
+  it('does not consume a placeholder-shaped range spanning math delimiters', () => {
+    const body = '$![x](g2o-image://missing$$)$';
+    expect(stripImagePlaceholders(body)).toBe(body);
+  });
 });
 
 describe('resolveImagesForObsidian', () => {

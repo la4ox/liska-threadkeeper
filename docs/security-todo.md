@@ -49,11 +49,30 @@ finding, `commit:41c1f05321f48191b8bbc9bf9e9ffb91`, is also closed: published
 commit `ccf9a56` serializes migration/settings mutations, fresh-reads sync after
 local verification, and has a deterministic interleaving regression test.
 
+The math-attribute occurrence
+`commit:eb1705ab69ac8191a043d3d6cb44fe4c` is administratively marked fixed in
+Security Cloud, but that status was applied before the saved fix-check's active
+Markdown fallback was actually repaired. Treat the Cloud row as premature, not
+as evidence. The complete source fix is staged on
+`codex/security-math-markdown`: rejected math uses context-stable entity
+literals, formatting-only inline wraps normalize without changing TeX, `%`
+comment line endings are preserved by display promotion, table neighbors cannot
+capture generated literals, and image-placeholder processing cannot span math
+delimiters. It is not a published remediation until its reviewed pull request is
+merged.
+
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
 reconciliation, formatting, platform-registry lint and source lint pass with
 only the same three pre-existing advisory warnings. A dated fresh `npm audit`
 reports zero known vulnerabilities.
+
+Math-slice validation: 166 test files / 5,037 tests pass with one bounded
+worker; the focused Markdown/sanitizer/image/E2E matrix passes 360 tests.
+Production build, formatting, diff checks, and source/platform lint pass with
+the same three pre-existing advisory warnings. Independent parser-backed review
+found no remaining P0-P3 issue. Live Obsidian rendering is still an explicit
+unverified surface; the review used the installed Marked parser.
 
 ## Remaining finding triage
 

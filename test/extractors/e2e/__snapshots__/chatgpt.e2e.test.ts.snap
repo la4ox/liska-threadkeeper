@@ -122,20 +122,17 @@ capture_completeness: partial
 > 
 > -   行列積： $C = AB$
 >     
-> -   行列式（2×2）： $\\det\\begin{pmatrix} a & b \\\\ c & d
->                                                 \\end{pmatrix} = ad - bc$
+> -   行列式（2×2）： $\\det\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix} = ad - bc$
 >     
 > 
 > **確率・統計**
 > 
-> -   正規分布の確率密度関数： $f(x)=\\dfrac{1}{\\sqrt{2\\pi\\sigma^2}}
->                                                 \\exp\\!\\left(-\\dfrac{(x-\\mu)^2}{2\\sigma^2}\\right)$
+> -   正規分布の確率密度関数： $f(x)=\\dfrac{1}{\\sqrt{2\\pi\\sigma^2}} \\exp\\!\\left(-\\dfrac{(x-\\mu)^2}{2\\sigma^2}\\right)$
 >     
 > 
 > **級数**
 > 
-> -   等比数列の和： $\\sum_{k=0}^{n} ar^{k} =
->                                                 a\\,\\dfrac{1-r^{\\,n+1}}{1-r}$
+> -   等比数列の和： $\\sum_{k=0}^{n} ar^{k} = a\\,\\dfrac{1-r^{\\,n+1}}{1-r}$
 >     
 > 
 > 必要であれば、特定分野（物理・機械学習・暗号など）の数式も表示できます。"
