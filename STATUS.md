@@ -709,7 +709,7 @@ advisory warnings. The ZIP is 235,317 bytes with SHA-256
 `9c5d2617bf255c04d7fb8a9237d93454df00fdc89dce639af3bf6550f5cd2365`.
 The installed Comet tree matches its 29-file production build exactly; its clean
 pre-live rollback is retained at
-`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\physical-budget-prelive-20261023-102928-8692fc9f`.
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\physical-budget-review-fix-prelive-20261023-104608-f29ded47`.
 
 A fresh two-destination canary created capture
 `capture-chatgpt-513c3dd9-f332-412e-b417-28cdb81b0fc8` and reported one branch
