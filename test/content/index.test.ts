@@ -49,6 +49,59 @@ import {
   getExtractor,
   startContentScript,
 } from '../../src/content/bootstrap';
+import { GeminiExtractor } from '../../src/content/extractors/gemini';
+import { ClaudeExtractor } from '../../src/content/extractors/claude';
+import { ChatGPTExtractor } from '../../src/content/extractors/chatgpt';
+import { PerplexityExtractor } from '../../src/content/extractors/perplexity';
+import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
+import { NotebookLMExtractor } from '../../src/content/extractors/notebooklm';
+import { CONVERSATION_READY_SELECTORS } from '../../src/content/extractors/selectors/ready';
+import { PLATFORM_REGISTRY, platformForHost } from '../../src/lib/platform-registry';
+
+const readinessSurfaces = [
+  {
+    host: 'gemini.google.com',
+    platform: 'gemini',
+    extractor: GeminiExtractor,
+    html: '<div class="conversation-container"></div>',
+  },
+  {
+    host: 'claude.ai',
+    platform: 'claude',
+    extractor: ClaudeExtractor,
+    html: '<div data-index="0"></div>',
+  },
+  {
+    host: 'chatgpt.com',
+    platform: 'chatgpt',
+    extractor: ChatGPTExtractor,
+    html: '<section data-turn-id="ready"></section>',
+  },
+  {
+    host: 'www.perplexity.ai',
+    platform: 'perplexity',
+    extractor: PerplexityExtractor,
+    html: '<div class="group/user-bubble"><div data-renderer="lm"></div></div>',
+  },
+  {
+    host: 'chat.deepseek.com',
+    platform: 'deepseek',
+    extractor: DeepSeekExtractor,
+    html: '<div class="ds-message"></div>',
+  },
+  {
+    host: 'notebook.google.com',
+    platform: 'notebooklm',
+    extractor: NotebookLMExtractor,
+    html: '<div class="chat-message-pair"></div>',
+  },
+  {
+    host: 'notebooklm.google.com',
+    platform: 'notebooklm',
+    extractor: NotebookLMExtractor,
+    html: '<div class="chat-message-pair"></div>',
+  },
+] as const;
 
 const baseSettings: ContentScriptSettings = {
   obsidianUrl: 'http://127.0.0.1:27123',
@@ -140,6 +193,27 @@ describe('content/bootstrap', () => {
   });
 
   describe('getExtractor', () => {
+    it('covers every registered host in the readiness surface cases', () => {
+      expect(readinessSurfaces.map(surface => surface.host).sort()).toEqual(
+        Object.values(PLATFORM_REGISTRY)
+          .flatMap(platform => platform.hosts)
+          .sort()
+      );
+    });
+
+    it.each(readinessSurfaces)(
+      'routes $host to its expected extractor and readiness hint',
+      ({ host, platform, extractor, html }) => {
+        setNonGeminiLocation(host);
+        loadFixture(html);
+
+        expect(platformForHost(host)).toBe(platform);
+        expect(getExtractor()).toBeInstanceOf(extractor);
+        expect(getExtractor()?.platform).toBe(platform);
+        expect(document.querySelector(CONVERSATION_READY_SELECTORS[platform])).not.toBeNull();
+      }
+    );
+
     it('returns the Gemini extractor on gemini.google.com', () => {
       setGeminiLocation('abc123');
       expect(getExtractor()?.platform).toBe('gemini');
@@ -185,6 +259,116 @@ describe('content/bootstrap', () => {
   });
 
   describe('conversation container waiting', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it.each(readinessSurfaces)(
+      'injects immediately on $host without messaging, extraction, or capture',
+      async ({ host, platform, extractor, html }) => {
+        setNonGeminiLocation(host);
+        loadFixture(`<main>${html}</main>`);
+        const extract = vi.spyOn(extractor.prototype, 'extract');
+        const fetch = vi
+          .spyOn(globalThis, 'fetch')
+          .mockRejectedValue(new Error('Unexpected fetch during initialization'));
+
+        await initialize();
+
+        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(injectBranchExportButton).toHaveBeenCalledTimes(platform === 'chatgpt' ? 1 : 0);
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+        expect(extract).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+      }
+    );
+
+    it.each(readinessSurfaces)(
+      'injects on $host after its primary selector arrives and the 100ms debounce ends',
+      async ({ host, html }) => {
+        setNonGeminiLocation(host);
+        loadFixture('<main></main>');
+        const observe = vi.spyOn(MutationObserver.prototype, 'observe');
+        const pending = initialize();
+        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(observe).toHaveBeenCalledWith(document.querySelector('main'), {
+          childList: true,
+          subtree: true,
+        });
+
+        document.querySelector('main')!.innerHTML = html;
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(99);
+        expect(injectSyncButton).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await pending;
+
+        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(sendMessage).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([
+      '<div class="conversation"></div>',
+      '<div class="conversation-preview"></div>',
+      '<article data-turn-id="dead"></article>',
+      '<div class="threadContentWidth"></div>',
+    ])('does not inject early for a broad or dead selector: %s', async html => {
+      setGeminiLocation('abc123def456');
+      loadFixture(`<main>${html}</main>`);
+      const pending = initialize();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+
+      document.querySelector('main')!.insertAdjacentHTML('beforeend', html);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(9_800);
+      await pending;
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(readinessSurfaces.filter(({ platform }) => ['chatgpt', 'deepseek'].includes(platform)))(
+      'still injects on empty $host at 10s without starting structured capture',
+      async ({ host, platform, extractor }) => {
+        const conversationId = '01234567-89ab-4cde-8f01-23456789abcd';
+        const routePrefix = platform === 'chatgpt' ? '/c' : '/a/chat/s';
+        setNonGeminiLocation(host, `${routePrefix}/${conversationId}`);
+        loadFixture('<main></main>');
+        expect(getExtractor()?.getConversationId()).toBe(conversationId);
+        const extract = vi.spyOn(extractor.prototype, 'extract');
+        const fetch = vi
+          .spyOn(globalThis, 'fetch')
+          .mockRejectedValue(new Error('Unexpected fetch during initialization'));
+        const pending = initialize();
+
+        await vi.advanceTimersByTimeAsync(9_999);
+        expect(injectSyncButton).not.toHaveBeenCalled();
+        // A mutation just before the deadline must not extend the escape timeout.
+        document.querySelector('main')!.append(document.createElement('div'));
+        await vi.advanceTimersByTimeAsync(1);
+        await pending;
+
+        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(injectBranchExportButton).toHaveBeenCalledTimes(platform === 'chatgpt' ? 1 : 0);
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+        expect(extract).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+      }
+    );
+
     it('initializes once the container appears via MutationObserver', async () => {
       setGeminiLocation('abc123def456');
       // Observation root (main) exists, but no conversation container yet
@@ -198,6 +382,7 @@ describe('content/bootstrap', () => {
         { role: 'user', content: 'late' },
       ]);
 
+      await vi.advanceTimersByTimeAsync(100);
       await pending;
       expect(injectSyncButton).toHaveBeenCalledTimes(1);
     });
@@ -212,25 +397,21 @@ describe('content/bootstrap', () => {
         createGeminiConversationDOM([{ role: 'user', content: 'late' }])
       );
 
+      await vi.advanceTimersByTimeAsync(100);
       await pending;
       expect(injectSyncButton).toHaveBeenCalledTimes(1);
     });
 
     it('gives up waiting after the fallback timeout', async () => {
-      vi.useFakeTimers();
-      try {
-        setGeminiLocation('abc123def456');
-        loadFixture('<main></main>'); // container never appears
+      setGeminiLocation('abc123def456');
+      loadFixture('<main></main>'); // container never appears
 
-        const pending = initialize();
-        await vi.advanceTimersByTimeAsync(10_000);
-        await pending;
+      const pending = initialize();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
 
-        // Initialization still completes (button injected on a bare page)
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
-      } finally {
-        vi.useRealTimers();
-      }
+      // Initialization still completes (button injected on a bare page)
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
     });
   });
 

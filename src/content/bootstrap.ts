@@ -13,6 +13,7 @@ import { ChatGPTExtractor } from './extractors/chatgpt';
 import { PerplexityExtractor } from './extractors/perplexity';
 import { NotebookLMExtractor } from './extractors/notebooklm';
 import { DeepSeekExtractor } from './extractors/deepseek';
+import { CONVERSATION_CONTAINER_SELECTOR } from './extractors/selectors/ready';
 import { extractErrorMessage } from '../lib/error-utils';
 import type {
   AllBranchesPresentationPlan,
@@ -140,10 +141,6 @@ const EXTRACTOR_CONSTRUCTORS: Record<AIPlatform, new () => IConversationExtracto
   notebooklm: NotebookLMExtractor,
   deepseek: DeepSeekExtractor,
 };
-
-/** Conversation container selectors to detect when content is ready */
-const CONVERSATION_CONTAINER_SELECTOR =
-  '.conversation-container, [class*="conversation"], section[data-turn-id], article[data-turn-id], div[class*="threadContentWidth"], .ds-message';
 
 /**
  * Get the optimal observation root for the current platform
