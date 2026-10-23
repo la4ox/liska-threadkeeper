@@ -324,10 +324,29 @@ function hasMultilineInlineRange(
 }
 
 /** CommonMark link labels are bounded at 999 characters and may cross a line ending. */
-function hasPresentationReferenceDefinition(source: string): boolean {
+// eslint-disable-next-line complexity -- Keep code masking and logical label length in one bounded linear scan.
+function hasPresentationReferenceDefinition(
+  source: string,
+  codeRanges: readonly MarkdownCodeRange[]
+): boolean {
   let latestOpener: number | undefined;
   let logicalPosition = 0;
+  let codeRangeIndex = 0;
   for (let cursor = 0; cursor < source.length; logicalPosition += 1) {
+    while (codeRangeIndex < codeRanges.length && codeRanges[codeRangeIndex].end <= cursor) {
+      codeRangeIndex += 1;
+    }
+    const codeRange = codeRanges[codeRangeIndex];
+    if (
+      latestOpener === undefined &&
+      codeRange !== undefined &&
+      cursor === codeRange.start &&
+      canMaskAngleBrackets(source, codeRange)
+    ) {
+      cursor = codeRange.end;
+      codeRangeIndex += 1;
+      continue;
+    }
     if (latestOpener !== undefined && logicalPosition - latestOpener - 1 > 999) {
       latestOpener = undefined;
     }
@@ -424,15 +443,13 @@ function presentationScanInput(
   part: unknown
 ): { messageId: string; part: string; codeRanges: MarkdownCodeRange[] } | undefined {
   if (!isChatGptInterpreterMessageId(messageId) || typeof part !== 'string') return undefined;
-  if (
-    /\r(?!\n)/u.test(part) ||
-    hasPresentationReferenceDefinition(part) ||
-    PRESENTATION_LIST_FENCE.test(part)
-  ) {
+  if (/\r(?!\n)/u.test(part) || PRESENTATION_LIST_FENCE.test(part)) {
     return undefined;
   }
   const codeRanges = markdownCodeRanges(part, true);
-  return hasMultilineInlineRange(part, codeRanges) || hasNonCodeAngleBracket(part, codeRanges)
+  return hasPresentationReferenceDefinition(part, codeRanges) ||
+    hasMultilineInlineRange(part, codeRanges) ||
+    hasNonCodeAngleBracket(part, codeRanges)
     ? undefined
     : { messageId, part, codeRanges };
 }
