@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PerplexityExtractor } from '../../src/content/extractors/perplexity';
+import { SELECTORS, LEGACY_USER_QUERY } from '../../src/content/extractors/selectors/perplexity';
 import { htmlToMarkdown } from '../../src/content/markdown';
 import { sanitizeHtml } from '../../src/lib/sanitize';
 import {
@@ -28,6 +29,22 @@ describe('PerplexityExtractor', () => {
   afterEach(() => {
     clearFixture();
     resetLocation();
+  });
+
+  it('extracts legacy queries through the shared detection group outside the live contract', () => {
+    setPerplexityLocation('legacy-query-contract');
+    loadFixture(
+      createPerplexityConversationDOM([
+        { role: 'user', content: 'Shared legacy question' },
+        { role: 'assistant', content: '<p>Legacy answer</p>' },
+      ])
+    );
+
+    expect(document.querySelector(LEGACY_USER_QUERY.join(', '))).not.toBeNull();
+    expect(document.querySelector(SELECTORS.userQuery.join(', '))).toBeNull();
+    const messages = extractor.extractMessages();
+    expect(messages.map(message => message.role)).toEqual(['user', 'assistant']);
+    expect(messages[0].content).toBe('Shared legacy question');
   });
 
   // ========== Platform Detection ==========

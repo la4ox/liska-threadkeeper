@@ -20,13 +20,12 @@ import {
 } from './footnotes';
 import type { CitationTransformResult } from './footnotes';
 
-import { SELECTORS } from './selectors/perplexity';
+import { SELECTORS, LEGACY_USER_QUERY } from './selectors/perplexity';
 
 // Layout-specific detection stays outside the live selector contract: old
-// placeholders/query spans no longer appear on current pages, and a collapsed
+// placeholders no longer appear on current pages, and a collapsed
 // Deep Research card has no report body until the user opens its preview.
 const LEGACY_MARKDOWN_CONTENT: readonly string[] = ['div[id^="markdown-content-"]'];
-const LEGACY_USER_QUERY: readonly string[] = ['span.select-text'];
 const USER_QUERY_ANY_LAYOUT: readonly string[] = [...SELECTORS.userQuery, ...LEGACY_USER_QUERY];
 
 // The report's outer prose wraps its own inline answer prose under both the
