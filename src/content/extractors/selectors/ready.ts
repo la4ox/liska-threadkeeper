@@ -14,19 +14,24 @@ import type { AIPlatform } from '../../../lib/types';
 import { SELECTORS as GEMINI } from './gemini';
 import { SELECTORS as CLAUDE } from './claude';
 import { SELECTORS as CHATGPT } from './chatgpt';
-import { SELECTORS as PERPLEXITY } from './perplexity';
+import { SELECTORS as PERPLEXITY, LEGACY_USER_QUERY } from './perplexity';
 import { SELECTORS as DEEPSEEK } from './deepseek';
 import { SELECTORS as NOTEBOOKLM } from './notebooklm';
 
 const CLAUDE_MESSAGE_SELECTOR = [...CLAUDE.userMessage, ...CLAUDE.assistantResponse].join(', ');
 
 export const CONVERSATION_READY_SELECTORS: Readonly<Record<AIPlatform, string>> = {
-  gemini: GEMINI.conversationTurn.join(', '),
+  // Root extraction also supports layouts without conversation-turn wrappers.
+  gemini: [...GEMINI.conversationTurn, ...GEMINI.userQuery, ...GEMINI.modelResponse].join(', '),
   // The sidebar also has indexed rows; require content owned by the extractor.
-  claude: CLAUDE.conversationRow.map(row => `${row}:has(${CLAUDE_MESSAGE_SELECTOR})`).join(', '),
+  // Rowless legacy messages count only inside the supported transcript root.
+  claude: [
+    ...CLAUDE.conversationRow.map(row => `${row}:has(${CLAUDE_MESSAGE_SELECTOR})`),
+    `.conversation-thread:has(${CLAUDE_MESSAGE_SELECTOR})`,
+  ].join(', '),
   chatgpt: CHATGPT.conversationTurn.join(', '),
   // The user query renders before an answer; Perplexity has no turn wrapper.
-  perplexity: PERPLEXITY.userQuery.join(', '),
+  perplexity: [...PERPLEXITY.userQuery, ...LEGACY_USER_QUERY].join(', '),
   deepseek: DEEPSEEK.message.join(', '),
   notebooklm: NOTEBOOKLM.conversationTurn.join(', '),
 };
