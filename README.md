@@ -14,6 +14,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 - **Long-thread support:** the text pipeline accepts large notes up to 32 MiB of UTF-8; other supported sites can accumulate virtualized conversations with bounded auto-scroll.
 - **Readable archives:** YAML frontmatter, citations, math, configurable callouts, thinking/tool content, question headings, and collision-safe filenames.
 - **Literal citation boundaries:** provider titles, internal footnote markers, and HTTP(S) source destinations cannot create extra Markdown links, images, or embeds.
+- **Safe derived Markdown:** structured provider text is parsed before the reading export. Automatic provider images, private/unsupported destinations, and Obsidian wikilinks/embeds remain visible but literal; only receipt-proven local ChatGPT attachment targets stay active. Raw and canonical archives remain exact.
 - **Optional attachments:** supported generated images can be saved beside Markdown exports.
 - **Intentional export:** page scripts cannot activate the export button programmatically; a real user click is required.
 

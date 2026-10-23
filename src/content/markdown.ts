@@ -224,5 +224,12 @@ function formatConversationMessage(
   options: TemplateOptions,
   source: AIPlatform
 ): string {
-  return formatMessage(message.content, message.role, options, source, message.contentFormat);
+  return formatMessage(
+    message.content,
+    message.role,
+    options,
+    source,
+    message.contentFormat,
+    message.trustedMarkdownDestinations
+  );
 }

@@ -45,8 +45,10 @@ export interface ConversationMessage {
   content: string;
   /** Original HTML content (for assistant messages, used in HTML→Markdown conversion) */
   htmlContent?: string;
-  /** Whether assistant content is rendered HTML or already-safe Markdown. Defaults to HTML. */
+  /** Whether assistant content is rendered HTML or provider/extension Markdown. Defaults to HTML. */
   contentFormat?: 'html' | 'markdown';
+  /** Exact runtime-proven local destinations authored by Liska, never copied from provider data. */
+  trustedMarkdownDestinations?: readonly string[];
   /** Tool-use content (web search, code interpreter) — rendered as separate callout */
   toolContent?: string;
   /** Zero-based message order in conversation */

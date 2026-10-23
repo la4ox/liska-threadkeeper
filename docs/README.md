@@ -34,3 +34,6 @@
 - [ADR-025](adr/025-note-identity-probe-and-fork-diagnostics.md), [ADR-026](adr/026-line-ending-handling.md), [ADR-027](adr/027-generated-image-capture-from-rendered-element.md), [ADR-028](adr/028-message-count-survives-callout-flattening.md), [ADR-029](adr/029-maintainer-controlled-automation.md), [ADR-030](adr/030-supported-maintainer-tooling.md)
 - [ADR-031](adr/031-loss-aware-archive-pipeline.md): raw capture, canonical conversation graph, and derived presentations/destinations
 - [ADR-032](adr/032-staged-large-chatgpt-capture.md): chunked OPFS transport for raw/canonical ChatGPT artifacts above inline limits
+- [ADR-033](adr/033-trusted-append-message-boundaries.md): extension-owned message identity for safe append
+- [ADR-034](adr/034-citation-footnote-provenance.md): capability-bound citations and safe Markdown destinations
+- [ADR-035](adr/035-provider-markdown-rendering-safety.md): structural provider-Markdown policy and receipt-proven local links

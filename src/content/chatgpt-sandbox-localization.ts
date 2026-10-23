@@ -24,6 +24,7 @@ import {
   type ArchiveCompanionBundle,
   type ChatGptStructuredPresentationContext,
   type ConversationData,
+  type ConversationMessage,
   type PersistentOutputDestination,
 } from '../lib/types';
 import { projectArchiveBranch, projectArchiveMessageVisibleContent } from './archive-projection';
@@ -465,7 +466,8 @@ async function localizedPartText(
   part: ProvenPart,
   presentationSafe: ReadonlySet<string>,
   targets: ReadonlyMap<string, LocalTarget>,
-  identityIds: Map<string, string | undefined>
+  identityIds: Map<string, string | undefined>,
+  trustedDestinations: Set<string>
 ): Promise<string | undefined> {
   const edits: Array<{ occurrence: ChatGptSandboxLinkOccurrence; target: string }> = [];
   for (const occurrence of part.occurrences) {
@@ -478,8 +480,12 @@ async function localizedPartText(
     const id = identityIds.get(occurrence.identity);
     if (!id) continue;
     const target = targets.get(id);
-    if (target?.sourceKeys.has(sourceKey({ artifactId: 'conversation', rawPointer: part.pointer })))
+    if (
+      target?.sourceKeys.has(sourceKey({ artifactId: 'conversation', rawPointer: part.pointer }))
+    ) {
       edits.push({ occurrence, target: target.target });
+      trustedDestinations.add(target.target);
+    }
   }
   if (edits.length === 0) return undefined;
   const chunks: string[] = [];
@@ -492,19 +498,25 @@ async function localizedPartText(
   return chunks.reverse().join('');
 }
 
+interface BranchReplacements {
+  readonly blocks: Map<string, Map<number, string>>;
+  readonly trustedDestinationsByMessageId: Map<string, Set<string>>;
+}
+
 async function replacementsForBranch(
   raw: unknown,
   context: ChatGptStructuredPresentationContext,
   evidence: EvidencePayload,
   originalRecords: readonly RawCaptureAssetRecord[],
   projectedData: ConversationData
-): Promise<Map<string, Map<number, string>>> {
+): Promise<BranchReplacements> {
   const targets = localizationTargets(originalRecords, evidence);
   const counts = canonicalSourceCounts(context.archive);
   const projectedContent = new Map(
     projectedData.messages.map(message => [message.id, message.content] as const)
   );
   const replacements = new Map<string, Map<number, string>>();
+  const trustedDestinationsByMessageId = new Map<string, Set<string>>();
   const identityIds = new Map<string, string | undefined>();
   for (const nodeId of context.selectedNodeIds) {
     const message = context.archive.graph.nodes[nodeId].message;
@@ -513,14 +525,24 @@ async function replacementsForBranch(
     if (renderedContent === undefined) continue;
     const parts = provenMessageParts(raw, context.archive, nodeId, message, counts);
     const presentationSafe = presentationSafeOccurrences(message, renderedContent, parts);
+    const trustedDestinations = new Set<string>();
     for (const part of parts) {
-      const text = await localizedPartText(part, presentationSafe, targets, identityIds);
+      const text = await localizedPartText(
+        part,
+        presentationSafe,
+        targets,
+        identityIds,
+        trustedDestinations
+      );
       if (text === undefined) continue;
       if (!replacements.has(nodeId)) replacements.set(nodeId, new Map());
       replacements.get(nodeId)!.set(part.blockIndex, text);
     }
+    if (trustedDestinations.size > 0) {
+      trustedDestinationsByMessageId.set(message.id, trustedDestinations);
+    }
   }
-  return replacements;
+  return { blocks: replacements, trustedDestinationsByMessageId };
 }
 
 function changedArchive(
@@ -558,6 +580,42 @@ function presentationMatches(
     (!data.presentation ||
       (data.presentation.mode === 'selected-branch' &&
         data.presentation.captureId === context.captureId))
+  );
+}
+
+function attachTrustedMarkdownDestinations(
+  messages: readonly ConversationMessage[],
+  trustedByMessageId: ReadonlyMap<string, ReadonlySet<string>>
+): ConversationMessage[] {
+  return messages.map(message => {
+    const trusted = trustedByMessageId.get(message.id);
+    return trusted && trusted.size > 0
+      ? { ...message, trustedMarkdownDestinations: [...trusted].sort() }
+      : message;
+  });
+}
+
+async function verifiedCanonicalArchiveJson(
+  context: ChatGptStructuredPresentationContext
+): Promise<string | undefined> {
+  const json = JSON.stringify(context.archive, null, 2);
+  const bytes = new TextEncoder().encode(json);
+  return validArtifact(context.canonical, 'canonical') &&
+    bytes.byteLength === context.canonical.byteLength &&
+    (await sha256Hex(bytes)) === context.canonical.sha256
+    ? json
+    : undefined;
+}
+
+function projectionMatchesInput(
+  data: ConversationData,
+  context: ChatGptStructuredPresentationContext,
+  selectedNodeIds: readonly string[],
+  messages: readonly ConversationMessage[]
+): boolean {
+  return (
+    JSON.stringify(selectedNodeIds) === JSON.stringify(context.selectedNodeIds) &&
+    JSON.stringify(messages) === JSON.stringify(data.messages)
   );
 }
 
@@ -631,14 +689,8 @@ export async function localizeChatGptSandboxLinks(
 ): Promise<ConversationData> {
   try {
     if (!context || !evidence || !presentationMatches(data, context)) return data;
-    const initialJson = JSON.stringify(context.archive, null, 2);
-    const initialBytes = new TextEncoder().encode(initialJson);
-    if (
-      !validArtifact(context.canonical, 'canonical') ||
-      initialBytes.byteLength !== context.canonical.byteLength ||
-      (await sha256Hex(initialBytes)) !== context.canonical.sha256
-    )
-      return data;
+    const initialJson = await verifiedCanonicalArchiveJson(context);
+    if (!initialJson) return data;
     const bound = await boundEvidence(evidence, receipt, destination, context);
     if (!bound) return data;
     const verified = await verifiedLocalizationRaw(context, bound, data.id);
@@ -648,12 +700,9 @@ export async function localizeChatGptSandboxLinks(
       includeToolContent: context.includeToolContent,
     };
     const projected = projectArchiveBranch(context.archive, options);
-    if (
-      JSON.stringify(projected.selectedNodeIds) !== JSON.stringify(context.selectedNodeIds) ||
-      JSON.stringify(projected.data.messages) !== JSON.stringify(data.messages)
-    )
+    if (!projectionMatchesInput(data, context, projected.selectedNodeIds, projected.data.messages))
       return data;
-    const replacements = await replacementsForBranch(
+    const replacementPlan = await replacementsForBranch(
       verified.raw,
       context,
       bound,
@@ -663,13 +712,22 @@ export async function localizeChatGptSandboxLinks(
     // Archive is retained by reference. A post-await identity check rejects drift
     // before constructing the small copy-on-write view or invoking projection.
     if (
-      replacements.size === 0 ||
+      replacementPlan.blocks.size === 0 ||
       JSON.stringify(context.archive, null, 2) !== initialJson ||
       JSON.stringify(projected.data.messages) !== JSON.stringify(data.messages)
     )
       return data;
-    const localized = projectArchiveBranch(changedArchive(context.archive, replacements), options);
-    return { ...data, messages: localized.data.messages };
+    const localized = projectArchiveBranch(
+      changedArchive(context.archive, replacementPlan.blocks),
+      options
+    );
+    return {
+      ...data,
+      messages: attachTrustedMarkdownDestinations(
+        localized.data.messages,
+        replacementPlan.trustedDestinationsByMessageId
+      ),
+    };
   } catch {
     return data;
   }
