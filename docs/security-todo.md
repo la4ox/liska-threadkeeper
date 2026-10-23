@@ -107,13 +107,18 @@ fallback now removes status headers from a clone before sanitization, so the
 disabled tool-content setting cannot leak those headers through ordinary
 assistant content.
 
-The late GitHub Security Review of PR 29 separately confirmed a bounded
-availability defect in Claude tool conversion: collision discovery and marker
-restoration rescan the complete fragment once per code block. This is not a
-content-activation regression, but many tiny `<pre><code>` blocks can make the
-content script do quadratic work. Keep it open for a separate minimal PR with a
-single-pass marker map/restoration and explicit aggregate work ceilings; do not
-mix that resource-bound change into the provider-Markdown policy below.
+The late GitHub Security Review of PR 29 separately confirmed an availability
+defect in Claude tool conversion: collision discovery and marker restoration
+rescanned the complete fragment once per code block. The dedicated follow-up
+replaces that path with one conversion-local capability and one restoration
+pass, while an operation-local budget spans ordinary extraction or every
+auto-scroll window before deduplication. Byte, markup, section, code, metadata,
+DOM, ancestor/line, ordered-list, table, and Markdown ceilings fail the whole
+extraction visibly rather than silently dropping evidence. Follow-up review also
+closed non-code expansion through quotes/math attributes, nested table selector
+fan-out, repeated favicon rows, ordered-list indexing, and disconnected nested
+KaTeX candidates. Resolve the historical PR 29 thread only after the follow-up
+is present on the merged current head.
 
 The append-boundary occurrence `commit:65c64c5574f08191871348273e586bf6`
 is fixed through PR 30 as `7ff531f` and closed in Security Cloud. New ordinary
@@ -195,6 +200,14 @@ repository formatting, diff checks, and source/platform lint pass with only the
 same three pre-existing advisory warnings. A live Claude page and the actual
 Obsidian renderer were not repeated for this slice.
 
+Claude tool-resource follow-up validation: all 170 test files / 5,201 tests pass
+in six memory-bounded batches. Focused conversion, extractor, Markdown-safety,
+and sanitizer coverage passes 5 files / 233 tests; an independent final pass
+reran 192 Claude/sanitizer tests and found no remaining P0-P3 issue. Production
+build, targeted formatting, diff checks, source/platform lint, and `npm audit`
+pass with the same three pre-existing warnings and zero known vulnerabilities.
+No real Chrome/Claude timing smoke was repeated.
+
 Append-boundary slice validation: all 167 test files / 5,103 tests pass in six
 memory-bounded batches. Focused source-to-sink and integration coverage includes
 the historical forged-label no-op, marker reservation, legacy recovery,
@@ -248,8 +261,8 @@ head, preserving one verdict per finding:
 
 1. Markdown/frontmatter boundaries: reconcile the provider-Markdown fix after
    merge. YAML, math, question-heading, tool-content, append, and citation
-   occurrences are fixed; keep the separate Claude tool-conversion work bound
-   open until its linear-time follow-up merges.
+   occurrences are fixed; resolve the historical Claude tool-conversion review
+   thread only after its bounded single-pass follow-up is on current `main`.
 2. Resource bounds: branch fan-out, image response buffering/timeouts, and
    frontmatter parsing; reconcile the merged Canmore fix.
 3. Capture integrity: reconcile the merged TypedArray primordial fix and retain

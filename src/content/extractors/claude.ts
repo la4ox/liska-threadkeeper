@@ -9,55 +9,15 @@
 import { BaseExtractor, type ScrollConfig } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { htmlToMarkdownRaw } from '../markdown-rules';
-import { safeMarkdownLanguageHint } from '../markdown-code';
+import {
+  ClaudeToolConversionBudget,
+  appendClaudeToolPart,
+  claudeToolHtmlToMarkdown,
+} from './claude-tool-markdown';
 import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
 import type { ConversationMessage, DeepResearchSource, SyncSettings } from '../../lib/types';
 import { SELECTORS, DEEP_RESEARCH_SELECTORS, JOINED_SELECTORS } from './selectors/claude';
-
-function whitespacePreservingCodeFence(content: string, language: string): string {
-  let longestRun = 0;
-  for (const match of content.matchAll(/`+/g)) {
-    longestRun = Math.max(longestRun, match[0].length);
-  }
-  const fence = '`'.repeat(Math.max(3, longestRun + 1));
-  const closingSeparator = content.endsWith('\n') ? '' : '\n';
-  return `${fence}${safeMarkdownLanguageHint(language)}\n${content}${closingSeparator}${fence}`;
-}
-
-function toolHtmlToMarkdown(rawHtml: string): string {
-  const container = document.createElement('div');
-  container.innerHTML = sanitizeHtml(rawHtml);
-  const originalHtml = container.innerHTML;
-  const replacements: Array<{ marker: string; fencedCode: string }> = [];
-
-  container.querySelectorAll('pre').forEach((pre, index) => {
-    const code = pre.querySelector('code');
-    if (!code) return;
-
-    let marker = `\uE000LISKATOOLCODE${index}\uE001`;
-    while (
-      originalHtml.includes(marker) ||
-      replacements.some(replacement => replacement.marker === marker)
-    ) {
-      marker += 'X';
-    }
-    const language = code.className.match(/language-(\w+)/)?.[1] ?? '';
-    replacements.push({
-      marker,
-      fencedCode: whitespacePreservingCodeFence(code.textContent ?? '', language),
-    });
-    const placeholder = document.createElement('div');
-    placeholder.textContent = marker;
-    pre.replaceWith(placeholder);
-  });
-
-  let markdown = htmlToMarkdownRaw(container.innerHTML).trim();
-  for (const { marker, fencedCode } of replacements) {
-    markdown = markdown.replace(marker, () => fencedCode);
-  }
-  return markdown;
-}
 
 /**
  * Claude conversation and Deep Research extractor
@@ -160,6 +120,7 @@ export class ClaudeExtractor extends BaseExtractor {
    * @see FR-002 in design document
    */
   extractMessages(): ConversationMessage[] {
+    const toolBudget = new ClaudeToolConversionBudget();
     const sortedElements = this.collectSortedElements();
 
     // Pre-extract tool content keyed by message ID (matches buildMessagesFromElements format)
@@ -167,7 +128,7 @@ export class ClaudeExtractor extends BaseExtractor {
     if (this.enableToolContent) {
       sortedElements.forEach((item, index) => {
         if (item.type === 'assistant') {
-          const tc = this.extractToolContentFromElement(item.element);
+          const tc = this.extractToolContentFromElement(item.element, toolBudget);
           if (tc) toolContentById.set(`assistant-${index}`, tc);
         }
       });
@@ -222,9 +183,10 @@ export class ClaudeExtractor extends BaseExtractor {
    * Auto-scroll config: Claude virtualizes the conversation (ADR-017).
    */
   protected getScrollConfig(): ScrollConfig {
+    const toolBudget = new ClaudeToolConversionBudget();
     return {
       container: SELECTORS.scrollContainer,
-      harvest: () => this.harvestWindow(),
+      harvest: () => this.harvestWindow(toolBudget),
     };
   }
 
@@ -235,7 +197,9 @@ export class ClaudeExtractor extends BaseExtractor {
    * falling back to a content hash when the wrapper is absent, so turns are
    * de-duplicated correctly as windows overlap during scrolling.
    */
-  private harvestWindow(): HarvestEntry<ConversationMessage>[] {
+  private harvestWindow(
+    toolBudget: ClaudeToolConversionBudget
+  ): HarvestEntry<ConversationMessage>[] {
     const entries: HarvestEntry<ConversationMessage>[] = [];
     this.collectSortedElements().forEach(item => {
       const content =
@@ -260,7 +224,7 @@ export class ClaudeExtractor extends BaseExtractor {
       };
 
       if (this.enableToolContent && item.type === 'assistant') {
-        const tc = this.extractToolContentFromElement(item.element);
+        const tc = this.extractToolContentFromElement(item.element, toolBudget);
         if (tc) {
           entries.push({ key, value: { ...message, toolContent: tc }, order });
           return;
@@ -375,7 +339,10 @@ export class ClaudeExtractor extends BaseExtractor {
    * Returns tool content string if .row-start-1 contains tool-use content,
    * null otherwise (no grid, no tool section, or Extended Thinking).
    */
-  private extractToolContentFromElement(element: Element): string | null {
+  private extractToolContentFromElement(
+    element: Element,
+    budget: ClaudeToolConversionBudget
+  ): string | null {
     if (!element.querySelector('.row-start-2')) return null; // Non-grid → no tool content
 
     const parts: string[] = [];
@@ -385,8 +352,8 @@ export class ClaudeExtractor extends BaseExtractor {
       // tool content of every step after it.
       if (header.querySelector('[class*="group/thinking"]')) continue;
 
-      const toolContent = this.extractToolContent(header);
-      if (toolContent) parts.push(toolContent);
+      const toolContent = this.extractToolContent(header, budget);
+      appendClaudeToolPart(parts, toolContent, budget, true);
     }
 
     return parts.length > 0 ? parts.join('\n\n') : null;
@@ -414,27 +381,41 @@ export class ClaudeExtractor extends BaseExtractor {
    * 3. Search result items (identified by favicon images)
    * 4. .standard-markdown content (code interpreter, file analysis)
    */
-  private extractToolContent(toolSection: Element): string {
+  private extractToolContent(toolSection: Element, budget: ClaudeToolConversionBudget): string {
+    budget.beginSection(toolSection.innerHTML);
     const parts: string[] = [];
-    this.extractToolSummary(toolSection, parts);
-    this.extractToolQueries(toolSection, parts);
-    this.extractToolResults(toolSection, parts);
-    this.extractToolMarkdown(toolSection, parts);
+    this.extractToolSummary(toolSection, parts, budget);
+    this.extractToolQueries(toolSection, parts, budget);
+    this.extractToolResults(toolSection, parts, budget);
+    this.extractToolMarkdown(toolSection, parts, budget);
     return parts.join('\n\n');
   }
 
   /** Summary button text (e.g., "Searched the web") as bold */
-  private extractToolSummary(toolSection: Element, parts: string[]): void {
+  private extractToolSummary(
+    toolSection: Element,
+    parts: string[],
+    budget: ClaudeToolConversionBudget
+  ): void {
     const summaryButton = toolSection.querySelector('button span.truncate');
     if (summaryButton?.textContent) {
-      parts.push('**' + this.sanitizeText(summaryButton.textContent) + '**');
+      appendClaudeToolPart(
+        parts,
+        '**' + this.sanitizeText(summaryButton.textContent) + '**',
+        budget
+      );
     }
   }
 
   /** Search queries (group/row buttons with query text and result count) */
-  private extractToolQueries(toolSection: Element, parts: string[]): void {
+  private extractToolQueries(
+    toolSection: Element,
+    parts: string[],
+    budget: ClaudeToolConversionBudget
+  ): void {
     const queryButtons = toolSection.querySelectorAll('[class*="group/row"]');
     queryButtons.forEach(btn => {
+      budget.addMetadataEntries(1);
       const queryEl = btn.querySelector('.truncate');
       const countEl = btn.querySelector('p');
       if (queryEl?.textContent?.trim()) {
@@ -442,41 +423,54 @@ export class ClaudeExtractor extends BaseExtractor {
         if (countEl?.textContent?.trim()) {
           text += ' (' + this.sanitizeText(countEl.textContent) + ')';
         }
-        parts.push(text);
+        appendClaudeToolPart(parts, text, budget);
       }
     });
   }
 
   /** Search result items (identified by favicon images) */
-  private extractToolResults(toolSection: Element, parts: string[]): void {
+  private extractToolResults(
+    toolSection: Element,
+    parts: string[],
+    budget: ClaudeToolConversionBudget
+  ): void {
     const favicons = toolSection.querySelectorAll('img[alt="favicon"]');
     if (favicons.length === 0) return;
 
     const items: string[] = [];
+    const seenRows = new Set<Element>();
     favicons.forEach(img => {
       // Navigate: img → container div → result row div
       const row = img.parentElement?.parentElement;
       if (!row || row.children.length < 2) return;
+      if (seenRows.has(row)) return;
+      seenRows.add(row);
+      budget.addMetadataEntries(1);
       // Children: [0]=favicon container, [1]=title, [2]=domain (optional)
       const title = row.children[1]?.textContent?.trim();
       const domain = row.children.length > 2 ? row.children[2]?.textContent?.trim() : undefined;
       if (title) {
-        items.push(domain ? '- ' + title + ' (' + domain + ')' : '- ' + title);
+        const text = domain ? '- ' + title + ' (' + domain + ')' : '- ' + title;
+        if (items.length > 0) budget.addMarkdownBytes(1);
+        budget.addMarkdown(text);
+        items.push(text);
       }
     });
     if (items.length > 0) {
-      parts.push(items.join('\n'));
+      appendClaudeToolPart(parts, items.join('\n'), budget, true);
     }
   }
 
   /** .standard-markdown content (code interpreter, file analysis) */
-  private extractToolMarkdown(toolSection: Element, parts: string[]): void {
+  private extractToolMarkdown(
+    toolSection: Element,
+    parts: string[],
+    budget: ClaudeToolConversionBudget
+  ): void {
     const markdownEls = toolSection.querySelectorAll('.standard-markdown');
     markdownEls.forEach(el => {
-      const markdown = toolHtmlToMarkdown(el.innerHTML);
-      if (markdown) {
-        parts.push(markdown);
-      }
+      const markdown = claudeToolHtmlToMarkdown(el.innerHTML, budget);
+      appendClaudeToolPart(parts, markdown, budget, true);
     });
   }
 

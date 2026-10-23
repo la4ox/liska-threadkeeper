@@ -1074,9 +1074,33 @@ only the same three pre-existing warnings. No live Claude-page or Obsidian-rende
 smoke was repeated. Reviewed source head `5e88298` is an ancestor of fetched
 `origin/main`; CI and current-head Code Review were clean. The historical Cloud
 occurrence is closed as fixed. The late Security Review then found a separate
-P2 availability issue: Claude tool conversion rescans the full fragment per
-code block. It is confirmed and queued for its own linear-time/resource-bound
-follow-up rather than being mixed into the already-merged literal-content fix.
+P2 availability issue: Claude tool conversion rescanned the full fragment per
+code block and again per marker restoration.
+
+Follow-up source head `6fe968b` replaces those scans with one conversion-local
+128-bit capability and one literal restoration traversal. One mutable budget is
+fresh per ordinary extraction and shared across every auto-scroll harvest before
+deduplication. It bounds per-section and aggregate HTML work, markup count,
+sections, code candidates, metadata rows, DOM nodes, ancestor/line work,
+ordered-list sibling scans, table nesting, and retained/generated Markdown.
+Exceeding a ceiling fails the complete extraction with a value-free error; it
+never silently omits tool evidence or reports a partial result as complete.
+
+Independent review additionally found pre-conversion amplification through
+nested blockquotes, decoded math attributes, table descendant selectors,
+repeated favicon rows, ordered-list indexing, and detached nested KaTeX nodes.
+Each bounded reproducer is covered. Nested tables now fail visibly rather than
+being flattened, shared result rows are read once, and KaTeX preprocessing skips
+static-list candidates disconnected by an outer replacement.
+
+Evidence: all 170 test files / 5,201 tests pass in six memory-bounded batches;
+the focused converter/extractor/Markdown/sanitizer matrix passes 5 files / 233
+tests. The final independent pass reran the three Claude suites plus sanitizer
+(192 tests) and found no remaining P0-P3 issue. Production build, targeted
+formatting, diff checks, source/platform lint, and `npm audit` pass with only the
+same three pre-existing advisory warnings and zero known dependency
+vulnerabilities. A real Chrome/Claude timing smoke was not repeated, so JSDOM
+proves the bounded paths and regressions but not a hard browser wall-clock.
 
 ## Local append-boundary security checkpoint
 

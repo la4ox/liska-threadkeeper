@@ -17,6 +17,7 @@ const MAX_SCROLL = 10_000;
 interface Turn {
   role: 'user' | 'assistant';
   content: string;
+  toolHtml?: string;
 }
 
 /** Render one turn wrapped in a `data-index` virtual-row wrapper. */
@@ -24,7 +25,12 @@ function renderTurn(turn: Turn, index: number): string {
   const inner =
     turn.role === 'user'
       ? `<div class="bg-bg-300 rounded-xl"><div data-testid="user-message">${turn.content}</div></div>`
-      : `<div class="font-claude-response"><div class="standard-markdown"><p>${turn.content}</p></div></div>`;
+      : `<div class="font-claude-response">${
+          turn.toolHtml === undefined
+            ? `<div class="standard-markdown"><p>${turn.content}</p></div>`
+            : `<div class="row-start-1"><div class="standard-markdown">${turn.toolHtml}</div></div>
+               <div class="row-start-2"><div class="standard-markdown"><p>${turn.content}</p></div></div>`
+        }</div>`;
   return `<div data-index="${index}"><div data-test-render-count="2">${inner}</div></div>`;
 }
 
@@ -131,6 +137,32 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     expect(result.success).toBe(true);
     // Without scrolling, only the bottom window (last 3 turns) is visible.
     expect(result.data?.messages).toHaveLength(3);
+  });
+
+  it('shares the tool work budget across overlapping windows before deduplication, then resets it', async () => {
+    mountVirtualizedClaude(
+      [{ role: 'assistant', content: 'Answer', toolHtml: '<pre><code>x</code></pre>'.repeat(512) }],
+      1
+    );
+    extractor.applySettings(settings({ enableToolContent: true }));
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const rejected = await promise;
+    expect(rejected.success).toBe(false);
+    expect(rejected.data).toBeUndefined();
+    expect(rejected.error).toBe('Claude tool conversion limit exceeded: code blocks.');
+
+    mountVirtualizedClaude(
+      [{ role: 'assistant', content: 'Fresh', toolHtml: '<p>small tool</p>' }],
+      1
+    );
+    const freshPromise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const fresh = await freshPromise;
+    expect(fresh.success).toBe(true);
+    expect(fresh.data?.messages).toHaveLength(1);
+    expect(fresh.data?.messages[0].toolContent).toBe('small tool');
   });
 
   it('warns when accumulation times out without ever reaching the top', async () => {
