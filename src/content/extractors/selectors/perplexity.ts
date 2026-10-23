@@ -7,10 +7,13 @@
 
 import type { SelectorGroup } from './types';
 
+/** Supported old-layout query detection, separate from the current live-selector contract. */
+export const LEGACY_USER_QUERY = ['span.select-text'] as const;
+
 export const SELECTORS = {
   // User query text
   // 2026-09: queries are markdown-rendered inside a semantic user bubble.
-  // Legacy select-text spans remain private detection selectors in perplexity.ts.
+  // Legacy select-text spans use the separate LEGACY_USER_QUERY detection group.
   userQuery: [
     '[class*="group/user-bubble"] [data-renderer="lm"]', // Semantic bubble + renderer (HIGH)
     'div.bg-subtle.rounded-2xl [data-renderer="lm"]', // Styled bubble + renderer (MEDIUM)
