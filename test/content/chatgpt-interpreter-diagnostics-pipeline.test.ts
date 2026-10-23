@@ -80,6 +80,7 @@ async function runPipeline(
       sha256: sha256(originalBytes),
       mediaType: 'application/json',
       endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      routeFamily: 'standard' as const,
       transientAssetResolvers: [],
     },
   };

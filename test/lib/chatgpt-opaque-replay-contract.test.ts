@@ -32,11 +32,25 @@ function artifact() {
     sha256: SHA256,
     mediaType: 'application/json',
     endpoint: { ...CHATGPT_CAPTURE_ENDPOINT },
+    routeFamily: 'standard' as const,
     transientAssetResolvers: [] as [],
   };
 }
 
 describe('ChatGPT opaque replay contract', () => {
+  it('requires only a fixed route family and never accepts owner route fields', () => {
+    for (const routeFamily of ['standard', 'custom-gpt', 'project']) {
+      expect(isChatGptOpaqueReplayArtifact({ ...artifact(), routeFamily })).toBe(true);
+    }
+    const { routeFamily: _route, ...missing } = artifact();
+    expect(isChatGptOpaqueReplayArtifact(missing)).toBe(false);
+    for (const routeFamily of [null, '', 'owner', 'STANDARD', '/g/private']) {
+      expect(isChatGptOpaqueReplayArtifact({ ...artifact(), routeFamily })).toBe(false);
+    }
+    for (const extra of ['pathname', 'slug', 'target']) {
+      expect(isChatGptOpaqueReplayArtifact({ ...artifact(), [extra]: '/g/private' })).toBe(false);
+    }
+  });
   it.each(['source-response-timeout', 'replay-response-timeout', 'timed-out'] as const)(
     'accepts only the exact timeout code %s with bounded observed counts',
     code => {

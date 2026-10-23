@@ -100,6 +100,7 @@ async function capture(raw: unknown = libraryRaw()) {
         sha256: activeDigest(bytes),
         mediaType: 'application/json',
         endpoint: CHATGPT_CAPTURE_ENDPOINT,
+        routeFamily: 'standard' as const,
         transientAssetResolvers: [],
       },
     }),
@@ -444,8 +445,8 @@ describe('evidence-gated Library JPEG runtime', () => {
   it('does not dispatch Library in unsupported owner context', async () => {
     const run = await runPipeline({ raw: libraryRaw({ owner: 'unsupported-owner' }) });
     expect(run.resolveLibraryAsset).not.toHaveBeenCalled();
-    expect(run.resolveActiveAsset).toHaveBeenCalledTimes(4);
-    expect(run.dispatched.every(item => !run.libraryIds.includes(item.assetId))).toBe(true);
+    expect(run.resolveActiveAsset).not.toHaveBeenCalled();
+    expect(run.dispatched).toEqual([]);
   });
 
   it.each([{}, [], false, 0])(

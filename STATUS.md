@@ -496,7 +496,47 @@ append reader, and compatible dependency/build-chain updates. Claude current
 DOM, ChatGPT DOM fallback, typed truncation guards, Gemini completeness/title
 and the exact Google image redirect permission remain explicit later slices.
 
-Next: checkpoint the independently reviewed, live-verified one-Library-JPEG
-slice in its own pull request. Then collect exact custom-GPT/project attachment
-evidence as a separate ownership contract. Treat the archived WebP as separate
-Library-family evidence and do not widen ordinary GIF/WebP acquisition.
+Pull request 14 merged the independently reviewed Library-JPEG slice to `main`
+as `a55d9b8`; its reviewed source head was `2948f99`, and CI plus the final
+manual security review were clean.
+
+The next owner-context checkpoint is implemented on
+`codex/chatgpt-owner-context`. A shared raw classifier selects exactly one direct
+or nested graph, fails closed on malformed, conflicting, wrapper-level,
+custom-GPT, project, or template evidence, and guards every independently
+callable attachment planner. The background derives an immutable content-free
+`standard | custom-gpt | project` family from the exact current tab route. Only
+that family crosses runtime messaging; owner slugs and paths remain
+background-only. Capture and strict replay preserve the validated owner route,
+while provider title-slug canonicalization is admitted only when origin,
+conversation UUID, route family, empty query, and nonce/mode marker remain
+exact. Custom/project routes and owner-bearing raw therefore retain raw,
+manifest, canonical, and Markdown but create zero attachment resolver,
+acquisition, staging, or fake zero-dispatch audit authority.
+
+A live custom-GPT canary wrote a new append-only Obsidian snapshot with a
+41,929-byte hash-bound raw artifact, 11 canonical nodes, no assets, and no owner
+route in manifest/canonical. A separate live project canary exercised the
+actual denial path: raw 2,609,652 bytes, manifest 5,663 bytes, canonical
+4,954,122 bytes, 132 nodes, and nine retained assets. All nine remain
+`not-attempted`; attempt timestamps, local artifacts, binary files, and binary
+dispatches are zero. The capture directory contains exactly raw, manifest, and
+canonical JSON, and the manifest carries one fixed content-free policy warning.
+Temporary query-key smoke hooks read no values, headers, bodies, or chat text;
+they were removed by a clean build and never entered source or the package.
+
+Final validation passes 155 test files / 4,456 tests. Coverage is 95.25%
+statements, 91.06% branches, 98.48% functions, and 97.70% lines. TypeScript,
+production build, source/platform lint, repository formatting, ZIP packaging,
+and independent review pass; lint retains the same three pre-existing advisory
+warnings. The ZIP contains 29 of 29 files byte-identical to `dist`, is 229,975
+bytes, and has SHA-256
+`9dbb625982acb2006d16dfd731dd80a5ecdc6dc7e770d8db92eff57bb0561f11`.
+The installed Comet tree is the same 29-file production build; its pre-live
+rollback is retained under `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks`.
+
+Next: checkpoint this owner-context archive-only contract in its own pull
+request. Then move to Deep Research binaries/provenance and title-collision
+handling on a standard conversation. Custom-GPT/project binary acquisition
+remains separately evidence-gated rather than borrowing ordinary authority;
+the archived WebP remains separate Library-family evidence.

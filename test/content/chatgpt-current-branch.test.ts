@@ -116,6 +116,7 @@ async function successfulResponse(
       sha256: await sha256Hex(bytes),
       mediaType: 'application/json',
       endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      routeFamily: 'standard' as const,
       transientAssetResolvers: [],
     },
   };
@@ -153,45 +154,118 @@ function parseBase64Json(value: string): Record<string, unknown> {
 }
 
 describe('ChatGPT current-branch capture composition', () => {
-  it('materializes a staged response above 16 MiB in bounded chunks and retains staged raw', async () => {
-    const payload = JSON.parse(JSON.stringify(rawFixture)) as Record<string, unknown>;
-    payload.conversation_id = CONVERSATION_ID;
-    payload.url = `https://chatgpt.com/c/${CONVERSATION_ID}`;
-    payload.synthetic_padding = 'x'.repeat(20 * 1024 * 1024);
-    const bytes = new TextEncoder().encode(JSON.stringify(payload));
-    const digest = await sha256Hex(bytes);
-    const stageId = `archive-stage-${'A'.repeat(32)}`;
-    const chunkBytes = 512 * 1024;
-
-    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
-      (message: unknown, callback?: (response: unknown) => void) => {
-        const request = message as {
-          action?: string;
-          offset?: number;
-          byteLength?: number;
-          stageId?: string;
-        };
-        if (request.action === 'readStagedArchiveArtifact') {
-          const offset = request.offset ?? -1;
-          const length = request.byteLength ?? -1;
-          callback?.({
-            success: true,
-            data: {
-              stageId,
-              offset,
-              byteLength: length,
-              chunkBase64: base64(bytes.subarray(offset, offset + length)),
-            },
-          });
-        } else if (request.action === 'abortStagedArchiveArtifact') {
-          callback?.({ success: true });
-        }
-        return undefined as unknown as ReturnType<typeof chrome.runtime.sendMessage>;
+  it.each(['standard', 'custom-gpt', 'project'] as const)(
+    'keeps %s route evidence only in runtime context',
+    async routeFamily => {
+      const response = await successfulResponse();
+      if (!response.success) throw new Error('synthetic capture required');
+      response.data.routeFamily = routeFamily;
+      const capture = await captureChatGptArchive(CONVERSATION_ID, {
+        requestCapture: async () => response,
+        createCaptureId: fixedCaptureId,
+        now: fixedNow,
+      });
+      expect(capture.assetExportContext?.routeFamily).toBe(routeFamily);
+      expect(Object.keys(capture.assetExportContext!).sort()).toEqual([
+        'conversationId',
+        'rawArtifact',
+        'rawCaptureBundle',
+        'routeFamily',
+      ]);
+      for (const artifact of capture.archiveCompanion.artifacts) {
+        expect(artifact.transport).toBe('inline');
+        if (artifact.transport !== 'inline') throw new Error('synthetic inline artifact required');
+        expect(JSON.stringify(parseBase64Json(artifact.bodyBase64))).not.toContain('routeFamily');
       }
-    );
+    }
+  );
 
-    const capture = await captureChatGptArchive(CONVERSATION_ID, {
-      requestCapture: async () => ({
+  it.each(['standard', 'custom-gpt', 'project'] as const)(
+    'materializes staged %s capture and retains only runtime route evidence',
+    async routeFamily => {
+      const payload = JSON.parse(JSON.stringify(rawFixture)) as Record<string, unknown>;
+      payload.conversation_id = CONVERSATION_ID;
+      payload.url = `https://chatgpt.com/c/${CONVERSATION_ID}`;
+      payload.synthetic_padding = 'x'.repeat(20 * 1024 * 1024);
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const digest = await sha256Hex(bytes);
+      const stageId = `archive-stage-${'A'.repeat(32)}`;
+      const chunkBytes = 512 * 1024;
+
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+        (message: unknown, callback?: (response: unknown) => void) => {
+          const request = message as {
+            action?: string;
+            offset?: number;
+            byteLength?: number;
+            stageId?: string;
+          };
+          if (request.action === 'readStagedArchiveArtifact') {
+            const offset = request.offset ?? -1;
+            const length = request.byteLength ?? -1;
+            callback?.({
+              success: true,
+              data: {
+                stageId,
+                offset,
+                byteLength: length,
+                chunkBase64: base64(bytes.subarray(offset, offset + length)),
+              },
+            });
+          } else if (request.action === 'abortStagedArchiveArtifact') {
+            callback?.({ success: true });
+          }
+          return undefined as unknown as ReturnType<typeof chrome.runtime.sendMessage>;
+        }
+      );
+
+      const capture = await captureChatGptArchive(CONVERSATION_ID, {
+        requestCapture: async () => ({
+          success: true,
+          data: {
+            transport: 'staged',
+            stageId,
+            byteLength: bytes.byteLength,
+            sha256: digest,
+            mediaType: 'application/json',
+            endpoint: CHATGPT_CAPTURE_ENDPOINT,
+            routeFamily,
+            transientAssetResolvers: [],
+          },
+        }),
+        createCaptureId: fixedCaptureId,
+        now: fixedNow,
+      });
+
+      expect(bytes.byteLength).toBeGreaterThan(16 * 1024 * 1024);
+      expect(capture.assetExportContext?.routeFamily).toBe(routeFamily);
+      expect(bytes.byteLength).toBeGreaterThan(20 * 1024 * 1024);
+      expect(capture.archiveCompanion.artifacts[0]).toMatchObject({
+        transport: 'staged',
+        stageId,
+        kind: 'raw',
+        byteLength: bytes.byteLength,
+        sha256: digest,
+      });
+      const readMessages = vi
+        .mocked(chrome.runtime.sendMessage)
+        .mock.calls.map(call => call[0] as { action?: string; byteLength?: number })
+        .filter(message => message.action === 'readStagedArchiveArtifact');
+      expect(readMessages).toHaveLength(Math.ceil(bytes.byteLength / chunkBytes));
+      expect(readMessages.every(message => (message.byteLength ?? 0) <= chunkBytes)).toBe(true);
+      expect(JSON.stringify(capture.archiveCompanion.artifacts[0])).not.toContain('bodyBase64');
+
+      if (routeFamily !== 'standard') {
+        const requestCapture = vi.fn();
+        await expect(
+          observeChatGptAssetResolvers(capture.assetExportContext!, { requestCapture })
+        ).resolves.toEqual({ kind: 'matched', candidates: [] });
+        expect(requestCapture).not.toHaveBeenCalled();
+        expect(JSON.stringify(capture.archiveCompanion)).not.toContain('routeFamily');
+        return;
+      }
+
+      const stagedResponse = async (): Promise<ChatGptCaptureResponse> => ({
         success: true,
         data: {
           transport: 'staged',
@@ -200,94 +274,63 @@ describe('ChatGPT current-branch capture composition', () => {
           sha256: digest,
           mediaType: 'application/json',
           endpoint: CHATGPT_CAPTURE_ENDPOINT,
+          routeFamily: 'standard' as const,
           transientAssetResolvers: [],
         },
-      }),
-      createCaptureId: fixedCaptureId,
-      now: fixedNow,
-    });
-
-    expect(bytes.byteLength).toBeGreaterThan(16 * 1024 * 1024);
-    expect(bytes.byteLength).toBeGreaterThan(20 * 1024 * 1024);
-    expect(capture.archiveCompanion.artifacts[0]).toMatchObject({
-      transport: 'staged',
-      stageId,
-      kind: 'raw',
-      byteLength: bytes.byteLength,
-      sha256: digest,
-    });
-    const readMessages = vi
-      .mocked(chrome.runtime.sendMessage)
-      .mock.calls.map(call => call[0] as { action?: string; byteLength?: number })
-      .filter(message => message.action === 'readStagedArchiveArtifact');
-    expect(readMessages).toHaveLength(Math.ceil(bytes.byteLength / chunkBytes));
-    expect(readMessages.every(message => (message.byteLength ?? 0) <= chunkBytes)).toBe(true);
-    expect(JSON.stringify(capture.archiveCompanion.artifacts[0])).not.toContain('bodyBase64');
-
-    const stagedResponse = async (): Promise<ChatGptCaptureResponse> => ({
-      success: true,
-      data: {
-        transport: 'staged',
-        stageId,
-        byteLength: bytes.byteLength,
-        sha256: digest,
-        mediaType: 'application/json',
-        endpoint: CHATGPT_CAPTURE_ENDPOINT,
-        transientAssetResolvers: [],
-      },
-    });
-    const abortsBeforeRecapture = vi
-      .mocked(chrome.runtime.sendMessage)
-      .mock.calls.filter(
-        call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
-      ).length;
-    await expect(
-      observeChatGptAssetResolvers(capture.assetExportContext!, {
-        requestCapture: stagedResponse,
-      })
-    ).resolves.toMatchObject({ kind: 'matched' });
-    expect(
-      vi
+      });
+      const abortsBeforeRecapture = vi
         .mocked(chrome.runtime.sendMessage)
         .mock.calls.filter(
           call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
-        ).length
-    ).toBe(abortsBeforeRecapture + 1);
+        ).length;
+      await expect(
+        observeChatGptAssetResolvers(capture.assetExportContext!, {
+          requestCapture: stagedResponse,
+        })
+      ).resolves.toMatchObject({ kind: 'matched' });
+      expect(
+        vi
+          .mocked(chrome.runtime.sendMessage)
+          .mock.calls.filter(
+            call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
+          ).length
+      ).toBe(abortsBeforeRecapture + 1);
 
-    await expect(
-      captureChatGptArchive(CONVERSATION_ID, {
-        requestCapture: stagedResponse,
-        createCaptureId: () => 'unsafe/capture',
-        now: fixedNow,
-      })
-    ).rejects.toMatchObject({ code: 'capture-id-invalid' });
-    expect(
-      vi
-        .mocked(chrome.runtime.sendMessage)
-        .mock.calls.some(
-          call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
-        )
-    ).toBe(true);
+      await expect(
+        captureChatGptArchive(CONVERSATION_ID, {
+          requestCapture: stagedResponse,
+          createCaptureId: () => 'unsafe/capture',
+          now: fixedNow,
+        })
+      ).rejects.toMatchObject({ code: 'capture-id-invalid' });
+      expect(
+        vi
+          .mocked(chrome.runtime.sendMessage)
+          .mock.calls.some(
+            call => (call[0] as { action?: string }).action === 'abortStagedArchiveArtifact'
+          )
+      ).toBe(true);
 
-    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
-      (message: unknown, callback?: (response: unknown) => void) => {
-        const action = (message as { action?: string }).action;
-        callback?.(
-          action === 'abortStagedArchiveArtifact'
-            ? { success: true }
-            : { success: false, error: 'synthetic read failure' }
-        );
-        return undefined as unknown as ReturnType<typeof chrome.runtime.sendMessage>;
-      }
-    );
-    await expect(
-      captureChatGptArchive(CONVERSATION_ID, {
-        requestCapture: stagedResponse,
-        createCaptureId: fixedCaptureId,
-        now: fixedNow,
-      })
-    ).rejects.toMatchObject({ code: 'capture-payload-invalid' });
-  });
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+        (message: unknown, callback?: (response: unknown) => void) => {
+          const action = (message as { action?: string }).action;
+          callback?.(
+            action === 'abortStagedArchiveArtifact'
+              ? { success: true }
+              : { success: false, error: 'synthetic read failure' }
+          );
+          return undefined as unknown as ReturnType<typeof chrome.runtime.sendMessage>;
+        }
+      );
+      await expect(
+        captureChatGptArchive(CONVERSATION_ID, {
+          requestCapture: stagedResponse,
+          createCaptureId: fixedCaptureId,
+          now: fixedNow,
+        })
+      ).rejects.toMatchObject({ code: 'capture-payload-invalid' });
+    }
+  );
 
   it('enables the structured bridge only when the static manifest declares scripting', () => {
     setManifestReader(() => ({ permissions: ['storage', 'scripting'] }));
@@ -341,6 +384,7 @@ describe('ChatGPT current-branch capture composition', () => {
         sha256: await sha256Hex(bytes),
         mediaType: 'application/json',
         endpoint: CHATGPT_CAPTURE_ENDPOINT,
+        routeFamily: 'standard' as const,
         transientAssetResolvers: [],
       },
     };

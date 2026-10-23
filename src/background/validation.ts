@@ -53,6 +53,7 @@ import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
 import { platformOrigins } from '../lib/platform-registry';
 import { validateSettingsUpdate } from './settings-validation';
+import { deriveChatGptCaptureTarget, isExactChatGptDocumentUrl } from './chatgpt-route-target';
 
 const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
 
@@ -95,18 +96,13 @@ export function validateChatGptCaptureSender(
   sender: chrome.runtime.MessageSender,
   conversationId: string
 ): boolean {
-  if (!isChatGptConversationId(conversationId) || !sender.tab?.url) return false;
-
-  const tabUrl = parseChatGptCaptureTabUrl(sender.tab.url, conversationId);
-  if (tabUrl === undefined) return false;
-
   // ChatGPT changes conversations with history.pushState. Chrome keeps
   // MessageSender.url bound to the document URL where the content script was
   // injected, while sender.tab.url follows the current SPA route. Requiring
   // both paths to match rejects a trusted click after an ordinary sidebar
   // navigation. The current tab route above remains exact and UUID-bound; the
   // document URL only needs to prove that the sender is still a ChatGPT page.
-  return sender.url === undefined || isExactChatGptDocumentUrl(sender.url);
+  return deriveChatGptCaptureTarget(sender, conversationId) !== undefined;
 }
 
 /** Interpreter sandbox downloads are unsupported on custom-GPT routes. */
@@ -114,14 +110,7 @@ export function validateChatGptStandardConversationSender(
   sender: chrome.runtime.MessageSender,
   conversationId: string
 ): boolean {
-  if (!isChatGptConversationId(conversationId) || !sender.tab?.url) return false;
-  const tabUrl = parseChatGptCaptureTabUrl(sender.tab.url, conversationId);
-  if (tabUrl === undefined) return false;
-  const standard = /^\/c\/([^/]+)\/?$/.exec(tabUrl.pathname);
-  return (
-    standard?.[1] === conversationId &&
-    (sender.url === undefined || isExactChatGptDocumentUrl(sender.url))
-  );
+  return deriveChatGptCaptureTarget(sender, conversationId)?.routeFamily === 'standard';
 }
 
 /**
@@ -190,22 +179,6 @@ function isExactDeepSeekDocumentUrl(rawUrl: string): boolean {
   }
 }
 
-function parseChatGptCaptureTabUrl(rawUrl: string, conversationId: string): URL | undefined {
-  try {
-    const url = new URL(rawUrl);
-    if (!isExactChatGptConversationUrl(url)) return undefined;
-
-    const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
-    const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(url.pathname);
-    const routedConversationId = standard?.[1] ?? custom?.[1];
-    return routedConversationId === conversationId && isChatGptConversationId(routedConversationId)
-      ? url
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function isExactChatGptConversationUrl(url: URL): boolean {
   return (
     url.origin === 'https://chatgpt.com' &&
@@ -214,19 +187,6 @@ function isExactChatGptConversationUrl(url: URL): boolean {
     url.search === '' &&
     url.hash === ''
   );
-}
-
-function isExactChatGptDocumentUrl(rawUrl: string): boolean {
-  try {
-    const senderUrl = new URL(rawUrl);
-    return (
-      senderUrl.origin === 'https://chatgpt.com' &&
-      senderUrl.username === '' &&
-      senderUrl.password === ''
-    );
-  } catch {
-    return false;
-  }
 }
 
 function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {

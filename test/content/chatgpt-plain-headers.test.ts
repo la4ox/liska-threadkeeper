@@ -878,7 +878,7 @@ describe.each(['opaque-replay', 'opaque-probe'])('actual source response boundar
   const expectSourceMismatch = (fixture: ReturnType<typeof setup>) => {
     expect(fixture.snapshot()).toMatchObject(
       mode === 'opaque-replay'
-        ? { kind: 'error', code: 'target-mismatch', singularDispatchCount: 0 }
+        ? { kind: 'error', code: 'source-response-target-mismatch', singularDispatchCount: 0 }
         : {
             kind: 'result',
             result: {
@@ -1198,7 +1198,9 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
       expect(fixture.original.mock.contexts[0]).toBe(receiver);
       expect(fixture.constructed).toHaveLength(0);
       expect(fixture.snapshot()).toMatchObject(
-        kind === 'ready' ? { kind } : { kind, code: 'target-mismatch', singularDispatchCount: 0 }
+        kind === 'ready'
+          ? { kind }
+          : { kind, code: 'source-request-target-mismatch', singularDispatchCount: 0 }
       );
       expect(source.bodyUsed).toBe(false);
       expect(JSON.stringify(fixture.snapshot())).not.toContain(SENTINEL);
@@ -1238,7 +1240,7 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
       expect(fixture.constructed).toHaveLength(0);
       expect(fixture.snapshot()).toMatchObject({
         kind: 'error',
-        code: 'target-mismatch',
+        code: 'source-request-target-mismatch',
         singularDispatchCount: 0,
       });
       expect(JSON.stringify(fixture.snapshot())).not.toContain(SENTINEL);
@@ -1688,9 +1690,12 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
   );
 
   it.each([
-    [SOURCE.replace('https://chatgpt.com', 'https://example.invalid'), 'target-mismatch'],
-    [SOURCE + '&num_turns=10', 'target-mismatch'],
-    [SOURCE + '#synthetic', 'target-mismatch'],
+    [
+      SOURCE.replace('https://chatgpt.com', 'https://example.invalid'),
+      'source-request-target-mismatch',
+    ],
+    [SOURCE + '&num_turns=10', 'source-request-target-mismatch'],
+    [SOURCE + '#synthetic', 'source-request-target-mismatch'],
     [SOURCE.replace('/conversations/', '/conversation/'), 'ready'],
   ])(
     'does not prepare a plain-header replay outside the exact target: %s',
@@ -1717,7 +1722,10 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
     const second = setup();
     await second.page.fetch(branded as unknown as URL, { headers: { authorization: SENTINEL } });
     expect(second.constructed).toHaveLength(0);
-    expect(second.snapshot()).toMatchObject({ code: 'target-mismatch', singularDispatchCount: 0 });
+    expect(second.snapshot()).toMatchObject({
+      code: 'source-request-method-mismatch',
+      singularDispatchCount: 0,
+    });
     expect(callback).not.toHaveBeenCalled();
   });
 
@@ -1749,7 +1757,7 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
       expect(fixture.constructed).toHaveLength(0);
       expect(fixture.original).toHaveBeenCalledExactlyOnceWith(input, init);
       expect(fixture.snapshot()).toMatchObject({
-        code: 'target-mismatch',
+        code: 'source-request-method-mismatch',
         singularDispatchCount: 0,
       });
     }

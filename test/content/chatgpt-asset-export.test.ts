@@ -18,6 +18,8 @@ import type {
 const CONVERSATION_ID = '11111111-2222-4333-8444-555555555555';
 const CAPTURE_ID = 'capture-chatgpt-11111111-2222-4333-8444-555555555555';
 const ASSET_ID = `chatgpt-asset-${'a'.repeat(64)}`;
+const ORDINARY_RAW_BYTES = new TextEncoder().encode('{"mapping":{}}');
+const ORDINARY_RAW_BASE64 = Buffer.from(ORDINARY_RAW_BYTES).toString('base64');
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
@@ -41,7 +43,7 @@ function context(
   includeAsset = true,
   assetRecords?: RawCaptureAssetRecord[]
 ): ChatGptAssetExportContext {
-  const bytes = new TextEncoder().encode('{}');
+  const bytes = ORDINARY_RAW_BYTES;
   const manifest = buildCaptureManifest({
     captureId: CAPTURE_ID,
     provider: 'chatgpt',
@@ -68,6 +70,7 @@ function context(
   });
   return {
     conversationId: CONVERSATION_ID,
+    routeFamily: 'standard',
     rawCaptureBundle: {
       manifest,
       artifacts: [{ record: manifest.artifacts[0], bytes }],
@@ -78,9 +81,9 @@ function context(
       kind: 'raw',
       relativePath: 'responses/conversation.json',
       mediaType: 'application/json',
-      byteLength: 2,
+      byteLength: bytes.byteLength,
       sha256: sha256(bytes),
-      bodyBase64: 'e30=',
+      bodyBase64: ORDINARY_RAW_BASE64,
     },
   };
 }
@@ -95,9 +98,9 @@ function companion(): ArchiveCompanionBundle {
         kind: 'raw',
         relativePath: 'responses/conversation.json',
         mediaType: 'application/json',
-        byteLength: 2,
-        sha256: sha256(new TextEncoder().encode('{}')),
-        bodyBase64: 'e30=',
+        byteLength: ORDINARY_RAW_BYTES.byteLength,
+        sha256: sha256(ORDINARY_RAW_BYTES),
+        bodyBase64: ORDINARY_RAW_BASE64,
       },
       {
         transport: 'inline',

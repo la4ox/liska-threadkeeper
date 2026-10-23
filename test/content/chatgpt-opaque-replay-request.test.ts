@@ -38,6 +38,7 @@ function replaySuccess() {
       sha256: '0'.repeat(64),
       mediaType: 'application/json',
       endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      routeFamily: 'standard' as const,
       transientAssetResolvers: [] as [],
     },
   };
@@ -55,6 +56,32 @@ describe('ChatGPT opaque replay content bridge', () => {
     vi.clearAllMocks();
     mocks.sendMessage.mockResolvedValue(replaySuccess());
   });
+
+  it.each(['standard', 'custom-gpt', 'project'] as const)(
+    'retains only %s route-family evidence through both adapters',
+    async routeFamily => {
+      const replay = { ...replaySuccess(), data: { ...replaySuccess().data, routeFamily } };
+      mocks.sendMessage.mockResolvedValue(replay);
+      const checkDependencies = async (dependencies: {
+        requestCapture: () => Promise<unknown>;
+      }) => {
+        expect(await dependencies.requestCapture()).toEqual({
+          success: true,
+          data: { transport: 'inline', ...replay.data },
+        });
+      };
+      mocks.captureArchive.mockImplementation(async (_id, dependencies) =>
+        checkDependencies(dependencies)
+      );
+      mocks.captureCurrentBranch.mockImplementation(async (_id, _tools, dependencies) =>
+        checkDependencies(dependencies)
+      );
+      await captureChatGptArchiveViaOpaqueReplay(CONVERSATION_ID);
+      await captureChatGptCurrentBranchViaOpaqueReplay(CONVERSATION_ID, false);
+      expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(mocks.sendMessage.mock.calls)).not.toContain('routeFamily');
+    }
+  );
 
   it('sends only the exact conversation identifier and validates the response', async () => {
     await expect(requestChatGptOpaqueReplayCapture(CONVERSATION_ID)).resolves.toEqual(

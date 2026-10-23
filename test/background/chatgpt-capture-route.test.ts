@@ -91,6 +91,11 @@ vi.mock('../../src/background/image-fetch', () => ({
 }));
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
+const TARGET = {
+  conversationId: CONVERSATION_ID,
+  pathname: `/c/${CONVERSATION_ID}`,
+  routeFamily: 'standard' as const,
+};
 
 let capturedListener: (
   message: unknown,
@@ -106,6 +111,7 @@ function captureArtifact() {
     sha256: 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3',
     mediaType: 'application/json; charset=utf-8',
     endpoint: CHATGPT_CAPTURE_ENDPOINT,
+    routeFamily: 'standard' as const,
     transientAssetResolvers: [],
   };
 }
@@ -281,6 +287,103 @@ describe('ChatGPT capture service-worker route', () => {
   });
 
   it.each([
+    ['custom-gpt', 'private-owner'],
+    ['project', 'g-p-private-project'],
+  ] as const)('passes exact %s targets to raw capture/replay only', async (routeFamily, slug) => {
+    for (const trailing of ['', '/']) {
+      const pathname = `/g/${slug}/c/${CONVERSATION_ID}${trailing}`;
+      const target = { ...TARGET, pathname, routeFamily };
+      const sender = {
+        tab: { url: `https://chatgpt.com${pathname}` },
+        url: 'https://chatgpt.com/',
+      } as chrome.runtime.MessageSender;
+      mocks.capture.mockResolvedValue({ ...captureArtifact(), routeFamily });
+      mocks.replay.mockResolvedValue({
+        success: true,
+        data: { ...opaqueReplayArtifact(), routeFamily },
+      });
+      const captured = vi.fn();
+      expect(
+        capturedListener(
+          {
+            action: 'captureChatGptConversation',
+            conversationId: CONVERSATION_ID,
+            observeAssetResolvers: true,
+          },
+          sender,
+          captured
+        )
+      ).toBe(true);
+      await vi.waitFor(() => expect(captured).toHaveBeenCalledOnce());
+      expect(mocks.capture).toHaveBeenLastCalledWith(target, { observeAssetResolvers: false });
+      expect(Object.isFrozen(mocks.capture.mock.lastCall![0])).toBe(true);
+      const replayed = vi.fn();
+      expect(
+        capturedListener(
+          {
+            action: 'captureChatGptConversationViaOpaqueReplay',
+            conversationId: CONVERSATION_ID,
+          },
+          sender,
+          replayed
+        )
+      ).toBe(true);
+      await vi.waitFor(() => expect(replayed).toHaveBeenCalledOnce());
+      expect(mocks.replay).toHaveBeenLastCalledWith(target);
+      for (const response of [captured, replayed]) {
+        expect(response.mock.calls[0][0]).toMatchObject({ success: true, data: { routeFamily } });
+        expect(JSON.stringify(response.mock.calls)).not.toContain(slug);
+        expect(JSON.stringify(response.mock.calls)).not.toContain(pathname);
+      }
+    }
+  });
+
+  it.each(['private-owner', 'g-p-private-project'])(
+    'denies every optional bridge action on %s before dependency dispatch',
+    slug => {
+      const sender = {
+        tab: { id: 123, url: `https://chatgpt.com/g/${slug}/c/${CONVERSATION_ID}` },
+        url: `https://chatgpt.com/c/${CONVERSATION_ID}`,
+        frameId: 0,
+        documentId: 'synthetic-document',
+      } as chrome.runtime.MessageSender;
+      const messages = [
+        { action: 'probeChatGptOpaqueRequest' },
+        { action: 'observeChatGptAssetResolversViaOpaqueSource' },
+        { action: 'probeChatGptActiveAssetResolvers', providerFileIds: ['file_a'] },
+        { action: 'resolveChatGptActiveAsset', item: activeItem() },
+        {
+          action: 'resolveChatGptInterpreterAssets',
+          candidates: [
+            {
+              assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+              messageId: 'msg_one',
+              sandboxPath: '/mnt/data/one.txt',
+            },
+          ],
+        },
+      ];
+      for (const message of messages) {
+        const response = vi.fn();
+        expect(
+          capturedListener({ ...message, conversationId: CONVERSATION_ID }, sender, response)
+        ).toBe(false);
+        expect(response).toHaveBeenCalledOnce();
+        expect(JSON.stringify(response.mock.calls)).not.toContain(slug);
+      }
+      for (const dependency of [
+        mocks.probe,
+        mocks.resolver,
+        mocks.activeResolver,
+        mocks.activeAsset,
+        mocks.interpreterResolver,
+      ]) {
+        expect(dependency).not.toHaveBeenCalled();
+      }
+    }
+  );
+
+  it.each([
     'custom GPT',
     'wrong conversation',
     'foreign document',
@@ -363,7 +466,7 @@ describe('ChatGPT capture service-worker route', () => {
     const sendResponse = invokeCapture();
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
-    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID, {
+    expect(mocks.capture).toHaveBeenCalledWith(TARGET, {
       observeAssetResolvers: false,
     });
     expect(mocks.getSettings).not.toHaveBeenCalled();
@@ -444,7 +547,7 @@ describe('ChatGPT capture service-worker route', () => {
     const sendResponse = invokeOpaqueReplay();
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
-    expect(mocks.replay).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mocks.replay).toHaveBeenCalledWith(TARGET);
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.probe).not.toHaveBeenCalled();
     expect(mocks.getSettings).not.toHaveBeenCalled();
@@ -729,10 +832,14 @@ describe('ChatGPT capture service-worker route', () => {
 
     expect(returned).toBe(true);
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
-    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID, {
-      observeAssetResolvers: true,
+    expect(mocks.capture).toHaveBeenCalledWith(
+      { ...TARGET, pathname: `/g/my-custom-gpt/c/${CONVERSATION_ID}`, routeFamily: 'custom-gpt' },
+      { observeAssetResolvers: false }
+    );
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      data: { ...captureArtifact(), routeFamily: 'custom-gpt' },
     });
-    expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });
   });
 
   it('serializes known and unknown capture failures without exception detail or settings reads', async () => {
@@ -803,7 +910,7 @@ describe('ChatGPT capture service-worker route', () => {
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
     expect(contains).toHaveBeenCalledWith({ permissions: ['scripting'] }, expect.any(Function));
-    expect(mocks.capture).toHaveBeenCalledWith(CONVERSATION_ID, {
+    expect(mocks.capture).toHaveBeenCalledWith(TARGET, {
       observeAssetResolvers: false,
     });
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: captureArtifact() });

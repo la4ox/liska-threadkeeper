@@ -12,6 +12,7 @@ import {
   chatGptSandboxLinksFromAssistantTextPart,
 } from '../../archive/chatgpt-sandbox-link';
 import { sha256Hex } from '../../lib/sha256';
+import { allowsChatGptAttachmentAcquisition } from '../../lib/chatgpt-owner-context';
 import {
   CHATGPT_RESOLVER_KEY_DOMAIN,
   getChatGptNumericResolverFileId,
@@ -363,7 +364,7 @@ export async function extractChatGptInterpreterAssetPlan(
   assets: readonly RawCaptureAssetRecord[],
   sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex
 ): Promise<ChatGptInterpreterAssetCandidate[]> {
-  if (!Array.isArray(assets)) return [];
+  if (!allowsChatGptAttachmentAcquisition(raw) || !Array.isArray(assets)) return [];
   const selectedPairs = new Set<string>();
   const selected: ChatGptInterpreterAssetCandidate[] = [];
   const sandboxAssetIds = new Map<string, Promise<string | undefined>>();
@@ -555,28 +556,6 @@ export function classifyChatGptLibraryAssets(
   };
 }
 
-/** Library admission does not establish custom-GPT, project, or template ownership. */
-function hasUnsupportedLibraryOwnerContext(raw: unknown): boolean {
-  if (!isPlainRecord(raw)) return true;
-  const rootGraph = isPlainRecord(raw.mapping);
-  const nested = raw.conversation;
-  const nestedGraph = isPlainRecord(nested) && isPlainRecord(nested.mapping);
-  if (rootGraph === nestedGraph) return true;
-  const conversation = rootGraph ? raw : nested;
-  if (!isPlainRecord(conversation)) return true;
-  return [
-    'gizmo_id',
-    'gizmoId',
-    'project_id',
-    'projectId',
-    'conversation_template_id',
-    'conversationTemplateId',
-  ].some(field => {
-    const value = conversation[field];
-    return value !== undefined && value !== null && value !== '';
-  });
-}
-
 /** Direct attachment identities only; malformed aliases never fall back to a pointer. */
 function libraryDirectProviderFileIds(value: Record<string, unknown>): Set<string> | undefined {
   const direct = new Set<string>();
@@ -683,7 +662,7 @@ export function extractChatGptLibraryJpegPlan(
   assets: readonly RawCaptureAssetRecord[],
   eligibleAssetIds: readonly string[]
 ): ChatGptActiveAssetPlanItem | undefined {
-  if (!Array.isArray(assets) || hasUnsupportedLibraryOwnerContext(raw)) return undefined;
+  if (!allowsChatGptAttachmentAcquisition(raw) || !Array.isArray(assets)) return undefined;
   const classification = classifyChatGptLibraryAssets(raw, assets);
   const associated = new Set(classification.associatedAssetIds);
   const eligible = new Set(eligibleAssetIds);
@@ -783,7 +762,8 @@ export function extractChatGptActiveResolverPlan(
   raw: unknown,
   assets: readonly RawCaptureAssetRecord[]
 ): ChatGptActiveResolverPlan {
-  if (!Array.isArray(assets)) return { providerFileIds: [] };
+  if (!allowsChatGptAttachmentAcquisition(raw) || !Array.isArray(assets))
+    return { providerFileIds: [] };
   const selected = new Set<string>();
   const orderedAssets = [...assets].sort((left, right) =>
     left.id < right.id ? -1 : left.id > right.id ? 1 : 0
@@ -861,6 +841,7 @@ export function extractChatGptActiveImagePlan(
   assets: readonly RawCaptureAssetRecord[],
   eligibleAssetIds: readonly string[]
 ): ChatGptActiveAssetPlanItem | undefined {
+  if (!allowsChatGptAttachmentAcquisition(raw)) return undefined;
   const eligible = new Set(eligibleAssetIds);
   const blockedIdentities = blockedOrdinaryProviderFileIdentities(
     raw,
@@ -979,7 +960,8 @@ export async function matchChatGptPageOwnedAssetResolvers(
     !input ||
     typeof input !== 'object' ||
     !Array.isArray(input.assets) ||
-    !Array.isArray(input.resolvers)
+    !Array.isArray(input.resolvers) ||
+    !allowsChatGptAttachmentAcquisition(input.raw)
   ) {
     return [];
   }
@@ -1020,7 +1002,5 @@ export async function matchChatGptPageOwnedAssetResolvers(
         : { assetId: winner.assetId, downloadUrl: winner.downloadUrl }
     );
   }
-  return selected.sort((left, right) =>
-    left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0
-  );
+  return selected.sort((left, right) => compareStrings(left.assetId, right.assetId));
 }

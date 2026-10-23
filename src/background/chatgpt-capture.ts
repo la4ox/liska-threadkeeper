@@ -17,7 +17,6 @@ import {
   CHATGPT_RESOLVER_KEY_DOMAIN,
   CHATGPT_TRANSIENT_ASSET_RESOLVERS_MAX_COUNT,
   getChatGptNumericResolverFileId,
-  isChatGptConversationId,
   isChatGptTransientDownloadUrl,
 } from '../lib/chatgpt-capture-contract';
 import type {
@@ -26,6 +25,12 @@ import type {
   ChatGptTransientAssetResolver,
 } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
+import type { ChatGptRouteFamily } from '../lib/chatgpt-owner-context';
+import {
+  isChatGptCaptureTarget,
+  isEquivalentChatGptCaptureTargetUrl,
+  type ChatGptCaptureTarget,
+} from './chatgpt-route-target';
 import {
   ARCHIVE_STAGE_CHUNK_BYTES,
   ARCHIVE_STAGE_RELATIVE_PATHS,
@@ -219,15 +224,11 @@ function isSafeNonce(value: string): boolean {
 }
 
 function temporaryTargetUrl(
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   nonce: string,
   observeAssetResolvers: boolean
 ): string {
-  return `${CHATGPT_ORIGIN}/c/${encodeURIComponent(conversationId)}${CAPTURE_FRAGMENT_PREFIX}${nonce}${observeAssetResolvers ? RESOLVER_OBSERVATION_FRAGMENT : ''}`;
-}
-
-function temporaryTargetPath(conversationId: string): string {
-  return `/c/${encodeURIComponent(conversationId)}`;
+  return `${CHATGPT_ORIGIN}${target.pathname}${CAPTURE_FRAGMENT_PREFIX}${nonce}${observeAssetResolvers ? RESOLVER_OBSERVATION_FRAGMENT : ''}`;
 }
 
 function firstScriptResult(results: Array<{ result?: unknown }>): unknown {
@@ -492,7 +493,8 @@ interface ValidatedHookCapture {
 async function validateCapturedResult(
   value: unknown,
   expectedConversationId: string,
-  digestSha256: (bytes: Uint8Array) => Promise<string>
+  digestSha256: (bytes: Uint8Array) => Promise<string>,
+  allowResolvers: boolean
 ): Promise<ValidatedHookCapture | undefined> {
   if (!isCapturedResult(value)) return undefined;
   if (value.conversationId !== expectedConversationId) {
@@ -500,9 +502,8 @@ async function validateCapturedResult(
   }
 
   const capture = value.capture;
-  const resolverObservations = Array.isArray(value.resolverObservations)
-    ? value.resolverObservations
-    : [];
+  const resolverObservations =
+    allowResolvers && Array.isArray(value.resolverObservations) ? value.resolverObservations : [];
   if (capture.transport === 'staged') {
     return {
       capture: { ...capture, sha256: capture.sha256.toLowerCase() },
@@ -613,7 +614,7 @@ async function removeTemporaryTab(
 
 async function createTemporaryTab(
   chromeApi: ChatGptCaptureChromeApi,
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   nonce: string,
   observeAssetResolvers: boolean,
   deadline: number,
@@ -622,7 +623,7 @@ async function createTemporaryTab(
   let creation: Promise<{ id?: number }>;
   try {
     creation = chromeApi.tabs.create({
-      url: temporaryTargetUrl(conversationId, nonce, observeAssetResolvers),
+      url: temporaryTargetUrl(target, nonce, observeAssetResolvers),
       active: false,
     });
   } catch {
@@ -667,7 +668,9 @@ async function createTemporaryTab(
 async function readTemporaryTabReadiness(
   chromeApi: ChatGptCaptureChromeApi,
   tabId: number,
-  conversationId: string
+  target: ChatGptCaptureTarget,
+  nonce: string,
+  observeAssetResolvers: boolean
 ): Promise<ReadinessResult> {
   try {
     const tab = await chromeApi.tabs.get(tabId);
@@ -680,7 +683,8 @@ async function readTemporaryTabReadiness(
       if (url.origin !== CHATGPT_ORIGIN || url.username !== '' || url.password !== '') {
         return { kind: 'origin-rejected' };
       }
-      return url.pathname === temporaryTargetPath(conversationId) && url.search === ''
+      const expectedHash = new URL(temporaryTargetUrl(target, nonce, observeAssetResolvers)).hash;
+      return isEquivalentChatGptCaptureTargetUrl(tab.url, target, expectedHash)
         ? { kind: 'ready' }
         : { kind: 'path-rejected' };
     } catch {
@@ -696,7 +700,9 @@ async function readTemporaryTabReadiness(
 async function waitForTemporaryTarget(
   chromeApi: ChatGptCaptureChromeApi,
   tabId: number,
-  conversationId: string,
+  target: ChatGptCaptureTarget,
+  nonce: string,
+  observeAssetResolvers: boolean,
   deadline: number,
   now: () => number,
   sleep: (milliseconds: number) => Promise<void>,
@@ -704,7 +710,7 @@ async function waitForTemporaryTarget(
 ): Promise<void> {
   while (now() <= deadline) {
     const readiness = await withinTimeout(
-      readTemporaryTabReadiness(chromeApi, tabId, conversationId),
+      readTemporaryTabReadiness(chromeApi, tabId, target, nonce, observeAssetResolvers),
       remainingTimeout(deadline, now),
       'temporary-tab-ready-timeout'
     );
@@ -821,6 +827,7 @@ async function stageHookCapture(
   nonce: string,
   capture: StagedHookCapture,
   transientAssetResolvers: ChatGptTransientAssetResolver[],
+  routeFamily: ChatGptRouteFamily,
   deadline: number
 ): Promise<ChatGptCaptureArtifact> {
   const descriptor: ArchiveStageDescriptor = {
@@ -861,6 +868,7 @@ async function stageHookCapture(
     if (!sealed) throw new ChatGptTemporaryCaptureError('response-integrity-invalid');
     return {
       transport: 'staged',
+      routeFamily,
       stageId,
       byteLength: capture.byteLength,
       sha256: capture.sha256,
@@ -873,14 +881,69 @@ async function stageHookCapture(
   }
 }
 
+async function materializeCapturedResult(
+  dependencies: ResolvedCaptureDependencies,
+  tabId: number,
+  nonce: string,
+  validated: ValidatedHookCapture,
+  target: ChatGptCaptureTarget,
+  deadline: number
+): Promise<ChatGptCaptureArtifact> {
+  const artifact: ChatGptCaptureArtifact =
+    validated.capture.transport === 'staged'
+      ? await stageHookCapture(
+          dependencies,
+          tabId,
+          nonce,
+          validated.capture,
+          validated.transientAssetResolvers,
+          target.routeFamily,
+          deadline
+        )
+      : {
+          ...validated.capture,
+          routeFamily: target.routeFamily,
+          endpoint: CHATGPT_CAPTURE_ENDPOINT,
+          transientAssetResolvers: validated.transientAssetResolvers,
+        };
+  try {
+    await waitForTemporaryTarget(
+      dependencies.chromeApi,
+      tabId,
+      target,
+      nonce,
+      dependencies.observeAssetResolvers,
+      deadline,
+      dependencies.now,
+      dependencies.sleep,
+      dependencies.pollIntervalMs
+    );
+    return artifact;
+  } catch (error) {
+    if (artifact.transport === 'staged') await dependencies.archiveStage.abort(artifact.stageId);
+    throw error;
+  }
+}
+
 async function waitForCapturedResult(
   dependencies: ResolvedCaptureDependencies,
   tabId: number,
   nonce: string,
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   deadline: number
 ): Promise<ChatGptCaptureArtifact> {
   while (dependencies.now() <= deadline) {
+    await waitForTemporaryTarget(
+      dependencies.chromeApi,
+      tabId,
+      target,
+      nonce,
+      dependencies.observeAssetResolvers,
+      deadline,
+      dependencies.now,
+      dependencies.sleep,
+      dependencies.pollIntervalMs
+    );
     const state = await withinTimeout(
       readHookState(dependencies.chromeApi, tabId, nonce),
       remainingTimeout(deadline, dependencies.now),
@@ -888,25 +951,12 @@ async function waitForCapturedResult(
     );
     const validated = await validateCapturedResult(
       state,
-      conversationId,
-      dependencies.digestSha256
+      target.conversationId,
+      dependencies.digestSha256,
+      target.routeFamily === 'standard'
     );
     if (validated !== undefined) {
-      if (validated.capture.transport === 'staged') {
-        return stageHookCapture(
-          dependencies,
-          tabId,
-          nonce,
-          validated.capture,
-          validated.transientAssetResolvers,
-          deadline
-        );
-      }
-      return {
-        ...validated.capture,
-        endpoint: CHATGPT_CAPTURE_ENDPOINT,
-        transientAssetResolvers: validated.transientAssetResolvers,
-      };
+      return materializeCapturedResult(dependencies, tabId, nonce, validated, target, deadline);
     }
     if (isHookErrorResult(state)) {
       throw new ChatGptTemporaryCaptureError(mapHookError(state.code));
@@ -939,14 +989,20 @@ async function cleanupTemporaryTab(
  * touched, and background code never issues a provider request.
  */
 export async function captureChatGptInTemporaryTab(
-  conversationId: string,
+  target: ChatGptCaptureTarget,
   overrides: ChatGptTemporaryCaptureDependencies = {}
 ): Promise<ChatGptCaptureArtifact> {
-  if (!isChatGptConversationId(conversationId)) {
+  if (!isChatGptCaptureTarget(target)) {
     throw new ChatGptTemporaryCaptureError('invalid-conversation-id');
   }
+  const immutableTarget = Object.freeze({
+    conversationId: target.conversationId,
+    pathname: target.pathname,
+    routeFamily: target.routeFamily,
+  });
 
   const dependencies = makeDependencies(overrides);
+  dependencies.observeAssetResolvers &&= immutableTarget.routeFamily === 'standard';
   const deadline = dependencies.now() + dependencies.timeoutMs;
   let temporaryTabId: number | undefined;
   let nonce: string | undefined;
@@ -955,7 +1011,7 @@ export async function captureChatGptInTemporaryTab(
     nonce = createSafeNonce(dependencies.createNonce);
     temporaryTabId = await createTemporaryTab(
       dependencies.chromeApi,
-      conversationId,
+      immutableTarget,
       nonce,
       dependencies.observeAssetResolvers,
       deadline,
@@ -965,7 +1021,9 @@ export async function captureChatGptInTemporaryTab(
     await waitForTemporaryTarget(
       dependencies.chromeApi,
       temporaryTabId,
-      conversationId,
+      immutableTarget,
+      nonce,
+      dependencies.observeAssetResolvers,
       deadline,
       dependencies.now,
       dependencies.sleep,
@@ -975,7 +1033,7 @@ export async function captureChatGptInTemporaryTab(
       dependencies,
       temporaryTabId,
       nonce,
-      conversationId,
+      immutableTarget,
       deadline
     );
   } finally {

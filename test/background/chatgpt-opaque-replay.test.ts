@@ -6,6 +6,11 @@ import {
 import { CHATGPT_OPAQUE_REPLAY_ERROR_CODES } from '../../src/lib/chatgpt-opaque-replay-contract';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
+const TARGET = {
+  conversationId: CONVERSATION_ID,
+  pathname: `/c/${CONVERSATION_ID}`,
+  routeFamily: 'standard' as const,
+};
 const OTHER_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555';
 const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
 const MARKER = `#liska-capture=${NONCE}&liska-opaque-replay=1`;
@@ -52,6 +57,54 @@ afterEach(() => {
 
 describe('ChatGPT opaque replay temporary-tab core', () => {
   it.each([
+    ['custom-gpt', 'private-owner'],
+    ['project', 'g-p-private-project'],
+  ] as const)('preserves exact %s paths without exposing them', async (routeFamily, slug) => {
+    for (const trailing of ['', '/']) {
+      const target = {
+        ...TARGET,
+        pathname: `/g/${slug}/c/${CONVERSATION_ID}${trailing}`,
+        routeFamily,
+      };
+      const expectedUrl = `https://chatgpt.com${target.pathname}${MARKER}`;
+      const chrome = chromeApi(capturedState(), expectedUrl);
+      const result = await captureChatGptConversationViaOpaqueReplay(target, {
+        chromeApi: chrome.api,
+        createNonce: () => NONCE,
+        digestSha256: async () => SHA256,
+      });
+      expect(result).toMatchObject({ success: true, data: { routeFamily } });
+      expect(chrome.create).toHaveBeenCalledExactlyOnceWith({ url: expectedUrl, active: false });
+      expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+      expect(JSON.stringify(result)).not.toContain(slug);
+      expect(JSON.stringify(result)).not.toContain(target.pathname);
+    }
+  });
+
+  it('rejects route movement during verification without fallback', async () => {
+    const target = {
+      ...TARGET,
+      pathname: `/g/g-p-private-project/c/${CONVERSATION_ID}/`,
+      routeFamily: 'project' as const,
+    };
+    const chrome = chromeApi(capturedState(), `https://chatgpt.com${target.pathname}${MARKER}`);
+    const result = await captureChatGptConversationViaOpaqueReplay(target, {
+      chromeApi: chrome.api,
+      createNonce: () => NONCE,
+      digestSha256: async () => {
+        chrome.api.tabs.get.mockResolvedValue({
+          status: 'complete',
+          url: `https://chatgpt.com/c/${CONVERSATION_ID}${MARKER}`,
+        });
+        return SHA256;
+      },
+    });
+    expect(result).toEqual({ success: false, code: 'unexpected-path', singularDispatchCount: 1 });
+    expect(chrome.create).toHaveBeenCalledOnce();
+    expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+  });
+
+  it.each([
     ['target-not-observed', 0],
     ['source-response-timeout', 0],
     ['replay-response-timeout', 1],
@@ -63,7 +116,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     expect(readChatGptOpaqueReplayState(NONCE)).toEqual(snapshot);
     const chrome = chromeApi(snapshot);
 
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
     });
@@ -90,7 +143,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
   it('keeps an unobserved background deadline ambiguous and never retries', async () => {
     let now = 0;
     const chrome = chromeApi({ kind: 'ready' });
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       timeoutMs: 1_000,
@@ -158,7 +211,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
           },
         },
       ]);
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: {
           create: vi.fn(async ({ url }) => {
@@ -178,7 +231,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
 
   it('opens only the exact marker route, validates bytes/hash, and removes the disposable tab', async () => {
     const chrome = chromeApi(capturedState());
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       digestSha256: async () => SHA256,
@@ -192,6 +245,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
         sha256: SHA256,
         mediaType: 'application/json; charset=utf-8',
         endpoint: { method: 'GET', pathPattern: '/backend-api/conversation/{conversationId}' },
+        routeFamily: 'standard',
         transientAssetResolvers: [],
       },
     });
@@ -205,7 +259,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
 
   it('clamps explicit timeout and polling bounds without changing a valid result', async () => {
     const chrome = chromeApi(capturedState());
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       digestSha256: async () => SHA256,
@@ -229,7 +283,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
   ])('rejects %s without adapting response bytes', async (_label, result, expectedCode, count) => {
     let now = 0;
     const chrome = chromeApi(result);
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       digestSha256: async () => SHA256,
@@ -253,7 +307,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
       capturedState(),
       `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${NONCE}&liska-opaque-probe=1`
     );
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
     });
@@ -269,7 +323,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
       code: 'replay-rejected',
       singularDispatchCount: 1,
     });
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
     });
@@ -282,7 +336,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     vi.useFakeTimers();
     const chrome = chromeApi({ kind: 'ready' });
     chrome.api.scripting.executeScript = vi.fn(() => new Promise(() => undefined));
-    const pending = captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const pending = captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       timeoutMs: 1_000,
@@ -301,7 +355,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const chrome = chromeApi(capturedState());
-    const pending = captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const pending = captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       digestSha256: () => new Promise<string>(() => undefined),
@@ -328,7 +382,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
         })
     );
     const remove = vi.fn(() => new Promise<void>(() => undefined));
-    const pending = captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const pending = captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: { create, get: vi.fn(), remove },
         scripting: { executeScript: vi.fn() },
@@ -374,7 +428,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     ],
   ])('fails before tab creation for %s', async (_label, createNonce) => {
     const create = vi.fn();
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: { create, get: vi.fn(), remove: vi.fn() },
         scripting: { executeScript: vi.fn() },
@@ -399,7 +453,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     ],
     ['a missing tab id', () => Promise.resolve({}), 'temporary-tab-missing-id'],
   ])('fails closed for %s', async (_label, create, code) => {
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: { create: vi.fn(create), get: vi.fn(), remove: vi.fn() },
         scripting: { executeScript: vi.fn() },
@@ -411,7 +465,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
 
   it('rejects a redirected temporary tab on another origin', async () => {
     const chrome = chromeApi(capturedState(), `https://evil.example/c/${CONVERSATION_ID}${MARKER}`);
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
     });
@@ -426,7 +480,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
   it('turns repeated tab-read failures into a bounded readiness timeout', async () => {
     let now = 0;
     const remove = vi.fn().mockResolvedValue(undefined);
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: {
           create: vi.fn().mockResolvedValue({ id: 123 }),
@@ -453,7 +507,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
   it('contains an unexpected lifecycle clock failure and still removes the exact tab', async () => {
     let calls = 0;
     const remove = vi.fn().mockResolvedValue(undefined);
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: {
           create: vi.fn().mockResolvedValue({ id: 123 }),
@@ -479,7 +533,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
 
   it('bounds rejected readiness and result sleeps without leaking the tab', async () => {
     const remove = vi.fn().mockResolvedValue(undefined);
-    const readiness = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const readiness = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: {
           create: vi.fn().mockResolvedValue({ id: 123 }),
@@ -498,7 +552,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     });
 
     const chrome = chromeApi({ kind: 'ready' });
-    const result = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const result = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       sleep: () => Promise.reject(new Error('synthetic sleep failure')),
@@ -522,7 +576,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     ],
   ])('rejects %s after one captured dispatch and cleans the tab', async (_label, digestSha256) => {
     const chrome = chromeApi(capturedState());
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       digestSha256,
@@ -559,7 +613,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
   ])('rejects captured bytes with %s', async (_label, arrange) => {
     arrange();
     const chrome = chromeApi(capturedState());
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
       digestSha256: async () => SHA256,
@@ -572,7 +626,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
   });
 
   it('handles an asynchronously rejected tab creation without an unhandled error', async () => {
-    const response = await captureChatGptConversationViaOpaqueReplay(CONVERSATION_ID, {
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: {
         tabs: {
           create: vi.fn().mockRejectedValue(new Error('synthetic async create failure')),

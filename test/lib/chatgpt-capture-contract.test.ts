@@ -35,12 +35,60 @@ function captureResponse() {
       sha256: 'd423c7d662b356d3bcfb768944ff3b5f3f89b7086bb16e6a5afba362da09acb3',
       mediaType: 'application/json; charset=utf-8',
       endpoint: { ...CHATGPT_CAPTURE_ENDPOINT },
+      routeFamily: 'standard' as const,
       transientAssetResolvers: [],
     },
   };
 }
 
 describe('ChatGPT capture runtime contract', () => {
+  it.each(['inline', 'staged'] as const)(
+    'requires a bounded route family on %s artifacts',
+    transport => {
+      const { bodyBase64: _body, ...common } = captureResponse().data;
+      const data =
+        transport === 'inline'
+          ? captureResponse().data
+          : {
+              ...common,
+              transport,
+              stageId: `archive-stage-${'A'.repeat(32)}`,
+              byteLength: 16 * 1024 * 1024 + 1,
+            };
+      for (const routeFamily of ['standard', 'custom-gpt', 'project']) {
+        expect(isChatGptCaptureResponse({ success: true, data: { ...data, routeFamily } })).toBe(
+          true
+        );
+      }
+      const { routeFamily: _route, ...missing } = data;
+      expect(isChatGptCaptureResponse({ success: true, data: missing })).toBe(false);
+      for (const routeFamily of [null, '', 'owner', 'STANDARD', '/g/private']) {
+        expect(isChatGptCaptureResponse({ success: true, data: { ...data, routeFamily } })).toBe(
+          false
+        );
+      }
+      for (const extra of ['pathname', 'slug', 'target']) {
+        expect(
+          isChatGptCaptureResponse({ success: true, data: { ...data, [extra]: '/g/private' } })
+        ).toBe(false);
+      }
+      expect(
+        isChatGptCaptureResponse({
+          success: true,
+          data: {
+            ...data,
+            [Symbol('private-route')]: '/g/private',
+          },
+        })
+      ).toBe(false);
+      expect(
+        isChatGptCaptureResponse({
+          success: true,
+          data: Object.defineProperty({ ...data }, 'pathname', { value: '/g/private' }),
+        })
+      ).toBe(false);
+    }
+  );
   it('accepts only strict UUID conversation IDs', () => {
     expect(isChatGptConversationId(CONVERSATION_ID)).toBe(true);
     expect(isChatGptConversationId(CONVERSATION_ID.toUpperCase())).toBe(true);
@@ -61,6 +109,7 @@ describe('ChatGPT capture runtime contract', () => {
       'sha256',
       'mediaType',
       'endpoint',
+      'routeFamily',
       'transientAssetResolvers',
     ]);
   });
@@ -123,6 +172,7 @@ describe('ChatGPT capture runtime contract', () => {
         sha256: 'a'.repeat(64),
         mediaType: 'application/json',
         endpoint: { ...CHATGPT_CAPTURE_ENDPOINT },
+        routeFamily: 'standard' as const,
         transientAssetResolvers: [],
       },
     };

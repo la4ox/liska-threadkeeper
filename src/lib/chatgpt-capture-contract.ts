@@ -7,6 +7,7 @@
 
 import { canonicalBase64ByteLength } from './base64';
 import { ARCHIVE_STAGE_MAX_BYTES, isSafeArchiveStageId } from './archive-stage-contract';
+import { isChatGptRouteFamily, type ChatGptRouteFamily } from './chatgpt-owner-context';
 
 /** Inline capture retains the live-verified whole-base64 fast path only below 16 MiB. */
 export const CHATGPT_INLINE_CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
@@ -125,6 +126,7 @@ export const CHATGPT_CAPTURE_ERROR_MESSAGES: Readonly<Record<ChatGptCaptureError
 };
 
 interface ChatGptCaptureArtifactBase {
+  routeFamily: ChatGptRouteFamily;
   transport: 'inline' | 'staged';
   byteLength: number;
   sha256: string;
@@ -164,12 +166,8 @@ export function isChatGptConversationId(value: unknown): value is string {
 }
 
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
-  const keys = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
-  return (
-    keys.length === sortedExpected.length &&
-    keys.every((key, index) => key === sortedExpected[index])
-  );
+  const keys = Reflect.ownKeys(value);
+  return keys.length === expected.length && expected.every(key => keys.includes(key));
 }
 
 function isJsonMediaType(value: unknown): value is string {
@@ -420,6 +418,7 @@ export function isChatGptCaptureArtifact(value: unknown): value is ChatGptCaptur
     /^[a-f0-9]{64}$/i.test(record.sha256) &&
     isJsonMediaType(record.mediaType) &&
     isExactEndpoint(record.endpoint) &&
+    isChatGptRouteFamily(record.routeFamily) &&
     isChatGptTransientAssetResolvers(record.transientAssetResolvers);
   if (!common) return false;
   if (record.transport === 'inline') {
@@ -431,6 +430,7 @@ export function isChatGptCaptureArtifact(value: unknown): value is ChatGptCaptur
         'sha256',
         'mediaType',
         'endpoint',
+        'routeFamily',
         'transientAssetResolvers',
       ]) &&
       (record.byteLength as number) <= CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
@@ -447,6 +447,7 @@ export function isChatGptCaptureArtifact(value: unknown): value is ChatGptCaptur
       'sha256',
       'mediaType',
       'endpoint',
+      'routeFamily',
       'transientAssetResolvers',
     ]) &&
     (record.byteLength as number) > CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
