@@ -144,4 +144,14 @@ describe('operation-local durable write facts', () => {
       snapshotDurableWriteOutcome({ state: 'unknown', cleanupDeferred: false })
     ).toBeUndefined();
   });
+
+  it.each([
+    [`capture-chatgpt-${'a'.repeat(240)}`, true],
+    [`capture-chatgpt-${'a'.repeat(241)}`, false],
+    [`capture-deepseek-${'a'.repeat(236)}`, true],
+    [`capture-deepseek-${'a'.repeat(237)}`, false],
+  ])('matches the provider capture-ID boundary for %s', (candidate, accepted) => {
+    const snapshot = createOperationWriteLedger(candidate).snapshot();
+    expect(snapshotOperationWriteLedger(snapshot, candidate) !== undefined).toBe(accepted);
+  });
 });

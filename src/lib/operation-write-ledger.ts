@@ -64,7 +64,10 @@ function safeBytes(value: unknown): value is number {
 
 function validOperationId(value: unknown): value is string {
   return (
-    typeof value === 'string' && /^capture-(?:chatgpt|deepseek)-[a-zA-Z0-9_-]{1,128}$/.test(value)
+    typeof value === 'string' &&
+    /^(?:capture-chatgpt-[A-Za-z0-9][A-Za-z0-9_-]{0,239}|capture-deepseek-[A-Za-z0-9][A-Za-z0-9_-]{0,235})$/.test(
+      value
+    )
   );
 }
 
