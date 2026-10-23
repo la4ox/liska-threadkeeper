@@ -934,3 +934,41 @@ family. Until such evidence exists, the 1 GiB source-work limit remains a
 deliberate refusal for the known 1.051 GiB graph, and custom-GPT/project binaries
 plus the archived Library WebP remain separately evidence-gated. The untouched
 provider/upstream audit can proceed independently after this checkpoint.
+
+The independent upstream audit compared Liska with AI Exporter `2.14.9` at
+`244df7f` (merge base `b96bfc5`) and rejected a wholesale merge. Perplexity,
+code-fence/message-count, save-response, settings-read, ChatGPT DOM/image, and
+build-tool changes are already superseded or conflict with stricter Liska
+boundaries. Confirmed next-value slices are Claude compatibility, a structured
+truncated-overwrite guard including Gemini, selector-derived readiness, and a
+separately verified Gemini title change. The full staged roadmap and explicit
+privacy/defer decisions are recorded in
+[`docs/provider-todo.md`](docs/provider-todo.md).
+
+The first Claude compatibility checkpoint is implemented on
+`codex/claude-compat` in `8f82496` and `44b9aa8`. Thread scrolling now prefers
+Claude's semantic autoscroll root and only falls back to a class-matched
+container that owns indexed conversation rows; broad sidebar fallbacks are
+removed. Collapsed inert-only content is retained below a real row, while
+`aria-hidden`, native hidden, inert rows, enclosing dismissed panels, and
+Deep Research/artifact remnants remain excluded through full ancestor checks.
+
+Legacy and October Claude transcript roots are priority-unioned rather than
+using global first-match fallback semantics. User roots use the same union and
+containment deduplication, preventing weak streaming wrappers from swallowing
+mixed legacy/current user turns. Answer chrome, action controls, TurnStatus
+thinking/tool rows, and positively paired legacy status headers are removed on
+a detached clone before both Markdown and HTML fallback; ordinary layout rows,
+images, visible preambles, and the original DOM remain intact. October
+content-block tool rows contribute their own label only, while disjoint richer
+legacy query/result/Markdown blocks remain ordered and unchanged.
+
+Independent adversarial review found and closed three P2 regression classes:
+weak streaming role confusion, unpaired `.row-start-1` answer removal, and mixed
+user-selector bypass of the weak-root veto. The final static pass found no
+residual P0-P3 issue. Exact-tree validation passes 167 test files / 5,074 tests;
+coverage is 95.30% statements, 91.35% branches, 98.61% functions, and 97.76%
+lines. TypeScript/build, source/platform lint, formatting, and diff checks pass;
+lint retains only the same three unrelated advisory warnings. This checkpoint
+has synthetic old/new DOM coverage but no live Claude claim. A user-selected,
+content-minimized Claude chat remains the next evidence gate before release.
