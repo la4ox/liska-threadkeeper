@@ -16,6 +16,7 @@ import {
   createFootnoteRef,
   escapeMarkdownLink,
   footnoteDefsToHtml,
+  toMarkdownSafeHttpUrl,
   transformCitations,
 } from './footnotes';
 import type { CitationTransformResult } from './footnotes';
@@ -88,10 +89,6 @@ function parseCitationTitle(citation: Element, url: string): { title: string; ri
  * parentheses are escaped manually (they are valid in URLs but terminate
  * the markdown link target).
  */
-function toMarkdownSafeUrl(url: string): string {
-  return new URL(url).href.replace(/\(/g, '%28').replace(/\)/g, '%29');
-}
-
 /**
  * Rewrite modern citation pills into footnote-ref placeholder spans,
  * deduping by URL. The same source cited twice reuses one footnote label;
@@ -177,7 +174,7 @@ function transformCitationsToFootnotes(
       return [...sources.entries()].map(
         ([url, source]) =>
           `[^m${messageIndex}-${source.number}]: ` +
-          `[${escapeMarkdownLink(source.title)}](${toMarkdownSafeUrl(url)})`
+          `[${escapeMarkdownLink(source.title)}](${toMarkdownSafeHttpUrl(url)})`
       );
     },
   });

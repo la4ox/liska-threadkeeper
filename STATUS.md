@@ -1078,7 +1078,7 @@ non-blocking merge completed and was not retried.
 
 ## Local append-boundary security checkpoint
 
-Branch `codex/security-append-boundaries` addresses Security Cloud occurrence
+PR 30, merged as `7ff531f`, addresses Security Cloud occurrence
 `commit:65c64c5574f08191871348273e586bf6`. Visible `**User:**` and provider
 labels were both presentation and identity, so hostile plain-format content
 could inflate the old body count and turn a real append into a successful
@@ -1108,5 +1108,36 @@ the frontmatter separator, post-image transform, and v1 heading-lookback seams
 with 240 round-trip scenarios plus 26 probes; no P0-P3 issue remains. Production
 build, repository formatting, diff checks, and source/platform lint pass with
 only the same three pre-existing warnings. A live browser/Obsidian append was
-not repeated. Next: commit, publish, and obtain current-head CI/Code Review
-before merge.
+not repeated. Reviewed source head `e26f648` is an ancestor of fetched
+`origin/main`; CI and current-head Code Review were clean. The historical Cloud
+occurrence is closed as fixed. Security Review was still running when the
+non-blocking merge completed and was not retried.
+
+## Local citation-boundary security checkpoint
+
+Branch `codex/security-citation-boundaries` addresses Security Cloud occurrences
+`commit:cb0e9bb83f88819181f8a884fdf468a9` and
+`commit:1972e53d5bbc81918ded9e6b8bd3b4d7`. Provider HTML previously gained
+extension-only footnote authority from public attribute names, NotebookLM
+fallback labels were not typed, and a valid HTTP(S) source URL could terminate
+its Markdown destination.
+
+Extension-generated refs/definitions now carry a 128-bit per-run capability
+and strict decimal / `mN-N` labels. Ordinary, definition, and table consumers
+all require both. Marker-like provider DOM is retained as entity-literal text.
+NotebookLM rejects nonnumeric fallback labels. Perplexity and Gemini/Claude
+Research share one canonical HTTP(S) destination serializer that percent-encodes
+literal backslashes and parentheses without double encoding existing escapes.
+
+All 168 test files / 5,112 tests pass in six memory-bounded batches. Focused
+tests cover forged refs/definitions, guessed/cross-realm tokens,
+malformed labels, table carriers, hostile Research URLs, unsafe schemes,
+encoded delimiters, ordering, deduplication, title upgrades, and ordinary
+provider/Research output. Independent review found and rechecked the query/
+fragment backslash edge. It passed 284 citation tests, 37 targeted Research
+checks, and a final 176-test rerun; CommonMark probes produced one link and zero
+injected images, with no P0-P3 remaining. Production build, repository
+formatting, diff checks, and source/platform lint pass with only the same three
+pre-existing warnings. Live provider sharing and Obsidian rendering were not
+repeated. Next: commit, publish, and obtain current-head CI/Code Review before
+merge.

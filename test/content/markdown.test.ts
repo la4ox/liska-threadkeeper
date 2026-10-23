@@ -618,6 +618,35 @@ describe('escapeAngleBrackets', () => {
     });
   });
 
+  it('does not trust provider-supplied internal footnote attributes', () => {
+    const html = sanitizeHtml(
+      '<p data-footnote-def data-liska-footnote-token="attacker-guess">' +
+        '[^x]: ![pixel](https://attacker.invalid/pixel)</p>' +
+        '<span data-footnote-ref="x] ![ref](https://attacker.invalid/ref)" ' +
+        'data-liska-footnote-token="attacker-guess">REF</span>'
+    );
+    const result = htmlToMarkdown(html);
+
+    expect(result).not.toContain('![pixel]');
+    expect(result).not.toContain('![ref]');
+    expect(result).not.toContain('[^x]');
+  });
+
+  it('does not trust a provider-supplied footnote attribute inside a table cell', () => {
+    const html = sanitizeHtml(
+      '<table><tr><th>Source</th></tr><tr><td>' +
+        '<span data-footnote-ref="x] ![pixel](https://attacker.invalid/pixel)">REF</span>' +
+        '<p data-footnote-def>[^x]: ![definition](https://attacker.invalid/definition)</p>' +
+        '</td></tr></table>'
+    );
+    const result = htmlToMarkdown(html);
+
+    expect(result).not.toContain('![pixel]');
+    expect(result).not.toContain('![definition]');
+    expect(result).not.toContain('[^x]');
+    expect(result).toContain('REF');
+  });
+
   describe('fenced code block preservation', () => {
     it('preserves angle brackets in fenced code blocks', () => {
       const input = '```\n<div>test</div>\n```';
@@ -1506,7 +1535,7 @@ describe('convertDeepResearchContent', () => {
     expect(result).toContain('[^1]');
     // v3.0: References section with footnote definitions
     expect(result).toContain('# References');
-    expect(result).toContain('[^1]: [Source](https://example.com)');
+    expect(result).toContain('[^1]: [Source](https://example.com/)');
   });
 
   it('renders untrusted reference titles as one literal Markdown line', () => {
@@ -1592,9 +1621,9 @@ describe('convertDeepResearchContent', () => {
 
     const result = convertDeepResearchContent(html, links);
 
-    expect(result).toContain('[^1]: [A](https://a.com)');
-    expect(result).toContain('[^2]: [B](https://b.com)');
-    expect(result).toContain('[^3]: [C](https://c.com)');
+    expect(result).toContain('[^1]: [A](https://a.com/)');
+    expect(result).toContain('[^2]: [B](https://b.com/)');
+    expect(result).toContain('[^3]: [C](https://c.com/)');
   });
 
   it('rejects dangerous URL schemes in source references', () => {
@@ -1618,7 +1647,7 @@ describe('convertDeepResearchContent', () => {
     expect(result).not.toContain('javascript:');
     expect(result).not.toContain('data:text');
     // Safe URL preserved
-    expect(result).toContain('[^3]: [Safe](https://safe.com)');
+    expect(result).toContain('[^3]: [Safe](https://safe.com/)');
     // Dangerous sources show title only (no link)
     expect(result).toContain('[^1]: XSS');
     expect(result).toContain('[^2]: Data');
@@ -1644,7 +1673,27 @@ describe('convertDeepResearchContent', () => {
     expect(result).toContain('[^1]: File');
     expect(result).toContain('[^2]: Mail');
     expect(result).toContain('[^3]: Sneaky');
-    expect(result).toContain('[^4]: [Safe](https://safe.com)');
+    expect(result).toContain('[^4]: [Safe](https://safe.com/)');
+  });
+
+  it('serializes an HTTP source URL as one inert Markdown destination', () => {
+    const links: DeepResearchLinks = {
+      sources: [
+        {
+          index: 0,
+          url: 'https://source.example/x)![pixel](https://attacker.invalid/pixel)',
+          title: 'Source',
+          domain: 'source.example',
+        },
+      ],
+    };
+
+    const result = convertDeepResearchContent('<p>Text</p>', links);
+
+    expect(result).not.toContain('x)![pixel](');
+    expect(result).toContain('https://source.example/x%29');
+    expect(result).toContain('%29![pixel]%28');
+    expect(result.match(/attacker\.invalid/g)).toHaveLength(1);
   });
 });
 
@@ -1698,7 +1747,7 @@ describe('conversationToNote with Deep Research links', () => {
     // v3.0: Obsidian native footnotes
     expect(note.body).toContain('[^1]');
     expect(note.body).toContain('# References');
-    expect(note.body).toContain('[^1]: [Source](https://example.com)');
+    expect(note.body).toContain('[^1]: [Source](https://example.com/)');
   });
 });
 

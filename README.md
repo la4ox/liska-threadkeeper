@@ -13,6 +13,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 - **Local outputs:** download Markdown, copy it, or write to Obsidian. Liska has no analytics, telemetry, account, or operated server.
 - **Long-thread support:** the text pipeline accepts large notes up to 32 MiB of UTF-8; other supported sites can accumulate virtualized conversations with bounded auto-scroll.
 - **Readable archives:** YAML frontmatter, citations, math, configurable callouts, thinking/tool content, question headings, and collision-safe filenames.
+- **Literal citation boundaries:** provider titles, internal footnote markers, and HTTP(S) source destinations cannot create extra Markdown links, images, or embeds.
 - **Optional attachments:** supported generated images can be saved beside Markdown exports.
 - **Intentional export:** page scripts cannot activate the export button programmatically; a real user click is required.
 

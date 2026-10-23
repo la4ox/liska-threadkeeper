@@ -249,6 +249,32 @@ describe('NotebookLMExtractor', () => {
       expect(markdown).toContain('&lt;img src=x&gt;');
     });
 
+    it('drops a citation whose fallback visible number is not numeric', async () => {
+      createNotebookLMPage('test-id', [
+        { role: 'user', content: 'Question' },
+        {
+          role: 'assistant',
+          content: `
+            <labs-tailwind-structural-element-view-v2>
+              <paragraph-element-view>
+                <div class="paragraph is-rich-chat-ui normal">
+                  <span>Claim</span>
+                  <button class="citation-marker"><span aria-label="Broken&#10;title">1]: ![pixel](https://attacker.invalid/pixel)</span></button>
+                </div>
+              </paragraph-element-view>
+            </labs-tailwind-structural-element-view-v2>`,
+        },
+      ]);
+
+      const result = await extractor.extract();
+      const assistant = result.data?.messages.find(message => message.role === 'assistant');
+      const markdown = htmlToMarkdown(assistant?.content ?? '');
+
+      expect(markdown).not.toContain('![pixel]');
+      expect(markdown).not.toContain('[^m0-');
+      expect(markdown).toContain('Claim');
+    });
+
     it('drops the "more citations" mat-icon button without producing a footnote', async () => {
       createNotebookLMPage('test-id', [
         { role: 'user', content: 'Question' },
