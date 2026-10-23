@@ -3,10 +3,17 @@ import { CONVERSATION_READY_SELECTORS } from '../../src/content/extractors/selec
 import { SELECTORS as GEMINI } from '../../src/content/extractors/selectors/gemini';
 import { SELECTORS as CLAUDE } from '../../src/content/extractors/selectors/claude';
 import { SELECTORS as CHATGPT } from '../../src/content/extractors/selectors/chatgpt';
-import { SELECTORS as PERPLEXITY } from '../../src/content/extractors/selectors/perplexity';
+import {
+  SELECTORS as PERPLEXITY,
+  LEGACY_USER_QUERY,
+} from '../../src/content/extractors/selectors/perplexity';
 import { SELECTORS as DEEPSEEK } from '../../src/content/extractors/selectors/deepseek';
 import { SELECTORS as NOTEBOOKLM } from '../../src/content/extractors/selectors/notebooklm';
 import { PLATFORM_REGISTRY } from '../../src/lib/platform-registry';
+import {
+  createClaudeConversationDOM,
+  createPerplexityConversationDOM,
+} from '../fixtures/dom-helpers';
 
 const claudeContentCases = [
   { selector: CLAUDE.userMessage[0], html: '<div data-testid="user-message">Question</div>' },
@@ -40,9 +47,9 @@ describe('CONVERSATION_READY_SELECTORS', () => {
   });
 
   it.each([
-    ['gemini', GEMINI.conversationTurn],
+    ['gemini', [...GEMINI.conversationTurn, ...GEMINI.userQuery, ...GEMINI.modelResponse]],
     ['chatgpt', CHATGPT.conversationTurn],
-    ['perplexity', PERPLEXITY.userQuery],
+    ['perplexity', [...PERPLEXITY.userQuery, ...LEGACY_USER_QUERY]],
     ['deepseek', DEEPSEEK.message],
     ['notebooklm', NOTEBOOKLM.conversationTurn],
   ] as const)('includes the full %s extractor group in priority order', (platform, selectors) => {
@@ -74,10 +81,67 @@ describe('CONVERSATION_READY_SELECTORS', () => {
     expect(document.querySelector(CONVERSATION_READY_SELECTORS.claude)).toBe(row);
   });
 
+  it.each(claudeContentCases)(
+    'accepts the rowless transcript fallback containing $selector',
+    ({ selector, html }) => {
+      document.body.innerHTML = `<div class="conversation-thread">${html}</div>`;
+      expect(document.querySelector(selector)).not.toBeNull();
+      expect(document.querySelector(CLAUDE.conversationRow.join(', '))).toBeNull();
+      expect(document.querySelector(CONVERSATION_READY_SELECTORS.claude)).not.toBeNull();
+    }
+  );
+
+  it.each(claudeContentCases)(
+    'rejects rowless $selector content outside the transcript root',
+    ({ html }) => {
+      document.body.innerHTML = `
+        <aside><div data-index="0"><a>Older chat</a></div></aside>
+        <main>${html}<div class="conversation-thread"></div></main>
+      `;
+      expect(document.querySelector(CONVERSATION_READY_SELECTORS.claude)).toBeNull();
+    }
+  );
+
+  it('accepts the supported legacy Claude fixture without indexed rows', () => {
+    document.body.innerHTML = createClaudeConversationDOM([
+      { role: 'user', content: 'Legacy question' },
+      { role: 'assistant', content: '<p>Legacy answer</p>' },
+    ]);
+    expect(document.querySelector(CLAUDE.conversationRow.join(', '))).toBeNull();
+    expect(document.querySelector(CONVERSATION_READY_SELECTORS.claude)).not.toBeNull();
+  });
+
+  it('accepts the supported legacy Perplexity fixture without current query renderers', () => {
+    document.body.innerHTML = createPerplexityConversationDOM([
+      { role: 'user', content: 'Legacy question' },
+    ]);
+    expect(document.querySelector(PERPLEXITY.userQuery.join(', '))).toBeNull();
+    expect(document.querySelector(CONVERSATION_READY_SELECTORS.perplexity)).not.toBeNull();
+  });
+
+  it('keeps supported Perplexity legacy detection outside the current live-selector contract', () => {
+    for (const selector of LEGACY_USER_QUERY) {
+      expect(Object.values(PERPLEXITY).flat()).not.toContain(selector);
+      expect(CONVERSATION_READY_SELECTORS.perplexity).toContain(selector);
+    }
+  });
+
+  it.each([
+    '<user-query><p class="query-text-line">Question</p></user-query>',
+    '<div class="legacy-user-query"><p class="query-text-line">Question</p></div>',
+    '<model-response><div class="markdown markdown-main-panel"><p>Answer</p></div></model-response>',
+    '<div class="legacy-model-response"><div class="model-response-text">Answer</div></div>',
+  ])('accepts a Gemini root fallback without conversation turns: %s', html => {
+    document.body.innerHTML = html;
+    expect(document.querySelector(GEMINI.conversationTurn.join(', '))).toBeNull();
+    expect(document.querySelector(CONVERSATION_READY_SELECTORS.gemini)).not.toBeNull();
+  });
+
   it('rejects a bare indexed sidebar even when message content exists outside that row', () => {
     document.body.innerHTML = `
       <aside><div data-index="0"><a>Older chat</a></div></aside>
       <main><div data-testid="user-message">Not inside an indexed row</div></main>
+      <div class="conversation-thread"></div>
     `;
 
     expect(document.querySelector(CLAUDE.conversationRow.join(', '))).not.toBeNull();

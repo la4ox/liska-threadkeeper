@@ -69,14 +69,16 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
   bootstrap duplicate literal and its broad/dead variants are gone.
 - Readiness remains only a UI-injection hint: ChatGPT and DeepSeek are still
   structured-first, initialization performs no capture, and the 100 ms debounce
-  plus unconditional 10-second escape are unchanged. Three GitHub P2s across
-  two heads closed cross-provider matches, omitted fallback selectors, and
-  Claude indexed-sidebar false positives. Bootstrap now queries the current
-  platform's full owned group; Claude also requires owned message content in
-  that row. Fifteen failing-before-fix regressions cover the follow-ups and the
-  final independent review is clean. Exact-tree validation passes 171 files /
-  5,251 tests; build, lint, formatting, and diff checks pass. No live-provider
-  claim is made.
+  plus unconditional 10-second escape are unchanged. Six GitHub P2s across
+  three heads closed cross-provider matches, current/legacy fallback omissions,
+  and Claude sidebar/rowless ambiguity. Bootstrap now queries the current
+  platform's complete supported readiness surface; Perplexity's legacy query is
+  single-sourced outside its live selector contract, Gemini root fallback is
+  included, and Claude rowless identities require `.conversation-thread`.
+  Thirty-four failing-before-fix regressions cover the follow-ups and the final
+  independent review is clean. Exact-tree validation passes 171 files / 5,299
+  tests; build, lint, formatting, and diff checks pass. No live-provider claim
+  is made.
 - Gemini document-title naming remains a separate evidence-gated change. It
   affects new filename slugs and append-off duplication even though append-on
   lookup remains ID-based. Before enabling it, verify a named chat, an unnamed
