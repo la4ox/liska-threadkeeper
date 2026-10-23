@@ -64,12 +64,31 @@ import type {
   ExtensionMessage,
   ContentScriptSettings,
   ExtensionSettings,
+  MultiOutputResponse,
   OutputOptions,
 } from '../lib/types';
+import { serializeSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 
 /** Latest popup destination intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
 let outputOptionsUpdateSequence = 0;
+
+function settingsChangedOutputResponse(
+  message: Extract<ExtensionMessage, { action: 'saveToOutputs' }>
+): MultiOutputResponse {
+  return {
+    results: message.outputs.map(destination => ({
+      destination,
+      success: false,
+      error: 'settings-changed',
+      ...(destination === 'file' && message.strictFileDownload === true
+        ? { strictFileOutcome: 'confirmed-failure' as const }
+        : {}),
+    })),
+    allSuccessful: false,
+    anySuccessful: false,
+  };
+}
 
 // Register durable Downloads recovery before any awaited startup work. A fresh
 // MV3 worker must observe terminal deltas and browser-startup reconciliation.
@@ -653,7 +672,19 @@ async function handleMessage(
 
   switch (message.action) {
     case 'saveToOutputs':
-      return handleMultiOutput(message.data, message.outputs, settings, message.capturedAt);
+      if (
+        message.expectedSyncSettingsSnapshot !== undefined &&
+        serializeSyncSettingsSnapshot(settings) !== message.expectedSyncSettingsSnapshot
+      ) {
+        return settingsChangedOutputResponse(message);
+      }
+      return handleMultiOutput(
+        message.data,
+        message.outputs,
+        settings,
+        message.capturedAt,
+        message.strictFileDownload
+      );
 
     case 'persistArchiveCompanion':
       return handlePersistArchiveCompanion(message, settings);

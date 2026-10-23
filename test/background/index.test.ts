@@ -9,6 +9,7 @@ import { generateHash } from '../../src/lib/hash';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
 import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 
 // Mock client instance - defined at module level
 const mockClient = {
@@ -1669,6 +1670,133 @@ describe('background/index', () => {
       expect(sendResponse).toHaveBeenCalledWith(
         expect.objectContaining({ results: expect.any(Array) })
       );
+    });
+
+    it.each([false, undefined, null, 'strict', 1])(
+      'rejects an explicit non-true strict File marker: %s',
+      strictFileDownload => {
+        const sendResponse = vi.fn();
+        capturedListener(
+          { action: 'saveToOutputs', data: validNote, outputs: ['file'], strictFileDownload },
+          validSender as chrome.runtime.MessageSender,
+          sendResponse
+        );
+        expect(sendResponse).toHaveBeenCalledWith({
+          success: false,
+          error: 'Invalid message content',
+        });
+        expect(chrome.downloads.download).not.toHaveBeenCalled();
+      }
+    );
+
+    it('rejects strict File confirmation without a File destination', () => {
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveToOutputs',
+          data: validNote,
+          outputs: ['obsidian'],
+          strictFileDownload: true,
+        },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Invalid message content',
+      });
+    });
+
+    it('routes an explicit strict File marker through terminal path confirmation', async () => {
+      const item = {
+        id: 1,
+        state: 'complete',
+        filename: 'C:\\Downloads\\test.md',
+      } as chrome.downloads.DownloadItem;
+      vi.mocked(chrome.downloads.search)
+        .mockResolvedValueOnce([item])
+        .mockResolvedValueOnce([item]);
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveToOutputs',
+          data: validNote,
+          outputs: ['file'],
+          capturedAt: '2026-10-23T00:00:00.000Z',
+          strictFileDownload: true,
+        },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allSuccessful: true,
+          results: [
+            {
+              destination: 'file',
+              success: true,
+              strictFileOutcome: 'confirmed-success',
+              savedAs: 'test.md',
+            },
+          ],
+        })
+      );
+    });
+
+    it('rejects a noncanonical measured-settings snapshot at the message boundary', () => {
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveToOutputs',
+          data: validNote,
+          outputs: ['file'],
+          expectedSyncSettingsSnapshot: '{}',
+        },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Invalid message content',
+      });
+      expect(chrome.downloads.download).not.toHaveBeenCalled();
+    });
+
+    it('rejects settings drift before any measured output is dispatched', async () => {
+      const expected = serializeSyncSettingsSnapshot(defaultSettings as ExtensionSettings);
+      mockGetSettings.mockResolvedValueOnce({
+        ...defaultSettings,
+        flattenLargeCallouts: false,
+      } as ExtensionSettings);
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveToOutputs',
+          data: validNote,
+          outputs: ['file', 'obsidian'],
+          strictFileDownload: true,
+          expectedSyncSettingsSnapshot: expected,
+        },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(sendResponse).toHaveBeenCalledWith({
+        results: [
+          {
+            destination: 'file',
+            success: false,
+            error: 'settings-changed',
+            strictFileOutcome: 'confirmed-failure',
+          },
+          { destination: 'obsidian', success: false, error: 'settings-changed' },
+        ],
+        allSuccessful: false,
+        anySuccessful: false,
+      });
+      expect(chrome.downloads.download).not.toHaveBeenCalled();
+      expect(mockClient.putFile).not.toHaveBeenCalled();
     });
 
     it('accepts valid outputs array with clipboard', async () => {

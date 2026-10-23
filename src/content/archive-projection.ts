@@ -62,6 +62,18 @@ export interface ArchiveProjectionResult {
   chatGptAssetExportContext?: ChatGptAssetExportContext;
 }
 
+/** Internal render session: validation is mandatory and paths are never supplied by callers. */
+export interface PreparedArchiveProjection {
+  /** Empty legacy results retain their selected path for canonical-only branch stubs. */
+  project(options?: ArchiveProjectionOptions): ArchiveProjectionResult;
+}
+
+interface ProjectionContext {
+  provider: AIPlatform;
+  archiveWarnings: string[];
+  timestamp: ReturnType<typeof projectionTimestamp>;
+}
+
 type OmissionKind =
   | 'attachment'
   | 'embedded_image'
@@ -249,10 +261,7 @@ function projectionTimestamp(archive: LiskaThreadArchive): { date: Date; warning
       };
 }
 
-function requireProjectionContext(archive: LiskaThreadArchive): {
-  provider: AIPlatform;
-  archiveWarnings: string[];
-} {
+function requireProjectionContext(archive: LiskaThreadArchive): ProjectionContext {
   const validation = validateLiskaThreadArchive(archive);
   if (!validation.valid) {
     const firstError = validation.issues.find(issue => issue.severity === 'error');
@@ -271,6 +280,7 @@ function requireProjectionContext(archive: LiskaThreadArchive): {
   }
   return {
     provider,
+    timestamp: projectionTimestamp(archive),
     archiveWarnings: validation.issues
       .filter(issue => issue.severity === 'warning')
       .map(issue => `Archive warning ${issue.code} at ${issue.path}.`),
@@ -327,14 +337,13 @@ function projectionWarnings(
   ];
 }
 
-/** Project the current or explicitly selected canonical branch for legacy outputs. */
-export function projectArchiveBranch(
+function projectSelectedBranch(
   archive: LiskaThreadArchive,
-  options: ArchiveProjectionOptions = {}
+  context: ProjectionContext,
+  selectedNodeIds: string[],
+  options: ArchiveProjectionOptions
 ): ArchiveProjectionResult {
-  const { provider, archiveWarnings } = requireProjectionContext(archive);
-  const targetNodeId = resolveTargetNodeId(archive, options.targetNodeId);
-  const selectedNodeIds = getNodePath(archive, targetNodeId);
+  const { provider, archiveWarnings, timestamp } = context;
   const { messages, omissions } = projectSelectedMessages(
     archive,
     selectedNodeIds,
@@ -342,14 +351,7 @@ export function projectArchiveBranch(
     options.reasoningLabel ?? 'Reasoning'
   );
 
-  if (messages.length === 0) {
-    throw new ArchiveProjectionError(
-      'no-renderable-messages',
-      'Selected branch has no user or assistant content for the legacy renderer.'
-    );
-  }
-
-  const { date: extractedAt, warning: timestampWarning } = projectionTimestamp(archive);
+  const { date: extractedAt, warning: timestampWarning } = timestamp;
   const url = archive.conversation.url ?? platformOrigin(provider);
   const warnings = projectionWarnings(archive, archiveWarnings, omissions, timestampWarning);
 
@@ -360,7 +362,7 @@ export function projectArchiveBranch(
       url,
       source: provider,
       messages,
-      extractedAt,
+      extractedAt: new Date(extractedAt.getTime()),
       metadata: {
         messageCount: messages.length,
         userMessageCount: messages.filter(message => message.role === 'user').length,
@@ -373,4 +375,66 @@ export function projectArchiveBranch(
     selectedNodeIds,
     warnings,
   };
+}
+
+/** Project the current or explicitly selected canonical branch for legacy outputs. */
+export function projectArchiveBranch(
+  archive: LiskaThreadArchive,
+  options: ArchiveProjectionOptions = {}
+): ArchiveProjectionResult {
+  const context = requireProjectionContext(archive);
+  const targetNodeId = resolveTargetNodeId(archive, options.targetNodeId);
+  const result = projectSelectedBranch(
+    archive,
+    context,
+    getNodePath(archive, targetNodeId),
+    options
+  );
+  if (result.data.messages.length === 0) {
+    throw new ArchiveProjectionError(
+      'no-renderable-messages',
+      'Selected branch has no user or assistant content for the legacy renderer.'
+    );
+  }
+  return result;
+}
+
+/**
+ * Prepare one owned render session. Copy structural links and metadata, not
+ * message bodies: callers must not mutate retained message objects mid-session.
+ * No session method accepts an unchecked path or a validation bypass.
+ */
+export function prepareArchiveProjection(archive: LiskaThreadArchive): PreparedArchiveProjection {
+  const context = requireProjectionContext(archive);
+  const snapshot: LiskaThreadArchive = {
+    ...archive,
+    conversation: { ...archive.conversation },
+    graph: {
+      rootIds: [...archive.graph.rootIds],
+      nodes: Object.fromEntries(
+        Object.entries(archive.graph.nodes).map(([nodeId, node]) => [nodeId, { ...node }])
+      ),
+    },
+  };
+  return {
+    project(options = {}) {
+      const targetNodeId = resolveTargetNodeId(snapshot, options.targetNodeId);
+      const selectedNodeIds = preparedNodePath(snapshot, targetNodeId);
+      return projectSelectedBranch(snapshot, context, selectedNodeIds, options);
+    },
+  };
+}
+
+/** Parent links are private snapshots of an already validated tree. */
+function preparedNodePath(archive: LiskaThreadArchive, targetNodeId: string): string[] {
+  if (!Object.prototype.hasOwnProperty.call(archive.graph.nodes, targetNodeId)) {
+    throw new ArchiveProjectionError('target-node-missing', 'The branch target node is missing.');
+  }
+  const reversedPath: string[] = [];
+  let nodeId: string | null = targetNodeId;
+  while (nodeId !== null) {
+    reversedPath.push(nodeId);
+    nodeId = archive.graph.nodes[nodeId].parentId;
+  }
+  return reversedPath.reverse();
 }

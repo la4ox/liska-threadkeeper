@@ -51,6 +51,7 @@ import {
 } from '../lib/archive-stage-contract';
 import { isAllowedImageMime, isLikelyBase64, isAllowedImageSourceUrl } from '../lib/image-utils';
 import { jsonUtf8ByteLength, utf8ByteLength } from '../lib/byte-size';
+import { isSerializedSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 import { platformOrigins } from '../lib/platform-registry';
 import { validateSettingsUpdate } from './settings-validation';
 import { deriveChatGptCaptureTarget, isExactChatGptDocumentUrl } from './chatgpt-route-target';
@@ -673,7 +674,11 @@ function validateSaveToOutputsMessage(
     message.outputs.length > 0 &&
     message.outputs.every(output =>
       VALID_OUTPUT_DESTINATIONS.includes(output as (typeof VALID_OUTPUT_DESTINATIONS)[number])
-    )
+    ) &&
+    (!Object.prototype.hasOwnProperty.call(message, 'strictFileDownload') ||
+      (message.strictFileDownload === true && message.outputs.includes('file'))) &&
+    (!Object.prototype.hasOwnProperty.call(message, 'expectedSyncSettingsSnapshot') ||
+      isSerializedSyncSettingsSnapshot(message.expectedSyncSettingsSnapshot))
   );
 }
 

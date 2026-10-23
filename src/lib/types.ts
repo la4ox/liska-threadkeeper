@@ -338,6 +338,8 @@ export interface OutputResult {
    * DIFFERENT conversation (filename collision safeguard, issue #327).
    */
   savedAs?: string;
+  /** Opt-in Markdown File confirmation; ordinary downloads retain ID-acceptance semantics. */
+  strictFileOutcome?: 'confirmed-success' | 'confirmed-failure' | 'unconfirmed' | 'blocked';
   /**
    * Non-fatal problem encountered while writing to this destination
    * (e.g. an image that could not be saved, issue #376). Surfaced to the
@@ -497,6 +499,10 @@ export type ExtensionMessage =
       outputs: OutputDestination[];
       /** Runtime-only structured-capture routing timestamp. */
       capturedAt?: string;
+      /** Wait for terminal completion and the exact Markdown filename; File output is required. */
+      strictFileDownload?: true;
+      /** Canonical secret-free settings snapshot used by exact all-branches measurement. */
+      expectedSyncSettingsSnapshot?: string;
     }
   | { action: 'saveSettings'; settings: PopupSettingsUpdate }
   | { action: 'updateOutputOptions'; outputOptions: OutputOptions }

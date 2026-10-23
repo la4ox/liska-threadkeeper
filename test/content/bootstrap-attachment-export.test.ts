@@ -9,19 +9,34 @@ import type {
 } from '../../src/lib/types';
 import { resetLocation, setChatGPTLocation } from '../fixtures/dom-helpers';
 
-const mocks = vi.hoisted(() => ({
-  applySettings: vi.fn(),
-  attachmentExport: vi.fn(),
-  extract: vi.fn(),
-  persistAllBranchesPresentation: vi.fn(),
-  sendMessage: vi.fn(),
-  setBranchExportMode: vi.fn(),
-  showErrorToast: vi.fn(),
-  showToast: vi.fn(),
-  showWarningToast: vi.fn(),
-  setButtonLoading: vi.fn(),
-  validate: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const state: { stopCallback?: () => void } = {};
+  const stopDispose = vi.fn();
+  return {
+    state,
+    stopDispose,
+    applySettings: vi.fn(),
+    attachmentExport: vi.fn(),
+    extract: vi.fn(),
+    prepareAllBranchesPersistence: vi.fn(() => ({
+      session: {},
+      structural: { accepted: true, plannedArtifactWrites: 6 },
+      requestedOutputs: ['file'],
+    })),
+    persistAllBranchesPresentation: vi.fn(),
+    sendMessage: vi.fn(),
+    setBranchExportMode: vi.fn(),
+    showErrorToast: vi.fn(),
+    showToast: vi.fn(),
+    showWarningToast: vi.fn(),
+    showAllBranchesStopControl: vi.fn((onStop: () => void) => {
+      state.stopCallback = onStop;
+      return { stopRequested: false, requestStop: vi.fn(), dispose: stopDispose };
+    }),
+    setButtonLoading: vi.fn(),
+    validate: vi.fn(),
+  };
+});
 
 vi.mock('../../src/content/extractors/chatgpt', () => ({
   ChatGPTExtractor: class ChatGPTExtractor {
@@ -42,6 +57,7 @@ vi.mock('../../src/content/chatgpt-asset-export', () => ({
 }));
 
 vi.mock('../../src/content/archive-branch-persistence', () => ({
+  prepareAllBranchesPersistence: mocks.prepareAllBranchesPersistence,
   persistAllBranchesPresentation: mocks.persistAllBranchesPresentation,
 }));
 
@@ -52,6 +68,7 @@ vi.mock('../../src/content/ui', () => ({
   showErrorToast: mocks.showErrorToast,
   showToast: mocks.showToast,
   showWarningToast: mocks.showWarningToast,
+  showAllBranchesStopControl: mocks.showAllBranchesStopControl,
 }));
 
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
@@ -404,6 +421,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
 
     await handleSync('selected');
 
+    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
     expect(mocks.setBranchExportMode).toHaveBeenCalledWith('selected');
     expect(mocks.attachmentExport).toHaveBeenCalledWith(
       context,
@@ -424,11 +442,129 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       settings.templateOptions,
       settings.enableToolContent,
       ['file'],
-      expect.objectContaining({ archiveAlreadyPersisted: true })
+      expect.objectContaining({ archiveAlreadyPersisted: true, signal: expect.any(AbortSignal) })
     );
     expect(mocks.showWarningToast).toHaveBeenCalledWith(
       expect.stringContaining('ChatGPT attachment export recorded one destination caveat.')
     );
+  });
+
+  it('rejects structural over-budget work before the attachment pipeline writes anything', async () => {
+    const allBranchesResult: ExtractionResult = {
+      success: true,
+      archiveCompanion: companion,
+      chatGptAssetExportContext: context,
+      allBranches: {} as AllBranchesPresentationPlan,
+    };
+    const rejectedPrepared = {
+      session: {},
+      structural: {
+        accepted: false,
+        budgetKind: 'leaves',
+        plannedArtifactWrites: 600,
+      },
+      requestedOutputs: ['file'],
+    };
+    mocks.extract.mockResolvedValue(allBranchesResult);
+    mocks.prepareAllBranchesPersistence.mockReturnValueOnce(rejectedPrepared);
+    mocks.persistAllBranchesPresentation.mockResolvedValueOnce({
+      version: 1,
+      status: 'rejected',
+      phase: 'structural-preflight',
+      budgetKind: 'leaves',
+      cancelRequested: false,
+      metrics: {
+        nodeCount: 600,
+        leafCount: 513,
+        branchPointCount: 1,
+        pathVisits: 600,
+        sourceWorkBytes: 600,
+      },
+      plannedArtifactWrites: 600,
+      plannedPhysicalBytes: 0,
+      measuredLeaves: 0,
+      renderedLeaves: 0,
+      branchCount: 513,
+      omissionBranchCount: 0,
+      canonicalOnlyCount: 0,
+      clipboardSkipped: false,
+      destinations: [
+        {
+          destination: 'file',
+          archiveSaved: false,
+          archiveState: 'not-attempted',
+          branchFilesSaved: 0,
+          branchWrites: { confirmed: 0, failed: 0, unknown: 0 },
+          indexSaved: false,
+          indexState: 'not-attempted',
+          dispatchedBytes: 0,
+          confirmedBytes: 0,
+        },
+      ],
+      allSuccessful: false,
+    });
+
+    await handleSync('selected');
+
+    expect(mocks.attachmentExport).not.toHaveBeenCalled();
+    expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledWith(
+      allBranchesResult.allBranches,
+      companion,
+      settings.templateOptions,
+      settings.enableToolContent,
+      ['file'],
+      expect.objectContaining({ prepared: rejectedPrepared })
+    );
+    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('disposes Stop once and schedules nothing when stopped before attachment work', async () => {
+    mocks.extract.mockResolvedValue({
+      success: true,
+      archiveCompanion: companion,
+      chatGptAssetExportContext: context,
+      allBranches: {} as AllBranchesPresentationPlan,
+    } satisfies ExtractionResult);
+    mocks.showAllBranchesStopControl.mockImplementationOnce((onStop: () => void) => {
+      mocks.state.stopCallback = onStop;
+      onStop();
+      return { stopRequested: true, requestStop: vi.fn(), dispose: mocks.stopDispose };
+    });
+
+    await handleSync('selected');
+
+    expect(mocks.attachmentExport).not.toHaveBeenCalled();
+    expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
+    expect(mocks.showWarningToast).toHaveBeenCalledWith(expect.stringContaining('was stopped'));
+    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
+    expect(mocks.setButtonLoading).toHaveBeenLastCalledWith(false);
+  });
+
+  it('lets an in-flight attachment pipeline finish, then schedules no Markdown after Stop', async () => {
+    mocks.extract.mockResolvedValue({
+      success: true,
+      archiveCompanion: companion,
+      chatGptAssetExportContext: context,
+      allBranches: {} as AllBranchesPresentationPlan,
+    } satisfies ExtractionResult);
+    mocks.attachmentExport.mockImplementationOnce(async () => {
+      mocks.state.stopCallback?.();
+      return {
+        rawSuccessfulDestinations: ['file'],
+        completeDestinations: ['file'],
+        destinationReceipts: [],
+        warnings: [],
+      };
+    });
+
+    await handleSync('selected');
+
+    expect(mocks.attachmentExport).toHaveBeenCalledTimes(1);
+    expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
+    expect(mocks.showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining('stopped after archive processing')
+    );
+    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
   });
 
   it('withholds all-branches Markdown when no destination completed its archive companions', async () => {

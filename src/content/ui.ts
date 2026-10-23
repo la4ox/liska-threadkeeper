@@ -80,6 +80,41 @@ const STYLES = `
   #g2o-branch-button:hover { background: #4338ca; }
   #g2o-branch-button:disabled { opacity: 0.7; cursor: not-allowed; }
 
+  #g2o-all-branches-stop {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10002;
+    box-sizing: border-box;
+    max-width: min(320px, calc(100vw - 40px));
+    padding: 12px;
+    color: #e2e8f0;
+    background: #111827;
+    border: 1px solid #7c3aed;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  #g2o-all-branches-stop button {
+    padding: 8px 12px;
+    color: #f5f3ff;
+    background: #5b21b6;
+    border: 1px solid #a78bfa;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  #g2o-all-branches-stop button:focus-visible {
+    outline: 2px solid #c4b5fd;
+    outline-offset: 2px;
+  }
+
+  #g2o-all-branches-stop button:disabled { opacity: 0.7; cursor: not-allowed; }
+  #g2o-all-branches-stop-status { margin: 8px 0 0; line-height: 1.4; }
+
   #g2o-branch-picker-backdrop {
     position: fixed;
     inset: 0;
@@ -273,10 +308,18 @@ const STYLES = `
 let styleInjected = false;
 let currentToast: HTMLDivElement | null = null;
 let activeBranchPicker: ActiveBranchPicker | null = null;
+let activeAllBranchesStopControl: AllBranchesStopControl | null = null;
 
 const BRANCH_BUTTON_ID = 'g2o-branch-button';
 const BRANCH_PICKER_BACKDROP_ID = 'g2o-branch-picker-backdrop';
+const ALL_BRANCHES_STOP_ID = 'g2o-all-branches-stop';
 const MAX_BRANCH_PREVIEW_LENGTH = 280;
+
+export interface AllBranchesStopControl {
+  readonly stopRequested: boolean;
+  requestStop: (event: Event) => void;
+  dispose: () => void;
+}
 
 export interface ArchiveBranchPickerOption {
   ordinal: number;
@@ -388,6 +431,84 @@ export function injectBranchExportButton(onClick: () => void): HTMLButtonElement
   }
 
   return button;
+}
+
+function createAllBranchesStopElements(): {
+  root: HTMLDivElement;
+  button: HTMLButtonElement;
+  status: HTMLParagraphElement;
+} {
+  const root = document.createElement('div');
+  root.id = ALL_BRANCHES_STOP_ID;
+  root.setAttribute('role', 'group');
+  root.setAttribute('aria-label', 'All-branches export');
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Stop export';
+
+  const status = document.createElement('p');
+  status.id = `${ALL_BRANCHES_STOP_ID}-status`;
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.setAttribute('aria-atomic', 'true');
+  status.textContent = 'Exporting all branches.';
+  button.setAttribute('aria-describedby', status.id);
+  root.append(button, status);
+  return { root, button, status };
+}
+
+function restoreAllBranchesStopFocus(target: HTMLElement | null): void {
+  if (target?.isConnected && !target.matches(':disabled, [aria-disabled="true"]')) {
+    target.focus();
+  }
+}
+
+/**
+ * Keep an all-branches stop request available independently of transient toasts.
+ * The event-taking method also permits testing the trusted-click seam in jsdom.
+ */
+export function showAllBranchesStopControl(onStop: () => void): AllBranchesStopControl {
+  activeAllBranchesStopControl?.dispose();
+  document.getElementById(ALL_BRANCHES_STOP_ID)?.remove();
+  injectStyles();
+  const previousFocus =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const { root, button, status } = createAllBranchesStopElements();
+  let stopRequested = false;
+  let disposed = false;
+
+  const requestStop = (event: Event): void => {
+    if (!event.isTrusted) {
+      console.warn('[G2O] Ignored a programmatic all-branches stop click');
+      return;
+    }
+    if (disposed || stopRequested) return;
+    stopRequested = true;
+    button.textContent = 'Stopping…';
+    button.disabled = true;
+    status.textContent = 'Stopping…';
+    onStop();
+  };
+  const controller: AllBranchesStopControl = {
+    get stopRequested() {
+      return stopRequested;
+    },
+    requestStop,
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      const hadFocus = root.contains(document.activeElement);
+      button.removeEventListener('click', requestStop);
+      root.remove();
+      if (activeAllBranchesStopControl === controller) activeAllBranchesStopControl = null;
+      if (hadFocus) restoreAllBranchesStopFocus(previousFocus);
+    },
+  };
+  button.addEventListener('click', requestStop);
+  activeAllBranchesStopControl = controller;
+  document.body.appendChild(root);
+  return controller;
 }
 
 /**

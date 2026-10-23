@@ -13,6 +13,7 @@ import {
   setButtonLoading,
   settleArchiveBranchPickerForTest,
   showArchiveBranchPicker,
+  showAllBranchesStopControl,
   showToast,
   showSuccessToast,
   showErrorToast,
@@ -184,6 +185,225 @@ describe('ui', () => {
       // Should not throw
       expect(() => setButtonLoading(true)).not.toThrow();
       expect(() => setButtonLoading(false)).not.toThrow();
+    });
+  });
+
+  describe('all-branches stop control', () => {
+    let control: ReturnType<typeof showAllBranchesStopControl> | undefined;
+
+    const getRoot = (): HTMLDivElement =>
+      document.getElementById('g2o-all-branches-stop') as HTMLDivElement;
+    const getButton = (): HTMLButtonElement => getRoot().querySelector('button')!;
+
+    afterEach(() => {
+      control?.dispose();
+      control = undefined;
+    });
+
+    it('exposes a native, visibly named button and a separate polite live status', () => {
+      control = showAllBranchesStopControl(vi.fn());
+
+      const button = getButton();
+      const status = getRoot().querySelector('[role="status"]')!;
+      expect(button.type).toBe('button');
+      expect(button.textContent).toBe('Stop export');
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-describedby')).toBe(status.id);
+      expect(status.parentElement).toBe(button.parentElement);
+      expect(button.contains(status)).toBe(false);
+      expect(status.getAttribute('aria-live')).toBe('polite');
+      expect(status.getAttribute('aria-atomic')).toBe('true');
+      expect(status.textContent).toBe('Exporting all branches.');
+      expect(control.stopRequested).toBe(false);
+    });
+
+    it('ignores programmatic clicks and untrusted requests without changing state', () => {
+      const onStop = vi.fn();
+      control = showAllBranchesStopControl(onStop);
+
+      getButton().click();
+      control.requestStop({ isTrusted: false } as Event);
+
+      expect(onStop).not.toHaveBeenCalled();
+      expect(control.stopRequested).toBe(false);
+      expect(getButton().disabled).toBe(false);
+      expect(getButton().textContent).toBe('Stop export');
+    });
+
+    it('marks the first trusted request as stopping before invoking the callback once', () => {
+      const onStop = vi.fn(() => {
+        expect(control?.stopRequested).toBe(true);
+        expect(getButton().disabled).toBe(true);
+        expect(getButton().textContent).toBe('Stopping…');
+        expect(getRoot().querySelector('[role="status"]')?.textContent).toBe('Stopping…');
+      });
+      control = showAllBranchesStopControl(onStop);
+
+      control.requestStop({ isTrusted: true } as Event);
+      control.requestStop({ isTrusted: true } as Event);
+      getButton().click();
+
+      expect(onStop).toHaveBeenCalledTimes(1);
+      expect(getRoot().isConnected).toBe(true);
+    });
+
+    it('remains idempotent when the callback throws', () => {
+      const onStop = vi.fn(() => {
+        throw new Error('callback failure');
+      });
+      control = showAllBranchesStopControl(onStop);
+
+      expect(() => control?.requestStop({ isTrusted: true } as Event)).toThrow('callback failure');
+      expect(() => control?.requestStop({ isTrusted: true } as Event)).not.toThrow();
+      expect(onStop).toHaveBeenCalledTimes(1);
+      expect(control.stopRequested).toBe(true);
+      expect(getButton().disabled).toBe(true);
+    });
+
+    it('persists across toast creation, replacement, and dismissal', () => {
+      const onStop = vi.fn();
+      control = showAllBranchesStopControl(onStop);
+      const root = getRoot();
+
+      showToast('Exporting', 'info', 0);
+      showToast('Still exporting', 'warning', 0);
+      document.querySelector<HTMLButtonElement>('.g2o-toast .close')!.click();
+
+      expect(getRoot()).toBe(root);
+      expect(root.isConnected).toBe(true);
+      expect(document.querySelector('.g2o-toast')).toBeNull();
+      control.requestStop({ isTrusted: true } as Event);
+      expect(onStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces the previous control and removes its listener without firing its callback', () => {
+      const firstStop = vi.fn();
+      const secondStop = vi.fn();
+      const first = showAllBranchesStopControl(firstStop);
+      const oldRoot = getRoot();
+      const oldButton = getButton();
+      const removeListener = vi.spyOn(oldButton, 'removeEventListener');
+
+      control = showAllBranchesStopControl(secondStop);
+      first.requestStop({ isTrusted: true } as Event);
+      first.dispose();
+
+      expect(oldRoot.isConnected).toBe(false);
+      expect(removeListener).toHaveBeenCalledExactlyOnceWith('click', first.requestStop);
+      expect(document.querySelectorAll('#g2o-all-branches-stop')).toHaveLength(1);
+      expect(firstStop).not.toHaveBeenCalled();
+      control.requestStop({ isTrusted: true } as Event);
+      expect(secondStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('disposes its DOM and listener exactly once and ignores later requests', () => {
+      const onStop = vi.fn();
+      control = showAllBranchesStopControl(onStop);
+      const root = getRoot();
+      const removeRoot = vi.spyOn(root, 'remove');
+      const removeListener = vi.spyOn(getButton(), 'removeEventListener');
+
+      control.dispose();
+      control.dispose();
+      control.requestStop({ isTrusted: true } as Event);
+
+      expect(removeRoot).toHaveBeenCalledTimes(1);
+      expect(removeListener).toHaveBeenCalledExactlyOnceWith('click', control.requestStop);
+      expect(document.getElementById('g2o-all-branches-stop')).toBeNull();
+      expect(onStop).not.toHaveBeenCalled();
+      expect(control.stopRequested).toBe(false);
+    });
+
+    it('does not take focus, trap Tab, or handle global Escape', () => {
+      const trigger = document.createElement('button');
+      document.body.appendChild(trigger);
+      trigger.focus();
+      const onStop = vi.fn();
+      control = showAllBranchesStopControl(onStop);
+      expect(document.activeElement).toBe(trigger);
+      expect(getRoot().querySelector('[role="dialog"], [aria-modal]')).toBeNull();
+
+      getButton().focus();
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      document.dispatchEvent(tab);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      expect(tab.defaultPrevented).toBe(false);
+      expect(getRoot().isConnected).toBe(true);
+      expect(onStop).not.toHaveBeenCalled();
+    });
+
+    it('restores the connected previous target only when focus is inside the removed control', () => {
+      const trigger = document.createElement('button');
+      document.body.appendChild(trigger);
+      trigger.focus();
+      control = showAllBranchesStopControl(vi.fn());
+      getButton().focus();
+      const restoreFocus = vi.spyOn(trigger, 'focus');
+
+      control.dispose();
+      control.dispose();
+
+      expect(document.activeElement).toBe(trigger);
+      expect(restoreFocus).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not steal focus that has moved outside the control', () => {
+      const trigger = document.createElement('button');
+      const other = document.createElement('input');
+      document.body.append(trigger, other);
+      trigger.focus();
+      control = showAllBranchesStopControl(vi.fn());
+      getButton().focus();
+      other.focus();
+      const restoreFocus = vi.spyOn(trigger, 'focus');
+
+      control.dispose();
+
+      expect(restoreFocus).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(other);
+    });
+
+    it.each(['disconnected', 'disabled', 'aria-disabled', 'disabled fieldset'])(
+      'does not restore focus to a %s previous target',
+      state => {
+        const trigger = document.createElement('button');
+        document.body.appendChild(trigger);
+        trigger.focus();
+        control = showAllBranchesStopControl(vi.fn());
+        getButton().focus();
+        if (state === 'disconnected') trigger.remove();
+        if (state === 'disabled') trigger.disabled = true;
+        if (state === 'aria-disabled') trigger.setAttribute('aria-disabled', 'true');
+        if (state === 'disabled fieldset') {
+          const fieldset = document.createElement('fieldset');
+          fieldset.disabled = true;
+          document.body.appendChild(fieldset);
+          fieldset.appendChild(trigger);
+        }
+        const restoreFocus = vi.spyOn(trigger, 'focus');
+
+        control.dispose();
+
+        expect(restoreFocus).not.toHaveBeenCalled();
+        expect(document.activeElement).not.toBe(trigger);
+      }
+    );
+
+    it('safely restores focus when replacing a focused control', () => {
+      const trigger = document.createElement('button');
+      document.body.appendChild(trigger);
+      trigger.focus();
+      const first = showAllBranchesStopControl(vi.fn());
+      getButton().focus();
+
+      control = showAllBranchesStopControl(vi.fn());
+      expect(document.activeElement).toBe(trigger);
+      first.dispose();
+      expect(getRoot().isConnected).toBe(true);
+      getButton().focus();
+      control.dispose();
+      expect(document.activeElement).toBe(trigger);
     });
   });
 

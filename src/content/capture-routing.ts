@@ -55,7 +55,16 @@ export function buildArchivePersistenceMessage(input: {
 export function buildSaveToOutputsMessage(
   note: ObsidianNote,
   outputs: OutputDestination[],
-  capturedAt?: string
+  capturedAt?: string,
+  strictFileDownload?: true,
+  expectedSyncSettingsSnapshot?: string
 ): Extract<ExtensionMessage, { action: 'saveToOutputs' }> {
-  return { action: 'saveToOutputs', data: note, outputs, ...routingMetadata(capturedAt) };
+  return {
+    action: 'saveToOutputs',
+    data: note,
+    outputs,
+    ...routingMetadata(capturedAt),
+    ...(strictFileDownload === true && { strictFileDownload }),
+    ...(expectedSyncSettingsSnapshot !== undefined && { expectedSyncSettingsSnapshot }),
+  };
 }
