@@ -951,7 +951,7 @@ alt text still resolves.
 The Cloud occurrence currently says fixed, but its own saved fix-check records
 that the earlier backslash/dollar-only fallback remained active. That status was
 therefore premature and must not be treated as published remediation. Current
-evidence is local only: 166 test files / 5,037 tests, the 360-test focused/E2E
+evidence is local only: 166 test files / 5,039 tests, the 362-test focused/E2E
 matrix, production build, formatting, diff checks, source/platform lint with the
 same three pre-existing warnings, and an independent parser-backed review all
 pass. Live Obsidian rendering has not been repeated. Next: commit, publish, and

@@ -375,6 +375,14 @@ describe('htmlToMarkdown', () => {
         expect(result).toBe('&#92;a&#36;b');
       });
 
+      it.each(['    ', '\t'])(
+        'trims rejected inline boundary whitespace %j so entities stay readable',
+        whitespace => {
+          const result = htmlToMarkdown(`<span data-math="${whitespace}a$b${whitespace}">x</span>`);
+          expect(result).toBe('a&#36;b');
+        }
+      );
+
       it.each(['\n', '\r\n', '\r', '\u2028', '\u2029'])(
         'normalizes formatting-only inline line separator %j without changing TeX semantics',
         separator => {

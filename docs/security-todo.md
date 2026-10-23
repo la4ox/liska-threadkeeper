@@ -67,8 +67,8 @@ reconciliation, formatting, platform-registry lint and source lint pass with
 only the same three pre-existing advisory warnings. A dated fresh `npm audit`
 reports zero known vulnerabilities.
 
-Math-slice validation: 166 test files / 5,037 tests pass with one bounded
-worker; the focused Markdown/sanitizer/image/E2E matrix passes 360 tests.
+Math-slice validation: 166 test files / 5,039 tests pass with one bounded
+worker; the focused Markdown/sanitizer/image/E2E matrix passes 362 tests.
 Production build, formatting, diff checks, and source/platform lint pass with
 the same three pre-existing advisory warnings. Independent parser-backed review
 found no remaining P0-P3 issue. Live Obsidian rendering is still an explicit

@@ -382,7 +382,7 @@ turndown.addRule('footnoteDef', {
 function mathLiteral(latex: string, display: boolean): string {
   const normalized = display
     ? latex.replace(/\r\n?|[\u2028\u2029]/g, '\n')
-    : latex.replace(/\r\n?|\n|[\u2028\u2029]/g, ' ');
+    : latex.replace(/\r\n?|\n|[\u2028\u2029]/g, ' ').trim();
   const encoded = asciiPunctuationEntities(normalized);
   if (!display) return encoded;
 
