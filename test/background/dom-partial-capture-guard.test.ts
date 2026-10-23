@@ -220,6 +220,22 @@ describe('runtime DOM history-load evidence', () => {
     ).toBe(true);
   });
 
+  it('rejects inherited and accessor loader evidence', () => {
+    const inherited = Object.create({ domHistoryLoad: 'partial' }) as ObsidianNote;
+    Object.assign(inherited, incoming());
+    delete inherited.domHistoryLoad;
+    expect(
+      validateMessageContent({ action: 'saveToOutputs', data: inherited, outputs: ['obsidian'] })
+    ).toBe(false);
+
+    const accessor = incoming();
+    const getter = vi.fn(() => 'partial');
+    Object.defineProperty(accessor, 'domHistoryLoad', { enumerable: true, get: getter });
+    expect(
+      validateMessageContent({ action: 'saveToOutputs', data: accessor, outputs: ['obsidian'] })
+    ).toBe(false);
+  });
+
   it.each([-1, 0.5, '2', null, undefined, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
     'rejects invalid incoming count %s',
     count => {
