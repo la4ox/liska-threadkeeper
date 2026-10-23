@@ -15,6 +15,8 @@ The minimum useful ChatGPT path is live-verified:
 - Canvas and loss-aware canonical blocks;
 - current DOCX/PDF interpreter attachments;
 - bounded sequential PNG acquisition, including historical assets;
+- custom-GPT/project graph capture with an explicit archive-only attachment
+  policy, durable warning, and zero binary authority;
 - preview-shaped records retained with provenance and ordinary eligibility
   unless a future structural relationship proves a narrower asset family.
 
@@ -53,8 +55,13 @@ terminal states, and the existing no-credential-export boundary.
   blocks before eligibility.
 - Library/gizmo/project/template identifiers are raw-only in canonical output;
   custom-GPT/template context retains only bounded boolean association facts.
-- Derive custom-GPT/project context only from exact committed-raw evidence; never
-  guess `gizmo_id` or broaden the ordinary-chat route.
+- Custom-GPT/project route preservation and raw ownership classification are
+  implemented. Live custom-GPT and project captures preserve complete raw and
+  canonical evidence; a project sample retained nine attachment references as
+  `not-attempted`, emitted one durable policy warning, and performed no binary
+  work. Owner slugs/paths remain runtime-only.
+- Do not guess `gizmo_id`, project IDs, or borrow the ordinary-chat route.
+  Owner-context binary acquisition remains a future evidence-gated contract.
 - Keep file-ID, interpreter/sandbox, Library, and future provider families
   discriminated in plan, audit, and terminal state.
 - Live gate each family independently before enabling it generally.
@@ -151,8 +158,9 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Checkpoint the live-verified one-Library-JPEG slice in its own pull request.
-Then collect a fresh custom-GPT/project attachment example and define ownership
-only from its committed raw evidence. Keep the sole archived WebP as separate
-Library-family evidence; do not infer a WebP route or ordinary GIF/WebP support
-from its metadata.
+Checkpoint the independently reviewed owner-context archive-only slice in its
+own pull request. Then use a standard conversation to implement and verify Deep
+Research binaries, provenance, and same-title collision handling. Keep
+custom-GPT/project binaries separately evidence-gated, and keep the sole
+archived WebP as separate Library-family evidence rather than inferring an
+ordinary GIF/WebP route.

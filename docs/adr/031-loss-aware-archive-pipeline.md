@@ -602,6 +602,37 @@ This does not establish general Library identity equivalence, Library PNG/WebP,
 custom-GPT/project ownership, WebP structure validation or a new endpoint.
 Those remain separately evidence-gated work.
 
+### Owner routes are capture context, not attachment authority
+
+Custom-GPT and project routes now have a separate content-free runtime contract.
+Background derives an immutable route target only from the current sender tab:
+standard `/c/<uuid>`, custom-GPT `/g/<slug>/c/<uuid>`, or project
+`/g/g-p-<slug>/c/<uuid>`. The exact validated pathname stays in background;
+only its fixed family crosses the capture response and binds the later
+attachment context. Query, fragment, userinfo, encoded aliases, UUID mismatch,
+case drift, and family changes fail closed. ChatGPT may canonicalize the
+human-readable owner slug; that transition is accepted only for the same origin,
+UUID, family, empty query, and exact extension-owned nonce/mode marker.
+
+Route evidence and verified raw evidence are reconciled before optional work.
+Only a standard route plus one valid owner-free direct or nested graph can
+authorize existing attachment planners. Nonstandard routes, owner/template
+fields, malformed aliases, dual/missing graphs, and unsupported wrapper evidence
+preserve the immutable capture while producing no interpreter observation,
+active/passive resolver, acquisition, binary staging, or resolver audit. Asset
+records remain `not-attempted`, and each successful destination receives one
+fixed policy warning in its manifest. Provider owner values remain raw-only;
+route slugs and paths enter neither manifest, canonical JSON, nor Markdown.
+
+Live evidence covers both sides of this boundary. A custom-GPT route preserved
+a 41,929-byte raw capture and 11-node canonical graph. A project route preserved
+a 2,609,652-byte raw capture, 132 nodes, and nine attachment references while
+creating zero binary files or attempts; all nine assets remained
+`not-attempted`, and one durable policy warning explains the omission. This is
+an explicit archive-only support contract. It does not authorize custom-GPT or
+project attachment downloads, infer owner IDs, or widen ordinary, Library, or
+interpreter transports.
+
 Discovering every reference does not make `completeness.assets` complete. Until
 all required binary acquisitions reach an evidenced terminal state, a
 metadata-only required inventory remains `not-attempted` (or `partial` after a
@@ -820,12 +851,13 @@ later staged begin.
 
 ## ChatGPT-first implementation plan
 
-Progress as of 2026-09-19: steps 1–6 are implemented and live-verified for
+Progress as of 2026-10-23: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images,
 interpreter/sandbox documents and one exact Library-associated JPEG with
-explicit completeness diagnostics; custom-GPT/project ownership, other Library
-binary families, Calpico fallback, and general Deep Research binary acquisition
-remain outside the current checkpoint. Step 8 is implemented and live-verified
+explicit completeness diagnostics. Custom-GPT/project raw capture is
+live-verified under an archive-only, zero-binary policy; their binary ownership,
+other Library binary families, Calpico fallback, and general Deep Research
+binary acquisition remain outside the current checkpoint. Step 8 is implemented and live-verified
 for DeepSeek exact history bytes, complete graph normalization, current-branch
 projection, and raw/manifest/canonical persistence. Step 9 remains a separate
 future phase.
