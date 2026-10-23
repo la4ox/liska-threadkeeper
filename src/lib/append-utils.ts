@@ -9,7 +9,7 @@ import type { ObsidianApiClient } from './obsidian-api';
 import type { ObsidianNote, ExtensionSettings, FilenameScheme } from './types';
 import { SCAN_MAX_REQUESTS } from './constants';
 import { parseFrontmatter, updateFrontmatter, type LineEnding } from './frontmatter-parser';
-import { classifyNoteProbe, isSameConversation, type NoteProbe } from './note-identity';
+import { classifyNoteProbe, isAppendEligibleConversation, type NoteProbe } from './note-identity';
 import { countExistingMessages, extractTailMessages } from './message-counter';
 import { formatDateWithTimezone } from './date-utils';
 
@@ -207,7 +207,7 @@ async function readCandidate(
 ): Promise<FileLookupResult | null> {
   if (!budget.spend()) return null;
   const content = await client.getFile(candidatePath);
-  if (!isSameConversation(classifyNoteProbe(content, expectedId))) return null;
+  if (!isAppendEligibleConversation(classifyNoteProbe(content, expectedId))) return null;
   return { found: true, path: candidatePath, content: content as string, matchType: 'id-scan' };
 }
 
@@ -223,7 +223,7 @@ async function tryHintPath(
 ): Promise<FileLookupResult | null> {
   if (!hintPath || hintPath === fullPath) return null;
   const content = await client.getFile(hintPath);
-  if (!isSameConversation(classifyNoteProbe(content, expectedId))) return null;
+  if (!isAppendEligibleConversation(classifyNoteProbe(content, expectedId))) return null;
   return { found: true, path: hintPath, content: content as string, matchType: 'memo' };
 }
 
@@ -264,7 +264,7 @@ export async function lookupExistingFile(
   // Step 1: Direct path match
   const directContent = await client.getFile(fullPath);
   const directProbe = classifyNoteProbe(directContent, expectedId);
-  if (isSameConversation(directProbe)) {
+  if (isAppendEligibleConversation(directProbe)) {
     return {
       found: true,
       path: fullPath,

@@ -82,6 +82,9 @@ terminal states, and the existing no-credential-export boundary.
   an occupied path. Synthetic regressions cover identical display intent with
   distinct content paths, destination divergence, repeated capture writes, and
   equal bytes retained under distinct allowed MIME-derived targets.
+- Ordinary append lookup also excludes every same-conversation note carrying a
+  top-level archive-capture, manifest-hash, or presentation-mode marker. A later
+  mutable export therefore cannot append to or overwrite an immutable snapshot.
 - All-branches leaf notes and their index now consume strict destination-owned
   archive receipts. They preserve their prepared filenames, carry the exact
   final manifest hash, and expose only that destination's confirmed
@@ -206,11 +209,10 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Let the current-head reviews on PR 16 finish and merge that research-output
-checkpoint if clean. Rebase and publish `codex/chatgpt-wide-branch`, followed by
-the stacked `codex/chatgpt-all-branches-receipts` checkpoint. Then make the
-explicit 1 GiB versus reviewed 1.25 GiB source-work decision above. Only a
-reviewed limit change authorizes the real 239-leaf File/Obsidian completion run.
-Keep finalized archive/binary physical-byte accounting and inline `sandbox:`
-replacement as separate bounded tasks; keep custom-GPT/project binaries and the
-sole archived Library WebP separately evidence-gated.
+Validate and merge the all-branch receipt checkpoint from pull request 18 on top
+of the landed PR 16 and 17 work, then retarget and merge the already reviewed
+physical-budget checkpoint. The 1 GiB source-work limit remains a deliberate
+refusal for the measured 1.051 GiB graph; only a separately reviewed limit change
+may authorize that full 239-leaf run. Continue with sandbox-link localization
+after the stack is linear again. Keep custom-GPT/project binaries and the sole
+archived Library WebP separately evidence-gated.

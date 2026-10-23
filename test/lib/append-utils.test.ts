@@ -75,6 +75,42 @@ describe('lookupExistingFile', () => {
     expect(result.content).toBe(existingContent);
   });
 
+  it('does not return an immutable archive presentation from the direct path', async () => {
+    mockClient.getFile.mockResolvedValue(
+      `---\nid: claude_abc-def-123\narchive_manifest_sha256: ${'d'.repeat(64)}\n---\nBody`
+    );
+    mockClient.listFiles.mockResolvedValue([]);
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      'AI/claude/my-chat-abc12345.md',
+      'AI/claude',
+      testNote
+    );
+
+    expect(result.found).toBe(false);
+    expect(result.directProbe).toMatchObject({ immutableArchivePresentation: true });
+  });
+
+  it('skips an immutable memo hint and can still use the ordinary direct path', async () => {
+    const ordinary = '---\nid: claude_abc-def-123\n---\nBody';
+    const snapshot = `---\nid: claude_abc-def-123\narchive_capture_id: retained\n---\nBody`;
+    mockClient.getFile.mockImplementation((path: string) =>
+      Promise.resolve(path.endsWith('snapshot.md') ? snapshot : ordinary)
+    );
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      'AI/claude/my-chat-abc12345.md',
+      'AI/claude',
+      testNote,
+      { hintPath: 'AI/claude/snapshot.md' }
+    );
+
+    expect(result).toMatchObject({ found: true, matchType: 'direct' });
+    expect(result.path).toBe('AI/claude/my-chat-abc12345.md');
+  });
+
   it('returns not found when direct path has different ID', async () => {
     mockClient.getFile.mockResolvedValueOnce('---\nid: different_id\n---\nBody');
     mockClient.listFiles.mockResolvedValue([]);
@@ -291,6 +327,38 @@ describe('lookupExistingFile', () => {
     expect(result.found).toBe(true);
     expect(result.matchType).toBe('id-scan');
     expect(result.path).toBe('AI/claude/my-chat-2026-07-03.md');
+  });
+
+  it.each([
+    'archive_capture_id',
+    'archive_manifest_sha256',
+    'presentation_mode',
+    "'archive_capture_id'",
+    '"archive_manifest_sha256"',
+  ])('never selects a %s snapshot as an append target', async field => {
+    const dateNote = createTestNote({
+      fileName: 'my-chat-2026-07-10.md',
+      frontmatter: createTestFrontmatter({ id: 'claude_abc-def-123' }),
+    });
+    const immutableSnapshot = [
+      '---',
+      'id: claude_abc-def-123',
+      `${field}: retained`,
+      '---',
+      'Body',
+    ].join('\n');
+    mockClient.getFile.mockResolvedValueOnce(null).mockResolvedValueOnce(immutableSnapshot);
+    mockClient.listFiles.mockResolvedValue(['my-chat-2026-07-03--capture-retained.md']);
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      'AI/claude/my-chat-2026-07-10.md',
+      'AI/claude',
+      dateNote,
+      { filenameScheme: 'title-date' }
+    );
+
+    expect(result).toMatchObject({ found: false, missReason: 'candidate-id-mismatch' });
   });
 
   it('does not match a foreign conversation when the scheme is title-date', async () => {
