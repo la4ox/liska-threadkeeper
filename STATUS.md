@@ -695,13 +695,18 @@ already confirmed physical seed in its summary. This is exact accounting for
 successful finalized destinations, not a whole-operation pre-write disk gate:
 raw/binary residue from a destination that fails later finalization still needs
 a broader per-write ledger before it can be budgeted or summarized exactly.
+GitHub review then exposed the remaining adversarial case where two individually
+representable destination totals overflow the aggregate safe-integer range. The
+budget now short-circuits that aggregate to a bounded over-cap sentinel and
+returns an ordinary `physical-planned-bytes` rejection summary before any
+Markdown fingerprint/write instead of rejecting the persistence promise.
 
-Final validation passes 162 test files / 4,732 tests. Coverage passes at 95.26%
-statements, 91.12% branches, 98.57% functions, and 97.77% lines. TypeScript,
+Final validation passes 162 test files / 4,733 tests. Coverage passes at 95.27%
+statements, 91.11% branches, 98.57% functions, and 97.77% lines. TypeScript,
 production build, ZIP packaging, repository formatting, independent review,
 and source/platform lint pass; lint retains only the same three pre-existing
-advisory warnings. The ZIP is 235,223 bytes with SHA-256
-`9f5c613dbf2d236fbc3a86b29a8d046b08f11f0e8383a959e5425913f9fb0286`.
+advisory warnings. The ZIP is 235,317 bytes with SHA-256
+`9c5d2617bf255c04d7fb8a9237d93454df00fdc89dce639af3bf6550f5cd2365`.
 The installed Comet tree matches its 29-file production build exactly; its clean
 pre-live rollback is retained at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\physical-budget-prelive-20261023-102928-8692fc9f`.
