@@ -15,7 +15,12 @@ import {
 } from '../lib/path-utils';
 import { lookupExistingFile, buildAppendContent } from '../lib/append-utils';
 import { applyLineEnding } from '../lib/frontmatter-parser';
-import { classifyNoteProbe, isSameConversation, type ProbeState } from '../lib/note-identity';
+import {
+  classifyNoteProbe,
+  hasImmutableArchivePresentationFields,
+  isAppendEligibleConversation,
+  type ProbeState,
+} from '../lib/note-identity';
 import { resolveImagesForObsidian, stripImagePlaceholders } from '../lib/image-output';
 import { flattenLargeCallouts } from '../lib/callout-flatten';
 import { base64ToBytes } from '../lib/image-utils';
@@ -496,7 +501,7 @@ async function tryAppendMode(
   if (
     !settings.enableAppendMode ||
     note.frontmatter.type === 'deep-research' ||
-    note.frontmatter.presentation_mode !== undefined
+    hasImmutableArchivePresentationFields(note.frontmatter)
   ) {
     return null;
   }
@@ -776,7 +781,13 @@ async function resolveCollisionFreePath(
     if (probe.state === 'absent') {
       return { path, fileName, isNewFile: true, renamed: attempt > 0, probes };
     }
-    if (isSameConversation(probe)) {
+    // Receipt-bound notes are immutable presentation snapshots. Even an exact
+    // same-conversation/same-capture retry must choose a fresh absent path so
+    // user edits and earlier provenance are never overwritten implicitly.
+    if (
+      isAppendEligibleConversation(probe) &&
+      !hasImmutableArchivePresentationFields(note.frontmatter)
+    ) {
       return { path, fileName, isNewFile: false, renamed: attempt > 0, probes };
     }
     // Occupied by a different conversation, or holding something we cannot

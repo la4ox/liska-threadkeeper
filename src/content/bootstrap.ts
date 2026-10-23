@@ -28,6 +28,8 @@ import {
   type AllBranchesPersistenceSummary,
 } from './archive-branch-persistence';
 import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-export';
+import type { ChatGptAssetExportResult } from './chatgpt-asset-export';
+import { decorateChatGptArchiveNote } from './chatgpt-archive-links';
 import { persistDeepSeekDestinationHonestAttachments } from './deepseek-asset-export';
 import {
   canExportChatGptAttachments,
@@ -790,6 +792,73 @@ async function persistNote(
   displaySaveResults(attempt.response, extractionWarnings);
 }
 
+function archiveBoundNoteForDestination(
+  note: ObsidianNote,
+  destination: OutputDestination,
+  attachmentExport: ChatGptAssetExportResult
+): { note: ObsidianNote; warning?: string } {
+  if (destination === 'clipboard') return { note };
+  const receipts = attachmentExport.destinationReceipts.filter(
+    receipt => receipt.destination === destination
+  );
+  if (receipts.length !== 1) {
+    return {
+      note,
+      warning: `ChatGPT Markdown saved to ${destination} without finalized archive provenance`,
+    };
+  }
+  try {
+    return { note: decorateChatGptArchiveNote(note, receipts[0]) };
+  } catch {
+    return {
+      note,
+      warning: `ChatGPT Markdown saved to ${destination} without finalized archive provenance`,
+    };
+  }
+}
+
+/**
+ * Finalized ChatGPT manifests can differ by destination. Write one note per
+ * output so every local link and manifest hash describes only bytes confirmed
+ * at that destination; Clipboard deliberately receives no local archive links.
+ */
+async function persistDestinationHonestChatGptNote(
+  note: ObsidianNote,
+  outputs: OutputDestination[],
+  messageCount: number,
+  attachmentExport: ChatGptAssetExportResult,
+  extractionWarnings: string[],
+  capturedAt?: string
+): Promise<void> {
+  showToast('Saving...', 'info', INFO_TOAST_DURATION);
+  const results: OutputResult[] = [];
+  const provenanceWarnings: string[] = [];
+  for (const destination of outputs) {
+    const decorated = archiveBoundNoteForDestination(note, destination, attachmentExport);
+    let attempt: NoteWriteAttempt;
+    try {
+      attempt = await writeNoteToOutputs(decorated.note, [destination], messageCount, capturedAt);
+    } catch {
+      results.push({ destination, success: false, error: 'Note write failed' });
+      continue;
+    }
+    if (!attempt.success) {
+      results.push({ destination, success: false, error: attempt.error });
+      continue;
+    }
+    const result = attempt.response.results[0];
+    results.push(result);
+    if (result.success && decorated.warning) provenanceWarnings.push(decorated.warning);
+  }
+  const response: MultiOutputResponse = {
+    results,
+    allSuccessful: results.every(result => result.success),
+    anySuccessful: results.some(result => result.success),
+    messagesAppended: results.find(result => result.destination === 'obsidian')?.messagesAppended,
+  };
+  displaySaveResults(response, [...extractionWarnings, ...provenanceWarnings]);
+}
+
 const chatGptAttachmentDependencies = (strictReplay: boolean) => ({
   persistArtifacts: persistArchiveCompanionArtifacts,
   observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
@@ -906,10 +975,11 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       );
       stage = 'saving the ChatGPT note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
-      await persistNote(
+      await persistDestinationHonestChatGptNote(
         note,
         enabledOutputs,
         result.data.messages.length,
+        attachmentExport,
         warnings,
         result.archiveCompanion?.capturedAt
       );

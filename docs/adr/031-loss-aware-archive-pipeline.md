@@ -633,6 +633,46 @@ an explicit archive-only support contract. It does not authorize custom-GPT or
 project attachment downloads, infer owner IDs, or widen ordinary, Library, or
 interpreter transports.
 
+### Research-output notes consume destination receipts, not acquisition claims
+
+The readable current-branch note now receives a separate finalized receipt for
+each durable destination. The receipt is emitted only when that destination has
+confirmed its binary writes and then persisted its final manifest and canonical
+archive. Its exact allowlist is destination, opaque capture ID, opaque
+conversation key, final manifest SHA-256, and content-addressed binary
+descriptors (`sha256`, `relativePath`, MIME type and byte length). Accessors,
+extra fields, provider IDs, filenames, URLs, source pointers, status strings,
+unsafe MIME types, noncanonical paths and duplicate targets fail closed.
+
+This makes Markdown destination-honest too. File and Obsidian are written
+separately from their own receipts; Clipboard receives neither local archive
+links nor a hash borrowed from another destination. Each durable note records
+the exact `archive_capture_id` and `archive_manifest_sha256`, and appends generic
+links only to binaries proven present below the same capture directory. Link
+labels never reuse provider titles. Equal bytes may legitimately survive under
+distinct allowlisted MIME-derived paths, while an exact duplicate target is
+rejected.
+
+Receipt-bound notes are immutable presentations. Their filenames include the
+opaque capture suffix, Obsidian append mode is bypassed, and every occupied path
+is treated as protected even when its conversation ID matches. Collision
+resolution can therefore choose a fresh absent path but cannot silently replace
+an earlier snapshot or user edit. The provider's original `sandbox:` link is
+retained as historical text; the verified local archive link is additive until
+a later identity-safe inline rewrite is designed. Canonical citation, tool,
+execution and attachment blocks remain unchanged.
+
+A live standard-chat research-output canary preserved 49 graph nodes and 48
+messages, including 22 tool-role messages. Canonical output retained 12
+citations, 20 execution outputs and 13 attachment blocks. One 45,036-byte DOCX
+reached both File and Obsidian under the same SHA-256 content address; raw,
+manifest, canonical and binary artifacts were byte-identical across those
+destinations. Both capture-scoped notes carried the exact matching final
+manifest hash, and their one local DOCX link resolved to an existing file whose
+bytes matched the link's digest. Four older PNG attempts remained explicit
+failures and nine references stayed `not-attempted`; no readable link was
+created for either group.
+
 Discovering every reference does not make `completeness.assets` complete. Until
 all required binary acquisitions reach an evidenced terminal state, a
 metadata-only required inventory remains `not-attempted` (or `partial` after a

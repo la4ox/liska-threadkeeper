@@ -8,6 +8,11 @@
  */
 
 import type { RawCaptureAsset, RawCaptureAssetRecord } from '../archive';
+import type { ChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
+import {
+  buildChatGptDestinationArchiveReceipt,
+  reconcileChatGptDestinationAssets,
+} from './chatgpt-destination-receipt';
 import {
   acquireChatGptPageOwnedAssets,
   createChatGptPageOwnedAssetAcquisitionBudget,
@@ -53,11 +58,11 @@ import type {
   ChatGptAssetExportContext,
   OutputDestination,
   PersistentOutputDestination,
-  StagedBinaryAssetDescriptor,
   StagedBinaryAssetResult,
 } from '../lib/types';
 
-export const CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL = 'destination-write-failed';
+export { CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL } from './chatgpt-destination-receipt';
+
 export const CHATGPT_ASSET_ACQUISITION_FAILED_WARNING =
   'ChatGPT attachment acquisition was incomplete; final attachment states are recorded in the archive manifest.';
 export const CHATGPT_ASSET_FINALIZATION_FAILED_WARNING =
@@ -116,6 +121,7 @@ export interface ChatGptAssetExportDependencies {
 export interface ChatGptAssetExportResult {
   rawSuccessfulDestinations: PersistentOutputDestination[];
   completeDestinations: PersistentOutputDestination[];
+  destinationReceipts: ChatGptDestinationArchiveReceipt[];
   warnings: string[];
 }
 
@@ -130,6 +136,12 @@ interface AssetAttempt {
   warnings: string[];
   archiveWarnings?: readonly string[];
   activeResolverMetric?: ChatGptActiveResolverAudit;
+}
+
+interface FinalizedDestination {
+  complete: boolean;
+  receipt?: ChatGptDestinationArchiveReceipt;
+  warnings: string[];
 }
 
 interface ChatGptAssetCandidateResolution {
@@ -205,98 +217,6 @@ function cloneRecord(record: RawCaptureAssetRecord): RawCaptureAssetRecord {
     ...record,
     sourceRefs: record.sourceRefs.map(sourceRef => ({ ...sourceRef })),
   };
-}
-
-function destinationWriteFailure(record: RawCaptureAssetRecord): RawCaptureAssetRecord {
-  return {
-    ...cloneRecord(record),
-    state: 'failed',
-    relativePath: null,
-    byteLength: null,
-    sha256: null,
-    detail: CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL,
-  };
-}
-
-function recordsMatch(
-  expected: Pick<
-    RawCaptureAssetRecord,
-    'id' | 'relativePath' | 'sha256' | 'byteLength' | 'mediaType'
-  >,
-  actual: Pick<RawCaptureAssetRecord, 'id' | 'relativePath' | 'sha256' | 'byteLength' | 'mediaType'>
-): boolean {
-  return (
-    expected.id === actual.id &&
-    expected.relativePath === actual.relativePath &&
-    expected.sha256 === actual.sha256 &&
-    expected.byteLength === actual.byteLength &&
-    expected.mediaType === actual.mediaType
-  );
-}
-
-function descriptorMatchesRuntime(
-  descriptor: StagedBinaryAssetDescriptor,
-  runtime: RawCaptureAsset
-): boolean {
-  return (
-    descriptor.assetId === runtime.record.id &&
-    descriptor.relativePath === runtime.record.relativePath &&
-    descriptor.sha256 === runtime.record.sha256 &&
-    descriptor.byteLength === runtime.record.byteLength &&
-    descriptor.mediaType === runtime.record.mediaType
-  );
-}
-
-function hasExactSuccessfulDestination(
-  result: StagedBinaryAssetResult,
-  destination: PersistentOutputDestination
-): boolean {
-  const destinationResults = result.results.filter(item => item.destination === destination);
-  return destinationResults.length === 1 && destinationResults[0].success;
-}
-
-function binarySucceeded(
-  record: RawCaptureAssetRecord,
-  runtime: RawCaptureAsset,
-  destination: PersistentOutputDestination,
-  results: readonly StagedBinaryAssetResult[]
-): boolean {
-  const matching = results.filter(result => result.assetId === record.id);
-  const descriptor = matching[0]?.descriptor;
-  return (
-    matching.length === 1 &&
-    descriptor !== undefined &&
-    descriptorMatchesRuntime(descriptor, runtime) &&
-    recordsMatch(record, runtime.record) &&
-    hasExactSuccessfulDestination(matching[0], destination)
-  );
-}
-
-function destinationAssets(
-  acquired: AcquiredAssets,
-  binaryResults: readonly StagedBinaryAssetResult[],
-  destination: PersistentOutputDestination
-): { records: RawCaptureAssetRecord[]; runtimeAssets: RawCaptureAsset[]; binaryFailed: boolean } {
-  const runtimes = new Map(acquired.runtimeAssets.map(asset => [asset.record.id, asset]));
-  const records: RawCaptureAssetRecord[] = [];
-  const runtimeAssets: RawCaptureAsset[] = [];
-  let binaryFailed = false;
-
-  for (const record of acquired.records) {
-    const runtime = runtimes.get(record.id);
-    if (record.state !== 'fetched') {
-      records.push(cloneRecord(record));
-      continue;
-    }
-    if (runtime && binarySucceeded(record, runtime, destination, binaryResults)) {
-      records.push(cloneRecord(record));
-      runtimeAssets.push({ record: cloneRecord(record), bytes: runtime.bytes });
-      continue;
-    }
-    records.push(destinationWriteFailure(record));
-    binaryFailed = true;
-  }
-  return { records, runtimeAssets, binaryFailed };
 }
 
 function acquisitionFailure(context: ChatGptAssetExportContext): AcquiredAssets {
@@ -740,7 +660,6 @@ async function attemptAssets(
 
 async function finalizeDestination(
   context: ChatGptAssetExportContext,
-  companion: ArchiveCompanionBundle,
   noteFileName: string,
   destination: PersistentOutputDestination,
   acquired: AcquiredAssets,
@@ -748,10 +667,10 @@ async function finalizeDestination(
   activeResolverMetric: ChatGptActiveResolverAudit | undefined,
   archiveWarnings: readonly string[],
   dependencies: ChatGptAssetExportDependencies
-): Promise<{ complete: boolean; warnings: string[] }> {
-  const destinationState = destinationAssets(acquired, binaryResults, destination);
+): Promise<FinalizedDestination> {
+  const state = reconcileChatGptDestinationAssets(acquired, binaryResults, destination);
   const warnings: string[] = [];
-  if (destinationState.binaryFailed) {
+  if (state.binaryFailed) {
     warnings.push(
       `One or more ChatGPT attachments were not saved to ${destination}; the archive manifest records them as failed.`
     );
@@ -759,12 +678,11 @@ async function finalizeDestination(
   try {
     const destinationCompanion = await (
       dependencies.buildDestinationCompanion ?? buildChatGptBinaryAwareArchiveCompanion
-    )(
-      context,
-      destinationState.records,
-      destinationState.runtimeAssets,
-      activeResolverMetric,
-      archiveWarnings
+    )(context, state.records, state.runtimeAssets, activeResolverMetric, archiveWarnings);
+    const receipt = buildChatGptDestinationArchiveReceipt(
+      destinationCompanion,
+      destination,
+      state.runtimeAssets
     );
     const outcome = await dependencies.persistArtifacts(
       destinationCompanion,
@@ -773,8 +691,10 @@ async function finalizeDestination(
       [destination],
       ['manifest', 'canonical']
     );
+    const complete = outcome.activeOutputs.includes(destination);
     return {
-      complete: outcome.activeOutputs.includes(destination),
+      complete,
+      ...(complete && { receipt }),
       warnings: [...warnings, ...outcome.warnings],
     };
   } catch {
@@ -800,13 +720,19 @@ export async function persistChatGptDestinationHonestAttachments(
 ): Promise<ChatGptAssetExportResult> {
   const requested = persistentOutputs(outputs);
   if (requested.length === 0) {
-    return { rawSuccessfulDestinations: [], completeDestinations: [], warnings: [] };
+    return {
+      rawSuccessfulDestinations: [],
+      completeDestinations: [],
+      destinationReceipts: [],
+      warnings: [],
+    };
   }
   const originalRawBytes = await verifiedBoundRawBytes(context, companion);
   if (originalRawBytes === undefined) {
     return {
       rawSuccessfulDestinations: [],
       completeDestinations: [],
+      destinationReceipts: [],
       warnings: [CHATGPT_ASSET_BINDING_FAILED_WARNING],
     };
   }
@@ -824,13 +750,19 @@ export async function persistChatGptDestinationHonestAttachments(
     return {
       rawSuccessfulDestinations: [],
       completeDestinations: [],
+      destinationReceipts: [],
       warnings: [CHATGPT_ASSET_RAW_PERSISTENCE_FAILED_WARNING],
     };
   }
   const rawSuccessfulDestinations = rawOutcome.activeOutputs;
   const warnings = [...rawOutcome.warnings];
   if (rawSuccessfulDestinations.length === 0) {
-    return { rawSuccessfulDestinations, completeDestinations: [], warnings };
+    return {
+      rawSuccessfulDestinations,
+      completeDestinations: [],
+      destinationReceipts: [],
+      warnings,
+    };
   }
 
   const assetAttempt: AssetAttempt = allowsChatGptAttachmentAcquisitionFromJsonBytes(
@@ -851,10 +783,10 @@ export async function persistChatGptDestinationHonestAttachments(
   warnings.push(...assetAttempt.warnings);
 
   const completeDestinations: PersistentOutputDestination[] = [];
+  const destinationReceipts: ChatGptDestinationArchiveReceipt[] = [];
   for (const destination of rawSuccessfulDestinations) {
     const finalized = await finalizeDestination(
       context,
-      companion,
       noteFileName,
       destination,
       acquired,
@@ -865,6 +797,12 @@ export async function persistChatGptDestinationHonestAttachments(
     );
     warnings.push(...finalized.warnings);
     if (finalized.complete) completeDestinations.push(destination);
+    if (finalized.receipt && requested.includes(destination)) {
+      destinationReceipts.push(finalized.receipt);
+    }
   }
-  return { rawSuccessfulDestinations, completeDestinations, warnings };
+  destinationReceipts.sort(
+    (left, right) => requested.indexOf(left.destination) - requested.indexOf(right.destination)
+  );
+  return { rawSuccessfulDestinations, completeDestinations, destinationReceipts, warnings };
 }

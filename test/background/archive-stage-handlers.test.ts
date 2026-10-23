@@ -12,12 +12,14 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   acquireLease: vi.fn(),
+  confirmArchiveDownloadPath: vi.fn(),
   downloadArchiveBlob: vi.fn(),
   saveStagedArchive: vi.fn(),
 }));
 
 vi.mock('../../src/background/output-handlers', () => ({
   acquireOffscreenLeaseForArchiveStage: (...args: unknown[]) => mocks.acquireLease(...args),
+  confirmArchiveDownloadPath: (...args: unknown[]) => mocks.confirmArchiveDownloadPath(...args),
   downloadArchiveBlob: (...args: unknown[]) => mocks.downloadArchiveBlob(...args),
 }));
 
@@ -99,6 +101,11 @@ function installStageUrlResponses(
 describe('archive-stage background handlers', () => {
   beforeEach(() => {
     mocks.acquireLease.mockReset();
+    mocks.confirmArchiveDownloadPath.mockReset();
+    mocks.confirmArchiveDownloadPath.mockImplementation(
+      (outcome: { error: string | null; terminal: boolean }) =>
+        Promise.resolve(outcome.error === null && outcome.terminal)
+    );
     mocks.downloadArchiveBlob.mockReset();
     mocks.saveStagedArchive.mockReset();
     vi.mocked(chrome.runtime.sendMessage).mockReset();
@@ -266,9 +273,9 @@ describe('archive-stage background handlers', () => {
     await expect(
       handleArchiveStageMessage(commitMessage('raw', ['file']), settings)
     ).resolves.toEqual({
-      results: [{ destination: 'file', success: true }],
-      allSuccessful: true,
-      anySuccessful: true,
+      results: [{ destination: 'file', success: false, error: 'archive-stage-path-unconfirmed' }],
+      allSuccessful: false,
+      anySuccessful: false,
     });
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiveStageCreateUrl', stageId })
@@ -286,6 +293,49 @@ describe('archive-stage background handlers', () => {
       stageId,
       url: 'blob:chrome-extension://test-extension-id/archive-stage',
     });
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a terminal staged archive download whose exact path was not confirmed', async () => {
+    const release = installLease();
+    installStageUrlResponses();
+    mocks.downloadArchiveBlob.mockResolvedValue({ error: null, terminal: true, downloadId: 74 });
+    mocks.confirmArchiveDownloadPath.mockResolvedValue(false);
+
+    await expect(
+      handleArchiveStageMessage(commitMessage('canonical', ['file']), settings)
+    ).resolves.toEqual({
+      results: [{ destination: 'file', success: false, error: 'archive-stage-path-unconfirmed' }],
+      allSuccessful: false,
+      anySuccessful: false,
+    });
+
+    expect(mocks.confirmArchiveDownloadPath).toHaveBeenCalledWith(
+      { error: null, terminal: true, downloadId: 74 },
+      `_liska-archive/${conversationKey}/${captureId}/canonical/liska-thread-1.json`
+    );
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('keeps staged Obsidian success independent from an unconfirmed File path', async () => {
+    const release = installLease();
+    installStageUrlResponses();
+    mocks.saveStagedArchive.mockResolvedValue({ success: true });
+    mocks.downloadArchiveBlob.mockResolvedValue({ error: null, terminal: true, downloadId: 75 });
+    mocks.confirmArchiveDownloadPath.mockResolvedValue(false);
+
+    await expect(
+      handleArchiveStageMessage(commitMessage('raw', ['file', 'obsidian']), settings)
+    ).resolves.toEqual({
+      results: [
+        { destination: 'file', success: false, error: 'archive-stage-path-unconfirmed' },
+        { destination: 'obsidian', success: true },
+      ],
+      allSuccessful: false,
+      anySuccessful: true,
+    });
+
+    expect(mocks.saveStagedArchive).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
   });
 

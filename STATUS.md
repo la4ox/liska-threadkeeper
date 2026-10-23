@@ -535,8 +535,75 @@ bytes, and has SHA-256
 The installed Comet tree is the same 29-file production build; its pre-live
 rollback is retained under `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks`.
 
-Next: checkpoint this owner-context archive-only contract in its own pull
-request. Then move to Deep Research binaries/provenance and title-collision
-handling on a standard conversation. Custom-GPT/project binary acquisition
-remains separately evidence-gated rather than borrowing ordinary authority;
-the archived WebP remains separate Library-family evidence.
+Pull request 15 merged the owner-context archive-only contract to `main` as
+`f4c04d5`; its reviewed source head was `9638938`. CI, ordinary review, Security
+review, and the final independent local review were clean.
+
+The next standard-chat research-output checkpoint is implemented on
+`codex/chatgpt-deep-research`. A finalized destination receipt is emitted only
+after that destination has independently confirmed its binary writes and its
+final manifest plus canonical companion. The receipt contains only the opaque
+capture/conversation keys, exact final manifest SHA-256, and safe
+content-addressed binary descriptors. Provider IDs, filenames, URLs, source
+pointers, and statuses cannot cross the receipt validator. File and Obsidian
+notes are now decorated separately, so each note links only binaries present in
+that destination and carries the exact matching `archive_capture_id` and
+`archive_manifest_sha256`; Clipboard receives neither local links nor an
+arbitrary durable-destination hash. Receipt-bound Markdown uses a capture-scoped
+filename and treats every occupied candidate, including the same conversation,
+as immutable. Earlier notes and user edits are therefore never overwritten by a
+new or repeated archive presentation.
+
+A live standard-chat canary containing research/search evidence and a produced
+DOCX retained a direct 49-node graph with 48 messages: 2 user, 24 assistant and
+22 tool roles. Canonical JSON preserved 12 text, 12 reasoning, 12 citation, 7
+code, 20 execution-output and 13 attachment blocks. The 287,632-byte raw,
+8,959-byte manifest and 612,899-byte canonical archive remained hash-bound.
+Four historical PNG attempts ended honestly as failed, nine PNG references
+remained `not-attempted`, and one 45,036-byte DOCX was fetched under SHA-256
+`45e080f46c285def0978eb7c26133b728cc2928cb5a9f90f7f1a1a2bc055a7ee`.
+Downloads and Obsidian retained byte-identical raw, manifest, canonical and
+DOCX artifacts. Each capture-scoped Markdown note has one local archive link;
+both targets exist and hash to that exact content address, while the original
+provider `sandbox:` reference remains additive historical text rather than
+being guessed away. Both note frontmatters bind to the final reviewed-build
+capture `capture-chatgpt-8d66dd07-be72-4285-99cf-8791257386a9` and the exact
+persisted manifest hash
+`98551c2aa445df27bcd4ead8729704c1d6c7e3b2aa30b30d89b9d20f450389ec`.
+File companions now require Chrome to confirm the exact requested terminal path
+for both inline and staged archive transport; a uniquified raw, manifest or
+canonical filename fails the destination instead of issuing a misleading
+receipt. Provenance warnings are likewise emitted only after that destination's
+Markdown write succeeds.
+
+The focused Codex Security diff scan of `f4c04d5..d45c911` completed with all
+ten changed source files covered and no validated security finding. It did
+reproduce one same-user correctness defect in the append-only contract: a
+later ordinary `title-date` append could select an existing same-conversation
+receipt-bound snapshot. Existing-note lookup and collision reuse now exclude
+top-level `archive_capture_id`, `archive_manifest_sha256`, and
+`presentation_mode` markers, including simply quoted YAML keys. Nested mappings
+and block-scalar text remain ordinary note content rather than false immutable
+markers. The snapshot is therefore neither appended to nor overwritten; the
+ordinary export selects a fresh collision-free path. A final independent review
+found no residual P0-P3 issue in this repair.
+
+Final validation passes 157 test files / 4,602 tests. Coverage is 95.26%
+statements, 91.15% branches, 98.53% functions, and 97.70% lines. TypeScript,
+production build, source/platform lint, repository formatting, ZIP packaging,
+and independent review pass; lint retains only the same three pre-existing
+advisory warnings. The ZIP contains 29 of 29 files byte-identical to `dist`, is
+231,480 bytes, and has SHA-256
+`92ef88ae6fab2b6969278956810ef4e08c08c23cd4b8504fef5aadad58ee24c7`.
+The installed Comet tree matches that production build exactly; its 29-file
+pre-live rollback is retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\deep-research-prelive-20261023-074014-d2aba19b`.
+
+Next: update pull request 16 with the immutable-snapshot repair, require clean
+current-head CI/reviews, and merge it before retargeting the already green
+stacked wide-branch, all-branch-receipt, and physical-budget checkpoints.
+All-branches receipt decoration, identity-safe replacement of provider
+`sandbox:` links, and a live multi-output same-title sample remain explicit
+presentation follow-ups rather than reasons to widen attachment authority.
+Custom-GPT/project binaries and the archived Library WebP remain separately
+evidence-gated.

@@ -10,7 +10,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { classifyNoteProbe, isSameConversation } from '../../src/lib/note-identity';
+import {
+  classifyNoteProbe,
+  isAppendEligibleConversation,
+  isSameConversation,
+} from '../../src/lib/note-identity';
 import type { ProbeState } from '../../src/lib/note-identity';
 
 const ID = 'claude_1a07d605-561d-46ba-86ea-79227969c0a1';
@@ -63,6 +67,40 @@ describe('classifyNoteProbe', () => {
       state: 'same-conversation',
       foundId: ID,
     });
+  });
+
+  it.each(['archive_capture_id', 'archive_manifest_sha256', 'presentation_mode'])(
+    'marks %s notes as immutable archive presentations',
+    field => {
+      const content = `---\nid: ${ID}\n${field}: retained\n---\n\nBody`;
+      expect(classifyNoteProbe(content, ID)).toEqual({
+        state: 'same-conversation',
+        foundId: ID,
+        immutableArchivePresentation: true,
+      });
+      expect(isAppendEligibleConversation(classifyNoteProbe(content, ID))).toBe(false);
+    }
+  );
+
+  it.each(["'archive_capture_id'", '"archive_manifest_sha256"', "'presentation_mode'"])(
+    'recognizes quoted immutable marker key %s',
+    field => {
+      const content = `---\nid: ${ID}\n${field}: retained\n---\n\nBody`;
+      expect(classifyNoteProbe(content, ID)).toMatchObject({
+        state: 'same-conversation',
+        immutableArchivePresentation: true,
+      });
+    }
+  );
+
+  it.each([
+    `metadata:\n  presentation_mode: custom`,
+    `description: |\n  archive_capture_id: example`,
+  ])('does not treat nested or block-scalar text as a top-level immutable marker', fragment => {
+    const content = `---\nid: ${ID}\n${fragment}\n---\n\nBody`;
+    const probe = classifyNoteProbe(content, ID);
+    expect(probe).toEqual({ state: 'same-conversation', foundId: ID });
+    expect(isAppendEligibleConversation(probe)).toBe(true);
   });
 
   it('reports different-id when the id field is a list rather than a scalar', () => {
@@ -122,5 +160,9 @@ describe('isSameConversation', () => {
 
   it.each(NOT_OURS)('is false for %s — every negative still means "do not touch"', state => {
     expect(isSameConversation({ state })).toBe(false);
+  });
+
+  it('keeps ordinary same-conversation notes append-eligible', () => {
+    expect(isAppendEligibleConversation({ state: 'same-conversation', foundId: ID })).toBe(true);
   });
 });

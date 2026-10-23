@@ -88,7 +88,8 @@ function context(
   };
 }
 
-function companion(): ArchiveCompanionBundle {
+function companion(manifestBody = '{}'): ArchiveCompanionBundle {
+  const manifestBytes = new TextEncoder().encode(manifestBody);
   return {
     captureId: CAPTURE_ID,
     conversationKey: sha256(new TextEncoder().encode(CONVERSATION_ID)),
@@ -107,9 +108,9 @@ function companion(): ArchiveCompanionBundle {
         kind: 'manifest',
         relativePath: 'manifest.json',
         mediaType: 'application/json',
-        byteLength: 2,
-        sha256: 'c'.repeat(64),
-        bodyBase64: 'e30=',
+        byteLength: manifestBytes.byteLength,
+        sha256: sha256(manifestBytes),
+        bodyBase64: Buffer.from(manifestBytes).toString('base64'),
       },
       {
         transport: 'inline',
@@ -511,6 +512,15 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(result).toEqual({
       rawSuccessfulDestinations: ['file'],
       completeDestinations: ['file'],
+      destinationReceipts: [
+        {
+          destination: 'file',
+          captureId: CAPTURE_ID,
+          conversationKey: sha256(new TextEncoder().encode(CONVERSATION_ID)),
+          manifestSha256: sha256(new TextEncoder().encode('{}')),
+          assets: [],
+        },
+      ],
       warnings: [
         'ChatGPT active resolver observed 1/1; file-ID binary acquisition remains disabled.',
       ],
@@ -538,6 +548,7 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(result).toEqual({
       rawSuccessfulDestinations: [],
       completeDestinations: [],
+      destinationReceipts: [],
       warnings: [
         'ChatGPT attachment export could not verify the original capture; attachments were not exported.',
       ],
@@ -570,6 +581,7 @@ describe('destination-honest ChatGPT attachment export', () => {
     ).resolves.toEqual({
       rawSuccessfulDestinations: [],
       completeDestinations: [],
+      destinationReceipts: [],
       warnings: [],
     });
     expect(persistArtifacts).not.toHaveBeenCalled();
@@ -603,13 +615,14 @@ describe('destination-honest ChatGPT attachment export', () => {
       }
     );
 
-    expect(throwing).toMatchObject({ completeDestinations: [] });
+    expect(throwing).toMatchObject({ completeDestinations: [], destinationReceipts: [] });
     expect(throwing.warnings).toEqual([
       'ChatGPT original raw archive companion could not be saved.',
     ]);
     expect(noDestination).toEqual({
       rawSuccessfulDestinations: [],
       completeDestinations: [],
+      destinationReceipts: [],
       warnings: ['file unavailable'],
     });
     expect(observeResolvers).not.toHaveBeenCalled();
@@ -666,7 +679,12 @@ describe('destination-honest ChatGPT attachment export', () => {
       completeness: 'complete',
     });
     const persistBinaryAssets = vi.fn().mockResolvedValue(binaryResult(asset.record, true, false));
-    const buildDestinationCompanion = vi.fn().mockResolvedValue(companion());
+    const buildDestinationCompanion = vi.fn(
+      async (_context: ChatGptAssetExportContext, records: readonly RawCaptureAssetRecord[]) => ({
+        ...companion(JSON.stringify({ assets: records })),
+        captureId: 'capture-chatgpt-66666666-2222-4333-8444-555555555555',
+      })
+    );
     const dependencies: ChatGptAssetExportDependencies = {
       persistArtifacts,
       observeResolvers,
@@ -704,8 +722,321 @@ describe('destination-honest ChatGPT attachment export', () => {
       mediaType: 'image/png',
     });
     expect(result.completeDestinations).toEqual(['file', 'obsidian']);
+    expect(result.destinationReceipts).toEqual([
+      {
+        destination: 'file',
+        captureId: 'capture-chatgpt-66666666-2222-4333-8444-555555555555',
+        conversationKey: sha256(new TextEncoder().encode(CONVERSATION_ID)),
+        manifestSha256: sha256(new TextEncoder().encode(JSON.stringify({ assets: fileRecords }))),
+        assets: [
+          {
+            sha256: asset.record.sha256,
+            relativePath: asset.record.relativePath,
+            mediaType: asset.record.mediaType,
+            byteLength: asset.record.byteLength,
+          },
+        ],
+      },
+      {
+        destination: 'obsidian',
+        captureId: 'capture-chatgpt-66666666-2222-4333-8444-555555555555',
+        conversationKey: sha256(new TextEncoder().encode(CONVERSATION_ID)),
+        manifestSha256: sha256(
+          new TextEncoder().encode(JSON.stringify({ assets: obsidianRecords }))
+        ),
+        assets: [],
+      },
+    ]);
+    expect(result.destinationReceipts[0].manifestSha256).not.toBe(
+      result.destinationReceipts[1].manifestSha256
+    );
+    const serializedReceipts = JSON.stringify(result.destinationReceipts);
+    for (const excluded of [ASSET_ID, signedSentinel, '/asset', 'sourceRefs', 'detail']) {
+      expect(serializedReceipts).not.toContain(excluded);
+    }
+    asset.record.relativePath = null;
+    fileRecords[0].sha256 = null;
+    expect(JSON.stringify(result.destinationReceipts)).toBe(serializedReceipts);
     expect(JSON.stringify(persistArtifacts.mock.calls)).not.toContain(signedSentinel);
   });
+
+  it('orders cloned receipts by requested destination and fetched assets by relative path', async () => {
+    const first = fetchedAsset();
+    const secondBytes = new Uint8Array([4, 5, 6]);
+    const secondDigest = sha256(secondBytes);
+    const second = {
+      record: {
+        ...first.record,
+        id: `chatgpt-asset-${'b'.repeat(64)}`,
+        relativePath: `assets/${secondDigest}.png`,
+        sha256: secondDigest,
+      },
+      bytes: secondBytes,
+    };
+    const assets = [first, second].sort((left, right) =>
+      left.record.relativePath! < right.record.relativePath! ? 1 : -1
+    );
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(
+        true,
+        assets.map(asset => ({ ...originalAsset(), id: asset.record.id }))
+      ),
+      companion(),
+      'note.md',
+      ['obsidian', 'file'],
+      {
+        persistArtifacts: async (_companion, _name, _source, outputs, kinds) =>
+          persisted(
+            kinds[0] === 'raw' ? ['file', 'obsidian'] : (outputs as ('file' | 'obsidian')[])
+          ),
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: assets.map(asset => ({ assetId: asset.record.id, downloadUrl: 'signed' })),
+        }),
+        acquireAssets: async () => ({
+          records: assets.map(asset => asset.record),
+          runtimeAssets: assets,
+          completeness: 'complete',
+        }),
+        persistBinaryAssets: async () =>
+          assets.flatMap(asset => binaryResult(asset.record, true, true)),
+        buildDestinationCompanion: async () => companion(),
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['file', 'obsidian']);
+    expect(result.destinationReceipts.map(receipt => receipt.destination)).toEqual([
+      'obsidian',
+      'file',
+    ]);
+    const sortedPaths = assets.map(asset => asset.record.relativePath).sort();
+    expect(sortedPaths).not.toEqual(assets.map(asset => asset.record.relativePath));
+    for (const receipt of result.destinationReceipts) {
+      expect(receipt.assets.map(asset => asset.relativePath)).toEqual(sortedPaths);
+      expect(receipt.assets).toHaveLength(2);
+    }
+    expect(result.destinationReceipts[0].assets).not.toBe(result.destinationReceipts[1].assets);
+    expect(result.destinationReceipts[0].assets[0]).not.toBe(
+      result.destinationReceipts[1].assets[0]
+    );
+  });
+
+  it('finalizes identical bytes retained under distinct allowlisted MIME targets', async () => {
+    const bytes = new Uint8Array([115, 97, 109, 101]);
+    const digest = sha256(bytes);
+    const text = {
+      record: {
+        ...originalAsset(),
+        state: 'fetched' as const,
+        attemptedAt: '2026-08-21T12:01:00.000Z',
+        relativePath: `assets/${digest}.txt`,
+        mediaType: 'text/plain',
+        byteLength: bytes.byteLength,
+        sha256: digest,
+        detail: 'page-owned-signed-response',
+      },
+      bytes,
+    };
+    const csv = {
+      record: {
+        ...text.record,
+        id: `chatgpt-asset-${'b'.repeat(64)}`,
+        relativePath: `assets/${digest}.csv`,
+        mediaType: 'text/csv',
+      },
+      bytes: new Uint8Array(bytes),
+    };
+    const assets = [text, csv];
+    const persistArtifacts = vi.fn(async (_companion, _name, _source, outputs, kinds) =>
+      persisted(kinds[0] === 'raw' ? ['file'] : (outputs as ('file' | 'obsidian')[]))
+    );
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(
+        true,
+        assets.map(asset => ({ ...originalAsset(), id: asset.record.id }))
+      ),
+      companion(),
+      'note.md',
+      ['file'],
+      {
+        persistArtifacts,
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: assets.map(asset => ({ assetId: asset.record.id, downloadUrl: 'signed' })),
+        }),
+        acquireAssets: async () => ({
+          records: assets.map(asset => asset.record),
+          runtimeAssets: assets,
+          completeness: 'complete',
+        }),
+        persistBinaryAssets: async () =>
+          assets.flatMap(asset => binaryResult(asset.record, true, false)),
+        buildDestinationCompanion: async () => companion(),
+      }
+    );
+
+    expect(persistArtifacts).toHaveBeenCalledTimes(2);
+    expect(result.completeDestinations).toEqual(['file']);
+    expect(result.destinationReceipts).toHaveLength(1);
+    expect(result.destinationReceipts[0].assets.map(asset => asset.relativePath)).toEqual([
+      `assets/${digest}.csv`,
+      `assets/${digest}.txt`,
+    ]);
+  });
+
+  it.each([
+    'missing',
+    'duplicate',
+    'wrong-path',
+    'wrong-media-type',
+    'invalid-sha256',
+    'uppercase-sha256',
+  ])('fails finalization closed for a %s final manifest artifact', async invalid => {
+    const finalCompanion = companion();
+    const [raw, manifest, canonical] = finalCompanion.artifacts;
+    if (invalid === 'missing') finalCompanion.artifacts = [raw, canonical!];
+    else if (invalid === 'duplicate') finalCompanion.artifacts = [raw, manifest, manifest];
+    else {
+      finalCompanion.artifacts = [
+        raw,
+        {
+          ...manifest,
+          ...(invalid === 'wrong-path' && { relativePath: 'other-manifest.json' }),
+          ...(invalid === 'wrong-media-type' && { mediaType: 'text/plain' as 'application/json' }),
+          ...(invalid === 'invalid-sha256' && { sha256: 'not-a-digest' }),
+          ...(invalid === 'uppercase-sha256' && { sha256: manifest.sha256.toUpperCase() }),
+        },
+        canonical!,
+      ];
+    }
+    const persistArtifacts = vi.fn().mockResolvedValue(persisted(['file']));
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'note.md',
+      ['file'],
+      { persistArtifacts, buildDestinationCompanion: async () => finalCompanion }
+    );
+
+    expect(persistArtifacts).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      rawSuccessfulDestinations: ['file'],
+      completeDestinations: [],
+      destinationReceipts: [],
+      warnings: [
+        'ChatGPT attachment archive finalization failed; the original raw capture remains available.',
+      ],
+    });
+  });
+
+  it.each([
+    { captureId: 'provider-capture-value' },
+    { captureId: 'capture-chatgpt-unsafe/value' },
+    { conversationKey: 'provider-conversation-value' },
+    { conversationKey: 'A'.repeat(64) },
+  ])('fails finalization closed for invalid final receipt identity %j', async overrides => {
+    const persistArtifacts = vi.fn().mockResolvedValue(persisted(['file']));
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'note.md',
+      ['file'],
+      {
+        persistArtifacts,
+        buildDestinationCompanion: async () => ({ ...companion(), ...overrides }),
+      }
+    );
+
+    expect(persistArtifacts).toHaveBeenCalledOnce();
+    expect(result.rawSuccessfulDestinations).toEqual(['file']);
+    expect(result.completeDestinations).toEqual([]);
+    expect(result.destinationReceipts).toEqual([]);
+    expect(result.warnings).toContain(
+      'ChatGPT attachment archive finalization failed; the original raw capture remains available.'
+    );
+  });
+
+  it.each([
+    { relativePath: 'assets/provider-filename.png' },
+    { sha256: 'not-a-digest' },
+    { mediaType: 'image/PNG' },
+    { byteLength: -1 },
+    { byteLength: 1.5 },
+  ])('fails finalization closed for invalid fetched receipt asset %j', async overrides => {
+    const fetched = fetchedAsset();
+    const asset = { ...fetched, record: { ...fetched.record, ...overrides } };
+    const persistArtifacts = vi.fn().mockResolvedValue(persisted(['file']));
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(),
+      companion(),
+      'note.md',
+      ['file'],
+      {
+        persistArtifacts,
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: asset.record.id, downloadUrl: 'signed-invalid-receipt' }],
+        }),
+        acquireAssets: async () => ({
+          records: [asset.record],
+          runtimeAssets: [asset],
+          completeness: 'complete',
+        }),
+        persistBinaryAssets: async () => binaryResult(asset.record, true, false),
+        buildDestinationCompanion: async () => companion(),
+      }
+    );
+
+    expect(persistArtifacts).toHaveBeenCalledOnce();
+    expect(result.rawSuccessfulDestinations).toEqual(['file']);
+    expect(result.completeDestinations).toEqual([]);
+    expect(result.destinationReceipts).toEqual([]);
+    expect(result.warnings).toContain(
+      'ChatGPT attachment archive finalization failed; the original raw capture remains available.'
+    );
+  });
+
+  it.each(['throws', 'no-output'])(
+    'emits no receipt when final manifest/canonical persistence %s after a binary succeeds',
+    async failure => {
+      const asset = fetchedAsset();
+      const persistArtifacts = vi.fn(async (_companion, _name, _source, _outputs, kinds) => {
+        if (kinds[0] === 'raw') return persisted(['file']);
+        if (failure === 'throws') throw new Error('final archive unavailable');
+        return { activeOutputs: [], warnings: ['final archive unavailable'] };
+      });
+
+      const result = await persistChatGptDestinationHonestAttachments(
+        context(),
+        companion(),
+        'note.md',
+        ['file'],
+        {
+          persistArtifacts,
+          observeResolvers: async () => ({
+            kind: 'matched',
+            candidates: [{ assetId: asset.record.id, downloadUrl: 'signed-finalization' }],
+          }),
+          acquireAssets: async () => ({
+            records: [asset.record],
+            runtimeAssets: [asset],
+            completeness: 'complete',
+          }),
+          persistBinaryAssets: async () => binaryResult(asset.record, true, false),
+          buildDestinationCompanion: async () => companion(),
+        }
+      );
+
+      expect(persistArtifacts).toHaveBeenCalledTimes(2);
+      expect(result.rawSuccessfulDestinations).toEqual(['file']);
+      expect(result.completeDestinations).toEqual([]);
+      expect(result.destinationReceipts).toEqual([]);
+    }
+  );
 
   it('acquires interpreter assets before resolving and acquiring only remaining legacy IDs', async () => {
     const first = originalAsset();
@@ -973,6 +1304,7 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(buildDestinationCompanion).toHaveBeenCalledTimes(1);
     expect(result.rawSuccessfulDestinations).toEqual(['file']);
     expect(result.completeDestinations).toEqual(['file']);
+    expect(result.destinationReceipts.map(receipt => receipt.destination)).toEqual(['file']);
   });
 
   it('finalizes original not-attempted records after a resolver mismatch without fetching bytes', async () => {
@@ -1175,7 +1507,9 @@ describe('destination-honest ChatGPT attachment export', () => {
     expect(binaryFailure.warnings).toContain(
       'One or more ChatGPT attachments were not saved to file; the archive manifest records them as failed.'
     );
+    expect(binaryFailure.destinationReceipts[0].assets).toEqual([]);
     expect(finalizationFailure.completeDestinations).toEqual([]);
+    expect(finalizationFailure.destinationReceipts).toEqual([]);
     expect(finalizationFailure.warnings).toContain(
       'ChatGPT attachment archive finalization failed; the original raw capture remains available.'
     );

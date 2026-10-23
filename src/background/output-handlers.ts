@@ -363,6 +363,27 @@ export interface ArchiveDownloadOutcome {
   downloadId?: number;
 }
 
+function archiveDownloadPathMatches(filename: unknown, expectedRelativePath: string): boolean {
+  if (typeof filename !== 'string') return false;
+  const normalized = filename.replace(/\\/g, '/');
+  return normalized.endsWith(`/${expectedRelativePath}`);
+}
+
+/** A completed download is owned only when Chrome retained the exact requested archive path. */
+export async function confirmArchiveDownloadPath(
+  outcome: ArchiveDownloadOutcome,
+  expectedRelativePath: string
+): Promise<boolean> {
+  if (!outcome.terminal || outcome.error !== null || outcome.downloadId === undefined) return false;
+  try {
+    const downloads = await chrome.downloads.search({ id: outcome.downloadId });
+    const item = downloads.find(download => download.id === outcome.downloadId);
+    return archiveDownloadPathMatches(item?.filename, expectedRelativePath);
+  } catch {
+    return false;
+  }
+}
+
 function isTerminalDownloadState(state: string | undefined): state is 'complete' | 'interrupted' {
   return state === 'complete' || state === 'interrupted';
 }
@@ -570,21 +591,23 @@ async function handleArchiveDownload(
       }
       return { destination: 'file', success: false, error: 'Archive download setup failed' };
     }
-    const outcome = await downloadArchiveBlob(
-      blobUrl,
-      archiveCompanionDownloadPath(message),
-      async () => {
-        try {
-          await revokeArchiveBlobUrl(blobUrl!);
-        } finally {
-          lease?.release();
-        }
+    const expectedPath = archiveCompanionDownloadPath(message);
+    const outcome = await downloadArchiveBlob(blobUrl, expectedPath, async () => {
+      try {
+        await revokeArchiveBlobUrl(blobUrl!);
+      } finally {
+        lease?.release();
       }
-    );
+    });
     if (!outcome.terminal) leaseTransferred = true;
-    return outcome.error
-      ? { destination: 'file', success: false, error: outcome.error }
-      : { destination: 'file', success: true };
+    if (outcome.error) return { destination: 'file', success: false, error: outcome.error };
+    return (await confirmArchiveDownloadPath(outcome, expectedPath))
+      ? { destination: 'file', success: true }
+      : {
+          destination: 'file',
+          success: false,
+          error: 'archive-download-path-unconfirmed',
+        };
   } catch {
     return { destination: 'file', success: false, error: 'Archive download setup failed' };
   } finally {
