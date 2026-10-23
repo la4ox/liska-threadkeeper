@@ -69,7 +69,7 @@ const readinessSurfaces = [
     host: 'claude.ai',
     platform: 'claude',
     extractor: ClaudeExtractor,
-    html: '<div data-index="0"></div>',
+    html: '<div data-index="0"><div data-testid="user-message">Question</div></div>',
   },
   {
     host: 'chatgpt.com',
@@ -291,8 +291,91 @@ describe('content/bootstrap', () => {
       }
     );
 
+    it('injects immediately for a ChatGPT data-testid-only conversation turn', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      loadFixture('<main><section data-testid="conversation-turn-1"></section></main>');
+      const extract = vi.spyOn(ChatGPTExtractor.prototype, 'extract');
+      const pending = initialize();
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectBranchExportButton).toHaveBeenCalledTimes(1);
+      await pending;
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      expect(extract).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('injects after 100ms when a ChatGPT data-testid-only conversation turn arrives', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      loadFixture('<main></main>');
+      const pending = initialize();
+
+      document.querySelector('main')!.innerHTML =
+        '<section data-testid="conversation-turn-1"></section>';
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      await pending;
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['current user', '<div data-testid="user-message">Question</div>'],
+      ['current assistant', '<div data-cds="AssistantMessage">Answer</div>'],
+      ['legacy user', '<p class="whitespace-pre-wrap break-words">Question</p>'],
+      ['legacy assistant', '<div class="font-claude-response">Answer</div>'],
+    ])('rejects an indexed sidebar until a Claude %s row arrives', async (_variant, content) => {
+      setNonGeminiLocation('claude.ai', '/chat/01234567-89ab-4cde-8f01-23456789abcd');
+      loadFixture('<aside><div data-index="0"><a>Older chat</a></div></aside><main></main>');
+      const extract = vi.spyOn(ClaudeExtractor.prototype, 'extract');
+      const pending = initialize();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+
+      // An unrelated observed mutation must not make the global query accept the sidebar.
+      document.querySelector('main')!.append(document.createElement('span'));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+
+      document.querySelector('main')!.innerHTML = `<div data-index="1">${content}</div>`;
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      expect(extract).not.toHaveBeenCalled();
+    });
+
+    it('keeps the 10s escape when Claude has only an indexed sidebar', async () => {
+      setNonGeminiLocation('claude.ai');
+      loadFixture('<aside><div data-index="0"><a>Older chat</a></div></aside><main></main>');
+      const pending = initialize();
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+      document.querySelector('main')!.append(document.createElement('span'));
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
     it.each(readinessSurfaces)(
-      'injects on $host after its primary selector arrives and the 100ms debounce ends',
+      'injects on $host after its readiness hint arrives and the 100ms debounce ends',
       async ({ host, html }) => {
         setNonGeminiLocation(host);
         loadFixture('<main></main>');

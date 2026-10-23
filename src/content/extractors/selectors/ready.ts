@@ -1,5 +1,5 @@
 /**
- * UI-injection readiness hints, derived from each extractor's primary turn group.
+ * UI-injection readiness hints, derived from each extractor's supported turn group.
  * A selector repair therefore updates both the extractor and bootstrap's hint.
  *
  * This is only a UI-injection hint, not proof that extraction is ready or complete.
@@ -18,12 +18,15 @@ import { SELECTORS as PERPLEXITY } from './perplexity';
 import { SELECTORS as DEEPSEEK } from './deepseek';
 import { SELECTORS as NOTEBOOKLM } from './notebooklm';
 
+const CLAUDE_MESSAGE_SELECTOR = [...CLAUDE.userMessage, ...CLAUDE.assistantResponse].join(', ');
+
 export const CONVERSATION_READY_SELECTORS: Readonly<Record<AIPlatform, string>> = {
-  gemini: GEMINI.conversationTurn[0],
-  claude: CLAUDE.conversationRow[0],
-  chatgpt: CHATGPT.conversationTurn[0],
+  gemini: GEMINI.conversationTurn.join(', '),
+  // The sidebar also has indexed rows; require content owned by the extractor.
+  claude: CLAUDE.conversationRow.map(row => `${row}:has(${CLAUDE_MESSAGE_SELECTOR})`).join(', '),
+  chatgpt: CHATGPT.conversationTurn.join(', '),
   // The user query renders before an answer; Perplexity has no turn wrapper.
-  perplexity: PERPLEXITY.userQuery[0],
-  deepseek: DEEPSEEK.message[0],
-  notebooklm: NOTEBOOKLM.conversationTurn[0],
+  perplexity: PERPLEXITY.userQuery.join(', '),
+  deepseek: DEEPSEEK.message.join(', '),
+  notebooklm: NOTEBOOKLM.conversationTurn.join(', '),
 };
