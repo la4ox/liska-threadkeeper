@@ -576,20 +576,32 @@ canonical filename fails the destination instead of issuing a misleading
 receipt. Provenance warnings are likewise emitted only after that destination's
 Markdown write succeeds.
 
-Final validation passes 157 test files / 4,585 tests. Coverage is 95.25%
-statements, 91.13% branches, 98.53% functions, and 97.70% lines. TypeScript,
+The focused Codex Security diff scan of `f4c04d5..d45c911` completed with all
+ten changed source files covered and no validated security finding. It did
+reproduce one same-user correctness defect in the append-only contract: a
+later ordinary `title-date` append could select an existing same-conversation
+receipt-bound snapshot. Existing-note lookup and collision reuse now exclude
+top-level `archive_capture_id`, `archive_manifest_sha256`, and
+`presentation_mode` markers, including simply quoted YAML keys. Nested mappings
+and block-scalar text remain ordinary note content rather than false immutable
+markers. The snapshot is therefore neither appended to nor overwritten; the
+ordinary export selects a fresh collision-free path. A final independent review
+found no residual P0-P3 issue in this repair.
+
+Final validation passes 157 test files / 4,602 tests. Coverage is 95.26%
+statements, 91.15% branches, 98.53% functions, and 97.70% lines. TypeScript,
 production build, source/platform lint, repository formatting, ZIP packaging,
 and independent review pass; lint retains only the same three pre-existing
 advisory warnings. The ZIP contains 29 of 29 files byte-identical to `dist`, is
-231,422 bytes, and has SHA-256
-`f25080374ac2b6012d62dbe9c49c4be9fcd795baa0bcc18969f3526f1f729494`.
+231,480 bytes, and has SHA-256
+`92ef88ae6fab2b6969278956810ef4e08c08c23cd4b8504fef5aadad58ee24c7`.
 The installed Comet tree matches that production build exactly; its 29-file
 pre-live rollback is retained at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\deep-research-prelive-20261023-074014-d2aba19b`.
 
 The next wide-branch checkpoint is implemented on
-`codex/chatgpt-wide-branch` at `4fca363`, stacked on the still-open PR 16 source
-head `d45c911`. A prepared session now validates the archive and complete catalog
+`codex/chatgpt-wide-branch` at `e29165e`, now integrating the PR 16 merge
+`9fb7835`. A prepared session validates the archive and complete catalog
 once, resolves ordinals in O(1), reconstructs paths from validated parent links,
 and reuses one immutable timestamp across measurement and writing. Public
 defensive renderers remain unchanged. Structural preflight rejects before any
@@ -633,10 +645,11 @@ visits, and 1,128,535,662 expanded source bytes (1.051 GiB). The ceiling remains
 unchanged: raising it, for example to 1.25 GiB, requires an explicit maintainer
 decision followed by the real full-write/index run.
 
-Next: let PR 16 finish its current-head external reviews and merge it if clean;
-then rebase this stacked checkpoint. Decide whether the 1 GiB source-work limit
-should remain a deliberate refusal or become a reviewed 1.25 GiB bound for the
-known 1.051 GiB graph. All-branches receipt decoration, identity-safe replacement
-of provider `sandbox:` links, and a live multi-output same-title sample remain
-separate presentation follow-ups. Custom-GPT/project binaries and the archived
-Library WebP remain separately evidence-gated.
+PR 16 merged to `main` as `9fb7835`; its reviewed source head was `89aa7d9`.
+Next: validate this exact base integration and merge PR 17 if clean, then retarget
+the already reviewed all-branch-receipt and physical-budget checkpoints in order.
+The 1 GiB source-work limit remains a deliberate refusal for the known 1.051 GiB
+graph rather than an implicitly widened safety boundary. Sandbox-link
+localization and the live multi-output same-title sample remain separate
+presentation follow-ups. Custom-GPT/project binaries and the archived Library
+WebP remain separately evidence-gated.

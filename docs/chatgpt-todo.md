@@ -82,6 +82,9 @@ terminal states, and the existing no-credential-export boundary.
   an occupied path. Synthetic regressions cover identical display intent with
   distinct content paths, destination divergence, repeated capture writes, and
   equal bytes retained under distinct allowed MIME-derived targets.
+- Ordinary append lookup also excludes every same-conversation note carrying a
+  top-level archive-capture, manifest-hash, or presentation-mode marker. A later
+  mutable export therefore cannot append to or overwrite an immutable snapshot.
 - Canonical research evidence remains typed rather than flattened. The live
   sample retained citations, reasoning, code, execution output, tool roles and
   attachment blocks; projection regressions account explicitly for citation
@@ -193,10 +196,11 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Let the current-head reviews on PR 16 finish and merge that research-output
-checkpoint if clean. Rebase `codex/chatgpt-wide-branch` onto the merge, then make
-the explicit 1 GiB versus reviewed 1.25 GiB source-work decision above. Only a
-reviewed limit change authorizes the real 239-leaf File/Obsidian completion run.
-Keep all-branches receipt decoration and inline `sandbox:` replacement as a
-separate presentation task; keep custom-GPT/project binaries and the sole
+Validate and merge the wide-branch checkpoint from pull request 17 on top of the
+landed PR 16 repair, then retarget and merge the already reviewed
+all-branch-receipt and physical-budget checkpoints in order. The 1 GiB
+source-work limit remains a deliberate refusal for the measured 1.051 GiB graph;
+only a separately reviewed limit change may authorize that full 239-leaf run.
+Continue with sandbox-link localization after the stack is linear again. Keep
+custom-GPT/project binaries and the sole
 archived Library WebP separately evidence-gated.
