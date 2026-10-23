@@ -8,6 +8,7 @@
  */
 
 import { formatMessage, formatToolContent } from './markdown-formatting';
+import { neutralizeActiveProviderMarkdown } from './markdown-safety';
 import { convertDeepResearchContent } from './markdown-deep-research';
 import { generateHash } from '../lib/hash';
 import { MAX_FILENAME_BASE_LENGTH, FILENAME_ID_SUFFIX_LENGTH } from '../lib/constants';
@@ -28,6 +29,15 @@ import { MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER } from '../lib/
 // Re-exports (preserve existing import paths)
 export { htmlToMarkdown, escapeAngleBrackets, escapeUserText } from './markdown-rules';
 export { convertDeepResearchContent } from './markdown-deep-research';
+
+function readingTrustedDestinations(data: ConversationData): string[] {
+  const trusted = new Set<string>();
+  for (const message of data.messages) {
+    for (const destination of message.trustedMarkdownDestinations ?? []) trusted.add(destination);
+  }
+  for (const image of data.images ?? []) trusted.add(`g2o-image://${image.id}`);
+  return [...trusted];
+}
 
 /**
  * Generate a sanitized note filename from the title, per the chosen scheme.
@@ -200,7 +210,10 @@ export function conversationToNote(
       bodyParts.push(`${MESSAGE_BOUNDARY_MARKER}\n\n${messageParts.join('\n\n')}`);
     }
 
-    body = `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n${bodyParts.join('\n\n')}`;
+    body = neutralizeActiveProviderMarkdown(
+      `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n${bodyParts.join('\n\n')}`,
+      readingTrustedDestinations(data)
+    );
   }
 
   // Generate filename and content hash

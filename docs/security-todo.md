@@ -107,6 +107,14 @@ fallback now removes status headers from a clone before sanitization, so the
 disabled tool-content setting cannot leak those headers through ordinary
 assistant content.
 
+The late GitHub Security Review of PR 29 separately confirmed a bounded
+availability defect in Claude tool conversion: collision discovery and marker
+restoration rescan the complete fragment once per code block. This is not a
+content-activation regression, but many tiny `<pre><code>` blocks can make the
+content script do quadratic work. Keep it open for a separate minimal PR with a
+single-pass marker map/restoration and explicit aggregate work ceilings; do not
+mix that resource-bound change into the provider-Markdown policy below.
+
 The append-boundary occurrence `commit:65c64c5574f08191871348273e586bf6`
 is fixed through PR 30 as `7ff531f` and closed in Security Cloud. New ordinary
 conversation bodies carry one exact format sentinel and one exact sentinel per
@@ -121,13 +129,24 @@ contract.
 
 The citation-title occurrence `commit:cb0e9bb83f88819181f8a884fdf468a9`
 and Research-URL occurrence `commit:1972e53d5bbc81918ded9e6b8bd3b4d7`
-are being repaired together on `codex/security-citation-boundaries`. Citation
+are fixed through PR 31 as `76f1254`. Citation
 placeholders now require a per-isolated-world capability plus strict generated
 label grammar in normal and table consumers; marker-like provider DOM remains
 visible but literal. NotebookLM fallback labels must be numeric. One shared
 HTTP(S) serializer canonicalizes source URLs and percent-encodes Markdown
 destination backslashes/parentheses without double encoding. ADR-034 records
 the provenance, compatibility, and URL contract.
+
+The raw-DeepSeek-Markdown occurrence
+`commit:4aa52b95bddc819189aa49cfe8ef0559` is repaired on
+`codex/security-deepseek-markdown`. Provider Markdown now uses a structural
+CommonMark AST before the derived reading export. Remote images, unsafe/private
+destinations, reference definitions, and Obsidian links/embeds become visible
+literal text without changing raw/canonical evidence. Code, footnotes, math,
+ordinary public links, multiline labels, and list containers remain intact.
+ChatGPT local archive links require exact destinations carried from the already
+verified destination receipt; a provider-authored lookalike is inert. ADR-035
+records this boundary.
 
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
@@ -200,6 +219,21 @@ formatting, diff checks, and source/platform lint pass with only the same three
 pre-existing warnings. Live provider sharing and Obsidian rendering were not
 repeated.
 
+Provider-Markdown slice validation: all 169 test files / 5,160 tests pass in
+memory-bounded batches. Focused coverage includes the historical DeepSeek
+assistant/reasoning payload, structured user records, inline/reference images,
+multiline labels, list-contained definitions/fences, indented and multiline
+code, entity/backslash destination decoding, private IPv4/IPv6/local names,
+malformed outer syntax, exact ChatGPT receipt provenance, and long escape runs.
+The first independent review found seven concrete parser/provenance/performance
+seams; the candidate was replaced with the structural parser and each reproducer
+is now covered. Two GitHub Code Review passes then found nested image
+descriptions, single-token and active-body Obsidian footnotes, cross-message
+image references and fence state, assistant math, and newly exposed unsafe-link
+titles; all seven are covered and fixed. Production build and source/platform
+lint pass with only the same three pre-existing warnings; `npm audit` reports
+zero known vulnerabilities. Actual Obsidian rendering was not repeated.
+
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR
 GitHub Security Review does not block an intermediate merge when current-head
 CI, current-head Code Review, focused/full tests, and one independent local
@@ -212,11 +246,10 @@ Cloud Security repository scan and reconcile its full-repository findings.
 Review the remaining Security Cloud findings against the current pull-request
 head, preserving one verdict per finding:
 
-1. Markdown/frontmatter boundaries: YAML quoting, math attributes, tool
-   metadata, citation URLs/titles, and raw DeepSeek Markdown; publish the
-   current citation-boundary fix and continue the remaining DeepSeek items.
-   Question-heading, tool-content, and append-boundary occurrences are
-   reconciled closed.
+1. Markdown/frontmatter boundaries: reconcile the provider-Markdown fix after
+   merge. YAML, math, question-heading, tool-content, append, and citation
+   occurrences are fixed; keep the separate Claude tool-conversion work bound
+   open until its linear-time follow-up merges.
 2. Resource bounds: branch fan-out, image response buffering/timeouts, and
    frontmatter parsing; reconcile the merged Canmore fix.
 3. Capture integrity: reconcile the merged TypedArray primordial fix and retain

@@ -200,6 +200,9 @@ describe('destination-owned sandbox link localization', () => {
     expect(body).not.toContain('sandbox:');
     expect(body.match(/_liska-archive\//g)).toHaveLength(3);
     for (const asset of targets) expect(body).toContain(localTarget(f, asset));
+    expect(first.messages[0].trustedMarkdownDestinations).toEqual(
+      targets.map(asset => localTarget(f, asset)).sort()
+    );
     const siblingAsset = f.assets.find(asset => !targets.includes(asset))!;
     expect(body).not.toContain(localTarget(f, siblingAsset));
     expect(first.metadata).toBe(f.data.metadata);

@@ -92,7 +92,7 @@
 ## Artifacts
 
 - Loadable unpacked extension: `dist/`
-- Current local package: `liska-threadkeeper-3.0.0.zip`, 200,822 bytes, SHA-256 `6DEFA3DDBA4375555A5DB5096B31A39CDFBD05E318B413795B6022869237BB76`; all 29 packaged files exactly match the final `dist/` tree.
+- Current local package: `liska-threadkeeper-3.0.0.zip`, 265,209 bytes, SHA-256 `B0D338765E8DE3DC141A925C5FD16555403FFA146305042233D304389936A3CF`; all 29 packaged files exactly match the final `dist/` tree.
 - DeepSeek history client/parser: `src/content/extractors/deepseek-api.ts`
 - DeepSeek canonical normalizer and synthetic fixture: `src/archive/normalizers/deepseek.ts`, `src/archive/normalizers/deepseek/`, and `test/fixtures/archive/deepseek-raw/branching-replace.json`
 - Provider-neutral inline/staged JSON companion builder: `src/content/capture/json-archive-companion.ts`
@@ -1073,8 +1073,10 @@ build, repository formatting, diff checks, and source/platform lint pass with
 only the same three pre-existing warnings. No live Claude-page or Obsidian-render
 smoke was repeated. Reviewed source head `5e88298` is an ancestor of fetched
 `origin/main`; CI and current-head Code Review were clean. The historical Cloud
-occurrence is closed as fixed. Security Review was still running when the
-non-blocking merge completed and was not retried.
+occurrence is closed as fixed. The late Security Review then found a separate
+P2 availability issue: Claude tool conversion rescans the full fragment per
+code block. It is confirmed and queued for its own linear-time/resource-bound
+follow-up rather than being mixed into the already-merged literal-content fix.
 
 ## Local append-boundary security checkpoint
 
@@ -1115,7 +1117,7 @@ non-blocking merge completed and was not retried.
 
 ## Local citation-boundary security checkpoint
 
-Branch `codex/security-citation-boundaries` addresses Security Cloud occurrences
+PR 31, merged as `76f1254`, addresses Security Cloud occurrences
 `commit:cb0e9bb83f88819181f8a884fdf468a9` and
 `commit:1972e53d5bbc81918ded9e6b8bd3b4d7`. Provider HTML previously gained
 extension-only footnote authority from public attribute names, NotebookLM
@@ -1139,5 +1141,44 @@ checks, and a final 176-test rerun; CommonMark probes produced one link and zero
 injected images, with no P0-P3 remaining. Production build, repository
 formatting, diff checks, and source/platform lint pass with only the same three
 pre-existing warnings. Live provider sharing and Obsidian rendering were not
-repeated. Next: commit, publish, and obtain current-head CI/Code Review before
-merge.
+repeated. Merge `76f1254` is on fetched `origin/main`; current-head CI, Code
+Review, and Security Review were clean. Both Cloud occurrences are closed as
+fixed.
+
+## Local provider-Markdown rendering security checkpoint
+
+Branch `codex/security-deepseek-markdown` addresses Security Cloud occurrence
+`commit:4aa52b95bddc819189aa49cfe8ef0559`. Structured provider Markdown previously
+passed from the canonical projection to the reading export with only raw angle
+brackets escaped. Remote and loopback images, unsupported destinations, and
+Obsidian links/embeds could therefore remain active in a rendered note.
+
+The reading boundary now parses CommonMark and edits exact source positions.
+Provider-authored inline/reference images, private or unsupported link and
+definition destinations, and Obsidian `[[...]]` / `![[...]]` prose become
+entity-literal. Public HTTP(S) links, fragments, formatting, math, footnotes,
+multiline labels, indented/fenced/list-contained code, and multiline inline
+code remain intact. Structured user-role records receive the same protection.
+Raw, manifest, and canonical companions remain unchanged.
+
+Validated local ChatGPT archive links are not recognized by shape alone. The
+sandbox localizer carries only exact destinations it generated after raw,
+canonical, receipt, source-reference, hash, and destination verification. The
+formatter requires membership in that runtime set plus the established
+content-addressed path grammar. Provider-authored lookalikes stay literal.
+ADR-035 records the contract.
+
+All 169 test files / 5,160 tests pass in memory-bounded batches. Nine focused
+source-to-sink suites pass 416 tests. The first independent patch review found
+seven concrete issues in the discarded bespoke scanner: malformed-container
+nesting, list-fence lifetime, multiline/reference parsing, entity/backslash URL
+decoding, path-shape-only trust, code corruption, and quadratic escape scans.
+The structural implementation covers every reproducer, including the adjacent
+provider-controlled user-record path. Two GitHub Code Review passes then found
+nested image descriptions, single-token/active-body Obsidian footnotes,
+cross-message image references and fence state, assistant math, and newly
+exposed unsafe-link titles. All seven are covered without flattening code,
+footnotes, or math. Production build, repository formatting, and
+source/platform lint pass with only the same three pre-existing warnings; `npm
+audit` reports zero known vulnerabilities. Actual Obsidian rendering was not
+repeated, so renderer network behavior remains an explicit live proof gap.

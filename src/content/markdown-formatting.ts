@@ -67,6 +67,15 @@ export function buildQuestionHeader(content: string): string {
   return questionHeaderLine(`${truncated}…`);
 }
 
+function messageMarkdown(
+  content: string,
+  role: 'user' | 'assistant',
+  contentFormat: 'html' | 'markdown'
+): string {
+  if (role === 'user') return escapeUserText(content);
+  return contentFormat === 'markdown' ? escapeAngleBrackets(content) : htmlToMarkdown(content);
+}
+
 /**
  * Format a single message according to template options
  */
@@ -79,13 +88,7 @@ export function formatMessage(
 ): string {
   // Convert HTML to Markdown for assistant messages; escape angle brackets and
   // `$` (Obsidian math) for user messages, which are plain pasted text.
-  const markdown = neutralizeMessageBoundaryMarkers(
-    role === 'assistant'
-      ? contentFormat === 'markdown'
-        ? escapeAngleBrackets(content)
-        : htmlToMarkdown(content)
-      : escapeUserText(content)
-  );
+  const markdown = neutralizeMessageBoundaryMarkers(messageMarkdown(content, role, contentFormat));
   const assistantLabel = PLATFORM_LABELS[source];
 
   let formatted: string;
