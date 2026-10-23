@@ -194,6 +194,22 @@ export type StructuredArchiveSource = Extract<AIPlatform, 'chatgpt' | 'deepseek'
 /** Destinations that can retain private archive companion bytes. */
 export type PersistentOutputDestination = Exclude<OutputDestination, 'clipboard'>;
 
+/** A sink observation, not a receipt or a claim about net disk usage. */
+export type DurableWriteState = 'confirmed' | 'unknown' | 'not-dispatched';
+export interface DurableWriteOutcome {
+  readonly state: DurableWriteState;
+  readonly cleanupDeferred?: true;
+}
+
+export interface DurableOutputResult extends OutputResult {
+  destination: PersistentOutputDestination;
+  writeOutcome: DurableWriteOutcome;
+}
+
+export interface DurableMultiOutputResponse extends MultiOutputResponse {
+  results: DurableOutputResult[];
+}
+
 /** Fixed, provider-neutral members of one structured archive snapshot. */
 export const ARCHIVE_COMPANION_KINDS = ['raw', 'manifest', 'canonical'] as const;
 export type ArchiveCompanionKind = (typeof ARCHIVE_COMPANION_KINDS)[number];
@@ -524,6 +540,7 @@ export type ExtensionMessage =
   | { action: 'updateOutputOptions'; outputOptions: OutputOptions }
   | {
       action: 'persistArchiveCompanion';
+      reportDurableWriteOutcome?: true;
       noteFileName: string;
       source: AIPlatform;
       captureId: string;
@@ -561,6 +578,7 @@ export type ExtensionMessage =
     }
   | {
       action: 'commitStagedArchiveCompanion';
+      reportDurableWriteOutcome?: true;
       noteFileName: string;
       source: StructuredArchiveSource;
       captureId: string;
@@ -591,6 +609,7 @@ export type ExtensionMessage =
     }
   | {
       action: 'commitStagedBinaryAsset';
+      reportDurableWriteOutcome?: true;
       stageId: string;
       captureId: string;
       conversationKey: string;

@@ -178,6 +178,68 @@ describe('archive companion durable outputs', () => {
     );
   });
 
+  it.each(['confirmed', 'path-mismatch', 'interrupted', 'start-refused', 'integrity'])(
+    'reports typed inline artifact facts for %s without changing legacy shapes',
+    async mode => {
+      const request = {
+        ...(await message('raw', ['file'])),
+        reportDurableWriteOutcome: true as const,
+      };
+      if (mode === 'path-mismatch')
+        vi.mocked(chrome.downloads.search).mockResolvedValue([
+          {
+            id: 17,
+            state: 'complete',
+            filename: 'C:/Downloads/wrong.json',
+          } as chrome.downloads.DownloadItem,
+        ]);
+      if (mode === 'interrupted')
+        vi.mocked(chrome.downloads.search).mockResolvedValue([
+          { id: 17, state: 'interrupted' } as chrome.downloads.DownloadItem,
+        ]);
+      if (mode === 'start-refused')
+        vi.mocked(chrome.downloads.download).mockImplementation((_options, callback) => {
+          callback?.(undefined as unknown as number);
+          return undefined as unknown as ReturnType<typeof chrome.downloads.download>;
+        });
+      if (mode === 'integrity') request.artifact = { ...request.artifact, sha256: '0'.repeat(64) };
+      const response = await handlePersistArchiveCompanion(request, settings);
+      expect(response.results[0]).toMatchObject({
+        writeOutcome: {
+          state:
+            mode === 'confirmed'
+              ? 'confirmed'
+              : ['start-refused', 'integrity'].includes(mode)
+                ? 'not-dispatched'
+                : 'unknown',
+        },
+      });
+      expect(response.anySuccessful).toBe(mode === 'confirmed');
+    }
+  );
+
+  it('preserves confirmed inline File evidence when Blob cleanup is unconfirmed', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(async request =>
+      (request as { action: string }).action === 'archiveBlobCreate'
+        ? { success: true, url: 'blob:chrome-extension://test/archive' }
+        : { success: false }
+    );
+    const response = await handlePersistArchiveCompanion(
+      { ...(await message('manifest', ['file'])), reportDurableWriteOutcome: true },
+      settings
+    );
+    expect(response).toMatchObject({
+      allSuccessful: true,
+      results: [
+        {
+          success: true,
+          warning: 'archive-stage-cleanup-deferred',
+          writeOutcome: { state: 'confirmed', cleanupDeferred: true },
+        },
+      ],
+    });
+  });
+
   it('keeps File archive paths unchanged when capture-date routing metadata is present', async () => {
     const request = {
       ...(await message('raw', ['file'], 'deepseek')),

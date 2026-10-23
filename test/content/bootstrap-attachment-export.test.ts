@@ -79,7 +79,8 @@ vi.mock('../../src/content/ui', () => ({
 
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 
-import { handleSync } from '../../src/content/bootstrap';
+import { handleSync, persistArchiveCompanionArtifacts } from '../../src/content/bootstrap';
+import { createOperationWriteLedger } from '../../src/lib/operation-write-ledger';
 import { conversationToNote } from '../../src/content/markdown';
 import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
@@ -218,6 +219,42 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       destinationReceipts: [fileReceipt],
       warnings: ['ChatGPT attachment export recorded one destination caveat.'],
     });
+  });
+
+  it('retains per-artifact facts when a later archive request loses its response', async () => {
+    const ledger = createOperationWriteLedger(companion.captureId);
+    mocks.sendMessage.mockImplementation(async message => {
+      expect(message.reportDurableWriteOutcome).toBe(true);
+      if (message.artifact.kind === 'manifest') throw new Error('lost reply');
+      return {
+        results: message.outputs.map((destination: string) => ({
+          destination,
+          success: true,
+          writeOutcome: { state: 'confirmed' },
+        })),
+        allSuccessful: true,
+        anySuccessful: true,
+      };
+    });
+    const result = await persistArchiveCompanionArtifacts(
+      companion,
+      'test.md',
+      'chatgpt',
+      ['file', 'obsidian'],
+      undefined,
+      undefined,
+      ledger
+    );
+    expect(result.activeOutputs).toEqual([]);
+    expect(ledger.snapshot().valid).toBe(true);
+    expect(
+      ledger.snapshot().observations.map(entry => [entry.destination, entry.kind, entry.state])
+    ).toEqual([
+      ['file', 'raw', 'confirmed'],
+      ['obsidian', 'raw', 'confirmed'],
+      ['file', 'manifest', 'unknown'],
+      ['obsidian', 'manifest', 'unknown'],
+    ]);
   });
 
   it.each(['file', 'obsidian'] as const)(
@@ -751,27 +788,52 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       chatGptAssetExportContext: context,
       allBranches: {} as AllBranchesPresentationPlan,
     } satisfies ExtractionResult);
-    mocks.attachmentExport.mockImplementationOnce(async () => {
-      mocks.state.stopCallback?.();
-      return {
-        rawSuccessfulDestinations: ['file'],
-        completeDestinations: ['file'],
-        destinationReceipts: [],
-        warnings: [],
-      };
+    mocks.persistAllBranchesPresentation.mockResolvedValueOnce({
+      status: 'cancelled',
+      branchCount: 2,
+      destinations: [
+        { destination: 'file', archiveSaved: false, branchFilesSaved: 0, indexSaved: false },
+      ],
+      allSuccessful: false,
     });
+    mocks.attachmentExport.mockImplementationOnce(
+      async (_context, _companion, _name, _outputs, dependencies) => {
+        const attempt = dependencies.writeLedger.begin('file', 'raw', 2);
+        attempt.issue();
+        attempt.observe({ state: 'confirmed' });
+        mocks.state.stopCallback?.();
+        return {
+          rawSuccessfulDestinations: ['file'],
+          completeDestinations: ['file'],
+          destinationReceipts: [],
+          warnings: [],
+        };
+      }
+    );
 
     await handleSync('selected');
 
     expect(mocks.attachmentExport).toHaveBeenCalledTimes(1);
-    expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
-    expect(mocks.showWarningToast).toHaveBeenCalledWith(
-      expect.stringContaining('stopped after archive processing')
-    );
+    expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledOnce();
+    const options = mocks.persistAllBranchesPresentation.mock.calls[0][5];
+    expect(options.signal.aborted).toBe(true);
+    expect(options.writeLedgerSnapshot().observations).toMatchObject([
+      { kind: 'raw', state: 'confirmed', byteLength: 2 },
+    ]);
+    expect(mocks.showWarningToast).toHaveBeenCalledWith(expect.stringContaining('was stopped'));
     expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
   });
 
   it('withholds all-branches Markdown when no destination completed its archive companions', async () => {
+    mocks.persistAllBranchesPresentation.mockResolvedValueOnce({
+      status: 'failed',
+      phase: 'archive',
+      branchCount: 2,
+      destinations: [
+        { destination: 'file', archiveSaved: false, branchFilesSaved: 0, indexSaved: false },
+      ],
+      allSuccessful: false,
+    });
     mocks.extract.mockResolvedValue({
       success: true,
       archiveCompanion: companion,
@@ -787,13 +849,26 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
 
     await handleSync();
 
-    expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
+    expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledOnce();
+    expect(mocks.persistAllBranchesPresentation.mock.calls[0][5]).toMatchObject({
+      destinationReceipts: [],
+      writeLedgerSnapshot: expect.any(Function),
+    });
     expect(mocks.showWarningToast).toHaveBeenCalledWith(
-      'ChatGPT original raw archive companion could not be finalized.'
+      expect.stringContaining('ChatGPT original raw archive companion could not be finalized.')
     );
   });
 
   it('uses the same passive candidate observer for an all-branches replay export', async () => {
+    mocks.persistAllBranchesPresentation.mockResolvedValueOnce({
+      status: 'failed',
+      phase: 'archive',
+      branchCount: 2,
+      destinations: [
+        { destination: 'file', archiveSaved: false, branchFilesSaved: 0, indexSaved: false },
+      ],
+      allSuccessful: false,
+    });
     settings.enableChatGptOpaqueReplay = true;
     mocks.extract.mockResolvedValue({
       success: true,
@@ -822,7 +897,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
       })
     );
-    expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
+    expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledOnce();
   });
 
   it('fails closed when a successful extractor result has no presentation data', async () => {

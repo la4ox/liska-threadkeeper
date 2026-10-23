@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Durable and Markdown outputs share one offscreen lease/Downloads lifecycle; splitting it would hide ownership transfers. */
 /**
  * Output handlers for background service worker
  *
@@ -11,6 +12,7 @@ import { resolveImagesForFile, stripImagePlaceholders } from '../lib/image-outpu
 import { MAX_CONTENT_SIZE } from '../lib/constants';
 import { CHATGPT_INLINE_CAPTURE_MAX_BYTES } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
+import { withDurableWriteOutcome } from '../lib/operation-write-ledger';
 import type {
   ArchiveBlobCreateResponse,
   ArchiveCompanionArtifact,
@@ -20,6 +22,7 @@ import type {
   OffscreenArchiveBlobRevokeMessage,
   OutputDestination,
   OutputResult,
+  DurableWriteState,
   MultiOutputResponse,
   OffscreenClipboardMessage,
   StructuredArchiveSource,
@@ -291,19 +294,26 @@ function isArchiveBlobCreateResponse(value: unknown): value is ArchiveBlobCreate
   );
 }
 
-async function revokeArchiveBlobUrl(url: string): Promise<void> {
+async function revokeArchiveBlobUrl(url: string, onDeferred?: () => void): Promise<void> {
   const message: OffscreenArchiveBlobRevokeMessage = {
     action: 'archiveBlobRevoke',
     target: 'offscreen',
     url,
   };
   try {
-    await withTimeout(
+    const response: unknown = await withTimeout(
       chrome.runtime.sendMessage(message),
       OFFSCREEN_TIMEOUT_MS,
       'Archive Blob release timed out'
     );
+    if (
+      !response ||
+      typeof response !== 'object' ||
+      (response as { success?: unknown }).success !== true
+    )
+      onDeferred?.();
   } catch {
+    onDeferred?.();
     // The document will also be closed shortly; never expose Blob URLs in logs.
   }
 }
@@ -602,12 +612,20 @@ function archiveCompanionDownloadPath(
   ].join('/');
 }
 
+// eslint-disable-next-line max-lines-per-function -- Blob lease transfer, the terminal sink observation, and cleanup reporting must retain one ownership lifecycle.
 async function handleArchiveDownload(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
 ): Promise<OutputResult> {
   let blobUrl: string | null = null;
   let lease: OffscreenLease | undefined;
   let leaseTransferred = false;
+  let state: DurableWriteState = 'not-dispatched';
+  let cleanupDeferred = false;
+  let result: OutputResult = {
+    destination: 'file',
+    success: false,
+    error: 'Archive download setup failed',
+  };
   try {
     lease = await acquireOffscreenLease();
     const blobCreate = await createArchiveBlobUrl(message.artifact);
@@ -617,33 +635,54 @@ async function handleArchiveDownload(
         leaseTransferred = true;
         void blobCreate.lateCleanup.finally(() => lease?.release());
       }
-      return { destination: 'file', success: false, error: 'Archive download setup failed' };
-    }
-    const expectedPath = archiveCompanionDownloadPath(message);
-    const outcome = await downloadArchiveBlob(blobUrl, expectedPath, async () => {
-      try {
-        await revokeArchiveBlobUrl(blobUrl!);
-      } finally {
-        lease?.release();
-      }
-    });
-    if (!outcome.terminal) leaseTransferred = true;
-    if (outcome.error) return { destination: 'file', success: false, error: outcome.error };
-    return (await confirmArchiveDownloadPath(outcome, expectedPath))
-      ? { destination: 'file', success: true }
-      : {
+    } else {
+      const expectedPath = archiveCompanionDownloadPath(message);
+      state = 'unknown';
+      const outcome = await downloadArchiveBlob(blobUrl, expectedPath, async () => {
+        try {
+          await revokeArchiveBlobUrl(blobUrl!);
+        } finally {
+          lease?.release();
+        }
+      });
+      if (!outcome.terminal) leaseTransferred = true;
+      if (outcome.error === 'Archive download could not be started') state = 'not-dispatched';
+      if (outcome.error) result = { destination: 'file', success: false, error: outcome.error };
+      else if (await confirmArchiveDownloadPath(outcome, expectedPath)) {
+        state = 'confirmed';
+        result = { destination: 'file', success: true };
+      } else
+        result = {
           destination: 'file',
           success: false,
           error: 'archive-download-path-unconfirmed',
         };
+    }
   } catch {
-    return { destination: 'file', success: false, error: 'Archive download setup failed' };
+    // The pre-cleanup observation survives cleanup/bookkeeping failures.
   } finally {
     if (!leaseTransferred) {
-      if (blobUrl) await revokeArchiveBlobUrl(blobUrl);
-      lease?.release();
+      try {
+        if (blobUrl)
+          await revokeArchiveBlobUrl(blobUrl, () => {
+            cleanupDeferred = true;
+          });
+      } catch {
+        cleanupDeferred = true;
+      }
+      try {
+        lease?.release();
+      } catch {
+        cleanupDeferred = true;
+      }
     }
   }
+  return withDurableWriteOutcome(
+    { ...result, ...(cleanupDeferred && { warning: 'archive-stage-cleanup-deferred' }) },
+    state,
+    message.reportDurableWriteOutcome,
+    cleanupDeferred
+  );
 }
 
 async function handleArchiveSaveToObsidian(
@@ -651,45 +690,73 @@ async function handleArchiveSaveToObsidian(
   settings: ExtensionSettings,
   bytes: Uint8Array
 ): Promise<OutputResult> {
-  const result = await handleSaveArchiveCompanion(settings, {
-    source: message.source,
-    captureId: message.captureId,
-    conversationKey: message.conversationKey,
-    ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
-    artifact: message.artifact,
-    bytes,
-  });
+  let state: DurableWriteState = 'not-dispatched';
+  try {
+    const result = await handleSaveArchiveCompanion(
+      settings,
+      {
+        source: message.source,
+        captureId: message.captureId,
+        conversationKey: message.conversationKey,
+        ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
+        artifact: message.artifact,
+        bytes,
+      },
+      ...(message.reportDurableWriteOutcome === true
+        ? [
+            (observed: DurableWriteState) => {
+              state = observed;
+            },
+          ]
+        : [])
+    );
+    return withDurableWriteOutcome(
+      {
+        destination: 'obsidian',
+        success: result.success,
+        ...(result.error && { error: result.error }),
+      },
+      state,
+      message.reportDurableWriteOutcome
+    );
+  } catch {
+    return withDurableWriteOutcome(
+      { destination: 'obsidian', success: false, error: 'Archive companion write failed' },
+      state,
+      message.reportDurableWriteOutcome
+    );
+  }
+}
+
+/** A fixed pre-dispatch rejection, without borrowing ordinary Markdown semantics. */
+function archivePreflightFailure(
+  message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>,
+  error: string
+): MultiOutputResponse {
   return {
-    destination: 'obsidian',
-    success: result.success,
-    ...(result.error && { error: result.error }),
+    results: message.outputs.map(destination =>
+      withDurableWriteOutcome(
+        { destination, success: false, error },
+        'not-dispatched',
+        message.reportDurableWriteOutcome
+      )
+    ),
+    allSuccessful: false,
+    anySuccessful: false,
   };
 }
 
-/**
- * Persist exactly one verified archive companion to the selected durable
- * outputs. Clipboard is intentionally absent from this dedicated route.
- */
+/** Persist exactly one verified artifact to durable outputs; Clipboard is intentionally absent. */
 export async function handlePersistArchiveCompanion(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>,
   settings: ExtensionSettings
 ): Promise<MultiOutputResponse> {
   if (message.source !== 'chatgpt' && message.source !== 'deepseek') {
-    const results = message.outputs.map(destination => ({
-      destination,
-      success: false,
-      error: 'Archive companion source is unsupported',
-    })) as OutputResult[];
-    return { results, allSuccessful: false, anySuccessful: false };
+    return archivePreflightFailure(message, 'Archive companion source is unsupported');
   }
   const bytes = await verifyArchiveCompanion(message.artifact, message.source);
   if (!bytes) {
-    const results = message.outputs.map(destination => ({
-      destination,
-      success: false,
-      error: 'Archive companion integrity verification failed',
-    })) as OutputResult[];
-    return { results, allSuccessful: false, anySuccessful: false };
+    return archivePreflightFailure(message, 'Archive companion integrity verification failed');
   }
 
   const settled = await Promise.allSettled(
@@ -701,11 +768,15 @@ export async function handlePersistArchiveCompanion(
   );
   const results = settled.map((result, index): OutputResult => {
     if (result.status === 'fulfilled') return result.value;
-    return {
-      destination: message.outputs[index],
-      success: false,
-      error: 'Archive companion write failed',
-    };
+    return withDurableWriteOutcome(
+      {
+        destination: message.outputs[index],
+        success: false,
+        error: 'Archive companion write failed',
+      },
+      'unknown',
+      message.reportDurableWriteOutcome
+    );
   });
   return {
     results,

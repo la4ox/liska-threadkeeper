@@ -298,6 +298,37 @@ describe('content archive companion persistence', () => {
     expect(warnings).toEqual([`raw archive companion was not saved to file${suffix}`]);
   });
 
+  it('surfaces allowlisted cleanup evidence even when the archive write succeeded', async () => {
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+      (_message: unknown, callback?: (response: unknown) => void) => {
+        callback?.({
+          results: [
+            {
+              destination: 'file',
+              success: true,
+              warning: 'archive-stage-cleanup-deferred',
+            },
+          ],
+          allSuccessful: true,
+          anySuccessful: true,
+        });
+      }
+    );
+
+    const outcome = await persistArchiveCompanionArtifacts(
+      companion,
+      'note.md',
+      'chatgpt',
+      ['file'],
+      ['raw']
+    );
+
+    expect(outcome.activeOutputs).toEqual(['file']);
+    expect(outcome.warnings).toEqual([
+      'raw archive companion was saved to file, but temporary artifact cleanup was not confirmed (archive-stage-cleanup-deferred)',
+    ]);
+  });
+
   it('propagates an allowlisted Obsidian archive diagnostic without arbitrary error text', async () => {
     vi.mocked(chrome.runtime.sendMessage).mockImplementation(
       (_message: unknown, callback?: (response: unknown) => void) => {

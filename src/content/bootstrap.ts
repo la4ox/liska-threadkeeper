@@ -61,6 +61,11 @@ import {
 import type { AllBranchesStopControl } from './ui';
 import { sendMessage } from '../lib/messaging';
 import {
+  createOperationWriteLedger,
+  durableWriteOutcomeFromResult,
+  type OperationWriteLedger,
+} from '../lib/operation-write-ledger';
+import {
   AUTO_SAVE_CHECK_INTERVAL,
   EVENT_THROTTLE_DELAY,
   INFO_TOAST_DURATION,
@@ -438,9 +443,14 @@ function requestedArchiveArtifacts(
 function archiveWriteOutcome(
   response: unknown,
   label: string,
-  requestedOutputs: readonly ('file' | 'obsidian')[]
+  requestedOutputs: readonly ('file' | 'obsidian')[],
+  requireDurableOutcome = false
 ): { activeOutputs: ('file' | 'obsidian')[]; warnings: string[] } {
-  if (!isMultiOutputResponse(response, requestedOutputs)) {
+  if (
+    !isMultiOutputResponse(response, requestedOutputs) ||
+    (requireDurableOutcome &&
+      response.results.some(result => !durableWriteOutcomeFromResult(result)))
+  ) {
     return {
       activeOutputs: [],
       warnings: archiveDestinationWarnings(
@@ -454,15 +464,22 @@ function archiveWriteOutcome(
     activeOutputs: response.results
       .filter(result => result.success)
       .map(result => result.destination) as ('file' | 'obsidian')[],
-    warnings: response.results
-      .filter(result => !result.success)
-      .map(result => {
-        const diagnostic = safeArchiveObsidianDiagnostic(result);
-        const cleanupWarning = safeArchiveCleanupWarning(result);
-        return `${label} was not saved to ${result.destination}${
-          diagnostic ? ` (${diagnostic})` : ''
-        }${cleanupWarning ? ` (${cleanupWarning})` : ''}`;
-      }),
+    warnings: response.results.flatMap(result => {
+      const diagnostic = safeArchiveObsidianDiagnostic(result);
+      const cleanupWarning = safeArchiveCleanupWarning(result);
+      if (!result.success) {
+        return [
+          `${label} was not saved to ${result.destination}${
+            diagnostic ? ` (${diagnostic})` : ''
+          }${cleanupWarning ? ` (${cleanupWarning})` : ''}`,
+        ];
+      }
+      return cleanupWarning
+        ? [
+            `${label} was saved to ${result.destination}, but temporary artifact cleanup was not confirmed (${cleanupWarning})`,
+          ]
+        : [];
+    }),
   };
 }
 
@@ -476,14 +493,15 @@ export interface ArchiveCompanionPersistenceOutcome {
  * destinations that reached every requested artifact. Callers use this to
  * make later ChatGPT attachment manifests destination-honest.
  */
-// eslint-disable-next-line max-lines-per-function -- Per-artifact destination gating must remain visible at this persistence boundary.
+// eslint-disable-next-line max-lines-per-function, complexity -- Per-artifact admission, issue/observation and destination gating form one auditable persistence boundary.
 export async function persistArchiveCompanionArtifacts(
   companion: ArchiveCompanionBundle | undefined,
   noteFileName: string,
   source: AIPlatform,
   outputs: OutputDestination[],
   artifactKinds?: readonly ArchiveCompanionKind[],
-  expectedSyncSettingsSnapshot?: string
+  expectedSyncSettingsSnapshot?: string,
+  writeLedger?: OperationWriteLedger
 ): Promise<ArchiveCompanionPersistenceOutcome> {
   if (!companion) return { activeOutputs: [], warnings: [] };
   const unclaimedStages = new Set(
@@ -556,7 +574,12 @@ export async function persistArchiveCompanionArtifacts(
       artifact,
       outputs: activeOutputs,
       expectedSyncSettingsSnapshot,
+      ...(writeLedger && { reportDurableWriteOutcome: true }),
     });
+    const attempts = activeOutputs.map(destination => ({
+      destination,
+      attempt: writeLedger?.begin(destination, artifact.kind, artifact.byteLength),
+    }));
     const label = archiveArtifactLabel(artifact.kind);
     if (
       artifact.transport === 'inline' &&
@@ -566,17 +589,31 @@ export async function persistArchiveCompanionArtifacts(
         ...archiveDestinationWarnings(label, activeOutputs, 'it exceeds the 60 MiB message limit')
       );
       activeOutputs = [];
+      attempts.forEach(({ attempt }) => attempt?.observe());
       continue;
     }
 
     try {
       if (artifact.transport === 'staged') unclaimedStages.delete(artifact.stageId);
+      attempts.forEach(({ attempt }) => attempt?.issue());
       const response: unknown = await sendMessage(message);
-      const outcome = archiveWriteOutcome(response, label, activeOutputs);
+      for (const { destination, attempt } of attempts) {
+        const result = isMultiOutputResponse(response, activeOutputs)
+          ? response.results.find(result => result.destination === destination)
+          : undefined;
+        attempt?.observe(durableWriteOutcomeFromResult(result));
+      }
+      const outcome = archiveWriteOutcome(
+        response,
+        label,
+        activeOutputs,
+        writeLedger !== undefined
+      );
       warnings.push(...outcome.warnings);
       // A destination commits its snapshot in raw -> manifest -> canonical order.
       activeOutputs = outcome.activeOutputs;
     } catch {
+      attempts.forEach(({ attempt }) => attempt?.observe());
       warnings.push(
         ...archiveDestinationWarnings(label, activeOutputs, 'the extension write failed')
       );
@@ -611,7 +648,10 @@ export async function persistArchiveCompanions(
   ).warnings;
 }
 
-function archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot: string) {
+function archivePersistenceWithSnapshot(
+  expectedSyncSettingsSnapshot: string,
+  writeLedger?: OperationWriteLedger
+) {
   return (
     companion: ArchiveCompanionBundle,
     name: string,
@@ -624,7 +664,8 @@ function archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot: string) {
       source,
       outputs,
       undefined,
-      expectedSyncSettingsSnapshot
+      expectedSyncSettingsSnapshot,
+      writeLedger
     );
 }
 
@@ -879,8 +920,35 @@ export function displayAllBranchesSummary(
   const archiveDestinations = summary.destinations.filter(
     destination => destination.archiveSaved
   ).length;
+  const incompleteDestinations = summary.destinations.filter(
+    destination => !destination.archiveSaved
+  );
+  const confirmedIncompleteArtifactBytes = incompleteDestinations.reduce(
+    (total, destination) => total + destination.confirmedArtifactBytes,
+    0
+  );
+  const unknownArtifactBytes = summary.destinations.reduce(
+    (total, destination) => total + destination.unknownArtifactBytes,
+    0
+  );
   const caveats = [
     ...new Set(archiveWarnings),
+    ...(summary.writeLedgerValid === false
+      ? ['Artifact accounting could not be validated; no further Markdown was scheduled']
+      : []),
+    ...(summary.destinations.some(destination => destination.cleanupDeferredArtifactWrites > 0)
+      ? ['Temporary artifact cleanup was not fully confirmed']
+      : []),
+    ...(confirmedIncompleteArtifactBytes > 0
+      ? [
+          `${confirmedIncompleteArtifactBytes} artifact byte(s) were confirmed before incomplete archive finalization`,
+        ]
+      : []),
+    ...(unknownArtifactBytes > 0
+      ? [
+          `${unknownArtifactBytes} artifact byte(s) were conservatively charged because their write outcome is unknown`,
+        ]
+      : []),
     ...(summary.omissionBranchCount > 0
       ? [
           `${summary.omissionBranchCount} branch Markdown file(s) omit records retained in the canonical archive`,
@@ -939,7 +1007,8 @@ export async function persistAllBranchesBundle(
   destinationReceipts?: readonly unknown[],
   archiveWarnings: readonly string[] = [],
   signal?: AbortSignal,
-  prepared?: PreparedAllBranchesPersistence
+  prepared?: PreparedAllBranchesPersistence,
+  writeLedger?: OperationWriteLedger
 ): Promise<void> {
   showToast('Saving all branches...', 'info', 0);
   const capturedAt = companion.capturedAt;
@@ -952,7 +1021,8 @@ export async function persistAllBranchesBundle(
     settings.enableToolContent,
     outputs,
     {
-      persistArtifacts: archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot),
+      persistArtifacts: archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot, writeLedger),
+      ...(writeLedger && { writeLedgerSnapshot: () => writeLedger.snapshot() }),
       destinationReceipts,
       signal,
       prepared,
@@ -1195,9 +1265,11 @@ async function localizedNoteForDestination(
 
 const chatGptAttachmentDependencies = (
   strictReplay: boolean,
-  expectedSyncSettingsSnapshot: string
+  expectedSyncSettingsSnapshot: string,
+  writeLedger?: OperationWriteLedger
 ) => ({
   expectedSyncSettingsSnapshot,
+  ...(writeLedger && { writeLedger }),
   persistArtifacts: persistArchiveCompanionArtifacts,
   observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
   ...(strictReplay
@@ -1261,6 +1333,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         settings.enableToolContent,
         enabledOutputs
       );
+      const writeLedger = createOperationWriteLedger(result.archiveCompanion.captureId);
       if (!preparedAllBranches.structural.accepted) {
         stage = 'checking all-branches structural budgets';
         await persistAllBranchesBundle(
@@ -1290,32 +1363,21 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           enabledOutputs,
           chatGptAttachmentDependencies(
             settings.enableChatGptOpaqueReplay === true,
-            expectedSyncSettingsSnapshot
+            expectedSyncSettingsSnapshot,
+            writeLedger
           )
         );
-        if (allBranchesAbortController.signal.aborted) {
-          showWarningToast(
-            'All-branches export was stopped after archive processing. Any output already saved was retained; no branch Markdown was scheduled.'
-          );
-          return;
-        }
-        if (attachmentExport.completeDestinations.length === 0) {
-          showWarningToast(
-            attachmentExport.warnings.join('. ') ||
-              'ChatGPT all-branches Markdown was not saved because its archive companions were incomplete.'
-          );
-          return;
-        }
         stage = 'saving the all-branches Markdown bundle';
         await persistAllBranchesBundle(
           result.allBranches,
           result.archiveCompanion,
           settings,
-          attachmentExport.completeDestinations,
+          enabledOutputs,
           attachmentExport.destinationReceipts ?? [],
           attachmentExport.warnings,
           allBranchesAbortController.signal,
-          preparedAllBranches
+          preparedAllBranches,
+          writeLedger
         );
         return;
       }
@@ -1328,7 +1390,8 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         undefined,
         [],
         allBranchesAbortController.signal,
-        preparedAllBranches
+        preparedAllBranches,
+        writeLedger
       );
       return;
     }

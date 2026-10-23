@@ -1,5 +1,7 @@
 /** Durable outputs for one finalized OPFS binary stage. */
 
+import { withDurableWriteOutcome } from '../lib/operation-write-ledger';
+
 import type {
   BinaryStageFinalizeResponse,
   BinaryStageResponse,
@@ -10,6 +12,7 @@ import type {
   OffscreenBinaryStageBeginMessage,
   OffscreenBinaryStageFinalizeMessage,
   OutputResult,
+  DurableWriteState,
 } from '../lib/types';
 import { handleSaveStagedBinaryAsset } from './obsidian-handlers';
 import {
@@ -179,7 +182,11 @@ async function downloadStagedBinaryAsset(
       terminal: true,
       cleanupDeferred,
       recovery,
-      result: { destination: 'file', success: false, error: 'binary-download-start-failed' },
+      result: withDurableWriteOutcome(
+        { destination: 'file', success: false, error: 'binary-download-start-failed' },
+        'unknown',
+        message.reportDurableWriteOutcome
+      ),
     };
   }
   if (outcome.error) {
@@ -187,14 +194,18 @@ async function downloadStagedBinaryAsset(
       terminal: outcome.terminal,
       cleanupDeferred,
       recovery,
-      result: {
-        destination: 'file',
-        success: false,
-        error:
-          outcome.error === 'Archive download was interrupted'
-            ? 'binary-download-interrupted'
-            : 'binary-download-failed',
-      },
+      result: withDurableWriteOutcome(
+        {
+          destination: 'file',
+          success: false,
+          error:
+            outcome.error === 'Archive download was interrupted'
+              ? 'binary-download-interrupted'
+              : 'binary-download-failed',
+        },
+        outcome.error === 'Archive download could not be started' ? 'not-dispatched' : 'unknown',
+        message.reportDurableWriteOutcome
+      ),
     };
   }
   if (!outcome.terminal || !(await confirmBinaryDownloadPath(outcome, expectedRelativePath))) {
@@ -202,18 +213,26 @@ async function downloadStagedBinaryAsset(
       terminal: outcome.terminal,
       cleanupDeferred,
       recovery,
-      result: {
-        destination: 'file',
-        success: false,
-        error: 'binary-download-path-unconfirmed',
-      },
+      result: withDurableWriteOutcome(
+        {
+          destination: 'file',
+          success: false,
+          error: 'binary-download-path-unconfirmed',
+        },
+        'unknown',
+        message.reportDurableWriteOutcome
+      ),
     };
   }
   return {
     terminal: true,
     cleanupDeferred,
     recovery,
-    result: { destination: 'file', success: true },
+    result: withDurableWriteOutcome(
+      { destination: 'file', success: true },
+      'confirmed',
+      message.reportDurableWriteOutcome
+    ),
   };
 }
 
@@ -222,22 +241,41 @@ async function saveStagedBinaryAssetToObsidian(
   message: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>,
   settings: ExtensionSettings
 ): Promise<OutputResult> {
+  let state: DurableWriteState = 'not-dispatched';
   try {
-    const result = await handleSaveStagedBinaryAsset(settings, {
-      source: message.source,
-      captureId: message.captureId,
-      conversationKey: message.conversationKey,
-      ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
-      descriptor: message.descriptor,
-      blobUrl,
-    });
-    return {
-      destination: 'obsidian',
-      success: result.success,
-      ...(result.error && { error: result.error }),
-    };
+    const result = await handleSaveStagedBinaryAsset(
+      settings,
+      {
+        source: message.source,
+        captureId: message.captureId,
+        conversationKey: message.conversationKey,
+        ...(message.capturedAt !== undefined && { capturedAt: message.capturedAt }),
+        descriptor: message.descriptor,
+        blobUrl,
+      },
+      ...(message.reportDurableWriteOutcome === true
+        ? [
+            (observed: DurableWriteState) => {
+              state = observed;
+            },
+          ]
+        : [])
+    );
+    return withDurableWriteOutcome(
+      {
+        destination: 'obsidian',
+        success: result.success,
+        ...(result.error && { error: result.error }),
+      },
+      state,
+      message.reportDurableWriteOutcome
+    );
   } catch {
-    return { destination: 'obsidian', success: false, error: 'binary-obsidian-write-failed' };
+    return withDurableWriteOutcome(
+      { destination: 'obsidian', success: false, error: 'binary-obsidian-write-failed' },
+      state,
+      message.reportDurableWriteOutcome
+    );
   }
 }
 
@@ -253,8 +291,16 @@ async function releaseBinaryStage(
   }
 }
 
-function withCleanupWarning(results: OutputResult[]): OutputResult[] {
-  return results.map(result => ({ ...result, warning: 'binary-stage-cleanup-deferred' }));
+function withCleanupWarning(results: OutputResult[], report?: true): OutputResult[] {
+  return results.map(result =>
+    withDurableWriteOutcome(
+      { ...result, warning: 'binary-stage-cleanup-deferred' },
+      (result as { writeOutcome?: { state: DurableWriteState } }).writeOutcome?.state ??
+        (result.success ? 'confirmed' : 'unknown'),
+      report,
+      true
+    )
+  );
 }
 
 interface FinalizedBinaryStage {
@@ -310,9 +356,16 @@ async function commitStagedBinaryAsset(
   let cleanupConfirmed: boolean | undefined;
   let recoveryRecord: StagedBinaryDownloadRecoveryRecord | undefined;
   let recoveryRegistrationFailed = false;
+  const outputs = message.outputs.map(destination =>
+    withDurableWriteOutcome(
+      { destination, success: false, error: 'binary-stage-finalization-failed' },
+      'not-dispatched',
+      message.reportDurableWriteOutcome
+    )
+  );
   const clearRecoveryAfterConfirmedCleanup = async (): Promise<void> => {
     if (cleanupConfirmed === true && recoveryRecord) {
-      await forgetStagedBinaryDownloadRecovery(recoveryRecord);
+      if (!(await forgetStagedBinaryDownloadRecovery(recoveryRecord))) cleanupConfirmed = false;
     }
   };
   const relinquishDeferredRecovery = (): void => {
@@ -322,30 +375,43 @@ async function commitStagedBinaryAsset(
   };
   const releaseWhenOwned = async (): Promise<boolean | undefined> => {
     if (released) {
-      await clearRecoveryAfterConfirmedCleanup();
+      try {
+        await clearRecoveryAfterConfirmedCleanup();
+      } catch {
+        cleanupConfirmed = false;
+      }
       return cleanupConfirmed;
     }
     if (!destinationsFinished || !downloadTerminal || !lease || !blobUrl) return undefined;
     released = true;
     try {
       cleanupConfirmed = await releaseBinaryStage(message.stageId, blobUrl, lease);
-    } catch (error) {
+    } catch {
       cleanupConfirmed = false;
       if (recoveryRecord) relinquishStagedBinaryDownloadRecovery(recoveryRecord.stageId);
-      throw error;
     }
-    await clearRecoveryAfterConfirmedCleanup();
+    try {
+      await clearRecoveryAfterConfirmedCleanup();
+    } catch {
+      cleanupConfirmed = false;
+    }
     relinquishDeferredRecovery();
     return cleanupConfirmed;
   };
 
   try {
-    const outputs = await Promise.all(
-      message.outputs.map(async destination => {
+    await Promise.allSettled(
+      message.outputs.map(async (destination, index) => {
         if (destination === 'obsidian') {
-          return saveStagedBinaryAssetToObsidian(blobUrl, message, settings);
+          outputs[index] = await saveStagedBinaryAssetToObsidian(blobUrl, message, settings);
+          return;
         }
         fileDownloadStarted = true;
+        outputs[index] = withDurableWriteOutcome(
+          { destination, success: false, error: 'binary-download-failed' },
+          'unknown',
+          message.reportDurableWriteOutcome
+        );
         const download = await downloadStagedBinaryAsset(
           blobUrl,
           message,
@@ -362,19 +428,23 @@ async function commitStagedBinaryAsset(
         // A terminal event can race the timeout result: once latched by the
         // late callback, never overwrite ownership with the earlier `false`.
         downloadTerminal = downloadTerminal || download.terminal;
-        return download.result;
+        outputs[index] = download.result;
       })
     );
     destinationsFinished = true;
     const cleaned = await releaseWhenOwned();
     const reportedOutputs =
-      cleaned === false || recoveryRegistrationFailed ? withCleanupWarning(outputs) : outputs;
+      cleaned === false || recoveryRegistrationFailed
+        ? withCleanupWarning(outputs, message.reportDurableWriteOutcome)
+        : outputs;
     return binaryOutputResponse(reportedOutputs);
   } catch {
     destinationsFinished = true;
     if (!fileDownloadStarted) downloadTerminal = true;
     const cleaned = await releaseWhenOwned();
-    return failedBinaryCommit(message, cleaned === false);
+    return binaryOutputResponse(
+      cleaned === false ? withCleanupWarning(outputs, message.reportDurableWriteOutcome) : outputs
+    );
   } finally {
     if (destinationsFinished && downloadTerminal) await releaseWhenOwned();
   }
@@ -383,14 +453,18 @@ function failedBinaryCommit(
   message: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>,
   cleanupDeferred = false
 ): MultiOutputResponse {
-  const results = message.outputs.map(
-    destination =>
-      ({
+  const results = message.outputs.map(destination =>
+    withDurableWriteOutcome(
+      {
         destination,
         success: false,
         error: 'binary-stage-finalization-failed',
         ...(cleanupDeferred && { warning: 'binary-stage-cleanup-deferred' }),
-      }) as OutputResult
+      },
+      'not-dispatched',
+      message.reportDurableWriteOutcome,
+      cleanupDeferred
+    )
   );
   return { results, allSuccessful: false, anySuccessful: false };
 }

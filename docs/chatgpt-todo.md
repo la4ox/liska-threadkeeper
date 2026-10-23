@@ -182,11 +182,20 @@ terminal states, and the existing no-credential-export boundary.
   ordinary sender validation. Cleanup failures retain only the fixed
   archive/binary cleanup-deferred warning; arbitrary private errors do not cross
   the boundary.
-- Next add an operation-local append-only write-fact ledger for raw/binary
-  residue when later destination finalization fails. Track confirmed, unknown,
-  and not-dispatched facts separately; keep final receipts as the sole
-  provenance/link authority; do not imply retry, deletion, restart recovery, or
-  net disk usage.
+- Operation-local all-branches write accounting is implemented for raw,
+  manifest, canonical, and binary attempts. Confirmed and unknown bytes from
+  every requested destination seed the physical budget; not-dispatched attempts
+  charge zero. Receipts are not added twice and remain the sole authority for
+  Markdown/index eligibility, provenance, links, fetched assets, and
+  localization.
+- Sink outcomes are exact opt-in evidence. Legacy durable callers and ordinary
+  Markdown retain their old response shapes. Cleanup failure cannot erase a
+  confirmed write, while malformed/incomplete/foreign ledger evidence blocks
+  further Markdown instead of selecting receipt-only fallback.
+- The automatic ledger consumer remains all-branches only. Current/selected and
+  DeepSeek expose the optional seam but do not manufacture unused audit state;
+  no persistence across browser/worker restart, retry, deletion, recovery, or
+  net-disk claim is implied.
 - Finish aggregate limits for branch materialization and destination writes.
 - Re-run focused security/diff review at meaningful boundaries, not after every
   cosmetic change.
@@ -233,12 +242,12 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Checkpoint the live-verified settings-stable routing slice in its own pull
-request. Then implement failed-finalization write accounting as a separate
-operation-local ledger checkpoint. After that, choose the next independent
-evidence gate: a real staged capture above 16 MiB, a live multi-output
-same-title sample, or one additional binary family. The 1 GiB source-work limit
-remains a deliberate refusal for the measured 1.051 GiB graph; only a
-separately reviewed limit change may authorize that full 239-leaf run. Keep
-custom-GPT/project binaries and the sole archived Library WebP separately
-evidence-gated.
+Checkpoint the live-verified operation-local write ledger in its own pull
+request. Then choose the next evidence-backed ChatGPT gate: a real staged
+capture above 16 MiB, a live multi-output same-title sample, or one available
+additional binary family. If no suitable live specimen exists, proceed with the
+independent untouched-provider/upstream audit instead of inventing transport
+authority. The 1 GiB source-work limit remains a deliberate refusal for the
+measured 1.051 GiB graph; only a separately reviewed limit change may authorize
+that full 239-leaf run. Keep custom-GPT/project binaries and the sole archived
+Library WebP separately evidence-gated.

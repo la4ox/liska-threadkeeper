@@ -359,6 +359,18 @@ function hasExactRoutingKeys(message: object, required: readonly string[]): bool
   return hasExactOwnKeys(message, [...required, ...optional]);
 }
 
+/** Outcome reporting is an exact opt-in only on durable artifact commit routes. */
+function hasExactDurableRoutingKeys(message: object, required: readonly string[]): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(message, 'reportDurableWriteOutcome');
+  return (
+    (!descriptor || ('value' in descriptor && descriptor.value === true)) &&
+    hasExactRoutingKeys(message, [
+      ...required,
+      ...(descriptor ? ['reportDurableWriteOutcome'] : []),
+    ])
+  );
+}
+
 function isSafeNoteFileName(value: unknown): value is string {
   return (
     typeof value === 'string' &&
@@ -466,7 +478,7 @@ function validatePersistArchiveCompanionMessage(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
 ): boolean {
   if (!isStructuredArchiveSource(message.source)) return false;
-  const exactRouting = hasExactRoutingKeys(message, [
+  const exactRouting = hasExactDurableRoutingKeys(message, [
     'action',
     'noteFileName',
     'source',
@@ -544,7 +556,7 @@ function validateArchiveStageMessage(
       isSafeArchiveStageId(message.stageId)
     );
   }
-  const exactRouting = hasExactRoutingKeys(message, [
+  const exactRouting = hasExactDurableRoutingKeys(message, [
     'action',
     'noteFileName',
     'source',
@@ -607,7 +619,7 @@ function validateAppendStagedBinaryAssetMessage(
 function validateCommitStagedBinaryAssetMessage(
   message: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>
 ): boolean {
-  const exactRouting = hasExactRoutingKeys(message, [
+  const exactRouting = hasExactDurableRoutingKeys(message, [
     'action',
     'stageId',
     'captureId',
@@ -682,6 +694,21 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   }
 
   const extensionMessage = message as ExtensionMessage;
+  // Inspect this opt-in before JSON sizing, which would otherwise invoke an accessor.
+  const reportOutcome = Object.getOwnPropertyDescriptor(message, 'reportDurableWriteOutcome');
+  if (!reportOutcome && 'reportDurableWriteOutcome' in message) return false;
+  if (
+    reportOutcome &&
+    (!('value' in reportOutcome) ||
+      reportOutcome.value !== true ||
+      !reportOutcome.enumerable ||
+      ![
+        'persistArchiveCompanion',
+        'commitStagedArchiveCompanion',
+        'commitStagedBinaryAsset',
+      ].includes(extensionMessage.action))
+  )
+    return false;
   // Validate action against whitelist (using centralized constants)
   if (
     !VALID_MESSAGE_ACTIONS.includes(

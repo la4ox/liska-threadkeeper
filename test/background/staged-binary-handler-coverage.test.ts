@@ -613,7 +613,7 @@ describe('staged binary background handler coverage', () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
-  it('turns an unexpected lease-release exception into a bounded finalization failure', async () => {
+  it('retains a successful sink observation when lease cleanup throws', async () => {
     const release = vi.fn(() => {
       throw new Error('lease bookkeeping failed');
     });
@@ -627,14 +627,99 @@ describe('staged binary background handler coverage', () => {
       results: [
         {
           destination: 'obsidian',
-          success: false,
-          error: 'binary-stage-finalization-failed',
+          success: true,
           warning: 'binary-stage-cleanup-deferred',
         },
       ],
-      allSuccessful: false,
-      anySuccessful: false,
+      allSuccessful: true,
+      anySuccessful: true,
     });
     expect(release).toHaveBeenCalledOnce();
   });
+
+  it('retains confirmed typed binary evidence through cleanup failure', async () => {
+    mocks.acquireLease.mockResolvedValue({
+      release: vi.fn(() => {
+        throw new Error('private cleanup');
+      }),
+    });
+    finalizedResponses();
+    mocks.saveStagedBinaryAsset.mockImplementation(async (_settings, _request, observe) => {
+      observe('unknown');
+      observe('confirmed');
+      return { success: true };
+    });
+    const response = await handleStagedBinaryAssetMessage(
+      { ...commitMessage(['obsidian']), reportDurableWriteOutcome: true },
+      settings
+    );
+    expect(response).toMatchObject({
+      allSuccessful: true,
+      results: [
+        {
+          success: true,
+          warning: 'binary-stage-cleanup-deferred',
+          writeOutcome: { state: 'confirmed', cleanupDeferred: true },
+        },
+      ],
+    });
+  });
+
+  it('keeps confirmed binary evidence when forgetting its cleanup record returns false', async () => {
+    const store = installRecoveryStorage();
+    installLease();
+    finalizedResponses();
+    vi.mocked(chrome.storage.local.set).mockImplementation(async items => {
+      if (Array.isArray(items[RECOVERY_STORAGE_KEY]) && items[RECOVERY_STORAGE_KEY].length === 0)
+        throw new Error('registry unavailable');
+      Object.assign(store, items);
+    });
+    mocks.downloadArchiveBlob.mockResolvedValue({ terminal: true, error: null, downloadId: 17 });
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      {
+        id: 17,
+        filename: `C:/Downloads/_liska-archive/${'c'.repeat(64)}/capture-chatgpt-11111111-2222-4333-8444-555555555555/${descriptor.relativePath}`,
+      } as chrome.downloads.DownloadItem,
+    ]);
+    const response = await handleStagedBinaryAssetMessage(
+      { ...commitMessage(['file']), reportDurableWriteOutcome: true },
+      settings
+    );
+    expect(response).toMatchObject({
+      allSuccessful: true,
+      results: [{ success: true, writeOutcome: { state: 'confirmed', cleanupDeferred: true } }],
+    });
+  });
+
+  it.each(['interrupted', 'wrong-path', 'start-refused', 'callback-lost'])(
+    'reports typed binary outcome for %s',
+    async mode => {
+      installLease();
+      finalizedResponses();
+      mocks.downloadArchiveBlob.mockResolvedValue(
+        mode === 'interrupted'
+          ? { terminal: true, error: 'Archive download was interrupted', downloadId: 1 }
+          : mode === 'start-refused'
+            ? { terminal: true, error: 'Archive download could not be started' }
+            : mode === 'callback-lost'
+              ? { terminal: false, error: 'Archive download did not complete' }
+              : { terminal: true, error: null, downloadId: 1 }
+      );
+      vi.mocked(chrome.downloads.search).mockResolvedValue([
+        { id: 1, filename: 'C:/wrong.bin' } as chrome.downloads.DownloadItem,
+      ]);
+      const response = await handleStagedBinaryAssetMessage(
+        { ...commitMessage(['file']), reportDurableWriteOutcome: true },
+        settings
+      );
+      expect(response).toMatchObject({
+        results: [
+          {
+            success: false,
+            writeOutcome: { state: mode === 'start-refused' ? 'not-dispatched' : 'unknown' },
+          },
+        ],
+      });
+    }
+  );
 });

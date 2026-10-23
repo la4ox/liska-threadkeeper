@@ -8,6 +8,7 @@
  */
 
 import type { RawCaptureAsset, RawCaptureAssetRecord } from '../archive';
+import type { OperationWriteLedger } from '../lib/operation-write-ledger';
 import type { ChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
 import {
   buildChatGptSandboxLocalizationEvidence,
@@ -91,6 +92,7 @@ export interface ArchiveCompanionPersistenceOutcome {
 }
 
 export interface ChatGptAssetExportDependencies {
+  writeLedger?: OperationWriteLedger;
   /** Original runtime-only guard, shared by every durable write in this operation. */
   expectedSyncSettingsSnapshot?: string;
   persistArtifacts: (
@@ -99,7 +101,8 @@ export interface ChatGptAssetExportDependencies {
     source: 'chatgpt',
     outputs: OutputDestination[],
     artifactKinds: readonly ArchiveCompanionKind[],
-    expectedSyncSettingsSnapshot?: string
+    expectedSyncSettingsSnapshot?: string,
+    writeLedger?: OperationWriteLedger
   ) => Promise<ArchiveCompanionPersistenceOutcome>;
   observeResolvers?: (
     context: ChatGptAssetExportContext,
@@ -628,6 +631,7 @@ async function persistAcquiredBinaries(
       }),
       assets,
       outputs,
+      ...(dependencies.writeLedger && { writeLedger: dependencies.writeLedger }),
     });
   } catch {
     return [];
@@ -714,7 +718,8 @@ async function finalizeDestination(
       'chatgpt',
       [destination],
       ['manifest', 'canonical'],
-      dependencies.expectedSyncSettingsSnapshot
+      dependencies.expectedSyncSettingsSnapshot,
+      ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
     );
     const complete = outcome.activeOutputs.includes(destination);
     return {
@@ -771,7 +776,8 @@ export async function persistChatGptDestinationHonestAttachments(
       'chatgpt',
       requested,
       ['raw'],
-      dependencies.expectedSyncSettingsSnapshot
+      dependencies.expectedSyncSettingsSnapshot,
+      ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
     );
   } catch {
     return {

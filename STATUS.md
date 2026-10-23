@@ -852,13 +852,85 @@ the deterministic admission matrix, not claimed as a live UI proof. The clean
 pre-live rollback is retained at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\stable-routing-prelive-20261023-134118-40ac6dab`.
 
-Next: checkpoint the settings-stable routing slice in its own pull request.
-Then implement the separate operation-local append-only write-fact ledger so a
-confirmed raw or binary write remains countable when later destination
-finalization fails. That ledger must distinguish confirmed, unknown, and
-not-dispatched facts without becoming a retry, deletion, recovery, or net-disk
-claim. The 1 GiB source-work limit remains a deliberate refusal for the known
-1.051 GiB graph. A live multi-output same-title sample, real staged capture
-above 16 MiB, additional binary families, and Dots remain separate
-evidence-gated follow-ups. Custom-GPT/project binaries and the archived Library
-WebP remain separately evidence-gated.
+PR 21 merged the settings-stable routing checkpoint to `main` as `c896cd5`;
+its reviewed head `87344b2` is an ancestor of fetched remote `main`.
+
+The operation-local write-fact ledger is implemented on
+`codex/chatgpt-write-ledger` at `9030de4`. Durable archive and binary routes now
+return an exact typed sink observation only when a first-party ledger call opts
+in: `confirmed`, `unknown`, or `not-dispatched`, with a separate bounded cleanup
+fact. Legacy durable callers and ordinary Markdown keep their previous response
+shapes. Confirmation still means the established strict contract—exact
+Obsidian readback or terminal exact-path Download—not PUT acceptance or a
+download ID. A timed-out/readback-mismatched/path-unconfirmed write is charged
+as unknown; settings, preflight, integrity, or start rejection before a durable
+dispatch remains not-dispatched.
+
+One closure-owned bounded ledger follows an all-branches operation through raw,
+binary, manifest, and canonical attempts. Its detached snapshots contain only
+an opaque capture binding, local attempt ordinal, destination/kind enums, exact
+verified payload length, terminal state, and cleanup boolean—never bodies,
+provider IDs, hashes, paths, filenames, credentials, or arbitrary errors.
+Duplicate identical observations are idempotent; conflicts, accessors, foreign
+operation evidence, incomplete receipt coverage, unsafe integers, and aggregate
+overflow fail closed. Confirmed sink evidence is latched before temporary-stage
+cleanup, so a later cleanup/bookkeeping failure cannot erase it.
+
+All requested destinations now remain in the all-branches summary even when a
+later artifact prevents finalization. In ledger mode, confirmed plus unknown
+artifact bytes from every requested destination seed the shared physical budget;
+receipt totals are not added again. Only receipt-qualified destinations may
+receive branch Markdown, indexes, manifest provenance, local links, fetched
+asset claims, or sandbox localization. A malformed supplied ledger blocks new
+Markdown rather than silently falling back to a smaller receipt-only total.
+Legacy callers without a ledger retain the previous finalized-receipt accounting.
+Current/selected and DeepSeek retain the optional typed seam but do not create
+unused ledgers; this checkpoint is neither persistent audit storage nor a
+restart, retry, deletion, recovery, or net-disk guarantee.
+
+Independent implementation and follow-up reviews found no residual P0-P3
+issue. GitHub current-head review then found two user-honesty gaps: successful
+archive writes hid allowlisted cleanup-deferred evidence, and a receipt-qualified
+destination could hide unknown binary bytes omitted from its final manifest.
+Both are fixed in `e0d3246`; cleanup warnings are now independent of write
+success, and unknown artifact bytes are disclosed across every requested
+destination. A later current-head review found that the ledger accepted shorter
+capture IDs than the existing ChatGPT/DeepSeek contracts; `b6c451a` aligns both
+provider-specific maxima and adds boundary/one-over regressions. Exact-tree
+validation passes 166 test files / 5,011 tests. Coverage is 95.28% statements,
+91.33% branches, 98.60% functions, and 97.73% lines.
+TypeScript, production build, source/platform lint, repository formatting, ZIP
+packaging, and diff checks pass; lint retains only the same three pre-existing
+advisory warnings. A parent rerun of the ten decisive suites passes 286 tests.
+The final review-fixed ZIP is 242,564 bytes with SHA-256
+`d056682127b5985200925e05bc3fdc3c62497acbf247949c628e170077c79e27`.
+Its 29-file production tree is byte-identical to the build installed in Comet.
+The clean pre-live rollback is retained at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\write-ledger-capture-id-fix-prelive-20261023-152409-b6c451a`.
+
+A fresh positive all-branches Comet canary created
+`capture-chatgpt-0b38fe0b-d061-406b-a3ef-4b3d05a07b41` from the final
+review-fixed build in both Downloads and Obsidian. Raw (287,632 bytes), manifest
+(8,959), canonical (612,899), and DOCX (45,036) copies are byte-identical across
+destinations; raw length/hash and canonical manifest provenance reconcile. Both
+one-leaf indexes resolve their exact emitted branch name and all four notes bind
+to manifest SHA-256
+`295db787b80edb7160770012bc6b56f12bfe5a61f2de3434d4e530ae5cdcfe58`.
+File and Obsidian branch notes are 47,904 and 47,096 bytes because their existing
+destination transforms remain independent; both indexes are 1,224 bytes. The
+manifest retained one fetched, four failed, and nine not-attempted asset records:
+the verified DOCX is linked once from every branch/index view, while the
+remaining unfetched sandbox reference stays honest. Temporary resolver tabs
+exact-closed. This proves the unchanged-settings positive ledger path, not a
+live failure race or worker-restart guarantee; those remain deterministic/static
+evidence only. The subsequent capture-ID boundary fix does not alter this
+ordinary UUID path; its 29-file build is installed, reloaded, and byte-identical
+to `dist`.
+
+Next: checkpoint this live-verified write-ledger slice in its own pull request.
+The next ChatGPT live gates still require a real provider response above 16 MiB,
+a multiple-same-title produced-file sample, or an available additional binary
+family. Until such evidence exists, the 1 GiB source-work limit remains a
+deliberate refusal for the known 1.051 GiB graph, and custom-GPT/project binaries
+plus the archived Library WebP remain separately evidence-gated. The untouched
+provider/upstream audit can proceed independently after this checkpoint.

@@ -58,6 +58,7 @@ export interface ArchiveCompanionPersistenceOutcome {
 }
 
 export interface DeepSeekAssetExportDependencies {
+  writeLedger?: import('../lib/operation-write-ledger').OperationWriteLedger;
   /** Original runtime-only guard, shared by every durable write in this operation. */
   expectedSyncSettingsSnapshot?: string;
   persistArtifacts: (
@@ -66,7 +67,8 @@ export interface DeepSeekAssetExportDependencies {
     source: 'deepseek',
     outputs: OutputDestination[],
     artifactKinds: readonly ArchiveCompanionKind[],
-    expectedSyncSettingsSnapshot?: string
+    expectedSyncSettingsSnapshot?: string,
+    writeLedger?: import('../lib/operation-write-ledger').OperationWriteLedger
   ) => Promise<ArchiveCompanionPersistenceOutcome>;
   deriveCandidates?: typeof deriveDeepSeekAssetCandidates;
   acquireAssets?: typeof acquireDeepSeekSignedAssets;
@@ -388,12 +390,13 @@ async function persistBinaries(
       expectedSyncSettingsSnapshot: dependencies.expectedSyncSettingsSnapshot,
     }),
     assets: acquisition.runtimeAssets,
+    ...(dependencies.writeLedger && { writeLedger: dependencies.writeLedger }),
     outputs,
   });
 }
 
 /** Raw first, one bounded acquisition pass, then destination-specific manifest/canonical. */
-// eslint-disable-next-line max-lines-per-function -- The durable ordering and per-destination evidence stay explicit at this trust boundary.
+// eslint-disable-next-line max-lines-per-function, complexity -- Keep raw, optional ledger propagation, binary acquisition and per-destination finalization explicitly ordered at this trust boundary.
 export async function persistDeepSeekDestinationHonestAttachments(
   context: DeepSeekAssetExportContext,
   companion: ArchiveCompanionBundle,
@@ -421,7 +424,8 @@ export async function persistDeepSeekDestinationHonestAttachments(
       'deepseek',
       requested,
       ['raw'],
-      dependencies.expectedSyncSettingsSnapshot
+      dependencies.expectedSyncSettingsSnapshot,
+      ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
     );
   } catch {
     return {
@@ -484,7 +488,8 @@ export async function persistDeepSeekDestinationHonestAttachments(
         'deepseek',
         [destination],
         ['manifest', 'canonical'],
-        dependencies.expectedSyncSettingsSnapshot
+        dependencies.expectedSyncSettingsSnapshot,
+        ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
       );
       warnings.push(...outcome.warnings);
       if (outcome.activeOutputs.includes(destination)) completeDestinations.push(destination);

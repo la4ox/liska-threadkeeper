@@ -93,6 +93,13 @@ function settingsChangedOutputResponse(
       destination,
       success: false,
       error: 'settings-changed',
+      ...(message.action !== 'saveToOutputs' &&
+        message.reportDurableWriteOutcome === true && {
+          writeOutcome: {
+            state: 'not-dispatched' as const,
+            ...(cleanupWarning && { cleanupDeferred: true as const }),
+          },
+        }),
       ...(destination === 'file' &&
       message.action === 'saveToOutputs' &&
       message.strictFileDownload === true

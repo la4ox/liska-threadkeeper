@@ -187,6 +187,24 @@ describe('settings-stable durable message admission', () => {
     await import('../../src/background/service-worker');
   });
 
+  it.each(['raw', 'binary', 'manifest', 'canonical'] as const)(
+    'reports not-dispatched typed %s facts on settings rejection',
+    async phase => {
+      const message = {
+        ...request('chatgpt', phase, true),
+        reportDurableWriteOutcome: true as const,
+      };
+      current.vaultPath = 'changed';
+      const response = await dispatch(message);
+      expect(response).toMatchObject({
+        results: [
+          { success: false, error: 'settings-changed', writeOutcome: { state: 'not-dispatched' } },
+        ],
+      });
+      expect(durableDispatchCount()).toBe(0);
+    }
+  );
+
   const sequenceCases = (['chatgpt', 'deepseek'] as const).flatMap(source =>
     [false, true].flatMap(staged =>
       (['file', 'obsidian'] as const).flatMap(destination =>

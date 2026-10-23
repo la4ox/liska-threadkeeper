@@ -14,8 +14,13 @@ import {
 import { decorateChatGptArchivePresentation } from './chatgpt-archive-links';
 import { buildChatGptDestinationArchiveReceipt } from './chatgpt-destination-receipt';
 import {
+  snapshotOperationWriteLedger,
+  type OperationWriteLedgerSnapshot,
+} from '../lib/operation-write-ledger';
+import {
   checkedAdd,
   destinationRetainedBytes,
+  operationArtifactBytes,
   ExactPresentationBudget,
   structuralBudgetPreflight,
   type AllBranchesBudgetKind,
@@ -54,6 +59,9 @@ export interface AllBranchesDestinationSummary {
   indexState: AllBranchesWriteOutcome | 'not-attempted';
   dispatchedBytes: number;
   confirmedBytes: number;
+  confirmedArtifactBytes: number;
+  unknownArtifactBytes: number;
+  cleanupDeferredArtifactWrites: number;
 }
 
 export interface AllBranchesPersistenceSummary {
@@ -73,6 +81,8 @@ export interface AllBranchesPersistenceSummary {
   clipboardSkipped: boolean;
   destinations: AllBranchesDestinationSummary[];
   allSuccessful: boolean;
+  accountingMode: 'receipts' | 'write-ledger';
+  writeLedgerValid?: boolean;
 }
 
 export interface AllBranchesPersistenceDependencies {
@@ -96,6 +106,8 @@ export interface AllBranchesPersistenceDependencies {
   prepared?: PreparedAllBranchesPersistence;
   /** Exact destination-owned evidence; absence selects the original full-trio persistence path. */
   destinationReceipts?: readonly unknown[];
+  /** Accounting only, never archive/link eligibility. A provider is read once after archive processing. */
+  writeLedgerSnapshot?: unknown;
   onProgress?: (completedBranches: number, totalBranches: number) => void;
 }
 
@@ -183,6 +195,9 @@ function destinationSummary(
     indexState: 'not-attempted',
     dispatchedBytes: 0,
     confirmedBytes: 0,
+    confirmedArtifactBytes: 0,
+    unknownArtifactBytes: 0,
+    cleanupDeferredArtifactWrites: 0,
   };
 }
 
@@ -300,10 +315,11 @@ async function prepareDestinations(
   destinations: AllBranchesDestinationSummary[],
   receipts: DestinationReceipts,
   suppliedReceipts: boolean,
-  dependencies: AllBranchesPersistenceDependencies
+  dependencies: AllBranchesPersistenceDependencies,
+  ledgerMode = false
 ): Promise<void> {
   for (const destination of destinations) {
-    if (aborted(dependencies)) return;
+    if (aborted(dependencies) && !suppliedReceipts) return;
     try {
       if (!suppliedReceipts) {
         const outcome = await dependencies.persistArtifacts(
@@ -324,18 +340,83 @@ async function prepareDestinations(
       }
       destination.archiveSaved = receipts.has(destination.destination);
       destination.archiveState = destination.archiveSaved ? 'confirmed' : 'failed';
-      if (destination.archiveSaved) {
+      if (destination.archiveSaved && !ledgerMode) {
         const retainedBytes = destinationRetainedBytes(receipts.get(destination.destination)!);
         destination.dispatchedBytes = retainedBytes;
         destination.confirmedBytes = retainedBytes;
+        destination.confirmedArtifactBytes = retainedBytes;
       }
     } catch {
       destination.archiveSaved = false;
       destination.archiveState = 'failed';
     }
-    if (aborted(dependencies)) return;
+    if (aborted(dependencies) && !suppliedReceipts) return;
     if (!suppliedReceipts) await yieldTask(dependencies);
   }
+}
+
+/** Invalid supplied accounting never selects the legacy receipt-only fallback. */
+function seedArtifactAccounting(
+  dependencies: AllBranchesPersistenceDependencies,
+  companion: ArchiveCompanionBundle,
+  destinations: AllBranchesDestinationSummary[],
+  receipts: DestinationReceipts
+): boolean {
+  try {
+    const value =
+      typeof dependencies.writeLedgerSnapshot === 'function'
+        ? dependencies.writeLedgerSnapshot()
+        : dependencies.writeLedgerSnapshot;
+    const ledger = snapshotOperationWriteLedger(value, companion.captureId);
+    if (
+      !ledger ||
+      ledger.observations.some(
+        entry => !destinations.some(row => row.destination === entry.destination)
+      ) ||
+      !ledgerCoversReceipts(ledger, receipts)
+    )
+      return false;
+    for (const destination of destinations) {
+      const totals = operationArtifactBytes(ledger, destination.destination);
+      destination.confirmedArtifactBytes = totals.confirmed;
+      destination.unknownArtifactBytes = totals.unknown;
+      destination.cleanupDeferredArtifactWrites = totals.cleanupDeferred;
+      destination.confirmedBytes = totals.confirmed;
+      destination.dispatchedBytes = checkedAdd(totals.confirmed, totals.unknown, 'artifact bytes');
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A valid-looking but incomplete snapshot cannot undercount receipt-proven writes. */
+function ledgerCoversReceipts(
+  ledger: OperationWriteLedgerSnapshot,
+  receipts: DestinationReceipts
+): boolean {
+  for (const [destination, receipt] of receipts) {
+    const confirmed = ledger.observations.filter(
+      entry => entry.destination === destination && entry.state === 'confirmed'
+    );
+    if (
+      !(['raw', 'manifest', 'canonical'] as const).every(kind =>
+        confirmed.some(
+          entry => entry.kind === kind && entry.byteLength === receipt.archiveByteLengths[kind]
+        )
+      )
+    )
+      return false;
+    const requiredBinary = receipt.assets.reduce(
+      (sum, asset) => checkedAdd(sum, asset.byteLength, 'receipt binary bytes'),
+      0
+    );
+    const recordedBinary = confirmed
+      .filter(entry => entry.kind === 'binary')
+      .reduce((sum, entry) => checkedAdd(sum, entry.byteLength, 'recorded binary bytes'), 0);
+    if (recordedBinary < requiredBinary) return false;
+  }
+  return true;
 }
 
 function emptyMeasurement(destinations: readonly AllBranchesDestinationSummary[]): Measurement {
@@ -598,7 +679,7 @@ function finalizeSummary(
 }
 
 /** Persist one bounded capture as archive evidence plus exact sequential leaf views. */
-// eslint-disable-next-line max-lines-per-function -- Keep the phase ordering visible: preflight, evidence, dry measure, writes, index.
+// eslint-disable-next-line max-lines-per-function, complexity -- Keep fail-closed phase ordering visible: preflight, immutable accounting, receipt gating, dry measure, writes, index.
 export async function persistAllBranchesPresentation(
   plan: AllBranchesPresentationPlan,
   companion: ArchiveCompanionBundle,
@@ -611,6 +692,7 @@ export async function persistAllBranchesPresentation(
   const ownedCompanion = structuredClone(companion);
   requireCompleteCompanion(ownedCompanion);
   const suppliedReceipts = dependencies.destinationReceipts !== undefined;
+  const ledgerMode = Object.prototype.hasOwnProperty.call(dependencies, 'writeLedgerSnapshot');
   const receipts = snapshotOwnedReceipts(
     dependencies.destinationReceipts,
     ownedCompanion,
@@ -645,19 +727,62 @@ export async function persistAllBranchesPresentation(
     canonicalOnlyCount: 0,
     clipboardSkipped: outputs.includes('clipboard'),
     destinations,
+    accountingMode: ledgerMode ? ('write-ledger' as const) : ('receipts' as const),
+    ...(ledgerMode && { writeLedgerValid: false }),
   };
+  if (ledgerMode && (!structural.accepted || base.cancelRequested)) {
+    // Attachment processing may already have written artifacts before cancellation.
+    await prepareDestinations(ownedCompanion, destinations, receipts, true, dependencies, true);
+    base.writeLedgerValid = seedArtifactAccounting(
+      dependencies,
+      ownedCompanion,
+      destinations,
+      receipts
+    );
+    if (!base.writeLedgerValid) return finalizeSummary(base, 'rejected');
+    base.plannedPhysicalBytes = new ExactPresentationBudget(
+      new Map(destinations.map(row => [row.destination, row.dispatchedBytes]))
+    ).totalPhysicalBytes;
+  }
   if (!structural.accepted) {
     return finalizeSummary({ ...base, budgetKind: structural.budgetKind }, 'rejected');
   }
   if (base.cancelRequested) return finalizeSummary(base, 'cancelled');
   if (destinations.length === 0) return finalizeSummary(base, 'failed');
 
-  await prepareDestinations(ownedCompanion, destinations, receipts, suppliedReceipts, dependencies);
+  await prepareDestinations(
+    ownedCompanion,
+    destinations,
+    receipts,
+    suppliedReceipts,
+    dependencies,
+    ledgerMode
+  );
+  if (ledgerMode) {
+    base.writeLedgerValid = seedArtifactAccounting(
+      dependencies,
+      ownedCompanion,
+      destinations,
+      receipts
+    );
+    if (!base.writeLedgerValid) return finalizeSummary({ ...base, phase: 'archive' }, 'rejected');
+  }
   const active = destinations.filter(destination => destination.archiveSaved);
   const budget = new ExactPresentationBudget(
-    new Map(active.map(({ destination, confirmedBytes }) => [destination, confirmedBytes]))
+    new Map(
+      (ledgerMode ? destinations : active).map(({ destination, dispatchedBytes }) => [
+        destination,
+        dispatchedBytes,
+      ])
+    )
   );
   base.plannedPhysicalBytes = budget.totalPhysicalBytes;
+  const initialBudgetExceeded = budget.preflight();
+  if (initialBudgetExceeded && ledgerMode)
+    return finalizeSummary(
+      { ...base, phase: 'archive', budgetKind: initialBudgetExceeded },
+      'rejected'
+    );
   if (aborted(dependencies)) {
     return finalizeSummary({ ...base, phase: 'archive', cancelRequested: true }, 'cancelled');
   }

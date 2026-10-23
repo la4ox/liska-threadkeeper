@@ -69,9 +69,13 @@ function summary(
         indexState: 'confirmed',
         dispatchedBytes: 500,
         confirmedBytes: 500,
+        confirmedArtifactBytes: 100,
+        unknownArtifactBytes: 0,
+        cleanupDeferredArtifactWrites: 0,
       },
     ],
     allSuccessful: true,
+    accountingMode: 'receipts',
     ...overrides,
   };
 }
@@ -208,6 +212,28 @@ describe('all-branches user summary', () => {
     );
   });
 
+  it('surfaces unknown artifact bytes even when the destination finalized', () => {
+    const completed = summary().destinations[0];
+    displayAllBranchesSummary(
+      summary({
+        destinations: [
+          {
+            ...completed,
+            dispatchedBytes: completed.dispatchedBytes + 50,
+            unknownArtifactBytes: 50,
+          },
+        ],
+      })
+    );
+
+    expect(showToast).not.toHaveBeenCalledWith('Saved 2 branches and an index to file', 'success');
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '50 artifact byte(s) were conservatively charged because their write outcome is unknown'
+      )
+    );
+  });
+
   it('summarizes legacy omissions, canonical-only stubs, and skipped Clipboard', () => {
     displayAllBranchesSummary(
       summary({ omissionBranchCount: 2, canonicalOnlyCount: 1, clipboardSkipped: true })
@@ -241,6 +267,9 @@ describe('all-branches user summary', () => {
             indexState: 'not-attempted',
             dispatchedBytes: 100,
             confirmedBytes: 50,
+            confirmedArtifactBytes: 50,
+            unknownArtifactBytes: 0,
+            cleanupDeferredArtifactWrites: 0,
           },
           {
             destination: 'obsidian',
@@ -250,15 +279,30 @@ describe('all-branches user summary', () => {
             branchWrites: { confirmed: 0, failed: 0, unknown: 0 },
             indexSaved: false,
             indexState: 'not-attempted',
-            dispatchedBytes: 0,
-            confirmedBytes: 0,
+            dispatchedBytes: 75,
+            confirmedBytes: 25,
+            confirmedArtifactBytes: 25,
+            unknownArtifactBytes: 50,
+            cleanupDeferredArtifactWrites: 0,
           },
         ],
       })
     );
 
     expect(showWarningToast).toHaveBeenCalledWith(
-      'All-branches export was partial: 1/4 branch writes, 0/2 indexes, and 1/2 complete archive bundles succeeded'
+      expect.stringContaining(
+        'All-branches export was partial: 1/4 branch writes, 0/2 indexes, and 1/2 complete archive bundles succeeded'
+      )
+    );
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '25 artifact byte(s) were confirmed before incomplete archive finalization'
+      )
+    );
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '50 artifact byte(s) were conservatively charged because their write outcome is unknown'
+      )
     );
   });
 

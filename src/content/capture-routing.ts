@@ -27,6 +27,7 @@ export function buildArchivePersistenceMessage(input: {
   artifact: ArchiveCompanionArtifact;
   outputs: PersistentOutputDestination[];
   expectedSyncSettingsSnapshot?: string;
+  reportDurableWriteOutcome?: true;
 }): ArchivePersistenceMessage {
   const shared = {
     noteFileName: input.noteFileName,
@@ -37,6 +38,7 @@ export function buildArchivePersistenceMessage(input: {
       expectedSyncSettingsSnapshot: input.expectedSyncSettingsSnapshot,
     }),
     outputs: input.outputs,
+    ...(input.reportDurableWriteOutcome === true && { reportDurableWriteOutcome: true as const }),
   };
   if (input.artifact.transport === 'inline') {
     return {

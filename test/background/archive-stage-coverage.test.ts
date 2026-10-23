@@ -570,7 +570,7 @@ describe('archive-stage background handler coverage', () => {
     await expect(
       handlers.handleArchiveStageMessage(commitMessage(['file']), settings)
     ).resolves.toEqual({
-      results: [{ destination: 'file', success: true }],
+      results: [{ destination: 'file', success: true, warning: 'archive-stage-cleanup-deferred' }],
       allSuccessful: true,
       anySuccessful: true,
     });
@@ -634,9 +634,9 @@ describe('archive-stage background handler coverage', () => {
     await expect(
       handlers.handleArchiveStageMessage(commitMessage(['file']), settings)
     ).resolves.toEqual({
-      results: [{ destination: 'file', success: false, error: 'archive-stage-write-failed' }],
-      allSuccessful: false,
-      anySuccessful: false,
+      results: [{ destination: 'file', success: true, warning: 'archive-stage-cleanup-deferred' }],
+      allSuccessful: true,
+      anySuccessful: true,
     });
     expect(store[RECOVERY_STORAGE_KEY]).toEqual([
       expect.objectContaining({ stageId, downloadId: null }),
