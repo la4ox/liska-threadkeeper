@@ -394,12 +394,10 @@ async function measurePresentation(
   session: PreparedArchiveBranchPresentation,
   destinations: AllBranchesDestinationSummary[],
   receipts: DestinationReceipts,
-  dependencies: AllBranchesPersistenceDependencies
+  dependencies: AllBranchesPersistenceDependencies,
+  budget: ExactPresentationBudget
 ): Promise<Measurement> {
   const measurement = emptyMeasurement(destinations);
-  const budget = new ExactPresentationBudget(
-    new Map(destinations.map(({ destination, confirmedBytes }) => [destination, confirmedBytes]))
-  );
   measurement.plannedPhysicalBytes = budget.totalPhysicalBytes;
   const initialExceeded = budget.preflight();
   if (initialExceeded) {
@@ -655,17 +653,17 @@ export async function persistAllBranchesPresentation(
   if (destinations.length === 0) return finalizeSummary(base, 'failed');
 
   await prepareDestinations(ownedCompanion, destinations, receipts, suppliedReceipts, dependencies);
-  base.plannedPhysicalBytes = destinations.reduce(
-    (total, destination) => checkedAdd(total, destination.confirmedBytes, 'physical planned bytes'),
-    0
+  const active = destinations.filter(destination => destination.archiveSaved);
+  const budget = new ExactPresentationBudget(
+    new Map(active.map(({ destination, confirmedBytes }) => [destination, confirmedBytes]))
   );
+  base.plannedPhysicalBytes = budget.totalPhysicalBytes;
   if (aborted(dependencies)) {
     return finalizeSummary({ ...base, phase: 'archive', cancelRequested: true }, 'cancelled');
   }
-  const active = destinations.filter(destination => destination.archiveSaved);
   if (active.length === 0) return finalizeSummary({ ...base, phase: 'archive' }, 'failed');
 
-  const measurement = await measurePresentation(session, active, receipts, dependencies);
+  const measurement = await measurePresentation(session, active, receipts, dependencies, budget);
   const measured = {
     ...base,
     phase: 'measurement' as const,

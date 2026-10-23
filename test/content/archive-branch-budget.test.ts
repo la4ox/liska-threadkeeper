@@ -220,5 +220,14 @@ describe('all-branches budgets', () => {
     expect(over.addNote('file', 0)).toBe('physical-planned-bytes');
     expect(over.totalPhysicalBytes).toBe(cap + 1);
     expect(over.logicalBytesFor('obsidian')).toBe(0);
+
+    const aggregateOverflow = new ExactPresentationBudget(
+      new Map([
+        ['file', Number.MAX_SAFE_INTEGER],
+        ['obsidian', 1],
+      ])
+    );
+    expect(aggregateOverflow.preflight()).toBe('physical-planned-bytes');
+    expect(aggregateOverflow.totalPhysicalBytes).toBe(cap + 1);
   });
 });

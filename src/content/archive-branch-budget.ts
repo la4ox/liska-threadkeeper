@@ -102,20 +102,34 @@ export function destinationRetainedBytes(receipt: ChatGptDestinationArchiveRecei
 export class ExactPresentationBudget {
   private readonly logicalBytes = new Map<PersistentOutputDestination, number>();
   private physicalBytes: number;
+  private initialExceeded = false;
 
   constructor(
     retainedBytesByDestination: ReadonlyMap<PersistentOutputDestination, number>,
     private readonly limits = ALL_BRANCHES_BUDGET_LIMITS
   ) {
     this.physicalBytes = 0;
+    checkedAdd(0, this.limits.physicalPlannedBytes, 'physical planned byte cap');
     for (const [destination, retainedBytes] of retainedBytesByDestination) {
       this.logicalBytes.set(destination, 0);
-      this.physicalBytes = checkedAdd(this.physicalBytes, retainedBytes, 'physical planned bytes');
+      const validatedBytes = checkedAdd(0, retainedBytes, 'physical planned bytes');
+      if (this.initialExceeded) continue;
+      if (validatedBytes > this.limits.physicalPlannedBytes - this.physicalBytes) {
+        this.initialExceeded = true;
+        this.physicalBytes =
+          this.limits.physicalPlannedBytes < Number.MAX_SAFE_INTEGER
+            ? this.limits.physicalPlannedBytes + 1
+            : this.limits.physicalPlannedBytes;
+        continue;
+      }
+      this.physicalBytes = checkedAdd(this.physicalBytes, validatedBytes, 'physical planned bytes');
     }
   }
 
   preflight(): AllBranchesBudgetKind | null {
-    return this.physicalBytes > this.limits.physicalPlannedBytes ? 'physical-planned-bytes' : null;
+    return this.initialExceeded || this.physicalBytes > this.limits.physicalPlannedBytes
+      ? 'physical-planned-bytes'
+      : null;
   }
 
   addNote(destination: PersistentOutputDestination, bytes: number): AllBranchesBudgetKind | null {

@@ -743,6 +743,31 @@ describe('all-branches destination receipts and exact parity', () => {
     }
   );
 
+  it('returns a physical-budget rejection when safe destination totals overflow in aggregate', async () => {
+    const destinationReceipts = distinctReceipts().map(receipt => ({
+      ...receipt,
+      archiveByteLengths: {
+        raw: 2,
+        manifest: 0,
+        canonical: Number.MAX_SAFE_INTEGER - 2,
+      },
+      assets: [],
+    }));
+    const fingerprint = vi.fn();
+    const writeNote = vi.fn();
+    const summary = await run({ destinationReceipts, fingerprintNote: fingerprint, writeNote });
+    expect(summary).toMatchObject({
+      status: 'rejected',
+      phase: 'measurement',
+      budgetKind: 'physical-planned-bytes',
+      plannedPhysicalBytes: 2 * 1024 ** 3 + 1,
+      measuredLeaves: 0,
+      renderedLeaves: 0,
+    });
+    expect(fingerprint).not.toHaveBeenCalled();
+    expect(writeNote).not.toHaveBeenCalled();
+  });
+
   it('retains only confirmed archive seeds if Stop arrives before measurement', async () => {
     const controller = new AbortController();
     const fingerprint = vi.fn();
