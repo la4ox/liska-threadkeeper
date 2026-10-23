@@ -23,6 +23,7 @@ import {
   PLATFORM_LABELS,
 } from '../../lib/constants';
 import { accumulateWhileScrolling, type HarvestEntry } from '../../lib/scroll-manager';
+import { buildScrollTimeoutWarning, isScrollTimeoutReason } from '../../lib/scroll-deadlines';
 import { platformForHost } from '../../lib/platform-registry';
 
 /**
@@ -178,15 +179,13 @@ export abstract class BaseExtractor implements IConversationExtractor {
     // Re-index into contiguous conversation order after de-duplication.
     const messages = result.items.map((message, index) => ({ ...message, index }));
 
-    if (result.fullyLoaded || result.skipped) {
+    if (!isScrollTimeoutReason(result.stopReason)) {
       return { messages };
     }
     return {
       messages,
       truncated: true,
-      warning:
-        `Auto-scroll timed out before reaching the top. ` +
-        `Some earlier messages may be missing (${result.itemCount} turns loaded).`,
+      warning: buildScrollTimeoutWarning(result.stopReason, result.itemCount),
     };
   }
 

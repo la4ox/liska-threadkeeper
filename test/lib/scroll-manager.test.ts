@@ -8,7 +8,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mergeWindow, accumulateWhileScrolling } from '../../src/lib/scroll-manager';
+import {
+  mergeWindow,
+  accumulateWhileScrolling,
+  ensureAllElementsLoaded,
+} from '../../src/lib/scroll-manager';
+import { SCROLL_MAX_TIMEOUT } from '../../src/lib/constants';
 
 describe('mergeWindow', () => {
   it('returns the window verbatim when nothing is accumulated yet', () => {
@@ -346,6 +351,7 @@ describe('accumulateWhileScrolling', () => {
 
     expect(result.skipped).toBe(false);
     expect(result.fullyLoaded).toBe(true);
+    expect(result.stopReason).toBe('stable');
     expect(result.itemCount).toBe(12);
     // Ordered from first turn to last.
     expect(result.items).toEqual(Array.from({ length: 12 }, (_, i) => `v${i}`));
@@ -417,6 +423,8 @@ describe('accumulateWhileScrolling', () => {
 
     expect(result.fullyLoaded).toBe(false);
     expect(result.itemCount).toBe(6);
+    expect(result.stopReason).toBe('idle-timeout');
+    expect(result.skipped).toBe(false);
     // 15_000ms / 400ms ≈ 38 iterations, plus slack — nowhere near the cap.
     expect(result.iterations).toBeLessThan(45);
   });
@@ -446,6 +454,7 @@ describe('accumulateWhileScrolling', () => {
 
     expect(result.fullyLoaded).toBe(false);
     expect(result.itemCount).toBe(6);
+    expect(result.stopReason).toBe('idle-timeout');
     // The scroller still travels 10_900 → 3_000 before pinning, i.e. ~15
     // iterations of real upward movement, and movement is progress (issue
     // #365). The idle deadline (~38 iters) then runs from the moment motion
@@ -486,6 +495,8 @@ describe('accumulateWhileScrolling', () => {
     const result = await promise;
 
     expect(result.skipped).toBe(true);
+    expect(result.fullyLoaded).toBe(true);
+    expect(result.stopReason).toBe('skipped');
     expect(result.items).toEqual(['v0', 'v1', 'v2']);
   });
 
@@ -505,12 +516,17 @@ describe('accumulateWhileScrolling', () => {
     let n = 0;
     const harvest = () => [{ key: `new${n++}`, value: `val${n}` }];
 
+    const startedAt = Date.now();
     const promise = accumulateWhileScrolling(container, harvest);
     await vi.runAllTimersAsync();
     const result = await promise;
 
     expect(result.fullyLoaded).toBe(false);
     expect(result.skipped).toBe(false);
+    expect(result.stopReason).toBe('max-timeout');
+    // The bottom seed consumes the same absolute pass budget as upward polls.
+    expect(Date.now() - startedAt).toBe(SCROLL_MAX_TIMEOUT);
+    expect(result.iterations).toBe(SCROLL_MAX_TIMEOUT / 400 - 1);
   });
 
   it('keeps the freshest content when a key re-appears in a later window', async () => {
@@ -539,5 +555,177 @@ describe('accumulateWhileScrolling', () => {
     const result = await promise;
 
     expect(result.items).toEqual(['final']);
+  });
+
+  it('uses per-call limits without changing merge/order or shipped defaults', async () => {
+    const { container, harvest } = createVirtualList({ total: 12, windowSize: 4 });
+    const promise = accumulateWhileScrolling(container, harvest, {
+      idleTimeoutMs: 15_000,
+      maxTimeoutMs: 1_000,
+    });
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({
+      stopReason: 'max-timeout',
+      fullyLoaded: false,
+      skipped: false,
+      iterations: 2,
+    });
+  });
+
+  it('includes the awaited bottom seed in the pass cap while retaining harvested turns', async () => {
+    const { container, harvest } = createVirtualList({ total: 12, windowSize: 4 });
+    const promise = accumulateWhileScrolling(container, harvest, {
+      idleTimeoutMs: 1_000,
+      maxTimeoutMs: 200,
+    });
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({
+      stopReason: 'max-timeout',
+      fullyLoaded: false,
+      skipped: false,
+      iterations: 0,
+      items: ['v8', 'v9', 'v10', 'v11'],
+    });
+  });
+
+  it('keeps a true no-scroll result untruncated even if its seed wait exceeds a limit', async () => {
+    const { container, harvest } = createVirtualList({ total: 3, windowSize: 5 });
+    const promise = accumulateWhileScrolling(container, harvest, {
+      idleTimeoutMs: 1,
+      maxTimeoutMs: 1,
+    });
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({
+      stopReason: 'skipped',
+      fullyLoaded: true,
+      skipped: true,
+      iterations: 0,
+    });
+  });
+
+  it('does not declare stability after a throttled final iteration crosses a deadline', async () => {
+    const { container, harvest } = createVirtualList({
+      total: 2,
+      windowSize: 1,
+      maxScroll: 400,
+    });
+    const startedAt = Date.now();
+    const promise = accumulateWhileScrolling(container, harvest, {
+      idleTimeoutMs: 15_000,
+      maxTimeoutMs: 1_900,
+    });
+    // At 1600ms, two stable top polls have completed and the decisive third is pending.
+    await vi.advanceTimersByTimeAsync(1_600);
+    vi.setSystemTime(startedAt + 5_000);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(await promise).toMatchObject({
+      stopReason: 'max-timeout',
+      fullyLoaded: false,
+      skipped: false,
+      iterations: 4,
+      items: ['v0', 'v1'],
+    });
+  });
+});
+
+describe('ensureAllElementsLoaded deadline diagnostics', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  function createScroller(grow = false): HTMLElement {
+    document.body.innerHTML = '<div class="turn"></div>';
+    const container = document.createElement('div');
+    let scrollTop = 1_000;
+    Object.defineProperty(container, 'scrollHeight', { value: 1_000 });
+    Object.defineProperty(container, 'scrollTop', {
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+        if (grow && value === 0) {
+          document.body.insertAdjacentHTML('afterbegin', '<div class="turn"></div>');
+        }
+      },
+    });
+    return container;
+  }
+
+  it('reports stable and skipped consistently', async () => {
+    const container = createScroller();
+    const promise = ensureAllElementsLoaded(container, '.turn');
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({
+      stopReason: 'stable',
+      fullyLoaded: true,
+      skipped: false,
+      elementCount: 1,
+      scrollIterations: 4,
+    });
+    expect(await ensureAllElementsLoaded(container, '.turn')).toMatchObject({
+      stopReason: 'skipped',
+      fullyLoaded: true,
+      skipped: true,
+      scrollIterations: 0,
+    });
+  });
+
+  it('does not count re-arm movement as progress for its idle deadline', async () => {
+    const promise = ensureAllElementsLoaded(createScroller(), '.turn', {
+      idleTimeoutMs: 1_500,
+      maxTimeoutMs: 10_000,
+    });
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({
+      stopReason: 'idle-timeout',
+      fullyLoaded: false,
+      skipped: false,
+      elementCount: 1,
+      scrollIterations: 3,
+    });
+  });
+
+  it('uses the max reason while counts keep growing and preserves the final observed count', async () => {
+    const promise = ensureAllElementsLoaded(createScroller(true), '.turn', {
+      idleTimeoutMs: 1_500,
+      maxTimeoutMs: 5_000,
+    });
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({
+      stopReason: 'max-timeout',
+      fullyLoaded: false,
+      skipped: false,
+      elementCount: 6,
+      scrollIterations: 5,
+    });
+  });
+
+  it('rechecks the deadline after re-arming before scheduling another poll', async () => {
+    const promise = ensureAllElementsLoaded(createScroller(), '.turn', {
+      idleTimeoutMs: 10_000,
+      maxTimeoutMs: 1_100,
+    });
+    await vi.runAllTimersAsync();
+    expect(await promise).toMatchObject({ stopReason: 'max-timeout', scrollIterations: 1 });
+  });
+
+  it('does not report stable when a throttled decisive poll crosses both expiries', async () => {
+    const container = createScroller();
+    const startedAt = Date.now();
+    const promise = ensureAllElementsLoaded(container, '.turn', {
+      idleTimeoutMs: 10_000,
+      maxTimeoutMs: 4_000,
+    });
+    // Count established at 1000ms, two equal polls at 2200/3400ms, re-arm at 3600ms.
+    await vi.advanceTimersByTimeAsync(3_600);
+    vi.setSystemTime(startedAt + 20_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await promise).toMatchObject({
+      stopReason: 'max-timeout',
+      fullyLoaded: false,
+      skipped: false,
+      scrollIterations: 4,
+    });
   });
 });

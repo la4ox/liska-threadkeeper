@@ -3,6 +3,7 @@ import { GeminiExtractor } from '../../src/content/extractors/gemini';
 import { buildSourceMap } from '../../src/lib/source-map';
 import {
   SCROLL_POLL_INTERVAL,
+  SCROLL_IDLE_TIMEOUT,
   SCROLL_MAX_TIMEOUT,
   SCROLL_STABILITY_THRESHOLD,
   SCROLL_REARM_DELAY,
@@ -1213,8 +1214,37 @@ describe('GeminiExtractor', () => {
       const timeoutWarning = result.warnings!.find(w => w.includes('Auto-scroll timed out'));
       expect(timeoutWarning).toBeDefined();
       expect(timeoutWarning).toContain('turns loaded');
+      expect(timeoutWarning).toContain('max-timeout: safety time limit reached');
+      expect(timeoutWarning).not.toContain('no loading progress');
+      expect(timeoutWarning).toContain('Load earlier messages and retry.');
       expect(result.data?.truncated).toBe(true);
       expect(result).not.toHaveProperty('truncated');
+    });
+
+    it('warns about idle rather than the safety cap after a delayed no-growth poll', async () => {
+      setGeminiLocation('test123');
+      loadFixture(
+        createGeminiScrollableDOM(
+          createGeminiConversationDOM([
+            { role: 'user', content: 'Q1' },
+            { role: 'assistant', content: '<p>A1</p>' },
+          ])
+        )
+      );
+      mockScrollContainer(1000);
+      const startedAt = Date.now();
+      const promise = extractor.extract();
+      // Establish the initial count, then complete re-arm before the next poll is throttled.
+      await vi.advanceTimersByTimeAsync(SCROLL_POLL_INTERVAL + SCROLL_REARM_DELAY);
+      vi.setSystemTime(startedAt + SCROLL_IDLE_TIMEOUT + SCROLL_POLL_INTERVAL * 2);
+      await vi.advanceTimersByTimeAsync(SCROLL_POLL_INTERVAL);
+      const result = await promise;
+      const warning = result.warnings?.find(w => w.includes('Auto-scroll timed out'));
+      expect(warning).toContain('idle-timeout: no loading progress');
+      expect(warning).not.toContain('safety time limit reached');
+      expect(warning).toContain('Some earlier messages may be missing');
+      expect(warning).toContain('Load earlier messages and retry.');
+      expect(result.data?.truncated).toBe(true);
     });
 
     it('keeps loading a long conversation past the old 30s wall while turns keep arriving (issue #360)', async () => {

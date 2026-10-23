@@ -276,6 +276,10 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
     expect(result.success).toBe(true);
     expect(result.warnings?.some(w => w.includes('Auto-scroll timed out'))).toBe(true);
+    expect(result.warnings?.some(w => w.includes('max-timeout: safety time limit reached'))).toBe(
+      true
+    );
+    expect(result.warnings?.some(w => w.includes('no loading progress'))).toBe(false);
     expect(result.data?.truncated).toBe(true);
     expect(result).not.toHaveProperty('truncated');
   });

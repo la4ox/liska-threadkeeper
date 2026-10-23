@@ -7,6 +7,7 @@ import { BaseExtractor } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { extractErrorMessage } from '../../lib/error-utils';
 import { ensureAllElementsLoaded, type ScrollResult } from '../../lib/scroll-manager';
+import { buildScrollTimeoutWarning, isScrollTimeoutReason } from '../../lib/scroll-deadlines';
 import { captureImage } from '../image-capture';
 import type {
   SyncSettings,
@@ -85,11 +86,12 @@ export class GeminiExtractor extends BaseExtractor {
       // Fetch captured generated images (blob → base64) and attach to the data.
       const result = await this.attachImages(baseResult);
 
-      if (scrollResult && !scrollResult.fullyLoaded && !scrollResult.skipped) {
+      if (isScrollTimeoutReason(scrollResult.stopReason)) {
         if (result.data) result.data.truncated = true;
-        const warning =
-          `Auto-scroll timed out before reaching the top. ` +
-          `Some earlier messages may be missing (${scrollResult.elementCount} turns loaded).`;
+        const warning = buildScrollTimeoutWarning(
+          scrollResult.stopReason,
+          scrollResult.elementCount
+        );
         return { ...result, warnings: [...(result.warnings ?? []), warning] };
       }
       return result;
@@ -101,12 +103,24 @@ export class GeminiExtractor extends BaseExtractor {
 
   private async runAutoScroll(): Promise<ScrollResult> {
     if (!this.enableAutoScroll) {
-      return { fullyLoaded: true, elementCount: 0, scrollIterations: 0, skipped: true };
+      return {
+        stopReason: 'skipped',
+        fullyLoaded: true,
+        elementCount: 0,
+        scrollIterations: 0,
+        skipped: true,
+      };
     }
     const container = this.queryWithFallback<HTMLElement>(SELECTORS.scrollContainer);
     if (!container) {
       console.info('[G2O] No scroll container found, skipping auto-scroll');
-      return { fullyLoaded: true, elementCount: 0, scrollIterations: 0, skipped: true };
+      return {
+        stopReason: 'skipped',
+        fullyLoaded: true,
+        elementCount: 0,
+        scrollIterations: 0,
+        skipped: true,
+      };
     }
     return ensureAllElementsLoaded(container, COMPUTED_SELECTORS.conversationTurn);
   }

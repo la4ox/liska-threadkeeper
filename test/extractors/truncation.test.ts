@@ -82,12 +82,14 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="scroll"></div>';
   mocks.accumulate.mockResolvedValue({
     items: messages,
+    stopReason: 'idle-timeout',
     fullyLoaded: false,
     skipped: false,
     itemCount: 1,
     iterations: 1,
   });
   mocks.ensure.mockResolvedValue({
+    stopReason: 'idle-timeout',
     fullyLoaded: false,
     skipped: false,
     elementCount: 1,
@@ -102,15 +104,20 @@ afterEach(() => {
 
 describe('BaseExtractor typed deadline evidence', () => {
   it.each([
-    { fullyLoaded: false, skipped: false, expected: true },
-    { fullyLoaded: true, skipped: false, expected: undefined },
-    { fullyLoaded: true, skipped: true, expected: undefined },
-    { fullyLoaded: false, skipped: true, expected: undefined },
+    { stopReason: 'idle-timeout', fullyLoaded: false, skipped: false, expected: true },
+    { stopReason: 'max-timeout', fullyLoaded: false, skipped: false, expected: true },
+    { stopReason: 'stable', fullyLoaded: true, skipped: false, expected: undefined },
+    { stopReason: 'skipped', fullyLoaded: true, skipped: true, expected: undefined },
+    // Deliberately inconsistent legacy flags must never replace typed evidence.
+    { stopReason: 'stable', fullyLoaded: false, skipped: false, expected: undefined },
+    { stopReason: undefined, fullyLoaded: false, skipped: false, expected: undefined },
+    { stopReason: 'idle-timeout', fullyLoaded: true, skipped: true, expected: true },
   ])(
-    'marks only incomplete and not-skipped results: $fullyLoaded / $skipped',
-    async ({ fullyLoaded, skipped, expected }) => {
+    'marks only typed deadlines: $stopReason / $fullyLoaded / $skipped',
+    async ({ stopReason, fullyLoaded, skipped, expected }) => {
       mocks.accumulate.mockResolvedValue({
         items: messages,
+        stopReason,
         fullyLoaded,
         skipped,
         itemCount: 1,
@@ -122,6 +129,9 @@ describe('BaseExtractor typed deadline evidence', () => {
       expect(result.success).toBe(true);
       expect(result.data?.truncated).toBe(expected);
       expect(result).not.toHaveProperty('truncated');
+      expect(result.warnings?.some(w => w.includes('Auto-scroll timed out')) ?? false).toBe(
+        expected === true
+      );
     }
   );
 
@@ -181,10 +191,14 @@ describe('Gemini override preserves typed evidence and images', () => {
   });
 
   it.each([
-    { fullyLoaded: true, skipped: false },
-    { fullyLoaded: true, skipped: true },
-    { fullyLoaded: false, skipped: true },
-  ])('leaves complete/skipped results unmarked: $fullyLoaded / $skipped', async state => {
+    { stopReason: 'stable', fullyLoaded: true, skipped: false, expected: undefined },
+    { stopReason: 'skipped', fullyLoaded: true, skipped: true, expected: undefined },
+    { stopReason: 'idle-timeout', fullyLoaded: false, skipped: false, expected: true },
+    { stopReason: 'max-timeout', fullyLoaded: false, skipped: false, expected: true },
+    { stopReason: 'stable', fullyLoaded: false, skipped: false, expected: undefined },
+    { stopReason: undefined, fullyLoaded: false, skipped: false, expected: undefined },
+    { stopReason: 'max-timeout', fullyLoaded: true, skipped: true, expected: true },
+  ])('uses only typed Gemini evidence: $stopReason / $fullyLoaded / $skipped', async state => {
     setGeminiLocation('test');
     loadFixture(
       createGeminiScrollableDOM(
@@ -194,7 +208,11 @@ describe('Gemini override preserves typed evidence and images', () => {
     mocks.ensure.mockResolvedValue({ ...state, elementCount: 1, scrollIterations: 1 });
     const extractor = new GeminiExtractor();
     extractor.enableAutoScroll = true;
-    expect((await extractor.extract()).data).not.toHaveProperty('truncated');
+    const result = await extractor.extract();
+    expect(result.data?.truncated).toBe(state.expected);
+    expect(result.warnings?.some(w => w.includes('Auto-scroll timed out')) ?? false).toBe(
+      state.expected === true
+    );
   });
 
   it.each(['disabled', 'missing-container', 'deep-research'])(
