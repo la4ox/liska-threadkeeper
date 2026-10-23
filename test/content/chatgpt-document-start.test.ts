@@ -924,6 +924,221 @@ describe('startChatGptDocumentStartCapture', () => {
     );
   });
 
+  it.each(['buffer', 'byteLength', 'byteOffset', 'length', 'then'] as const)(
+    'does not consult a page-installed Uint8Array.prototype.%s getter after document start',
+    async property => {
+      const { response } = responseWithCloneSpy(new Uint8Array([0, 255, 1, 128, 42]));
+      const page = fakePage(markedUrl(), async () => response);
+      const original = Object.getOwnPropertyDescriptor(Uint8Array.prototype, property);
+      const poisoned = vi.fn(() => {
+        throw new Error(`poisoned Uint8Array ${property}`);
+      });
+
+      startChatGptDocumentStartCapture(page.pageWindow);
+      Object.defineProperty(Uint8Array.prototype, property, {
+        configurable: true,
+        get: poisoned,
+      });
+      try {
+        await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+        await vi.waitFor(() =>
+          expect(snapshotOf(page)).toMatchObject({
+            kind: 'captured',
+            capture: {
+              bodyBase64: 'AP8BgCo=',
+              byteLength: 5,
+              sha256: CAPTURE_HASH,
+            },
+          })
+        );
+        expect(poisoned).not.toHaveBeenCalled();
+      } finally {
+        if (original) Object.defineProperty(Uint8Array.prototype, property, original);
+        else Reflect.deleteProperty(Uint8Array.prototype, property);
+      }
+    }
+  );
+
+  it('keeps the native response bytes when a late buffer getter attempts mutation', async () => {
+    const { response } = responseWithCloneSpy(new Uint8Array([0, 255, 1, 128, 42]));
+    const page = fakePage(markedUrl(), async () => response);
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
+    const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer')?.get;
+    const original = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'buffer');
+    if (!nativeBuffer) throw new Error('native TypedArray buffer getter is required');
+    const mutation = vi.fn(function (this: Uint8Array) {
+      this[0] = 123;
+      return nativeBuffer.call(this);
+    });
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    Object.defineProperty(Uint8Array.prototype, 'buffer', {
+      configurable: true,
+      get: mutation,
+    });
+    try {
+      await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+      await vi.waitFor(() =>
+        expect(snapshotOf(page)).toMatchObject({
+          kind: 'captured',
+          capture: {
+            bodyBase64: 'AP8BgCo=',
+            byteLength: 5,
+            sha256: CAPTURE_HASH,
+          },
+        })
+      );
+      expect(mutation).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(Uint8Array.prototype, 'buffer', original);
+      else Reflect.deleteProperty(Uint8Array.prototype, 'buffer');
+    }
+  });
+
+  it.each([
+    ['Uint8Array', Uint8Array.prototype],
+    ['ArrayBuffer', ArrayBuffer.prototype],
+  ] as const)(
+    'does not consult a page-installed %s species constructor after document start',
+    async (_label, prototype) => {
+      const { response } = responseWithCloneSpy(new Uint8Array([0, 255, 1, 128, 42]));
+      const page = fakePage(markedUrl(), async () => response);
+      const original = Object.getOwnPropertyDescriptor(prototype, 'constructor');
+      const poisoned = vi.fn(() => {
+        throw new Error('poisoned species constructor');
+      });
+
+      startChatGptDocumentStartCapture(page.pageWindow);
+      Object.defineProperty(prototype, 'constructor', {
+        configurable: true,
+        get: poisoned,
+      });
+      try {
+        await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+        await vi.waitFor(() =>
+          expect(snapshotOf(page)).toMatchObject({
+            kind: 'captured',
+            capture: {
+              bodyBase64: 'AP8BgCo=',
+              byteLength: 5,
+              sha256: CAPTURE_HASH,
+            },
+          })
+        );
+        expect(poisoned).not.toHaveBeenCalled();
+      } finally {
+        if (original) Object.defineProperty(prototype, 'constructor', original);
+        else Reflect.deleteProperty(prototype, 'constructor');
+      }
+    }
+  );
+
+  it('does not expose native reader chunks through a late Object.prototype.then getter', async () => {
+    const { response } = responseWithCloneSpy(new Uint8Array([0, 255, 1, 128, 42]));
+    const page = fakePage(markedUrl(), async () => response);
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, 'then');
+    const exposed = vi.fn();
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    Object.defineProperty(Object.prototype, 'then', {
+      configurable: true,
+      get(this: unknown) {
+        if (
+          this !== null &&
+          typeof this === 'object' &&
+          Object.prototype.hasOwnProperty.call(this, 'value') &&
+          (this as { value?: unknown }).value instanceof Uint8Array
+        ) {
+          const bytes = (this as { value: Uint8Array }).value;
+          exposed(bytes);
+          bytes[0] = 123;
+        }
+        return undefined;
+      },
+    });
+    try {
+      await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+      await vi.waitFor(() =>
+        expect(snapshotOf(page)).toMatchObject({
+          kind: 'captured',
+          capture: {
+            bodyBase64: 'AP8BgCo=',
+            byteLength: 5,
+            sha256: CAPTURE_HASH,
+          },
+        })
+      );
+      expect(exposed).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(Object.prototype, 'then', original);
+      else Reflect.deleteProperty(Object.prototype, 'then');
+    }
+  });
+
+  it('does not consult a late ArrayBuffer.prototype.then getter while hashing', async () => {
+    const { response } = responseWithCloneSpy(new Uint8Array([0, 255, 1, 128, 42]));
+    const page = fakePage(markedUrl(), async () => response);
+    const original = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'then');
+    const poisoned = vi.fn(() => {
+      throw new Error('poisoned ArrayBuffer then');
+    });
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    Object.defineProperty(ArrayBuffer.prototype, 'then', {
+      configurable: true,
+      get: poisoned,
+    });
+    try {
+      await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+      await vi.waitFor(() =>
+        expect(snapshotOf(page)).toMatchObject({
+          kind: 'captured',
+          capture: {
+            bodyBase64: 'AP8BgCo=',
+            byteLength: 5,
+            sha256: CAPTURE_HASH,
+          },
+        })
+      );
+      expect(poisoned).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(ArrayBuffer.prototype, 'then', original);
+      else Reflect.deleteProperty(ArrayBuffer.prototype, 'then');
+    }
+  });
+
+  it('hashes and encodes only the exact non-zero-offset response view', async () => {
+    const backing = new Uint8Array([9, 0, 255, 1, 8]);
+    const view = new Uint8Array(backing.buffer, 1, 3);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(view);
+        controller.close();
+      },
+    });
+    const response = new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+    const page = fakePage(markedUrl(), async () => response);
+
+    startChatGptDocumentStartCapture(page.pageWindow);
+    await expect(page.pageWindow.fetch(ENDPOINT)).resolves.toBe(response);
+    await vi.waitFor(() =>
+      expect(snapshotOf(page)).toMatchObject({
+        kind: 'captured',
+        capture: {
+          bodyBase64: 'AP8B',
+          byteLength: 3,
+          sha256: expect.any(String),
+        },
+      })
+    );
+    expect((snapshotOf(page) as { capture: { sha256: string } }).capture.sha256).toBe(
+      await sha256Hex(view)
+    );
+  });
+
   it('leaves unrelated and later matching page requests untouched', async () => {
     let matchingCalls = 0;
     const laterResponse = responseWithCloneSpy(new Uint8Array([2]));
@@ -1346,6 +1561,25 @@ describe('startChatGptDocumentStartCapture', () => {
     });
     methodFailure.pageWindow.Response = ResponseWithPoisonedMethod as unknown as typeof Response;
     expect(startChatGptDocumentStartCapture(methodFailure.pageWindow)).toEqual({ kind: 'ready' });
+  });
+
+  it('fails closed before arming when native TypedArray accessors are unavailable', () => {
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
+    const descriptor = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!;
+    Object.defineProperty(typedArrayPrototype, 'byteLength', {
+      configurable: true,
+      get: undefined,
+    });
+    try {
+      const page = fakePage(markedUrl());
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({
+        kind: 'error',
+        code: 'hook-state-failed',
+      });
+      expect(page.pageWindow.fetch).toBe(page.originalFetch);
+    } finally {
+      Object.defineProperty(typedArrayPrototype, 'byteLength', descriptor);
+    }
   });
 
   it('ignores request lookalikes that fail native URL and Request brand checks', async () => {

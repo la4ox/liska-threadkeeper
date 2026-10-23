@@ -62,14 +62,24 @@ delimiters. Current-head CI and code review were clean; the separate GitHub
 Security Review did not execute because its quota was exhausted.
 
 The nested-Canmore occurrence `commit:8fc721c0bb0881919910f4805e72250d`
-remains open while its candidate source fix is reviewed on
-`codex/security-canmore-json`. A single-part JSON-looking payload is now scanned
-without materializing an object graph before `JSON.parse`: 4 MiB of source text,
-64 nested containers, and 4,096 structural tokens are explicit parse ceilings.
+remains open for later Cloud reconciliation, but its source fix merged through
+PR 26 as `915e367`. A single-part JSON-looking payload is scanned without
+materializing an object graph before `JSON.parse`: 4 MiB of source text, 64
+nested containers, and 4,096 structural tokens are explicit parse ceilings.
 They deliberately exceed the canonical sanitizer's existing 16-level/512-entry
 budgets so ordinary truncate-and-succeed behavior remains compatible. Exceeded
 budgets fail with one fixed code; the current capture path retains exact raw and
-manifest evidence and creates no canonical companion.
+manifest evidence and creates no canonical companion. Current-head CI and Code
+Review were clean; the unavailable Security Review was deliberately deferred.
+
+The page-prototype occurrence `commit:0fb1786e6cf08191a25da26b5593adfc`
+is being repaired on `codex/security-typedarray-prototypes`. The candidate
+captures native TypedArray buffer/length getters at document start, removes
+species-sensitive `subarray` and `ArrayBuffer.slice`, copies digest input through
+captured internal-slot operations, Base64-encodes indexed bytes directly, and
+returns byte views across async boundaries only inside a null-prototype envelope.
+Late getters, constructor/species hooks, and `Uint8Array.prototype.then` no
+longer observe or mutate closure-owned response bytes.
 
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
@@ -91,6 +101,16 @@ independent review found one P3 numeric-scalar compatibility regression; it is
 fixed and covered. Browser/OPFS destination persistence was not repeated; its
 staged lifecycle remains mocked plus covered by the existing persistence tests.
 
+TypedArray-slice validation: 166 test files / 5,069 tests and the focused
+capture/resolver matrix of 22 files / 758 tests pass. Production build,
+formatting, diff checks, and source/platform lint pass with the same three
+pre-existing warnings. Independent review found an additional async
+`Uint8Array.prototype.then` assimilation route; it is fixed and covered. The
+first GitHub Code Review then found that direct Base64 concatenation built one
+multi-million-node rope for a 16 MiB inline payload; encoding now flushes bounded
+4,096-triplet blocks. A live browser MAIN-world capture was not repeated for
+this slice.
+
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR
 GitHub Security Review does not block an intermediate merge when current-head
 CI, current-head Code Review, focused/full tests, and one independent local
@@ -106,10 +126,12 @@ head, preserving one verdict per finding:
 1. Markdown/frontmatter boundaries: YAML quoting, headings, math attributes,
    tool metadata, citation URLs/titles, and raw DeepSeek Markdown.
 2. Resource bounds: branch fan-out, image response buffering/timeouts, and
-   frontmatter parsing; publish and reconcile the current Canmore fix.
-3. Storage and Obsidian boundaries: stale append paths, remaining credential
+   frontmatter parsing; reconcile the merged Canmore fix.
+3. Capture integrity: publish and reconcile the current TypedArray primordial
+   fix, then retain its late-prototype regressions.
+4. Storage and Obsidian boundaries: stale append paths, remaining credential
    disclosure paths, and response-body error handling.
-4. Supply-chain and repository hygiene: mutable CI actions and live fixture
+5. Supply-chain and repository hygiene: mutable CI actions and live fixture
    URLs.
 
 Prioritize confirmed reachable medium/low findings. Treat informational items

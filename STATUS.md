@@ -959,7 +959,7 @@ was repeated.
 
 ## Local Canmore JSON security checkpoint
 
-Branch `codex/security-canmore-json` addresses Security Cloud occurrence
+Security Cloud occurrence
 `commit:8fc721c0bb0881919910f4805e72250d`. Message-level Canmore can carry a
 JSON string nested inside the already parsed provider graph; the old path called
 `JSON.parse` before the canonical sanitizer's depth, entry, and string budgets.
@@ -977,11 +977,43 @@ valid create/update events, exact boundaries, and the reviewed 129-character
 numeric scalar retain their prior semantics. Evidence: 166 test files / 5,057
 tests, the focused seven-file / 202-test matrix, production build, and
 source/platform lint with only the same three pre-existing warnings. Independent
-review found one P3 numeric-type regression; it is fixed and covered. Browser
-OPFS and physical destination persistence were not repeated in this slice.
+review found one P3 numeric-type regression; it is fixed and covered. The source
+fix merged through PR 26 as `915e367`; reviewed head `a24d696` is an ancestor of
+fetched `origin/main`, with clean current-head CI and Code Review. Browser OPFS
+and physical destination persistence were not repeated in this slice.
 
 Per maintainer decision, unavailable per-PR Security Review quota is not an
 intermediate blocker when current-head CI/Code Review and the local independent
 security evidence are clean. Do not automatically retry paid security review.
 After the current large roadmap block, run one explicit Cloud Security scan of
 the complete repository and reconcile its findings.
+
+## Local TypedArray capture-integrity checkpoint
+
+Branch `codex/security-typedarray-prototypes` addresses Security Cloud occurrence
+`commit:0fb1786e6cf08191a25da26b5593adfc`. The document-start hook previously
+captured TypedArray methods but later read configurable inherited accessors and
+used species-sensitive `Uint8Array.subarray` / `ArrayBuffer.slice`. Page code
+running after startup could therefore observe or mutate closure-owned response
+bytes before their SHA-256 and Base64 were finalized.
+
+The candidate snapshots native TypedArray `buffer` and `byteLength` getters at
+document start, performs every later size read through captured `Reflect.apply`,
+copies digest input through captured `Uint8Array.set`, and encodes Base64 directly
+from bounded indexed bytes. Staged chunks are encoded as ranges without creating
+subarrays. Chunk storage uses null-prototype records, and `readBoundedClone`
+crosses its async Promise boundary through a null-prototype envelope so a late
+`Uint8Array.prototype.then` cannot receive the exact aggregate. Direct mutation,
+throwing accessors, `length`, both species constructors, thenable assimilation,
+non-zero-offset views, empty/inline/staged limits, and every resolver mode are
+covered.
+
+Evidence: 166 test files / 5,069 tests, the focused 22-file / 758-test
+capture-resolver matrix, production build, formatting, diff checks, and
+source/platform lint with only the same three pre-existing warnings. Independent
+review found the additional async-then path; it is fixed and covered. The first
+GitHub Code Review then found that direct Base64 concatenation could create one
+multi-million-node rope; encoding now flushes bounded 4,096-triplet blocks. A
+live browser MAIN-world smoke was not repeated for this slice. Next: publish the
+review fix and require fresh current-head CI plus Code Review; retain the planned
+final full-repository Cloud scan.

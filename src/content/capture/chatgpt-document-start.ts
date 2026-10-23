@@ -184,9 +184,8 @@ type DocumentPrimordials = {
   arrayPush: CapturedCallable | undefined;
   uint8Array: typeof Uint8Array | undefined;
   uint8ArraySet: CapturedCallable | undefined;
-  uint8ArraySubarray: CapturedCallable | undefined;
-  arrayBufferSlice: CapturedCallable | undefined;
-  stringFromCharCode: CapturedCallable | undefined;
+  typedArrayBuffer: CapturedCallable | undefined;
+  typedArrayByteLength: CapturedCallable | undefined;
   stringCharCodeAt: CapturedCallable | undefined;
   stringIndexOf: CapturedCallable | undefined;
   stringSlice: CapturedCallable | undefined;
@@ -199,8 +198,6 @@ type DocumentPrimordials = {
 
 type PagePrimordials = {
   document: DocumentPrimordials;
-  btoa: CapturedCallable | undefined;
-  btoaReceiver: unknown;
   subtleDigest: CapturedCallable | undefined;
   subtleReceiver: unknown;
   setTimeout: CapturedCallable | undefined;
@@ -283,7 +280,6 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
   const NativePromise = pageWindow.Promise;
   const NativeArray = pageWindow.Array;
   const NativeUint8Array = pageWindow.Uint8Array;
-  const NativeArrayBuffer = pageWindow.ArrayBuffer;
   const NativeString = pageWindow.String;
   const NativeRegExp = pageWindow.RegExp;
   const responsePrototype = NativeResponse?.prototype;
@@ -294,6 +290,10 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
   const streamPrototype =
     typeof NativeReadableStream === 'function' ? NativeReadableStream.prototype : undefined;
   const readerPrototype = typeof NativeReader === 'function' ? NativeReader.prototype : undefined;
+  const typedArrayPrototype =
+    typeof NativeUint8Array === 'function' && typeof NativeObject?.getPrototypeOf === 'function'
+      ? NativeObject.getPrototypeOf(NativeUint8Array.prototype)
+      : undefined;
 
   return {
     reflectApply:
@@ -353,13 +353,8 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     arrayPush: methodAt(NativeArray?.prototype, 'push'),
     uint8Array: typeof NativeUint8Array === 'function' ? NativeUint8Array : undefined,
     uint8ArraySet: methodAt(NativeUint8Array?.prototype, 'set'),
-    uint8ArraySubarray: methodAt(NativeUint8Array?.prototype, 'subarray'),
-    arrayBufferSlice:
-      typeof NativeArrayBuffer === 'function'
-        ? methodAt(NativeArrayBuffer.prototype, 'slice')
-        : undefined,
-    stringFromCharCode:
-      typeof NativeString?.fromCharCode === 'function' ? NativeString.fromCharCode : undefined,
+    typedArrayBuffer: getterAt(getOwnPropertyDescriptor, typedArrayPrototype, 'buffer'),
+    typedArrayByteLength: getterAt(getOwnPropertyDescriptor, typedArrayPrototype, 'byteLength'),
     stringCharCodeAt: methodAt(NativeString?.prototype, 'charCodeAt'),
     stringIndexOf: methodAt(NativeString?.prototype, 'indexOf'),
     stringSlice: methodAt(NativeString?.prototype, 'slice'),
@@ -460,15 +455,12 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
 function pagePrimordials(pageWindow: PageWindow): PagePrimordials | undefined {
   try {
     const document = snapshotDocumentPrimordials(pageWindow);
-    const btoa = pageWindow.btoa;
     const subtle = pageWindow.crypto?.subtle;
     const digest = subtle?.digest;
     const setTimeout = pageWindow.setTimeout;
     const clearTimeout = pageWindow.clearTimeout;
     return {
       document,
-      btoa: typeof btoa === 'function' ? (btoa as CapturedCallable) : undefined,
-      btoaReceiver: pageWindow,
       subtleDigest: typeof digest === 'function' ? (digest as CapturedCallable) : undefined,
       subtleReceiver: subtle,
       setTimeout: typeof setTimeout === 'function' ? (setTimeout as CapturedCallable) : undefined,
@@ -480,9 +472,22 @@ function pagePrimordials(pageWindow: PageWindow): PagePrimordials | undefined {
   }
 }
 
+function hasByteCapturePrimordials(primordials: PagePrimordials): boolean {
+  const document = primordials.document;
+  return (
+    document.objectCreate !== undefined &&
+    document.uint8Array !== undefined &&
+    document.uint8ArraySet !== undefined &&
+    document.typedArrayBuffer !== undefined &&
+    document.typedArrayByteLength !== undefined &&
+    primordials.subtleDigest !== undefined
+  );
+}
+
 function hasArmingPrimordials(primordials: PagePrimordials): boolean {
   const document = primordials.document;
   return (
+    hasByteCapturePrimordials(primordials) &&
     document.reflectApply !== undefined &&
     document.URL !== undefined &&
     document.objectDefineProperty !== undefined &&
@@ -757,11 +762,53 @@ async function cancelClone(
   }
 }
 
+function uint8ArrayByteLength(primordials: PagePrimordials, bytes: Uint8Array): number {
+  const byteLength = applyCaptured<unknown>(
+    primordials,
+    primordials.document.typedArrayByteLength,
+    bytes,
+    []
+  );
+  if (
+    typeof byteLength !== 'number' ||
+    byteLength !== byteLength ||
+    byteLength < 0 ||
+    byteLength % 1 !== 0
+  ) {
+    throw PRIMORDIAL_UNAVAILABLE;
+  }
+  return byteLength;
+}
+
+/** Copy through captured TypedArray internals; ArrayBuffer slice/species stays unused. */
+function exactArrayBufferFromBytes(primordials: PagePrimordials, bytes: Uint8Array): ArrayBuffer {
+  const NativeUint8Array = primordials.document.uint8Array;
+  if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
+  const byteLength = uint8ArrayByteLength(primordials, bytes);
+  const copy = new NativeUint8Array(byteLength);
+  applyCaptured<void>(primordials, primordials.document.uint8ArraySet, copy, [bytes, 0]);
+  return applyCaptured<ArrayBuffer>(primordials, primordials.document.typedArrayBuffer, copy, []);
+}
+
+type CapturedBytesEnvelope = { bytes: Uint8Array };
+
+/** A null-prototype envelope prevents Promise resolution from reading `then` on the byte view. */
+function capturedBytesEnvelope(
+  primordials: PagePrimordials,
+  bytes: Uint8Array
+): CapturedBytesEnvelope {
+  const createObject = primordials.document.objectCreate;
+  if (createObject === undefined) throw PRIMORDIAL_UNAVAILABLE;
+  const envelope = createObject(null) as CapturedBytesEnvelope;
+  envelope.bytes = bytes;
+  return envelope;
+}
+
 async function readBoundedClone(
   primordials: PagePrimordials,
   response: Response,
   maxBytes: number
-): Promise<Uint8Array> {
+): Promise<CapturedBytesEnvelope> {
   const NativeUint8Array = primordials.document.uint8Array;
   if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
 
@@ -774,8 +821,8 @@ async function readBoundedClone(
       []
     );
     const bytes = new NativeUint8Array(buffer);
-    if (bytes.byteLength > maxBytes) throw PAYLOAD_TOO_LARGE;
-    return bytes;
+    if (uint8ArrayByteLength(primordials, bytes) > maxBytes) throw PAYLOAD_TOO_LARGE;
+    return capturedBytesEnvelope(primordials, bytes);
   }
 
   const reader = applyCaptured<ReadableStreamDefaultReader<Uint8Array>>(
@@ -784,7 +831,11 @@ async function readBoundedClone(
     body,
     []
   );
-  const chunks: Uint8Array[] = [];
+  const createObject = primordials.document.objectCreate;
+  if (createObject === undefined) throw PRIMORDIAL_UNAVAILABLE;
+  const chunks = createObject(null) as Record<number, Uint8Array>;
+  const chunkLengths = createObject(null) as Record<number, number>;
+  let chunkCount = 0;
   let byteLength = 0;
   while (true) {
     const next = await applyCaptured<ReadableStreamReadResult<Uint8Array>>(
@@ -795,55 +846,80 @@ async function readBoundedClone(
     );
     if (next.done) break;
     const chunk = next.value;
-    if (chunk === undefined || typeof chunk.byteLength !== 'number') {
-      throw PRIMORDIAL_UNAVAILABLE;
-    }
-    byteLength += chunk.byteLength;
+    if (chunk === undefined) throw PRIMORDIAL_UNAVAILABLE;
+    const chunkByteLength = uint8ArrayByteLength(primordials, chunk);
+    byteLength += chunkByteLength;
     if (byteLength > maxBytes) {
       await cancelClone(primordials, reader);
       throw PAYLOAD_TOO_LARGE;
     }
-    applyCaptured<void>(primordials, primordials.document.arrayPush, chunks, [chunk]);
+    chunks[chunkCount] = chunk;
+    chunkLengths[chunkCount] = chunkByteLength;
+    chunkCount += 1;
   }
 
   const bytes = new NativeUint8Array(byteLength);
   let offset = 0;
-  for (let index = 0; index < chunks.length; index += 1) {
+  for (let index = 0; index < chunkCount; index += 1) {
     const chunk = chunks[index];
     applyCaptured<void>(primordials, primordials.document.uint8ArraySet, bytes, [chunk, offset]);
-    offset += chunk.byteLength;
+    offset += chunkLengths[index];
   }
-  return bytes;
+  return capturedBytesEnvelope(primordials, bytes);
+}
+
+const BASE64_DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const BASE64_TRIPLETS_PER_BLOCK = 4_096;
+
+/** Encode indexed bytes directly; TypedArray subarray/species and array-like getters stay unused. */
+function base64FromByteRange(
+  primordials: PagePrimordials,
+  bytes: Uint8Array,
+  start: number,
+  end: number
+): string {
+  const totalByteLength = uint8ArrayByteLength(primordials, bytes);
+  if (start < 0 || end < start || end > totalByteLength || start % 1 !== 0 || end % 1 !== 0) {
+    throw PRIMORDIAL_UNAVAILABLE;
+  }
+
+  let base64 = '';
+  let index = start;
+  const completeEnd = end - ((end - start) % 3);
+  while (index < completeEnd) {
+    const requestedBlockEnd = index + BASE64_TRIPLETS_PER_BLOCK * 3;
+    const blockEnd = requestedBlockEnd < completeEnd ? requestedBlockEnd : completeEnd;
+    let block = '';
+    while (index < blockEnd) {
+      const first = bytes[index];
+      const second = bytes[index + 1];
+      const third = bytes[index + 2];
+      block +=
+        BASE64_DIGITS[first >>> 2] +
+        BASE64_DIGITS[((first & 0x03) << 4) | (second >>> 4)] +
+        BASE64_DIGITS[((second & 0x0f) << 2) | (third >>> 6)] +
+        BASE64_DIGITS[third & 0x3f];
+      index += 3;
+    }
+    base64 += block;
+  }
+  if (index === end) return base64;
+
+  const first = bytes[index];
+  base64 += BASE64_DIGITS[first >>> 2];
+  if (index + 1 === end) {
+    return `${base64}${BASE64_DIGITS[(first & 0x03) << 4]}==`;
+  }
+  const second = bytes[index + 1];
+  return `${base64}${BASE64_DIGITS[((first & 0x03) << 4) | (second >>> 4)]}${BASE64_DIGITS[(second & 0x0f) << 2]}=`;
 }
 
 function base64FromBytes(primordials: PagePrimordials, bytes: Uint8Array): string {
-  if (primordials.btoa === undefined) throw PRIMORDIAL_UNAVAILABLE;
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
-    const chunk = applyCaptured<Uint8Array>(
-      primordials,
-      primordials.document.uint8ArraySubarray,
-      bytes,
-      [offset, offset + chunkSize]
-    );
-    binary += applyCaptured<string>(
-      primordials,
-      primordials.document.stringFromCharCode,
-      undefined,
-      chunk as unknown as ArrayLike<unknown>
-    );
-  }
-  return applyCaptured<string>(primordials, primordials.btoa, primordials.btoaReceiver, [binary]);
+  return base64FromByteRange(primordials, bytes, 0, uint8ArrayByteLength(primordials, bytes));
 }
 
 async function sha256FromBytes(primordials: PagePrimordials, bytes: Uint8Array): Promise<string> {
-  const exactBuffer = applyCaptured<ArrayBuffer>(
-    primordials,
-    primordials.document.arrayBufferSlice,
-    bytes.buffer,
-    [bytes.byteOffset, bytes.byteOffset + bytes.byteLength]
-  );
+  const exactBuffer = exactArrayBufferFromBytes(primordials, bytes);
   const digest = await applyCaptured<ArrayBuffer>(
     primordials,
     primordials.subtleDigest,
@@ -854,7 +930,8 @@ async function sha256FromBytes(primordials: PagePrimordials, bytes: Uint8Array):
   if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
   const digestBytes = new NativeUint8Array(digest);
   let sha256 = '';
-  for (let index = 0; index < digestBytes.byteLength; index += 1) {
+  const digestByteLength = uint8ArrayByteLength(primordials, digestBytes);
+  for (let index = 0; index < digestByteLength; index += 1) {
     const byte = digestBytes[index];
     sha256 += HEX_DIGITS[(byte >>> 4) & 0x0f] + HEX_DIGITS[byte & 0x0f];
   }
@@ -873,8 +950,9 @@ function stagedCaptureReader(
   primordials: PagePrimordials,
   bytes: Uint8Array
 ): { chunkCount: number; reader: CaptureChunkReader } {
+  const totalByteLength = uint8ArrayByteLength(primordials, bytes);
   let chunkCount = 0;
-  for (let offset = 0; offset < bytes.byteLength; offset += STAGED_CAPTURE_CHUNK_BYTES) {
+  for (let offset = 0; offset < totalByteLength; offset += STAGED_CAPTURE_CHUNK_BYTES) {
     chunkCount += 1;
   }
 
@@ -892,18 +970,14 @@ function stagedCaptureReader(
       }
       try {
         const offset = index * STAGED_CAPTURE_CHUNK_BYTES;
-        const chunk = applyCaptured<Uint8Array>(
-          primordials,
-          primordials.document.uint8ArraySubarray,
-          bytes,
-          [offset, offset + STAGED_CAPTURE_CHUNK_BYTES]
-        );
+        const requestedEnd = offset + STAGED_CAPTURE_CHUNK_BYTES;
+        const end = requestedEnd < totalByteLength ? requestedEnd : totalByteLength;
         return {
           kind: 'chunk',
           index,
           offset,
-          byteLength: chunk.byteLength,
-          chunkBase64: base64FromBytes(primordials, chunk),
+          byteLength: end - offset,
+          chunkBase64: base64FromByteRange(primordials, bytes, offset, end),
         };
       } catch {
         return { kind: 'missing' };
@@ -918,12 +992,13 @@ function conversationCaptureFromBytes(
   sha256: string,
   mediaType: string
 ): { capture: ConversationCapture; stagedReader: CaptureChunkReader | undefined } {
-  if (bytes.byteLength <= INLINE_CAPTURE_MAX_BYTES) {
+  const byteLength = uint8ArrayByteLength(primordials, bytes);
+  if (byteLength <= INLINE_CAPTURE_MAX_BYTES) {
     return {
       capture: {
         transport: 'inline',
         bodyBase64: base64FromBytes(primordials, bytes),
-        byteLength: bytes.byteLength,
+        byteLength,
         sha256,
         mediaType,
       },
@@ -935,7 +1010,7 @@ function conversationCaptureFromBytes(
   return {
     capture: {
       transport: 'staged',
-      byteLength: bytes.byteLength,
+      byteLength,
       sha256,
       mediaType,
       chunkCount: staged.chunkCount,
@@ -1246,7 +1321,7 @@ async function captureNativeResponse(
       response,
       []
     );
-    const bytes = await readBoundedClone(primordials, clone, maxBytes);
+    const { bytes } = await readBoundedClone(primordials, clone, maxBytes);
     const sha256 = await sha256FromBytes(primordials, bytes);
     const captured = conversationCaptureFromBytes(primordials, bytes, sha256, mediaType);
     beginResolverDiscovery(pageWindow, state, target, captured.capture, captured.stagedReader);
@@ -1304,14 +1379,14 @@ async function captureResolverResponse(
       response,
       []
     );
-    const bytes = await readBoundedClone(primordials, clone, DEFAULT_RESOLVER_MAX_BYTES);
+    const { bytes } = await readBoundedClone(primordials, clone, DEFAULT_RESOLVER_MAX_BYTES);
     if (!state.resolverDiscoveryActive) return;
     const sha256 = await sha256FromBytes(primordials, bytes);
     if (!state.resolverDiscoveryActive) return;
     state.resolverObservations[state.resolverObservations.length] = {
       providerFileId,
       bodyBase64: base64FromBytes(primordials, bytes),
-      byteLength: bytes.byteLength,
+      byteLength: uint8ArrayByteLength(primordials, bytes),
       sha256,
       mediaType,
     };
@@ -2665,13 +2740,7 @@ function hasOpaqueResolverArmingPrimordials(primordials: PagePrimordials): boole
     document.streamGetReader !== undefined &&
     document.readerRead !== undefined &&
     document.readerCancel !== undefined &&
-    document.uint8Array !== undefined &&
-    document.uint8ArraySet !== undefined &&
-    document.uint8ArraySubarray !== undefined &&
-    document.arrayBufferSlice !== undefined &&
-    document.stringFromCharCode !== undefined &&
-    primordials.btoa !== undefined &&
-    primordials.subtleDigest !== undefined
+    hasByteCapturePrimordials(primordials)
   );
 }
 
@@ -3127,13 +3196,7 @@ function hasOpaqueReplayArmingPrimordials(primordials: PagePrimordials): boolean
     document.streamGetReader !== undefined &&
     document.readerRead !== undefined &&
     document.readerCancel !== undefined &&
-    document.uint8Array !== undefined &&
-    document.uint8ArraySet !== undefined &&
-    document.uint8ArraySubarray !== undefined &&
-    document.arrayBufferSlice !== undefined &&
-    document.stringFromCharCode !== undefined &&
-    primordials.btoa !== undefined &&
-    primordials.subtleDigest !== undefined
+    hasByteCapturePrimordials(primordials)
   );
 }
 
@@ -3522,7 +3585,7 @@ async function captureOpaqueReplayResponse(
       []
     );
     discardOpaqueReplayOriginalBody(state.primordials, response);
-    const bytes = await readBoundedClone(state.primordials, clone, INLINE_CAPTURE_MAX_BYTES);
+    const { bytes } = await readBoundedClone(state.primordials, clone, INLINE_CAPTURE_MAX_BYTES);
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
     const sha256 = await sha256FromBytes(state.primordials, bytes);
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
@@ -3533,7 +3596,7 @@ async function captureOpaqueReplayResponse(
       conversationId,
       capture: {
         bodyBase64,
-        byteLength: bytes.byteLength,
+        byteLength: uint8ArrayByteLength(state.primordials, bytes),
         sha256,
         mediaType,
       },
@@ -4076,7 +4139,7 @@ async function captureActiveResolverResponse(
       []
     );
     discardOpaqueReplayOriginalBody(state.primordials, response);
-    const bytes = await readBoundedClone(
+    const { bytes } = await readBoundedClone(
       state.primordials,
       clone,
       DEFAULT_ACTIVE_RESOLVER_MAX_BYTES
@@ -4090,7 +4153,7 @@ async function captureActiveResolverResponse(
       state: 'observed',
       capture: {
         bodyBase64: base64FromBytes(state.primordials, bytes),
-        byteLength: bytes.byteLength,
+        byteLength: uint8ArrayByteLength(state.primordials, bytes),
         sha256,
         mediaType,
       },
@@ -5047,7 +5110,7 @@ async function captureInterpreterResolverResponse(
       []
     );
     discardOpaqueReplayOriginalBody(state.primordials, response);
-    const bytes = await readBoundedClone(
+    const { bytes } = await readBoundedClone(
       state.primordials,
       clone,
       DEFAULT_INTERPRETER_RESOLVER_MAX_BYTES
@@ -5061,7 +5124,7 @@ async function captureInterpreterResolverResponse(
       state: 'observed',
       capture: {
         bodyBase64: base64FromBytes(state.primordials, bytes),
-        byteLength: bytes.byteLength,
+        byteLength: uint8ArrayByteLength(state.primordials, bytes),
         sha256,
         mediaType,
       },
