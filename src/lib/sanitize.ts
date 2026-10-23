@@ -63,6 +63,9 @@ function preprocessKatexToNode(html: string): string | HTMLElement {
 
   // Phase 1: Display math (span.katex-display → div[data-math])
   for (const el of doc.querySelectorAll('span.katex-display')) {
+    // querySelectorAll() is static. Replacing an outer candidate disconnects
+    // all nested candidates, which must not be reprocessed from the old list.
+    if (!el.isConnected) continue;
     if (el.closest('[data-math]')) continue; // Gemini format — skip
     const latex = extractLatexFromKatex(el);
     if (!latex) continue;
@@ -77,6 +80,7 @@ function preprocessKatexToNode(html: string): string | HTMLElement {
   // After Phase 1, display math children (inner span.katex) are already removed.
   // Guard with closest() for any remaining edge cases.
   for (const el of doc.querySelectorAll('span.katex')) {
+    if (!el.isConnected) continue;
     if (el.closest('[data-math]') || el.closest('.katex-display')) continue;
     const latex = extractLatexFromKatex(el);
     if (!latex) continue;

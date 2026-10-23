@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { sanitizeHtml, preprocessKatex } from '../../src/lib/sanitize';
 
 describe('sanitizeHtml', () => {
@@ -165,6 +165,28 @@ describe('preprocessKatex', () => {
       const result = preprocessKatex(html);
       expect(result).toContain('<span data-math="x^2">');
       expect(result).not.toContain('katex-mathml');
+    });
+
+    it('does not revisit nested KaTeX candidates detached by the outer replacement', () => {
+      const original = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent')?.get;
+      if (!original) throw new Error('Node.textContent getter unavailable in test DOM.');
+      let annotationReads = 0;
+      const getter = vi.spyOn(Node.prototype, 'textContent', 'get').mockImplementation(function () {
+        if ((this as Node).nodeName === 'annotation') annotationReads += 1;
+        return original.call(this);
+      });
+      const depth = 8;
+      const html =
+        '<span class="katex">'.repeat(depth) +
+        '<math><semantics><annotation encoding="application/x-tex">x^2</annotation></semantics></math>' +
+        '</span>'.repeat(depth);
+
+      try {
+        expect(preprocessKatex(html)).toContain('data-math="x^2"');
+        expect(annotationReads).toBe(1);
+      } finally {
+        getter.mockRestore();
+      }
     });
   });
 

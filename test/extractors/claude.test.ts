@@ -1496,6 +1496,139 @@ one \uE000LISKATOOLCODE1\uE001 two</code></pre><pre><code class="language-py">se
       expect(toolContent).not.toContain('``````py');
     });
 
+    it('ON: preserves historical marker text split across inline nodes before adjacent code blocks', () => {
+      createClaudePageWithToolUse('12345678-1234-1234-1234-123456789012', [
+        {
+          role: 'assistant',
+          content: '<p>Answer</p>',
+          toolUse: {
+            summaryText: 'Analysis',
+            toolSteps: [
+              '<span>\uE000LISKATOOL</span><span>CODE0\uE001</span>' +
+                '<pre><code>    first()\n\n</code></pre><pre><code>second()</code></pre>',
+            ],
+          },
+        },
+      ]);
+      extractor.enableToolContent = true;
+
+      const toolContent = extractor.extractMessages()[0].toolContent ?? '';
+
+      expect(toolContent).toContain('\uE000LISKATOOLCODE0\uE001');
+      expect(toolContent).toContain('```\n    first()\n\n```\n\n```\nsecond()\n```');
+      expect(toolContent.match(/first\(\)/g)).toHaveLength(1);
+    });
+
+    it('ON: fails closed on oversized raw tool HTML and permits a fresh extraction afterward', async () => {
+      createClaudePageWithToolUse('12345678-1234-1234-1234-123456789012', [
+        {
+          role: 'assistant',
+          content: '<p>Answer</p>',
+          toolUse: {
+            summaryText: 'Analysis',
+            toolSteps: ['PRIVATE-TOOL-' + 'x'.repeat(2 * 1024 ** 2)],
+          },
+        },
+      ]);
+      const disabled = await extractor.extract();
+      expect(disabled.success).toBe(true);
+      expect(disabled.data?.messages[0].toolContent).toBeUndefined();
+      expect(disabled.data?.messages[0].content).toContain('Answer');
+      extractor.enableToolContent = true;
+
+      const rejected = await extractor.extract();
+      expect(rejected.success).toBe(false);
+      expect(rejected.data).toBeUndefined();
+      expect(rejected.error).toBe('Claude tool conversion limit exceeded: section HTML bytes.');
+      expect(rejected.error).not.toContain('PRIVATE-TOOL');
+
+      document.querySelector('.row-start-1')!.innerHTML =
+        '<div class="standard-markdown"><pre><code>fresh()</code></pre></div>';
+      expect(extractor.extractMessages()[0].toolContent).toBe('```\nfresh()\n```');
+    });
+
+    it('ON: counts code blocks across separate tool sections and messages before returning output', async () => {
+      const blocks = '<pre><code>x</code></pre>'.repeat(2048);
+      createClaudePageWithToolUse('12345678-1234-1234-1234-123456789012', [
+        {
+          role: 'assistant',
+          content: '<p>First answer</p>',
+          toolUse: { summaryText: 'First', toolSteps: [blocks] },
+        },
+        {
+          role: 'assistant',
+          content: '<p>Second answer</p>',
+          toolUse: {
+            summaryText: 'Second',
+            toolSteps: [blocks, '<pre><code>one over</code></pre>'],
+          },
+        },
+      ]);
+      extractor.enableToolContent = true;
+
+      const result = await extractor.extract();
+      expect(result.success).toBe(false);
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBe('Claude tool conversion limit exceeded: code blocks.');
+
+      document.querySelectorAll('.row-start-1').forEach(header => {
+        header.innerHTML = '<div class="standard-markdown">small</div>';
+      });
+      expect(extractor.extractMessages().map(message => message.toolContent)).toEqual([
+        'small',
+        'small',
+      ]);
+    });
+
+    it('ON: aggregates raw HTML work across messages containing several tool Markdown sections', async () => {
+      createClaudePageWithToolUse(
+        '12345678-1234-1234-1234-123456789012',
+        Array.from({ length: 6 }, () => ({
+          role: 'assistant' as const,
+          content: '<p>Answer</p>',
+          toolUse: {
+            summaryText: 'Analysis',
+            toolSteps: ['x'.repeat(700 * 1024), 'y'.repeat(700 * 1024)],
+          },
+        }))
+      );
+      extractor.enableToolContent = true;
+
+      const result = await extractor.extract();
+      expect(result.success).toBe(false);
+      expect(result.data).toBeUndefined();
+      expect(result.error).toBe('Claude tool conversion limit exceeded: aggregate HTML bytes.');
+    });
+
+    it('ON: reads a shared search-result row only once for repeated favicon descendants', async () => {
+      setClaudeLocation('12345678-1234-1234-1234-123456789012');
+      const title = ' '.repeat(1024 ** 2);
+      loadFixture(`
+        <div class="font-claude-response">
+          <div class="row-start-1"><div>
+            <div>${'<img alt="favicon">'.repeat(100)}</div>
+            <div id="shared-result-title">${title}</div>
+          </div></div>
+          <div class="row-start-2"><div class="standard-markdown">Answer</div></div>
+        </div>
+      `);
+      const titleElement = document.getElementById('shared-result-title')!;
+      let titleReads = 0;
+      Object.defineProperty(titleElement, 'textContent', {
+        configurable: true,
+        get: () => {
+          titleReads += 1;
+          return title;
+        },
+      });
+      extractor.enableToolContent = true;
+
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data?.messages[0].toolContent).toBeUndefined();
+      expect(titleReads).toBe(1);
+    });
+
     it.each([false, true])(
       'does not leak a status header through the whole-response fallback when tool content is %s',
       async enableToolContent => {
