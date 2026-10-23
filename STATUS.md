@@ -587,10 +587,56 @@ The installed Comet tree matches that production build exactly; its 29-file
 pre-live rollback is retained at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\deep-research-prelive-20261023-074014-d2aba19b`.
 
-Next: checkpoint this destination-receipt/current-branch research-output slice
-in its own pull request, then run the real wide-branch stress checkpoint.
-All-branches receipt decoration, identity-safe replacement of provider
-`sandbox:` links, and a live multi-output same-title sample remain explicit
-presentation follow-ups rather than reasons to widen attachment authority.
-Custom-GPT/project binaries and the archived Library WebP remain separately
-evidence-gated.
+The next wide-branch checkpoint is implemented on
+`codex/chatgpt-wide-branch` at `4fca363`, stacked on the still-open PR 16 source
+head `d45c911`. A prepared session now validates the archive and complete catalog
+once, resolves ordinals in O(1), reconstructs paths from validated parent links,
+and reuses one immutable timestamp across measurement and writing. Public
+defensive renderers remain unchanged. Structural preflight rejects before any
+output at 50,000 nodes, 512 leaves, 1,000,000 path visits, 1 GiB expanded source
+work, or 2,048 planned writes. After archive evidence succeeds, an exact dry
+pass uses the same File/Obsidian transforms as the writer and caps each note at
+16 MiB, logical Markdown at 1 GiB per destination, and total planned physical
+bytes at 2 GiB. A canonical settings snapshot prevents popup changes during a
+long run from invalidating that measurement.
+
+All-branches File notes and indexes now wait for an ID-bound terminal Downloads
+state and require Chrome's exact requested filename. Interrupted, uniquified,
+unknown, and already-owned outcomes cannot issue a false success or index. One
+unknown File transfer stops later File dispatches while an independent Obsidian
+destination may finish. A trusted persistent `Stop export` control remains
+separate from transient progress toasts; cancellation stops scheduling new
+work, retains confirmed evidence/files, and never deletes an immutable capture.
+
+The final source passes 161 test files / 4,679 tests. Coverage passes at 95.21%
+statements, 91.02% branches, 98.53% functions, and 97.75% lines. TypeScript,
+production build, ZIP packaging, repository formatting, independent review,
+and source/platform lint pass; lint retains only the same three pre-existing
+advisory warnings. The ZIP is 234,395 bytes with SHA-256
+`d2959575477525f551ade4f8783b1050502c6edd1cda1a725f421090cd63b778`.
+The installed Comet tree matches its 29-file build exactly; rollback is retained
+at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\wide-branch-prelive-20261023-090422-8bdaf390`.
+
+Live Comet evidence has two parts. A one-leaf standard chat wrote exact File
+branch/index names plus raw (287,632 bytes), manifest (8,959), canonical
+(612,899), and one fetched DOCX (45,036). Raw length/hash and canonical manifest
+provenance reconcile; the 49-node graph has one leaf, the index link resolves,
+and both Markdown files share capture
+`capture-chatgpt-6b5be94f-293f-4cdd-817f-d079d2d32102`. On the genuinely wide
+graph, the picker became usable after roughly 65 seconds, retained 239 leaves,
+and cancellation created no Downloads file. `Export all branches` then rejected
+at structural preflight before any output because expanded source work exceeded
+the 1 GiB checkpoint limit. A content-free measurement of the existing matching
+canonical graph is 2,285 nodes, 239 leaves, 68 branch points, 230,694 path
+visits, and 1,128,535,662 expanded source bytes (1.051 GiB). The ceiling remains
+unchanged: raising it, for example to 1.25 GiB, requires an explicit maintainer
+decision followed by the real full-write/index run.
+
+Next: let PR 16 finish its current-head external reviews and merge it if clean;
+then rebase this stacked checkpoint. Decide whether the 1 GiB source-work limit
+should remain a deliberate refusal or become a reviewed 1.25 GiB bound for the
+known 1.051 GiB graph. All-branches receipt decoration, identity-safe replacement
+of provider `sandbox:` links, and a live multi-output same-title sample remain
+separate presentation follow-ups. Custom-GPT/project binaries and the archived
+Library WebP remain separately evidence-gated.
