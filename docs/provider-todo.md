@@ -125,23 +125,37 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
 
 ### 5. Compact floating Liska launcher
 
-- Replace the permanently expanded `Bring thread home` / `Choose branch`
-  controls with a small, unobtrusive circular Liska face/paw launcher that
-  expands into the existing actions only when needed.
-- Treat hover as enhancement, not the only path: the same actions must open on
-  keyboard focus and tap/click, remain screen-reader named, and respect reduced
-  motion. Preserve the real trusted user click that authorizes export.
-- Reuse the existing action handlers and loading/disabled states rather than
-  creating a second export path. The collapsed state must still expose progress
-  or failure without revealing filenames or private errors into provider DOM.
-- Preserve the current bottom-right home position; the compact launcher should
-  expand inward (up/left) rather than jump elsewhere. Before implementation,
-  capture each provider layout and tune only the offsets needed to avoid the
-  composer, scroll-to-end controls, citations, artifact panels, and mobile/touch
-  UI. Verify expanded, loading, branch-picker, narrow viewport, zoom, keyboard,
-  and touch states.
-- Keep this as a separate visual/interaction PR; it must not be bundled with
-  provider extraction, archive, or timeout semantics.
+- Implemented on `codex/compact-launcher` as a separate visual/interaction
+  slice. One 44 px circular local SVG fox occupies the existing bottom-right
+  home position; the real `Bring thread home` and optional ChatGPT
+  `Choose branch` buttons expand inward on desktop and stack above on narrow
+  viewports. No manifest permission, remote asset, or exported page resource is
+  added.
+- Hover is only an enhancement. Trusted tap/click, keyboard focus, and Escape
+  share one singleton shell with `aria-expanded`, `aria-busy`, hidden/inert
+  collapsed actions, reduced-motion rules, safe-area bounds, and a generic busy
+  spinner. Existing button IDs, returned elements, trusted-click rejection,
+  callbacks, bootstrap paths, branch picker, toasts, and the independent
+  all-branches stop control remain intact; the launcher never synthesizes an
+  export action.
+- Independent review found and closed two real interaction edges: loading after
+  a focused action initially left the panel expanded, and replacing a clicked
+  icon with the spinner detached `event.target` before bubbling. The final path
+  collapses only after the original trusted callback starts and resolves the
+  owned action from immutable `composedPath()`; tests reproduce descendant
+  removal in browser propagation order.
+- Synthetic Chromium verifies desktop EN, 360 px JA, 280 px EN, focus/Escape,
+  loading, and narrow stacking. A neutral live Comet/ChatGPT page at 110% zoom
+  verifies the installed collapsed fox, trusted reveal of both actions, and
+  Escape collapse without starting an export. Full validation passes 175 test
+  files / 5,523 tests; TypeScript/build, source/platform lint, formatting, and
+  diff checks pass with only the two unrelated existing lint warnings.
+- Still open: live layout gates for Claude, Gemini/Deep Research, Perplexity,
+  DeepSeek, and both Notebook hosts; physical touch, actual safe-area hardware,
+  assistive-technology announcements, and a real loading export. The launcher
+  never copies filenames or detailed errors, but the inherited body-level toast
+  can still contain supplied error text; that existing provider-DOM privacy
+  surface is a separate audit rather than a claim of this UI slice.
 
 ## Explicitly deferred
 

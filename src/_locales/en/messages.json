@@ -19,6 +19,12 @@
     "description": "Extension description shown in browser and store"
   },
 
+  "ui_launcherLabel": {
+    "message": "Liska export actions"
+  },
+  "ui_launcherLoading": {
+    "message": "Liska — export in progress"
+  },
   "ui_syncButton": {
     "message": "Bring thread home",
     "description": "Text on the floating sync button"

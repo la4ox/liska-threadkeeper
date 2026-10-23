@@ -1151,3 +1151,40 @@ passes 175 test files / 5,511 tests; TypeScript/build,
 platform/source lint, formatting, and diff checks pass with only the two existing
 advisory lint warnings. Production, archive bytes, configuration, dependencies,
 and live provider behavior are unchanged.
+
+The compact floating Liska launcher is implemented on
+`codex/compact-launcher` without changing extraction, archive, destination, or
+timeout semantics. A local DOM-built SVG fox replaces the permanently expanded
+controls with one 44 px bottom-right launcher. It reveals the unchanged real
+`Bring thread home` and optional ChatGPT `Choose branch` buttons inward on
+desktop or stacked above on narrow viewports. Hover remains optional: trusted
+tap/click, focus-within, and Escape share one singleton shell with localized
+accessible labels, `aria-expanded`, `aria-busy`, hidden/inert collapsed actions,
+safe-area bounds, and reduced-motion handling. Existing action IDs, returned
+buttons, `event.isTrusted` guards, callbacks, branch picker, toasts, and the
+all-branches stop control are preserved; no action is synthesized and no asset,
+permission, or manifest surface is added.
+
+Independent review found and closed two P2 interaction edges before live use.
+The first left disabled actions expanded because loading moved focus to the
+launcher; the second missed clicks on a child icon because the loading callback
+replaced and detached `event.target` before bubbling. The final trusted event
+starts the original callback first, finds its owned button through immutable
+`composedPath()`, then collapses only the presentation. The regression oracle
+replays target-to-ancestor propagation, clicks the descendant icon, proves its
+removal, and checks the generic collapsed busy state. Final review reports no
+remaining scoped P0-P3 finding.
+
+Synthetic Chromium verifies desktop EN, 360 px JA, 280 px EN, real Tab/Escape,
+loading, and responsive stacking. The reviewed build was installed from 29
+byte-verified files; the previous loaded tree is recoverable at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\compact-launcher-prelive-20261023-194717-03a98f2\dist`.
+A neutral live Comet/ChatGPT page at 110% zoom then verified the collapsed fox,
+trusted reveal of both existing actions, and Escape collapse without executing
+an export or changing settings. Full validation passes 175 test files / 5,523
+tests; TypeScript/build, source/platform lint, formatting, and diff checks pass
+with only the two unrelated existing warnings. Other provider layouts, physical
+touch, hardware safe areas, screen-reader announcements, and a real loading
+export remain open gates. The new launcher/busy markup never copies filenames
+or detailed errors; the inherited body-level toast can still contain supplied
+error text and remains a separate provider-DOM privacy audit.
