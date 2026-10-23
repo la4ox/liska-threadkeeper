@@ -173,6 +173,20 @@ terminal states, and the existing no-credential-export boundary.
 
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
+- Settings-stable durable routing is implemented across first-party archive,
+  binary, and Markdown writes. Every new write carries a detached, secret-free
+  settings snapshot; background rejects drift or a newly disabled destination
+  as `settings-changed` before dispatch. This is an admission-time guarantee,
+  not atomic cancellation or fixed physical-vault identity.
+- Staged settings mismatch can exact-abort only the named temporary stage after
+  ordinary sender validation. Cleanup failures retain only the fixed
+  archive/binary cleanup-deferred warning; arbitrary private errors do not cross
+  the boundary.
+- Next add an operation-local append-only write-fact ledger for raw/binary
+  residue when later destination finalization fails. Track confirmed, unknown,
+  and not-dispatched facts separately; keep final receipts as the sole
+  provenance/link authority; do not imply retry, deletion, restart recovery, or
+  net disk usage.
 - Finish aggregate limits for branch materialization and destination writes.
 - Re-run focused security/diff review at meaningful boundaries, not after every
   cosmetic change.
@@ -219,11 +233,12 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Checkpoint the live-verified sandbox-link localization slice in its own pull
-request. Then choose the next independent evidence gate: a real staged capture
-above 16 MiB, a live multi-output same-title sample, failed-finalization write
-accounting, or one additional binary family. The 1 GiB source-work limit remains
-a deliberate refusal for the measured 1.051 GiB graph; only a separately
-reviewed limit change may authorize that full 239-leaf run. Keep
+Checkpoint the live-verified settings-stable routing slice in its own pull
+request. Then implement failed-finalization write accounting as a separate
+operation-local ledger checkpoint. After that, choose the next independent
+evidence gate: a real staged capture above 16 MiB, a live multi-output
+same-title sample, or one additional binary family. The 1 GiB source-work limit
+remains a deliberate refusal for the measured 1.051 GiB graph; only a
+separately reviewed limit change may authorize that full 239-leaf run. Keep
 custom-GPT/project binaries and the sole archived Library WebP separately
 evidence-gated.

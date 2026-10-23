@@ -73,21 +73,64 @@ import { serializeSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 let outputOptionsOverride: OutputOptions | undefined;
 let outputOptionsUpdateSequence = 0;
 
+type DurableOutputMessage = Extract<
+  ExtensionMessage,
+  {
+    action:
+      | 'saveToOutputs'
+      | 'persistArchiveCompanion'
+      | 'commitStagedArchiveCompanion'
+      | 'commitStagedBinaryAsset';
+  }
+>;
+
 function settingsChangedOutputResponse(
-  message: Extract<ExtensionMessage, { action: 'saveToOutputs' }>
+  message: DurableOutputMessage,
+  cleanupWarning?: string
 ): MultiOutputResponse {
   return {
     results: message.outputs.map(destination => ({
       destination,
       success: false,
       error: 'settings-changed',
-      ...(destination === 'file' && message.strictFileDownload === true
+      ...(destination === 'file' &&
+      message.action === 'saveToOutputs' &&
+      message.strictFileDownload === true
         ? { strictFileOutcome: 'confirmed-failure' as const }
         : {}),
+      ...(cleanupWarning && { warning: cleanupWarning }),
     })),
     allSuccessful: false,
     anySuccessful: false,
   };
+}
+
+/** Only validated, sender-bound commits reach this exact temporary-stage abort. */
+async function rejectChangedSettings(
+  message: DurableOutputMessage,
+  settings: ExtensionSettings
+): Promise<MultiOutputResponse> {
+  let cleanupWarning: string | undefined;
+  if (message.action === 'commitStagedArchiveCompanion') {
+    const aborted = await handleArchiveStageMessage({
+      action: 'abortStagedArchiveArtifact',
+      source: message.source,
+      stageId: message.artifact.stageId,
+    }).catch(() => undefined);
+    if (!aborted || !('success' in aborted) || !aborted.success) {
+      cleanupWarning = 'archive-stage-cleanup-deferred';
+    }
+  }
+  if (message.action === 'commitStagedBinaryAsset') {
+    const aborted = await handleStagedBinaryAssetMessage(
+      { action: 'abortStagedBinaryAsset', source: message.source, stageId: message.stageId },
+      settings
+    ).catch(() => undefined);
+    if (!aborted || !('success' in aborted) || !aborted.success) {
+      cleanupWarning = 'binary-stage-cleanup-deferred';
+    }
+  }
+  return settingsChangedOutputResponse(message, cleanupWarning);
 }
 
 // Register durable Downloads recovery before any awaited startup work. A fresh
@@ -668,16 +711,21 @@ async function handleMessage(
     ? { ...storedSettings, outputOptions: { ...outputOptionsOverride } }
     : storedSettings;
 
+  if (
+    'expectedSyncSettingsSnapshot' in message &&
+    message.expectedSyncSettingsSnapshot !== undefined &&
+    (serializeSyncSettingsSnapshot(settings) !== message.expectedSyncSettingsSnapshot ||
+      message.outputs.some(destination => !settings.outputOptions[destination]))
+  ) {
+    // Admission only: do not dispatch outputs, adopt new settings, or retry
+    // without the guard. A relinquished stage still needs its exact abort.
+    return rejectChangedSettings(message, settings);
+  }
+
   if (isArchiveStageMessage(message)) return handleArchiveStageMessage(message, settings);
 
   switch (message.action) {
     case 'saveToOutputs':
-      if (
-        message.expectedSyncSettingsSnapshot !== undefined &&
-        serializeSyncSettingsSnapshot(settings) !== message.expectedSyncSettingsSnapshot
-      ) {
-        return settingsChangedOutputResponse(message);
-      }
       return handleMultiOutput(
         message.data,
         message.outputs,

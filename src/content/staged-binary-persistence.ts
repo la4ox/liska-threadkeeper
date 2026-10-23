@@ -15,6 +15,7 @@ import {
 } from '../lib/binary-asset-contract';
 import { bytesToBase64 } from '../lib/image-utils';
 import { sendMessage } from '../lib/messaging';
+import { isSerializedSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 import type {
   AIPlatform,
   MultiOutputResponse,
@@ -40,9 +41,22 @@ export interface StagedBinaryPersistenceInput {
   conversationKey: string;
   /** Immutable manifest capture time used only for output routing. */
   capturedAt?: string;
+  /** Original runtime-only settings guard; omitted only by legacy callers. */
+  expectedSyncSettingsSnapshot?: string;
   assets: readonly (RawCaptureAsset | VerifiedBinaryAssetRuntime)[];
   /** Clipboard is absent from this type and rejected again at runtime. */
   outputs: readonly PersistentOutputDestination[];
+}
+
+export const BINARY_STAGE_CLEANUP_DEFERRED_WARNING = 'binary-stage-cleanup-deferred';
+
+/** Preserve only the fixed cleanup fact; arbitrary background warnings stay private. */
+export function stagedBinaryCleanupWarnings(values: readonly StagedBinaryAssetResult[]): string[] {
+  return values.some(value =>
+    value.results.some(result => result.warning === BINARY_STAGE_CLEANUP_DEFERRED_WARNING)
+  )
+    ? [BINARY_STAGE_CLEANUP_DEFERRED_WARNING]
+    : [];
 }
 
 function runtimeFromAsset(
@@ -189,6 +203,9 @@ async function commitStage(
     captureId: input.captureId,
     conversationKey: input.conversationKey,
     ...(input.capturedAt !== undefined && { capturedAt: input.capturedAt }),
+    ...(input.expectedSyncSettingsSnapshot !== undefined && {
+      expectedSyncSettingsSnapshot: input.expectedSyncSettingsSnapshot,
+    }),
     source: input.source,
     descriptor,
     outputs: [...input.outputs],
@@ -279,6 +296,20 @@ async function prepareAsset(
 export async function persistVerifiedBinaryAssets(
   input: StagedBinaryPersistenceInput
 ): Promise<StagedBinaryAssetResult[]> {
+  // Validate before creating a stage or relinquishing temporary ownership.
+  if (
+    input.expectedSyncSettingsSnapshot !== undefined &&
+    !isSerializedSyncSettingsSnapshot(input.expectedSyncSettingsSnapshot)
+  ) {
+    return input.assets.map(asset =>
+      failureResult(
+        runtimeFromAsset(asset)?.assetId ?? 'invalid-asset',
+        undefined,
+        input.outputs,
+        'binary-settings-snapshot-invalid'
+      )
+    );
+  }
   if (!validOutputs(input.outputs)) {
     return input.assets.map(asset => {
       const runtime = runtimeFromAsset(asset);

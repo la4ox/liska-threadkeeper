@@ -340,6 +340,25 @@ function hasOptionalValidRoutingCapturedAt(value: { capturedAt?: unknown }): boo
   );
 }
 
+function hasValidRoutingMetadata(value: {
+  capturedAt?: unknown;
+  expectedSyncSettingsSnapshot?: unknown;
+}): boolean {
+  return (
+    hasOptionalValidRoutingCapturedAt(value) &&
+    (!Object.prototype.hasOwnProperty.call(value, 'expectedSyncSettingsSnapshot') ||
+      isSerializedSyncSettingsSnapshot(value.expectedSyncSettingsSnapshot))
+  );
+}
+
+/** Legacy callers may omit either field; supplied fields are never normalized away. */
+function hasExactRoutingKeys(message: object, required: readonly string[]): boolean {
+  const optional = ['capturedAt', 'expectedSyncSettingsSnapshot'].filter(key =>
+    Object.prototype.hasOwnProperty.call(message, key)
+  );
+  return hasExactOwnKeys(message, [...required, ...optional]);
+}
+
 function isSafeNoteFileName(value: unknown): value is string {
   return (
     typeof value === 'string' &&
@@ -447,28 +466,18 @@ function validatePersistArchiveCompanionMessage(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
 ): boolean {
   if (!isStructuredArchiveSource(message.source)) return false;
-  const exactLegacy = hasExactOwnKeys(message, [
+  const exactRouting = hasExactRoutingKeys(message, [
     'action',
     'noteFileName',
     'source',
     'captureId',
     'conversationKey',
-    'artifact',
-    'outputs',
-  ]);
-  const exactCaptured = hasExactOwnKeys(message, [
-    'action',
-    'noteFileName',
-    'source',
-    'captureId',
-    'conversationKey',
-    'capturedAt',
     'artifact',
     'outputs',
   ]);
   return (
-    (exactLegacy || exactCaptured) &&
-    hasOptionalValidRoutingCapturedAt(message) &&
+    exactRouting &&
+    hasValidRoutingMetadata(message) &&
     isSafeNoteFileName(message.noteFileName) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -535,28 +544,18 @@ function validateArchiveStageMessage(
       isSafeArchiveStageId(message.stageId)
     );
   }
-  const exactLegacy = hasExactOwnKeys(message, [
+  const exactRouting = hasExactRoutingKeys(message, [
     'action',
     'noteFileName',
     'source',
     'captureId',
     'conversationKey',
-    'artifact',
-    'outputs',
-  ]);
-  const exactCaptured = hasExactOwnKeys(message, [
-    'action',
-    'noteFileName',
-    'source',
-    'captureId',
-    'conversationKey',
-    'capturedAt',
     'artifact',
     'outputs',
   ]);
   return (
-    (exactLegacy || exactCaptured) &&
-    hasOptionalValidRoutingCapturedAt(message) &&
+    exactRouting &&
+    hasValidRoutingMetadata(message) &&
     isSafeNoteFileName(message.noteFileName) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -608,28 +607,18 @@ function validateAppendStagedBinaryAssetMessage(
 function validateCommitStagedBinaryAssetMessage(
   message: Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }>
 ): boolean {
-  const exactLegacy = hasExactOwnKeys(message, [
+  const exactRouting = hasExactRoutingKeys(message, [
     'action',
     'stageId',
     'captureId',
     'conversationKey',
-    'source',
-    'descriptor',
-    'outputs',
-  ]);
-  const exactCaptured = hasExactOwnKeys(message, [
-    'action',
-    'stageId',
-    'captureId',
-    'conversationKey',
-    'capturedAt',
     'source',
     'descriptor',
     'outputs',
   ]);
   return (
-    (exactLegacy || exactCaptured) &&
-    hasOptionalValidRoutingCapturedAt(message) &&
+    exactRouting &&
+    hasValidRoutingMetadata(message) &&
     isSafeBinaryStageId(message.stageId) &&
     SAFE_CAPTURE_ID_PATTERN.test(message.captureId) &&
     OPAQUE_CONVERSATION_KEY_PATTERN.test(message.conversationKey) &&
@@ -668,7 +657,7 @@ function validateSaveToOutputsMessage(
   message: Extract<ExtensionMessage, { action: 'saveToOutputs' }>
 ): boolean {
   return (
-    hasOptionalValidRoutingCapturedAt(message) &&
+    hasValidRoutingMetadata(message) &&
     validateNoteData(message.data) &&
     Array.isArray(message.outputs) &&
     message.outputs.length > 0 &&
@@ -676,9 +665,7 @@ function validateSaveToOutputsMessage(
       VALID_OUTPUT_DESTINATIONS.includes(output as (typeof VALID_OUTPUT_DESTINATIONS)[number])
     ) &&
     (!Object.prototype.hasOwnProperty.call(message, 'strictFileDownload') ||
-      (message.strictFileDownload === true && message.outputs.includes('file'))) &&
-    (!Object.prototype.hasOwnProperty.call(message, 'expectedSyncSettingsSnapshot') ||
-      isSerializedSyncSettingsSnapshot(message.expectedSyncSettingsSnapshot))
+      (message.strictFileDownload === true && message.outputs.includes('file')))
   );
 }
 

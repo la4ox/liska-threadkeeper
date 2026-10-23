@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildCaptureManifest,
@@ -124,6 +126,7 @@ async function capture(options: { signedPath?: boolean } = {}): Promise<{
 
 describe('DeepSeek destination-honest asset export', () => {
   it('persists raw first and publishes fetched claims only to the destination that stored bytes', async () => {
+    const snapshot = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
     const { context, companion } = await capture();
     const rawBefore = JSON.stringify(context.rawCaptureBundle.manifest);
     const bytes = new TextEncoder().encode('x'.repeat(93));
@@ -162,7 +165,10 @@ describe('DeepSeek destination-honest asset export', () => {
           results: input.outputs.map(destination => ({
             destination,
             success: destination === 'file',
-            ...(destination === 'obsidian' && { error: 'synthetic-write-failed' }),
+            ...(destination === 'obsidian' && {
+              error: 'synthetic-write-failed',
+              warning: 'binary-stage-cleanup-deferred',
+            }),
           })),
           allSuccessful: false,
         } satisfies StagedBinaryAssetResult;
@@ -175,6 +181,7 @@ describe('DeepSeek destination-honest asset export', () => {
       'synthetic.md',
       ['file', 'obsidian'],
       {
+        expectedSyncSettingsSnapshot: snapshot,
         persistArtifacts,
         acquireAssets: input =>
           acquireDeepSeekSignedAssets({
@@ -193,10 +200,20 @@ describe('DeepSeek destination-honest asset export', () => {
     ]);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(persistBinaryAssets).toHaveBeenCalledWith(
-      expect.objectContaining({ capturedAt: companion.capturedAt })
+      expect.objectContaining({
+        capturedAt: companion.capturedAt,
+        expectedSyncSettingsSnapshot: snapshot,
+      })
     );
+    expect(persistArtifacts.mock.calls.every(call => call[5] === snapshot)).toBe(true);
+    expect(
+      persisted.every(
+        value => !JSON.stringify(value.companion).includes('expectedSyncSettingsSnapshot')
+      )
+    ).toBe(true);
     expect(result.completeDestinations).toEqual(['file', 'obsidian']);
     expect(result.warnings.join(' ')).toContain('not saved to obsidian');
+    expect(result.warnings).toContain('binary-stage-cleanup-deferred');
     expect(JSON.stringify(context.rawCaptureBundle.manifest)).toBe(rawBefore);
 
     const fileManifest = decodeJson(

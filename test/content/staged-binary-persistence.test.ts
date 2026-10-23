@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { canonicalBase64ByteLength } from '../../src/lib/base64';
 import { BINARY_STAGE_CHUNK_BYTES } from '../../src/lib/constants';
 import { sha256Hex } from '../../src/lib/binary-asset-contract';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
+import type { StagedBinaryAssetResult } from '../../src/lib/types';
 
 const mocks = vi.hoisted(() => ({ sendMessage: vi.fn() }));
 
@@ -9,7 +12,11 @@ vi.mock('../../src/lib/messaging', () => ({
   sendMessage: (...args: unknown[]) => mocks.sendMessage(...args),
 }));
 
-import { persistVerifiedBinaryAssets } from '../../src/content/staged-binary-persistence';
+import {
+  BINARY_STAGE_CLEANUP_DEFERRED_WARNING,
+  persistVerifiedBinaryAssets,
+  stagedBinaryCleanupWarnings,
+} from '../../src/content/staged-binary-persistence';
 
 async function runtimeAsset(letter: string, bytes: Uint8Array) {
   return {
@@ -22,6 +29,18 @@ async function runtimeAsset(letter: string, bytes: Uint8Array) {
 }
 
 describe('content staged binary persistence', () => {
+  it('surfaces only the fixed cleanup warning from binary destination results', () => {
+    const value = (warning: string): StagedBinaryAssetResult => ({
+      assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+      results: [{ destination: 'file', success: false, error: 'settings-changed', warning }],
+      allSuccessful: false,
+    });
+    expect(stagedBinaryCleanupWarnings([value(BINARY_STAGE_CLEANUP_DEFERRED_WARNING)])).toEqual([
+      BINARY_STAGE_CLEANUP_DEFERRED_WARNING,
+    ]);
+    expect(stagedBinaryCleanupWarnings([value('private-warning-must-not-escape')])).toEqual([]);
+  });
+
   it('chunks canonical base64 at 512 KiB and continues to the next asset after one failure', async () => {
     const first = await runtimeAsset('a', new Uint8Array(BINARY_STAGE_CHUNK_BYTES + 1));
     const second = await runtimeAsset('b', new Uint8Array([7]));
@@ -52,6 +71,7 @@ describe('content staged binary persistence', () => {
       captureId: 'capture-chatgpt-11111111-2222-4333-8444-555555555555',
       conversationKey: 'c'.repeat(64),
       capturedAt: '2026-09-19T10:00:00.000Z',
+      expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS),
       assets: [first, second],
       outputs: ['file', 'obsidian'],
     });
@@ -88,6 +108,7 @@ describe('content staged binary persistence', () => {
       expect.objectContaining({
         action: 'commitStagedBinaryAsset',
         capturedAt: '2026-09-19T10:00:00.000Z',
+        expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS),
       })
     );
     expect(
@@ -111,6 +132,23 @@ describe('content staged binary persistence', () => {
 
     expect(results[0]?.results).toEqual([
       { destination: 'clipboard', success: false, error: 'binary-output-invalid' },
+    ]);
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed local settings metadata before creating or relinquishing a stage', async () => {
+    const asset = await runtimeAsset('a', new Uint8Array([1]));
+    mocks.sendMessage.mockClear();
+    const result = await persistVerifiedBinaryAssets({
+      source: 'chatgpt',
+      captureId: 'capture-legacy',
+      conversationKey: 'c'.repeat(64),
+      assets: [asset],
+      outputs: ['file'],
+      expectedSyncSettingsSnapshot: '{}',
+    });
+    expect(result[0].results).toEqual([
+      { destination: 'file', success: false, error: 'binary-settings-snapshot-invalid' },
     ]);
     expect(mocks.sendMessage).not.toHaveBeenCalled();
   });

@@ -109,4 +109,35 @@ describe('capture routing messages', () => {
       'expectedSyncSettingsSnapshot'
     );
   });
+
+  it.each(['inline', 'staged'] as const)(
+    'keeps the guard outside the %s archive artifact',
+    transport => {
+      const snapshot = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
+      const artifact =
+        transport === 'inline'
+          ? companion.artifacts[0]
+          : {
+              kind: 'raw' as const,
+              relativePath: 'responses/conversation.json',
+              mediaType: 'application/json' as const,
+              byteLength: 2,
+              sha256: 'b'.repeat(64),
+              transport: 'staged' as const,
+              stageId: `archive-stage-${'A'.repeat(32)}`,
+            };
+      const message = buildArchivePersistenceMessage({
+        companion,
+        noteFileName: note.fileName,
+        source: 'deepseek',
+        stageSource: 'deepseek',
+        artifact,
+        outputs: ['file', 'obsidian'],
+        expectedSyncSettingsSnapshot: snapshot,
+      });
+      expect(message.expectedSyncSettingsSnapshot).toBe(snapshot);
+      expect(message.artifact).not.toHaveProperty('expectedSyncSettingsSnapshot');
+      expect(companion).not.toHaveProperty('expectedSyncSettingsSnapshot');
+    }
+  );
 });

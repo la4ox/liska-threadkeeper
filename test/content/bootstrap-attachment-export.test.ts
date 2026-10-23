@@ -79,7 +79,7 @@ vi.mock('../../src/content/ui', () => ({
 
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 
-import { handleSync, persistArchiveCompanionArtifacts } from '../../src/content/bootstrap';
+import { handleSync } from '../../src/content/bootstrap';
 import { conversationToNote } from '../../src/content/markdown';
 import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
@@ -372,6 +372,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         ['file'],
         expect.objectContaining({
           persistArtifacts: expect.any(Function),
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
           observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
         })
       );
@@ -379,7 +380,11 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryAsset');
       expect(mocks.sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'saveToOutputs', outputs: ['file'] })
+        expect.objectContaining({
+          action: 'saveToOutputs',
+          outputs: ['file'],
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+        })
       );
       const saveMessage = mocks.sendMessage.mock.calls
         .map(call => call[0])
@@ -632,9 +637,17 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       settings.enableToolContent,
       ['file'],
       expect.objectContaining({
-        persistArtifacts: persistArchiveCompanionArtifacts,
+        persistArtifacts: expect.any(Function),
         destinationReceipts: undefined,
         fingerprintNote: expect.any(Function),
+      })
+    );
+    const options = mocks.persistAllBranchesPresentation.mock.calls[0][5];
+    await options.persistArtifacts(companion, 'all.md', 'chatgpt', ['file']);
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'persistArchiveCompanion',
+        expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
       })
     );
     expect(mocks.stopDispose).toHaveBeenCalledTimes(1);

@@ -11,6 +11,7 @@ import {
 } from '../../src/content/capture/json-archive-companion';
 import { hashCaptureManifest, sha256Hex } from '../../src/content/capture/response';
 import { conversationToNote } from '../../src/content/markdown';
+import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import type {
   ArchiveCompanionBundle,
   ContentScriptSettings,
@@ -264,13 +265,17 @@ describe('DeepSeek attachment bootstrap gate', () => {
         companion,
         expect.stringMatching(/\.md$/),
         ['file'],
-        { persistArtifacts: expect.any(Function) }
+        {
+          persistArtifacts: expect.any(Function),
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+        }
       );
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'saveToOutputs',
           outputs: ['file'],
           capturedAt: companion.capturedAt,
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
         })
       );
       expect(mocks.showWarningToast).toHaveBeenCalledWith('Synthetic DeepSeek attachment caveat.');
@@ -308,6 +313,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
             captureId: companion.captureId,
             conversationKey: companion.conversationKey,
             capturedAt: companion.capturedAt,
+            expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
             artifact,
             outputs: [destination],
           })),
@@ -316,6 +322,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
             data: note,
             outputs: [destination],
             capturedAt: companion.capturedAt,
+            expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
           },
         ]);
         expect(mocks.showErrorToast).not.toHaveBeenCalled();
@@ -345,6 +352,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
         data: note,
         outputs: ['file'],
         capturedAt: companion.capturedAt,
+        expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
       });
       expect(mocks.showWarningToast).toHaveBeenCalledWith(
         'deepseek-attachment-inventory-unavailable'

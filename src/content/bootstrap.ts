@@ -73,7 +73,10 @@ import { generateNoteContent } from '../lib/note-generator';
 import { sha256Hex } from '../lib/sha256';
 import { flattenLargeCallouts } from '../lib/callout-flatten';
 import { stripImagePlaceholders } from '../lib/image-output';
-import { serializeSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
+import {
+  isSerializedSyncSettingsSnapshot,
+  serializeSyncSettingsSnapshot,
+} from '../lib/sync-settings-snapshot';
 import type {
   AIPlatform,
   ContentScriptSettings,
@@ -376,6 +379,7 @@ const ARCHIVE_OBSIDIAN_DIAGNOSTIC_CODES = new Set([
   'archive-obsidian-readback-hash-mismatch',
   'archive-obsidian-readback-hash-failed',
 ]);
+const ARCHIVE_CLEANUP_WARNING_CODES = new Set(['archive-stage-cleanup-deferred']);
 
 /** Background error strings are untrusted at this UI boundary. */
 function safeArchiveObsidianDiagnostic(result: OutputResult): string | undefined {
@@ -383,6 +387,12 @@ function safeArchiveObsidianDiagnostic(result: OutputResult): string | undefined
     typeof result.error === 'string' &&
     ARCHIVE_OBSIDIAN_DIAGNOSTIC_CODES.has(result.error)
     ? result.error
+    : undefined;
+}
+
+function safeArchiveCleanupWarning(result: OutputResult): string | undefined {
+  return typeof result.warning === 'string' && ARCHIVE_CLEANUP_WARNING_CODES.has(result.warning)
+    ? result.warning
     : undefined;
 }
 
@@ -448,9 +458,10 @@ function archiveWriteOutcome(
       .filter(result => !result.success)
       .map(result => {
         const diagnostic = safeArchiveObsidianDiagnostic(result);
+        const cleanupWarning = safeArchiveCleanupWarning(result);
         return `${label} was not saved to ${result.destination}${
           diagnostic ? ` (${diagnostic})` : ''
-        }`;
+        }${cleanupWarning ? ` (${cleanupWarning})` : ''}`;
       }),
   };
 }
@@ -471,7 +482,8 @@ export async function persistArchiveCompanionArtifacts(
   noteFileName: string,
   source: AIPlatform,
   outputs: OutputDestination[],
-  artifactKinds?: readonly ArchiveCompanionKind[]
+  artifactKinds?: readonly ArchiveCompanionKind[],
+  expectedSyncSettingsSnapshot?: string
 ): Promise<ArchiveCompanionPersistenceOutcome> {
   if (!companion) return { activeOutputs: [], warnings: [] };
   const unclaimedStages = new Set(
@@ -488,6 +500,15 @@ export async function persistArchiveCompanionArtifacts(
     }
     unclaimedStages.clear();
   };
+  // The caller still owns every stage here. Reject malformed local metadata
+  // before any commit can relinquish that claim to the worker.
+  if (
+    expectedSyncSettingsSnapshot !== undefined &&
+    !isSerializedSyncSettingsSnapshot(expectedSyncSettingsSnapshot)
+  ) {
+    await abortUnclaimedStages();
+    return { activeOutputs: [], warnings: ['archive-settings-snapshot-invalid'] };
+  }
   let activeOutputs = outputs.filter(
     (output): output is PersistentOutputDestination => output === 'file' || output === 'obsidian'
   );
@@ -534,6 +555,7 @@ export async function persistArchiveCompanionArtifacts(
       stageSource,
       artifact,
       outputs: activeOutputs,
+      expectedSyncSettingsSnapshot,
     });
     const label = archiveArtifactLabel(artifact.kind);
     if (
@@ -574,24 +596,52 @@ export async function persistArchiveCompanions(
   companion: ArchiveCompanionBundle | undefined,
   noteFileName: string,
   source: AIPlatform,
-  outputs: OutputDestination[]
+  outputs: OutputDestination[],
+  expectedSyncSettingsSnapshot?: string
 ): Promise<string[]> {
-  return (await persistArchiveCompanionArtifacts(companion, noteFileName, source, outputs))
-    .warnings;
+  return (
+    await persistArchiveCompanionArtifacts(
+      companion,
+      noteFileName,
+      source,
+      outputs,
+      undefined,
+      expectedSyncSettingsSnapshot
+    )
+  ).warnings;
+}
+
+function archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot: string) {
+  return (
+    companion: ArchiveCompanionBundle,
+    name: string,
+    source: AIPlatform,
+    outputs: OutputDestination[]
+  ) =>
+    persistArchiveCompanionArtifacts(
+      companion,
+      name,
+      source,
+      outputs,
+      undefined,
+      expectedSyncSettingsSnapshot
+    );
 }
 
 /** Preserve verified source evidence even when no readable Markdown can be built. */
 export async function persistFailedExtractionArchive(
   result: ExtractionResult,
   outputs: OutputDestination[],
-  source: StructuredArchiveSource
+  source: StructuredArchiveSource,
+  expectedSyncSettingsSnapshot?: string
 ): Promise<string | undefined> {
   if (result.success || !result.archiveCompanion) return undefined;
   const warnings = await persistArchiveCompanions(
     result.archiveCompanion,
     `${source}-capture.md`,
     source,
-    outputs
+    outputs,
+    expectedSyncSettingsSnapshot
   );
   return warnings.length === 0
     ? 'Verified raw capture evidence was saved locally'
@@ -606,14 +656,25 @@ async function persistExtractedNote(
   extractionWarnings: string[] | undefined
 ): Promise<void> {
   const note = conversationToNote(data, settings.templateOptions);
+  const expectedSyncSettingsSnapshot = archiveCompanion
+    ? serializeSyncSettingsSnapshot(settings)
+    : undefined;
   const archiveWarnings = await persistArchiveCompanions(
     archiveCompanion,
     note.fileName,
     data.source,
-    outputs
+    outputs,
+    expectedSyncSettingsSnapshot
   );
   const warnings = [...(extractionWarnings ?? []), ...archiveWarnings];
-  await persistNote(note, outputs, data.messages.length, warnings, archiveCompanion?.capturedAt);
+  await persistNote(
+    note,
+    outputs,
+    data.messages.length,
+    warnings,
+    archiveCompanion?.capturedAt,
+    expectedSyncSettingsSnapshot
+  );
 }
 
 /** Runtime guard: the worker can return a generic error envelope on rejection. */
@@ -891,7 +952,7 @@ export async function persistAllBranchesBundle(
     settings.enableToolContent,
     outputs,
     {
-      persistArtifacts: persistArchiveCompanionArtifacts,
+      persistArtifacts: archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot),
       destinationReceipts,
       signal,
       prepared,
@@ -966,10 +1027,18 @@ async function persistNote(
   outputs: OutputDestination[],
   messageCount: number,
   extractionWarnings?: string[],
-  capturedAt?: string
+  capturedAt?: string,
+  expectedSyncSettingsSnapshot?: string
 ): Promise<void> {
   showToast('Saving...', 'info', INFO_TOAST_DURATION);
-  const attempt = await writeNoteToOutputs(note, outputs, messageCount, capturedAt);
+  const attempt = await writeNoteToOutputs(
+    note,
+    outputs,
+    messageCount,
+    capturedAt,
+    undefined,
+    expectedSyncSettingsSnapshot
+  );
   if (!attempt.success) {
     showErrorToast(attempt.error);
     return;
@@ -1124,7 +1193,11 @@ async function localizedNoteForDestination(
   }
 }
 
-const chatGptAttachmentDependencies = (strictReplay: boolean) => ({
+const chatGptAttachmentDependencies = (
+  strictReplay: boolean,
+  expectedSyncSettingsSnapshot: string
+) => ({
+  expectedSyncSettingsSnapshot,
   persistArtifacts: persistArchiveCompanionArtifacts,
   observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
   ...(strictReplay
@@ -1149,6 +1222,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
 
   try {
     const settings = freezeSettingsSnapshot(await getSettings());
+    const expectedSyncSettingsSnapshot = serializeSyncSettingsSnapshot(settings);
     const enabledOutputs = getEnabledOutputs(settings);
     const extractor = getExtractor();
     const isChatGptOpaqueProbe =
@@ -1214,7 +1288,10 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           result.archiveCompanion,
           'chatgpt-all-branches.md',
           enabledOutputs,
-          chatGptAttachmentDependencies(settings.enableChatGptOpaqueReplay === true)
+          chatGptAttachmentDependencies(
+            settings.enableChatGptOpaqueReplay === true,
+            expectedSyncSettingsSnapshot
+          )
         );
         if (allBranchesAbortController.signal.aborted) {
           showWarningToast(
@@ -1257,7 +1334,12 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     }
     stage = 'preserving failed extraction evidence';
     const failedArchiveStatus = isStructuredArchiveSource(extractor.platform)
-      ? await persistFailedExtractionArchive(result, enabledOutputs, extractor.platform)
+      ? await persistFailedExtractionArchive(
+          result,
+          enabledOutputs,
+          extractor.platform,
+          expectedSyncSettingsSnapshot
+        )
       : undefined;
     stage = 'validating the extracted conversation';
     const validation = extractor.validate(result);
@@ -1275,7 +1357,6 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     }
     if (canExportChatGptAttachments(result, settings, enabledOutputs)) {
       const renderedAt = new Date();
-      const expectedSyncSettingsSnapshot = serializeSyncSettingsSnapshot(settings);
       const note = conversationToNote(result.data, settings.templateOptions, renderedAt);
       stage = 'saving the original ChatGPT raw archive companion';
       const attachmentExport = await persistChatGptDestinationHonestAttachments(
@@ -1283,7 +1364,10 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         result.archiveCompanion,
         note.fileName,
         enabledOutputs,
-        chatGptAttachmentDependencies(settings.enableChatGptOpaqueReplay === true)
+        chatGptAttachmentDependencies(
+          settings.enableChatGptOpaqueReplay === true,
+          expectedSyncSettingsSnapshot
+        )
       );
       stage = 'saving the ChatGPT note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
@@ -1312,7 +1396,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         result.archiveCompanion,
         note.fileName,
         enabledOutputs,
-        { persistArtifacts: persistArchiveCompanionArtifacts }
+        { persistArtifacts: persistArchiveCompanionArtifacts, expectedSyncSettingsSnapshot }
       );
       stage = 'saving the DeepSeek note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
@@ -1321,7 +1405,8 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         enabledOutputs,
         result.data.messages.length,
         warnings,
-        result.archiveCompanion?.capturedAt
+        result.archiveCompanion?.capturedAt,
+        expectedSyncSettingsSnapshot
       );
       return;
     }

@@ -12,6 +12,13 @@ describe('sync settings snapshot', () => {
     expect(second).toBe(first);
     expect(isSerializedSyncSettingsSnapshot(first)).toBe(true);
     expect(first).not.toContain('obsidianApiKey');
+    expect(
+      serializeSyncSettingsSnapshot({
+        ...DEFAULT_SYNC_SETTINGS,
+        obsidianApiKey: 'secret-marker',
+      } as never)
+    ).toBe(first);
+    expect(first).not.toContain('secret-marker');
   });
 
   it.each(['', 'not-json', '[]', '{}', '"text"'])('rejects a noncanonical value: %s', value => {

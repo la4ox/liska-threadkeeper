@@ -53,7 +53,10 @@ import {
 import type { ChatGptPageOwnedAssetCandidate } from './capture/chatgpt-asset-resolver';
 import { applyInterpreterResolverDetails } from './capture/chatgpt-interpreter-resolver-diagnostics';
 import { sha256Hex } from './capture/response';
-import { persistVerifiedBinaryAssets } from './staged-binary-persistence';
+import {
+  persistVerifiedBinaryAssets,
+  stagedBinaryCleanupWarnings,
+} from './staged-binary-persistence';
 import { ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
 import { allowsChatGptAttachmentAcquisitionFromJsonBytes } from '../lib/chatgpt-owner-context';
 import type {
@@ -88,12 +91,15 @@ export interface ArchiveCompanionPersistenceOutcome {
 }
 
 export interface ChatGptAssetExportDependencies {
+  /** Original runtime-only guard, shared by every durable write in this operation. */
+  expectedSyncSettingsSnapshot?: string;
   persistArtifacts: (
     companion: ArchiveCompanionBundle,
     noteFileName: string,
     source: 'chatgpt',
     outputs: OutputDestination[],
-    artifactKinds: readonly ArchiveCompanionKind[]
+    artifactKinds: readonly ArchiveCompanionKind[],
+    expectedSyncSettingsSnapshot?: string
   ) => Promise<ArchiveCompanionPersistenceOutcome>;
   observeResolvers?: (
     context: ChatGptAssetExportContext,
@@ -616,6 +622,10 @@ async function persistAcquiredBinaries(
       source: 'chatgpt',
       captureId: companion.captureId,
       conversationKey: companion.conversationKey,
+      ...(companion.capturedAt !== undefined && { capturedAt: companion.capturedAt }),
+      ...(dependencies.expectedSyncSettingsSnapshot !== undefined && {
+        expectedSyncSettingsSnapshot: dependencies.expectedSyncSettingsSnapshot,
+      }),
       assets,
       outputs,
     });
@@ -648,18 +658,20 @@ async function attemptAssets(
       activeResolverMetric: resolution.activeResolverMetric,
     };
   }
+  const binaryResults = await persistAcquiredBinaries(
+    companion,
+    acquired.runtimeAssets,
+    rawSuccessfulDestinations,
+    dependencies
+  );
   return {
     acquired,
-    binaryResults: await persistAcquiredBinaries(
-      companion,
-      acquired.runtimeAssets,
-      rawSuccessfulDestinations,
-      dependencies
-    ),
+    binaryResults,
     warnings: [
       ...resolution.warnings,
       ...(acquisitionFailed ? [CHATGPT_ASSET_ACQUISITION_FAILED_WARNING] : []),
       ...acquisitionOutcomeWarnings(acquired.records),
+      ...stagedBinaryCleanupWarnings(binaryResults),
     ],
     activeResolverMetric: resolution.activeResolverMetric,
   };
@@ -701,7 +713,8 @@ async function finalizeDestination(
       noteFileName,
       'chatgpt',
       [destination],
-      ['manifest', 'canonical']
+      ['manifest', 'canonical'],
+      dependencies.expectedSyncSettingsSnapshot
     );
     const complete = outcome.activeOutputs.includes(destination);
     return {
@@ -757,7 +770,8 @@ export async function persistChatGptDestinationHonestAttachments(
       noteFileName,
       'chatgpt',
       requested,
-      ['raw']
+      ['raw'],
+      dependencies.expectedSyncSettingsSnapshot
     );
   } catch {
     return {

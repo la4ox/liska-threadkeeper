@@ -517,7 +517,7 @@ export type ExtensionMessage =
       capturedAt?: string;
       /** Wait for terminal completion and the exact Markdown filename; File output is required. */
       strictFileDownload?: true;
-      /** Canonical secret-free settings snapshot used by exact all-branches measurement. */
+      /** Runtime-only, secret-free routing guard checked at message admission. */
       expectedSyncSettingsSnapshot?: string;
     }
   | { action: 'saveSettings'; settings: PopupSettingsUpdate }
@@ -529,6 +529,8 @@ export type ExtensionMessage =
       captureId: string;
       conversationKey: string;
       capturedAt?: string;
+      /** Runtime-only routing guard; never part of the archive artifact. */
+      expectedSyncSettingsSnapshot?: string;
       artifact: ArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
@@ -564,6 +566,8 @@ export type ExtensionMessage =
       captureId: string;
       conversationKey: string;
       capturedAt?: string;
+      /** Runtime-only routing guard; never part of the archive artifact. */
+      expectedSyncSettingsSnapshot?: string;
       artifact: StagedArchiveCompanionArtifact;
       outputs: PersistentOutputDestination[];
     }
@@ -591,6 +595,8 @@ export type ExtensionMessage =
       captureId: string;
       conversationKey: string;
       capturedAt?: string;
+      /** Runtime-only routing guard; never part of the asset descriptor. */
+      expectedSyncSettingsSnapshot?: string;
       source: AIPlatform;
       descriptor: StagedBinaryAssetDescriptor;
       outputs: PersistentOutputDestination[];
