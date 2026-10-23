@@ -117,6 +117,32 @@ describe('buildQuestionHeader', () => {
       expect(result).not.toContain('`');
       expect(result.startsWith('## ')).toBe(true);
     });
+
+    it.each([
+      ['direct raw HTML', '<img src=https://evil.example/t>'],
+      ['code-formatted raw HTML', '`<img src=https://evil.example/t>`'],
+    ])('keeps %s literal after building the heading', (_label, input) => {
+      expect(buildQuestionHeader(input)).toBe('## &#60;img src=https://evil.example/t&#62;');
+    });
+
+    it('keeps the 60-character visible limit when angle-bracket escapes add source characters', () => {
+      const input = `${'a'.repeat(57)}<b>`;
+      const result = buildQuestionHeader(input);
+
+      expect(result).toBe(`## ${'a'.repeat(57)}&#60;b&#62;`);
+      expect(result.slice(3).replace(/&#60;/g, '<').replace(/&#62;/g, '>')).toHaveLength(60);
+    });
+
+    it.each([
+      ['odd backslash', '\\<img src=x>'],
+      ['even backslashes', '\\\\<img src=x>'],
+      ['characters synthesized by stripping', '<i_mg src=x>'],
+    ])('keeps %s from forming raw HTML', (_label, input) => {
+      const result = buildQuestionHeader(input);
+      expect(result).not.toMatch(/[<>]/);
+      expect(result).toContain('&#60;img src=x&#62;');
+      expect(result).not.toContain('\\&#60;');
+    });
   });
 });
 

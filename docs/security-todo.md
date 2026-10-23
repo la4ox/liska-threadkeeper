@@ -73,13 +73,24 @@ manifest evidence and creates no canonical companion. Current-head CI and Code
 Review were clean; the unavailable Security Review was deliberately deferred.
 
 The page-prototype occurrence `commit:0fb1786e6cf08191a25da26b5593adfc`
-is being repaired on `codex/security-typedarray-prototypes`. The candidate
+remains open for later Cloud reconciliation, but its source fix merged through
+PR 27 as `cf733f1`. The implementation
 captures native TypedArray buffer/length getters at document start, removes
 species-sensitive `subarray` and `ArrayBuffer.slice`, copies digest input through
 captured internal-slot operations, Base64-encodes indexed bytes directly, and
 returns byte views across async boundaries only inside a null-prototype envelope.
 Late getters, constructor/species hooks, and `Uint8Array.prototype.then` no
-longer observe or mutate closure-owned response bytes.
+longer observe or mutate closure-owned response bytes. Current-head CI and Code
+Review were clean; Security Review completed clean on the pre-batching security
+head, and the reviewed batching-only follow-up had no unresolved finding.
+
+The question-heading occurrence `commit:3a431a24ce6c81919819b0c524645220`
+is being repaired on `codex/security-question-headers`. The shared heading
+serializer now runs only after whitespace normalization, Markdown-character
+stripping, and visible-length truncation, then converts backslashes and ASCII
+angle brackets to numeric entities. Direct tags, code-wrapped tags,
+stripping-synthesized tags, and odd/even backslash runs therefore remain literal
+heading text without altering the established 60-character visible limit.
 
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
@@ -111,6 +122,14 @@ multi-million-node rope for a 16 MiB inline payload; encoding now flushes bounde
 4,096-triplet blocks. A live browser MAIN-world capture was not repeated for
 this slice.
 
+Question-heading slice validation: all 166 test files / 5,075 tests pass in six
+memory-bounded batches; the focused formatter/Markdown/append/count matrix
+passes 4 files / 279 tests. Independent review found no P0-P3 issue and ran a
+separate four-file / 301-test pass plus 78 parser probes without an HTML node.
+Production build and source/platform lint pass with only the same three
+pre-existing warnings. Actual Obsidian rendering was not repeated; the reviewer
+used the installed Markdown parser.
+
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR
 GitHub Security Review does not block an intermediate merge when current-head
 CI, current-head Code Review, focused/full tests, and one independent local
@@ -123,12 +142,13 @@ Cloud Security repository scan and reconcile its full-repository findings.
 Review the remaining Security Cloud findings against the current pull-request
 head, preserving one verdict per finding:
 
-1. Markdown/frontmatter boundaries: YAML quoting, headings, math attributes,
-   tool metadata, citation URLs/titles, and raw DeepSeek Markdown.
+1. Markdown/frontmatter boundaries: YAML quoting, math attributes, tool
+   metadata, citation URLs/titles, and raw DeepSeek Markdown; publish and
+   reconcile the current question-heading fix.
 2. Resource bounds: branch fan-out, image response buffering/timeouts, and
    frontmatter parsing; reconcile the merged Canmore fix.
-3. Capture integrity: publish and reconcile the current TypedArray primordial
-   fix, then retain its late-prototype regressions.
+3. Capture integrity: reconcile the merged TypedArray primordial fix and retain
+   its late-prototype regressions.
 4. Storage and Obsidian boundaries: stale append paths, remaining credential
    disclosure paths, and response-body error handling.
 5. Supply-chain and repository hygiene: mutable CI actions and live fixture

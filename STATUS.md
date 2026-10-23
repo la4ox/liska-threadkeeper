@@ -990,7 +990,7 @@ the complete repository and reconcile its findings.
 
 ## Local TypedArray capture-integrity checkpoint
 
-Branch `codex/security-typedarray-prototypes` addresses Security Cloud occurrence
+Security Cloud occurrence
 `commit:0fb1786e6cf08191a25da26b5593adfc`. The document-start hook previously
 captured TypedArray methods but later read configurable inherited accessors and
 used species-sensitive `Uint8Array.subarray` / `ArrayBuffer.slice`. Page code
@@ -1014,6 +1014,34 @@ source/platform lint with only the same three pre-existing warnings. Independent
 review found the additional async-then path; it is fixed and covered. The first
 GitHub Code Review then found that direct Base64 concatenation could create one
 multi-million-node rope; encoding now flushes bounded 4,096-triplet blocks. A
-live browser MAIN-world smoke was not repeated for this slice. Next: publish the
-review fix and require fresh current-head CI plus Code Review; retain the planned
-final full-repository Cloud scan.
+live browser MAIN-world smoke was not repeated for this slice. The source fix
+merged through PR 27 as `cf733f1`; reviewed head `51183a7` is an ancestor of
+fetched `origin/main`. Fresh current-head CI and Code Review were clean; Security
+Review was clean on the pre-batching security head, with the batching-only review
+thread fixed and resolved. Retain the planned final full-repository Cloud scan.
+
+## Local question-heading security checkpoint
+
+Branch `codex/security-question-headers` addresses Security Cloud occurrence
+`commit:3a431a24ce6c81919819b0c524645220`. Optional question headers are built
+from raw user/provider content. The previous cleanup deleted backticks and
+underscores before emitting the label directly, so code-formatted HTML or even
+`<i_mg>` could become an active `<img>` heading.
+
+The candidate keeps whitespace normalization, Markdown-character stripping,
+word-boundary truncation, and the 60-visible-character contract unchanged. Only
+after that decision, the shared heading serializer converts backslashes and
+ASCII angle brackets to numeric entities. Entity parsing yields text without a
+second HTML parse, and encoding the backslashes removes odd/even escape-parity
+ambiguity. The same line feeds callout, blockquote, and plain formats; disabled
+headers and assistant messages remain untouched.
+
+Evidence: all 166 test files / 5,075 tests pass in six memory-bounded batches;
+the focused formatter/Markdown/append/count matrix passes 4 files / 279 tests.
+Independent review found no P0-P3 issue and ran a separate 301-test pass plus 78
+parser probes without an HTML node. Production build and source/platform lint
+pass with only the same three pre-existing warnings. Actual Obsidian rendering
+was not repeated; the reviewer used the installed Markdown parser. Existing
+UTF-16 truncation can still split an emoji surrogate pair; that predates and is
+not changed by this slice. Next: commit, publish, and current-head CI/Code
+Review.

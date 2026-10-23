@@ -28,6 +28,14 @@ export function stripMarkdownChars(text: string): string {
   return text.replace(/[`*_~[\]$]/g, '');
 }
 
+function questionHeaderLine(label: string): string {
+  const literal = label.replace(/[\\<>]/g, character => {
+    if (character === '\\') return '&#92;';
+    return character === '<' ? '&#60;' : '&#62;';
+  });
+  return `## ${literal}`;
+}
+
 /**
  * Build a `## ` header line from a user message for TOC navigation (issue #187).
  *
@@ -46,7 +54,7 @@ export function buildQuestionHeader(content: string): string {
   if (!cleaned) return '';
 
   if (cleaned.length <= QUESTION_HEADER_MAX_LENGTH) {
-    return `## ${cleaned}`;
+    return questionHeaderLine(cleaned);
   }
 
   // Reserve one character for the ellipsis so total visible length stays within budget.
@@ -54,7 +62,7 @@ export function buildQuestionHeader(content: string): string {
   const slice = cleaned.substring(0, sliceEnd);
   const lastSpace = slice.lastIndexOf(' ');
   const truncated = lastSpace > sliceEnd / 2 ? slice.substring(0, lastSpace) : slice;
-  return `## ${truncated}…`;
+  return questionHeaderLine(`${truncated}…`);
 }
 
 /**
