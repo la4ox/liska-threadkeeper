@@ -1024,3 +1024,30 @@ is 95.34% statements, 91.41% branches, 98.68% functions, and 97.79% lines.
 TypeScript/build, source/platform lint, formatting, and diff checks pass; lint
 retains only the same three pre-existing advisory warnings. No live-provider
 claim is attached to this wiring checkpoint.
+
+Typed, honest DOM-scroll stop diagnostics are implemented on
+`codex/scroll-stop-reasons` without changing user settings or the shipped
+limits. Both engines now distinguish `stable`, `skipped`, `idle-timeout`, and
+`max-timeout`; stability is explicitly an observation rather than a provider
+completeness claim. When a delayed iteration crosses both limits, the first
+absolute expiry wins, so the five-minute safety cap is never mislabeled as an
+idle stall.
+
+The virtualized engine's bottom seed and every awaited iteration now count
+toward the same absolute pass cap, and both engines recheck the deadline after
+waits before declaring stability. Existing merge order, last-write freshness,
+Gemini edge rearm, and virtualized movement-or-new-key progress semantics remain
+unchanged. Only typed idle/max outcomes set the runtime truncation flag; stable,
+skipped, disabled, unconfigured, and missing-container paths remain unmarked.
+One shared content-free logger reports only the allowlisted reason and bounded
+numeric diagnostics, while one shared warning distinguishes stalled loading
+from the 300-second cap and tells the user to load earlier messages and retry.
+
+Independent review found no residual P0-P3 issue. Exact-tree validation passes
+172 test files / 5,256 tests; coverage is 95.34% statements, 91.41% branches,
+98.69% functions, and 97.79% lines. Focused independent validation passes 325
+tests. TypeScript, formatting, and diff checks pass; owned scroll code has zero
+lint warnings after refactoring, and full build/lint pass with only the two
+unrelated pre-existing advisory warnings. No live hidden-tab/throttling claim
+is made; production callers still use the frozen 15-second idle and 300-second
+maximum defaults, and user configurability remains a separate follow-up.

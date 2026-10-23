@@ -83,8 +83,17 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
 
 ### 4. Later bounded product slices
 
-- Configurable scroll deadlines plus honest stop reasons, adapted to Liska's
-  existing scroll engines and all seven providers.
+- Typed scroll stop reasons are implemented on `codex/scroll-stop-reasons` for
+  both existing engines. Idle stalls and the five-minute safety cap now produce
+  different content-free logs and warnings; only those typed deadlines mark a
+  capture truncated. Bottom seeding and delayed iterations share the absolute
+  cap. Exact-tree validation passes 172 files / 5,256 tests and independent
+  review is clean; no live hidden-tab claim is made.
+- Configurable deadlines remain the next separate settings slice. Preserve
+  Liska's shipped 15-second idle and hard 300-second ceiling: proposed popup
+  bounds are idle 5–300 seconds and maximum 30–300 seconds. Normalize old saved
+  settings without migration, include both fields in guarded routing snapshots,
+  and keep ChatGPT/DeepSeek structured-first `extract()` overrides intact.
 - Configurable frontmatter tag templates, including exact settings transport and
   routing-snapshot serialization.
 - Pure writer/reader seam and tracked-source control-byte tests where they add
