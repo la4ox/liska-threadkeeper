@@ -7,6 +7,12 @@
 
 import TurndownService from 'turndown';
 import { MAX_LANG_HINT_LENGTH, MAX_MATH_LENGTH } from '../lib/constants';
+import {
+  FOOTNOTE_DEF_ATTR,
+  FOOTNOTE_REF_ATTR,
+  trustedFootnoteDefinition,
+  trustedFootnoteLabel,
+} from '../lib/footnote-contract';
 import { markdownBlockquotePrefix } from '../archive/markdown-syntax';
 import { markdownCodeFence } from './markdown-code';
 
@@ -344,11 +350,11 @@ turndown.addRule('g2oImage', {
 // Converts <span data-footnote-ref="N">REF</span> to [^N]
 turndown.addRule('footnoteRef', {
   filter: node => {
-    return node.nodeName === 'SPAN' && (node as HTMLElement).hasAttribute('data-footnote-ref');
+    return node.nodeName === 'SPAN' && trustedFootnoteLabel(node as Element) !== null;
   },
   replacement: (_content, node) => {
-    const index = (node as HTMLElement).getAttribute('data-footnote-ref');
-    return `[^${index}]`;
+    const label = trustedFootnoteLabel(node as Element);
+    return label ? `[^${label}]` : '';
   },
 });
 
@@ -358,11 +364,31 @@ turndown.addRule('footnoteRef', {
 // `[^label]:` syntax survives intact.
 turndown.addRule('footnoteDef', {
   filter: node => {
-    return node.nodeName === 'P' && (node as HTMLElement).hasAttribute('data-footnote-def');
+    return node.nodeName === 'P' && trustedFootnoteDefinition(node as Element) !== null;
   },
   replacement: (_content, node) => {
-    const text = (node.textContent ?? '').trim();
+    const text = trustedFootnoteDefinition(node as Element);
     return text ? `\n\n${text}` : '';
+  },
+});
+
+// Provider DOM may carry attributes that resemble the extension's internal
+// footnote placeholders. Without the per-run provenance token, serialize the
+// visible text literally instead of invoking footnote grammar.
+turndown.addRule('untrustedFootnoteMarker', {
+  filter: node => {
+    const element = node as Element;
+    const hasMarker =
+      element.hasAttribute?.(FOOTNOTE_REF_ATTR) || element.hasAttribute?.(FOOTNOTE_DEF_ATTR);
+    return (
+      Boolean(hasMarker) &&
+      trustedFootnoteLabel(element) === null &&
+      trustedFootnoteDefinition(element) === null
+    );
+  },
+  replacement: (_content, node) => {
+    const literal = asciiPunctuationEntities((node.textContent ?? '').replace(/\s+/g, ' ').trim());
+    return literal && node.nodeName === 'P' ? `\n\n${literal}\n\n` : literal;
   },
 });
 
@@ -472,7 +498,13 @@ function encodeTableTextAroundStructuredNodes(root: Element): void {
       }
       if (child.nodeType !== Node.ELEMENT_NODE) return;
       const element = child as Element;
-      if (element.matches('[data-math], [data-footnote-ref]')) return;
+      if (
+        element.hasAttribute('data-math') ||
+        element.hasAttribute(FOOTNOTE_REF_ATTR) ||
+        element.hasAttribute(FOOTNOTE_DEF_ATTR)
+      ) {
+        return;
+      }
       visit(element);
     });
   };
@@ -480,7 +512,14 @@ function encodeTableTextAroundStructuredNodes(root: Element): void {
 }
 
 function tableCellText(cell: Element): string {
-  if (!cell.querySelector('[data-footnote-ref], [data-math]')) {
+  const footnoteSelector = `[${FOOTNOTE_REF_ATTR}], [${FOOTNOTE_DEF_ATTR}]`;
+  const rootHasFootnoteMarker =
+    cell.hasAttribute(FOOTNOTE_REF_ATTR) || cell.hasAttribute(FOOTNOTE_DEF_ATTR);
+  if (rootHasFootnoteMarker) {
+    return asciiPunctuationEntities(cell.textContent?.trim() || '');
+  }
+  const hasFootnoteMarker = cell.querySelector(footnoteSelector) !== null;
+  if (!hasFootnoteMarker && !cell.querySelector('[data-math]')) {
     return cell.textContent?.trim() || '';
   }
   const clone = cell.cloneNode(true) as Element;
@@ -491,9 +530,11 @@ function tableCellText(cell: Element): string {
     const latex = math.getAttribute('data-math');
     if (latex) math.replaceWith(mathLiteral(latex, false));
   });
-  clone.querySelectorAll('[data-footnote-ref]').forEach(ref => {
-    const label = ref.getAttribute('data-footnote-ref');
-    ref.replaceWith(label ? `[^${label}]` : '');
+  clone.querySelectorAll(footnoteSelector).forEach(ref => {
+    const label = trustedFootnoteLabel(ref);
+    ref.replaceWith(
+      label ? `[^${label}]` : asciiPunctuationEntities(ref.textContent?.trim() || '')
+    );
   });
   return clone.textContent?.trim() || '';
 }

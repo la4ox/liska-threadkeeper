@@ -9,7 +9,15 @@
  * footnote syntax by the Turndown rules in markdown-rules.ts.
  */
 
-export const FOOTNOTE_REF_ATTR = 'data-footnote-ref';
+import { isHttpUrl } from '../../lib/validation';
+import {
+  FOOTNOTE_DEF_ATTR,
+  FOOTNOTE_PROVENANCE_TOKEN,
+  FOOTNOTE_REF_ATTR,
+  FOOTNOTE_TOKEN_ATTR,
+  isValidFootnoteLabel,
+  markTrustedFootnote,
+} from '../../lib/footnote-contract';
 
 export interface CitationTransformResult {
   /** HTML with citation elements replaced by footnote-ref placeholder spans. */
@@ -91,9 +99,17 @@ export function escapeMarkdownLink(text: string): string {
  */
 export function createFootnoteRef(doc: Document, label: string): HTMLSpanElement {
   const placeholder = doc.createElement('span');
+  if (!isValidFootnoteLabel(label)) return placeholder;
   placeholder.setAttribute(FOOTNOTE_REF_ATTR, label);
+  markTrustedFootnote(placeholder);
   placeholder.textContent = 'REF';
   return placeholder;
+}
+
+/** HTML form for regex-based Deep Research citation replacement. */
+export function footnoteRefToHtml(label: string): string {
+  if (!isValidFootnoteLabel(label)) return '';
+  return `<span ${FOOTNOTE_REF_ATTR}="${label}" ${FOOTNOTE_TOKEN_ATTR}="${FOOTNOTE_PROVENANCE_TOKEN}">REF</span>`;
 }
 
 /**
@@ -101,5 +117,21 @@ export function createFootnoteRef(doc: Document, label: string): HTMLSpanElement
  * footnoteDef Turndown rule emits them as literal `[^label]: title` lines.
  */
 export function footnoteDefsToHtml(footnotes: string[]): string {
-  return footnotes.map(line => `<p data-footnote-def="">${escapeHtml(line)}</p>`).join('');
+  return footnotes
+    .filter(line => {
+      const match = /^\[\^([^\]]+)\]:(?:\s|$)/.exec(line);
+      return match !== null && isValidFootnoteLabel(match[1]);
+    })
+    .map(
+      line =>
+        `<p ${FOOTNOTE_DEF_ATTR}="" ${FOOTNOTE_TOKEN_ATTR}="${FOOTNOTE_PROVENANCE_TOKEN}">${escapeHtml(line)}</p>`
+    )
+    .join('');
+}
+
+/** Canonical HTTP(S) URL serialized as one Markdown link destination. */
+export function toMarkdownSafeHttpUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!isHttpUrl(trimmed)) return '';
+  return new URL(trimmed).href.replace(/\\/g, '%5C').replace(/\(/g, '%28').replace(/\)/g, '%29');
 }

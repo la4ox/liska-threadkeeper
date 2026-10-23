@@ -15,8 +15,11 @@
 
 import { htmlToMarkdown } from './markdown-rules';
 import { buildSourceMap } from '../lib/source-map';
-import { isHttpUrl } from '../lib/validation';
-import { escapeMarkdownLink } from './extractors/footnotes';
+import {
+  escapeMarkdownLink,
+  footnoteRefToHtml,
+  toMarkdownSafeHttpUrl,
+} from './extractors/footnotes';
 import type { DeepResearchLinks, DeepResearchSource } from '../lib/types';
 
 /**
@@ -31,18 +34,6 @@ const STANDALONE_CITATION_PATTERN =
   /<sup[^>]*?data-turn-source-index="(\d+)"[^>]*?>[\s\S]*?<\/sup>/gi;
 
 /**
- * Sanitize URL for use in footnote links.
- *
- * Allowlist (http/https via isHttpUrl) rather than a scheme denylist:
- * denylists miss unlisted schemes (file:, mailto:, about:, ...) and are
- * bypassable with whitespace or casing tricks.
- */
-function sanitizeUrl(url: string): string {
-  const trimmed = url.trim();
-  return isHttpUrl(trimmed) ? trimmed : '';
-}
-
-/**
  * Create a citation replacer callback for use with String.replace()
  * Shared logic for both wrapped and standalone citation patterns.
  */
@@ -55,7 +46,7 @@ function createCitationReplacer(
     if (source) {
       // Return placeholder span with content (Turndown filters empty elements)
       // The custom Turndown rule will convert this to [^N]
-      return `<span data-footnote-ref="${index}">REF</span>`;
+      return footnoteRefToHtml(String(index));
     }
     // Source not found: log warning and remove marker silently
     console.warn(`[G2O] Citation reference ${index} not found in source map`);
@@ -116,7 +107,7 @@ function generateReferencesSection(sources: DeepResearchSource[]): string {
   sources.forEach((source, arrayIndex) => {
     // data-turn-source-index is 1-based
     const footnoteIndex = arrayIndex + 1;
-    const safeUrl = sanitizeUrl(source.url);
+    const safeUrl = toMarkdownSafeHttpUrl(source.url);
 
     if (safeUrl) {
       // [^N]: [Title](URL)

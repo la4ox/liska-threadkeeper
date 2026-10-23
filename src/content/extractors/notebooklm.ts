@@ -52,13 +52,11 @@ function parseCitation(button: Element): { number: string; title: string } | nul
     const [, number, title] = match;
     return { number, title };
   }
-  if (ariaLabel.length > 0 && visible.length > 0) {
+  if (!/^\d+$/.test(visible)) return null;
+  if (ariaLabel.length > 0) {
     return { number: visible, title: ariaLabel };
   }
-  if (visible.length > 0) {
-    return { number: visible, title: visible };
-  }
-  return null;
+  return { number: visible, title: visible };
 }
 
 function isMoreCitationsButton(button: Element): boolean {

@@ -108,7 +108,7 @@ disabled tool-content setting cannot leak those headers through ordinary
 assistant content.
 
 The append-boundary occurrence `commit:65c64c5574f08191871348273e586bf6`
-is being repaired on `codex/security-append-boundaries`. New ordinary
+is fixed through PR 30 as `7ff531f` and closed in Security Cloud. New ordinary
 conversation bodies carry one exact format sentinel and one exact sentinel per
 complete message group. Provider/tool content reserves those spellings, while
 image stripping/resolution preserves only existing service lines and
@@ -118,6 +118,16 @@ notes recover from a valid extension-generated `message_count`; an unmarked
 count-less note fails explicitly without overwrite rather than guessing or
 reporting a false no-op. ADR-033 records the compatibility and migration
 contract.
+
+The citation-title occurrence `commit:cb0e9bb83f88819181f8a884fdf468a9`
+and Research-URL occurrence `commit:1972e53d5bbc81918ded9e6b8bd3b4d7`
+are being repaired together on `codex/security-citation-boundaries`. Citation
+placeholders now require a per-isolated-world capability plus strict generated
+label grammar in normal and table consumers; marker-like provider DOM remains
+visible but literal. NotebookLM fallback labels must be numeric. One shared
+HTTP(S) serializer canonicalizes source URLs and percent-encodes Markdown
+destination backslashes/parentheses without double encoding. ADR-034 records
+the provenance, compatibility, and URL contract.
 
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
@@ -178,6 +188,18 @@ plus 26 probes; no P0-P3 remains. Production build, formatting, diff checks, and
 source/platform lint pass with only the same three pre-existing warnings. A
 live browser/Obsidian append was not repeated.
 
+Citation-boundary slice validation: all 168 test files / 5,112 tests pass in
+six memory-bounded batches. Focused coverage includes forged refs/definitions,
+guessed and cross-realm tokens, ordinary/table consumers, malformed NotebookLM
+labels, Gemini/Claude Research destinations, Perplexity compatibility, unsafe
+scheme fallback, existing percent escapes, and literal backslashes in URL
+query/fragment text. Independent review passed 284 citation tests plus 37
+targeted Research checks and a final 176-test rerun; CommonMark probes produced
+one link and zero injected images, with no P0-P3 remaining. Production build,
+formatting, diff checks, and source/platform lint pass with only the same three
+pre-existing warnings. Live provider sharing and Obsidian rendering were not
+repeated.
+
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR
 GitHub Security Review does not block an intermediate merge when current-head
 CI, current-head Code Review, focused/full tests, and one independent local
@@ -192,8 +214,9 @@ head, preserving one verdict per finding:
 
 1. Markdown/frontmatter boundaries: YAML quoting, math attributes, tool
    metadata, citation URLs/titles, and raw DeepSeek Markdown; publish the
-   current append-boundary fix and continue the remaining citation/DeepSeek
-   items. Question-heading and tool-content occurrences are reconciled closed.
+   current citation-boundary fix and continue the remaining DeepSeek items.
+   Question-heading, tool-content, and append-boundary occurrences are
+   reconciled closed.
 2. Resource bounds: branch fan-out, image response buffering/timeouts, and
    frontmatter parsing; reconcile the merged Canmore fix.
 3. Capture integrity: reconcile the merged TypedArray primordial fix and retain

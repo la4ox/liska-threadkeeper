@@ -5,6 +5,7 @@
  */
 
 import DOMPurify from 'dompurify';
+import { FOOTNOTE_DEF_ATTR, FOOTNOTE_REF_ATTR, FOOTNOTE_TOKEN_ATTR } from './footnote-contract';
 
 /**
  * Extract LaTeX source from a standard KaTeX element's annotation.
@@ -108,6 +109,7 @@ function preprocessKatexToNode(html: string): string | HTMLElement {
  * - data-math (KaTeX math expressions — Gemini native or standard KaTeX via preprocessKatex)
  * - data-footnote-ref (NotebookLM citation placeholder spans → Turndown rule)
  * - data-footnote-def (NotebookLM footnote definition paragraphs → Turndown rule)
+ * - data-liska-footnote-token (per-run provenance for extension-created placeholders)
  * - data-g2o-image (image placeholder marker on <img> → Turndown rule)
  * while blocking all other data-* attributes.
  *
@@ -125,8 +127,9 @@ export function sanitizeHtml(html: string): string {
     if (
       data.attrName === 'data-turn-source-index' ||
       data.attrName === 'data-math' ||
-      data.attrName === 'data-footnote-ref' ||
-      data.attrName === 'data-footnote-def' ||
+      data.attrName === FOOTNOTE_REF_ATTR ||
+      data.attrName === FOOTNOTE_DEF_ATTR ||
+      data.attrName === FOOTNOTE_TOKEN_ATTR ||
       data.attrName === 'data-g2o-image'
     ) {
       data.forceKeepAttr = true;
