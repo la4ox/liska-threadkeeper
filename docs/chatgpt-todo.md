@@ -82,6 +82,9 @@ terminal states, and the existing no-credential-export boundary.
   an occupied path. Synthetic regressions cover identical display intent with
   distinct content paths, destination divergence, repeated capture writes, and
   equal bytes retained under distinct allowed MIME-derived targets.
+- Ordinary append lookup also excludes every same-conversation note carrying a
+  top-level archive-capture, manifest-hash, or presentation-mode marker. A later
+  mutable export therefore cannot append to or overwrite an immutable snapshot.
 - Canonical research evidence remains typed rather than flattened. The live
   sample retained citations, reasoning, code, execution output, tool roles and
   attachment blocks; projection regressions account explicitly for citation
@@ -174,9 +177,10 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Checkpoint the independently reviewed destination-receipt/current-branch
-research-output slice in its own pull request. Then run the real wide-branch
-stress checkpoint with aggregate work/write ceilings and cancellation evidence.
+Land the independently reviewed destination-receipt/current-branch slice from
+pull request 16, then retarget and merge the already green stacked wide-branch,
+all-branch-receipt, and physical-budget checkpoints in order. Continue with the
+separate sandbox-link localization slice after the stack is linear again.
 Keep all-branches receipt decoration and inline `sandbox:` replacement as
 separate presentation work; keep custom-GPT/project binaries and the sole
 archived Library WebP separately evidence-gated.

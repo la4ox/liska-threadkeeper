@@ -576,19 +576,32 @@ canonical filename fails the destination instead of issuing a misleading
 receipt. Provenance warnings are likewise emitted only after that destination's
 Markdown write succeeds.
 
-Final validation passes 157 test files / 4,585 tests. Coverage is 95.25%
-statements, 91.13% branches, 98.53% functions, and 97.70% lines. TypeScript,
+The focused Codex Security diff scan of `f4c04d5..d45c911` completed with all
+ten changed source files covered and no validated security finding. It did
+reproduce one same-user correctness defect in the append-only contract: a
+later ordinary `title-date` append could select an existing same-conversation
+receipt-bound snapshot. Existing-note lookup and collision reuse now exclude
+top-level `archive_capture_id`, `archive_manifest_sha256`, and
+`presentation_mode` markers, including simply quoted YAML keys. Nested mappings
+and block-scalar text remain ordinary note content rather than false immutable
+markers. The snapshot is therefore neither appended to nor overwritten; the
+ordinary export selects a fresh collision-free path. A final independent review
+found no residual P0-P3 issue in this repair.
+
+Final validation passes 157 test files / 4,602 tests. Coverage is 95.26%
+statements, 91.15% branches, 98.53% functions, and 97.70% lines. TypeScript,
 production build, source/platform lint, repository formatting, ZIP packaging,
 and independent review pass; lint retains only the same three pre-existing
 advisory warnings. The ZIP contains 29 of 29 files byte-identical to `dist`, is
-231,422 bytes, and has SHA-256
-`f25080374ac2b6012d62dbe9c49c4be9fcd795baa0bcc18969f3526f1f729494`.
+231,480 bytes, and has SHA-256
+`92ef88ae6fab2b6969278956810ef4e08c08c23cd4b8504fef5aadad58ee24c7`.
 The installed Comet tree matches that production build exactly; its 29-file
 pre-live rollback is retained at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-rollbacks\deep-research-prelive-20261023-074014-d2aba19b`.
 
-Next: checkpoint this destination-receipt/current-branch research-output slice
-in its own pull request, then run the real wide-branch stress checkpoint.
+Next: update pull request 16 with the immutable-snapshot repair, require clean
+current-head CI/reviews, and merge it before retargeting the already green
+stacked wide-branch, all-branch-receipt, and physical-budget checkpoints.
 All-branches receipt decoration, identity-safe replacement of provider
 `sandbox:` links, and a live multi-output same-title sample remain explicit
 presentation follow-ups rather than reasons to widen attachment authority.
