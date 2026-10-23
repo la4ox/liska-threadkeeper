@@ -46,6 +46,7 @@ import { applyInterpreterResolverDetails } from './capture/chatgpt-interpreter-r
 import { sha256Hex } from './capture/response';
 import { persistVerifiedBinaryAssets } from './staged-binary-persistence';
 import { ARCHIVE_COMPANION_RELATIVE_PATHS } from '../lib/types';
+import { allowsChatGptAttachmentAcquisition } from '../lib/chatgpt-owner-context';
 import type {
   ArchiveCompanionBundle,
   ArchiveCompanionKind,
@@ -69,6 +70,8 @@ export const CHATGPT_ASSET_FETCH_FAILURE_WARNING =
   'One or more ChatGPT attachments could not be fetched; the archive manifest records the failures.';
 export const CHATGPT_ASSET_UNRESOLVED_WARNING =
   'Some ChatGPT attachments were not resolved during this export attempt; the archive manifest records them as not attempted.';
+export const CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING =
+  'ChatGPT attachment acquisition was skipped because the original raw capture has an unsupported or ambiguous owner context; attachment records remain not attempted.';
 
 export interface ArchiveCompanionPersistenceOutcome {
   activeOutputs: PersistentOutputDestination[];
@@ -152,22 +155,22 @@ interface ActiveImageAttempt {
  * for persistence. This runs before the first raw write, so a stale or mixed
  * capture cannot create a durable partial archive.
  */
-export async function validateChatGptAssetExportBinding(
+async function verifiedBoundRawBytes(
   context: ChatGptAssetExportContext,
   companion: ArchiveCompanionBundle
-): Promise<boolean> {
+): Promise<Uint8Array | undefined> {
   try {
     const originalRaw = await verifyChatGptAssetExportContext(context);
     const expectedConversationKey = await sha256Hex(
       new TextEncoder().encode(context.conversationId)
     );
     const rawArtifacts = companion.artifacts.filter(artifact => artifact.kind === 'raw');
-    if (companion.captureId !== context.rawCaptureBundle.manifest.captureId) return false;
-    if (companion.conversationKey !== expectedConversationKey) return false;
-    if (rawArtifacts.length !== 1) return false;
+    if (companion.captureId !== context.rawCaptureBundle.manifest.captureId) return undefined;
+    if (companion.conversationKey !== expectedConversationKey) return undefined;
+    if (rawArtifacts.length !== 1) return undefined;
     const raw = rawArtifacts[0];
     const contextRaw = context.rawArtifact;
-    return (
+    const matches =
       raw.relativePath === ARCHIVE_COMPANION_RELATIVE_PATHS.raw &&
       raw.relativePath === originalRaw.record.relativePath &&
       raw.mediaType === originalRaw.record.mediaType &&
@@ -176,7 +179,24 @@ export async function validateChatGptAssetExportBinding(
       raw.transport === contextRaw.transport &&
       (raw.transport === 'inline'
         ? contextRaw.transport === 'inline' && raw.bodyBase64 === contextRaw.bodyBase64
-        : contextRaw.transport === 'staged' && raw.stageId === contextRaw.stageId)
+        : contextRaw.transport === 'staged' && raw.stageId === contextRaw.stageId);
+    return matches ? originalRaw.bytes : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function validateChatGptAssetExportBinding(
+  context: ChatGptAssetExportContext,
+  companion: ArchiveCompanionBundle
+): Promise<boolean> {
+  return (await verifiedBoundRawBytes(context, companion)) !== undefined;
+}
+
+function rawAllowsAttachmentAcquisition(bytes: Uint8Array): boolean {
+  try {
+    return allowsChatGptAttachmentAcquisition(
+      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
     );
   } catch {
     return false;
@@ -784,7 +804,8 @@ export async function persistChatGptDestinationHonestAttachments(
   if (requested.length === 0) {
     return { rawSuccessfulDestinations: [], completeDestinations: [], warnings: [] };
   }
-  if (!(await validateChatGptAssetExportBinding(context, companion))) {
+  const originalRawBytes = await verifiedBoundRawBytes(context, companion);
+  if (originalRawBytes === undefined) {
     return {
       rawSuccessfulDestinations: [],
       completeDestinations: [],
@@ -814,12 +835,16 @@ export async function persistChatGptDestinationHonestAttachments(
     return { rawSuccessfulDestinations, completeDestinations: [], warnings };
   }
 
-  const assetAttempt = await attemptAssets(
-    context,
-    companion,
-    rawSuccessfulDestinations,
-    dependencies
-  );
+  const assetAttempt: AssetAttempt = rawAllowsAttachmentAcquisition(originalRawBytes)
+    ? await attemptAssets(context, companion, rawSuccessfulDestinations, dependencies)
+    : {
+        acquired: {
+          records: context.rawCaptureBundle.manifest.assets.map(cloneRecord),
+          runtimeAssets: [],
+        },
+        binaryResults: [],
+        warnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
+      };
   const { acquired, binaryResults, activeResolverMetric } = assetAttempt;
   warnings.push(...assetAttempt.warnings);
 

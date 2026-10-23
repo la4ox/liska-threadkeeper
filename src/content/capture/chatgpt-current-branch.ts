@@ -40,6 +40,7 @@ import {
 import { MAX_CONTENT_SIZE } from '../../lib/constants';
 import { bytesToBase64 } from '../../lib/image-utils';
 import { canonicalBase64ByteLength } from '../../lib/base64';
+import { allowsChatGptAttachmentAcquisition } from '../../lib/chatgpt-owner-context';
 import {
   ARCHIVE_COMPANION_RELATIVE_PATHS,
   type ArchiveCompanionArtifact,
@@ -454,6 +455,7 @@ async function captureTransientAssetCandidates(
   transientAssetResolvers: readonly ChatGptTransientAssetResolver[],
   matchPageOwnedAssetResolvers: typeof matchChatGptPageOwnedAssetResolvers
 ): Promise<ChatGptPageOwnedAssetCandidate[]> {
+  if (!allowsChatGptAttachmentAcquisition(raw)) return [];
   return matchPageOwnedAssetResolvers({
     raw,
     assets: manifest.assets,
@@ -709,6 +711,11 @@ export async function observeChatGptAssetResolvers(
     return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
   }
 
+  const raw = parseRawForInventory(original.bytes);
+  if (!allowsChatGptAttachmentAcquisition(raw)) {
+    return { kind: 'matched', candidates: [] };
+  }
+
   try {
     // Resolve strength/ambiguity against the full committed ledger first.
     // Removing an already-attempted winner must not promote its weaker alias.
@@ -723,7 +730,7 @@ export async function observeChatGptAssetResolvers(
         kind: 'matched',
         candidates: (
           await matchChatGptPageOwnedAssetResolvers({
-            raw: parseRawForInventory(original.bytes),
+            raw,
             assets,
             resolvers: response.data.transientAssetResolvers,
             sha256: sha256Hex,
@@ -751,7 +758,7 @@ export async function observeChatGptAssetResolvers(
         kind: 'matched',
         candidates: (
           await matchChatGptPageOwnedAssetResolvers({
-            raw: parseRawForInventory(original.bytes),
+            raw,
             assets,
             resolvers: recaptured.transientAssetResolvers,
             sha256: sha256Hex,
@@ -799,8 +806,12 @@ export async function observeChatGptActiveAssetResolvers(
   } catch {
     return { kind: 'recapture-failed', warning: CHATGPT_ASSET_RECAPTURE_FAILED_WARNING };
   }
+  const raw = parseRawForInventory(original.bytes);
+  if (!allowsChatGptAttachmentAcquisition(raw)) {
+    return { kind: 'matched', candidates: [] };
+  }
   const plan = extractChatGptActiveResolverPlan(
-    parseRawForInventory(original.bytes),
+    raw,
     eligibleAssetRecords(context, eligibleAssetIds).filter(
       asset => asset.mediaType === 'image/png' && asset.state === 'not-attempted'
     )

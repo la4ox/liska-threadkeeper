@@ -180,12 +180,12 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       'conversationTemplateId',
     ])('blocks unsupported root %s context, including malformed values', field => {
       const { raw, record } = libraryFixture();
-      for (const value of ['private-owner', {}, [], false, 0]) {
+      for (const value of ['private-owner', undefined, {}, [], false, 0]) {
         expect(
           extractChatGptLibraryJpegPlan({ ...raw, [field]: value }, [record], [record.id])
         ).toBeUndefined();
       }
-      for (const value of [undefined, null, '']) {
+      for (const value of [null, '']) {
         expect(
           extractChatGptLibraryJpegPlan({ ...raw, [field]: value }, [record], [record.id])
         ).toBeDefined();
@@ -569,6 +569,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
 
   it('keeps declined direct evidence in whole-ledger matching so a weaker eligible alias is not promoted', async () => {
     const raw = {
+      mapping: {},
       direct: { file_id: 'file_one' },
       alias: { asset_pointer: 'file-service://file_one' },
     };
@@ -596,6 +597,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
 
   it('keeps Library-ID evidence and its weaker pointer alias out of passive matching', async () => {
     const raw = {
+      mapping: {},
       direct: { file_id: 'file_one', library_file_id: 'library_one', source: 'local' },
       pointer: { asset_pointer: 'sediment://file_one' },
     };
@@ -619,6 +621,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
 
   it('blocks a Library pointer identity before an ordinary direct winner can promote it', () => {
     const raw = {
+      mapping: {},
       libraryPointer: {
         asset_pointer: 'file-service://file_one',
         library_file_id: 'library_one',
@@ -643,6 +646,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
 
   it('blocks passive aliases even when an ambiguous Library record is not itself matchable', async () => {
     const raw = {
+      mapping: {},
       library: {
         file_id: 'file_one',
         id: 'file_two',
@@ -734,6 +738,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
 
   it('does not promote a separate pointer alias past unsupported direct evidence', async () => {
     const raw = {
+      mapping: {},
       unsupported: {
         file_id: 'file/unsupported',
         asset_pointer: 'file-service://file_one',
@@ -769,6 +774,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     'blocks an active pointer alias when the stronger direct identity is active-incompatible',
     directId => {
       const raw = {
+        mapping: {},
         direct: {
           file_id: directId,
           asset_pointer: 'file-service://file_one',
@@ -805,14 +811,16 @@ describe('ChatGPT page-owned asset resolver matching', () => {
             if (route === 'passive')
               expect(
                 await matchChatGptPageOwnedAssetResolvers({
-                  raw: { candidate: record },
+                  raw: { mapping: {}, candidate: record },
                   assets,
                   resolvers: [observed],
                   sha256: digest,
                 })
               ).toEqual([]);
             else
-              expect(extractChatGptActiveResolverPlan({ candidate: record }, assets)).toEqual({
+              expect(
+                extractChatGptActiveResolverPlan({ mapping: {}, candidate: record }, assets)
+              ).toEqual({
                 providerFileIds: [],
               });
           }
@@ -824,7 +832,10 @@ describe('ChatGPT page-owned asset resolver matching', () => {
   it('preserves the wider passive grammar without relaxing the active metric grammar', async () => {
     for (const direct of ['file.with.dot', 'x'.repeat(512)]) {
       const assets = [asset('a', '/candidate')];
-      const raw = { candidate: { file_id: direct, asset_pointer: 'file-service://file_valid' } };
+      const raw = {
+        mapping: {},
+        candidate: { file_id: direct, asset_pointer: 'file-service://file_valid' },
+      };
       const observed = await resolver(direct, 'https://chatgpt.com/synthetic-signed');
       expect(
         await matchChatGptPageOwnedAssetResolvers({
@@ -852,7 +863,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     ])('admits only the exact ordinary PNG/JPEG media types (%s)', (mediaType, admitted) => {
       const record = { ...asset('a', '/direct'), mediaType };
       const plan = extractChatGptActiveImagePlan(
-        { direct: { file_id: 'file_one' } },
+        { mapping: {}, direct: { file_id: 'file_one' } },
         [record],
         [record.id]
       );
@@ -950,6 +961,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     );
     it('deduplicates equivalent pointers and chooses one deterministic opaque asset', () => {
       const raw = {
+        mapping: {},
         first: { file_id: 'file_one' },
         duplicate: { asset_pointer: 'file-service://file_one' },
         second: { file_id: 'file_two' },
@@ -964,6 +976,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     });
     it('gives a direct metadata identity precedence over pointer-only ledger records, not array order', () => {
       const raw = {
+        mapping: {},
         direct: { file_id: 'file_one', asset_pointer: 'file-service://ignored' },
         pointer: { asset_pointer: 'file-service://file_one' },
       };
@@ -981,6 +994,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       'keeps stronger ineligible %s evidence ahead of a weaker eligible JPEG pointer',
       mediaType => {
         const raw = {
+          mapping: {},
           direct: { file_id: 'file_one' },
           pointer: { asset_pointer: 'file-service://file_one' },
         };
@@ -1000,6 +1014,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       'keeps Library-ID %s out of the ordinary route without promoting its pointer alias',
       mediaType => {
         const raw = {
+          mapping: {},
           direct: { file_id: 'file_one', library_file_id: 'library_one', source: 'local' },
           pointer: { asset_pointer: 'sediment://file_one' },
         };
@@ -1019,7 +1034,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       const record = asset('a', '/direct');
       expect(
         extractChatGptActiveImagePlan(
-          { direct: { file_id: 'file_one', source: 'local' } },
+          { mapping: {}, direct: { file_id: 'file_one', source: 'local' } },
           [record],
           [record.id]
         )
@@ -1031,7 +1046,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
         const record = asset('a', '/direct');
         expect(
           extractChatGptActiveImagePlan(
-            { direct: { file_id: 'file_one', library_file_id: libraryFileId } },
+            { mapping: {}, direct: { file_id: 'file_one', library_file_id: libraryFileId } },
             [record],
             [record.id]
           )
@@ -1040,6 +1055,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     );
     it('skips multiple identities, cross-record ties, and duplicate opaque records', () => {
       const raw = {
+        mapping: {},
         one: { file_id: 'file_one' },
         two: { file_id: 'file_two' },
         ambiguous: { file_id: 'file_one', id: 'file_two' },
@@ -1063,6 +1079,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     });
     it('does not recover unsupported direct IDs through weaker transport pointers', () => {
       const raw = {
+        mapping: {},
         one: { file_id: 'file.unsupported', asset_pointer: 'file-service://file_valid' },
         two: { asset_pointer: 'file-service://file_valid' },
       };
@@ -1080,7 +1097,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
         if (mode === 'missing ref') record.sourceRefs[0].rawPointer = '/missing';
         expect(
           extractChatGptActiveImagePlan(
-            { one: { file_id: 'file_one' } },
+            { mapping: {}, one: { file_id: 'file_one' } },
             [record],
             mode === 'unlisted' ? [] : [record.id]
           )
@@ -1547,6 +1564,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
   it('uses the active 20-ID cap without leaking rejected malformed values', () => {
     const assets = Array.from({ length: 25 }, (_, index) => asset(`x${index}`, `/asset/${index}`));
     const raw = {
+      mapping: {},
       asset: Array.from({ length: 25 }, (_, index) => ({ file_id: `file_${index}` })),
     };
     const plan = extractChatGptActiveResolverPlan(raw, assets);
@@ -1560,6 +1578,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     expect(
       extractChatGptActiveResolverPlan(
         {
+          mapping: {},
           asset: [{ asset_pointer: 'sediment://pointer-one' }, { content_type: 'text' }],
         },
         [missing, pointer]
@@ -1747,7 +1766,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
 
     await expect(
       matchChatGptPageOwnedAssetResolvers({
-        raw: { asset: { file_id: 'direct-id' } },
+        raw: { mapping: {}, asset: { file_id: 'direct-id' } },
         assets: [direct],
         resolvers: [observed],
         sha256: () => Promise.reject(new Error('digest unavailable')),
@@ -1763,6 +1782,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     const other = await resolver('other-id', 'https://chatgpt.com/other');
     const ambiguous = await matchChatGptPageOwnedAssetResolvers({
       raw: {
+        mapping: {},
         first: { asset_pointer: 'file-service:shared-id' },
         duplicate: { asset_pointer: 'sediment://shared-id' },
       },
@@ -1772,6 +1792,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
     });
     const sorted = await matchChatGptPageOwnedAssetResolvers({
       raw: {
+        mapping: {},
         first: { file_id: 'shared-id' },
         second: { file_id: 'other-id' },
       },
