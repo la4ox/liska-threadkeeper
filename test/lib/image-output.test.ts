@@ -6,6 +6,11 @@ import {
   resolveImagesForObsidian,
 } from '../../src/lib/image-output';
 import type { ExtractedImage } from '../../src/lib/types';
+import {
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+} from '../../src/lib/message-counter';
+import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 
 const img = (id: string, mimeType = 'image/png'): ExtractedImage => ({
   id,
@@ -45,6 +50,25 @@ describe('stripImagePlaceholders', () => {
     const body = '$![x](g2o-image://missing$$)$';
     expect(stripImagePlaceholders(body)).toBe(body);
   });
+
+  it('preserves service markers but neutralizes one synthesized by placeholder removal', () => {
+    const body = [
+      MESSAGE_BOUNDARY_FORMAT_MARKER,
+      '',
+      MESSAGE_BOUNDARY_MARKER,
+      '> <!-- liska-message![x](g2o-image://missing):v1 -->',
+    ].join('\n');
+    const out = stripImagePlaceholders(body);
+
+    expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_FORMAT_MARKER)).toHaveLength(1);
+    expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(1);
+    expect(out).toContain('> <!-- liska-message&#58;v1 -->');
+    expect(
+      flattenLargeCallouts(out, 1)
+        .split('\n')
+        .filter(line => line === MESSAGE_BOUNDARY_MARKER)
+    ).toHaveLength(1);
+  });
 });
 
 describe('resolveImagesForObsidian', () => {
@@ -68,6 +92,17 @@ describe('resolveImagesForObsidian', () => {
     expect(out).not.toContain('g2o-image://');
     expect(files).toHaveLength(0);
   });
+
+  it('neutralizes a boundary synthesized while resolving a missing image', () => {
+    const body = [
+      MESSAGE_BOUNDARY_FORMAT_MARKER,
+      MESSAGE_BOUNDARY_MARKER,
+      '<!-- liska-message![x](g2o-image://missing):v1 -->',
+    ].join('\n');
+    const { body: out } = resolveImagesForObsidian(body, [], 'base');
+    expect(out).toContain('<!-- liska-message&#58;v1 -->');
+    expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(1);
+  });
 });
 
 describe('resolveImagesForFile', () => {
@@ -79,5 +114,16 @@ describe('resolveImagesForFile', () => {
     expect(files).toEqual([
       { fileName: 'note-base-img-1.png', mimeType: 'image/png', data: 'UE5H' },
     ]);
+  });
+
+  it('neutralizes a boundary synthesized while resolving a missing image', () => {
+    const body = [
+      MESSAGE_BOUNDARY_FORMAT_MARKER,
+      MESSAGE_BOUNDARY_MARKER,
+      '<!-- liska-message![x](g2o-image://missing):v1 -->',
+    ].join('\n');
+    const { body: out } = resolveImagesForFile(body, [], 'base');
+    expect(out).toContain('<!-- liska-message&#58;v1 -->');
+    expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(1);
   });
 });

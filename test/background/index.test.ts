@@ -10,6 +10,16 @@ import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
 import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
+import {
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+} from '../../src/lib/message-counter';
+
+function v1MessageBody(messages: readonly string[]): string {
+  return `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n${messages
+    .map(message => `${MESSAGE_BOUNDARY_MARKER}\n\n${message}`)
+    .join('\n\n')}`;
+}
 
 // Mock client instance - defined at module level
 const mockClient = {
@@ -2683,19 +2693,12 @@ describe('background/index', () => {
     const validSender = { url: `chrome-extension://${chrome.runtime.id}/popup.html` };
     const appendNote: ObsidianNote = {
       fileName: 'test-abc12345.md',
-      body: [
-        '> [!QUESTION] User',
-        '> Hello',
-        '',
-        '> [!NOTE] Claude',
-        '> Hi there!',
-        '',
-        '> [!QUESTION] User',
-        '> New question',
-        '',
-        '> [!NOTE] Claude',
-        '> New answer',
-      ].join('\n'),
+      body: v1MessageBody([
+        '> [!QUESTION] User\n> Hello',
+        '> [!NOTE] Claude\n> Hi there!',
+        '> [!QUESTION] User\n> New question',
+        '> [!NOTE] Claude\n> New answer',
+      ]),
       contentHash: 'abc123',
       frontmatter: {
         id: 'claude_abc-def',
@@ -2746,6 +2749,27 @@ describe('background/index', () => {
       const response = sendResponse.mock.calls[0][0];
       expect(response.allSuccessful).toBe(true);
       expect(response.messagesAppended).toBe(2);
+    });
+
+    it('refuses ambiguous legacy boundaries without overwriting the matched note', async () => {
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      mockClient.getFile.mockResolvedValueOnce(existingContent.replace('message_count: 2\n', ''));
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: appendNote },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.allSuccessful).toBe(false);
+      expect(response.results[0]).toMatchObject({
+        success: false,
+        error: 'append-message-boundaries-untrusted',
+      });
+      expect(mockClient.putFile).not.toHaveBeenCalled();
     });
 
     it('never appends to or overwrites an immutable same-id archive snapshot', async () => {
@@ -2938,7 +2962,11 @@ describe('background/index', () => {
       ];
       const note: ObsidianNote = {
         ...appendNote,
-        body: bodyLines.join('\n'),
+        body: v1MessageBody([
+          bodyLines.slice(0, 2).join('\n'),
+          bodyLines.slice(3, 12).join('\n'),
+          bodyLines.slice(13).join('\n'),
+        ]),
         frontmatter: { ...appendNote.frontmatter, message_count: 3 },
       };
       const onDisk = [

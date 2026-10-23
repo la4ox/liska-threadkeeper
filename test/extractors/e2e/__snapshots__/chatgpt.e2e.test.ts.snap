@@ -16,29 +16,49 @@ capture_mode: dom-fallback
 capture_completeness: partial
 ---
 
+<!-- liska-message-boundaries:v1 -->
+
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > ChatGPTのhtml構造をテストするための質問です。「はい」とだけ答えて。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] ChatGPT
 > はい
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > 次は「いいえ」だけ答えて
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] ChatGPT
 > いいえ
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > この Research 依頼はテスト用です。最小のリサーチ結果を提供してください。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] ChatGPT
 > 承知しました。テスト用とのことですが、どのようなテーマまたはキーワードについて最小限のリサーチ結果をご希望ですか？任意の話題で構いませんので、少しだけご指定いただけますか？
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > ChatGPT の提供する機能についてまとめてください。
 
+<!-- liska-message:v1 -->
+
 > [!NOTE] ChatGPT
 > 了解しました。ChatGPT が提供する主な機能について簡潔にまとめたリサーチを行います。完了次第ご報告いたしますので、その間もご自由にお話しください。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] ChatGPT
 > # ChatGPTの機能概要
@@ -98,8 +118,12 @@ capture_completeness: partial
 > 
 > **参考資料:** OpenAI公式ヘルプセンターおよびGPT-4リサーチレポート[help.openai.com](https://help.openai.com/en/articles/9260256-chatgpt-capabilities-overview#:~:text=,concepts)[openai.com](https://openai.com/index/gpt-4-research/#:~:text=In%20a%20casual%20conversation%2C%20the,5)[help.openai.com](https://help.openai.com/en/articles/9260256-chatgpt-capabilities-overview#:~:text=You%20can%20also%20ask%20ChatGPT,Learn%20more%20about%20image%20generation)[openai.com](https://openai.com/index/gpt-4-research/#:~:text=GPT%E2%80%914%20can%20accept%20a%20prompt,opens%20in%20a%20new%20window)。
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > 数式を表現できますか。できるならいくつか数式を表示して。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] ChatGPT
 > はい、数式を表現できます。いくつか例を示します。
@@ -154,8 +178,14 @@ capture_mode: dom-fallback
 capture_completeness: partial
 ---
 
+<!-- liska-message-boundaries:v1 -->
+
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > Write a function to check if a number is prime in TypeScript.
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] ChatGPT
 > Here's a TypeScript function to check if a number is prime:

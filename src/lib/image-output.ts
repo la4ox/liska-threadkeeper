@@ -10,6 +10,12 @@
 
 import { mimeToExtension } from './image-utils';
 import type { ExtractedImage } from './types';
+import {
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+  hasTrustedMessageBoundaries,
+  neutralizeMessageBoundaryMarkers,
+} from './message-counter';
 
 /** A resolved image ready to be written (vault) or downloaded (file). */
 export interface ResolvedImageFile {
@@ -42,6 +48,28 @@ function collapseBlankLines(body: string): string {
 }
 
 /**
+ * Run a line-local image rewrite without letting removed/replaced private
+ * placeholders compose into trusted append sentinels. Existing exact
+ * extension-owned marker lines are preserved only for a declared v1 body.
+ */
+function rewriteImageLines(body: string, rewrite: (line: string) => string): string {
+  const preserveTrustedMarkers = hasTrustedMessageBoundaries(body);
+  const rewritten = body
+    .split('\n')
+    .map(line => {
+      if (
+        preserveTrustedMarkers &&
+        (line === MESSAGE_BOUNDARY_FORMAT_MARKER || line === MESSAGE_BOUNDARY_MARKER)
+      ) {
+        return line;
+      }
+      return neutralizeMessageBoundaryMarkers(rewrite(line));
+    })
+    .join('\n');
+  return collapseBlankLines(rewritten);
+}
+
+/**
  * Deterministic image filename: `{noteBaseName}-img-{n}.{ext}` (n is 1-based).
  * Stable across re-saves so overwrites are idempotent.
  */
@@ -52,7 +80,7 @@ export function imageFileName(noteBaseName: string, image: ExtractedImage, index
 
 /** Remove all image placeholders (used for clipboard and unsupported paths). */
 export function stripImagePlaceholders(body: string): string {
-  return collapseBlankLines(body.replace(PLACEHOLDER_PATTERN, ''));
+  return rewriteImageLines(body, line => line.replace(PLACEHOLDER_PATTERN, ''));
 }
 
 /**
@@ -70,19 +98,21 @@ function resolve(
   const files: ResolvedImageFile[] = [];
   const emitted = new Set<string>();
 
-  const resolvedBody = body.replace(PLACEHOLDER_PATTERN, (_match, alt: string, id: string) => {
-    const entry = byId.get(id);
-    if (!entry) return '';
+  const resolvedBody = rewriteImageLines(body, line =>
+    line.replace(PLACEHOLDER_PATTERN, (_match, alt: string, id: string) => {
+      const entry = byId.get(id);
+      if (!entry) return '';
 
-    const fileName = imageFileName(noteBaseName, entry.image, entry.index);
-    if (!emitted.has(id)) {
-      emitted.add(id);
-      files.push({ fileName, mimeType: entry.image.mimeType, data: entry.image.data });
-    }
-    return render(fileName, alt);
-  });
+      const fileName = imageFileName(noteBaseName, entry.image, entry.index);
+      if (!emitted.has(id)) {
+        emitted.add(id);
+        files.push({ fileName, mimeType: entry.image.mimeType, data: entry.image.data });
+      }
+      return render(fileName, alt);
+    })
+  );
 
-  return { body: collapseBlankLines(resolvedBody), files };
+  return { body: resolvedBody, files };
 }
 
 /**

@@ -14,21 +14,35 @@ tags:
 message_count: 6
 ---
 
+<!-- liska-message-boundaries:v1 -->
+
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > gemini chat の E2E
 >                                       テストのための質問をします。理解したら「はい」だけ回答してください。
 
+<!-- liska-message:v1 -->
+
 > [!NOTE] Gemini
 > はい
+
+<!-- liska-message:v1 -->
 
 > [!QUESTION] User
 > ありがとうございます。次は「いいえ」と回答してください。
 
+<!-- liska-message:v1 -->
+
 > [!NOTE] Gemini
 > いいえ
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > いくつか数式をLaTeX形式で表示して。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Gemini
 > 承知いたしました。いくつか代表的な数式を LaTeX 形式で表示します。

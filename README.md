@@ -72,6 +72,7 @@ The bearer key is stored in `chrome.storage.local`, is never exposed to supporte
 - Optional tool/search output is rendered as literal fenced evidence. Provider-supplied links, images, raw HTML, Obsidian embeds, and message-like labels are not activated inside the exported note.
 - Image export is bounded to 20 images, 10 MiB per image, and 48 MiB of combined base64 data per note.
 - Append mode adds new text messages, but images in newly appended messages are skipped with a visible warning. A fresh file export can save supported images normally.
+- Append identity uses invisible extension-owned HTML comments rather than visible role labels. A legacy note without either those markers or a valid `message_count` is refused without overwrite; export a fresh snapshot to migrate it safely.
 - Auto-scroll is bounded to five minutes for DOM-only providers. When a provider changes its page structure, Liska fails with a warning instead of claiming a complete export.
 
 ## Privacy and security

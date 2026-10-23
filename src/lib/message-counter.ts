@@ -8,6 +8,24 @@
 import { ALL_PLATFORM_LABELS } from './constants';
 import { nextMarkdownBacktickFence, type MarkdownBacktickFence } from '../archive/markdown-syntax';
 
+/** Marks a note whose message boundaries are extension-owned v1 sentinels. */
+export const MESSAGE_BOUNDARY_FORMAT_MARKER = '<!-- liska-message-boundaries:v1 -->';
+
+/** Exact, content-free sentinel written immediately before one complete message group. */
+export const MESSAGE_BOUNDARY_MARKER = '<!-- liska-message:v1 -->';
+
+const INERT_FORMAT_MARKER = '<!-- liska-message-boundaries&#58;v1 -->';
+const INERT_MESSAGE_MARKER = '<!-- liska-message&#58;v1 -->';
+
+/** Reserve exact boundary sentinels even inside literal provider content. */
+export function neutralizeMessageBoundaryMarkers(text: string): string {
+  return text
+    .split(MESSAGE_BOUNDARY_FORMAT_MARKER)
+    .join(INERT_FORMAT_MARKER)
+    .split(MESSAGE_BOUNDARY_MARKER)
+    .join(INERT_MESSAGE_MARKER);
+}
+
 /**
  * Build label alternation from ALL_PLATFORM_LABELS: "User|Gemini Notebook|...".
  *
@@ -30,7 +48,7 @@ const LABEL_ALTERNATION = ['User', ...ALL_PLATFORM_LABELS, 'Assistant'].join('|'
  * happened to match first undercounts such a note, and append mode then
  * re-appends the difference verbatim (issue #406, ADR-028).
  */
-const MESSAGE_START_PATTERN = new RegExp(
+const LEGACY_MESSAGE_START_PATTERN = new RegExp(
   `^(?:> \\[!\\w+\\] (?:${LABEL_ALTERNATION})\\b|\\*\\*(?:${LABEL_ALTERNATION}):\\*\\*)`
 );
 
@@ -42,7 +60,7 @@ const MESSAGE_START_PATTERN = new RegExp(
  * {@link countExistingMessages} and {@link extractTailMessages} read it, so
  * the count and the offset it is used at cannot drift apart.
  */
-function scanMessageStarts(lines: readonly string[]): number[] {
+function scanStarts(lines: readonly string[], isStart: (line: string) => boolean): number[] {
   const starts: number[] = [];
   let fence: MarkdownBacktickFence | null = null;
 
@@ -56,10 +74,29 @@ function scanMessageStarts(lines: readonly string[]): number[] {
     fence = nextMarkdownBacktickFence(fence, line);
     if (wasInCodeBlock || fence !== null) continue;
 
-    if (MESSAGE_START_PATTERN.test(line)) starts.push(i);
+    if (isStart(line)) starts.push(i);
   }
 
   return starts;
+}
+
+function usesTrustedMessageBoundaries(lines: readonly string[]): boolean {
+  return lines.find(line => line.trim() !== '') === MESSAGE_BOUNDARY_FORMAT_MARKER;
+}
+
+function scanMessageStarts(lines: readonly string[]): number[] {
+  if (usesTrustedMessageBoundaries(lines)) {
+    // Exact sentinels are reserved and neutralized in every generated content
+    // path. Read them even after an attacker-controlled unterminated fence;
+    // otherwise one malformed message could hide every later real boundary.
+    return lines.flatMap((line, index) => (line === MESSAGE_BOUNDARY_MARKER ? [index] : []));
+  }
+  return scanStarts(lines, line => LEGACY_MESSAGE_START_PATTERN.test(line));
+}
+
+/** Whether a complete generated body declares extension-owned v1 boundaries. */
+export function hasTrustedMessageBoundaries(body: string): boolean {
+  return usesTrustedMessageBoundaries(body.split('\n'));
 }
 
 /**
@@ -83,6 +120,7 @@ export function extractTailMessages(fullBody: string, skipCount: number): string
   if (skipCount <= 0) return fullBody;
 
   const lines = fullBody.split('\n');
+  const trustedBoundaries = usesTrustedMessageBoundaries(lines);
   const starts = scanMessageStarts(lines);
   if (skipCount >= starts.length) return '';
 
@@ -90,10 +128,12 @@ export function extractTailMessages(fullBody: string, skipCount: number): string
   // Look back across blank lines for an immediately preceding `## ` header
   // (issue #187). fullBody is freshly generated so the only `## ` lines
   // are auto-generated question headers.
-  let lookback = tailStartLine - 1;
-  while (lookback >= 0 && lines[lookback].trim() === '') lookback--;
-  if (lookback >= 0 && /^## /.test(lines[lookback])) {
-    tailStartLine = lookback;
+  if (!trustedBoundaries) {
+    let lookback = tailStartLine - 1;
+    while (lookback >= 0 && lines[lookback].trim() === '') lookback--;
+    if (lookback >= 0 && /^## /.test(lines[lookback])) {
+      tailStartLine = lookback;
+    }
   }
 
   return lines.slice(tailStartLine).join('\n');

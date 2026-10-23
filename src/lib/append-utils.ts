@@ -10,7 +10,11 @@ import type { ObsidianNote, ExtensionSettings, FilenameScheme } from './types';
 import { SCAN_MAX_REQUESTS } from './constants';
 import { parseFrontmatter, updateFrontmatter, type LineEnding } from './frontmatter-parser';
 import { classifyNoteProbe, isAppendEligibleConversation, type NoteProbe } from './note-identity';
-import { countExistingMessages, extractTailMessages } from './message-counter';
+import {
+  countExistingMessages,
+  extractTailMessages,
+  hasTrustedMessageBoundaries,
+} from './message-counter';
 import { formatDateWithTimezone } from './date-utils';
 
 /**
@@ -73,6 +77,45 @@ interface AppendResult {
    * LAST step before writing, after any body transform (ADR-026).
    */
   eol: LineEnding;
+}
+
+/** Fixed failure code for an existing note whose append boundary cannot be trusted. */
+export const APPEND_BOUNDARY_UNTRUSTED = 'append-message-boundaries-untrusted';
+
+/** Stops append without falling through to a destructive full-note rewrite. */
+export class AppendBoundaryError extends Error {
+  readonly code = APPEND_BOUNDARY_UNTRUSTED;
+
+  constructor() {
+    super(APPEND_BOUNDARY_UNTRUSTED);
+    this.name = 'AppendBoundaryError';
+  }
+}
+
+function frontmatterMessageCount(value: string | string[] | undefined): number | null {
+  if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)$/.test(value)) return null;
+  const count = Number(value);
+  return Number.isSafeInteger(count) ? count : null;
+}
+
+function trustedExistingMessageCount(
+  body: string,
+  fields: Record<string, string | string[]>
+): number {
+  const renderedCount = countExistingMessages(body);
+  const storedCount = frontmatterMessageCount(fields.message_count);
+
+  if (hasTrustedMessageBoundaries(body)) {
+    if (storedCount !== null && storedCount !== renderedCount) throw new AppendBoundaryError();
+    return renderedCount;
+  }
+
+  // Legacy notes have no provenance-bearing message sentinels. Their
+  // extension-generated frontmatter count is authoritative; visible labels
+  // may include attacker-controlled lookalikes, but cannot safely be fewer
+  // than the declared number of messages.
+  if (storedCount === null || renderedCount < storedCount) throw new AppendBoundaryError();
+  return storedCount;
 }
 
 /**
@@ -381,29 +424,35 @@ export function buildAppendContent(
 ): AppendResult | null {
   // 1. Parse existing frontmatter
   const parsed = parseFrontmatter(existingContent);
-  if (!parsed) return null;
+  if (!parsed) throw new AppendBoundaryError();
 
-  // 2. Count existing messages
-  const existingCount = countExistingMessages(parsed.body);
-  if (existingCount === 0) return null; // Cannot detect message boundaries
+  // 2. Resolve existing message identity from v1 sentinels or trusted legacy
+  // frontmatter. Never derive authority solely from ambiguous visible labels.
+  const existingCount = trustedExistingMessageCount(parsed.body, parsed.fields);
 
   // 3. Compare counts
   const newTotal = note.frontmatter.message_count;
   if (newTotal <= existingCount) return null; // No new messages
 
-  // 4. Extract tail messages from the new formatted body
+  // 4. The freshly generated body must carry exact extension-owned message
+  // sentinels. This makes its tail offset independent of provider Markdown.
+  if (!hasTrustedMessageBoundaries(note.body) || countExistingMessages(note.body) !== newTotal) {
+    throw new AppendBoundaryError();
+  }
+
+  // 5. Extract tail messages from the new formatted body
   // (note.body is exactly what generateNoteContent would embed after the frontmatter)
   const newMessages = extractTailMessages(note.body, existingCount);
-  if (!newMessages) return null;
+  if (!newMessages) throw new AppendBoundaryError();
 
-  // 5. Update frontmatter fields
+  // 6. Update frontmatter fields
   const timezone = settings.templateOptions.timezone ?? 'UTC';
   const updatedRaw = updateFrontmatter(parsed.raw, {
     modified: formatDateWithTimezone(new Date(), timezone),
     message_count: newTotal,
   });
 
-  // 6. Rebuild: updated frontmatter + existing body + separator + new messages
+  // 7. Rebuild: updated frontmatter + existing body + separator + new messages
   //
   // Everything above works on the LF-normalised forms parseFrontmatter returns,
   // and the result stays LF here. The file's own ending is restored by the

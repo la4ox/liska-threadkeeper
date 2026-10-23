@@ -22,6 +22,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
 import type { ExtensionSettings, ObsidianNote } from '../../src/lib/types';
+import {
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+} from '../../src/lib/message-counter';
 
 const mockClient = {
   testConnection: vi.fn(),
@@ -76,7 +80,21 @@ const BODY_LINES = [
 
 const note: ObsidianNote = {
   fileName: 'chat-abc12345.md',
-  body: BODY_LINES.join('\n'),
+  body: [
+    MESSAGE_BOUNDARY_FORMAT_MARKER,
+    '',
+    MESSAGE_BOUNDARY_MARKER,
+    ...BODY_LINES.slice(0, 2),
+    '',
+    MESSAGE_BOUNDARY_MARKER,
+    ...BODY_LINES.slice(3, 12),
+    '',
+    MESSAGE_BOUNDARY_MARKER,
+    ...BODY_LINES.slice(13, 15),
+    '',
+    MESSAGE_BOUNDARY_MARKER,
+    ...BODY_LINES.slice(16),
+  ].join('\n'),
   contentHash: 'hash',
   images: [],
   frontmatter: {

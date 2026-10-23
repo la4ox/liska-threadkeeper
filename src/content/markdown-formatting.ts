@@ -9,6 +9,7 @@ import { htmlToMarkdown, escapeAngleBrackets, escapeUserText } from './markdown-
 import { markdownCodeFence } from './markdown-code';
 import { PLATFORM_LABELS } from '../lib/constants';
 import type { AIPlatform, TemplateOptions } from '../lib/types';
+import { neutralizeMessageBoundaryMarkers } from '../lib/message-counter';
 
 /**
  * Maximum visible length of an auto-generated question header (issue #187).
@@ -78,12 +79,13 @@ export function formatMessage(
 ): string {
   // Convert HTML to Markdown for assistant messages; escape angle brackets and
   // `$` (Obsidian math) for user messages, which are plain pasted text.
-  const markdown =
+  const markdown = neutralizeMessageBoundaryMarkers(
     role === 'assistant'
       ? contentFormat === 'markdown'
         ? escapeAngleBrackets(content)
         : htmlToMarkdown(content)
-      : escapeUserText(content);
+      : escapeUserText(content)
+  );
   const assistantLabel = PLATFORM_LABELS[source];
 
   let formatted: string;
@@ -158,7 +160,10 @@ function toolPresentation(toolContent: string): { title: string; fencedBody: str
 
   return {
     title: literalTitle ? `Tool Activity — ${literalTitle}` : 'Tool Activity',
-    fencedBody: bodyLines.length > 0 ? markdownCodeFence(bodyLines.join('\n'), 'text') : '',
+    fencedBody:
+      bodyLines.length > 0
+        ? markdownCodeFence(neutralizeMessageBoundaryMarkers(bodyLines.join('\n')), 'text')
+        : '',
   };
 }
 

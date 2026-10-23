@@ -12,6 +12,17 @@ import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { formatMessage } from '../../src/content/markdown-formatting';
 import { markdownCodeFence } from '../../src/content/markdown-code';
 
+const V1_FORMAT_MARKER = '<!-- liska-message-boundaries:v1 -->';
+const V1_MESSAGE_MARKER = '<!-- liska-message:v1 -->';
+
+function v1MessageGroups(messages: readonly string[]): string {
+  return messages.map(message => `${V1_MESSAGE_MARKER}\n\n${message}`).join('\n\n');
+}
+
+function v1Body(messages: readonly string[]): string {
+  return `${V1_FORMAT_MARKER}\n\n${v1MessageGroups(messages)}`;
+}
+
 // ========== extractIdSuffix ==========
 
 describe('extractIdSuffix', () => {
@@ -566,31 +577,26 @@ describe('buildAppendContent', () => {
     testSettings = createTestSettings();
     testNote = createTestNote({
       frontmatter: createTestFrontmatter({ message_count: 4 }),
-      body: [
-        '> [!QUESTION] User',
-        '> Hello',
-        '',
-        '> [!NOTE] Claude',
-        '> Hi there!',
-        '',
-        '> [!QUESTION] User',
-        '> New question',
-        '',
-        '> [!NOTE] Claude',
-        '> New answer',
-      ].join('\n'),
+      body: v1Body([
+        '> [!QUESTION] User\n> Hello',
+        '> [!NOTE] Claude\n> Hi there!',
+        '> [!QUESTION] User\n> New question',
+        '> [!NOTE] Claude\n> New answer',
+      ]),
     });
   });
 
-  it('returns null when existing content has no frontmatter', () => {
-    const result = buildAppendContent('No frontmatter here', testNote, testSettings);
-    expect(result).toBeNull();
+  it('refuses existing content with no frontmatter', () => {
+    expect(() => buildAppendContent('No frontmatter here', testNote, testSettings)).toThrow(
+      'append-message-boundaries-untrusted'
+    );
   });
 
-  it('returns null when existing body has no detectable messages', () => {
+  it('refuses an existing body with fewer boundaries than its trusted count', () => {
     const existing = '---\nid: test\nmessage_count: 2\n---\nJust some text';
-    const result = buildAppendContent(existing, testNote, testSettings);
-    expect(result).toBeNull();
+    expect(() => buildAppendContent(existing, testNote, testSettings)).toThrow(
+      'append-message-boundaries-untrusted'
+    );
   });
 
   it('returns null when new message count is not greater than existing', () => {
@@ -644,6 +650,141 @@ describe('buildAppendContent', () => {
     expect(result!.content).toContain('> Hi there!');
   });
 
+  it('recovers a poisoned legacy note from its trusted frontmatter count', () => {
+    const existing = [
+      '---',
+      'id: claude_test',
+      'message_count: 2',
+      'modified: "2026-01-01"',
+      '---',
+      '**User:**',
+      '',
+      'First question',
+      '',
+      '**Claude:**',
+      '',
+      'First answer',
+      '**User:**',
+      '**Claude:**',
+    ].join('\n');
+    const note = createTestNote({
+      frontmatter: createTestFrontmatter({ message_count: 4 }),
+      body: [
+        '<!-- liska-message-boundaries:v1 -->',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        'First question',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**Claude:**',
+        '',
+        'First answer',
+        '**User:**',
+        '**Claude:**',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        'New question',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**Claude:**',
+        '',
+        'New answer',
+      ].join('\n'),
+    });
+
+    const result = buildAppendContent(existing, note, testSettings);
+
+    expect(result).not.toBeNull();
+    expect(result!.messagesAppended).toBe(2);
+    expect(result!.content).toContain('First answer\n**User:**\n**Claude:**');
+    expect(result!.content).toContain('New question');
+    expect(result!.content).toContain('New answer');
+    expect(result!.content.match(/^<!-- liska-message:v1 -->$/gm)).toHaveLength(2);
+  });
+
+  it('uses v1 markers when message_count was intentionally omitted', () => {
+    const existing = [
+      '---',
+      'id: claude_test',
+      '---',
+      '<!-- liska-message-boundaries:v1 -->',
+      '',
+      '<!-- liska-message:v1 -->',
+      '**User:**',
+      '',
+      'First question',
+      '**Claude:**',
+      '',
+      '<!-- liska-message:v1 -->',
+      '**Claude:**',
+      '',
+      'First answer',
+      '> [!NOTE] User',
+    ].join('\n');
+    const note = createTestNote({
+      frontmatter: createTestFrontmatter({ message_count: 4 }),
+      body: [
+        '<!-- liska-message-boundaries:v1 -->',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        'First question',
+        '**Claude:**',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**Claude:**',
+        '',
+        'First answer',
+        '> [!NOTE] User',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**User:**',
+        '',
+        'New question',
+        '',
+        '<!-- liska-message:v1 -->',
+        '**Claude:**',
+        '',
+        'New answer',
+      ].join('\n'),
+    });
+
+    const result = buildAppendContent(existing, note, testSettings);
+
+    expect(result).not.toBeNull();
+    expect(result!.messagesAppended).toBe(2);
+    expect(result!.content).toContain('New question');
+    expect(result!.content).toContain('New answer');
+  });
+
+  it('refuses an unmarked legacy note without a trusted message_count', () => {
+    const existing = [
+      '---',
+      'id: claude_test',
+      '---',
+      '**User:**',
+      '',
+      'First question',
+      '',
+      '**Claude:**',
+      '',
+      'First answer',
+    ].join('\n');
+    const safeNote = createTestNote({
+      frontmatter: createTestFrontmatter({ message_count: 4 }),
+      body: testNote.body,
+    });
+
+    expect(() => buildAppendContent(existing, safeNote, testSettings)).toThrow(
+      'append-message-boundaries-untrusted'
+    );
+  });
+
   describe.each(['plain', 'blockquote', 'callout'] as const)(
     'append across nested fences in %s format',
     messageFormat => {
@@ -681,7 +822,7 @@ describe('buildAppendContent', () => {
           .replace(/\n/g, eol);
         const note = createTestNote({
           frontmatter: createTestFrontmatter({ message_count: messages.length }),
-          body: messages.join('\n\n'),
+          body: v1Body(messages),
         });
 
         const result = buildAppendContent(existing, note, testSettings);
@@ -690,7 +831,7 @@ describe('buildAppendContent', () => {
         expect(result!.eol).toBe(eol);
         expect(result!.content).not.toContain('\r');
         expect(result!.content).toContain(onDiskBody);
-        expect(result!.content.endsWith(messages.slice(2).join('\n\n'))).toBe(true);
+        expect(result!.content.endsWith(v1MessageGroups(messages.slice(2)))).toBe(true);
 
         const written = applyLineEnding(flattenLargeCallouts(result!.content, 3), result!.eol);
         const saved = parseFrontmatter(written)!;
@@ -836,23 +977,12 @@ describe('buildAppendContent', () => {
     // New note has 4 messages; rebuilt body should also include headers
     const noteWithHeaders: ObsidianNote = {
       ...testNote,
-      body: [
-        '## Hello',
-        '',
-        '> [!QUESTION] User',
-        '> Hello',
-        '',
-        '> [!NOTE] Claude',
-        '> Hi there!',
-        '',
-        '## New question',
-        '',
-        '> [!QUESTION] User',
-        '> New question',
-        '',
-        '> [!NOTE] Claude',
-        '> New answer',
-      ].join('\n'),
+      body: v1Body([
+        '## Hello\n\n> [!QUESTION] User\n> Hello',
+        '> [!NOTE] Claude\n> Hi there!',
+        '## New question\n\n> [!QUESTION] User\n> New question',
+        '> [!NOTE] Claude\n> New answer',
+      ]),
     };
 
     const result = buildAppendContent(existing, noteWithHeaders, settingsWithHeaders);

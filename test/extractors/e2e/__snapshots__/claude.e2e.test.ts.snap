@@ -120,28 +120,46 @@ tags:
 message_count: 14
 ---
 
+<!-- liska-message-boundaries:v1 -->
+
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > Claude の html構造をテストするための質問です。「はい」とだけ答えて。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Claude
 > はい
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > 次は「いいえ」だけ答えて。
 
+<!-- liska-message:v1 -->
+
 > [!NOTE] Claude
 > いいえ
+
+<!-- liska-message:v1 -->
 
 > [!QUESTION] User
 > 次の内容の artifact を作成して。
 > 
 > -   Claude Code の概要について。
 
+<!-- liska-message:v1 -->
+
 > [!NOTE] Claude
 > Claude Code の概要をまとめた artifact を作成しました。VSCode 拡張機能のバージョン問題についても注記を入れておきました。
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > Claude Code の概要について調査分析してください。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Claude
 > Claude Code の概要について調査を始めます。いくつか確認させてください：
@@ -150,16 +168,24 @@ message_count: 14
 > 2.  **技術的な観点**: アーキテクチャや内部動作の技術的詳細も調べますか、それともユースケースやベストプラクティス中心が良いですか？
 > 3.  **対象読者**: 雑誌記事向けの素材として使う想定ですか？（Vibe Coding の記事との関連など）
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > 基本的な機能のみで良いです。 技術的な観点は不要です。 素人向けです。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Claude
 > 了解しました。素人向けに Claude Code の基本的な機能概要を調査します。
 > 
 > Claude Codeに関する調査レポートが完成しました。AIプログラミングアシスタントの概要、主な機能（コード作成・バグ修正・Git操作など）、3ステップの導入方法、おすすめの利用シーン、料金プラン（月額$20〜）の比較表を含んでいます。
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > 数式をいくつか表現して表示して。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Claude
 > 数式をいくつか表現したartifactを作成します。
@@ -173,8 +199,12 @@ message_count: 14
 > -   **統計・確率**：正規分布、ベイズの定理
 > -   **物理学**：E=mc²、シュレーディンガー方程式、マクスウェル方程式
 
+<!-- liska-message:v1 -->
+
 > [!QUESTION] User
 > chat で数式を表示できますか。
+
+<!-- liska-message:v1 -->
 
 > [!NOTE] Claude
 > はい、チャット上でも数式を表示できます。LaTeX 記法を使うと、以下のように表示されます：
