@@ -89,7 +89,7 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
   both existing engines. Idle stalls and the five-minute safety cap now produce
   different content-free logs and warnings; only those typed deadlines mark a
   capture truncated. Bottom seeding and delayed iterations share the absolute
-  cap. Exact-tree validation passes 172 files / 5,256 tests and independent
+  cap. Exact-tree validation passes 172 files / 5,277 tests and independent
   review is clean; no live hidden-tab claim is made.
 - Configurable deadlines remain the next separate settings slice. Preserve
   Liska's shipped 15-second idle and hard 300-second ceiling: proposed popup

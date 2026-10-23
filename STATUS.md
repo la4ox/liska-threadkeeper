@@ -1045,7 +1045,7 @@ numeric diagnostics, while one shared warning distinguishes stalled loading
 from the 300-second cap and tells the user to load earlier messages and retry.
 
 Independent review found no residual P0-P3 issue. Exact-tree validation passes
-172 test files / 5,256 tests; coverage is 95.34% statements, 91.41% branches,
+172 test files / 5,277 tests; coverage is 95.34% statements, 91.41% branches,
 98.69% functions, and 97.79% lines. Focused independent validation passes 325
 tests. TypeScript, formatting, and diff checks pass; owned scroll code has zero
 lint warnings after refactoring, and full build/lint pass with only the two
