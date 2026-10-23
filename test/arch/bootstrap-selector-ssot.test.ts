@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import * as readiness from '../../src/content/extractors/selectors/ready';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const bootstrapPath = path.join(root, 'src/content/bootstrap.ts');
@@ -26,13 +27,17 @@ describe('architecture: bootstrap readiness selector is derived, not duplicated'
     expect(code).not.toMatch(/Object\.(?:values|entries)\(\s*CONVERSATION_READY_SELECTORS\s*\)/);
   });
 
+  it('exports only per-platform hints, not a joined cross-platform runtime selector', () => {
+    expect(Object.keys(readiness)).toEqual(['CONVERSATION_READY_SELECTORS']);
+  });
+
   it('selects only the current extractor platform hint before waiting', () => {
     expect(code).toMatch(
       /await\s+waitForConversationContainer\(\s*CONVERSATION_READY_SELECTORS\[extractor\.platform\]\s*\)/
     );
   });
 
-  it('uses the selected hint for both immediate and observer readiness checks', () => {
+  it('uses the complete selected hint for both immediate and observer readiness checks', () => {
     expect(code).toMatch(/function\s+waitForConversationContainer\(readinessSelector:\s*string\)/);
     expect(code.match(/document\.querySelector\(readinessSelector\)/g)).toHaveLength(2);
     expect(code.match(/querySelector(?:All)?\(\s*['"`]/g) ?? []).toEqual([]);
