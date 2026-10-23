@@ -76,6 +76,7 @@ function receipts(): ChatGptDestinationArchiveReceipt[] {
     captureId,
     conversationKey: companion.conversationKey,
     manifestSha256: companion.artifacts[1].sha256,
+    archiveByteLengths: { raw: 2, manifest: 2, canonical: 2 },
     assets: [],
   }));
 }
@@ -642,6 +643,7 @@ describe('all-branches destination receipts and exact parity', () => {
       return {
         ...receipt,
         manifestSha256: (index === 0 ? '1' : '2').repeat(64),
+        archiveByteLengths: { raw: 2, manifest: 20 + index, canonical: 30 + index },
         assets: [
           {
             sha256: hash,
@@ -661,6 +663,110 @@ describe('all-branches destination receipts and exact parity', () => {
     expect(summary).toMatchObject({ status: 'failed', phase: 'archive' });
     expect(summary.destinations.every(destination => !destination.archiveSaved)).toBe(true);
     expect(persistArtifacts).not.toHaveBeenCalled();
+    expect(writeNote).not.toHaveBeenCalled();
+  });
+
+  it('counts destination-finalized trios and binaries once per destination across many branches', async () => {
+    const destinationReceipts = distinctReceipts();
+    // Both destinations retain identical binary bytes at the same archive path.
+    destinationReceipts[1].assets = structuredClone(destinationReceipts[0].assets);
+    const writeNote = vi.fn().mockResolvedValue('confirmed');
+    const summary = await persistAllBranchesPresentation(
+      widePlan(80),
+      companion,
+      templateOptions,
+      false,
+      [...outputs],
+      {
+        persistArtifacts: vi.fn(),
+        destinationReceipts,
+        writeNote,
+        fingerprintNote: async () => ({ byteLength: 10, sha256: '0'.repeat(64) }),
+        yieldTask: async () => {},
+      }
+    );
+    // File seed: 2+20+30+1=53; Obsidian seed: 2+21+31+1=55.
+    expect(summary).toMatchObject({
+      status: 'complete',
+      plannedPhysicalBytes: 53 + 55 + 81 * 10 * 2,
+      destinations: [
+        { dispatchedBytes: 53 + 810, confirmedBytes: 53 + 810 },
+        { dispatchedBytes: 55 + 810, confirmedBytes: 55 + 810 },
+      ],
+    });
+    expect(writeNote).toHaveBeenCalledTimes(162);
+  });
+
+  it.each([0, 1])(
+    'checks an initial retained-byte seed at physical cap + %i before fingerprints',
+    async extra => {
+      const cap = 2 * 1024 ** 3;
+      const destinationReceipts = receipts();
+      destinationReceipts[0].archiveByteLengths.canonical = cap - 4 + extra;
+      const writeNote = vi.fn().mockResolvedValue('confirmed');
+      const fingerprint = vi.fn().mockResolvedValue({ byteLength: 0, sha256: '0'.repeat(64) });
+      const summary = await persistAllBranchesPresentation(
+        plan(),
+        companion,
+        templateOptions,
+        false,
+        ['file'],
+        {
+          persistArtifacts: vi.fn(),
+          destinationReceipts,
+          writeNote,
+          fingerprintNote: fingerprint,
+          yieldTask: async () => {},
+        }
+      );
+      expect(summary.plannedPhysicalBytes).toBe(cap + extra);
+      expect(summary.destinations[0]).toMatchObject({
+        archiveSaved: true,
+        dispatchedBytes: cap + extra,
+        confirmedBytes: cap + extra,
+      });
+      if (extra === 0) {
+        expect(summary.status).toBe('complete');
+        expect(fingerprint).toHaveBeenCalledTimes(6);
+        expect(writeNote).toHaveBeenCalledTimes(3);
+      } else {
+        expect(summary).toMatchObject({
+          status: 'rejected',
+          phase: 'measurement',
+          budgetKind: 'physical-planned-bytes',
+          measuredLeaves: 0,
+          renderedLeaves: 0,
+        });
+        expect(fingerprint).not.toHaveBeenCalled();
+        expect(writeNote).not.toHaveBeenCalled();
+      }
+    }
+  );
+
+  it('retains only confirmed archive seeds if Stop arrives before measurement', async () => {
+    const controller = new AbortController();
+    const fingerprint = vi.fn();
+    const writeNote = vi.fn();
+    const summary = await run({
+      destinationReceipts: undefined,
+      signal: controller.signal,
+      persistArtifacts: vi.fn(async (_bundle, _name, _source, outputs) => {
+        controller.abort();
+        return { activeOutputs: outputs as PersistentOutputDestination[], warnings: [] };
+      }),
+      fingerprintNote: fingerprint,
+      writeNote,
+    });
+    expect(summary).toMatchObject({
+      status: 'cancelled',
+      phase: 'archive',
+      plannedPhysicalBytes: 6,
+      destinations: [
+        { archiveSaved: true, dispatchedBytes: 6, confirmedBytes: 6 },
+        { archiveSaved: false, dispatchedBytes: 0, confirmedBytes: 0 },
+      ],
+    });
+    expect(fingerprint).not.toHaveBeenCalled();
     expect(writeNote).not.toHaveBeenCalled();
   });
 
@@ -747,6 +853,10 @@ describe('all-branches destination receipts and exact parity', () => {
     'wrong-destination',
     'wrong-capture',
     'wrong-conversation',
+    'raw-length-mismatch',
+    'invalid-archive-lengths',
+    'overflowing-retained-bytes',
+    'nested-accessor',
     'accessor',
   ])(
     'withholds only File for a %s receipt and never falls back to unbound Markdown',
@@ -759,8 +869,16 @@ describe('all-branches destination receipts and exact parity', () => {
       if (mutation === 'wrong-destination') input[0] = { ...file, destination: 'clipboard' };
       if (mutation === 'wrong-capture') file.captureId += '-other';
       if (mutation === 'wrong-conversation') file.conversationKey = '0'.repeat(64);
+      if (mutation === 'raw-length-mismatch') file.archiveByteLengths.raw += 1;
+      if (mutation === 'invalid-archive-lengths') file.archiveByteLengths.canonical = -1;
+      if (mutation === 'overflowing-retained-bytes') {
+        file.archiveByteLengths.canonical = Number.MAX_SAFE_INTEGER;
+      }
       const getter = vi.fn(() => []);
       if (mutation === 'accessor') Object.defineProperty(file, 'assets', { get: getter });
+      if (mutation === 'nested-accessor') {
+        Object.defineProperty(file.archiveByteLengths, 'manifest', { get: getter });
+      }
       const persistArtifacts = vi.fn();
       const writeNote = vi.fn().mockResolvedValue('confirmed');
       const summary = await run({ destinationReceipts: input, persistArtifacts, writeNote });
@@ -771,6 +889,8 @@ describe('all-branches destination receipts and exact parity', () => {
         archiveSaved: false,
         branchFilesSaved: 0,
         indexSaved: false,
+        dispatchedBytes: 0,
+        confirmedBytes: 0,
       });
       expect(summary.destinations[1].indexSaved).toBe(true);
       expect(getter).not.toHaveBeenCalled();
@@ -783,6 +903,7 @@ describe('all-branches destination receipts and exact parity', () => {
     const writeNote = vi.fn().mockResolvedValue('confirmed');
     const pending = run({ destinationReceipts, writeNote });
     destinationReceipts[0].manifestSha256 = '9'.repeat(64);
+    destinationReceipts[0].archiveByteLengths.manifest = 999;
     destinationReceipts[0].assets[0].relativePath = 'mutated';
     destinationReceipts[1].assets.length = 0;
     destinationReceipts.push(destinationReceipts[0]);
@@ -910,8 +1031,8 @@ describe('all-branches destination receipts and exact parity', () => {
         archiveSaved: true,
         branchWrites: { failed: 1 },
         indexSaved: false,
-        dispatchedBytes: 6,
-        confirmedBytes: 6,
+        dispatchedBytes: 53,
+        confirmedBytes: 53,
       });
       expect(summary.destinations[1].indexSaved).toBe(true);
     }

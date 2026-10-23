@@ -14,12 +14,21 @@ export interface ChatGptDestinationArchiveReceipt {
   captureId: string;
   conversationKey: string;
   manifestSha256: string;
+  archiveByteLengths: { raw: number; manifest: number; canonical: number };
   assets: ChatGptArchivedAssetReceipt[];
 }
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const CAPTURE_ID_PATTERN = /^capture-chatgpt-[A-Za-z0-9][A-Za-z0-9_-]{0,239}$/;
-const RECEIPT_KEYS = ['destination', 'captureId', 'conversationKey', 'manifestSha256', 'assets'];
+const RECEIPT_KEYS = [
+  'destination',
+  'captureId',
+  'conversationKey',
+  'manifestSha256',
+  'archiveByteLengths',
+  'assets',
+];
+const ARCHIVE_BYTE_LENGTH_KEYS = ['raw', 'manifest', 'canonical'];
 const ASSET_KEYS = ['sha256', 'relativePath', 'mediaType', 'byteLength'];
 
 /** Read descriptors, never values through a possibly accessor-backed property. */
@@ -85,6 +94,39 @@ function snapshotAsset(value: unknown): ChatGptArchivedAssetReceipt | undefined 
   };
 }
 
+function snapshotArchiveByteLengths(
+  value: unknown
+): ChatGptDestinationArchiveReceipt['archiveByteLengths'] | undefined {
+  const lengths = ownPlainData(value, ARCHIVE_BYTE_LENGTH_KEYS);
+  if (
+    !lengths ||
+    ARCHIVE_BYTE_LENGTH_KEYS.some(
+      key =>
+        typeof lengths[key] !== 'number' || !Number.isSafeInteger(lengths[key]) || lengths[key] < 0
+    )
+  )
+    return undefined;
+  return {
+    raw: lengths.raw as number,
+    manifest: lengths.manifest as number,
+    canonical: lengths.canonical as number,
+  };
+}
+
+function snapshotAssets(value: unknown): ChatGptArchivedAssetReceipt[] | undefined {
+  const values = ownArrayData(value);
+  if (!values) return undefined;
+  const assets: ChatGptArchivedAssetReceipt[] = [];
+  const targets = new Set<string>();
+  for (const value of values) {
+    const asset = snapshotAsset(value);
+    if (!asset || targets.has(asset.relativePath)) return undefined;
+    targets.add(asset.relativePath);
+    assets.push(asset);
+  }
+  return assets;
+}
+
 /**
  * Fail closed on malformed/non-JSON-like data and detach every accepted value
  * from its input. No provider identifiers, names, URLs, or statuses are admitted.
@@ -105,21 +147,16 @@ export function snapshotChatGptDestinationArchiveReceipt(
       return undefined;
     if (typeof receipt.manifestSha256 !== 'string' || !SHA256_PATTERN.test(receipt.manifestSha256))
       return undefined;
-    const values = ownArrayData(receipt.assets);
-    if (!values) return undefined;
-    const assets: ChatGptArchivedAssetReceipt[] = [];
-    const targets = new Set<string>();
-    for (const value of values) {
-      const asset = snapshotAsset(value);
-      if (!asset || targets.has(asset.relativePath)) return undefined;
-      targets.add(asset.relativePath);
-      assets.push(asset);
-    }
+    const archiveByteLengths = snapshotArchiveByteLengths(receipt.archiveByteLengths);
+    if (!archiveByteLengths) return undefined;
+    const assets = snapshotAssets(receipt.assets);
+    if (!assets) return undefined;
     return {
       destination: receipt.destination,
       captureId: receipt.captureId,
       conversationKey: receipt.conversationKey,
       manifestSha256: receipt.manifestSha256,
+      archiveByteLengths,
       assets,
     };
   } catch {
