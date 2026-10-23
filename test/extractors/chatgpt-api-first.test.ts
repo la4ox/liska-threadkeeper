@@ -8,7 +8,11 @@ import {
   type ChatGptArchiveCapture,
 } from '../../src/content/capture/chatgpt-current-branch';
 import type { ArchiveProjectionResult } from '../../src/content/archive-projection';
-import type { ArchiveCompanionBundle } from '../../src/lib/types';
+import type {
+  ArchiveCompanionBundle,
+  ChatGptAssetExportContext,
+  ChatGptStructuredPresentationContext,
+} from '../../src/lib/types';
 import type { LiskaThreadArchive } from '../../src/archive';
 import branchingFixture from '../fixtures/archive/branching-chatgpt-thread.json';
 import {
@@ -96,7 +100,12 @@ function branchCapture(): ChatGptArchiveCapture {
   const archive = JSON.parse(JSON.stringify(branchingFixture)) as LiskaThreadArchive;
   archive.conversation.id = CONVERSATION_ID;
   archive.conversation.url = `https://chatgpt.com/c/${CONVERSATION_ID}`;
-  return { archive, archiveCompanion: completeCompanion() };
+  return {
+    archive,
+    archiveCompanion: completeCompanion(),
+    assetExportContext: {} as ChatGptAssetExportContext,
+    transientAssetCandidates: [],
+  };
 }
 
 function setUnsupportedChatGptPath(pathname: string): void {
@@ -128,9 +137,11 @@ describe('ChatGPTExtractor API-first bridge', () => {
 
   it('returns the verified projection and skips rendered-DOM extraction', async () => {
     renderedConversation();
-    const captureCurrentBranch = vi
-      .fn()
-      .mockResolvedValue(projection('**Reasoning**\nAPI tool data'));
+    const retained = {} as ChatGptStructuredPresentationContext;
+    const captureCurrentBranch = vi.fn().mockResolvedValue({
+      ...projection('**Reasoning**\nAPI tool data'),
+      chatGptStructuredPresentationContext: retained,
+    });
     const extractor = new ChatGPTExtractor({
       captureCurrentBranch,
       manifestAllowsStructuredCapture: () => true,
@@ -148,6 +159,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(result.data?.messages[1]?.toolContent).toContain('API tool data');
     expect(result.warnings).toEqual(['A canonical projection warning.']);
     expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
+    expect(result.chatGptStructuredPresentationContext).toBe(retained);
   });
 
   it('falls back once to same-origin replay when passive capture observes no request', async () => {
@@ -155,7 +167,10 @@ describe('ChatGPTExtractor API-first bridge', () => {
     const captureCurrentBranch = vi
       .fn()
       .mockRejectedValue(new ChatGptCurrentBranchError('conversation-request-timeout'));
-    const captureReplayCurrentBranch = vi.fn().mockResolvedValue(projection());
+    const retained = {} as ChatGptStructuredPresentationContext;
+    const captureReplayCurrentBranch = vi
+      .fn()
+      .mockResolvedValue({ ...projection(), chatGptStructuredPresentationContext: retained });
     const extractor = new ChatGPTExtractor({
       captureCurrentBranch,
       captureReplayCurrentBranch,
@@ -170,6 +185,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(captureCurrentBranch).toHaveBeenCalledWith(CONVERSATION_ID, false);
     expect(captureReplayCurrentBranch).toHaveBeenCalledWith(CONVERSATION_ID, false);
     expect(result.success).toBe(true);
+    expect(result.chatGptStructuredPresentationContext).toBe(retained);
     expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
   });
 
@@ -190,6 +206,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
     expect(captureReplayCurrentBranch).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
     expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+    expect(result.chatGptStructuredPresentationContext).toBeUndefined();
     expect(result.warnings).toContainEqual(
       expect.stringContaining('conversation-response-timeout')
     );
@@ -452,6 +469,11 @@ describe('ChatGPTExtractor API-first bridge', () => {
       branchPointCount: 1,
     });
     expect(result.archiveCompanion?.artifacts).toHaveLength(3);
+    expect(result.chatGptStructuredPresentationContext).toMatchObject({
+      targetNodeId: 'node-alternate',
+      selectedNodeIds: ['node-root', 'node-user', 'node-alternate'],
+      includeToolContent: false,
+    });
   });
 
   it('returns one complete graph plan when the local picker chooses all branches', async () => {
@@ -478,6 +500,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
     });
     expect(result.data).toBeUndefined();
     expect(result.allBranches?.catalog.branches).toHaveLength(2);
+    expect(result.chatGptStructuredPresentationContext).toBeUndefined();
   });
 
   it('cancels a branch choice without saving evidence or falling back to rendered DOM', async () => {
@@ -495,6 +518,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
     const result = await extractor.extract();
 
     expect(result).toEqual({ success: false, cancelled: true });
+    expect(result.chatGptStructuredPresentationContext).toBeUndefined();
   });
 
   it('fails closed in selected mode when complete capture fails', async () => {

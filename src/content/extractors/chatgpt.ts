@@ -27,6 +27,7 @@ import {
   ChatGptCurrentBranchError,
   captureChatGptArchive,
   captureChatGptCurrentBranch,
+  retainChatGptStructuredPresentation,
   manifestAllowsChatGptStructuredCapture,
   type ChatGptArchiveCapture,
 } from '../capture/chatgpt-current-branch';
@@ -336,6 +337,9 @@ export class ChatGPTExtractor extends BaseExtractor {
       ...(projection.chatGptAssetExportContext && {
         chatGptAssetExportContext: projection.chatGptAssetExportContext,
       }),
+      ...(projection.chatGptStructuredPresentationContext && {
+        chatGptStructuredPresentationContext: projection.chatGptStructuredPresentationContext,
+      }),
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
@@ -364,6 +368,7 @@ export class ChatGPTExtractor extends BaseExtractor {
     return this.captureSelectedBranch(conversationId);
   }
 
+  // eslint-disable-next-line max-lines-per-function -- Keep capture, local selection, and retained evidence together; cancelled/all paths never retain presentation context.
   private async captureSelectedBranch(conversationId: string): Promise<ProjectionSelection> {
     let capture: ChatGptArchiveCapture;
     if (this.enableChatGptOpaqueReplay) {
@@ -409,6 +414,11 @@ export class ChatGPTExtractor extends BaseExtractor {
           },
           archiveCompanion: capture.archiveCompanion,
           chatGptAssetExportContext: capture.assetExportContext,
+          chatGptStructuredPresentationContext: retainChatGptStructuredPresentation(
+            capture,
+            projection,
+            this.enableToolContent
+          ),
         },
       };
     } catch {

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { buildCaptureManifest, type RawCaptureAssetRecord } from '../../src/archive';
 import { chatGptActiveResolverMetricFromResponse } from '../../src/content/capture/chatgpt-active-resolver-audit';
+import { buildChatGptBinaryAwareArchiveCompanion } from '../../src/content/capture/chatgpt-current-branch';
 import {
   CHATGPT_ASSET_ACQUISITION_FAILED_WARNING,
   CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL,
@@ -182,6 +183,105 @@ function binaryResult(
 }
 
 describe('destination-honest ChatGPT attachment export', () => {
+  it.each(['binary-failure', 'finalization-failure', 'success'] as const)(
+    'emits detached localization evidence only for successful final destination persistence (%s)',
+    async outcome => {
+      const original = context();
+      const rawBytes = new TextEncoder().encode(
+        JSON.stringify({
+          conversation_id: CONVERSATION_ID,
+          title: 'Synthetic evidence',
+          current_node: 'a',
+          mapping: {
+            a: {
+              id: 'a',
+              parent: null,
+              children: [],
+              message: {
+                id: 'a',
+                author: { role: 'assistant' },
+                content: { content_type: 'text', parts: ['[file](sandbox:/mnt/data/a.png)'] },
+              },
+            },
+          },
+        })
+      );
+      const rawRecord = {
+        ...original.rawCaptureBundle.manifest.artifacts[0],
+        byteLength: rawBytes.length,
+        sha256: sha256(rawBytes),
+      };
+      original.rawCaptureBundle.manifest.artifacts = [rawRecord];
+      original.rawCaptureBundle.artifacts = [{ record: rawRecord, bytes: rawBytes }];
+      original.rawArtifact = {
+        ...original.rawArtifact,
+        transport: 'inline',
+        byteLength: rawBytes.length,
+        sha256: sha256(rawBytes),
+        bodyBase64: Buffer.from(rawBytes).toString('base64'),
+      };
+      const initial = await buildChatGptBinaryAwareArchiveCompanion(
+        original,
+        original.rawCaptureBundle.manifest.assets,
+        []
+      );
+      const asset = fetchedAsset();
+      let finalizedRecords: RawCaptureAssetRecord[] | undefined;
+      const result = await persistChatGptDestinationHonestAttachments(
+        original,
+        initial,
+        'synthetic.md',
+        ['file', 'obsidian'],
+        {
+          persistArtifacts: async (_companion, _name, _source, outputs, kinds) => {
+            if (
+              kinds.includes('canonical') &&
+              outputs[0] === 'obsidian' &&
+              outcome === 'finalization-failure'
+            )
+              return persisted([]);
+            return persisted(outputs as ('file' | 'obsidian')[]);
+          },
+          observeResolvers: async () => ({
+            kind: 'matched',
+            candidates: [{ assetId: asset.record.id, downloadUrl: 'https://example.invalid/test' }],
+          }),
+          acquireAssets: async () => ({
+            records: [asset.record],
+            runtimeAssets: [asset],
+            completeness: 'complete',
+          }),
+          persistBinaryAssets: async () =>
+            binaryResult(asset.record, true, outcome !== 'binary-failure'),
+          buildDestinationCompanion: async (ctx, records, runtime, metric, warnings) => {
+            finalizedRecords = records as RawCaptureAssetRecord[];
+            return buildChatGptBinaryAwareArchiveCompanion(ctx, records, runtime, metric, warnings);
+          },
+        }
+      );
+      const evidence = result.destinationLocalizationEvidence!;
+      expect(evidence.map(item => item.receipt.destination)).toEqual(
+        outcome === 'finalization-failure' ? ['file'] : ['file', 'obsidian']
+      );
+      expect(evidence[0].records[0].state).toBe('fetched');
+      if (outcome === 'binary-failure') {
+        expect(evidence[1].records[0].state).toBe('failed');
+        expect(evidence[1].receipt.assets).toEqual([]);
+        expect(evidence[1].receipt.manifestSha256).not.toBe(evidence[0].receipt.manifestSha256);
+      }
+      for (const item of evidence) {
+        expect(item.records).not.toBe(finalizedRecords);
+        expect(item.canonical.byteLength).toBe(item.receipt.archiveByteLengths.canonical);
+        expect(item.canonical.sha256).toMatch(/^[a-f0-9]{64}$/);
+      }
+      const before = JSON.stringify(evidence);
+      asset.record.sourceRefs[0].rawPointer = '/mutated-after-finalization';
+      result.destinationReceipts[0].assets.length = 0;
+      expect(JSON.stringify(evidence)).toBe(before);
+      expect(JSON.stringify(result.warnings)).not.toContain(ASSET_ID);
+    }
+  );
+
   it.each([false, true])(
     'runs interpreter acquisition, one opaque PNG metric probe, then passive observation (failure=%s), retaining the metric for both destinations',
     async passiveFails => {

@@ -10,6 +10,10 @@
 import type { RawCaptureAsset, RawCaptureAssetRecord } from '../archive';
 import type { ChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
 import {
+  buildChatGptSandboxLocalizationEvidence,
+  type ChatGptSandboxLocalizationEvidence,
+} from './chatgpt-sandbox-localization';
+import {
   buildChatGptDestinationArchiveReceipt,
   reconcileChatGptDestinationAssets,
 } from './chatgpt-destination-receipt';
@@ -122,6 +126,8 @@ export interface ChatGptAssetExportResult {
   rawSuccessfulDestinations: PersistentOutputDestination[];
   completeDestinations: PersistentOutputDestination[];
   destinationReceipts: ChatGptDestinationArchiveReceipt[];
+  /** Private detached proof, never a durable receipt field or output payload. */
+  destinationLocalizationEvidence?: ChatGptSandboxLocalizationEvidence[];
   warnings: string[];
 }
 
@@ -141,6 +147,7 @@ interface AssetAttempt {
 interface FinalizedDestination {
   complete: boolean;
   receipt?: ChatGptDestinationArchiveReceipt;
+  localizationEvidence?: ChatGptSandboxLocalizationEvidence;
   warnings: string[];
 }
 
@@ -658,6 +665,7 @@ async function attemptAssets(
   };
 }
 
+// eslint-disable-next-line max-lines-per-function -- Snapshot evidence before final writes, expose it only after the same destination succeeds.
 async function finalizeDestination(
   context: ChatGptAssetExportContext,
   noteFileName: string,
@@ -684,6 +692,10 @@ async function finalizeDestination(
       destination,
       state.runtimeAssets
     );
+    const localizationEvidence = await buildChatGptSandboxLocalizationEvidence(
+      destinationCompanion,
+      receipt
+    );
     const outcome = await dependencies.persistArtifacts(
       destinationCompanion,
       noteFileName,
@@ -695,6 +707,7 @@ async function finalizeDestination(
     return {
       complete,
       ...(complete && { receipt }),
+      ...(complete && localizationEvidence && { localizationEvidence }),
       warnings: [...warnings, ...outcome.warnings],
     };
   } catch {
@@ -784,6 +797,7 @@ export async function persistChatGptDestinationHonestAttachments(
 
   const completeDestinations: PersistentOutputDestination[] = [];
   const destinationReceipts: ChatGptDestinationArchiveReceipt[] = [];
+  const destinationLocalizationEvidence: ChatGptSandboxLocalizationEvidence[] = [];
   for (const destination of rawSuccessfulDestinations) {
     const finalized = await finalizeDestination(
       context,
@@ -799,10 +813,18 @@ export async function persistChatGptDestinationHonestAttachments(
     if (finalized.complete) completeDestinations.push(destination);
     if (finalized.receipt && requested.includes(destination)) {
       destinationReceipts.push(finalized.receipt);
+      if (finalized.localizationEvidence)
+        destinationLocalizationEvidence.push(finalized.localizationEvidence);
     }
   }
   destinationReceipts.sort(
     (left, right) => requested.indexOf(left.destination) - requested.indexOf(right.destination)
   );
-  return { rawSuccessfulDestinations, completeDestinations, destinationReceipts, warnings };
+  return {
+    rawSuccessfulDestinations,
+    completeDestinations,
+    destinationReceipts,
+    ...(destinationLocalizationEvidence.length > 0 && { destinationLocalizationEvidence }),
+    warnings,
+  };
 }

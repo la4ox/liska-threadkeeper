@@ -266,6 +266,22 @@ export interface ChatGptAssetExportContext {
   rawArtifact: ArchiveCompanionArtifact;
 }
 
+/** Runtime-only identity of the initial, validated current/selected presentation.
+ * The archive is retained by reference, not cloned; its digest is checked again
+ * before deriving localized text. Never serialize this context into an output.
+ */
+export interface ChatGptStructuredPresentationContext {
+  readonly archive: LiskaThreadArchive;
+  readonly assetExportContext: ChatGptAssetExportContext;
+  readonly captureId: string;
+  readonly conversationKey: string;
+  readonly manifestSha256: string;
+  readonly canonical: Readonly<ArchiveCompanionArtifactBase>;
+  readonly targetNodeId: string | null;
+  readonly selectedNodeIds: readonly string[];
+  readonly includeToolContent: boolean;
+}
+
 /**
  * Runtime-only DeepSeek evidence retained for an optional attachment pass.
  * Signed paths and provider file IDs remain solely inside the exact raw bytes;
@@ -830,6 +846,8 @@ export interface ExtractionResult {
   archiveCompanion?: ArchiveCompanionBundle;
   /** Runtime-only source evidence for optional destination-honest ChatGPT attachment export. */
   chatGptAssetExportContext?: ChatGptAssetExportContext;
+  /** Current/selected structured presentation only; absent on fallback/all-branches. */
+  chatGptStructuredPresentationContext?: ChatGptStructuredPresentationContext;
   /** Runtime-only source evidence for optional destination-honest DeepSeek attachment export. */
   deepSeekAssetExportContext?: DeepSeekAssetExportContext;
   /** Complete graph retained for sequential per-leaf presentation writes. */
