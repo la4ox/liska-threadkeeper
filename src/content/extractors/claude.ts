@@ -9,10 +9,55 @@
 import { BaseExtractor, type ScrollConfig } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { htmlToMarkdownRaw } from '../markdown-rules';
+import { safeMarkdownLanguageHint } from '../markdown-code';
 import { generateHash } from '../../lib/hash';
 import type { HarvestEntry } from '../../lib/scroll-manager';
 import type { ConversationMessage, DeepResearchSource, SyncSettings } from '../../lib/types';
 import { SELECTORS, DEEP_RESEARCH_SELECTORS, JOINED_SELECTORS } from './selectors/claude';
+
+function whitespacePreservingCodeFence(content: string, language: string): string {
+  let longestRun = 0;
+  for (const match of content.matchAll(/`+/g)) {
+    longestRun = Math.max(longestRun, match[0].length);
+  }
+  const fence = '`'.repeat(Math.max(3, longestRun + 1));
+  const closingSeparator = content.endsWith('\n') ? '' : '\n';
+  return `${fence}${safeMarkdownLanguageHint(language)}\n${content}${closingSeparator}${fence}`;
+}
+
+function toolHtmlToMarkdown(rawHtml: string): string {
+  const container = document.createElement('div');
+  container.innerHTML = sanitizeHtml(rawHtml);
+  const originalHtml = container.innerHTML;
+  const replacements: Array<{ marker: string; fencedCode: string }> = [];
+
+  container.querySelectorAll('pre').forEach((pre, index) => {
+    const code = pre.querySelector('code');
+    if (!code) return;
+
+    let marker = `\uE000LISKATOOLCODE${index}\uE001`;
+    while (
+      originalHtml.includes(marker) ||
+      replacements.some(replacement => replacement.marker === marker)
+    ) {
+      marker += 'X';
+    }
+    const language = code.className.match(/language-(\w+)/)?.[1] ?? '';
+    replacements.push({
+      marker,
+      fencedCode: whitespacePreservingCodeFence(code.textContent ?? '', language),
+    });
+    const placeholder = document.createElement('div');
+    placeholder.textContent = marker;
+    pre.replaceWith(placeholder);
+  });
+
+  let markdown = htmlToMarkdownRaw(container.innerHTML).trim();
+  for (const { marker, fencedCode } of replacements) {
+    markdown = markdown.replace(marker, () => fencedCode);
+  }
+  return markdown;
+}
 
 /**
  * Claude conversation and Deep Research extractor
@@ -266,8 +311,15 @@ export class ClaudeExtractor extends BaseExtractor {
       return parts.join('\n');
     }
 
-    // No markdown section anywhere: fall back to the whole response element.
-    return sanitizeHtml(element.innerHTML);
+    // No markdown section anywhere: preserve the visible response fallback,
+    // but remove provider status/tool headers first. Otherwise the opt-in tool
+    // metadata can leak through ordinary message content while the setting is
+    // disabled (and bypass the shared literal tool renderer).
+    const responseOnly = element.cloneNode(true) as Element;
+    for (const header of this.collectStatusHeaders(responseOnly)) {
+      header.remove();
+    }
+    return sanitizeHtml(responseOnly.innerHTML);
   }
 
   /**
@@ -421,9 +473,9 @@ export class ClaudeExtractor extends BaseExtractor {
   private extractToolMarkdown(toolSection: Element, parts: string[]): void {
     const markdownEls = toolSection.querySelectorAll('.standard-markdown');
     markdownEls.forEach(el => {
-      const html = sanitizeHtml(el.innerHTML);
-      if (html.trim()) {
-        parts.push(html);
+      const markdown = toolHtmlToMarkdown(el.innerHTML);
+      if (markdown) {
+        parts.push(markdown);
       }
     });
   }

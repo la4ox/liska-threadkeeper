@@ -85,12 +85,24 @@ Review were clean; Security Review completed clean on the pre-batching security
 head, and the reviewed batching-only follow-up had no unresolved finding.
 
 The question-heading occurrence `commit:3a431a24ce6c81919819b0c524645220`
-is being repaired on `codex/security-question-headers`. The shared heading
+is fixed through PR 28 as `f53fd6d`. The shared heading
 serializer now runs only after whitespace normalization, Markdown-character
 stripping, and visible-length truncation, then converts backslashes and ASCII
 angle brackets to numeric entities. Direct tags, code-wrapped tags,
 stripping-synthesized tags, and odd/even backslash runs therefore remain literal
 heading text without altering the established 60-character visible limit.
+
+The tool-metadata occurrence `commit:1a0101353b0c819183fb067d15974853`
+is being repaired on `codex/security-tool-content`. The shared presentation
+boundary promotes only a punctuation-encoded title and places the complete
+tool/search body inside a collision-safe literal fence. Markdown links and
+images, raw HTML, Obsidian embeds/callouts, and forged message labels therefore
+remain evidence instead of active note syntax. Claude tool HTML is converted to
+readable Markdown while preserving exact pre/code whitespace, replacement-token
+text, marker collisions, and adjacent block boundaries. Its whole-response
+fallback now removes status headers from a clone before sanitization, so the
+disabled tool-content setting cannot leak those headers through ordinary
+assistant content.
 
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
@@ -130,6 +142,15 @@ Production build and source/platform lint pass with only the same three
 pre-existing warnings. Actual Obsidian rendering was not repeated; the reviewer
 used the installed Markdown parser.
 
+Tool-content slice validation: all 166 test files / 5,086 tests pass in six
+memory-bounded batches. The independent final review ran seven focused suites /
+431 tests plus runtime probes for active Markdown/HTML, forged labels,
+line-ending variants, callout flattening, marker collisions, replacement tokens,
+and code-block boundaries; it found no remaining P0-P3 issue. Production build,
+repository formatting, diff checks, and source/platform lint pass with only the
+same three pre-existing advisory warnings. A live Claude page and the actual
+Obsidian renderer were not repeated for this slice.
+
 Per the maintainer's explicit checkpoint decision, an unavailable per-PR
 GitHub Security Review does not block an intermediate merge when current-head
 CI, current-head Code Review, focused/full tests, and one independent local
@@ -143,8 +164,9 @@ Review the remaining Security Cloud findings against the current pull-request
 head, preserving one verdict per finding:
 
 1. Markdown/frontmatter boundaries: YAML quoting, math attributes, tool
-   metadata, citation URLs/titles, and raw DeepSeek Markdown; publish and
-   reconcile the current question-heading fix.
+   metadata, citation URLs/titles, and raw DeepSeek Markdown; publish the
+   current tool-content fix and reconcile both it and the merged
+   question-heading fix.
 2. Resource bounds: branch fan-out, image response buffering/timeouts, and
    frontmatter parsing; reconcile the merged Canmore fix.
 3. Capture integrity: reconcile the merged TypedArray primordial fix and retain

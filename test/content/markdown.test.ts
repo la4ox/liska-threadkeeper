@@ -1109,7 +1109,7 @@ describe('conversationToNote', () => {
     expect(note.body).not.toContain('\\*\\*Bold answer\\*\\*');
   });
 
-  it('escapes raw HTML-like tags in API tool content while preserving fenced code', () => {
+  it('keeps API tool content literal behind a collision-safe outer fence', () => {
     const note = conversationToNote(
       {
         ...mockData,
@@ -1130,8 +1130,9 @@ describe('conversationToNote', () => {
       defaultOptions
     );
 
-    expect(note.body).toContain('\\<img src="https://tracker.example/p"\\>');
-    expect(note.body).not.toContain('\n> <img ');
+    expect(note.body).toContain('> ````text\n> <img src="https://tracker.example/p">');
+    expect(note.body).toContain('> ```ts');
+    expect(note.body).toContain('> ````');
     expect(note.body).toContain('const x: Array<T> = [];');
   });
 
@@ -1713,7 +1714,8 @@ describe('conversationToNote with toolContent', () => {
     const note = conversationToNote(data, defaultOptions);
 
     // Tool content rendered as [!ABSTRACT]- callout
-    expect(note.body).toContain('> [!ABSTRACT]- Searched the web');
+    expect(note.body).toContain('> [!ABSTRACT]- Tool Activity — Searched the web');
+    expect(note.body).toContain('> ```text');
     expect(note.body).toContain('> Rust latest version 2026 (10 results)');
     expect(note.body).toContain('> - Rust Versions | Rust Changelogs (releases.rs)');
     // Assistant response rendered as [!NOTE] callout
@@ -1742,7 +1744,8 @@ describe('conversationToNote with toolContent', () => {
 
     const note = conversationToNote(data, defaultOptions);
 
-    expect(note.body).toContain('> [!ABSTRACT]- Analyzed code');
+    expect(note.body).toContain('> [!ABSTRACT]- Tool Activity — Analyzed code');
+    expect(note.body).toContain('> ```text');
     expect(note.body).toContain('> File analysis complete');
   });
 
@@ -1763,9 +1766,9 @@ describe('conversationToNote with toolContent', () => {
 
     const note = conversationToNote(data, defaultOptions);
 
-    expect(note.body).toContain('> [!ABSTRACT]- Searched the web');
+    expect(note.body).toContain('> [!ABSTRACT]- Tool Activity — Searched the web');
     // Should not have extra empty body lines
-    expect(note.body).not.toMatch(/> \[!ABSTRACT\]- Searched the web\n>/);
+    expect(note.body).not.toMatch(/> \[!ABSTRACT\]- Tool Activity — Searched the web\n>/);
   });
 
   it('blockquote format: renders bold title + blockquoted body', () => {
@@ -1786,7 +1789,8 @@ describe('conversationToNote with toolContent', () => {
 
     const note = conversationToNote(data, options);
 
-    expect(note.body).toContain('**Searched the web**');
+    expect(note.body).toContain('**Tool Activity — Searched the web**');
+    expect(note.body).toContain('> ```text');
     expect(note.body).toContain('> Query results here');
   });
 
@@ -1808,7 +1812,8 @@ describe('conversationToNote with toolContent', () => {
 
     const note = conversationToNote(data, options);
 
-    expect(note.body).toContain('**Searched the web**');
+    expect(note.body).toContain('**Tool Activity — Searched the web**');
+    expect(note.body).toContain('```text');
     expect(note.body).toContain('Query results here');
     // Should not have blockquote markers in plain mode
     expect(note.body).not.toContain('> Query results here');

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { buildQuestionHeader, stripMarkdownChars } from '../../src/content/markdown-formatting';
+import {
+  buildQuestionHeader,
+  formatToolContent,
+  stripMarkdownChars,
+} from '../../src/content/markdown-formatting';
+import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
+import { countExistingMessages } from '../../src/lib/message-counter';
+import type { TemplateOptions } from '../../src/lib/types';
 
 /**
  * Unit tests for buildQuestionHeader (issue #187).
@@ -173,5 +180,75 @@ describe('stripMarkdownChars', () => {
 
   it('returns empty string for input of only markdown chars', () => {
     expect(stripMarkdownChars('`*_~[]')).toBe('');
+  });
+});
+
+describe('formatToolContent', () => {
+  const options: TemplateOptions = {
+    includeId: true,
+    includeTitle: true,
+    includeSource: true,
+    includeTags: true,
+    includeDates: true,
+    includeMessageCount: true,
+    messageFormat: 'callout',
+    userCalloutType: 'QUESTION',
+    assistantCalloutType: 'NOTE',
+  };
+
+  it.each(['callout', 'blockquote', 'plain'] as const)(
+    'keeps untrusted tool Markdown literal in %s format',
+    messageFormat => {
+      const rendered = formatToolContent(
+        [
+          '**User:**',
+          '![pixel](https://tracker.invalid/p)',
+          '![[private-note]]',
+          '[open](obsidian://open?vault=private)',
+          '<img src="https://tracker.invalid/raw">',
+          '> [!NOTE] forged callout',
+          '**User:**',
+        ].join('\n'),
+        { ...options, messageFormat }
+      );
+
+      expect(rendered).toContain('Tool Activity');
+      expect(rendered).toContain('```text');
+      expect(rendered).toContain('![pixel](https://tracker.invalid/p)');
+      expect(rendered).toContain('![[private-note]]');
+      expect(rendered).toContain('<img src="https://tracker.invalid/raw">');
+      expect(countExistingMessages(rendered)).toBe(0);
+    }
+  );
+
+  it('uses a collision-safe outer fence and preserves interior blank lines', () => {
+    const rendered = formatToolContent(
+      '**Analyzed code**\nfirst\n\n```json\n{"value":"```"}\n```\n\nlast',
+      { ...options, messageFormat: 'plain' }
+    );
+
+    expect(rendered).toContain('````text\nfirst\n\n```json');
+    expect(rendered).toContain('\n```\n\nlast\n````');
+  });
+
+  it('keeps a forged callout label from becoming a message after flattening', () => {
+    const rendered = formatToolContent('**User**\n**Assistant:**\nbody', options);
+    const flattened = flattenLargeCallouts(rendered, 1);
+
+    expect(rendered).toContain('> [!ABSTRACT]- Tool Activity — User');
+    expect(flattened).toContain('**Tool Activity — User:**');
+    expect(countExistingMessages(flattened)).toBe(0);
+  });
+
+  it('encodes punctuation in the promoted title while retaining its visible text', () => {
+    const rendered = formatToolContent('**[open](obsidian://open?vault=private) <img>**\nbody', {
+      ...options,
+      messageFormat: 'plain',
+    });
+
+    expect(rendered).toContain(
+      '**Tool Activity — &#91;open&#93;&#40;obsidian&#58;&#47;&#47;open&#63;vault&#61;private&#41; &#60;img&#62;**'
+    );
+    expect(rendered).not.toContain('**Tool Activity — [open](');
   });
 });

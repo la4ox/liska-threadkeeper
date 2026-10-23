@@ -1022,7 +1022,7 @@ thread fixed and resolved. Retain the planned final full-repository Cloud scan.
 
 ## Local question-heading security checkpoint
 
-Branch `codex/security-question-headers` addresses Security Cloud occurrence
+PR 28, merged as `f53fd6d`, addresses Security Cloud occurrence
 `commit:3a431a24ce6c81919819b0c524645220`. Optional question headers are built
 from raw user/provider content. The previous cleanup deleted backticks and
 underscores before emitting the label directly, so code-formatted HTML or even
@@ -1043,5 +1043,34 @@ parser probes without an HTML node. Production build and source/platform lint
 pass with only the same three pre-existing warnings. Actual Obsidian rendering
 was not repeated; the reviewer used the installed Markdown parser. Existing
 UTF-16 truncation can still split an emoji surrogate pair; that predates and is
-not changed by this slice. Next: commit, publish, and current-head CI/Code
-Review.
+not changed by this slice. Reviewed source head `bbde708` is an ancestor of
+fetched `origin/main`; current-head CI, Code Review, and Security Review were
+clean.
+
+## Local tool-content boundary security checkpoint
+
+Branch `codex/security-tool-content` addresses Security Cloud occurrence
+`commit:1a0101353b0c819183fb067d15974853`. Provider-controlled tool/search
+metadata previously reached generated Markdown as active links, images,
+Obsidian embeds/callouts, or message-shaped labels. The shared formatter now
+uses a punctuation-encoded `Tool Activity` title and preserves the complete
+body inside a collision-safe literal fence in callout, blockquote, and plain
+formats. Blank lines and nested backtick runs remain intact; message counting
+stays honest before and after long-callout flattening.
+
+Claude `.standard-markdown` tool fragments are sanitized and converted to
+readable Markdown before that literal boundary. A placeholder pass preserves
+exact pre/code indentation and terminal blank lines without replacement-string
+interpretation, cross-block marker collisions, or adjacent-fence concatenation.
+When no normal Markdown body is present, Claude's whole-response fallback now
+removes status/tool headers from a clone before sanitization, so the opt-in data
+cannot leak through ordinary assistant content while the setting is disabled.
+
+Evidence: all 166 test files / 5,086 tests pass in six memory-bounded batches;
+the independent final review passed seven focused suites / 431 tests and found
+no remaining P0-P3 issue after three converter regressions were fixed. Production
+build, repository formatting, diff checks, and source/platform lint pass with
+only the same three pre-existing warnings. No live Claude-page or Obsidian-render
+smoke was repeated. Next: commit, publish, and obtain current-head CI/Code Review
+before merging; use Security Review only if it starts without a quota spend or
+retry loop.

@@ -1406,6 +1406,128 @@ console.log(x);</code></pre>
       expect(assistantMsg?.toolContent).not.toContain('<script>');
     });
 
+    it('ON: tool HTML becomes readable Markdown before the shared literal renderer', async () => {
+      createClaudePageWithToolUse('12345678-1234-1234-1234-123456789012', [
+        { role: 'user', content: 'Test' },
+        {
+          role: 'assistant',
+          content: '<p>Response</p>',
+          toolUse: {
+            summaryText: 'Analyzed code',
+            toolSteps: ['<strong>Safe result</strong> with <code>Array&lt;T&gt;</code>'],
+          },
+        },
+      ]);
+
+      extractor.enableToolContent = true;
+      const result = await extractor.extract();
+      const toolContent =
+        result.data?.messages.find(m => m.role === 'assistant')?.toolContent ?? '';
+
+      expect(toolContent).toContain('**Safe result** with `Array<T>`');
+      expect(toolContent).not.toContain('<strong>');
+      expect(toolContent).not.toContain('<code>');
+    });
+
+    it('ON: tool HTML conversion preserves significant pre/code whitespace', async () => {
+      setClaudeLocation('12345678-1234-1234-1234-123456789012');
+      loadFixture(`
+        <div class="conversation-thread">
+          <div data-test-render-count="2" class="group">
+            <div class="bg-bg-300"><div data-testid="user-message">Question</div></div>
+          </div>
+          <div data-test-render-count="2" class="group">
+            <div class="font-claude-response" data-is-streaming="false">
+              <div class="grid">
+                <div class="row-start-1">
+                  <button><span class="truncate">Analyzed code</span></button>
+                  <div class="standard-markdown"><pre><code class="language-python">    first()
+        second()
+
+</code></pre></div>
+                </div>
+                <div class="row-start-2"><div class="standard-markdown">VISIBLE-ANSWER</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+      extractor.enableToolContent = true;
+
+      const result = await extractor.extract();
+      const toolContent =
+        result.data?.messages.find(m => m.role === 'assistant')?.toolContent ?? '';
+
+      expect(toolContent).toContain('```python\n    first()\n        second()\n\n```');
+    });
+
+    it('ON: tool code markers preserve replacement tokens, collisions, and block boundaries', async () => {
+      setClaudeLocation('12345678-1234-1234-1234-123456789012');
+      loadFixture(`
+        <div class="conversation-thread">
+          <div data-test-render-count="2" class="group">
+            <div class="bg-bg-300"><div data-testid="user-message">Question</div></div>
+          </div>
+          <div data-test-render-count="2" class="group">
+            <div class="font-claude-response" data-is-streaming="false">
+              <div class="grid">
+                <div class="row-start-1">
+                  <button><span class="truncate">Analyzed code</span></button>
+                  <div class="standard-markdown"><pre><code class="language-sh">echo "$&amp;"
+echo "$$"
+echo "$\`"
+one \uE000LISKATOOLCODE1\uE001 two</code></pre><pre><code class="language-py">second()</code></pre></div>
+                </div>
+                <div class="row-start-2"><div class="standard-markdown">VISIBLE-ANSWER</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+      extractor.enableToolContent = true;
+
+      const result = await extractor.extract();
+      const toolContent =
+        result.data?.messages.find(m => m.role === 'assistant')?.toolContent ?? '';
+
+      expect(toolContent).toContain('echo "$&"\necho "$$"\necho "$`"');
+      expect(toolContent).toContain('one \uE000LISKATOOLCODE1\uE001 two\n```');
+      expect(toolContent).toContain('```py\nsecond()\n```');
+      expect(toolContent).not.toContain('``````py');
+    });
+
+    it.each([false, true])(
+      'does not leak a status header through the whole-response fallback when tool content is %s',
+      async enableToolContent => {
+        setClaudeLocation('12345678-1234-1234-1234-123456789012');
+        loadFixture(`
+          <div class="conversation-thread">
+            <div data-test-render-count="2" class="group">
+              <div class="bg-bg-300"><div data-testid="user-message">Question</div></div>
+            </div>
+            <div data-test-render-count="2" class="group">
+              <div class="font-claude-response" data-is-streaming="false">
+                <div class="grid">
+                  <div class="row-start-1">
+                    <button><span class="truncate">TOOL-ONLY-LABEL</span></button>
+                  </div>
+                  <div class="row-start-2"><div class="plain-answer">VISIBLE-ANSWER</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `);
+        extractor.enableToolContent = enableToolContent;
+
+        const result = await extractor.extract();
+        const assistant = result.data?.messages.find(m => m.role === 'assistant');
+
+        expect(assistant?.content).toContain('VISIBLE-ANSWER');
+        expect(assistant?.content).not.toContain('TOOL-ONLY-LABEL');
+        expect(Boolean(assistant?.toolContent)).toBe(enableToolContent);
+      }
+    );
+
     it('ON: button summary text extracted as bold into toolContent', async () => {
       createClaudePageWithToolUse('12345678-1234-1234-1234-123456789012', [
         { role: 'user', content: 'Search something' },
