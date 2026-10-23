@@ -1,6 +1,7 @@
 import type { ArchiveBlock, JsonValue } from '../../types';
 import type { BlockContext, JsonRecord } from './contracts';
 import { upsertAsset } from './assets';
+import { parseCanmoreJsonString } from './canmore-json';
 import {
   fail,
   hasOwn,
@@ -193,18 +194,9 @@ function canmorePayloadFromRecord(
   const value = content.parts[0];
   const valuePointer = pointerAt(pointer, 'parts', '0');
   return {
-    value: sanitizeJson(parseJsonString(value), context.privacy, valuePointer).value,
+    value: sanitizeJson(parseCanmoreJsonString(value), context.privacy, valuePointer).value,
     pointer: valuePointer,
   };
-}
-
-function parseJsonString(value: unknown): unknown {
-  if (typeof value !== 'string') return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
 }
 
 function mappedContentFields(type: string): Set<string> {
