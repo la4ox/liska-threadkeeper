@@ -24,6 +24,12 @@ import {
   sourceRef,
   type PrivacyTracker,
 } from '../../src/archive/normalizers/chatgpt/privacy';
+import {
+  MAX_CANMORE_JSON_NESTING,
+  MAX_CANMORE_JSON_TEXT_LENGTH,
+  MAX_CANMORE_JSON_TOKENS,
+  parseCanmoreJsonString,
+} from '../../src/archive/normalizers/chatgpt/canmore-json';
 
 type RawRecord = Record<string, unknown>;
 
@@ -150,6 +156,72 @@ async function errorCode(action: () => Promise<unknown>): Promise<string> {
   }
   throw new Error('Expected ChatGPT normalization to fail.');
 }
+
+function synchronousErrorCode(action: () => unknown): string {
+  try {
+    action();
+  } catch (error) {
+    expect(error).toBeInstanceOf(ChatGptNormalizationError);
+    return (error as ChatGptNormalizationError).code;
+  }
+  throw new Error('Expected bounded Canmore JSON parsing to fail.');
+}
+
+describe('bounded Canmore JSON parsing', () => {
+  it('accepts the exact nesting and structural-token boundaries', () => {
+    const nested = `${'['.repeat(MAX_CANMORE_JSON_NESTING)}0${']'.repeat(MAX_CANMORE_JSON_NESTING)}`;
+    const wide = `[${Array.from({ length: MAX_CANMORE_JSON_TOKENS }, () => '0').join(',')}]`;
+
+    expect(parseCanmoreJsonString(nested)).toBeInstanceOf(Array);
+    expect(parseCanmoreJsonString(wide)).toHaveLength(MAX_CANMORE_JSON_TOKENS);
+  });
+
+  it('rejects one code unit beyond the JSON text budget before parsing', () => {
+    const oversized = `"${'x'.repeat(MAX_CANMORE_JSON_TEXT_LENGTH - 1)}"`;
+    expect(oversized).toHaveLength(MAX_CANMORE_JSON_TEXT_LENGTH + 1);
+
+    expect(synchronousErrorCode(() => parseCanmoreJsonString(oversized))).toBe(
+      'canmore-json-budget-exceeded'
+    );
+  });
+
+  it('accepts the exact JSON text boundary', () => {
+    const bounded = `"${'x'.repeat(MAX_CANMORE_JSON_TEXT_LENGTH - 2)}"`;
+    const parsed = parseCanmoreJsonString(bounded);
+
+    expect(bounded).toHaveLength(MAX_CANMORE_JSON_TEXT_LENGTH);
+    expect(parsed).toBeTypeOf('string');
+    expect((parsed as string).length).toBe(MAX_CANMORE_JSON_TEXT_LENGTH - 2);
+  });
+
+  it('ignores structural punctuation inside quoted and escaped strings', () => {
+    const expected = {
+      text: '[[[{{{,,,:::]}}]',
+      escaped: 'quote: " and slash: \\',
+    };
+    expect(parseCanmoreJsonString(JSON.stringify(expected))).toEqual(expected);
+  });
+
+  it.each([
+    'ordinary Canvas result text',
+    'true but not JSON',
+    `7${'0'.repeat(256)} is an identifier-like plain string`,
+    '{ malformed provider text',
+  ])('preserves non-JSON provider text: %s', value => {
+    expect(parseCanmoreJsonString(value)).toBe(value);
+  });
+
+  it.each([
+    ['true', true],
+    ['false', false],
+    ['null', null],
+    ['-12.5e2', -1250],
+    [`0.${'1'.repeat(127)}`, Number(`0.${'1'.repeat(127)}`)],
+    ['"Canvas result"', 'Canvas result'],
+  ])('preserves bounded scalar JSON semantics for %s', (value, expected) => {
+    expect(parseCanmoreJsonString(value)).toBe(expected);
+  });
+});
 
 describe('ChatGPT normalizer coverage contracts', () => {
   it('normalizes nested conversation envelopes and compatible graph aliases', async () => {
@@ -329,6 +401,22 @@ describe('ChatGPT normalizer coverage contracts', () => {
       '/mapping/node~1root/message',
       '/mapping/node~1root/message/content/parts',
     ]);
+  });
+
+  it.each([
+    ['nested arrays', `${'['.repeat(65)}0${']'.repeat(65)}`],
+    ['nested objects', `${'{"value":'.repeat(65)}0${'}'.repeat(65)}`],
+    [
+      'wide arrays',
+      `[${Array.from({ length: MAX_CANMORE_JSON_TOKENS + 1 }, () => '0').join(',')}]`,
+    ],
+  ])('rejects %s before parsing a single-part Canmore JSON payload', async (_label, payload) => {
+    const raw = rawWithParts([payload]);
+    const message = rootMessage(raw);
+    message.author = { role: 'assistant', name: null };
+    message.recipient = 'canmore.update_textdoc';
+
+    await expect(errorCode(() => normalizeRaw(raw))).resolves.toBe('canmore-json-budget-exceeded');
   });
 
   it.each([

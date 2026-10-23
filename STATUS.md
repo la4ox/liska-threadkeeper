@@ -948,11 +948,40 @@ line endings preserved through display promotion. The internal image grammar
 now rejects matches spanning math delimiters, while punctuation-rich generated
 alt text still resolves.
 
-The Cloud occurrence currently says fixed, but its own saved fix-check records
-that the earlier backslash/dollar-only fallback remained active. That status was
-therefore premature and must not be treated as published remediation. Current
-evidence is local only: 166 test files / 5,039 tests, the 362-test focused/E2E
-matrix, production build, formatting, diff checks, source/platform lint with the
-same three pre-existing warnings, and an independent parser-backed review all
-pass. Live Obsidian rendering has not been repeated. Next: commit, publish, and
-review this branch before relying on the Cloud status.
+The Cloud occurrence says fixed, but its saved historical fix-check correctly
+records that the earlier backslash/dollar-only fallback remained active at that
+older revision. The actual fix merged through PR 25 as `650d8c9`; reviewed head
+`d2e9df8` is an ancestor of fetched `origin/main`. Current-head CI and Code
+Review were clean, the only P2 review thread was fixed and resolved, and the
+local independent parser-backed review was clean. The separate GitHub Security
+Review did not execute because its quota was exhausted; no live Obsidian render
+was repeated.
+
+## Local Canmore JSON security checkpoint
+
+Branch `codex/security-canmore-json` addresses Security Cloud occurrence
+`commit:8fc721c0bb0881919910f4805e72250d`. Message-level Canmore can carry a
+JSON string nested inside the already parsed provider graph; the old path called
+`JSON.parse` before the canonical sanitizer's depth, entry, and string budgets.
+The candidate performs one quote/escape-aware, non-materializing preflight
+first. JSON-looking input is limited to 4 MiB of source text, 64 nested
+containers, and 4,096 structural tokens. These parse ceilings remain wider than
+the existing canonical 16-level/512-entry sanitizer, so valid Canvas payloads
+retain the established truncation behavior rather than being silently narrowed.
+
+Exceeded budgets throw fixed code `canmore-json-budget-exceeded`. Inline capture
+tests prove the resulting normalization failure retains byte-identical raw
+length/hash/body plus manifest and emits no canonical artifact. Plain provider
+text, malformed JSON fallback, quoted punctuation/escapes, bounded scalars,
+valid create/update events, exact boundaries, and the reviewed 129-character
+numeric scalar retain their prior semantics. Evidence: 166 test files / 5,057
+tests, the focused seven-file / 202-test matrix, production build, and
+source/platform lint with only the same three pre-existing warnings. Independent
+review found one P3 numeric-type regression; it is fixed and covered. Browser
+OPFS and physical destination persistence were not repeated in this slice.
+
+Per maintainer decision, unavailable per-PR Security Review quota is not an
+intermediate blocker when current-head CI/Code Review and the local independent
+security evidence are clean. Do not automatically retry paid security review.
+After the current large roadmap block, run one explicit Cloud Security scan of
+the complete repository and reconcile its findings.

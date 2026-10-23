@@ -1874,6 +1874,41 @@ describe('ChatGPT current-branch capture composition', () => {
     expect(manifest.warnings).toEqual(['chatgpt-asset-inventory-unavailable']);
   });
 
+  it('preserves exact raw and manifest evidence when Canmore JSON exceeds its parse budget', async () => {
+    const response = await successfulResponse(payload => {
+      const mapping = payload.mapping as Record<string, { message?: Record<string, unknown> }>;
+      const message = mapping['node/current']?.message;
+      if (!message) throw new Error('synthetic current message is required');
+      message.author = { role: 'assistant', name: null };
+      message.recipient = 'canmore.update_textdoc';
+      message.content = {
+        content_type: 'text',
+        parts: [`${'['.repeat(65)}0${']'.repeat(65)}`],
+      };
+    });
+    if (!response.success || response.data.transport !== 'inline') {
+      throw new Error('synthetic inline capture is required');
+    }
+
+    const error = await captureChatGptArchive(CONVERSATION_ID, {
+      requestCapture: async () => response,
+      createCaptureId: fixedCaptureId,
+      now: fixedNow,
+    }).catch(reason => reason);
+
+    expect(error).toBeInstanceOf(ChatGptCurrentBranchError);
+    expect((error as ChatGptCurrentBranchError).code).toBe('normalization-failed');
+    expect((error as ChatGptCurrentBranchError).detailCode).toBe('canmore-json-budget-exceeded');
+    const artifacts = (error as ChatGptCurrentBranchError).archiveCompanion?.artifacts;
+    expect(artifacts?.map(artifact => artifact.kind)).toEqual(['raw', 'manifest']);
+    expect(artifacts?.[0]).toMatchObject({
+      transport: 'inline',
+      byteLength: response.data.byteLength,
+      sha256: response.data.sha256,
+      bodyBase64: response.data.bodyBase64,
+    });
+  });
+
   it('preserves raw and manifest when canonical serialization fails after normalization', async () => {
     const response = await successfulResponse();
     const normalizeCapture: typeof normalizeChatGptCapture = async input => {

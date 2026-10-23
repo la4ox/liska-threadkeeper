@@ -53,13 +53,23 @@ The math-attribute occurrence
 `commit:eb1705ab69ac8191a043d3d6cb44fe4c` is administratively marked fixed in
 Security Cloud, but that status was applied before the saved fix-check's active
 Markdown fallback was actually repaired. Treat the Cloud row as premature, not
-as evidence. The complete source fix is staged on
-`codex/security-math-markdown`: rejected math uses context-stable entity
-literals, formatting-only inline wraps normalize without changing TeX, `%`
-comment line endings are preserved by display promotion, table neighbors cannot
-capture generated literals, and image-placeholder processing cannot span math
-delimiters. It is not a published remediation until its reviewed pull request is
-merged.
+as evidence for the historical revision. The complete source fix merged through
+PR 25 as `650d8c9`: rejected math uses context-stable entity literals,
+formatting-only inline wraps normalize without changing TeX, `%` comment line
+endings are preserved by display promotion, table neighbors cannot capture
+generated literals, and image-placeholder processing cannot span math
+delimiters. Current-head CI and code review were clean; the separate GitHub
+Security Review did not execute because its quota was exhausted.
+
+The nested-Canmore occurrence `commit:8fc721c0bb0881919910f4805e72250d`
+remains open while its candidate source fix is reviewed on
+`codex/security-canmore-json`. A single-part JSON-looking payload is now scanned
+without materializing an object graph before `JSON.parse`: 4 MiB of source text,
+64 nested containers, and 4,096 structural tokens are explicit parse ceilings.
+They deliberately exceed the canonical sanitizer's existing 16-level/512-entry
+budgets so ordinary truncate-and-succeed behavior remains compatible. Exceeded
+budgets fail with one fixed code; the current capture path retains exact raw and
+manifest evidence and creates no canonical companion.
 
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
@@ -74,6 +84,20 @@ the same three pre-existing advisory warnings. Independent parser-backed review
 found no remaining P0-P3 issue. Live Obsidian rendering is still an explicit
 unverified surface; the review used the installed Marked parser.
 
+Canmore-slice validation: 166 test files / 5,057 tests and the focused
+normalizer/capture/staging matrix of 202 tests pass. Production build and
+source/platform lint pass with only the same three pre-existing warnings. The
+independent review found one P3 numeric-scalar compatibility regression; it is
+fixed and covered. Browser/OPFS destination persistence was not repeated; its
+staged lifecycle remains mocked plus covered by the existing persistence tests.
+
+Per the maintainer's explicit checkpoint decision, an unavailable per-PR
+GitHub Security Review does not block an intermediate merge when current-head
+CI, current-head Code Review, focused/full tests, and one independent local
+security review are clean. Do not automatically retry or spend security-review
+credits. After the current large roadmap block is complete, launch one explicit
+Cloud Security repository scan and reconcile its full-repository findings.
+
 ## Remaining finding triage
 
 Review the remaining Security Cloud findings against the current pull-request
@@ -81,8 +105,8 @@ head, preserving one verdict per finding:
 
 1. Markdown/frontmatter boundaries: YAML quoting, headings, math attributes,
    tool metadata, citation URLs/titles, and raw DeepSeek Markdown.
-2. Resource bounds: branch fan-out, nested Canmore JSON, image response
-   buffering/timeouts, and frontmatter parsing.
+2. Resource bounds: branch fan-out, image response buffering/timeouts, and
+   frontmatter parsing; publish and reconcile the current Canmore fix.
 3. Storage and Obsidian boundaries: stale append paths, remaining credential
    disclosure paths, and response-body error handling.
 4. Supply-chain and repository hygiene: mutable CI actions and live fixture
