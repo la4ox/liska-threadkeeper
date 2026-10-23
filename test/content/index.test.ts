@@ -316,6 +316,55 @@ describe('content/bootstrap', () => {
       }
     );
 
+    it.each(readinessSurfaces)(
+      'does not treat another provider readiness hint as ready on $host',
+      async ({ host, platform, html }) => {
+        setNonGeminiLocation(host);
+        const foreignHtml = readinessSurfaces
+          .filter(surface => surface.platform !== platform)
+          .map(surface => surface.html)
+          .join('');
+        loadFixture(`<main>${foreignHtml}</main>`);
+        expect(document.querySelector(CONVERSATION_READY_SELECTORS[platform])).toBeNull();
+        const pending = initialize();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(injectSyncButton).not.toHaveBeenCalled();
+
+        // Neither the immediate query nor the observer may use foreign hints.
+        document.querySelector('main')!.innerHTML = foreignHtml;
+        await vi.advanceTimersByTimeAsync(100);
+        expect(injectSyncButton).not.toHaveBeenCalled();
+
+        document.querySelector('main')!.insertAdjacentHTML('beforeend', html);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(99);
+        expect(injectSyncButton).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await pending;
+
+        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      }
+    );
+
+    it('waits until the 10s deadline on Gemini when only a Claude row is present', async () => {
+      setGeminiLocation('abc123def456');
+      loadFixture('<main><div data-index="0"></div></main>');
+      const pending = initialize();
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+      document.querySelector('main')!.insertAdjacentHTML('beforeend', '<div data-index="1"></div>');
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
     it.each([
       '<div class="conversation"></div>',
       '<div class="conversation-preview"></div>',

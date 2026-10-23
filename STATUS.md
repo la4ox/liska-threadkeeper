@@ -1012,14 +1012,15 @@ thread-width selector copies.
 
 This remains only an early control-injection hint. ChatGPT and DeepSeek stay
 structured-first; initialization performs no extraction, messaging, fetch, or
-capture, and the trusted-click boundary is unchanged. The existing 100 ms
-mutation debounce and unconditional 10-second escape remain intact so missing
-or virtualized provider DOM cannot permanently hide the controls. Independent
-review found no residual P0-P3 issue. Exact-tree validation passes 171 test
-files / 5,217 tests; coverage is 95.33% statements, 91.40% branches, 98.68%
-functions, and 97.78% lines. TypeScript/build, source/platform lint, formatting,
-and diff checks pass; lint retains only the same three pre-existing advisory
-warnings. No live-provider claim is attached to this wiring checkpoint; the
-joined readiness list remains a bounded heuristic and Claude's primary
-`[data-index]` selector is intentionally unchanged from its owned extractor
-contract.
+capture, and the trusted-click boundary is unchanged. GitHub current-head
+review caught that a joined cross-provider query could accept Claude's generic
+`[data-index]` on another provider page; bootstrap now queries only the current
+extractor's typed readiness hint. The existing 100 ms mutation debounce and
+unconditional 10-second escape remain intact so missing or virtualized provider
+DOM cannot permanently hide the controls. Independent review found no earlier
+residual P0-P3 issue; the GitHub P2 is covered by eight cross-provider
+regressions. Exact-tree validation passes 171 test files / 5,230 tests; coverage
+is 95.34% statements, 91.41% branches, 98.68% functions, and 97.79% lines.
+TypeScript/build, source/platform lint, formatting, and diff checks pass; lint
+retains only the same three pre-existing advisory warnings. No live-provider
+claim is attached to this wiring checkpoint.

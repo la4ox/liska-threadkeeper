@@ -69,9 +69,12 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
   bootstrap duplicate literal and its broad/dead variants are gone.
 - Readiness remains only a UI-injection hint: ChatGPT and DeepSeek are still
   structured-first, initialization performs no capture, and the 100 ms debounce
-  plus unconditional 10-second escape are unchanged. Exact-tree validation
-  passes 171 files / 5,217 tests; build, lint, formatting, diff checks, and
-  independent review pass. No live-provider claim is made.
+  plus unconditional 10-second escape are unchanged. A current-head review P2
+  found that a joined cross-provider query could accept Claude's generic
+  `[data-index]` elsewhere; bootstrap now queries only the current platform's
+  hint, with eight failing-before-fix regressions. Exact-tree validation passes
+  171 files / 5,230 tests; build, lint, formatting, and diff checks pass. No
+  live-provider claim is made.
 - Gemini document-title naming remains a separate evidence-gated change. It
   affects new filename slugs and append-off duplication even though append-on
   lookup remains ID-based. Before enabling it, verify a named chat, an unnamed

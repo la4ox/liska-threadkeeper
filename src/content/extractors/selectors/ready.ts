@@ -5,6 +5,8 @@
  * This is only a UI-injection hint, not proof that extraction is ready or complete.
  * ChatGPT and DeepSeek remain structured-first; a missing DOM hint must not block
  * their export controls beyond bootstrap's unconditional fallback timeout.
+ * Query only the current platform's hint: a generic selector from another
+ * provider can match unrelated page UI.
  * Keying by AIPlatform makes the compiler require every supported platform.
  */
 
@@ -25,8 +27,3 @@ export const CONVERSATION_READY_SELECTORS: Readonly<Record<AIPlatform, string>> 
   deepseek: DEEPSEEK.message[0],
   notebooklm: NOTEBOOKLM.conversationTurn[0],
 };
-
-/** Selector list used only to decide when to inject the export controls. */
-export const CONVERSATION_CONTAINER_SELECTOR: string = Object.values(
-  CONVERSATION_READY_SELECTORS
-).join(', ');

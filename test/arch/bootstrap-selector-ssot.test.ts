@@ -14,20 +14,27 @@ function stripComments(code: string): string {
 describe('architecture: bootstrap readiness selector is derived, not duplicated', () => {
   const code = stripComments(fs.readFileSync(bootstrapPath, 'utf-8'));
 
-  it('imports CONVERSATION_CONTAINER_SELECTOR from selectors/ready', () => {
+  it('imports CONVERSATION_READY_SELECTORS from selectors/ready', () => {
     expect(code).toMatch(
-      /import\s*\{[^}]*\bCONVERSATION_CONTAINER_SELECTOR\b[^}]*\}\s*from\s*'\.\/extractors\/selectors\/ready'/
+      /import\s*\{[^}]*\bCONVERSATION_READY_SELECTORS\b[^}]*\}\s*from\s*'\.\/extractors\/selectors\/ready'/
     );
   });
 
-  it('does not declare its own readiness selector', () => {
-    expect(code).not.toMatch(/\b(?:const|let|var)\s+CONVERSATION_CONTAINER_SELECTOR\b/);
+  it('does not declare its own readiness map or use a joined cross-platform selector', () => {
+    expect(code).not.toMatch(/\b(?:const|let|var)\s+CONVERSATION_READY_SELECTORS\b/);
+    expect(code).not.toContain('CONVERSATION_CONTAINER_SELECTOR');
+    expect(code).not.toMatch(/Object\.(?:values|entries)\(\s*CONVERSATION_READY_SELECTORS\s*\)/);
   });
 
-  it('uses the shared hint for both immediate and observer readiness checks', () => {
-    expect(code.match(/document\.querySelector\(CONVERSATION_CONTAINER_SELECTOR\)/g)).toHaveLength(
-      2
+  it('selects only the current extractor platform hint before waiting', () => {
+    expect(code).toMatch(
+      /await\s+waitForConversationContainer\(\s*CONVERSATION_READY_SELECTORS\[extractor\.platform\]\s*\)/
     );
+  });
+
+  it('uses the selected hint for both immediate and observer readiness checks', () => {
+    expect(code).toMatch(/function\s+waitForConversationContainer\(readinessSelector:\s*string\)/);
+    expect(code.match(/document\.querySelector\(readinessSelector\)/g)).toHaveLength(2);
     expect(code.match(/querySelector(?:All)?\(\s*['"`]/g) ?? []).toEqual([]);
   });
 

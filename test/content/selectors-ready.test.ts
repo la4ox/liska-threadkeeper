@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  CONVERSATION_READY_SELECTORS,
-  CONVERSATION_CONTAINER_SELECTOR,
-} from '../../src/content/extractors/selectors/ready';
+import { CONVERSATION_READY_SELECTORS } from '../../src/content/extractors/selectors/ready';
 import { SELECTORS as GEMINI } from '../../src/content/extractors/selectors/gemini';
 import { SELECTORS as CLAUDE } from '../../src/content/extractors/selectors/claude';
 import { SELECTORS as CHATGPT } from '../../src/content/extractors/selectors/chatgpt';
@@ -28,21 +25,21 @@ describe('CONVERSATION_READY_SELECTORS', () => {
     expect(CONVERSATION_READY_SELECTORS.notebooklm).toBe(NOTEBOOKLM.conversationTurn[0]);
   });
 
-  it('joins exactly the nonempty primary selectors into the container hint', () => {
-    const selectors = Object.values(CONVERSATION_READY_SELECTORS);
-    expect(selectors.every(selector => selector.trim().length > 0)).toBe(true);
-    expect(CONVERSATION_CONTAINER_SELECTOR).toBe(selectors.join(', '));
-  });
-
   it('does not carry broad conversation classes or dead platform variants', () => {
-    const selectors = CONVERSATION_CONTAINER_SELECTOR.split(', ');
+    const selectors = Object.values(CONVERSATION_READY_SELECTORS);
     expect(selectors).not.toContain('.conversation');
     expect(selectors).not.toContain('[class*="conversation"]');
-    expect(CONVERSATION_CONTAINER_SELECTOR).not.toContain('article[data-turn-id]');
-    expect(CONVERSATION_CONTAINER_SELECTOR).not.toContain('threadContentWidth');
+    for (const selector of selectors) {
+      expect(selector).not.toContain('article[data-turn-id]');
+      expect(selector).not.toContain('threadContentWidth');
+    }
   });
 
-  it('is a valid CSS selector list', () => {
-    expect(() => document.querySelector(CONVERSATION_CONTAINER_SELECTOR)).not.toThrow();
-  });
+  it.each(Object.entries(CONVERSATION_READY_SELECTORS))(
+    'provides a nonempty valid CSS readiness hint for %s',
+    (_platform, selector) => {
+      expect(selector.trim().length).toBeGreaterThan(0);
+      expect(() => document.querySelector(selector)).not.toThrow();
+    }
+  );
 });
