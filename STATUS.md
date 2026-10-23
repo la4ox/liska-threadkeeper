@@ -1002,3 +1002,24 @@ and diff checks pass; lint retains only the same three pre-existing advisory
 warnings. This protects affirmative DOM-deadline truncation, not arbitrary
 provider incompleteness or concurrent read-to-write vault races; no live
 browser/vault claim is made for this checkpoint.
+
+Provider UI readiness is now derived from the same owned selector modules as
+the extractors on `codex/provider-readiness`. The exhaustive typed map covers
+six logical providers and all seven registered host surfaces: Gemini, Claude,
+ChatGPT, Perplexity, DeepSeek, and both Gemini Notebook hosts. Bootstrap no
+longer carries its own broad conversation-class, dead ChatGPT article, or
+thread-width selector copies.
+
+This remains only an early control-injection hint. ChatGPT and DeepSeek stay
+structured-first; initialization performs no extraction, messaging, fetch, or
+capture, and the trusted-click boundary is unchanged. The existing 100 ms
+mutation debounce and unconditional 10-second escape remain intact so missing
+or virtualized provider DOM cannot permanently hide the controls. Independent
+review found no residual P0-P3 issue. Exact-tree validation passes 171 test
+files / 5,217 tests; coverage is 95.33% statements, 91.40% branches, 98.68%
+functions, and 97.78% lines. TypeScript/build, source/platform lint, formatting,
+and diff checks pass; lint retains only the same three pre-existing advisory
+warnings. No live-provider claim is attached to this wiring checkpoint; the
+joined readiness list remains a bounded heuristic and Claude's primary
+`[data-index]` selector is intentionally unchanged from its owned extractor
+contract.
