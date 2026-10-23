@@ -15,6 +15,7 @@ import {
   DEFAULT_SCROLL_MAX_TIMEOUT_SEC,
 } from './constants';
 import { normalizeScrollTimeoutSeconds } from './scroll-deadlines';
+import { defaultTagTemplates, normalizeTagTemplates } from './tag-template';
 
 const MESSAGE_FORMATS = ['callout', 'plain', 'blockquote'] as const;
 const FILENAME_SCHEMES = ['title-id', 'title-date'] as const;
@@ -23,6 +24,12 @@ export const DEFAULT_TEMPLATE_OPTIONS: TemplateOptions = {
   includeId: true,
   includeTitle: true,
   includeTags: true,
+  get conversationTags() {
+    return defaultTagTemplates('conversation');
+  },
+  get deepResearchTags() {
+    return defaultTagTemplates('deep-research');
+  },
   includeSource: true,
   includeDates: true,
   includeMessageCount: true,
@@ -90,6 +97,8 @@ function normalizeTemplateOptions(raw: unknown): TemplateOptions {
     includeId: asBoolean(raw.includeId, d.includeId),
     includeTitle: asBoolean(raw.includeTitle, d.includeTitle),
     includeTags: asBoolean(raw.includeTags, d.includeTags),
+    conversationTags: normalizeTagTemplates(raw.conversationTags, 'conversation'),
+    deepResearchTags: normalizeTagTemplates(raw.deepResearchTags, 'deep-research'),
     includeSource: asBoolean(raw.includeSource, d.includeSource),
     includeDates: asBoolean(raw.includeDates, d.includeDates),
     includeMessageCount: asBoolean(raw.includeMessageCount, d.includeMessageCount),

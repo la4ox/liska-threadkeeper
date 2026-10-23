@@ -28,6 +28,7 @@ import {
 import { getMessage } from '../lib/i18n';
 import { sendMessage } from '../lib/messaging';
 import { isValidScrollTimeoutSeconds } from '../lib/scroll-deadlines';
+import { normalizeTagTemplates, parseTagTemplates } from '../lib/tag-template';
 
 /**
  * Initialize i18n for all elements with data-i18n attributes
@@ -98,6 +99,8 @@ function queryElements() {
     includeId: getElement<HTMLInputElement>('includeId'),
     includeTitle: getElement<HTMLInputElement>('includeTitle'),
     includeTags: getElement<HTMLInputElement>('includeTags'),
+    conversationTags: getElement<HTMLInputElement>('conversationTags'),
+    deepResearchTags: getElement<HTMLInputElement>('deepResearchTags'),
     includeSource: getElement<HTMLInputElement>('includeSource'),
     includeDates: getElement<HTMLInputElement>('includeDates'),
     includeMessageCount: getElement<HTMLInputElement>('includeMessageCount'),
@@ -206,6 +209,14 @@ function populateForm(settings: ExtensionSettings): void {
   elements.includeId.checked = templateOptions.includeId ?? true;
   elements.includeTitle.checked = templateOptions.includeTitle ?? true;
   elements.includeTags.checked = templateOptions.includeTags ?? true;
+  elements.conversationTags.value = normalizeTagTemplates(
+    templateOptions.conversationTags,
+    'conversation'
+  ).join(', ');
+  elements.deepResearchTags.value = normalizeTagTemplates(
+    templateOptions.deepResearchTags,
+    'deep-research'
+  ).join(', ');
   elements.includeSource.checked = templateOptions.includeSource ?? true;
   elements.includeDates.checked = templateOptions.includeDates ?? true;
   elements.includeMessageCount.checked = templateOptions.includeMessageCount ?? true;
@@ -432,6 +443,8 @@ function collectScrollDeadlines(): Pick<
  * Validate deadlines strictly and normalize other values before transport.
  */
 function collectSettings(): ExtensionSettings | null {
+  const tags = collectTagTemplates();
+  if (!tags) return null;
   const scrollDeadlines = collectScrollDeadlines();
   if (!scrollDeadlines) return null;
   const formatValue = elements.messageFormat.value;
@@ -442,6 +455,7 @@ function collectSettings(): ExtensionSettings | null {
     : 'callout';
 
   const templateOptions: TemplateOptions = {
+    ...tags,
     messageFormat,
     userCalloutType: validateCalloutType(elements.userCallout.value || 'QUESTION', 'QUESTION'),
     assistantCalloutType: validateCalloutType(elements.assistantCallout.value || 'NOTE', 'NOTE'),
@@ -475,6 +489,23 @@ function collectSettings(): ExtensionSettings | null {
     flattenLargeCallouts: elements.flattenLargeCallouts.checked,
     maxCalloutLines: parseCalloutLines(elements.maxCalloutLines.value),
   };
+}
+
+/** Validate both lists even when tag emission is disabled. */
+function collectTagTemplates(): Pick<
+  TemplateOptions,
+  'conversationTags' | 'deepResearchTags'
+> | null {
+  const conversation = parseTagTemplates(elements.conversationTags.value, 'conversation');
+  const research = parseTagTemplates(elements.deepResearchTags.value, 'deep-research');
+  if (!conversation.ok || !research.ok) {
+    showStatus(getMessage('error_tagTemplates'), 'error');
+    (!conversation.ok ? elements.conversationTags : elements.deepResearchTags).focus();
+    return null;
+  }
+  elements.conversationTags.value = conversation.tags.join(', ');
+  elements.deepResearchTags.value = research.tags.join(', ');
+  return { conversationTags: conversation.tags, deepResearchTags: research.tags };
 }
 
 /** Parse the max-callout-lines input, clamping to a sane positive range. */

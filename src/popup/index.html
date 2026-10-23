@@ -413,6 +413,28 @@
                 </label>
               </div>
 
+              <div class="form-group">
+                <label for="conversationTags" data-i18n="settings_conversationTags"
+                  >Conversation tags</label
+                >
+                <input type="text" id="conversationTags" aria-describedby="conversationTagsHelp" />
+                <p class="help" id="conversationTagsHelp" data-i18n="settings_conversationTagsHelp">
+                  Comma-separated tags; use {platform} as a whole tag for the provider ID. Blank
+                  restores ai-conversation, {platform}. Spaces become hyphens; leading # is removed.
+                </p>
+              </div>
+              <div class="form-group">
+                <label for="deepResearchTags" data-i18n="settings_deepResearchTags"
+                  >Deep Research tags</label
+                >
+                <input type="text" id="deepResearchTags" aria-describedby="deepResearchTagsHelp" />
+                <p class="help" id="deepResearchTagsHelp" data-i18n="settings_deepResearchTagsHelp">
+                  Comma-separated tags; use {platform} as a whole tag for the provider ID. Blank
+                  restores ai-research, deep-research, {platform}. Spaces become hyphens; leading #
+                  is removed.
+                </p>
+              </div>
+
               <div class="form-group timezone-group" id="timezoneGroup">
                 <label for="timezone" data-i18n="settings_timezone">Timezone</label>
                 <select id="timezone">

@@ -7,6 +7,65 @@ import {
 } from '../../src/lib/settings-schema';
 
 describe('normalizeSyncSettings', () => {
+  it('normalizes tag lists independently and never shares arrays', () => {
+    const stored = {
+      vaultPath: 'Keep',
+      templateOptions: {
+        conversationTags: ['a,b'],
+        deepResearchTags: ['研究', '{platform}'],
+        includeTags: false,
+      },
+    };
+    const first = normalizeSyncSettings(stored);
+    expect(first.vaultPath).toBe('Keep');
+    expect(first.templateOptions).toMatchObject({
+      conversationTags: ['ai-conversation', '{platform}'],
+      deepResearchTags: ['研究', '{platform}'],
+      includeTags: false,
+    });
+    first.templateOptions.deepResearchTags!.push('changed');
+    first.templateOptions.conversationTags!.push('changed');
+    expect(normalizeSyncSettings(stored).templateOptions.deepResearchTags).toEqual([
+      '研究',
+      '{platform}',
+    ]);
+    for (const raw of [
+      undefined,
+      {},
+      { templateOptions: {} },
+      { templateOptions: { conversationTags: [], deepResearchTags: [] } },
+    ]) {
+      const a = normalizeSyncSettings(raw);
+      const b = normalizeSyncSettings(raw);
+      expect(a.templateOptions.conversationTags).toEqual(['ai-conversation', '{platform}']);
+      expect(a.templateOptions.conversationTags).not.toBe(b.templateOptions.conversationTags);
+      expect(a.templateOptions.deepResearchTags).not.toBe(b.templateOptions.deepResearchTags);
+    }
+    expect(DEFAULT_TEMPLATE_OPTIONS.conversationTags).not.toBe(
+      DEFAULT_TEMPLATE_OPTIONS.conversationTags
+    );
+  });
+
+  it.each(
+    [
+      ['a,b'],
+      ['A', 'a'],
+      ['#tag'],
+      ['two words'],
+      ['{title}'],
+      ['123'],
+      ['x'.repeat(101)],
+      Array(51).fill('tag'),
+      'tag',
+      [1],
+    ].map(value => [value])
+  )('resets malformed stored tags %j without resetting siblings', value => {
+    const settings = normalizeSyncSettings({
+      templateOptions: { conversationTags: value, deepResearchTags: ['valid'] },
+    });
+    expect(settings.templateOptions.conversationTags).toEqual(['ai-conversation', '{platform}']);
+    expect(settings.templateOptions.deepResearchTags).toEqual(['valid']);
+  });
   it('adds deadline defaults to old saved settings without changing sibling fields', () => {
     expect(normalizeSyncSettings({ vaultPath: 'Existing', enableAutoScroll: true })).toMatchObject({
       vaultPath: 'Existing',

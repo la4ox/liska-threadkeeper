@@ -6,6 +6,27 @@ import {
 } from '../../src/lib/sync-settings-snapshot';
 
 describe('sync settings snapshot', () => {
+  it.each(['conversationTags', 'deepResearchTags'] as const)(
+    'binds %s to the canonical routing snapshot',
+    key => {
+      const before = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
+      const after = serializeSyncSettingsSnapshot({
+        ...DEFAULT_SYNC_SETTINGS,
+        templateOptions: {
+          ...DEFAULT_SYNC_SETTINGS.templateOptions,
+          [key]: ['custom', '{platform}'],
+        },
+      });
+      expect(after).not.toBe(before);
+      expect(isSerializedSyncSettingsSnapshot(after)).toBe(true);
+      expect(JSON.parse(after).templateOptions[key]).toEqual(['custom', '{platform}']);
+      const malformed = JSON.parse(after);
+      malformed.templateOptions[key] = ['a,b'];
+      expect(isSerializedSyncSettingsSnapshot(JSON.stringify(malformed))).toBe(false);
+      delete malformed.templateOptions[key];
+      expect(isSerializedSyncSettingsSnapshot(JSON.stringify(malformed))).toBe(false);
+    }
+  );
   it.each(['scrollIdleTimeoutSec', 'scrollMaxTimeoutSec'] as const)(
     'includes %s in the canonical routing snapshot and detects a changed deadline',
     key => {

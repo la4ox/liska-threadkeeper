@@ -60,6 +60,52 @@ function renderedLeaves(value: LiskaThreadArchive): {
 }
 
 describe('all-branches archive presentation renderer', () => {
+  it('uses conversation tags for leaves, canonical-only stubs, and the index without altering provenance or filenames', () => {
+    const value = archive();
+    value.graph.nodes['node-user'].message!.author.role = 'system';
+    value.graph.nodes['node-alternate'].message!.author.role = 'tool';
+    const catalog = getArchiveBranchCatalog(value);
+    const options = {
+      ...templateOptions,
+      conversationTags: ['My/Branches', '{platform}'],
+      deepResearchTags: ['NotForBranches'],
+    };
+    const renders = catalog.branches.map(branch =>
+      renderArchiveBranchLeaf(value, catalog, branch, options, captureId)
+    );
+    expect(renders.map(render => render.status)).toContain('canonical-only');
+    for (const [index, render] of renders.entries()) {
+      const original = renderArchiveBranchLeaf(
+        value,
+        catalog,
+        catalog.branches[index],
+        templateOptions,
+        captureId
+      );
+      expect(render.note.fileName).toBe(original.note.fileName);
+      expect(render.warnings).toEqual(original.warnings);
+      expect(render.note.frontmatter).toEqual({
+        ...original.note.frontmatter,
+        tags: ['My/Branches', 'chatgpt'],
+      });
+    }
+    const note = renderArchiveBranchIndex(
+      value,
+      catalog,
+      renders.map(indexEntry),
+      options,
+      captureId
+    );
+    const original = renderArchiveBranchIndex(
+      value,
+      catalog,
+      renders.map(indexEntry),
+      templateOptions,
+      captureId
+    );
+    expect(note.fileName).toBe(original.fileName);
+    expect(note.frontmatter).toEqual({ ...original.frontmatter, tags: ['My/Branches', 'chatgpt'] });
+  });
   it('renders the current and alternate leaves separately with complete capture provenance', () => {
     const value = archive();
     const { renders } = renderedLeaves(value);

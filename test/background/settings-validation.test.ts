@@ -32,6 +32,55 @@ const validSettings: ExtensionSettings = {
 };
 
 describe('popup settings transport validation', () => {
+  it('accepts legacy omitted tags and canonical lists, rejects unknown template keys', () => {
+    expect(validateSettingsUpdate(validSettings)).toBe(true);
+    expect(
+      validateSettingsUpdate({
+        ...validSettings,
+        templateOptions: {
+          ...validSettings.templateOptions,
+          conversationTags: ['Keep', '{platform}'],
+          deepResearchTags: ['研究'],
+        },
+      })
+    ).toBe(true);
+    expect(
+      validateSettingsUpdate({
+        ...validSettings,
+        templateOptions: { ...validSettings.templateOptions, customTags: ['no'] },
+      })
+    ).toBe(false);
+  });
+
+  it.each(['conversationTags', 'deepResearchTags'])(
+    'requires present %s to be an exact bounded canonical list even with tags off',
+    key => {
+      for (const value of [
+        undefined,
+        null,
+        '',
+        [],
+        ['a,b'],
+        ['A', 'a'],
+        [' tag'],
+        ['#tag'],
+        ['two words'],
+        ['{date}'],
+        [1],
+        [['tag']],
+        ['a'.repeat(101)],
+        Array.from({ length: 51 }, (_, i) => `t${i}`),
+        Array.from({ length: 8 }, (_, i) => `${i}${'語'.repeat(99)}`),
+      ]) {
+        expect(
+          validateSettingsUpdate({
+            ...validSettings,
+            templateOptions: { ...validSettings.templateOptions, includeTags: false, [key]: value },
+          })
+        ).toBe(false);
+      }
+    }
+  );
   it.each(['scrollIdleTimeoutSec', 'scrollMaxTimeoutSec'] as const)(
     'strictly rejects malformed and out-of-range %s without normalization',
     key => {

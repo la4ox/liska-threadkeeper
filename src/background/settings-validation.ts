@@ -3,6 +3,7 @@
 import { VALID_MESSAGE_FORMATS } from '../lib/constants';
 import type { PopupSettingsUpdate } from '../lib/types';
 import { isValidScrollTimeoutSeconds } from '../lib/scroll-deadlines';
+import { isCanonicalTagTemplates } from '../lib/tag-template';
 
 const REQUIRED_SETTINGS_UPDATE_KEYS = [
   'obsidianUrl',
@@ -37,6 +38,8 @@ const REQUIRED_TEMPLATE_OPTION_KEYS = [
 ] as const;
 
 const OPTIONAL_TEMPLATE_OPTION_KEYS = [
+  'conversationTags',
+  'deepResearchTags',
   'includeQuestionHeaders',
   'timezone',
   'filenameScheme',
@@ -89,6 +92,10 @@ function validateTemplateOptionsForSettingsUpdate(value: unknown): boolean {
     typeof options.includeId === 'boolean' &&
     typeof options.includeTitle === 'boolean' &&
     typeof options.includeTags === 'boolean' &&
+    (!Object.prototype.hasOwnProperty.call(options, 'conversationTags') ||
+      isCanonicalTagTemplates(options.conversationTags)) &&
+    (!Object.prototype.hasOwnProperty.call(options, 'deepResearchTags') ||
+      isCanonicalTagTemplates(options.deepResearchTags)) &&
     typeof options.includeSource === 'boolean' &&
     typeof options.includeDates === 'boolean' &&
     typeof options.includeMessageCount === 'boolean' &&

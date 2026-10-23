@@ -505,6 +505,9 @@ export interface TemplateOptions {
   includeTitle: boolean;
   /** Include tags in frontmatter */
   includeTags: boolean;
+  /** Canonical literal tags or the standalone {platform} token. Missing means defaults. */
+  conversationTags?: string[];
+  deepResearchTags?: string[];
   /** Include source platform in frontmatter */
   includeSource: boolean;
   /** Include created/modified dates in frontmatter */

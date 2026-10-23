@@ -43,6 +43,23 @@ describe('storage', () => {
   });
 
   describe('getSettings', () => {
+    it('round-trips tag templates in sync without putting them in credential storage', async () => {
+      const settings = await getSettingsOrThrow();
+      const templateOptions = {
+        ...settings.templateOptions,
+        conversationTags: ['Custom', '{platform}'],
+        deepResearchTags: ['研究'],
+      };
+      await saveSettings({ templateOptions });
+      expect(await getSettingsOrThrow()).toMatchObject({ templateOptions });
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: expect.objectContaining({ templateOptions }),
+      });
+      expect(chrome.storage.local.set).not.toHaveBeenCalled();
+      expect(JSON.stringify(vi.mocked(chrome.storage.sync.set).mock.calls)).not.toContain(
+        'obsidianApiKey'
+      );
+    });
     it('supplies old-store defaults without a write, then persists them on a later save', async () => {
       await chrome.storage.sync.set({ settings: { vaultPath: 'Existing' } });
       vi.mocked(chrome.storage.sync.set).mockClear();

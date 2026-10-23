@@ -268,6 +268,8 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       vi.setSystemTime(renderedAt);
       try {
         settings.templateOptions.filenameScheme = 'title-date';
+        settings.templateOptions.conversationTags = ['custom', '{platform}'];
+        settings.templateOptions.deepResearchTags = ['research', '{platform}'];
         settings.outputOptions = { file: true, obsidian: true, clipboard: true };
         const frozenSettings = structuredClone(settings);
         const data = {
@@ -294,6 +296,8 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         mocks.attachmentExport.mockImplementationOnce(async () => {
           vi.setSystemTime(new Date('2026-10-24T00:05:00.000Z'));
           settings.templateOptions.filenameScheme = 'title-id';
+          settings.templateOptions.conversationTags!.push('later-change');
+          settings.templateOptions.deepResearchTags!.push('later-change');
           settings.vaultPath = 'Changed/{platform}';
           return {
             completeDestinations: [destination],
@@ -322,6 +326,17 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
           throw new Error('unexpected-message');
         });
         await handleSync();
+        const applied = mocks.applySettings.mock.calls.at(-1)![0] as ContentScriptSettings;
+        expect(Object.isFrozen(applied.templateOptions.conversationTags)).toBe(true);
+        expect(Object.isFrozen(applied.templateOptions.deepResearchTags)).toBe(true);
+        expect(applied.templateOptions.conversationTags).not.toBe(
+          settings.templateOptions.conversationTags
+        );
+        expect(applied.templateOptions.deepResearchTags).not.toBe(
+          settings.templateOptions.deepResearchTags
+        );
+        expect(() => applied.templateOptions.conversationTags!.push('forbidden')).toThrow();
+        expect(() => applied.templateOptions.deepResearchTags!.push('forbidden')).toThrow();
         const writes = mocks.sendMessage.mock.calls
           .map(([message]) => message)
           .filter(message => message.action === 'saveToOutputs');
@@ -339,6 +354,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
             serializeSyncSettingsSnapshot(frozenSettings)
           );
           expect(write.data.frontmatter.modified).toBe(baseNote.frontmatter.modified);
+          expect(write.data.frontmatter.tags).toEqual(['custom', 'chatgpt']);
           if (write.outputs[0] === destination) {
             expect(write.data.fileName).toBe(
               decorateChatGptArchiveNote(baseNote, receipt).fileName

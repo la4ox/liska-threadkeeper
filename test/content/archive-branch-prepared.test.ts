@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import * as markdownModule from '../../src/content/markdown';
 import * as archiveModule from '../../src/archive';
 import { getArchiveBranchCatalog, type LiskaThreadArchive } from '../../src/archive';
 import {
@@ -83,6 +85,90 @@ afterEach(() => {
 });
 
 describe('prepared all-branches render session', () => {
+  it.each(['defaults', 'custom', 'empty', 'invalid'] as const)(
+    'owns frozen normalized tag arrays for %s through repeated rendering and fingerprinting',
+    mode => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-23T23:59:59Z'));
+      const caller: TemplateOptions = { ...templateOptions };
+      if (mode !== 'defaults') {
+        caller.conversationTags =
+          mode === 'custom' ? ['Work/Branches', '{platform}'] : mode === 'empty' ? [] : ['a,b'];
+        caller.deepResearchTags =
+          mode === 'custom'
+            ? ['Research/Custom', '{platform}']
+            : mode === 'empty'
+              ? []
+              : ['#invalid'];
+      }
+      const callerConversation = caller.conversationTags;
+      const callerResearch = caller.deepResearchTags;
+      const value = mixedArchive();
+      const catalog = getArchiveBranchCatalog(value);
+      const render = vi.spyOn(markdownModule, 'conversationToNote');
+      const session = prepareArchiveBranchPresentation(value, catalog, caller, captureId);
+      const before = catalog.branches.map(branch => session.renderLeaf(branch.ordinal));
+      const owned = render.mock.calls[0][1];
+      expect(owned).not.toBe(caller);
+      expect(Object.isFrozen(owned)).toBe(true);
+      for (const key of ['conversationTags', 'deepResearchTags'] as const) {
+        expect(owned[key]).not.toBe(caller[key]);
+        expect(Object.isFrozen(owned[key])).toBe(true);
+        expect(() => owned[key]!.push('forbidden')).toThrow();
+      }
+      expect(() => {
+        owned.includeTags = false;
+      }).toThrow();
+      const entries = before.map(entry);
+      const indexBefore = session.renderIndex(entries);
+      const fingerprint = (note: typeof indexBefore) => {
+        const text = generateNoteContent(note, { templateOptions: owned } as ExtensionSettings);
+        return {
+          byteLength: new TextEncoder().encode(text).byteLength,
+          sha256: createHash('sha256').update(text).digest('hex'),
+        };
+      };
+      const fingerprints = [...before.map(leaf => leaf.note), indexBefore].map(fingerprint);
+      const researchData = {
+        ...render.mock.calls[0][0],
+        type: 'deep-research' as const,
+        messages: [],
+      };
+      const researchBefore = markdownModule.conversationToNote(researchData, owned);
+      expect(before.map(leaf => leaf.status)).toEqual(['rendered', 'canonical-only']);
+      for (const note of [...before.map(leaf => leaf.note), indexBefore]) {
+        expect(note.frontmatter.tags).toEqual([
+          mode === 'custom' ? 'Work/Branches' : 'ai-conversation',
+          'chatgpt',
+        ]);
+      }
+      expect(researchBefore.frontmatter.tags).toEqual(
+        mode === 'custom'
+          ? ['Research/Custom', 'chatgpt']
+          : ['ai-research', 'deep-research', 'chatgpt']
+      );
+
+      callerConversation?.splice(0, callerConversation.length, 'changed-in-place');
+      callerResearch?.push('changed-in-place');
+      caller.conversationTags = ['replacement'];
+      caller.deepResearchTags = ['replacement'];
+      caller.filenameScheme = 'title-date';
+      caller.includeTags = false;
+
+      for (let pass = 0; pass < 2; pass += 1) {
+        const after = catalog.branches.map(branch => session.renderLeaf(branch.ordinal));
+        expect(after).toEqual(before);
+        expect(after.map(entry)).toEqual(entries);
+        const indexAfter = session.renderIndex(entries);
+        expect(indexAfter).toEqual(indexBefore);
+        expect([...after.map(leaf => leaf.note), indexAfter].map(fingerprint)).toEqual(
+          fingerprints
+        );
+        expect(markdownModule.conversationToNote(researchData, owned)).toEqual(researchBefore);
+      }
+    }
+  );
+
   it('exposes immutable content-free exact traversal work metrics', () => {
     const value = archive();
     value.graph.nodes['node-user'].message!.blocks[0].text = 'мяу 🐾';

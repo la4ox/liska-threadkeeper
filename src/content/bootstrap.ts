@@ -1046,6 +1046,12 @@ export async function persistAllBranchesBundle(
 
 function freezeSettingsSnapshot(settings: ContentScriptSettings): ContentScriptSettings {
   const snapshot = structuredClone(settings);
+  if (snapshot.templateOptions.conversationTags) {
+    Object.freeze(snapshot.templateOptions.conversationTags);
+  }
+  if (snapshot.templateOptions.deepResearchTags) {
+    Object.freeze(snapshot.templateOptions.deepResearchTags);
+  }
   Object.freeze(snapshot.templateOptions);
   Object.freeze(snapshot.outputOptions);
   return Object.freeze(snapshot);

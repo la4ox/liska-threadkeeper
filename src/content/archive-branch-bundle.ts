@@ -22,6 +22,7 @@ import {
 import type { ArchiveBranchWorkMetrics } from './archive-branch-budget';
 import { ALL_PLATFORMS, platformOrigin } from '../lib/platform-registry';
 import type { AIPlatform, ConversationData, ObsidianNote, TemplateOptions } from '../lib/types';
+import { normalizeTagTemplates } from '../lib/tag-template';
 
 const CAPTURE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,239}$/;
 const SAFE_NOTE_FILENAME_PATTERN =
@@ -656,7 +657,14 @@ export function prepareArchiveBranchPresentation(
 ): PreparedArchiveBranchPresentation {
   requireCaptureId(captureId);
   const prepared = prepareArchiveBranchGraph(archive, catalog);
-  const options = { ...templateOptions };
+  const options = {
+    ...templateOptions,
+    conversationTags: normalizeTagTemplates(templateOptions.conversationTags, 'conversation'),
+    deepResearchTags: normalizeTagTemplates(templateOptions.deepResearchTags, 'deep-research'),
+  };
+  Object.freeze(options.conversationTags);
+  Object.freeze(options.deepResearchTags);
+  Object.freeze(options);
   const baseData = baseConversationData(prepared.archive, captureId, undefined);
   const renderedAt = new Date();
   const facts = new Map<number, ArchiveBranchIndexEntry>();

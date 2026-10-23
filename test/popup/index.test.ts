@@ -93,6 +93,8 @@ function buildPopupDom(): void {
       <input type="number" id="scrollMaxTimeoutSec" min="30" max="300" step="1" />
     </section>
     ${switches}
+    <input type="text" id="conversationTags" />
+    <input type="text" id="deepResearchTags" />
     <select id="messageFormat">
       <option value="callout">callout</option>
       <option value="plain">plain</option>
@@ -142,6 +144,125 @@ describe('popup/app', () => {
   });
 
   describe('initPopup', () => {
+    it.each(['en', 'ja'])(
+      'ships labeled and localized tag controls and errors in %s',
+      async locale => {
+        const messages = JSON.parse(
+          readFileSync(
+            path.resolve(import.meta.dirname, `../../src/_locales/${locale}/messages.json`),
+            'utf8'
+          )
+        );
+        vi.mocked(chrome.i18n.getMessage).mockImplementation(
+          (key: string) => messages[key]?.message ?? key
+        );
+        try {
+          document.documentElement.innerHTML = readFileSync(
+            path.resolve(import.meta.dirname, '../../src/popup/index.html'),
+            'utf8'
+          );
+          vi.mocked(getSettingsOrThrow).mockResolvedValue(storedSettings);
+          await initPopup();
+          for (const field of ['conversationTags', 'deepResearchTags']) {
+            const input = el<HTMLInputElement>(field);
+            expect(input.closest('section')?.querySelector('h2')?.getAttribute('data-i18n')).toBe(
+              'settings_frontmatter'
+            );
+            expect(document.querySelector(`label[for="${field}"]`)?.textContent).toBe(
+              messages[`settings_${field}`].message
+            );
+            expect(
+              document.getElementById(input.getAttribute('aria-describedby')!)?.textContent
+            ).toBe(messages[`settings_${field}Help`].message);
+          }
+          el<HTMLInputElement>('conversationTags').value = '{title}';
+          el<HTMLButtonElement>('saveBtn').click();
+          await vi.waitFor(() =>
+            expect(statusEl().textContent).toBe(messages.error_tagTemplates.message)
+          );
+          expect(sendMessage).not.toHaveBeenCalled();
+        } finally {
+          vi.mocked(chrome.i18n.getMessage).mockImplementation((key: string) => key);
+        }
+      }
+    );
+
+    it('populates existing tags and saves canonical text without requiring the provider token', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        templateOptions: {
+          ...storedSettings.templateOptions,
+          conversationTags: ['Own'],
+          deepResearchTags: ['研究', '{platform}'],
+        },
+      });
+      expect(el<HTMLInputElement>('conversationTags').value).toBe('Own');
+      expect(el<HTMLInputElement>('deepResearchTags').value).toBe('研究, {platform}');
+      el<HTMLInputElement>('conversationTags').value = ' # My  Tag, my-tag, ## my-tag, Nested/Tag ';
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+      expect(settingsSaveAt(0).templateOptions.conversationTags).toEqual(['My-Tag', 'Nested/Tag']);
+      expect(el<HTMLInputElement>('conversationTags').value).toBe('My-Tag, Nested/Tag');
+    });
+
+    it('blank fields reset both lists before saving and testing connection', async () => {
+      await initWithDefaults();
+      expect(el<HTMLInputElement>('conversationTags').value).toBe('ai-conversation, {platform}');
+      el<HTMLInputElement>('conversationTags').value = ' ';
+      el<HTMLInputElement>('deepResearchTags').value = '';
+      el<HTMLButtonElement>('testBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      expect(settingsSaveAt(0).templateOptions).toMatchObject({
+        conversationTags: ['ai-conversation', '{platform}'],
+        deepResearchTags: ['ai-research', 'deep-research', '{platform}'],
+      });
+      expect(el<HTMLInputElement>('deepResearchTags').value).toBe(
+        'ai-research, deep-research, {platform}'
+      );
+      expect(vi.mocked(sendMessage).mock.calls[1][0]).toEqual({ action: 'testConnection' });
+    });
+
+    it.each(['saveBtn', 'testBtn'])(
+      'rejects numeric tags after hashtag whitespace cleanup before %s',
+      async button => {
+        await initWithDefaults();
+        el<HTMLInputElement>('conversationTags').value = '# 123';
+        el<HTMLButtonElement>(button).click();
+        await vi.waitFor(() => expect(statusEl().className).toContain('error'));
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(statusEl().textContent).toBe('error_tagTemplates');
+      }
+    );
+
+    it('keeps destination-only autosave independent of unsaved invalid tag text', async () => {
+      await initWithDefaults();
+      el<HTMLInputElement>('conversationTags').value = '{title}';
+      const output = el<HTMLInputElement>('outputFile');
+      output.checked = true;
+      output.dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+      expect(sendMessage).toHaveBeenCalledWith({
+        action: 'updateOutputOptions',
+        outputOptions: { obsidian: true, file: true, clipboard: true },
+      });
+      expect(el<HTMLInputElement>('conversationTags').value).toBe('{title}');
+    });
+
+    it.each(['saveBtn', 'testBtn'])(
+      'blocks %s on either invalid list even with Include Tags off',
+      async button => {
+        for (const field of ['conversationTags', 'deepResearchTags']) {
+          await initWithDefaults();
+          expect(el<HTMLInputElement>('includeTags').checked).toBe(false);
+          el<HTMLInputElement>(field).value = 'work/{platform}';
+          el<HTMLButtonElement>(button).click();
+          await vi.waitFor(() => expect(statusEl().className).toContain('error'));
+          expect(statusEl().textContent).toBe('error_tagTemplates');
+          expect(sendMessage).not.toHaveBeenCalled();
+          expect(document.activeElement).toBe(el(field));
+        }
+      }
+    );
     it('ships both labeled numeric inputs inside Advanced Extraction with matching bounds', async () => {
       document.documentElement.innerHTML = readFileSync(
         path.resolve(import.meta.dirname, '../../src/popup/index.html'),
@@ -640,6 +761,8 @@ describe('popup/app', () => {
             templateOptions: {
               ...storedSettings.templateOptions,
               filenameScheme: 'title-id',
+              conversationTags: ['ai-conversation', '{platform}'],
+              deepResearchTags: ['ai-research', 'deep-research', '{platform}'],
             },
           },
         })

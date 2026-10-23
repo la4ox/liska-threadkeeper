@@ -679,6 +679,57 @@ describe('conversationToNote', () => {
     }
   );
 
+  it.each(['gemini', 'claude', 'perplexity', 'chatgpt', 'notebooklm', 'deepseek'] as const)(
+    'preserves default tags and resolves custom tags once for %s, including research',
+    source => {
+      const renderedAt = new Date('2026-10-23T01:02:03Z');
+      for (const type of ['conversation', 'deep-research'] as const) {
+        const data = {
+          ...mockData,
+          source,
+          type,
+          capture: { mode: 'structured-api' as const, completeness: 'complete' as const },
+        };
+        const baseline = conversationToNote(data, defaultOptions, renderedAt);
+        expect(baseline.frontmatter.tags).toEqual(
+          type === 'deep-research'
+            ? ['ai-research', 'deep-research', source]
+            : ['ai-conversation', source]
+        );
+        const note = conversationToNote(
+          data,
+          {
+            ...defaultOptions,
+            conversationTags: ['Work/Chat', '{platform}', source.toUpperCase()],
+            deepResearchTags: ['研究', '{platform}', source.toUpperCase()],
+          },
+          renderedAt
+        );
+        expect(note).toEqual({
+          ...baseline,
+          frontmatter: {
+            ...baseline.frontmatter,
+            tags: [type === 'deep-research' ? '研究' : 'Work/Chat', source],
+          },
+        });
+      }
+    }
+  );
+
+  it('allows provider omission but only Include Tags controls frontmatter emission', () => {
+    const options = { ...defaultOptions, conversationTags: ['Custom'] };
+    const note = conversationToNote(mockData, options);
+    expect(note.frontmatter.tags).toEqual(['Custom']);
+    expect(generateNoteContent(note, { templateOptions: options } as ExtensionSettings)).toContain(
+      '  - Custom'
+    );
+    expect(
+      generateNoteContent(note, {
+        templateOptions: { ...options, includeTags: false },
+      } as ExtensionSettings)
+    ).not.toContain('tags:');
+  });
+
   it('attaches captured images to the note', () => {
     const dataWithImages: ConversationData = {
       ...mockData,

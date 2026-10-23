@@ -1,4 +1,15 @@
 {
+  "settings_conversationTags": { "message": "会話のタグ" },
+  "settings_deepResearchTags": { "message": "Deep Research のタグ" },
+  "settings_conversationTagsHelp": {
+    "message": "タグをカンマで区切って入力します。プロバイダー ID には単独の {platform} を使えます。空欄で ai-conversation, {platform} に戻ります。空白はハイフンに変換され、先頭の # は除去されます。"
+  },
+  "settings_deepResearchTagsHelp": {
+    "message": "タグをカンマで区切って入力します。プロバイダー ID には単独の {platform} を使えます。空欄で ai-research, deep-research, {platform} に戻ります。空白はハイフンに変換され、先頭の # は除去されます。"
+  },
+  "error_tagTemplates": {
+    "message": "タグが無効です。文字・数字・_・-・/ または単独の {platform} を使ってください。数字だけのタグや他の変数は使えません。各リストは最大50個、各タグ100文字、全体でUTF-8の2048バイトまでです。空欄で初期値に戻ります。"
+  },
   "extName": {
     "message": "Liska — AI Threadkeeper"
   },

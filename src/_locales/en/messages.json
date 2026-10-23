@@ -1,4 +1,15 @@
 {
+  "settings_conversationTags": { "message": "Conversation tags" },
+  "settings_deepResearchTags": { "message": "Deep Research tags" },
+  "settings_conversationTagsHelp": {
+    "message": "Comma-separated tags; use {platform} as a whole tag for the provider ID. Blank restores ai-conversation, {platform}. Spaces become hyphens; leading # is removed."
+  },
+  "settings_deepResearchTagsHelp": {
+    "message": "Comma-separated tags; use {platform} as a whole tag for the provider ID. Blank restores ai-research, deep-research, {platform}. Spaces become hyphens; leading # is removed."
+  },
+  "error_tagTemplates": {
+    "message": "Invalid tags. Use letters, numbers, _, -, / or the whole tag {platform}; numeric-only tags and other variables are not allowed. Maximum 50 tags, 100 characters each, and 2048 UTF-8 bytes per list. Leave blank to reset."
+  },
   "extName": {
     "message": "Liska — AI Threadkeeper",
     "description": "Extension name shown in browser"

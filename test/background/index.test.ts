@@ -1773,6 +1773,8 @@ describe('background/index', () => {
       { flattenLargeCallouts: false },
       { scrollIdleTimeoutSec: 60 },
       { scrollMaxTimeoutSec: 60 },
+      { templateOptions: { ...defaultSettings.templateOptions, conversationTags: ['custom'] } },
+      { templateOptions: { ...defaultSettings.templateOptions, deepResearchTags: ['custom'] } },
     ])('rejects settings drift %j before any measured output is dispatched', async change => {
       const expected = serializeSyncSettingsSnapshot(defaultSettings as ExtensionSettings);
       mockGetSettings.mockResolvedValueOnce({
