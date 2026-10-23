@@ -341,6 +341,36 @@ describe('ClaudeExtractor', () => {
 
   // ========== Extended Thinking (5 tests) ==========
   describe('Extended Thinking', () => {
+    it('removes legacy status content before using the plain-answer fallback', () => {
+      loadFixture(`
+        <div class="font-claude-response">
+          <div class="row-start-1"><div class="group/thinking"><div class="standard-markdown"><p>Legacy reasoning only</p></div></div></div>
+          <div class="row-start-2"><div class="row-start-1"><p>Visible plain answer</p></div></div>
+        </div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toContain('Visible plain answer');
+      expect(messages[0].content).not.toContain('Legacy reasoning only');
+    });
+
+    it('removes legacy status headers nested inside an outer markdown body', () => {
+      loadFixture(`
+        <div class="font-claude-response"><div class="standard-markdown">
+          <div class="row-start-1"><p>Legacy status label</p></div>
+          <div class="row-start-2"><div class="row-start-1"><p>Visible nested answer</p></div></div>
+        </div></div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toContain('Visible nested answer');
+      expect(messages[0].content).not.toContain('Legacy status label');
+    });
+
     it('extracts response content, not thinking content (collapsed)', async () => {
       setClaudeLocation('test-123');
       createClaudePage('test-123', [

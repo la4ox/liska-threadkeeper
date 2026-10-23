@@ -44,12 +44,21 @@ export const SELECTORS = {
   // prompt's inert overflow from a dismissed panel enclosing the whole row.
   conversationRow: ['[data-index]'],
 
-  // Assistant response selectors
+  // Assistant roots: prefer October's identities while retaining legacy turns.
+  // The extractor unions these in priority order instead of stopping at the
+  // first matching selector, so mixed old/new DOM does not lose distinct turns.
   assistantResponse: [
-    '.font-claude-response', // Semantic (HIGH)
-    '[class*="font-claude-response"]', // Partial match (HIGH)
-    '[data-is-streaming]', // Functional attribute (MEDIUM)
+    '[data-testid="assistant-message"]', // Test id (HIGH)
+    '[data-cds="AssistantMessage"]', // Design-system component (HIGH)
+    '.font-claude-response', // Legacy semantic class (MEDIUM)
+    '[class*="font-claude-response"]', // Legacy partial match (LOW)
+    '[data-is-streaming]', // Weakest functional fallback (LOW)
   ],
+
+  // October tool rows are positively classified by their content-block group.
+  // Thinking (:grp:th...) and unknown groups are not tool activity. Only the
+  // row's own label is available consistently; never click to expand details.
+  toolStatus: ['[data-cds="TurnStatus"][data-item-key*=":grp:cblk_"]'],
 
   // Markdown content selectors
   // 2026-07: .progressive-markdown disappeared from the live site (removed
