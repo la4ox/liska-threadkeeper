@@ -192,6 +192,18 @@ describe('ChatGPT sandbox-link presentation occurrences', () => {
     }
   });
 
+  it('does not let reference definitions inside unambiguous code veto a later link', () => {
+    for (const code of [
+      '`[ref]: https://example.com`',
+      '~~~markdown\n[ref]: https://example.com\n~~~',
+    ]) {
+      expect(occurrences(`${code}\n${LINK}`).map(value => value.destination)).toEqual([
+        'sandbox:/mnt/data/report.pdf',
+      ]);
+    }
+    expect(occurrences(`    [ref]: https://example.com\n${LINK}`)).toEqual([]);
+  });
+
   it('does not hide possible HTML through paragraph-ambiguous indented code', () => {
     expect(occurrences(`paragraph\n    <script>\n\n${LINK}`)).toEqual([]);
     expect(occurrences(`    <tag> > quote\n${LINK}`)).toEqual([]);
