@@ -99,6 +99,26 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
 - Pure writer/reader seam and tracked-source control-byte tests where they add
   coverage without restoring the removed E2E infrastructure.
 
+### 5. Compact floating Liska launcher
+
+- Replace the permanently expanded `Bring thread home` / `Choose branch`
+  controls with a small, unobtrusive circular Liska face/paw launcher that
+  expands into the existing actions only when needed.
+- Treat hover as enhancement, not the only path: the same actions must open on
+  keyboard focus and tap/click, remain screen-reader named, and respect reduced
+  motion. Preserve the real trusted user click that authorizes export.
+- Reuse the existing action handlers and loading/disabled states rather than
+  creating a second export path. The collapsed state must still expose progress
+  or failure without revealing filenames or private errors into provider DOM.
+- Preserve the current bottom-right home position; the compact launcher should
+  expand inward (up/left) rather than jump elsewhere. Before implementation,
+  capture each provider layout and tune only the offsets needed to avoid the
+  composer, scroll-to-end controls, citations, artifact panels, and mobile/touch
+  UI. Verify expanded, loading, branch-picker, narrow viewport, zoom, keyboard,
+  and touch states.
+- Keep this as a separate visual/interaction PR; it must not be bundled with
+  provider extraction, archive, or timeout semantics.
+
 ## Explicitly deferred
 
 - Persistent sync badge until partial archives, branch exports, cancellation,
