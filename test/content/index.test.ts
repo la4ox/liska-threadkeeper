@@ -11,6 +11,8 @@ import {
   loadFixture,
   clearFixture,
   createGeminiConversationDOM,
+  createClaudeConversationDOM,
+  createPerplexityConversationDOM,
   createChatGPTPage,
   setChatGPTLocation,
   setGeminiLocation,
@@ -100,6 +102,36 @@ const readinessSurfaces = [
     platform: 'notebooklm',
     extractor: NotebookLMExtractor,
     html: '<div class="chat-message-pair"></div>',
+  },
+] as const;
+
+const legacyReadinessSurfaces = [
+  {
+    name: 'Gemini root fallback',
+    host: 'gemini.google.com',
+    platform: 'gemini',
+    extractor: GeminiExtractor,
+    html: `<div class="conversation-thread">
+      <user-query><p class="query-text-line">Root fallback question</p></user-query>
+      <model-response><div class="markdown markdown-main-panel"><p>Root fallback answer</p></div></model-response>
+    </div>`,
+  },
+  {
+    name: 'Perplexity legacy query',
+    host: 'www.perplexity.ai',
+    platform: 'perplexity',
+    extractor: PerplexityExtractor,
+    html: createPerplexityConversationDOM([{ role: 'user', content: 'Legacy question' }]),
+  },
+  {
+    name: 'Claude rowless transcript',
+    host: 'claude.ai',
+    platform: 'claude',
+    extractor: ClaudeExtractor,
+    html: createClaudeConversationDOM([
+      { role: 'user', content: 'Legacy question' },
+      { role: 'assistant', content: '<p>Legacy answer</p>' },
+    ]),
   },
 ] as const;
 
@@ -270,6 +302,100 @@ describe('content/bootstrap', () => {
       vi.useRealTimers();
       vi.restoreAllMocks();
     });
+
+    it.each(legacyReadinessSurfaces)(
+      'injects immediately for the supported $name without starting extraction',
+      async ({ host, extractor, html }) => {
+        setNonGeminiLocation(host);
+        loadFixture(`<main>${html}</main>`);
+        const extract = vi.spyOn(extractor.prototype, 'extract');
+        const fetch = vi
+          .spyOn(globalThis, 'fetch')
+          .mockRejectedValue(new Error('Unexpected fetch during initialization'));
+        const pending = initialize();
+
+        await vi.advanceTimersByTimeAsync(0);
+        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        await pending;
+
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+        expect(extract).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+      }
+    );
+
+    it.each(legacyReadinessSurfaces)(
+      'injects after 100ms when the supported $name arrives',
+      async ({ host, extractor, html }) => {
+        setNonGeminiLocation(host);
+        loadFixture('<main></main>');
+        const extract = vi.spyOn(extractor.prototype, 'extract');
+        const pending = initialize();
+
+        document.querySelector('main')!.innerHTML = html;
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(99);
+        expect(injectSyncButton).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        await pending;
+
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+        expect(extract).not.toHaveBeenCalled();
+      }
+    );
+
+    it('ignores rowless Claude message identities outside the transcript root', async () => {
+      setNonGeminiLocation('claude.ai');
+      loadFixture(`
+        <aside><div data-index="0"><a>Older chat</a></div></aside>
+        <main>
+          <div data-testid="user-message">Unrelated message-like content</div>
+          <div class="font-claude-response">Unrelated answer-like content</div>
+          <div class="conversation-thread"></div>
+        </main>
+      `);
+      const pending = initialize();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(injectSyncButton).not.toHaveBeenCalled();
+
+      document.querySelector('.conversation-thread')!.innerHTML =
+        '<div data-testid="user-message">Transcript question</div>';
+      await vi.advanceTimersByTimeAsync(100);
+      await pending;
+
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it.each(
+      legacyReadinessSurfaces.flatMap(legacy =>
+        readinessSurfaces
+          .filter(surface => surface.platform !== legacy.platform)
+          .map(surface => ({ ...surface, legacyName: legacy.name, legacyHtml: legacy.html }))
+      )
+    )(
+      'ignores $legacyName on the other provider host $host',
+      async ({ host, html, legacyHtml }) => {
+        setNonGeminiLocation(host);
+        loadFixture(`<main>${legacyHtml}</main>`);
+        const pending = initialize();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(injectSyncButton).not.toHaveBeenCalled();
+
+        document.querySelector('main')!.insertAdjacentHTML('beforeend', html);
+        await vi.advanceTimersByTimeAsync(100);
+        await pending;
+
+        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+      }
+    );
 
     it.each(readinessSurfaces)(
       'injects immediately on $host without messaging, extraction, or capture',

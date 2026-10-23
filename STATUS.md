@@ -1012,19 +1012,22 @@ thread-width selector copies.
 
 This remains only an early control-injection hint. ChatGPT and DeepSeek stay
 structured-first; initialization performs no extraction, messaging, fetch, or
-capture, and the trusted-click boundary is unchanged. GitHub review caught
-three P2 readiness edges across two heads. Bootstrap now queries only the
-current extractor's typed hint, every supported provider fallback participates,
-and Claude's generic `[data-index]` qualifies only when that exact row contains
-owned user or assistant content rather than an indexed sidebar item. Fifteen
-failing-before-fix regressions cover the two follow-ups; the final independent
-pass found no residual P0-P3 issue. The existing 100 ms mutation debounce and
-unconditional 10-second escape remain intact so missing or virtualized provider
-DOM cannot permanently hide the controls. Exact-tree validation passes 171 test
-files / 5,251 tests; coverage is 95.34% statements, 91.41% branches, 98.68%
-functions, and 97.79% lines. TypeScript/build, source/platform lint, formatting,
-and diff checks pass; lint retains only the same three pre-existing advisory
-warnings. No live-provider claim is attached to this wiring checkpoint.
+capture, and the trusted-click boundary is unchanged. GitHub review caught six
+P2 readiness edges across three heads. Bootstrap now queries only the current
+extractor's typed hint and includes every supported DOM fallback: ChatGPT's
+alternate turn identity, Gemini's rowless root extraction, a single-sourced
+Perplexity legacy query span, and Claude messages either in a qualified indexed
+row or inside its legacy `.conversation-thread` root. Indexed sidebars,
+message-like elements outside that root, and cross-provider legacy markup remain
+excluded. Thirty-four failing-before-fix regressions cover the review follow-ups;
+the final independent pass found no residual P0-P3 issue. The existing 100 ms
+mutation debounce and unconditional 10-second escape remain intact so missing
+or virtualized provider DOM cannot permanently hide the controls. Exact-tree
+validation passes 171 test files / 5,299 tests; coverage is 95.34% statements,
+91.41% branches, 98.68% functions, and 97.79% lines. TypeScript/build,
+source/platform lint, formatting, and diff checks pass; lint retains only the
+same three pre-existing advisory warnings. No live-provider claim is attached
+to this wiring checkpoint.
 
 Typed, honest DOM-scroll stop diagnostics are implemented on
 `codex/scroll-stop-reasons` without changing user settings or the shipped
