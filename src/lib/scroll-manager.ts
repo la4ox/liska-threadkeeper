@@ -15,6 +15,7 @@ import {
   SCROLL_ACCUMULATE_STEP_FACTOR,
   SCROLL_ACCUMULATE_MIN_STEP,
 } from './constants';
+import { createScrollAxis, type ScrollAxis } from './scroll-axis';
 
 /**
  * Progress-aware accumulation deadline (issue #360, ADR-018).
@@ -178,6 +179,16 @@ export interface HarvestEntry<T> {
   order?: number;
 }
 
+/** Platform-specific tuning for one virtualized accumulation pass. */
+export interface AccumulateOptions {
+  /**
+   * Required visible rest at the oldest/top edge before completion. Platforms
+   * that load another page only after reaching the top use this to avoid a
+   * premature stable result. Default zero preserves existing behavior.
+   */
+  readonly topSettleMs?: number;
+}
+
 /** Result of accumulating a virtualized conversation via scrolling. */
 export interface AccumulateResult<T> {
   /** De-duplicated values in conversation order (first turn → last turn). */
@@ -297,7 +308,8 @@ function dedupeKeys(keys: readonly string[]): string[] {
  */
 export async function accumulateWhileScrolling<T>(
   container: HTMLElement,
-  harvest: () => HarvestEntry<T>[]
+  harvest: () => HarvestEntry<T>[],
+  options: AccumulateOptions = {}
 ): Promise<AccumulateResult<T>> {
   const content = new Map<string, T>();
   const orderIndex = new Map<string, number>();
@@ -316,6 +328,7 @@ export async function accumulateWhileScrolling<T>(
   };
 
   const toItems = (): T[] => resolveOrder(order, orderIndex).map(key => content.get(key) as T);
+  const axis = createScrollAxis(container);
 
   // Seed at the true bottom so the newest turns are mounted before harvesting.
   // Sync may start with the view scrolled up (issue #348): the last turn is then
@@ -323,12 +336,13 @@ export async function accumulateWhileScrolling<T>(
   // seed, an unmounted tail would be lost forever. Jumping to scrollHeight first
   // pins the newest window; a conversation that fits has no scroll range and
   // stays at the top, so the skip path below still applies.
-  container.scrollTop = container.scrollHeight;
+  axis.pinBottom();
   await delay(SCROLL_ACCUMULATE_POLL_INTERVAL);
   ingest();
 
-  if (container.scrollTop <= 0) {
-    console.info('[G2O] scrollTop=0 on open, conversation fits without scrolling');
+  const topSettleMs = options.topSettleMs ?? 0;
+  if (axis.distanceFromTop() <= 0 && topSettleMs <= 0) {
+    console.info('[G2O] No scroll range on open, conversation fits without scrolling');
     return {
       items: toItems(),
       fullyLoaded: true,
@@ -343,12 +357,9 @@ export async function accumulateWhileScrolling<T>(
       `${content.size} turns mounted, accumulating by scrolling up`
   );
 
-  const step = Math.max(
-    SCROLL_ACCUMULATE_MIN_STEP,
-    Math.floor(container.clientHeight * SCROLL_ACCUMULATE_STEP_FACTOR)
-  );
+  const step = accumulationStep(container);
 
-  const { iterations, fullyLoaded } = await scrollUpUntilStable(container, step, () => {
+  const { iterations, fullyLoaded } = await scrollUpUntilStable(axis, step, topSettleMs, () => {
     const before = content.size;
     ingest();
     return content.size > before;
@@ -356,6 +367,13 @@ export async function accumulateWhileScrolling<T>(
 
   logAccumulation(fullyLoaded, content.size, iterations);
   return { items: toItems(), fullyLoaded, itemCount: content.size, iterations, skipped: false };
+}
+
+function accumulationStep(container: HTMLElement): number {
+  return Math.max(
+    SCROLL_ACCUMULATE_MIN_STEP,
+    Math.floor(container.clientHeight * SCROLL_ACCUMULATE_STEP_FACTOR)
+  );
 }
 
 /** Log the outcome of an upward accumulation pass (stabilized vs timed out). */
@@ -399,27 +417,30 @@ function logAccumulation(fullyLoaded: boolean, turns: number, iterations: number
  *   accumulated set. Invoked once per iteration after each scroll settles.
  */
 async function scrollUpUntilStable(
-  container: HTMLElement,
+  axis: ScrollAxis,
   step: number,
+  topSettleMs: number,
   onWindow: () => boolean
 ): Promise<{ iterations: number; fullyLoaded: boolean }> {
   let stable = 0;
   let iterations = 0;
   const startTime = Date.now();
   let lastProgressTime = startTime;
+  let atTopSince: number | null = null;
 
   while (withinDeadline(startTime, lastProgressTime)) {
-    const before = container.scrollTop;
+    const before = axis.distanceFromTop();
     const wasAtTop = before <= 0;
-    container.scrollTop = Math.max(0, before - step);
+    axis.scrollToDistance(Math.max(0, before - step));
     await delay(SCROLL_ACCUMULATE_POLL_INTERVAL);
 
     const grew = onWindow();
-    const moved = before - container.scrollTop;
+    const after = axis.distanceFromTop();
+    const moved = before - after;
     iterations++;
 
     console.debug(
-      `[G2O] Accumulate iteration ${iterations}: scrollTop=${container.scrollTop}, ` +
+      `[G2O] Accumulate iteration ${iterations}: distanceFromTop=${after}, ` +
         `moved=${moved}, newTurns=${grew}`
     );
 
@@ -427,9 +448,13 @@ async function scrollUpUntilStable(
       lastProgressTime = Date.now(); // progress → reset the idle deadline
     }
 
+    const visible = document.visibilityState !== 'hidden';
+    atTopSince = after <= 0 && visible ? (atTopSince ?? Date.now()) : null;
+    const settled = atTopSince !== null && Date.now() - atTopSince >= topSettleMs;
+
     if (grew) {
       stable = 0;
-    } else if (wasAtTop && ++stable >= SCROLL_STABILITY_THRESHOLD) {
+    } else if (wasAtTop && visible && ++stable >= SCROLL_STABILITY_THRESHOLD && settled) {
       return { iterations, fullyLoaded: true };
     }
   }

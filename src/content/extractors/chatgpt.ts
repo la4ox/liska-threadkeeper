@@ -51,7 +51,19 @@ import {
   retainStructuredPresentation,
 } from '../structured-presentation';
 
-import { SELECTORS } from './selectors/chatgpt';
+import { SELECTORS, LEGACY_SELECTORS } from './selectors/chatgpt';
+
+const CHATGPT_TOP_SETTLE_MS = 2000;
+const USER_MESSAGE_ANY_LAYOUT = [...SELECTORS.userMessage, ...LEGACY_SELECTORS.userMessage];
+const SCROLL_CONTAINER_ANY_LAYOUT = [
+  ...SELECTORS.scrollContainer,
+  ...LEGACY_SELECTORS.scrollContainer,
+];
+
+interface MountedChatGptTurn {
+  readonly layout: 'pair' | 'legacy';
+  readonly element: HTMLElement;
+}
 
 /**
  * Selectors identifying a Deep Research report frame (issue #283).
@@ -548,7 +560,7 @@ export class ChatGPTExtractor extends BaseExtractor {
   getTitle(): string {
     return (
       this.getPageTitle() ??
-      this.getFirstMessageTitle(SELECTORS.userMessage, 'Untitled ChatGPT Conversation')
+      this.getFirstMessageTitle(USER_MESSAGE_ANY_LAYOUT, 'Untitled ChatGPT Conversation')
     );
   }
 
@@ -562,45 +574,76 @@ export class ChatGPTExtractor extends BaseExtractor {
    * @see FR-002 in design document
    */
   extractMessages(): ConversationMessage[] {
-    const messages: ConversationMessage[] = [];
-
-    // Find all conversation turns
-    const turns = this.queryAllWithFallback<HTMLElement>(SELECTORS.conversationTurn);
-
-    if (turns.length === 0) {
+    const entries = this.harvestWindow();
+    if (entries.length === 0) {
       console.warn('[G2O] No conversation turns found with primary selectors');
-      return messages;
     }
+    return entries.map((entry, index) => ({ ...entry.value, index }));
+  }
 
-    // Process each turn
-    turns.forEach((turn, index) => {
-      const role = this.turnRole(turn);
+  /** Current pairs win only where they overlap legacy wrappers; distinct roots survive. */
+  private mountedTurns(root: Element | Document = document): MountedChatGptTurn[] {
+    const candidates: MountedChatGptTurn[] = [
+      ...this.allSelectorMatches(root, SELECTORS.conversationTurn).map(element => ({
+        layout: 'pair' as const,
+        element,
+      })),
+      ...this.allSelectorMatches(root, LEGACY_SELECTORS.conversationTurn).map(element => ({
+        layout: 'legacy' as const,
+        element,
+      })),
+    ];
+    const selected: MountedChatGptTurn[] = [];
+    const selectedElements = new Set<Element>();
+    const ancestorsWithSelectedDescendant = new Set<Element>();
 
-      if (role === 'user') {
-        const content = this.extractUserContent(turn);
-        if (content) {
-          messages.push({
-            id: `user-${index}`,
-            role: 'user',
-            content,
-            index: messages.length,
-          });
-        }
-      } else if (role === 'assistant') {
-        const content = this.extractAssistantContent(turn);
-        if (content) {
-          messages.push({
-            id: `assistant-${index}`,
-            role: 'assistant',
-            content,
-            htmlContent: content,
-            index: messages.length,
-          });
+    for (const candidate of candidates) {
+      if (
+        selectedElements.has(candidate.element) ||
+        ancestorsWithSelectedDescendant.has(candidate.element)
+      ) {
+        continue;
+      }
+      let overlapsSelectedAncestor = false;
+      for (
+        let ancestor = candidate.element.parentElement;
+        ancestor;
+        ancestor = ancestor.parentElement
+      ) {
+        if (selectedElements.has(ancestor)) {
+          overlapsSelectedAncestor = true;
+          break;
         }
       }
-    });
+      if (overlapsSelectedAncestor) continue;
 
-    return messages;
+      selected.push(candidate);
+      selectedElements.add(candidate.element);
+      for (
+        let ancestor = candidate.element.parentElement;
+        ancestor;
+        ancestor = ancestor.parentElement
+      ) {
+        ancestorsWithSelectedDescendant.add(ancestor);
+      }
+    }
+
+    return selected.sort((left, right) => {
+      if (left.element === right.element) return 0;
+      const position = left.element.compareDocumentPosition(right.element);
+      return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+  }
+
+  private allSelectorMatches(
+    root: Element | Document,
+    selectors: readonly string[]
+  ): HTMLElement[] {
+    const matches = new Set<HTMLElement>();
+    for (const selector of selectors) {
+      root.querySelectorAll<HTMLElement>(selector).forEach(element => matches.add(element));
+    }
+    return [...matches];
   }
 
   // ========== Deep Research (issue #283) ==========
@@ -689,7 +732,8 @@ export class ChatGPTExtractor extends BaseExtractor {
    */
   protected getScrollConfig(): ScrollConfig {
     return {
-      container: SELECTORS.scrollContainer,
+      container: SCROLL_CONTAINER_ANY_LAYOUT,
+      topSettleMs: CHATGPT_TOP_SETTLE_MS,
       harvest: () => this.harvestWindow(),
     };
   }
@@ -711,60 +755,123 @@ export class ChatGPTExtractor extends BaseExtractor {
     return match ? Number(match[1]) : undefined;
   }
 
-  /**
-   * Harvest the currently-mounted window as keyed messages.
-   *
-   * Keyed by the turn's stable uuid (data-turn-id, then data-message-id),
-   * hashing content only as a last resort, so turns de-duplicate correctly as
-   * scroll windows overlap.
-   */
+  /** Harvest current and legacy turns together without discarding mixed roots. */
   private harvestWindow(): HarvestEntry<ConversationMessage>[] {
+    return this.mountedTurns().flatMap((turn, index) =>
+      turn.layout === 'pair'
+        ? this.pairTurnEntries(turn.element, index)
+        : this.legacyTurnEntries(turn.element)
+    );
+  }
+
+  /** A paired current turn emits its prompt and then its rendered answer. */
+  private pairTurnEntries(
+    turn: HTMLElement,
+    windowIndex: number
+  ): HarvestEntry<ConversationMessage>[] {
+    const userElement = this.queryWithFallback<HTMLElement>(SELECTORS.userMessage, turn);
+    const roleElement = this.queryWithFallback<HTMLElement>(SELECTORS.assistantRole, turn);
+    const markdown = this.queryAllWithFallback<HTMLElement>(SELECTORS.markdownContent, turn);
+    const keys = this.pairTurnKeys(
+      turn,
+      userElement,
+      roleElement ?? markdown[0] ?? null,
+      windowIndex
+    );
     const entries: HarvestEntry<ConversationMessage>[] = [];
-    const turns = this.queryAllWithFallback<HTMLElement>(SELECTORS.conversationTurn);
 
-    turns.forEach(turn => {
-      const role = this.turnRole(turn);
-      if (role !== 'user' && role !== 'assistant') return;
+    const user = this.extractUserContent(turn, 'pair');
+    if (user) {
+      const key = keys.user;
+      entries.push({ key, value: { id: key, role: 'user', content: user, index: 0 } });
+    }
 
-      const content =
-        role === 'user' ? this.extractUserContent(turn) : this.extractAssistantContent(turn);
-      if (!content) return;
+    if (roleElement || markdown.length > 0) {
+      const answer = this.extractAssistantContent(turn, 'pair');
+      if (answer) {
+        const key = keys.assistant;
+        entries.push({
+          key,
+          value: { id: key, role: 'assistant', content: answer, htmlContent: answer, index: 0 },
+        });
+      }
+    }
+    return entries;
+  }
 
-      const key =
-        turn.getAttribute('data-turn-id') ??
-        turn.querySelector('[data-message-id]')?.getAttribute('data-message-id') ??
-        `${role}-${generateHash(content)}`;
-
-      entries.push({
+  /** A legacy turn contains exactly one role and keeps its global ordinal. */
+  private legacyTurnEntries(turn: HTMLElement): HarvestEntry<ConversationMessage>[] {
+    const role = this.turnRole(turn);
+    if (role !== 'user' && role !== 'assistant') return [];
+    const content =
+      role === 'user'
+        ? this.extractUserContent(turn, 'legacy')
+        : this.extractAssistantContent(turn, 'legacy');
+    if (!content) return [];
+    const key =
+      turn.getAttribute('data-turn-id') ??
+      turn.querySelector('[data-message-id]')?.getAttribute('data-message-id') ??
+      `${role}-${generateHash(content)}`;
+    return [
+      {
         key,
         value: {
           id: key,
           role,
           content,
           htmlContent: role === 'assistant' ? content : undefined,
-          index: 0, // re-indexed after accumulation
+          index: 0,
         },
         order: this.turnOrdinal(turn),
-      });
-    });
+      },
+    ];
+  }
 
-    return entries;
+  private messageIdFor(element: Element | null): string | null {
+    const raw = element
+      ?.closest('[data-chatgpt-search-message-ids]')
+      ?.getAttribute('data-chatgpt-search-message-ids')
+      ?.trim();
+    return raw ? (raw.split(/\s+/u)[0] ?? null) : null;
+  }
+
+  private pairTurnKeys(
+    turn: HTMLElement,
+    userElement: Element | null,
+    assistantElement: Element | null,
+    windowIndex: number
+  ): { user: string; assistant: string } {
+    const turnKey = turn.getAttribute('data-turn-key')?.trim() || null;
+    const userMessageId = this.messageIdFor(userElement);
+    const assistantMessageId = this.messageIdFor(assistantElement);
+    // Keyless current turns expose no proven remount-stable identity. The hash
+    // plus window ordinal prevents same-window loss, but the DOM fallback stays
+    // explicitly partial rather than claiming cross-window certainty.
+    const fallback = `keyless-${generateHash(turn.innerHTML)}-${windowIndex}`;
+    return {
+      user: `${turnKey ?? userMessageId ?? fallback}:user`,
+      assistant: `${turnKey ?? assistantMessageId ?? fallback}:assistant`,
+    };
   }
 
   /**
    * Extract user message content (plain text)
    */
-  private extractUserContent(turnElement: Element): string {
+  private extractUserContent(turnElement: Element, layout: 'pair' | 'legacy'): string {
     // Find user message content within the turn
-    const contentEl = this.queryWithFallback<HTMLElement>(SELECTORS.userMessage, turnElement);
+    const contentEl = this.queryWithFallback<HTMLElement>(
+      layout === 'pair' ? SELECTORS.userMessage : LEGACY_SELECTORS.userMessage,
+      turnElement
+    );
     if (contentEl?.textContent) {
       return this.sanitizeText(contentEl.textContent);
     }
 
-    // Fallback: try to get any .whitespace-pre-wrap content
-    const fallbackEl = turnElement.querySelector('.whitespace-pre-wrap');
-    if (fallbackEl?.textContent) {
-      return this.sanitizeText(fallbackEl.textContent);
+    if (layout === 'legacy') {
+      const fallbackEl = turnElement.querySelector('.whitespace-pre-wrap');
+      if (fallbackEl?.textContent) {
+        return this.sanitizeText(fallbackEl.textContent);
+      }
     }
 
     return '';
@@ -801,9 +908,9 @@ export class ChatGPTExtractor extends BaseExtractor {
    * parameters are stripped from citation URLs.
    * @see NFR-001-2 in design document
    */
-  private extractAssistantContent(turnElement: Element): string {
+  private extractAssistantContent(turnElement: Element, layout: 'pair' | 'legacy'): string {
     const markdownEls = this.queryAllWithFallback<HTMLElement>(
-      SELECTORS.markdownContent,
+      layout === 'pair' ? SELECTORS.markdownContent : LEGACY_SELECTORS.markdownContent,
       turnElement
     );
 
@@ -812,9 +919,11 @@ export class ChatGPTExtractor extends BaseExtractor {
       return answerEls.map(el => this.sanitizeBlockHtml(el.innerHTML)).join('\n\n');
     }
 
-    // Fallback: try assistantResponse selectors
+    if (layout === 'pair') return '';
+
+    // Legacy-only body fallback. Current role labels are never exported.
     const assistantEl = this.queryWithFallback<HTMLElement>(
-      SELECTORS.assistantResponse,
+      LEGACY_SELECTORS.assistantResponse,
       turnElement
     );
     if (assistantEl) {
