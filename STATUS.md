@@ -1773,3 +1773,52 @@ the final complete suite passes 193 files / 6,379 tests. Production build
 transforms 251 modules; lint has zero errors and the same three baseline
 warnings; platform lint, formatting and diff checks are clean. Independent
 review found no remaining P0-P3 issue or vacuous assertion path.
+
+## Live generic ZIP binary checkpoint
+
+A fresh ordinary-owner ChatGPT recapture retained a 9,825,646-byte raw response,
+139,943-byte manifest, 20,484,025-byte canonical archive, 1,938,029-byte HTML
+view, and exact 603-byte receipt. Of 267 canonical assets, nine were fetched and
+destination-confirmed: four JPEG, three PDF, and two generic ZIP files. Every
+binary's content-addressed filename, byte length, SHA-256 and canonical local
+reference match the saved bytes. The two ZIP files are 6,545 and 7,055 bytes,
+start with `PK0304`, contain seven readable entries each, and contain no Office
+content-type, relationship, PowerPoint, Word, or Excel package roots.
+
+ZIP remains a passive download. Production now accepts exact
+`application/zip` only after bounded response reading and a fixed-record prefix
+gate: ordinary local-file headers require at least 30 bytes and empty-archive
+EOCD records at least 22. MIME-labelled arbitrary bytes and 29/21-byte truncated
+headers fail before SHA/runtime persistence while still charging read budget.
+This is deliberately not a complete ZIP integrity parser; split, spanned, SFX,
+and temporary-split prefixes remain unsupported without separate evidence.
+
+The same capture left five PPTX and two text/plain references `not-attempted`;
+interpreter diagnostics explicitly record incomplete resolution. ZIP success
+does not relabel or authorize those families. The HTML receipt matches its file
+and carries a non-null binding digest; nine fetched assets remain canonical even
+when only four selected-branch JPEG references render locally. One literal
+`backend-api` phrase occurs only as inert visible text, never in `href`, `src`,
+query, or signature-bearing markup. The raw remains below the 16 MiB staged
+threshold, so that gate is still open.
+
+Focused acquisition/interpreter/receipt verification passes 3 files / 124
+tests. Production build transforms 251 modules; lint has zero errors and the
+same three baseline warnings; platform lint, formatting and diff checks are
+clean. Independent review reproduced both ZIPs and found no P0-P3 issue while
+confirming the prefix-only compatibility boundary. The final complete suite
+passes 193 files / 6,385 tests.
+
+## Live CSV negative-evidence checkpoint
+
+A separate fresh ordinary-owner ChatGPT recapture retained a 2,341,476-byte raw
+response, 34,869-byte manifest, and 5,392,330-byte canonical archive with 64
+asset records. The established active route fetched four verified JPEG images;
+both `text/csv` records remained distinct and `not-attempted`. No CSV byte
+fetch, SHA-256, local path, or false completion claim occurred, and the only
+manifest warning describes the bounded four-image active audit.
+
+This is a negative compatibility result, not authority to add a CSV route. The
+current live frontend supplied no exact resolver evidence for either CSV record.
+CSV stays unsupported until a credential-free, owner-bound live contract is
+observed and independently gated.

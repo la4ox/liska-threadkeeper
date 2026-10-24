@@ -165,6 +165,21 @@ terminal states, and the existing no-credential-export boundary.
 - Add a provider route only after identifying its exact live contract.
 - Keep unsupported or unavailable files as honest retained references rather
   than silently dropping them.
+- Generic ZIP is now live-confirmed through the existing page-owned/interpreter
+  evidence route. Two content-addressed files (6,545 and 7,055 bytes) opened as
+  readable seven-entry archives, matched canonical length/SHA/path evidence, and
+  contained no Office package markers. Acquisition now requires exact
+  `application/zip` plus a bounded ordinary-local-header or empty-EOCD prefix
+  and minimum fixed-record length before hashing. This is not full archive
+  integrity validation; split/SFX ZIP remains unsupported without evidence.
+- The same live capture kept five PPTX and two text/plain references
+  `not-attempted`. ZIP success does not authorize relabeling those records or
+  claim Office-package support.
+- A separate fresh ordinary-owner capture retained two `text/csv` references as
+  distinct `not-attempted` assets while the evidence-backed active route fetched
+  only four JPEG images. No CSV bytes, local paths, or SHA-256 claims were
+  created. CSV therefore remains unsupported until an exact live resolver route
+  is observed.
 
 ### 7. User-facing derived outputs
 
@@ -292,8 +307,9 @@ The ChatGPT block is ready to call broadly complete when:
 The compact-launcher + all-branches HTML delivery stack is merged. The live
 same-title identity gate is now covered for acquisition-denied owner context;
 fetched same-title destination naming remains part of the future owner-context
-binary contract. Choose the next evidence-backed ChatGPT gate: a real staged
-capture above 16 MiB or one available additional binary family. If no suitable
+binary contract. Generic ZIP is now independently live-confirmed. Choose the
+next evidence-backed ChatGPT gate: a real staged capture above 16 MiB or one
+available remaining binary family such as plain text/PPTX. If no suitable
 live specimen exists, proceed with the independent
 untouched-provider/upstream audit instead of inventing transport authority. The
 1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB
