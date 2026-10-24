@@ -3,6 +3,8 @@ import type { ArchiveAsset, JsonValue, LiskaThreadArchive, SourceReference } fro
 
 export const DEFAULT_SOURCE_FORMAT = 'chatgpt.web.history';
 export const NORMALIZER_ID = 'chatgpt-web/1';
+export const OFFICIAL_EXPORT_SOURCE_FORMAT = 'chatgpt.official.export';
+export const OFFICIAL_EXPORT_NORMALIZER_ID = 'chatgpt-official/1';
 export const HASH_PATTERN = /^[a-f0-9]{64}$/;
 export const MAX_IDENTIFIER_LENGTH = 512;
 
@@ -86,6 +88,7 @@ export interface NormalizedGraph {
   rootIds: string[];
   nodes: LiskaThreadArchive['graph']['nodes'];
   currentNodeId: string | null;
+  linkSource: 'explicit-children' | 'parent-derived-children';
 }
 
 export interface SanitizedJson {

@@ -293,7 +293,7 @@ reviewed merged head.
 Real Chrome CDN decompression, redirect, and transport-cancellation behavior
 remains a live-runtime proof gap; the code does not claim otherwise.
 
-The five remaining informational findings now have one final-hygiene candidate:
+PR 47 merged the five remaining informational fixes as `47c944b`:
 
 - Obsidian text, binary, and directory response bodies share the initial
   fetch's stable network-error translation. Append refuses every uncertain read
@@ -309,34 +309,19 @@ The five remaining informational findings now have one final-hygiene candidate:
   their official tag refs, keeps its read-only token and Node 24 behavior, and
   disables checkout credential persistence.
 
-This candidate does not rewrite public Git history, submit the Store dashboard,
-or claim a live interrupted Obsidian response. Close the corresponding Cloud
-records only after reviewed source is merged and fetched `main` contains the
-reviewed head.
+This checkpoint does not rewrite public Git history, submit the Store dashboard,
+or claim a live interrupted Obsidian response. Exact-head CI, Code Review, and
+Security Review completed clean; fetched `main` contains the reviewed head, and
+the five corresponding Cloud records were then closed.
 
-## Remaining finding triage
+## Security Cloud reconciliation result
 
-Review the remaining Security Cloud findings against the current pull-request
-head, preserving one verdict per finding:
-
-1. Markdown/frontmatter boundaries: reconcile the provider-Markdown fix after
-   merge. YAML, math, question-heading, tool-content, append, and citation
-   occurrences are fixed; resolve the historical Claude tool-conversion review
-   thread only after its bounded single-pass follow-up is on current `main`.
-2. Resource bounds: branch fan-out, Canmore, and the bounded image stream are
-   reconciled and closed. Finish review/merge/Cloud closure for the linear
-   frontmatter candidate.
-3. Capture integrity: retain the merged TypedArray late-prototype regressions;
-   its Cloud occurrence is reconciled and closed.
-4. Storage and Obsidian boundaries: the scoped append memo is reconciled and
-   closed. Finish review/merge/Cloud closure for body-error handling and the
-   authentication declaration.
-5. Supply-chain and repository hygiene: finish review/merge/Cloud closure for
-   immutable CI action pins and the sanitized fixture URL.
-
-Prioritize confirmed reachable medium/low findings. Treat informational items
-as evidence-backed hardening, not automatic defects. Do not close, merge, or
-silence a cloud finding merely because a nearby path changed.
+The post-merge query for `new`, `triaged`, and `in_progress` records returns
+zero. This means the historical queue was reconciled one occurrence at a time;
+it is not a claim that one new repository scan proved the complete current tree.
+Automatic per-commit scanning remains disabled. After the large roadmap block,
+run one explicit repository scan and reconcile any new records against the then
+current `main`.
 
 ## Upstream delta audit
 
