@@ -18,6 +18,7 @@
 - [ChatGPT follow-up plan](chatgpt-todo.md)
 - [Security follow-up and upstream delta plan](security-todo.md)
 - [Upstream 2.14.9 delta audit](upstream-2.14.9-audit.md)
+- [Upstream 2.14.15 delta audit](upstream-2.14.15-audit.md)
 
 ## Chrome Web Store
 
