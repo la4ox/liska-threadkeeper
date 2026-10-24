@@ -3,7 +3,11 @@ import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import { createOperationWriteLedger } from '../../src/lib/operation-write-ledger';
 import { describe, expect, it, vi } from 'vitest';
-import { buildCaptureManifest, type RawCaptureAssetRecord } from '../../src/archive';
+import {
+  buildCaptureManifest,
+  type LiskaThreadArchive,
+  type RawCaptureAssetRecord,
+} from '../../src/archive';
 import { chatGptActiveResolverMetricFromResponse } from '../../src/content/capture/chatgpt-active-resolver-audit';
 import { buildChatGptBinaryAwareArchiveCompanion } from '../../src/content/capture/chatgpt-current-branch';
 import {
@@ -17,7 +21,9 @@ import type {
   ArchiveCompanionBundle,
   ChatGptAssetExportContext,
   StagedBinaryAssetResult,
+  StructuredPresentationContext,
 } from '../../src/lib/types';
+import type { FinalizedFilePresentationEvidence } from '../../src/content/finalized-html-assets';
 
 const CONVERSATION_ID = '11111111-2222-4333-8444-555555555555';
 const CAPTURE_ID = 'capture-chatgpt-11111111-2222-4333-8444-555555555555';
@@ -186,6 +192,66 @@ function binaryResult(
 }
 
 describe('destination-honest ChatGPT attachment export', () => {
+  it('exposes finalized presentation evidence only after the File trio is confirmed', async () => {
+    const finalCompanion = companion();
+    const finalArchive = {} as LiskaThreadArchive;
+    const presentationContext = {} as StructuredPresentationContext;
+    const filePresentation = {
+      context: presentationContext,
+      assetBindings: { bindings: [], sha256: null },
+    } as FinalizedFilePresentationEvidence;
+    const buildFilePresentationEvidence = vi.fn().mockResolvedValue(filePresentation);
+    const buildDestinationArchive = vi.fn().mockResolvedValue({
+      companion: finalCompanion,
+      archive: finalArchive,
+    });
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'synthetic.md',
+      ['file', 'obsidian'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs) => persisted([...outputs]),
+        buildDestinationArchive,
+        buildFilePresentationEvidence,
+        presentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['file', 'obsidian']);
+    expect(result.filePresentation).toBe(filePresentation);
+    expect(buildFilePresentationEvidence).toHaveBeenCalledExactlyOnceWith(
+      presentationContext,
+      finalArchive,
+      finalCompanion,
+      []
+    );
+  });
+
+  it('never exposes Obsidian-finalized assets as File presentation evidence', async () => {
+    const buildFilePresentationEvidence = vi.fn();
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'synthetic.md',
+      ['obsidian'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs) => persisted([...outputs]),
+        buildDestinationArchive: async () => ({
+          companion: companion(),
+          archive: {} as LiskaThreadArchive,
+        }),
+        buildFilePresentationEvidence,
+        presentationContext: {} as StructuredPresentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['obsidian']);
+    expect(result.filePresentation).toBeUndefined();
+    expect(buildFilePresentationEvidence).not.toHaveBeenCalled();
+  });
+
   it('retains confirmed raw and binary facts when destination builders fail without creating receipts or localization evidence', async () => {
     const ledger = createOperationWriteLedger(CAPTURE_ID);
     const asset = fetchedAsset();

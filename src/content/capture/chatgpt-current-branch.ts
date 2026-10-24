@@ -1002,7 +1002,6 @@ export async function observeChatGptInterpreterAssetResolvers(
  * destination. Unlike the initial JSON-only builder, this accepts fetched
  * runtime assets and validates their byte/hash evidence before normalization.
  */
-// eslint-disable-next-line max-lines-per-function -- One explicit validation-to-normalization path prevents fetched-byte claims from bypassing the archive contract.
 export async function buildChatGptBinaryAwareArchiveCompanion(
   context: ChatGptAssetExportContext,
   assetRecords: readonly RawCaptureAssetRecord[],
@@ -1010,6 +1009,31 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
   activeResolverMetric?: ChatGptActiveResolverAudit,
   additionalWarnings: readonly string[] = []
 ): Promise<ArchiveCompanionBundle> {
+  return (
+    await buildChatGptBinaryAwareDestinationArchive(
+      context,
+      assetRecords,
+      runtimeAssets,
+      activeResolverMetric,
+      additionalWarnings
+    )
+  ).companion;
+}
+
+export interface ChatGptBuiltDestinationArchive {
+  companion: ArchiveCompanionBundle;
+  archive: LiskaThreadArchive;
+}
+
+/** Retain the exact normalized destination archive without re-normalizing for HTML. */
+// eslint-disable-next-line max-lines-per-function -- One explicit validation-to-normalization path prevents fetched-byte claims from bypassing the archive contract.
+export async function buildChatGptBinaryAwareDestinationArchive(
+  context: ChatGptAssetExportContext,
+  assetRecords: readonly RawCaptureAssetRecord[],
+  runtimeAssets: readonly RawCaptureAsset[],
+  activeResolverMetric?: ChatGptActiveResolverAudit,
+  additionalWarnings: readonly string[] = []
+): Promise<ChatGptBuiltDestinationArchive> {
   const originalRaw = await verifiedOriginalRaw(context);
   try {
     const originalManifest = context.rawCaptureBundle.manifest;
@@ -1062,7 +1086,10 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
       manifestSha256,
       sha256: sha256Hex,
     });
-    return appendCanonicalCompanion(rawManifest, normalized.archive);
+    return {
+      companion: await appendCanonicalCompanion(rawManifest, normalized.archive),
+      archive: normalized.archive,
+    };
   } catch {
     throw new ChatGptCurrentBranchError('capture-integrity-failed');
   }

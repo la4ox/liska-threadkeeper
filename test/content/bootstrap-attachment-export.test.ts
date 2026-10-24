@@ -7,6 +7,7 @@ import type {
   ExtractionResult,
   MultiOutputResponse,
   ChatGptStructuredPresentationContext,
+  StructuredPresentationContext,
 } from '../../src/lib/types';
 import { resetLocation, setChatGPTLocation } from '../fixtures/dom-helpers';
 
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => {
     stopDispose,
     applySettings: vi.fn(),
     attachmentExport: vi.fn(),
+    html: vi.fn(),
     localize: vi.fn(),
     extract: vi.fn(),
     prepareAllBranchesPersistence: vi.fn(() => ({
@@ -57,6 +59,12 @@ vi.mock('../../src/content/extractors/chatgpt', () => ({
 vi.mock('../../src/content/chatgpt-asset-export', () => ({
   persistChatGptDestinationHonestAttachments: mocks.attachmentExport,
 }));
+
+vi.mock('../../src/content/derived-html-persistence', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/content/derived-html-persistence')>();
+  return { ...actual, persistDerivedHtmlForFile: mocks.html };
+});
 
 vi.mock('../../src/content/chatgpt-sandbox-localization', () => ({
   localizeChatGptSandboxLinks: mocks.localize,
@@ -99,6 +107,7 @@ const settings: ContentScriptSettings = {
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
+  enableHtmlExport: false,
   enableChatGptOpaqueProbe: false,
   enableChatGptOpaqueReplay: false,
   imageVaultPath: 'AI/{platform}/images',
@@ -207,11 +216,13 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     settings.enableImageExport = true;
+    settings.enableHtmlExport = false;
     settings.enableChatGptOpaqueReplay = false;
     settings.outputOptions = { obsidian: false, file: true, clipboard: false };
     setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
     mockSettingsAndSave();
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
+    mocks.html.mockResolvedValue({ success: true, warnings: [] });
     mocks.localize.mockImplementation(async data => data);
     mocks.attachmentExport.mockResolvedValue({
       rawSuccessfulDestinations: ['file'],
@@ -416,6 +427,8 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryAsset');
+      expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('presentationContext');
+      expect(mocks.html).not.toHaveBeenCalled();
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'saveToOutputs',
@@ -439,6 +452,61 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('writes finalized File HTML after attachment finalization and before Markdown', async () => {
+    settings.enableHtmlExport = true;
+    const presentationContext = {
+      source: 'chatgpt',
+      captureId: companion.captureId,
+      conversationKey: companion.conversationKey,
+    } as StructuredPresentationContext;
+    const filePresentation = {
+      context: presentationContext,
+      assetBindings: { bindings: [], sha256: null },
+    };
+    mocks.extract.mockResolvedValue({
+      ...noteResult,
+      structuredPresentationContext: presentationContext,
+    });
+    mocks.attachmentExport.mockImplementationOnce(async (...args) => {
+      expect(args[4]).toEqual(
+        expect.objectContaining({
+          presentationContext,
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+        })
+      );
+      return {
+        rawSuccessfulDestinations: ['file'],
+        completeDestinations: ['file'],
+        destinationReceipts: [fileReceipt],
+        filePresentation,
+        warnings: [],
+      };
+    });
+    const order: string[] = [];
+    mocks.html.mockImplementationOnce(async (...args) => {
+      order.push('html');
+      expect(args).toEqual([
+        presentationContext,
+        serializeSyncSettingsSnapshot(settings),
+        filePresentation.assetBindings,
+      ]);
+      return { success: true, warnings: [] };
+    });
+    mocks.sendMessage.mockImplementation(async message => {
+      if (message.action === 'getSettings') return settings;
+      if (message.action === 'saveToOutputs') {
+        order.push('markdown');
+        return successfulSave;
+      }
+      throw new Error('unexpected-message');
+    });
+
+    await handleSync();
+
+    expect(order).toEqual(['html', 'markdown']);
+    expect(mocks.html).toHaveBeenCalledOnce();
   });
 
   it('writes per-destination archive provenance and never gives Clipboard a local archive link', async () => {
