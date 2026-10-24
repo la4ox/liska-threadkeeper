@@ -105,8 +105,14 @@ terminal states, and the existing no-credential-export boundary.
 - Current and selected single-branch notes now replace only an exact
   destination-owned, fetched `sandbox:` occurrence. Every mismatch retains the
   provider link and verified appendix; raw/canonical evidence is unchanged.
-- Still open in the presentation layer: a live chat containing multiple
-  same-title produced files. This does not authorize a broader resolver route.
+- A fresh live legacy chat confirmed three same-title groups in one complete
+  archive: two PDF records, five DOCX records, and three further DOCX records.
+  All ten retain distinct opaque asset identities and canonical entries. Its
+  raw owner context is unsupported or ambiguous, so acquisition correctly made
+  no resolver calls and left every record `not-attempted` without SHA-256 or a
+  local path. This closes the live identity/preservation collision gate, but not
+  destination naming for multiple fetched same-title binaries and does not
+  authorize a broader resolver route.
 
 ### 4. Real wide-branch stress
 
@@ -283,12 +289,12 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Submit the fully checked and live-smoked compact-launcher + all-branches HTML
-delivery stack on top of the exact current `main`. After clean current-head CI,
-code review, security review, and merge, choose the next
-evidence-backed ChatGPT gate: a real staged capture above 16 MiB, a live
-multi-output same-title sample, or one available additional binary family. If
-no suitable live specimen exists, proceed with the independent
+The compact-launcher + all-branches HTML delivery stack is merged. The live
+same-title identity gate is now covered for acquisition-denied owner context;
+fetched same-title destination naming remains part of the future owner-context
+binary contract. Choose the next evidence-backed ChatGPT gate: a real staged
+capture above 16 MiB or one available additional binary family. If no suitable
+live specimen exists, proceed with the independent
 untouched-provider/upstream audit instead of inventing transport authority. The
 1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB
 graph; only a separately reviewed limit change may authorize that full 239-leaf
