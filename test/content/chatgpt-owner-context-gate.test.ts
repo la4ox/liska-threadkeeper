@@ -65,6 +65,48 @@ function ordinaryRaw() {
   };
 }
 
+function sameTitleAmbiguousOwnerRaw() {
+  const base = ordinaryRaw();
+  const repeated = (prefix: string, count: number, name: string, mimeType: string) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `file_${prefix}_${index + 1}`,
+      name,
+      mime_type: mimeType,
+    }));
+  return {
+    ...base,
+    gizmo_id: 'private-gizmo-owner',
+    project_id: 'private-project-owner',
+    mapping: {
+      ...base.mapping,
+      node: {
+        ...base.mapping.node,
+        message: {
+          ...base.mapping.node.message,
+          metadata: {
+            ...base.mapping.node.message.metadata,
+            attachments: [
+              ...repeated('pdf', 2, 'same-report.pdf', 'application/pdf'),
+              ...repeated(
+                'analysis',
+                5,
+                'same-analysis.docx',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              ),
+              ...repeated(
+                'summary',
+                3,
+                'same-summary.docx',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              ),
+            ],
+          },
+        },
+      },
+    },
+  };
+}
+
 async function capture(
   raw: unknown,
   matchPageOwnedAssetResolvers = matchChatGptPageOwnedAssetResolvers,
@@ -280,6 +322,101 @@ describe('ChatGPT owner-context attachment gate', () => {
       expect(context.rawCaptureBundle.manifest.assets).toEqual(originalRecords);
     }
   );
+
+  it('keeps live-shaped same-title groups distinct while ambiguous ownership blocks acquisition', async () => {
+    const captured = await capture(sameTitleAmbiguousOwnerRaw());
+    const context = captured.assetExportContext!;
+    const originalRecords = structuredClone(context.rawCaptureBundle.manifest.assets);
+    expect(originalRecords).toHaveLength(10);
+    const originalIds = originalRecords.map(asset => asset.id).sort();
+    expect(new Set(originalIds).size).toBe(10);
+    expect(originalIds.every(id => /^chatgpt-asset-[a-f0-9]{64}$/.test(id))).toBe(true);
+
+    const optional = optionalDependencies();
+    let finalAssets: Array<{
+      id: string;
+      filename: string | null;
+      mimeType: string | null;
+      localArtifactRef: string | null;
+      sha256: string | null;
+      acquisition: { state: string };
+    }> = [];
+    const persistArtifacts: ChatGptAssetExportDependencies['persistArtifacts'] = async (
+      bundle,
+      _name,
+      _provider,
+      outputs,
+      kinds
+    ) => {
+      if (kinds.includes('canonical')) {
+        const artifact = bundle.artifacts.find(artifact => artifact.kind === 'canonical')!;
+        expect(artifact.transport).toBe('inline');
+        if (artifact.transport !== 'inline') throw new Error('inline canonical required');
+        const archive = JSON.parse(Buffer.from(artifact.bodyBase64, 'base64').toString('utf8'));
+        finalAssets = Object.values(archive.assets);
+        expect(JSON.stringify(archive)).not.toContain('private-gizmo-owner');
+        expect(JSON.stringify(archive)).not.toContain('private-project-owner');
+      }
+      return { activeOutputs: outputs as PersistentOutputDestination[], warnings: [] };
+    };
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context,
+      captured.archiveCompanion,
+      'thread.md',
+      ['file'],
+      { ...optional, persistArtifacts }
+    );
+
+    expectNoOptionalCalls(optional);
+    expect(result.warnings).toEqual([CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING]);
+    expect(finalAssets).toHaveLength(10);
+    expect(finalAssets.map(asset => asset.id).sort()).toEqual(originalIds);
+    const filenameMimeGroups = new Map<
+      string,
+      { filename: string | null; mimeType: string | null; count: number }
+    >();
+    for (const asset of finalAssets) {
+      const key = JSON.stringify([asset.filename, asset.mimeType]);
+      const group = filenameMimeGroups.get(key);
+      if (group) group.count += 1;
+      else
+        filenameMimeGroups.set(key, {
+          filename: asset.filename,
+          mimeType: asset.mimeType,
+          count: 1,
+        });
+    }
+    const filenameGroups = [...filenameMimeGroups.values()].sort((left, right) =>
+      String(left.filename) < String(right.filename)
+        ? -1
+        : String(left.filename) > String(right.filename)
+          ? 1
+          : 0
+    );
+    expect(filenameGroups).toEqual([
+      {
+        filename: 'same-analysis.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        count: 5,
+      },
+      { filename: 'same-report.pdf', mimeType: 'application/pdf', count: 2 },
+      {
+        filename: 'same-summary.docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        count: 3,
+      },
+    ]);
+    expect(
+      finalAssets.every(
+        asset =>
+          asset.acquisition.state === 'not-attempted' &&
+          asset.localArtifactRef === null &&
+          asset.sha256 === null
+      )
+    ).toBe(true);
+    expect(context.rawCaptureBundle.manifest.assets).toEqual(originalRecords);
+  });
 
   it.each([
     ['standard', true],

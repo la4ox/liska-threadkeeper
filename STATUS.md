@@ -1745,3 +1745,31 @@ after cancellation reopened both actions, directly covering the latch fix. The
 prior exact all-branches HTML/receipt write remains valid because the delivery
 path is unchanged. Real narrow touch/safe-area geometry remains a visual
 follow-up, not claimed proof. This checkpoint is ready to commit and submit.
+
+## Live same-title owner-context checkpoint
+
+A fresh recapture of a legacy private ChatGPT conversation preserved a complete
+2,565,338-byte raw response, 23,088-byte manifest, 4,401,278-byte canonical
+archive, 260,042-byte Markdown note, 225,693-byte canonical HTML view, and
+540-byte HTML receipt. The archive retained 42 asset records and three exact
+same-title groups: two PDF records, five DOCX records, and three further DOCX
+records. All ten records have distinct opaque asset IDs; filename equality did
+not deduplicate them.
+
+The original raw carries unsupported or ambiguous owner context. Liska therefore
+emitted the stable owner-context warning, called no optional resolver/acquirer,
+and preserved all 42 assets as `not-attempted` with no SHA-256, local path, or
+false fetched claim. This proves live same-title identity and canonical
+preservation, not collision-free destination naming for multiple fetched files.
+That remaining binary question belongs to a future explicit owner-context
+contract and does not authorize borrowing the ordinary-chat resolver.
+
+A new live-shaped regression fixes the observed 2/5/3 topology: ten distinct
+IDs survive final canonical rebuilding under ambiguous ownership, all terminal
+states remain honest, owner values are absent from canonical output, and no
+optional binary path runs. The focused owner-context suite passes 83 tests.
+Together with the inventory suite, focused evidence passes 2 files / 104 tests;
+the final complete suite passes 193 files / 6,379 tests. Production build
+transforms 251 modules; lint has zero errors and the same three baseline
+warnings; platform lint, formatting and diff checks are clean. Independent
+review found no remaining P0-P3 issue or vacuous assertion path.
