@@ -1,7 +1,10 @@
 import type { LiskaThreadArchive } from '../types';
+import type { HtmlBranchRelativePath } from './branch-paths';
 
 export const LISKA_HTML_SCHEMA = 'liska-html/1' as const;
 export const LISKA_HTML_RENDERER_VERSION = 'liska-html/1' as const;
+export const LISKA_HTML_BRANCH_INDEX_SCHEMA = 'liska-html-branch-index/1' as const;
+export const HTML_BRANCH_SESSION_MAX_LEAVES = 512;
 
 /** Hard ceilings; callers may only tighten these per presentation. Counts are UTF-16 characters. */
 export const HTML_PRESENTATION_LIMITS = Object.freeze({
@@ -80,6 +83,11 @@ export type HtmlPresentationErrorCode =
   | 'html-markdown-depth-limit'
   | 'html-json-serialization-limit'
   | 'html-binding-count-limit'
+  | 'html-branch-count-limit'
+  | 'html-branch-catalog-invalid'
+  | 'html-branch-ordinal-invalid'
+  | 'html-branch-facts-invalid'
+  | 'html-branch-index-invalid'
   | 'html-markdown-invalid';
 
 /** Deliberately value-free: never include input IDs, URLs, paths, bodies, or exception text. */
@@ -133,4 +141,65 @@ export interface HtmlPresentationResult {
   diagnostics: HtmlPresentationDiagnostic[];
   canonicalSha256: string;
   assetBindingSha256: string | null;
+}
+
+export interface HtmlBranchSessionInput extends Omit<HtmlPresentationInput, 'targetNodeId'> {
+  /** May tighten, never raise, the session's 512-leaf ceiling. */
+  maxBranches?: number;
+}
+
+/** Presentation-neutral counts; intentionally contains no provider identifiers or text. */
+export interface HtmlBranchSummary {
+  readonly ordinal: number;
+  readonly relativePath: HtmlBranchRelativePath;
+  readonly nodeCount: number;
+  readonly uniqueNodeCount: number;
+  readonly messageCount: number;
+  readonly userMessageCount: number;
+  readonly assistantMessageCount: number;
+  readonly isCurrentLeaf: boolean;
+  readonly containsCurrentNode: boolean;
+}
+
+/** A compact rendering fact, NOT a receipt or claim that any output was written. */
+export interface HtmlBranchRenderFact {
+  readonly ordinal: number;
+  readonly relativePath: HtmlBranchRelativePath;
+  readonly selectedNodeCount: number;
+  readonly renderedMessageCount: number;
+  readonly diagnostics: readonly Readonly<HtmlPresentationDiagnostic>[];
+}
+
+export interface HtmlBranchLeafResult {
+  presentation: HtmlPresentationResult;
+  fact: HtmlBranchRenderFact;
+}
+
+export interface HtmlBranchIndexResult {
+  schema: typeof LISKA_HTML_BRANCH_INDEX_SCHEMA;
+  rendererVersion: typeof LISKA_HTML_RENDERER_VERSION;
+  html: string;
+  relativePath: 'branches.html';
+  branchCount: number;
+  branchPointCount: number;
+  totalSelectedNodeCount: number;
+  totalRenderedMessageCount: number;
+  diagnostics: HtmlPresentationDiagnostic[];
+  canonicalSha256: string;
+  assetBindingSha256: string | null;
+}
+
+/**
+ * Synchronous pure session. The caller must not mutate retained message bodies
+ * during its lifetime. Structural links, metrics, profile, limits and binding
+ * scalars are snapshotted; no caller data is frozen or deep-cloned. No leaf HTML
+ * is cached. Aggregate write/work budgets belong to the delivery orchestrator.
+ */
+export interface HtmlBranchSession {
+  readonly branches: readonly HtmlBranchSummary[];
+  readonly branchCount: number;
+  readonly branchPointCount: number;
+  renderLeaf(ordinal: number): HtmlBranchLeafResult;
+  /** Requires the complete ordered set of unmodified facts from this session. */
+  renderIndex(facts: readonly HtmlBranchRenderFact[]): HtmlBranchIndexResult;
 }

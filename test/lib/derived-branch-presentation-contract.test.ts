@@ -2,6 +2,11 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  HTML_BRANCH_MAX_ORDINAL,
+  htmlBranchRelativePath,
+  snapshotHtmlBranchTarget,
+} from '../../src/archive/presentation/branch-paths';
+import {
   DERIVED_BRANCH_HTML_MAX_ORDINAL,
   DERIVED_BRANCH_HTML_SCHEMA,
   DERIVED_BRANCH_OUTPUT_RECEIPT_SCHEMA,
@@ -94,6 +99,24 @@ function hostileShapes(value: object): unknown[] {
 }
 
 describe('closed branch HTML names', () => {
+  it('shares the exact low-level target snapshot and closed names with the archive renderer', () => {
+    expect(snapshotDerivedBranchHtmlTarget).toBe(snapshotHtmlBranchTarget);
+    expect(DERIVED_BRANCH_HTML_MAX_ORDINAL).toBe(HTML_BRANCH_MAX_ORDINAL);
+    for (const target of [leaf, index, { role: 'leaf', ordinal: 999999 } as const])
+      expect(deriveBranchHtmlRelativePath(target)).toBe(htmlBranchRelativePath(target));
+    expect(htmlBranchRelativePath({ ...leaf, path: 'private.html' })).toBeUndefined();
+    expect(
+      snapshotHtmlBranchTarget(
+        new Proxy(
+          { ...index },
+          {
+            ownKeys: () => [Symbol('private')],
+          }
+        )
+      )
+    ).toBeUndefined();
+  });
+
   it('pins independent schemas and the six-digit ordinal ceiling', () => {
     expect(DERIVED_BRANCH_HTML_SCHEMA).toBe('liska-derived-branch-html/1');
     expect(DERIVED_BRANCH_OUTPUT_RECEIPT_SCHEMA).toBe('liska-derived-branch-output-receipt/1');

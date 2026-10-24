@@ -1,5 +1,12 @@
 /** Closed branch names and pure transport contracts; current-branch v1 stays unchanged. */
 import {
+  HTML_BRANCH_MAX_ORDINAL,
+  htmlBranchRelativePath,
+  snapshotHtmlBranchTarget,
+  type HtmlBranchTarget,
+  type HtmlBranchRelativePath,
+} from '../archive/presentation/branch-paths';
+import {
   DERIVED_HTML_RELATIVE_PATH,
   DERIVED_HTML_SCHEMA,
   DERIVED_OUTPUT_RECEIPT_SCHEMA,
@@ -19,10 +26,10 @@ import {
 
 export const DERIVED_BRANCH_HTML_SCHEMA = 'liska-derived-branch-html/1';
 export const DERIVED_BRANCH_OUTPUT_RECEIPT_SCHEMA = 'liska-derived-branch-output-receipt/1';
-export const DERIVED_BRANCH_HTML_MAX_ORDINAL = 999999;
+export const DERIVED_BRANCH_HTML_MAX_ORDINAL = HTML_BRANCH_MAX_ORDINAL;
 
-export type DerivedBranchHtmlTarget = { role: 'leaf'; ordinal: number } | { role: 'index' };
-export type DerivedBranchHtmlRelativePath = `branch-${string}.html` | 'branches.html';
+export type DerivedBranchHtmlTarget = HtmlBranchTarget;
+export type DerivedBranchHtmlRelativePath = HtmlBranchRelativePath;
 export type DerivedBranchHtmlReceiptRelativePath =
   | `presentation/liska-html-1.branch-${string}.receipt.json`
   | 'presentation/liska-html-1.branches.receipt.json';
@@ -109,30 +116,15 @@ function ownPlainData(value: unknown, expected: readonly string[]) {
 function ownBranchData(value: unknown, commonKeys: readonly string[]) {
   const leaf = ownPlainData(value, [...commonKeys, 'role', 'ordinal']);
   if (leaf) {
-    if (
-      leaf.role !== 'leaf' ||
-      typeof leaf.ordinal !== 'number' ||
-      !Number.isInteger(leaf.ordinal) ||
-      leaf.ordinal < 1 ||
-      leaf.ordinal > DERIVED_BRANCH_HTML_MAX_ORDINAL
-    )
-      return undefined;
-    return { data: leaf, target: { role: 'leaf', ordinal: leaf.ordinal } as const };
+    const target = snapshotHtmlBranchTarget({ role: leaf.role, ordinal: leaf.ordinal });
+    return target?.role === 'leaf' ? { data: leaf, target } : undefined;
   }
   const index = ownPlainData(value, [...commonKeys, 'role']);
   if (!index || index.role !== 'index') return undefined;
   return { data: index, target: { role: 'index' } as const };
 }
 
-export function snapshotDerivedBranchHtmlTarget(
-  value: unknown
-): DerivedBranchHtmlTarget | undefined {
-  try {
-    return ownBranchData(value, [])?.target;
-  } catch {
-    return undefined;
-  }
-}
+export const snapshotDerivedBranchHtmlTarget = snapshotHtmlBranchTarget;
 
 function requireTarget(value: unknown): DerivedBranchHtmlTarget {
   const target = snapshotDerivedBranchHtmlTarget(value);
@@ -140,21 +132,18 @@ function requireTarget(value: unknown): DerivedBranchHtmlTarget {
   return target;
 }
 
-function targetStem(target: DerivedBranchHtmlTarget): string {
-  return target.role === 'index' ? 'branches' : `branch-${String(target.ordinal).padStart(6, '0')}`;
-}
-
 /** No caller-provided path is accepted, even if it would otherwise look safe. */
 export function deriveBranchHtmlRelativePath(
   value: DerivedBranchHtmlTarget
 ): DerivedBranchHtmlRelativePath {
-  return `${targetStem(requireTarget(value))}.html` as DerivedBranchHtmlRelativePath;
+  return htmlBranchRelativePath(requireTarget(value))!;
 }
 
 export function deriveBranchHtmlReceiptRelativePath(
   value: DerivedBranchHtmlTarget
 ): DerivedBranchHtmlReceiptRelativePath {
-  return `presentation/liska-html-1.${targetStem(requireTarget(value))}.receipt.json` as DerivedBranchHtmlReceiptRelativePath;
+  const stem = deriveBranchHtmlRelativePath(value).slice(0, -5);
+  return `presentation/liska-html-1.${stem}.receipt.json` as DerivedBranchHtmlReceiptRelativePath;
 }
 
 function currentDescriptor(data: Record<string, unknown> | DerivedBranchHtmlDescriptor) {
