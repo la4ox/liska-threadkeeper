@@ -2186,3 +2186,62 @@ is only a misclassification guard: no Dots raw transport, branches,
 memory/persona state, attachments, canonical adapter, or durable output is
 claimed. History-only URL changes without a DOM mutation and live SPA behavior
 remain explicit proof gaps; trusted sync still rechecks admission before output.
+
+The next Dots transport-discovery pass is deliberately stopped before code.
+Authenticated browser DOM/network access is denied by host policy, and the
+public page exposes only an anti-bot challenge. More importantly, an
+unknown-endpoint observer cannot both discover arbitrary same-origin routes and
+truthfully promise never to inspect unrelated Dot memory, persona, activity, or
+other ChatGPT requests. Path segments and query-key names may themselves contain
+personal data, so heuristic redaction is not sufficient.
+
+No broad fetch observer, reload probe, disposable Dots tab, request clone,
+header/content-type read, body capture, or synthetic message was added. The next
+evidence gate is one independently grounded conversation-history route contract
+(exact static prefix/segment count/identifier position/query-key allowlist), or
+an explicitly authorized current-tab observation of that one known candidate.
+Until then the merged route guard remains the correct product behavior.
+
+## ChatGPT cross-format reconciliation core checkpoint
+
+Branch `codex/chatgpt-cross-format-reconciliation` adds a browser-independent,
+compare-only contract for one `chatgpt-web/1` canonical snapshot and one
+`chatgpt-official/1` snapshot of the same exact provider conversation. The
+fixed result schema is `liska-chatgpt-comparison/1`; semantic projections are
+domain-separated under `chatgpt-canonical-semantic/1`.
+
+The comparator detaches both inputs before its first hash await and rejects
+accessors, symbols, cycles, sparse arrays, non-plain/non-JSON values, unsafe hash
+results, and mutation of the owned hash bytes. Container width is checked before
+child descriptors are read; descriptors are then consumed lazily. Combined
+non-raiseable ceilings cover JSON values/depth/string units, nodes, blocks,
+assets, diagnostics, difference rows, digest work, and final report bytes.
+Failures—including caller Proxy traps—expose only a fixed error code.
+
+The report keeps exact left/right capture scope and exact canonical IDs, then
+compares conversation fields, node topology, message ownership and typed blocks,
+asset metadata/content/acquisition claims, leaf ancestor chains, and bounded
+diagnostic code/severity counts. It does not copy titles, message text,
+filenames, paths, diagnostic text, source references, or provider extensions;
+it does not merge, fuzzy-match, deduplicate, or infer asset absence. Parent-
+derived and sibling/root order remain explicitly informational.
+
+A private content-free local smoke compared two already-existing raw-derived
+canonical snapshots of the same conversation. The web side had 494 nodes, 493
+messages, and 42 assets; the official side had 294 nodes, 293 messages, and 42
+assets. The report found 128 semantically equal common nodes, 200 web-only nodes,
+166 common-node conflicts, 200 web-only messages, 293 common-message conflicts,
+and all 42 exact asset IDs equal with no asset conflict. No official-only node,
+message, or asset ID was present. The report was 402,000 UTF-8 bytes and logged
+no private payload text or local path.
+
+This proves a real cross-format retention difference while separately preserving
+asset agreement. It does not prove the cause of the 200 omitted official nodes,
+external binary availability, or completeness of either capture. ADR-038 records
+the contract and the next delivery boundary.
+
+Focused verification passes 5 files / 110 tests, including the new reconciler
+plus official importer, canonical core, and branch semantics. The complete local
+suite passes 204 files / 6,809 tests; TypeScript plus the production build pass
+with 260 transformed modules. ESLint has zero errors and the unchanged three
+baseline warnings, while platform lint, Prettier, and `git diff --check` pass.
