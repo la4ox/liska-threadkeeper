@@ -8,24 +8,28 @@ import {
 } from '../archive/presentation/contracts';
 import { LOWERCASE_SHA256, preflightJson } from '../archive/presentation/safety';
 import { sha256Hex } from '../lib/sha256';
-import type { ArchiveCompanionBundle, StructuredPresentationContext } from '../lib/types';
-import { retainStructuredPresentation } from './structured-presentation';
+import type {
+  ArchiveCompanionBundle,
+  StructuredArchivePresentationContext,
+  StructuredPresentationContext,
+} from '../lib/types';
+import {
+  retainStructuredArchivePresentation,
+  retainStructuredPresentation,
+} from './structured-presentation';
 
 export const LISKA_HTML_ASSET_BINDINGS_SCHEMA = 'liska-html-asset-bindings/1' as const;
 
-export interface FinalizedFilePresentationEvidence {
-  readonly context: StructuredPresentationContext;
+export interface FinalizedFileArchivePresentationEvidence {
+  readonly context: StructuredArchivePresentationContext;
   readonly assetBindings: HtmlAssetBindingSet;
 }
 
-const CONTEXT_KEYS = [
-  'source',
-  'captureId',
-  'conversationKey',
-  'targetNodeId',
-  'selectedNodeIds',
-  'includeToolContent',
-] as const;
+export interface FinalizedFilePresentationEvidence extends FinalizedFileArchivePresentationEvidence {
+  readonly context: StructuredPresentationContext;
+}
+
+const CONTEXT_KEYS = ['source', 'captureId', 'conversationKey', 'includeToolContent'] as const;
 const ARTIFACT_KEYS = ['kind', 'relativePath', 'mediaType', 'byteLength', 'sha256'] as const;
 const ASSET_KEYS = ['id', 'state', 'relativePath', 'mediaType', 'byteLength', 'sha256'] as const;
 type ConfirmedAsset = Pick<RawCaptureAssetRecord, (typeof ASSET_KEYS)[number]>;
@@ -76,29 +80,21 @@ function companionMetadata(value: ArchiveCompanionBundle): ArchiveCompanionBundl
   } as unknown as ArchiveCompanionBundle;
 }
 
-function finalContext(
-  initial: StructuredPresentationContext,
+function finalContextInput(
+  initial: StructuredArchivePresentationContext,
   archive: LiskaThreadArchive,
   companion: ArchiveCompanionBundle
-): StructuredPresentationContext {
+) {
   const data = ownData(initial, CONTEXT_KEYS);
   const metadata = companionMetadata(companion);
   if (metadata.captureId !== data.captureId || metadata.conversationKey !== data.conversationKey)
     invalid();
-  const selectedNodeIds = denseArray(
-    data.selectedNodeIds,
-    HTML_PRESENTATION_LIMITS.maxSelectedNodes
-  );
-  const retained = retainStructuredPresentation({
-    source: data.source as StructuredPresentationContext['source'],
+  return {
+    source: data.source as StructuredArchivePresentationContext['source'],
     archive,
     archiveCompanion: metadata,
-    targetNodeId: data.targetNodeId as string,
-    selectedNodeIds: selectedNodeIds as string[],
     includeToolContent: data.includeToolContent as boolean,
-  });
-  if (!retained) invalid();
-  return retained;
+  };
 }
 
 function confirmedAsset(value: unknown): ConfirmedAsset {
@@ -200,11 +196,48 @@ function normalizedBindings(
   return Object.freeze(bindings);
 }
 
+/** One whole-map reconciliation and one digest, independent of selected/all-branches views. */
+async function finalizedBindings<T extends StructuredArchivePresentationContext>(
+  context: T,
+  confirmedAssetRecords: readonly RawCaptureAssetRecord[]
+): Promise<{ readonly context: T; readonly assetBindings: HtmlAssetBindingSet }> {
+  const bindings = normalizedBindings(context.archive, confirmedRecords(confirmedAssetRecords));
+  const sha256 =
+    bindings.length === 0
+      ? null
+      : await sha256Hex(
+          new TextEncoder().encode(
+            JSON.stringify({ schema: LISKA_HTML_ASSET_BINDINGS_SCHEMA, bindings }) + '\n'
+          )
+        );
+  if (sha256 !== null && (typeof sha256 !== 'string' || !LOWERCASE_SHA256.test(sha256))) invalid();
+  return Object.freeze({ context, assetBindings: Object.freeze({ bindings, sha256 }) });
+}
+
 /**
- * Rebind one selected view to destination-finalized canonical evidence. Inputs
- * remain closure-private extension objects and must not mutate while pending.
- * Malformed/mismatched evidence and crypto failures return only `undefined`.
+ * File-only capability: callers supply only records whose exact File writes were confirmed.
+ * Obsidian observations cannot authorize this context. No acquisition or destination writes
+ * occur here. The final normalized archive remains closure-private and must not mutate.
  */
+export async function buildFinalizedFileArchivePresentationEvidence(
+  initialContext: StructuredArchivePresentationContext,
+  finalArchive: LiskaThreadArchive,
+  finalCompanion: ArchiveCompanionBundle,
+  confirmedAssetRecords: readonly RawCaptureAssetRecord[]
+): Promise<FinalizedFileArchivePresentationEvidence | undefined> {
+  try {
+    preflightJson(finalArchive, { ...HTML_PRESENTATION_LIMITS });
+    const context = retainStructuredArchivePresentation(
+      finalContextInput(initialContext, finalArchive, finalCompanion)
+    );
+    if (!context) return undefined;
+    return await finalizedBindings(context, confirmedAssetRecords);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Selected-view compatibility wrapper; uses the same base retention and binding work. */
 export async function buildFinalizedFilePresentationEvidence(
   initialContext: StructuredPresentationContext,
   finalArchive: LiskaThreadArchive,
@@ -213,19 +246,17 @@ export async function buildFinalizedFilePresentationEvidence(
 ): Promise<FinalizedFilePresentationEvidence | undefined> {
   try {
     preflightJson(finalArchive, { ...HTML_PRESENTATION_LIMITS });
-    const context = finalContext(initialContext, finalArchive, finalCompanion);
-    const bindings = normalizedBindings(finalArchive, confirmedRecords(confirmedAssetRecords));
-    const sha256 =
-      bindings.length === 0
-        ? null
-        : await sha256Hex(
-            new TextEncoder().encode(
-              JSON.stringify({ schema: LISKA_HTML_ASSET_BINDINGS_SCHEMA, bindings }) + '\n'
-            )
-          );
-    if (sha256 !== null && (typeof sha256 !== 'string' || !LOWERCASE_SHA256.test(sha256)))
-      invalid();
-    return Object.freeze({ context, assetBindings: Object.freeze({ bindings, sha256 }) });
+    const selected = ownData(initialContext, ['targetNodeId', 'selectedNodeIds']);
+    const context = retainStructuredPresentation({
+      ...finalContextInput(initialContext, finalArchive, finalCompanion),
+      targetNodeId: selected.targetNodeId as string,
+      selectedNodeIds: denseArray(
+        selected.selectedNodeIds,
+        HTML_PRESENTATION_LIMITS.maxSelectedNodes
+      ) as string[],
+    });
+    if (!context) return undefined;
+    return await finalizedBindings(context, confirmedAssetRecords);
   } catch {
     return undefined;
   }

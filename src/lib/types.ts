@@ -287,23 +287,27 @@ export interface ChatGptAssetExportContext {
 }
 
 /**
- * Runtime-only identity of one verified current/selected structured view.
+ * Runtime-only identity of one verified structured archive, without a selected view.
  *
  * The canonical archive is deliberately retained by reference. Only the
- * bounded scalar/path evidence around it is detached and frozen; provider
+ * bounded scalar/descriptor evidence around it is detached and frozen; provider
  * request data, credentials, output destinations, and rendered Markdown do
  * not belong in this context.
  */
-export interface StructuredPresentationContext {
+export interface StructuredArchivePresentationContext {
   readonly source: StructuredArchiveSource;
   readonly archive: LiskaThreadArchive;
   readonly captureId: string;
   readonly conversationKey: string;
   readonly manifest: Readonly<ArchiveCompanionArtifactBase & { kind: 'manifest' }>;
   readonly canonical: Readonly<ArchiveCompanionArtifactBase & { kind: 'canonical' }>;
+  readonly includeToolContent: boolean;
+}
+
+/** Exact current/selected path layered over the same archive evidence. */
+export interface StructuredPresentationContext extends StructuredArchivePresentationContext {
   readonly targetNodeId: string;
   readonly selectedNodeIds: readonly string[];
-  readonly includeToolContent: boolean;
 }
 
 /**

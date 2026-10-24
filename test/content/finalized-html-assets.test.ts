@@ -9,6 +9,7 @@ import {
 import { htmlAssetMediaPolicy } from '../../src/archive/presentation/assets';
 import {
   buildFinalizedFilePresentationEvidence,
+  buildFinalizedFileArchivePresentationEvidence,
   LISKA_HTML_ASSET_BINDINGS_SCHEMA,
 } from '../../src/content/finalized-html-assets';
 import { retainStructuredPresentation } from '../../src/content/structured-presentation';
@@ -120,6 +121,105 @@ function build(value = setup()) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('destination-finalized HTML asset binding evidence', () => {
+  it.each(['chatgpt', 'deepseek'] as const)(
+    'shares exactly one binding digest between the %s base and selected APIs',
+    async source => {
+      const value = setup([record('asset-a'), record('asset-b')], source);
+      const digest = vi.spyOn(sha256Module, 'sha256Hex');
+      const base = (await buildFinalizedFileArchivePresentationEvidence(
+        value.initialContext,
+        value.finalArchive,
+        value.finalCompanion,
+        value.records
+      ))!;
+      expect(digest).toHaveBeenCalledTimes(1);
+      const selected = (await build(value))!;
+      expect(digest).toHaveBeenCalledTimes(2);
+      expect(base.assetBindings).toEqual(selected.assetBindings);
+      expect(base.context.archive).toBe(value.finalArchive);
+      expect(base.context.canonical).toEqual(selected.context.canonical);
+      const { targetNodeId, selectedNodeIds, ...selectedBase } = selected.context;
+      expect(targetNodeId).toBe(value.initialContext.targetNodeId);
+      expect(selectedNodeIds).toEqual(value.initialContext.selectedNodeIds);
+      expect(base.context).toEqual(selectedBase);
+      for (const item of [
+        base,
+        base.context,
+        base.context.manifest,
+        base.context.canonical,
+        base.assetBindings,
+        base.assetBindings.bindings,
+        base.assetBindings.bindings[0],
+      ])
+        expect(Object.isFrozen(item)).toBe(true);
+      value.records[0].relativePath = 'mutated';
+      value.finalCompanion.artifacts[2]!.sha256 = 'f'.repeat(64);
+      expect(base.assetBindings.bindings[0].path).toBe(PATH);
+      expect(base.context.canonical.sha256).not.toBe('f'.repeat(64));
+    }
+  );
+
+  it('retains final base evidence with no current/selected node and does not read selected/runtime metadata', async () => {
+    const value = setup();
+    value.finalArchive.conversation.currentNodeId = null;
+    value.finalCompanion = companion(value.finalArchive);
+    const getter = vi.fn(() => {
+      throw new Error('PRIVATE');
+    });
+    const initial = { ...value.initialContext };
+    for (const key of ['targetNodeId', 'selectedNodeIds', 'assetExportContext', 'rawCaptureBundle'])
+      Object.defineProperty(initial, key, { get: getter, enumerable: true });
+    const evidence = await buildFinalizedFileArchivePresentationEvidence(
+      initial,
+      value.finalArchive,
+      value.finalCompanion,
+      value.records
+    );
+    expect(evidence?.context.archive.conversation.currentNodeId).toBeNull();
+    expect(evidence?.context).not.toHaveProperty('targetNodeId');
+    expect(evidence?.context).not.toHaveProperty('selectedNodeIds');
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'unsupported',
+    'missing File confirmation',
+    'mismatch',
+    'alias conflict',
+    'duplicate record',
+    'stale key',
+  ])(
+    'shares base reconciliation for %s instead of granting File authority from unrelated observations',
+    async kind => {
+      const value = setup(
+        kind === 'unsupported'
+          ? [record('asset-a', 'text/html', 'html')]
+          : [record('asset-a'), record('asset-b')]
+      );
+      if (kind === 'missing File confirmation') {
+        value.records = [];
+        Object.assign((value.initialContext = { ...value.initialContext }), {
+          obsidianRecords: [record('asset-a'), record('asset-b')],
+        });
+      }
+      if (kind === 'mismatch') value.records[0].byteLength = 99;
+      if (kind === 'alias conflict') {
+        value.records[1].byteLength = 99;
+        value.finalArchive.assets['asset-b'].byteLength = 99;
+      }
+      if (kind === 'duplicate record') value.records.push(value.records[0]);
+      if (kind === 'stale key') value.finalCompanion.conversationKey = 'f'.repeat(64);
+      const result = await buildFinalizedFileArchivePresentationEvidence(
+        value.initialContext,
+        value.finalArchive,
+        value.finalCompanion,
+        value.records
+      );
+      if (kind === 'unsupported')
+        expect(result?.assetBindings).toEqual({ bindings: [], sha256: null });
+      else expect(result).toBeUndefined();
+    }
+  );
   it('uses one fixed schema and a golden UTF-8 digest with code-unit ID ordering', async () => {
     const value = setup([record('asset-z'), record('asset-a'), record('asset-Z')]);
     const evidence = (await build(value))!;
