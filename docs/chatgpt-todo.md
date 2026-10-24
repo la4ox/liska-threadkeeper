@@ -301,9 +301,10 @@ terminal states, and the existing no-credential-export boundary.
   timestamp-derived identity, and contained only ten visible DOM messages (five
   user/five assistant) with no raw, manifest, canonical archive, or loss warning.
   This is not Dots support.
-- First safety slice: classify `/dots/*` before ordinary ChatGPT extraction,
-  suppress the misleading ChatGPT export path, and show one explicit local
-  unsupported-provider message. Do not silently fall through to Base DOM.
+- First safety slice implemented: classify `/dots` and `/dots/*` before ordinary
+  ChatGPT extraction, suppress both misleading ChatGPT controls, and prevent
+  direct sync from reaching Base DOM fallback. An explicit Dots-specific user
+  surface remains part of the real adapter; this guard does not claim support.
 - First identify the authenticated page-owned conversation transport, raw graph
   or event model, current-thread identity, pagination, branches, tool content,
   media, and attachment families without reading unrelated Dots/account state.

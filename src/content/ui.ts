@@ -476,6 +476,14 @@ export function injectBranchExportButton(onClick: () => void): HTMLButtonElement
   return button;
 }
 
+/** Remove route-ineligible launch controls without disturbing an active export stop card. */
+export function removeExportControls(): void {
+  activeBranchPicker?.settle(null);
+  document.getElementById('g2o-sync-button')?.remove();
+  document.getElementById(BRANCH_BUTTON_ID)?.remove();
+  document.getElementById('g2o-launcher-shell')?.remove();
+}
+
 function createAllBranchesStopElements(): {
   root: HTMLDivElement;
   button: HTMLButtonElement;

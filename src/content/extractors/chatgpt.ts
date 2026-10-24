@@ -25,6 +25,7 @@ import type {
 } from '../../lib/types';
 import { getArchiveBranchCatalog, type ArchiveBranchCatalog } from '../../archive';
 import { isChatGptConversationId } from '../../lib/chatgpt-capture-contract';
+import { isChatGptDotsRoute } from '../../lib/chatgpt-route-surface';
 import {
   ChatGptCurrentBranchError,
   captureChatGptArchive,
@@ -194,6 +195,12 @@ type ChatGptStructuredRoute =
  */
 export class ChatGPTExtractor extends BaseExtractor {
   readonly platform = 'chatgpt';
+
+  override canExtract(): boolean {
+    return (
+      super.canExtract() && !isChatGptDotsRoute(window.location.hostname, window.location.pathname)
+    );
+  }
 
   /** Include projected reasoning and tool blocks from the verified archive. */
   enableToolContent = false;

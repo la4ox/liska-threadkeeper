@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   injectBranchExportButton,
   injectSyncButton,
+  removeExportControls,
   handleTrustedBranchClick,
   handleTrustedSyncClick,
   handleTrustedBranchPickerAction,
@@ -192,6 +193,20 @@ describe('ui', () => {
     const launcher = () => document.getElementById('g2o-launcher') as HTMLButtonElement;
     const actions = () => document.getElementById('g2o-launcher-actions') as HTMLDivElement;
     const shell = () => document.getElementById('g2o-launcher-shell') as HTMLDivElement;
+
+    it('removes route-ineligible launch controls without removing an active stop card', () => {
+      injectSyncButton(vi.fn());
+      injectBranchExportButton(vi.fn());
+      const stop = showAllBranchesStopControl(vi.fn());
+
+      removeExportControls();
+
+      expect(document.getElementById('g2o-launcher-shell')).toBeNull();
+      expect(document.getElementById('g2o-sync-button')).toBeNull();
+      expect(document.getElementById('g2o-branch-button')).toBeNull();
+      expect(document.getElementById('g2o-all-branches-stop')).not.toBeNull();
+      stop.dispose();
+    });
     const pointer = (type: string, pointerType = 'mouse') => {
       const event = new Event(type);
       Object.defineProperty(event, 'pointerType', { value: pointerType });

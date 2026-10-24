@@ -78,6 +78,19 @@ note id prefixes, and append-mode file matching. Renaming it would strand every
 existing note: saves would silently start landing in a new folder and
 `VALID_SOURCES` validation would reject the old ones.
 
+### 4. Host resolution does not override route-aware product boundaries
+
+`BaseExtractor.canExtract()` now owns the common strict-host check, and
+bootstrap calls the selected extractor's own `canExtract()` before injecting
+controls. A provider may therefore veto a route that shares its hostname but
+has a different data model.
+
+The first explicit case is ChatGPT Dots. `chatgpt.com/dots/*` resolves to the
+ChatGPT host in the registry, but it is not an ordinary `/c/{id}` conversation
+or a supported legacy ChatGPT surface. The ChatGPT extractor rejects it before
+UI injection and before Base DOM fallback. This keeps the host registry an SSOT
+without turning every product on a shared origin into the same provider.
+
 ## Consequences
 
 **Positive**
@@ -104,10 +117,10 @@ existing note: saves would silently start landing in a new folder and
 
 ## Follow-up
 
-Every extractor still hardcodes its own hostname in `canExtract()`;
-`notebooklm.ts` now delegates to `platformForHost()` instead. Hoisting that
-into `BaseExtractor` would delete four more host literals and is worth doing,
-but was deliberately left out of this fix to keep the diff scoped.
+Common hostname admission is now hoisted into `BaseExtractor`. Future products
+sharing a registered origin must add an explicit route-aware veto or their own
+provider adapter; they must not inherit a fallback merely because the hostname
+matches.
 
 ## References
 

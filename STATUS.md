@@ -2158,3 +2158,31 @@ close both; the final review is clean.
 Browser file-picker/orchestration, durable raw/manifest/canonical writes,
 official export ZIP/binary association, parent-file hashing, and cross-format
 comparison are not part of this core slice. ADR-037 records the exact boundary.
+
+## Dots route-isolation checkpoint
+
+Two trusted exports from `https://chatgpt.com/dots/home` confirmed a host-only
+false positive. Each produced a separate 9,091-byte note labelled ChatGPT with
+a timestamp-derived ID, ten visible DOM messages, and no raw, manifest,
+canonical archive, or loss warning. After removing only generated IDs and
+timestamps, the two note bodies were byte-identical. This is not Dots support.
+
+The candidate introduces a narrow route guard: exact `chatgpt.com` paths
+`/dots` and `/dots/*` are rejected by `ChatGPTExtractor.canExtract`, and
+bootstrap now admits an extractor only when its own route-aware `canExtract`
+passes. Dots therefore receives no ChatGPT current/branch controls and cannot
+reach Base DOM fallback through `handleSync`. Ordinary `/c/{id}`,
+`/g/{slug}/c/{id}`, non-Dots legacy DOM fallback, and all other providers keep
+their existing admission behavior.
+
+Focused route/extractor/bootstrap/UI/architecture coverage passes 8 files / 324
+tests; the complete suite passes 203 files / 6,771 tests. Production build
+transforms 257 modules; source/platform lint has zero errors and the same three
+pre-existing advisory warnings. Independent review found two lifecycle races:
+post-readiness injection after navigation and busy-state loss when controls were
+recreated. Post-wait admission, eligibility-aware SPA teardown/restoration, and
+an operation-level export lock close both; the refreshed review is clean. This
+is only a misclassification guard: no Dots raw transport, branches,
+memory/persona state, attachments, canonical adapter, or durable output is
+claimed. History-only URL changes without a DOM mutation and live SPA behavior
+remain explicit proof gaps; trusted sync still rechecks admission before output.
