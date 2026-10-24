@@ -179,10 +179,13 @@ terminal states, and the existing no-credential-export boundary.
   one closed leaf/index artifact can write HTML and then a locally built receipt
   with independent confirmed/unknown/not-dispatched outcomes, exact settings and
   sender admission, one-send transport and no retry/completeness claim.
-- Next HTML slice (B2b): authorize one finalized canonical session and build
-  branch artifacts through that transport. B3 then adds two-pass
-  measurement/recreation, aggregate HTML work/write accounting, cancellation,
-  unknown-write stop and independent Markdown/HTML bundle completion.
+- B2b canonical authorization is implemented but not yet invoked by the
+  exporter: a target-free finalized File context authorizes canonical bytes once,
+  prepares one B1 session and builds leaf/index artifacts on demand through the
+  B2a seam without caching HTML or claiming delivery.
+- Next HTML slice (B3): two-pass measurement/recreation, aggregate HTML
+  work/write accounting, cancellation, unknown-write stop and independent
+  Markdown/HTML bundle completion, followed by the explicit bootstrap hookup.
 - Automatic PDF remains a separate transport/rendering decision after HTML
   bundle behavior is stable.
 - Design image-aware append behavior for existing Obsidian notes.
@@ -277,9 +280,9 @@ The ChatGPT block is ready to call broadly complete when:
 Wait for the parent canonical HTML File-delivery pull request to finish clean
 review, merge it, then rebase and submit the already verified
 destination-finalized asset-binding slice. Rebase the prepared all-branches HTML
-core/B2a stack after that, review it independently, then implement B2b/B3
-authorization, orchestration and aggregate accounting without folding in
-ChatGPT provider drift. The remaining
+core/B2 stack after that, review it independently, then implement B3
+orchestration, aggregate accounting and the explicit opt-in hookup without
+folding in ChatGPT provider drift. The remaining
 evidence-backed gates are a real staged capture above 16 MiB, a live
 multi-output same-title sample, or one available additional binary family. The
 1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB

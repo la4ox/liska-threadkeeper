@@ -125,12 +125,16 @@ independent durable outcomes; the primitive never accepts or emits a bundle
 completion claim. A bounded content sender preserves not-dispatched,
 dispatched-but-unconfirmed, and observed outcomes without retry.
 
-B2b will authorize the exact finalized canonical bytes once and connect the
-prepared session to those derived artifacts. B3 will add two-pass measurement
-and recreation, cancellation, settings drift, unknown-write stop, independent
-Markdown/HTML completion, and exact aggregate physical-write accounting. A
-complete branch index remains forbidden until every leaf HTML and receipt for
-that output lane is confirmed.
+B2b authorizes the exact finalized canonical bytes once and connects the
+prepared session to those derived artifacts. Its archive-level context carries
+no selected target; the existing selected-view context extends the same evidence
+and keeps the current renderer contract. Leaf and index HTML are materialized and
+hashed only on demand, never cached as a complete bundle.
+
+B3 will add two-pass measurement and recreation, cancellation, settings drift,
+unknown-write stop, independent Markdown/HTML completion, and exact aggregate
+physical-write accounting. A complete branch index remains forbidden until
+every leaf HTML and receipt for that output lane is confirmed.
 
 ## Deferred decisions
 

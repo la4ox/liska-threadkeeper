@@ -1417,3 +1417,46 @@ bounded sender matrix passes 10 suites / 434 tests. Production typecheck/build
 dependency vulnerabilities. B2a has no bootstrap caller and makes no delivery
 claim; live Chrome timing, B2b canonical authorization and B3 bundle
 orchestration remain explicit next gates.
+
+## Canonical HTML all-branches B2b authorization checkpoint
+
+Source commit `107e763` adds the target-free archive evidence and authorization
+layer without enabling the exporter. `StructuredArchivePresentationContext`
+retains only provider-neutral archive identity, exact manifest/canonical
+descriptors and the presentation profile. The existing selected context extends
+that base with an exact target/path; ChatGPT's stricter subtype and current
+single-view API remain compatible.
+
+One shared authorization boundary preflights the closure-private archive,
+serializes the exact canonical JSON once, verifies UTF-8 length and SHA-256, and
+rechecks detached identity/descriptors across the single async hash. Current
+`prepareDerivedHtmlArtifact` and the new branch adapter use that same path.
+`prepareDerivedHtmlBranchPresentationSession` then creates one B1 session and
+builds leaf or index artifacts on demand: canonical hashing is not repeated,
+each materialized HTML body receives its own artifact hash, and no all-leaf HTML
+cache or persistence claim exists.
+
+File-finalized evidence now also has an archive-level builder. It reconciles the
+whole final canonical asset map and binding digest once; the prior selected-view
+builder is a compatibility wrapper over the same work. Tests compose one
+synthetic ChatGPT/DeepSeek finalized context through B2b into the bounded B2a
+sender, but no bootstrap/provider route invokes it yet.
+
+Independent review found one selected-path P2 during the refactor: the manual
+parent walk had lost declared-root membership and parent-to-child symmetry checks
+from the old `getNodePath`. A shared descriptor-only helper now verifies dense
+root/child arrays, exact bidirectional ancestry, root uniqueness, path bounds and
+cycle/repeat rejection in both retention and selected authorization. The initial
+authorization preserves the prior archive/selected JSON-preflight ordering and
+error codes; post-hash checks preflight only the selected array before detecting
+structural drift. Repeat review found no remaining P0-P3 issue.
+
+Evidence: all 190 test files / 6,212 tests pass in six memory-bounded batches.
+The focused B2b matrix passes 15 suites / 848 tests, including a 4,096-node
+selected path, once-only canonical hashing, per-output hashes, 512 branches,
+same-session facts, hostile descriptors and B2b-to-B2a composition. Production
+typecheck/build (246 modules), repository formatting, diff checks,
+source/platform lint and `npm audit` pass with only the same three pre-existing
+warnings and zero known dependency vulnerabilities. B3 orchestration, aggregate
+budgets, cancellation, index-completion gating and live browser delivery remain
+explicitly unimplemented.
