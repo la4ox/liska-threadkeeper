@@ -8,7 +8,7 @@
  */
 
 import { formatMessage, formatToolContent } from './markdown-formatting';
-import { neutralizeActiveProviderMarkdown } from './markdown-safety';
+import { neutralizeActiveProviderMarkdown, type TrustedHtmlRange } from './markdown-safety';
 import { convertDeepResearchContent } from './markdown-deep-research';
 import { generateHash } from '../lib/hash';
 import { MAX_FILENAME_BASE_LENGTH, FILENAME_ID_SUFFIX_LENGTH } from '../lib/constants';
@@ -158,7 +158,6 @@ function presentationFileName(
 /**
  * Convert conversation data to Obsidian note
  */
-// eslint-disable-next-line max-lines-per-function -- One deterministic renderedAt must govern frontmatter, body metadata, and filename.
 export function conversationToNote(
   data: ConversationData,
   options: TemplateOptions,
@@ -196,24 +195,7 @@ export function conversationToNote(
       body = convertDeepResearchContent(data.messages[0].content, data.links);
     }
   } else {
-    // Normal conversation format (callout style)
-    const bodyParts: string[] = [];
-
-    for (const message of data.messages) {
-      const messageParts: string[] = [];
-      // Render tool content as separate collapsible callout before assistant message
-      if (message.toolContent) {
-        messageParts.push(formatToolContent(message.toolContent, options));
-      }
-      const formatted = formatConversationMessage(message, options, data.source);
-      messageParts.push(formatted);
-      bodyParts.push(`${MESSAGE_BOUNDARY_MARKER}\n\n${messageParts.join('\n\n')}`);
-    }
-
-    body = neutralizeActiveProviderMarkdown(
-      `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n${bodyParts.join('\n\n')}`,
-      readingTrustedDestinations(data)
-    );
+    body = ordinaryConversationBody(data, options);
   }
 
   // Generate filename and content hash
@@ -239,4 +221,28 @@ function formatConversationMessage(
   source: AIPlatform
 ): string {
   return formatMessage(message.content, message.role, options, source, message.contentFormat);
+}
+
+function ordinaryConversationBody(data: ConversationData, options: TemplateOptions): string {
+  let source = `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n`;
+  const trustedHtmlRanges: TrustedHtmlRange[] = [
+    { start: 0, end: MESSAGE_BOUNDARY_FORMAT_MARKER.length },
+  ];
+  data.messages.forEach((message, index) => {
+    if (index > 0) source += '\n\n';
+    const markerStart = source.length;
+    source += MESSAGE_BOUNDARY_MARKER;
+    trustedHtmlRanges.push({ start: markerStart, end: source.length });
+
+    const messageParts: string[] = [];
+    // Render tool content as a separate collapsible callout before the assistant message.
+    if (message.toolContent) messageParts.push(formatToolContent(message.toolContent, options));
+    messageParts.push(formatConversationMessage(message, options, data.source));
+    source += `\n\n${messageParts.join('\n\n')}`;
+  });
+  return neutralizeActiveProviderMarkdown(
+    source,
+    readingTrustedDestinations(data),
+    trustedHtmlRanges
+  );
 }

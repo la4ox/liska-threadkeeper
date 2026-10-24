@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { neutralizeActiveProviderMarkdown } from '../../src/content/markdown-safety';
+import {
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+} from '../../src/lib/message-counter';
 
 function activeNodeTypes(markdown: string): string[] {
   const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(markdown)];
@@ -19,6 +23,25 @@ function activeNodeTypes(markdown: string): string[] {
     }
   }
   return activeNodes;
+}
+
+function htmlNodeValues(markdown: string): string[] {
+  const pending: Array<{ type: string; value?: string; children?: unknown[] }> = [
+    fromMarkdown(markdown),
+  ];
+  const values: string[] = [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (node.type === 'html') values.push(node.value ?? '');
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (typeof child === 'object' && child !== null && 'type' in child) {
+          pending.push(child as { type: string; value?: string; children?: unknown[] });
+        }
+      }
+    }
+  }
+  return values;
 }
 
 describe('neutralizeActiveProviderMarkdown', () => {
@@ -216,6 +239,82 @@ describe('neutralizeActiveProviderMarkdown', () => {
         '  ```',
       ].join('\n')
     );
+  });
+
+  it('neutralizes parser-confirmed HTML while preserving code and exact Liska markers', () => {
+    const input = [
+      MESSAGE_BOUNDARY_FORMAT_MARKER,
+      '',
+      '<iframe src=x></iframe>',
+      '',
+      '`<span>inline</span>`',
+      '',
+      '- ```html',
+      '  <script>literal()</script>',
+      '  ```',
+      '',
+      '![![pixel](https://attacker.example/pixel)](https://example.com/outer)',
+      '',
+      '<!-- liska-message:v1 --x>',
+      '',
+      MESSAGE_BOUNDARY_MARKER,
+    ].join('\n');
+
+    const trustedHtmlRanges = [
+      { start: 0, end: MESSAGE_BOUNDARY_FORMAT_MARKER.length },
+      {
+        start: input.lastIndexOf(MESSAGE_BOUNDARY_MARKER),
+        end: input.lastIndexOf(MESSAGE_BOUNDARY_MARKER) + MESSAGE_BOUNDARY_MARKER.length,
+      },
+    ];
+    const output = neutralizeActiveProviderMarkdown(input, [], trustedHtmlRanges);
+    expect(output).toContain('&lt;iframe src=x&gt;&lt;/iframe&gt;');
+    expect(output).toContain('`<span>inline</span>`');
+    expect(output).toContain('  <script>literal()</script>');
+    expect(output).toContain('&#33;&#91;!&#91;pixel]');
+    expect(output).toContain('&lt;!-- liska-message:v1 --x&gt;');
+    expect(htmlNodeValues(output).sort()).toEqual(
+      [MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER].sort()
+    );
+  });
+
+  it('does not trust a marker-shaped provider string without composer-owned ranges', () => {
+    expect(neutralizeActiveProviderMarkdown(MESSAGE_BOUNDARY_MARKER)).toBe(
+      '&lt;!-- liska-message:v1 --&gt;'
+    );
+  });
+
+  it('rejects a trusted HTML range that does not identify an exact generated marker', () => {
+    const input = '<iframe src=x></iframe>';
+    expect(neutralizeActiveProviderMarkdown(input, [], [{ start: 0, end: input.length }])).toBe(
+      '&lt;iframe src=x&gt;&lt;/iframe&gt;'
+    );
+  });
+
+  it('reparses after outer neutralization so newly exposed HTML cannot stay active', () => {
+    const input = '[blocked](file:///private "<iframe src=x></iframe>")';
+    const output = neutralizeActiveProviderMarkdown(input);
+
+    expect(output).toContain('&#91;blocked]');
+    expect(htmlNodeValues(output)).toEqual([]);
+  });
+
+  it('keeps Markdown that was opaque inside raw HTML literal after the HTML is neutralized', () => {
+    const input = [
+      '<div>',
+      '![track](https://attacker.example/pixel)',
+      '[private](http://127.0.0.1/admin)',
+      '[[Local note]]',
+      '</div>',
+    ].join('\n');
+    const output = neutralizeActiveProviderMarkdown(input);
+
+    expect(output).toContain('&lt;div&gt;');
+    expect(output).toContain('!&#91;track](https://attacker.example/pixel)');
+    expect(output).toContain('&#91;private](http://127.0.0.1/admin)');
+    expect(output).toContain('&#91;&#91;Local note]]');
+    expect(activeNodeTypes(output)).toEqual([]);
+    expect(htmlNodeValues(output)).toEqual([]);
   });
 
   it('distinguishes unmatched backticks from complete multiline inline code', () => {

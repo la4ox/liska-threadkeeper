@@ -1842,3 +1842,38 @@ security slice is therefore a bounded local raw-text/attribute reproducer matrix
 only a confirmed reachable seam may receive an isolated per-path fix. Final
 sink-gate work remains deferred until sentinel provenance and append context are
 designed explicitly.
+
+## Local final-note HTML checkpoint
+
+The bounded DES-019 follow-up confirmed two reachable local seams. First,
+CommonMark treats LF, CRLF, and lone CR as line endings while the line-oriented
+angle escape previously split only on LF; a lone CR could therefore hide a
+closing fence and leave following HTML untouched. Second, a list-contained
+fence could make the bespoke scanner miss the opener and treat its closer as a
+new top-level opener. The second payload survived the complete
+`conversationToNote` path as an active MDAST `html` node for both user content
+and structured assistant Markdown.
+
+The candidate normalizes line endings before fence tracking and obtains exact
+fenced, indented, and multiline inline-code ranges from the installed CommonMark parser, with a
+monotonic range cursor and a conservative bounded fallback. The authoritative
+ordinary-note pass now entity-literalizes every parser-confirmed raw-HTML node,
+reparses once after structural edits, and fails closed on invalid parser/range
+state. Liska's two append/count comments are not text-allowlisted: the body
+composer supplies ordered exact UTF-16 ranges, the safety layer verifies each
+full-line marker and shifts the ranges through applied edits, and provider
+copies remain inert before composition.
+
+Focused Markdown and safety coverage passes 2 files / 236 tests. The complete
+suite passes 193 files / 6,404 tests. Production build transforms 251 modules;
+source/platform lint has zero errors and only the same three pre-existing
+warnings. Formatting and diff checks are clean. Raw, manifest, canonical,
+canonical-derived HTML, destination receipts, append refusal, and physical-byte
+accounting are unchanged. Independent review exercised 3,024 production-path
+combinations across HTML wrappers, inner Markdown payloads, four code contexts,
+three line endings, three message formats, and both roles, plus six actual-note
+cases above 1 MiB. It found zero untrusted HTML/image/private-link nodes and
+retained a two-message count throughout; 10k/20k/40k helper-line probes completed
+in 250/415/857 ms without the former quadratic curve. Live Obsidian rendering
+was not repeated; parser reparse evidence proves the active nodes are absent
+from generated source while exact generated markers remain.
