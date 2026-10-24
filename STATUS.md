@@ -1498,3 +1498,30 @@ are clean, and the independent rereview passes 5 suites / 199 tests. B3a still
 has no bootstrap caller and performs zero destination writes. B3b must wire the
 shared structural option, finalized File evidence, sequential observations,
 unknown-write halting and index-completion summary before any live canary.
+
+## Canonical HTML all-branches B3b1 evidence checkpoint
+
+ChatGPT all-branches extraction now retains a separate target-free
+`StructuredArchivePresentationContext` from the exact captured archive,
+companion descriptors and snapshotted tool-content profile. It carries no
+selected target or path and remains distinct from the existing current/selected
+presentation capability. Invalid archive evidence fails closed through the
+established selection-failure path without provider-value details.
+
+Attachment finalization can now return a separate
+`fileArchivePresentation` capability. It is created only after the
+destination-normalized File manifest/canonical pair is confirmed and only from
+asset records whose exact File binary writes were reconciled as fetched.
+Obsidian completion, incomplete File finalization and evidence-builder failure
+cannot authorize it; builder failure also does not downgrade the already
+completed archive. Bootstrap forwards the archive context only for an explicit
+all-branches HTML + File request. The deferred warning remains and no HTML or
+receipt dispatch is enabled by this checkpoint.
+
+Evidence: the complete repository suite passes 191 files / 6,234 tests; content
+passes 62 / 2,528 and extractors pass 17 / 578. Production build transforms 246
+modules; lint has zero errors and only the same three baseline warnings;
+formatting and diff checks are clean. Main-agent focused verification passes 3
+suites / 110 tests and the independent review passes 5 suites / 251 tests with
+no P0-P3 finding. B3b2 still owns the no-attachment File evidence path, combined
+measurement, sequential delivery, unknown-write halting and user summary.

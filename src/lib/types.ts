@@ -359,6 +359,8 @@ export interface StagedBinaryAssetResult {
 export interface AllBranchesPresentationPlan {
   archive: LiskaThreadArchive;
   catalog: ArchiveBranchCatalog;
+  /** Runtime-only archive capability; deliberately has no selected target/path. */
+  structuredArchivePresentationContext?: StructuredArchivePresentationContext;
 }
 
 /** Evidence mode attached to a projected conversation, not to rendered text. */

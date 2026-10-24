@@ -37,7 +37,9 @@ import {
   type ChatGptAssetResolverObservation,
 } from './capture/chatgpt-current-branch';
 import {
+  buildFinalizedFileArchivePresentationEvidence,
   buildFinalizedFilePresentationEvidence,
+  type FinalizedFileArchivePresentationEvidence,
   type FinalizedFilePresentationEvidence,
 } from './finalized-html-assets';
 import {
@@ -73,6 +75,7 @@ import type {
   OutputDestination,
   PersistentOutputDestination,
   StagedBinaryAssetResult,
+  StructuredArchivePresentationContext,
   StructuredPresentationContext,
 } from '../lib/types';
 
@@ -137,7 +140,10 @@ export interface ChatGptAssetExportDependencies {
   persistBinaryAssets?: typeof persistVerifiedBinaryAssets;
   buildDestinationCompanion?: typeof buildChatGptBinaryAwareArchiveCompanion;
   buildDestinationArchive?: typeof buildChatGptBinaryAwareDestinationArchive;
+  buildFileArchivePresentationEvidence?: typeof buildFinalizedFileArchivePresentationEvidence;
   buildFilePresentationEvidence?: typeof buildFinalizedFilePresentationEvidence;
+  /** Present only for an opt-in all-branches File HTML run. */
+  archivePresentationContext?: StructuredArchivePresentationContext;
   /** Present only for an opt-in File HTML run; never authorizes another destination. */
   presentationContext?: StructuredPresentationContext;
 }
@@ -148,6 +154,7 @@ export interface ChatGptAssetExportResult {
   destinationReceipts: ChatGptDestinationArchiveReceipt[];
   /** Private detached proof, never a durable receipt field or output payload. */
   destinationLocalizationEvidence?: ChatGptSandboxLocalizationEvidence[];
+  fileArchivePresentation?: FinalizedFileArchivePresentationEvidence;
   filePresentation?: FinalizedFilePresentationEvidence;
   warnings: string[];
 }
@@ -169,6 +176,7 @@ interface FinalizedDestination {
   complete: boolean;
   receipt?: ChatGptDestinationArchiveReceipt;
   localizationEvidence?: ChatGptSandboxLocalizationEvidence;
+  fileArchivePresentation?: FinalizedFileArchivePresentationEvidence;
   filePresentation?: FinalizedFilePresentationEvidence;
   warnings: string[];
 }
@@ -758,7 +766,28 @@ async function finalizeDestination(
       ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
     );
     const complete = outcome.activeOutputs.includes(destination);
+    let fileArchivePresentation: FinalizedFileArchivePresentationEvidence | undefined;
     let filePresentation: FinalizedFilePresentationEvidence | undefined;
+    if (
+      complete &&
+      destination === 'file' &&
+      builtDestination &&
+      dependencies.archivePresentationContext
+    ) {
+      try {
+        fileArchivePresentation = await (
+          dependencies.buildFileArchivePresentationEvidence ??
+          buildFinalizedFileArchivePresentationEvidence
+        )(
+          dependencies.archivePresentationContext,
+          builtDestination.archive,
+          destinationCompanion,
+          state.records.filter(record => record.state === 'fetched')
+        );
+      } catch {
+        // Archive completion remains authoritative; HTML receives no weaker evidence.
+      }
+    }
     if (
       complete &&
       destination === 'file' &&
@@ -782,6 +811,7 @@ async function finalizeDestination(
       complete,
       ...(complete && { receipt }),
       ...(complete && localizationEvidence && { localizationEvidence }),
+      ...(fileArchivePresentation && { fileArchivePresentation }),
       ...(filePresentation && { filePresentation }),
       warnings: [...warnings, ...outcome.warnings],
     };
@@ -875,6 +905,7 @@ export async function persistChatGptDestinationHonestAttachments(
   const completeDestinations: PersistentOutputDestination[] = [];
   const destinationReceipts: ChatGptDestinationArchiveReceipt[] = [];
   const destinationLocalizationEvidence: ChatGptSandboxLocalizationEvidence[] = [];
+  let fileArchivePresentation: FinalizedFileArchivePresentationEvidence | undefined;
   let filePresentation: FinalizedFilePresentationEvidence | undefined;
   for (const destination of rawSuccessfulDestinations) {
     const finalized = await finalizeDestination(
@@ -897,6 +928,9 @@ export async function persistChatGptDestinationHonestAttachments(
     if (destination === 'file' && finalized.filePresentation) {
       filePresentation = finalized.filePresentation;
     }
+    if (destination === 'file' && finalized.fileArchivePresentation) {
+      fileArchivePresentation = finalized.fileArchivePresentation;
+    }
   }
   destinationReceipts.sort(
     (left, right) => requested.indexOf(left.destination) - requested.indexOf(right.destination)
@@ -906,6 +940,7 @@ export async function persistChatGptDestinationHonestAttachments(
     completeDestinations,
     destinationReceipts,
     ...(destinationLocalizationEvidence.length > 0 && { destinationLocalizationEvidence }),
+    ...(fileArchivePresentation && { fileArchivePresentation }),
     ...(filePresentation && { filePresentation }),
     warnings,
   };

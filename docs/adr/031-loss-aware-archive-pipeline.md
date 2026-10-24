@@ -840,6 +840,13 @@ two distinct sink operations, so an oversized destination combination is
 rejected explicitly instead of increasing a ceiling or dropping a requested
 format. Unknown delivery never authorizes a retry or the final index.
 
+HTML authorization uses destination-final evidence, not the extractor's
+pre-write archive alone. All-branches extraction retains a target-free archive
+context, while current/selected export retains its separate selected context.
+After attachment reconciliation, only a confirmed File manifest/canonical pair
+and File-confirmed fetched assets can produce the archive-level presentation
+capability. Obsidian evidence and incomplete File outcomes cannot be borrowed.
+
 Append, merge, automatic deduplication, and a monolithic branching Markdown
 document remain separate later decisions. The initial implementation favors
 complete, inspectable snapshots over implicit mutation.

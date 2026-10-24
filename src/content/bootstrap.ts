@@ -1330,11 +1330,13 @@ const chatGptAttachmentDependencies = (
   strictReplay: boolean,
   expectedSyncSettingsSnapshot: string,
   writeLedger?: OperationWriteLedger,
-  presentationContext?: ExtractionResult['structuredPresentationContext']
+  presentationContext?: ExtractionResult['structuredPresentationContext'],
+  archivePresentationContext?: AllBranchesPresentationPlan['structuredArchivePresentationContext']
 ) => ({
   expectedSyncSettingsSnapshot,
   ...(writeLedger && { writeLedger }),
   ...(presentationContext && { presentationContext }),
+  ...(archivePresentationContext && { archivePresentationContext }),
   persistArtifacts: persistArchiveCompanionArtifacts,
   observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
   ...(strictReplay
@@ -1429,7 +1431,11 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           chatGptAttachmentDependencies(
             settings.enableChatGptOpaqueReplay === true,
             expectedSyncSettingsSnapshot,
-            writeLedger
+            writeLedger,
+            undefined,
+            settings.enableHtmlExport === true && enabledOutputs.includes('file')
+              ? result.allBranches.structuredArchivePresentationContext
+              : undefined
           )
         );
         stage = 'saving the all-branches Markdown bundle';

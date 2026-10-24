@@ -19,6 +19,7 @@ import type {
   ArchiveCompanionBundle,
   ConversationMessage,
   ExtractionResult,
+  StructuredArchivePresentationContext,
   StructuredPresentationContext,
   SyncSettings,
 } from '../../lib/types';
@@ -45,7 +46,10 @@ import {
   type ArchiveBranchPickerSelection,
 } from '../ui';
 import { abortStagedArchiveArtifact } from '../archive-stage';
-import { retainStructuredPresentation } from '../structured-presentation';
+import {
+  retainStructuredArchivePresentation,
+  retainStructuredPresentation,
+} from '../structured-presentation';
 
 import { SELECTORS } from './selectors/chatgpt';
 
@@ -158,6 +162,7 @@ type ProjectionSelection =
       kind: 'all-branches';
       capture: ChatGptArchiveCapture;
       catalog: ArchiveBranchCatalog;
+      structuredArchivePresentationContext: StructuredArchivePresentationContext;
     };
 
 type StructuredArchiveProjectionResult = ArchiveProjectionResult & {
@@ -309,6 +314,7 @@ export class ChatGPTExtractor extends BaseExtractor {
         allBranches: {
           archive: selection.capture.archive,
           catalog: selection.catalog,
+          structuredArchivePresentationContext: selection.structuredArchivePresentationContext,
         },
       };
     }
@@ -382,8 +388,9 @@ export class ChatGPTExtractor extends BaseExtractor {
     return this.captureSelectedBranch(conversationId);
   }
 
-  // eslint-disable-next-line max-lines-per-function -- Keep capture, local selection, and retained evidence together; cancelled/all paths never retain presentation context.
+  // eslint-disable-next-line max-lines-per-function -- Keep capture, local selection, and selected/archive evidence together; cancelled paths retain neither.
   private async captureSelectedBranch(conversationId: string): Promise<ProjectionSelection> {
+    const includeToolContent = this.enableToolContent;
     let capture: ChatGptArchiveCapture;
     if (this.enableChatGptOpaqueReplay) {
       capture = await this.captureReplayArchive(conversationId);
@@ -404,13 +411,28 @@ export class ChatGPTExtractor extends BaseExtractor {
         await discardUncommittedArchiveStages(capture.archiveCompanion);
         return { kind: 'cancelled' };
       }
-      if (selection === 'all') return { kind: 'all-branches', capture, catalog };
+      if (selection === 'all') {
+        const structuredArchivePresentationContext = retainStructuredArchivePresentation({
+          source: 'chatgpt',
+          archive: capture.archive,
+          archiveCompanion: capture.archiveCompanion,
+          includeToolContent,
+        });
+        if (!structuredArchivePresentationContext)
+          return { kind: 'selection-failed', archiveCompanion: capture.archiveCompanion };
+        return {
+          kind: 'all-branches',
+          capture,
+          catalog,
+          structuredArchivePresentationContext,
+        };
+      }
 
       const branch = catalog.branches.find(candidate => candidate.ordinal === selection);
       if (!branch) throw new Error('invalid local branch selection');
       const projection = projectArchiveBranch(capture.archive, {
         targetNodeId: branch.targetNodeId,
-        includeToolContent: this.enableToolContent,
+        includeToolContent,
       });
       const structuredPresentationContext = retainStructuredPresentation({
         source: 'chatgpt',
@@ -418,7 +440,7 @@ export class ChatGPTExtractor extends BaseExtractor {
         archiveCompanion: capture.archiveCompanion,
         targetNodeId: branch.targetNodeId,
         selectedNodeIds: projection.selectedNodeIds,
-        includeToolContent: this.enableToolContent,
+        includeToolContent,
       });
       if (!structuredPresentationContext) throw new Error('invalid structured presentation');
       return {
@@ -441,7 +463,7 @@ export class ChatGPTExtractor extends BaseExtractor {
           chatGptStructuredPresentationContext: retainChatGptStructuredPresentation(
             capture,
             projection,
-            this.enableToolContent,
+            includeToolContent,
             structuredPresentationContext
           ),
         },
