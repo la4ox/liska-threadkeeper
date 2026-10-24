@@ -69,6 +69,12 @@ function response(url: string, bytes: Uint8Array, mediaType = 'image/png'): Resp
   return value;
 }
 
+function zipPrefix(third: number, fourth: number, byteLength: number): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  bytes.set([0x50, 0x4b, third, fourth]);
+  return bytes;
+}
+
 function responseLike(
   url: string,
   options: {
@@ -195,6 +201,91 @@ describe('ChatGPT page-owned asset acquisition', () => {
       sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect([...result.runtimeAssets[0].bytes]).toEqual([...bytes]);
+  });
+
+  it('persists a header-validated passive ZIP with a content-addressed path', async () => {
+    const record = ledger('e', 'application/zip');
+    const bytes = zipPrefix(0x03, 0x04, 30);
+    const url = signedUrl('zip');
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: url }],
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, 'application/zip')),
+      sha256: digest,
+    });
+
+    expect(result.records[0]).toMatchObject({
+      state: 'fetched',
+      mediaType: 'application/zip',
+      byteLength: bytes.byteLength,
+      relativePath: expect.stringMatching(/^assets\/[a-f0-9]{64}\.zip$/),
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect([...result.runtimeAssets[0].bytes]).toEqual([...bytes]);
+  });
+
+  it.each([
+    ['ordinary', zipPrefix(0x03, 0x04, 30)],
+    ['empty', zipPrefix(0x05, 0x06, 22)],
+  ] as const)('accepts the standard %s ZIP prefix family', async (_family, bytes) => {
+    const record = ledger('f', 'application/zip');
+    const url = signedUrl(`zip-${_family}`);
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: url }],
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, 'application/zip')),
+      sha256: digest,
+    });
+    expect(result.records[0].state).toBe('fetched');
+  });
+
+  it('rejects MIME-labelled arbitrary ZIP bytes before hashing', async () => {
+    const record = ledger('c', 'application/zip');
+    const hash = vi.fn(digest);
+    const url = signedUrl('false-zip');
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: url }],
+      fetcher: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          response(url, new TextEncoder().encode('<html>not a zip</html>'), 'application/zip')
+        ),
+      sha256: hash,
+    });
+
+    expect(result.records[0]).toMatchObject({
+      state: 'failed',
+      detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+    });
+    expect(result.runtimeAssets).toEqual([]);
+    expect(hash).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['ordinary', zipPrefix(0x03, 0x04, 29)],
+    ['empty', zipPrefix(0x05, 0x06, 21)],
+  ] as const)('rejects a truncated %s ZIP-family header before hashing', async (_family, bytes) => {
+    const record = ledger('b', 'application/zip');
+    const hash = vi.fn(digest);
+    const url = signedUrl(`truncated-${_family}-zip`);
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: url }],
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, 'application/zip')),
+      sha256: hash,
+    });
+
+    expect(result.records[0]).toMatchObject({
+      state: 'failed',
+      detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+    });
+    expect(result.runtimeAssets).toEqual([]);
+    expect(hash).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -145,6 +145,21 @@ function normalizedMediaType(response: Response): string | undefined {
   return mediaType && binaryAssetExtension(mediaType) !== undefined ? mediaType : undefined;
 }
 
+/**
+ * ZIP remains a passive download, but an allowlisted MIME must not relabel
+ * arbitrary bytes. This bounded prefix check accepts ordinary and empty ZIP
+ * families; split/SFX archives need separate evidence. It is not a full parser.
+ */
+function validZipPrefix(bytes: Uint8Array): boolean {
+  if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) return false;
+  if (bytes[2] === 0x03 && bytes[3] === 0x04) return bytes.byteLength >= 30;
+  return bytes[2] === 0x05 && bytes[3] === 0x06 && bytes.byteLength >= 22;
+}
+
+function validPassiveBinaryBytes(bytes: Uint8Array, mediaType: string): boolean {
+  return mediaType !== 'application/zip' || validZipPrefix(bytes);
+}
+
 async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
   try {
     await reader.cancel();
@@ -281,6 +296,12 @@ async function fetchOne(
       (mediaType === 'image/png' || mediaType === 'image/jpeg') &&
       !validateChatGptImageBytes(bytes, mediaType).ok
     ) {
+      return {
+        record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
+        byteCost: read.byteCost,
+      };
+    }
+    if (!validPassiveBinaryBytes(bytes, mediaType)) {
       return {
         record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
         byteCost: read.byteCost,
