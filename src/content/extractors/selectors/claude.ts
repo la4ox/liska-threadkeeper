@@ -7,6 +7,22 @@
 
 import type { SelectorGroup, ComputedSelectors } from './types';
 
+const USER_MESSAGE_SELECTORS = [
+  '[data-testid="user-message"]',
+  '.whitespace-pre-wrap.break-words',
+] as const;
+const ASSISTANT_RESPONSE_SELECTORS = [
+  '[data-testid="assistant-message"]',
+  '[data-cds="AssistantMessage"]',
+  '.font-claude-response',
+  '[class*="font-claude-response"]',
+  '[data-is-streaming]',
+] as const;
+const THREAD_MESSAGE_ROOT = `:is(${[
+  ...USER_MESSAGE_SELECTORS,
+  ...ASSISTANT_RESPONSE_SELECTORS,
+].join(', ')})`;
+
 /**
  * CSS Selectors for normal chat extraction
  */
@@ -34,17 +50,22 @@ export const SELECTORS = {
   // attribute, not by a class; the `!font-user-message` class that made this
   // substring match work disappeared a day after bg-bg-300 did. Chasing either
   // token would only buy the next rename.
-  userMessage: [
-    '[data-testid="user-message"]', // Grid container (HIGH)
-    '.whitespace-pre-wrap.break-words', // Legacy inner <p> (LOW fallback)
-  ],
+  userMessage: USER_MESSAGE_SELECTORS,
 
-  // Assistant response selectors
-  assistantResponse: [
-    '.font-claude-response', // Semantic (HIGH)
-    '[class*="font-claude-response"]', // Partial match (HIGH)
-    '[data-is-streaming]', // Functional attribute (MEDIUM)
-  ],
+  // Virtual row of one conversation turn: the numeric index gives the
+  // accumulation order, and the row boundary distinguishes a collapsed
+  // prompt's inert overflow from a dismissed panel enclosing the whole row.
+  conversationRow: ['[data-index]'],
+
+  // Assistant roots: prefer October's identities while retaining legacy turns.
+  // The extractor unions these in priority order instead of stopping at the
+  // first matching selector, so mixed old/new DOM does not lose distinct turns.
+  assistantResponse: ASSISTANT_RESPONSE_SELECTORS,
+
+  // October tool rows are positively classified by their content-block group.
+  // Thinking (:grp:th...) and unknown groups are not tool activity. Only the
+  // row's own label is available consistently; never click to expand details.
+  toolStatus: ['[data-cds="TurnStatus"][data-item-key*=":grp:cblk_"]'],
 
   // Markdown content selectors
   // 2026-07: .progressive-markdown disappeared from the live site (removed
@@ -62,13 +83,15 @@ export const SELECTORS = {
   // that reads them, measured against the DOM of that day.
 
   // Scroll container for virtualized-conversation auto-scroll (ADR-017).
-  // Claude windows/evicts turns; this is the overflow-y-auto element that
-  // scrolls the message list (observed live 2026-07: the div also carries
-  // overflow-x-hidden, flex-1, and [scrollbar-gutter:stable]).
+  // Claude windows/evicts turns. The sidebar now shares the thread's overflow
+  // classes and precedes it in the DOM (upstream #499). Prefer the semantic
+  // thread root; only accept the class fallback when it contains virtual rows.
+  // Broad overflow-only fallbacks can scroll the sidebar instead of the chat.
   scrollContainer: [
-    '.overflow-y-auto.overflow-x-hidden.flex-1', // Composite (HIGH)
-    '.overflow-y-auto.overflow-x-hidden', // Style pair (MEDIUM)
-    'div[class*="overflow-y-auto"]', // Partial match (LOW)
+    '[data-autoscroll-container]', // Semantic scroll root (HIGH)
+    '.overflow-y-auto.overflow-x-hidden.flex-1' +
+      ':not(nav):not([role="navigation"]):not(nav *):not([role="navigation"] *)' +
+      `:has([data-index] ${THREAD_MESSAGE_ROOT})`, // Extractor-owned thread fallback (MEDIUM)
   ],
 } as const satisfies SelectorGroup;
 

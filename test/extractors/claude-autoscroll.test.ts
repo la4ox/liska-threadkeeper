@@ -21,11 +21,13 @@ interface Turn {
 }
 
 /** Render one turn wrapped in a `data-index` virtual-row wrapper. */
-function renderTurn(turn: Turn, index: number): string {
+function renderTurn(turn: Turn, index: number, fallbackOnly = false): string {
   const inner =
     turn.role === 'user'
-      ? `<div class="bg-bg-300 rounded-xl"><div data-testid="user-message">${turn.content}</div></div>`
-      : `<div class="font-claude-response">${
+      ? fallbackOnly
+        ? `<p class="whitespace-pre-wrap break-words">${turn.content}</p>`
+        : `<div class="bg-bg-300 rounded-xl"><div data-testid="user-message">${turn.content}</div></div>`
+      : `<div ${fallbackOnly ? 'data-is-streaming="false"' : 'class="font-claude-response"'}>${
           turn.toolHtml === undefined
             ? `<div class="standard-markdown"><p>${turn.content}</p></div>`
             : `<div class="row-start-1"><div class="standard-markdown">${turn.toolHtml}</div></div>
@@ -37,11 +39,27 @@ function renderTurn(turn: Turn, index: number): string {
 /**
  * Install a virtualized Claude conversation into the DOM. Only `windowSize`
  * consecutive turns are mounted at once, chosen by the current scrollTop
- * (bottom on open). Returns nothing; sets up document.body.
+ * (bottom on open). Returns the thread and a spy on sidebar scroll writes.
  */
-function mountVirtualizedClaude(turns: Turn[], windowSize: number): void {
-  document.body.innerHTML = `<div class="overflow-y-auto overflow-x-hidden flex-1" id="scroller"></div>`;
+function mountVirtualizedClaude(
+  turns: Turn[],
+  windowSize: number,
+  { semanticRoot = true, sidebar = false, indexedSidebar = false, fallbackOnly = false } = {}
+) {
+  document.body.innerHTML = `
+    ${sidebar ? `<div id="sidebar" role="navigation" class="overflow-y-auto overflow-x-hidden flex-1">${indexedSidebar ? '<div data-index="99">Sidebar item</div>' : 'Sidebar item'}</div>` : ''}
+    <div ${semanticRoot ? 'data-autoscroll-container' : ''} class="overflow-y-auto overflow-x-hidden flex-1" id="scroller"></div>
+  `;
   const scroller = document.getElementById('scroller') as HTMLElement;
+  const sidebarElement = document.getElementById('sidebar');
+  const sidebarScroll = vi.fn();
+  if (sidebarElement) {
+    Object.defineProperty(sidebarElement, 'scrollTop', {
+      get: () => MAX_SCROLL,
+      set: sidebarScroll,
+      configurable: true,
+    });
+  }
 
   let scrollTop = MAX_SCROLL; // opens at the bottom
   const maxStart = Math.max(0, turns.length - windowSize);
@@ -50,7 +68,7 @@ function mountVirtualizedClaude(turns: Turn[], windowSize: number): void {
     const frac = scrollTop / MAX_SCROLL;
     const start = Math.round(frac * maxStart);
     const mounted = turns.slice(start, start + windowSize);
-    scroller.innerHTML = mounted.map((t, i) => renderTurn(t, start + i)).join('');
+    scroller.innerHTML = mounted.map((t, i) => renderTurn(t, start + i, fallbackOnly)).join('');
   };
 
   Object.defineProperty(scroller, 'scrollTop', {
@@ -68,6 +86,7 @@ function mountVirtualizedClaude(turns: Turn[], windowSize: number): void {
   });
 
   render();
+  return { scroller, sidebarScroll };
 }
 
 function settings(overrides: Partial<SyncSettings> = {}): SyncSettings {
@@ -124,7 +143,129 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     ]);
     // Indices are contiguous after accumulation.
     expect(result.data?.messages.map(m => m.index)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(result.data?.metadata.userMessageCount).toBe(3);
+    expect(result.data?.metadata.assistantMessageCount).toBe(3);
     expect(result.warnings).toBeUndefined();
+  });
+
+  it('scrolls the thread instead of a same-class sidebar preceding it', async () => {
+    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, { sidebar: true });
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    expect(result.data?.messages.map(m => plainText(m.content))).toEqual([
+      'Q1',
+      'A1',
+      'Q2',
+      'A2',
+      'Q3',
+      'A3',
+    ]);
+    expect(sidebarScroll).not.toHaveBeenCalled();
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it('prefers the semantic root even when an earlier class fallback has indexed descendants', async () => {
+    const { scroller, sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      sidebar: true,
+      indexedSidebar: true,
+    });
+    scroller.className = 'thread-scroll-root';
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    expect(result.data?.messages.map(m => plainText(m.content))).toEqual([
+      'Q1',
+      'A1',
+      'Q2',
+      'A2',
+      'Q3',
+      'A3',
+    ]);
+    expect(sidebarScroll).not.toHaveBeenCalled();
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it('uses the indexed-row class fallback when the semantic attribute is absent', async () => {
+    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      semanticRoot: false,
+      sidebar: true,
+      indexedSidebar: true,
+    });
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    expect(result.data?.messages.map(m => plainText(m.content))).toEqual([
+      'Q1',
+      'A1',
+      'Q2',
+      'A2',
+      'Q3',
+      'A3',
+    ]);
+    expect(sidebarScroll).not.toHaveBeenCalled();
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it('scrolls fallback-only legacy roles when the semantic root is absent', async () => {
+    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      semanticRoot: false,
+      sidebar: true,
+      indexedSidebar: true,
+      fallbackOnly: true,
+    });
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    expect(result.data?.messages.map(message => plainText(message.content))).toEqual([
+      'Q1',
+      'A1',
+      'Q2',
+      'A2',
+      'Q3',
+      'A3',
+    ]);
+    expect(result.data?.domHistoryLoad).toBe('complete');
+    expect(sidebarScroll).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'overflow-y-auto overflow-x-hidden flex-1',
+    'overflow-y-auto overflow-x-hidden',
+    'overflow-y-auto',
+  ])('never scrolls a sidebar-only page with classes %s', async classes => {
+    document.body.innerHTML = `<div id="sidebar" role="navigation" class="${classes}">Sidebar item</div>`;
+    const sidebar = document.getElementById('sidebar') as HTMLElement;
+    const sidebarScroll = vi.fn();
+    Object.defineProperty(sidebar, 'scrollTop', {
+      get: () => MAX_SCROLL,
+      set: sidebarScroll,
+      configurable: true,
+    });
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(false);
+    expect(sidebarScroll).not.toHaveBeenCalled();
   });
 
   it('extracts only the mounted window when auto-scroll is disabled', async () => {

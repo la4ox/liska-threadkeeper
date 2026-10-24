@@ -1104,6 +1104,72 @@ same three pre-existing advisory warnings and zero known dependency
 vulnerabilities. A real Chrome/Claude timing smoke was not repeated, so JSDOM
 proves the bounded paths and regressions but not a hard browser wall-clock.
 
+## Claude October DOM compatibility checkpoint
+
+The fresh `codex/claude-october-dom` branch ports only the stranded transcript
+scrolling and October assistant-root commits from `origin/codex/claude-compat`
+onto current `main`. It deliberately excludes that stale branch's truncation
+guard, which is superseded by the typed partial-DOM persistence checkpoint
+below, and excludes its broad intermediate provider documentation.
+
+Claude now prefers the semantic transcript scroller and accepts the class
+fallback only outside navigation ancestry when an indexed row contains an
+extractor-owned user or assistant root. Strong October identities, distinct
+legacy roots, and the weak streaming fallback are unioned in priority order;
+overlapping wrappers retain the prior greedy priority semantics without
+quadratic pairwise scans, so strong siblings survive while a later containing
+weak wrapper is discarded. A
+collapsed inert wrapper inside a live indexed row remains readable, while a
+hidden/inert row, dismissed outer panel, or closed artifact remains excluded.
+Assistant answer chrome, October status rows, and legacy status headers are
+removed only from a detached clone, preserving the visible final answer and
+exact code whitespace without mutating Claude's page.
+
+October tool rows merge with the richer legacy tool path in DOM order. Every
+inspected row consumes the existing shared section/input budget; every retained
+label consumes one metadata entry plus exact separator/Markdown bytes. The same
+mutable budget remains shared across virtual scroll windows before
+deduplication. Independent review iterations closed four retained P2s and one
+interim data-loss regression: a 4,097th October row and output after an
+exhausted 32 MiB Markdown budget now fail with fixed value-free errors; an
+indexed navigation sidebar no longer receives scroll writes or produces a
+false `complete` result; the fallback derives anchors from every supported user
+and assistant role; and candidate preflight plus ancestry-set selection replaces
+the former pairwise containment curve without collapsing sibling operations.
+
+Evidence: five focused Claude suites pass 230 tests; the complete suite passes
+194 files / 6,474 tests. Production build transforms 251 modules; formatting,
+diff checks, and source/platform lint pass with zero errors and the same three
+pre-existing warnings. The final independent review loaded production modules,
+rechecked every reproducer, compared 3,000 synthetic candidate sets against the
+former greedy semantics without a mismatch, and measured 4,001 / 8,001 / 16,389
+`contains` calls for 1,000 / 2,000 / 4,097 rows instead of the prior quadratic
+curve. No blocking issue remained.
+
+For one bounded live canary, Comet loaded the exact 29-file build of source head
+`7f4595c` from the established unpacked-extension directory after creating a
+rollback snapshot under `CodexTools/liska-dist-before-claude-7f4595c-20261024-1848Z`.
+The authenticated Claude page exposed messages 26–32 plus a `Load previous
+messages` control. With persisted settings left untouched, one trusted click
+saved a new 7,706-byte Markdown file containing six non-empty current-window
+turns: three user and three assistant records, six v1 message boundaries, and
+one format marker. Structural checks found zero `Claude responded`, `Copy
+answer`, `message-actions`, `data-cds`, or `data-testid` leakage. The browser
+reported `Saved locally`; the canary submitted no Claude message and made no
+page edit. The file proves the Download destination succeeded. Any additional
+configured local destination fan-out was not independently inspected.
+
+This canary proves current October DOM extraction for the mounted window only.
+It does not prove full-history auto-scroll for the 32-message chat, because the
+persisted auto-scroll setting was not changed and earlier messages remained
+behind Claude's explicit load control. It also produced no tool-activity block,
+so live October label output remains unproven despite the bounded offline path.
+After the final candidate-work and sibling-preservation fixes, the exact
+29-file build of source head `c5ea76c` replaced the installed tree with zero
+hash or size differences and was reloaded once. The extension details page
+showed an active service worker and no Errors control. No second private-chat
+export was needed or performed.
+
 ## Typed partial DOM persistence checkpoint
 
 Source head `32fb7b5` carries the existing DOM loader outcome as runtime-only

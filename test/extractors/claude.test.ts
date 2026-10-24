@@ -341,6 +341,36 @@ describe('ClaudeExtractor', () => {
 
   // ========== Extended Thinking (5 tests) ==========
   describe('Extended Thinking', () => {
+    it('removes legacy status content before using the plain-answer fallback', () => {
+      loadFixture(`
+        <div class="font-claude-response">
+          <div class="row-start-1"><div class="group/thinking"><div class="standard-markdown"><p>Legacy reasoning only</p></div></div></div>
+          <div class="row-start-2"><div class="row-start-1"><p>Visible plain answer</p></div></div>
+        </div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toContain('Visible plain answer');
+      expect(messages[0].content).not.toContain('Legacy reasoning only');
+    });
+
+    it('removes legacy status headers nested inside an outer markdown body', () => {
+      loadFixture(`
+        <div class="font-claude-response"><div class="standard-markdown">
+          <div class="row-start-1"><p>Legacy status label</p></div>
+          <div class="row-start-2"><div class="row-start-1"><p>Visible nested answer</p></div></div>
+        </div></div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toContain('Visible nested answer');
+      expect(messages[0].content).not.toContain('Legacy status label');
+    });
+
     it('extracts response content, not thinking content (collapsed)', async () => {
       setClaudeLocation('test-123');
       createClaudePage('test-123', [
@@ -1107,6 +1137,133 @@ console.log(x);</code></pre>
         document.title = originalTitle;
       }
     });
+  });
+
+  describe('collapsed conversation rows and dismissed panels', () => {
+    const collapsedPrompt = `
+      <div data-index="0">
+        <div class="overflow-hidden">
+          <div inert>
+            <div data-testid="user-message">
+              <p class="whitespace-pre-wrap break-words">First paragraph</p>
+              <p class="whitespace-pre-wrap break-words">Second paragraph</p>
+              <pre><code class="language-ts">const count = 42;
+console.log(count);</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const visibleReply = `
+      <div data-index="1">
+        <div class="font-claude-response">
+          <div class="standard-markdown"><p>The reply</p></div>
+        </div>
+      </div>
+    `;
+
+    it('preserves a multiline/code prompt below an inert wrapper without changing the live DOM', async () => {
+      setClaudeLocation('test-123');
+      loadFixture(collapsedPrompt + visibleReply);
+      const originalDom = document.body.innerHTML;
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.messages.map(m => m.role)).toEqual(['user', 'assistant']);
+      expect(result.data?.messages[0].content).toContain('First paragraph\n\nSecond paragraph');
+      expect(result.data?.messages[0].content).toMatch(
+        /```[\s\S]*const count = 42;\nconsole.log\(count\);[\s\S]*```/
+      );
+      expect(result.data?.metadata.userMessageCount).toBe(1);
+      expect(result.data?.metadata.assistantMessageCount).toBe(1);
+      expect(result.warnings ?? []).not.toContain('No user messages found');
+      expect(document.body.innerHTML).toBe(originalDom);
+    });
+
+    it('also preserves a collapsed assistant response below the row', () => {
+      loadFixture(`
+        <div data-index="0"><div data-testid="user-message"><p>Question</p></div></div>
+        <div data-index="1"><div inert><div class="font-claude-response">
+          <div class="standard-markdown"><p>Collapsed reply</p></div>
+        </div></div></div>
+      `);
+
+      const messages = extractor.extractMessages();
+
+      expect(messages.map(m => m.role)).toEqual(['user', 'assistant']);
+      expect(messages[1].content).toContain('Collapsed reply');
+    });
+
+    it.each(['inert', 'aria-hidden="true"', 'hidden'])(
+      'excludes indexed turns enclosed by an outer %s panel even behind a nearer inert wrapper',
+      attribute => {
+        loadFixture(`
+          <section ${attribute}>${collapsedPrompt}${visibleReply}</section>
+          <div data-index="2"><div data-testid="user-message"><p>Visible question</p></div></div>
+          <div data-index="3"><div class="font-claude-response">
+            <div class="standard-markdown"><p>Visible answer</p></div>
+          </div></div>
+        `);
+
+        const messages = extractor.extractMessages();
+
+        expect(messages.map(m => m.role)).toEqual(['user', 'assistant']);
+        expect(messages[0].content).toBe('Visible question');
+        expect(messages[1].content).toContain('Visible answer');
+      }
+    );
+
+    it.each(['inert', 'aria-hidden="true"', 'hidden'])(
+      'does not exempt a conversation row which itself is %s',
+      attribute => {
+        loadFixture(`
+          <div data-index="0" ${attribute}>
+            <div inert><div data-testid="user-message"><p>Dismissed question</p></div></div>
+          </div>
+          ${visibleReply}
+        `);
+
+        const messages = extractor.extractMessages();
+
+        expect(messages.map(m => m.role)).toEqual(['assistant']);
+        expect(messages[0].content).toContain('The reply');
+      }
+    );
+
+    it('does not treat an aria-hidden wrapper below a row as a collapsed prompt', () => {
+      loadFixture(`
+        <div data-index="0"><div aria-hidden="true"><div inert>
+          <div data-testid="user-message"><p>Hidden question</p></div>
+        </div></div></div>
+        ${visibleReply}
+      `);
+
+      expect(extractor.extractMessages().map(m => m.role)).toEqual(['assistant']);
+    });
+
+    it('does not exempt inert content without a conversation row', () => {
+      loadFixture(`
+        <div inert><div data-testid="user-message"><p>Dismissed question</p></div></div>
+        ${visibleReply}
+      `);
+
+      expect(extractor.extractMessages().map(m => m.role)).toEqual(['assistant']);
+    });
+
+    it.each(['inert', 'aria-hidden="true"'])(
+      'keeps Deep Research visibility strict inside an indexed row with a %s wrapper',
+      attribute => {
+        loadFixture(`
+          <div data-index="0"><div ${attribute}>
+            ${createClaudeDeepResearchDOM('Dismissed report', '<p>Stale report</p>')}
+          </div></div>
+        `);
+
+        expect(extractor.isDeepResearchVisible()).toBe(false);
+        expect(extractor.extractMessages()).toEqual([]);
+      }
+    );
   });
 
   // ========== Coverage regression: extract() canExtract false ==========
