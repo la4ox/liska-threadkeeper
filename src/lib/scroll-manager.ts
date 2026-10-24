@@ -454,6 +454,7 @@ async function scrollUpUntilStable(
 
     if (grew) {
       stable = 0;
+      atTopSince = null;
     } else if (wasAtTop && visible && ++stable >= SCROLL_STABILITY_THRESHOLD && settled) {
       return { iterations, fullyLoaded: true };
     }

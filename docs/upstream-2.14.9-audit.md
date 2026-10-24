@@ -101,7 +101,9 @@ unioned by DOM identity rather than using upstream's global current-layout
 switch. Stable turn keys outrank late child IDs; keyless remount identity stays
 explicitly best-effort. A visible top-settle prevents late history from being
 declared complete, including the zero-range seed edge, while hidden pages remain
-runtime-partial.
+runtime-partial. Each newly harvested history page resets both the stability
+counter and the settle timestamp, so successive small pages receive the full
+wait rather than a shortened remainder.
 
 API-first complete graph capture, selected/replay failure behavior, raw archive
 companions, canonical projection, verified binary acquisition, and destination

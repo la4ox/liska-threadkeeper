@@ -1233,16 +1233,19 @@ history; hidden pages never settle complete and flow into the existing runtime
 `partial` outcome. Normal-axis Claude and legacy ChatGPT behavior retain their
 previous accumulation semantics.
 
-Independent review found and closed three P2 data-integrity seams: paired user
+Independent review found and closed four P2 data-integrity seams: paired user
 fallback could misclassify assistant preformatted text; first-match legacy turn
 selection could discard a distinct testid-only root; and late child IDs could
-change stable remount keys and retain stale plus final messages. The final pass
+change stable remount keys and retain stale plus final messages. GitHub review
+then proved that zero-range history growth reset stability but not the settle
+clock, letting a second late page be skipped; every growth now restarts both.
+The final pass
 also verified API-first/selected/replay isolation, mixed current/legacy order,
 reverse-axis delayed loading, hidden/zero-range handling, and typed partial-DOM
 persistence.
 
 Evidence: ten focused suites pass 366 tests; the complete suite passes 198
-files / 6,614 tests. Production build transforms 253 modules; formatting, diff
+files / 6,615 tests. Production build transforms 253 modules; formatting, diff
 checks, and source/platform lint pass with zero errors and the same three
 pre-existing warnings. Raw browser DOM access was unavailable under the browser
 host policy. A native read-only observation exposed one visible user heading and

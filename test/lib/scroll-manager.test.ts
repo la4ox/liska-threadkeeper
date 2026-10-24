@@ -525,6 +525,45 @@ describe('accumulateWhileScrolling', () => {
     expect(result.items).toEqual(['older', 'newest']);
   });
 
+  it('restarts the full top settle whenever another zero-range history page arrives', async () => {
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column-reverse';
+    Object.defineProperty(container, 'scrollTop', {
+      get: () => 0,
+      set: () => {},
+      configurable: true,
+    });
+    Object.defineProperty(container, 'clientHeight', { get: () => 1_000, configurable: true });
+    Object.defineProperty(container, 'scrollHeight', { get: () => 1_000, configurable: true });
+    const started = Date.now();
+    const harvest = () => {
+      const elapsed = Date.now() - started;
+      if (elapsed >= 4_000) {
+        return [
+          { key: 'oldest', value: 'oldest' },
+          { key: 'older', value: 'older' },
+          { key: 'newest', value: 'newest' },
+        ];
+      }
+      if (elapsed >= 2_200) {
+        return [
+          { key: 'older', value: 'older' },
+          { key: 'newest', value: 'newest' },
+        ];
+      }
+      return [{ key: 'newest', value: 'newest' }];
+    };
+
+    const promise = accumulateWhileScrolling(container, harvest, { topSettleMs: 2_000 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.fullyLoaded).toBe(true);
+    expect(result.items).toEqual(['oldest', 'older', 'newest']);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(6_000);
+  });
+
   it('never calls a hidden zero-range settled pass complete', async () => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     const container = document.createElement('div');
