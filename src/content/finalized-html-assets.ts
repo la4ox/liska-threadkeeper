@@ -106,16 +106,16 @@ function detachedArchiveEvidence(
   const bindings = Object.freeze(
     denseArray(set.bindings, HTML_PRESENTATION_LIMITS.maxAssetBindings).map(
       binding =>
-        Object.freeze(
-          exactOwnData(binding, [
+        Object.freeze({
+          ...exactOwnData(binding, [
             'assetId',
             'path',
             'sha256',
             'mimeType',
             'byteLength',
             'renderMode',
-          ])
-        ) as unknown as HtmlAssetBinding
+          ]),
+        }) as unknown as HtmlAssetBinding
     )
   );
   return Object.freeze({

@@ -13,7 +13,11 @@ import {
   reconcileFinalizedFileArchivePresentationEvidence,
   LISKA_HTML_ASSET_BINDINGS_SCHEMA,
 } from '../../src/content/finalized-html-assets';
-import { retainStructuredPresentation } from '../../src/content/structured-presentation';
+import { prepareDerivedHtmlBranchPresentationSession } from '../../src/content/derived-branch-html-presentation';
+import {
+  retainStructuredArchivePresentation,
+  retainStructuredPresentation,
+} from '../../src/content/structured-presentation';
 import * as sha256Module from '../../src/lib/sha256';
 import { buildChatGptDestinationArchiveReceipt } from '../../src/content/chatgpt-destination-receipt';
 import type {
@@ -147,6 +151,7 @@ describe('destination-finalized HTML asset binding evidence', () => {
     expect(detached.context.archive).toBe(evidence.context.archive);
     expect(detached.assetBindings.bindings).toHaveLength(2);
     expect(detached.assetBindings.bindings[0]).not.toBe(evidence.assetBindings.bindings[0]);
+    expect(Object.getPrototypeOf(detached.assetBindings.bindings[0])).toBe(Object.prototype);
     for (const item of [
       detached,
       detached.context,
@@ -157,6 +162,43 @@ describe('destination-finalized HTML asset binding evidence', () => {
       ...detached.assetBindings.bindings,
     ])
       expect(Object.isFrozen(item)).toBe(true);
+  });
+
+  it('keeps reconciled File bindings acceptable to the all-branches renderer', async () => {
+    const archive = structuredClone(branchingFixture) as LiskaThreadArchive;
+    archive.inputs[0].captureId = 'capture-chatgpt-reconciled-render';
+    const asset = archive.assets['asset-synthetic-image'];
+    asset.localArtifactRef = PATH;
+    const fetched = record('asset-synthetic-image', 'image/png', 'png', {
+      attemptedAt: asset.acquisition.attemptedAt,
+      sourceRefs: asset.sourceRefs,
+    });
+    const finalizedCompanion = companion(archive);
+    const context = retainStructuredArchivePresentation({
+      source: 'chatgpt',
+      archive,
+      archiveCompanion: finalizedCompanion,
+      includeToolContent: true,
+    })!;
+    const evidence = (await buildFinalizedFileArchivePresentationEvidence(
+      context,
+      archive,
+      finalizedCompanion,
+      [fetched]
+    ))!;
+    const receipt = buildChatGptDestinationArchiveReceipt(finalizedCompanion, 'file', [
+      { record: fetched, bytes: new Uint8Array(42) },
+    ]);
+    const reconciled = reconcileFinalizedFileArchivePresentationEvidence(evidence, receipt)!;
+
+    const session = await prepareDerivedHtmlBranchPresentationSession(
+      reconciled.context,
+      reconciled.assetBindings
+    );
+    expect(session.branchCount).toBe(2);
+    await expect(session.buildLeaf(1)).resolves.toMatchObject({
+      artifact: { role: 'leaf', ordinal: 1 },
+    });
   });
 
   it.each([

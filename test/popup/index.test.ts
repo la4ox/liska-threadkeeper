@@ -20,6 +20,7 @@ vi.mock('../../src/lib/messaging', () => ({
 import { getSettingsOrThrow } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
 import { initPopup } from '../../src/popup/app';
+import { validateMessageContent } from '../../src/background/validation';
 
 const VALID_API_KEY = 'a'.repeat(32);
 
@@ -586,6 +587,10 @@ describe('popup/app', () => {
           settings: expect.objectContaining({ enableHtmlExport: true }),
         })
       );
+      const message = vi.mocked(sendMessage).mock.calls.at(-1)?.[0];
+      expect(message?.action).toBe('saveSettings');
+      expect(validateMessageContent(structuredClone(message))).toBe(true);
+      expect(validateMessageContent(JSON.parse(JSON.stringify(message)))).toBe(true);
     });
 
     it('preserves the configured HTML choice when saving while File output is disabled', async () => {

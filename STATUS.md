@@ -1597,3 +1597,38 @@ The content chunk is now 501.07 kB minified and crosses Vite's informational
 500 kB warning threshold; behavior is unaffected, and code splitting remains a
 later maintainability task rather than a last-minute delivery rewrite. Live
 browser delivery is the remaining gate for this stacked checkpoint.
+
+## Canonical HTML all-branches live reconciliation fix
+
+The first live all-branches File canary retained a complete raw/manifest/
+canonical archive, two confirmed PNG assets, two Markdown leaves and the
+Markdown index, but produced no HTML or presentation receipts. Replaying the
+fresh capture through the pure pipeline proved that archive identity, File
+receipt reconciliation and both asset bindings were valid; plan preparation
+then failed at the renderer boundary with `html-input-invalid`.
+
+The defect was in the reconciliation snapshot itself. Strict descriptor reads
+materialized each accepted binding as a null-prototype record, while the HTML
+JSON preflight intentionally accepts only ordinary plain records. Reconciled
+evidence therefore became unusable immediately after it had been validated.
+Bindings are now copied into frozen ordinary objects after the same exact-key
+read. The security and destination-honesty checks are unchanged.
+
+A regression now passes reconciled File evidence with a confirmed PNG through
+the real all-branches renderer and builds a leaf. The live capture also passes
+the complete offline evidence, reconciliation and three-document planning path
+after the fix. The popup regression additionally sends its real settings
+message through structured-clone/JSON transport and the worker validator, so a
+mixed popup/worker generation remains distinguishable from a schema defect.
+
+Evidence: the focused affected set passes 6 suites / 295 tests; production
+build transforms 250 modules; lint has zero errors and the same three baseline
+warnings; formatting and diff checks are clean; the complete suite passes 192
+files / 6,292 tests. The rebuilt installed extension
+matches its candidate at 29/29 files. The final live canary produced one
+complete capture with raw/manifest/canonical, two confirmed PNGs, two Markdown
+leaves plus index, two HTML leaves plus index, and three receipt files. Every
+HTML byte length and SHA-256 matches its receipt; no blob, extension, backend
+API, signed-query or provider download route remains in the HTML. The local
+index and one leaf were opened in Comet and rendered with working relative
+navigation and readable layout. This checkpoint is ready to commit.
