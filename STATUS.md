@@ -1249,3 +1249,47 @@ footnotes, or math. Production build, repository formatting, and
 source/platform lint pass with only the same three pre-existing warnings; `npm
 audit` reports zero known vulnerabilities. Actual Obsidian rendering was not
 repeated, so renderer network behavior remains an explicit live proof gap.
+
+## Canonical HTML File-delivery checkpoint
+
+Source head `4528871` completes the first opt-in File-only delivery slice on
+`codex/canonical-html-delivery`. Structured ChatGPT and DeepSeek snapshots retain
+provider-neutral presentation context only after the raw/manifest/canonical
+archive trio is confirmed. The content layer then reserializes and rehashes the
+exact canonical archive once, invokes pure `liska-html/1`, and asks background to
+persist fixed `index.html` followed by a deterministic
+`presentation/liska-html-1.receipt.json`. Background independently revalidates
+base64, strict UTF-8, byte length, SHA-256, sender, destination, and current
+settings. HTML is not offered for PDF, Obsidian, Clipboard, DOM fallback, or an
+unfinalized asset-bearing snapshot.
+
+The popup exposes `Canonical HTML reading view` as a default-off opt-in enabled
+only while File output is selected. A live Comet smoke found that the new field
+had been omitted from the storage pass-through list: the popup reported success,
+but reload returned it to false. The field is now persisted alongside the other
+non-secret sync settings, with a round-trip regression test. The temporary
+test-only sender relaxation was never committed. The original user settings
+were restored after the smoke, and the previously installed stable build was
+put back after an exact reload.
+
+The first private canary unexpectedly contained attachment evidence. It
+correctly retained Markdown plus raw/manifest/canonical and a verified JPEG,
+while producing no HTML or receipt under the current no-unfinalized-assets rule.
+A separate no-asset structured canary then wrote raw (41,929 bytes), manifest
+(857 bytes), canonical (73,478 bytes), HTML (33,716 bytes), receipt (539 bytes),
+and Markdown (33,033 bytes). It retained 11 canonical nodes, one root, zero
+manifest warnings, and zero assets. A local 36-check verifier reconciled every
+length/hash/provenance edge, canonical metadata, fixed paths, null asset-binding
+digest, renderer version, CSP, and the absence of executable elements, event
+handlers, remote `src`, external styles, base elements, and meta refresh. Comet
+also rendered the saved file as a readable offline conversation.
+
+All 180 test files / 5,615 tests pass in the established six memory-bounded
+batches. A monolithic Vitest run again exhausted worker memory and is not used as
+evidence; it produced no assertion failure before worker teardown. Production
+build/typecheck, repository formatting, source/platform lint, and `npm audit`
+pass with only the same three pre-existing warnings and zero known dependency
+vulnerabilities. Independent review found no P0-P3 issue in the persistence fix;
+its requested close/reopen Comet proof is covered by the live reload above. The
+next HTML slice is destination-finalized local-asset bindings and then
+all-branches reading bundles. Automatic PDF remains separate.

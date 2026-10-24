@@ -70,6 +70,7 @@ export class DeepSeekExtractor extends BaseExtractor {
                 : { ...apiConversation.data, title: this.getTitle() },
               archiveCompanion: apiConversation.archiveCompanion,
               deepSeekAssetExportContext: apiConversation.assetExportContext,
+              structuredPresentationContext: apiConversation.structuredPresentationContext,
               warnings: apiConversation.warnings.length > 0 ? apiConversation.warnings : undefined,
             };
           }

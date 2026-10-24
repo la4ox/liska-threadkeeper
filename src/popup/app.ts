@@ -104,6 +104,8 @@ function queryElements() {
     enableAppendMode: getElement<HTMLInputElement>('enableAppendMode'),
     enableToolContent: getElement<HTMLInputElement>('enableToolContent'),
     enableImageExport: getElement<HTMLInputElement>('enableImageExport'),
+    enableHtmlExport: getElement<HTMLInputElement>('enableHtmlExport'),
+    htmlExportRow: getElement<HTMLElement>('htmlExportRow'),
     enableChatGptOpaqueProbe: getElement<HTMLInputElement>('enableChatGptOpaqueProbe'),
     enableChatGptOpaqueReplay: getElement<HTMLInputElement>('enableChatGptOpaqueReplay'),
     imageVaultPath: getElement<HTMLInputElement>('imageVaultPath'),
@@ -173,6 +175,8 @@ function populateForm(settings: ExtensionSettings): void {
   elements.enableAppendMode.checked = settings.enableAppendMode ?? false;
   elements.enableToolContent.checked = settings.enableToolContent ?? false;
   elements.enableImageExport.checked = settings.enableImageExport ?? true;
+  elements.enableHtmlExport.checked = settings.enableHtmlExport ?? false;
+  updateHtmlExportAvailability();
   const enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe === true;
   elements.enableChatGptOpaqueProbe.checked = enableChatGptOpaqueProbe;
   elements.enableChatGptOpaqueReplay.checked = isOpaqueReplaySettingActive(settings);
@@ -228,6 +232,15 @@ function updateObsidianSettingsVisibility(): void {
   }
 }
 
+/** Keep the HTML companion switch available only when file output is selected. */
+function updateHtmlExportAvailability(): void {
+  const disabled = !elements.outputFile.checked;
+  elements.enableHtmlExport.disabled = disabled;
+  elements.enableHtmlExport.setAttribute('aria-disabled', String(disabled));
+  elements.htmlExportRow.style.opacity = disabled ? '0.5' : '';
+  elements.htmlExportRow.style.cursor = disabled ? 'not-allowed' : '';
+}
+
 /**
  * Setup event listeners
  */
@@ -240,7 +253,10 @@ function setupEventListeners(): void {
     updateObsidianSettingsVisibility();
     queueOutputOptionsSave();
   });
-  elements.outputFile.addEventListener('change', queueOutputOptionsSave);
+  elements.outputFile.addEventListener('change', () => {
+    updateHtmlExportAvailability();
+    queueOutputOptionsSave();
+  });
   elements.outputClipboard.addEventListener('change', queueOutputOptionsSave);
 
   elements.enableChatGptOpaqueProbe.addEventListener('change', () => {
@@ -441,6 +457,7 @@ function collectSettings(): ExtensionSettings {
     enableAppendMode: elements.enableAppendMode.checked,
     enableToolContent: elements.enableToolContent.checked,
     enableImageExport: elements.enableImageExport.checked,
+    enableHtmlExport: elements.enableHtmlExport.checked,
     enableChatGptOpaqueProbe: elements.enableChatGptOpaqueProbe.checked,
     enableChatGptOpaqueReplay: elements.enableChatGptOpaqueReplay.checked,
     imageVaultPath: elements.imageVaultPath.value.trim() || 'AI/{platform}/images',

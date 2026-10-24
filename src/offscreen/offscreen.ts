@@ -102,7 +102,8 @@ function decodeArchiveBytes(base64: string): Uint8Array {
 }
 
 function createArchiveBlobUrl(bodyBase64: string, mediaType: string): string {
-  if (mediaType !== 'application/json') throw new Error('invalid archive media type');
+  if (mediaType !== 'application/json' && mediaType !== 'text/html')
+    throw new Error('invalid archive media type');
   const bytes = decodeArchiveBytes(bodyBase64);
   const exact = bytes.buffer.slice(
     bytes.byteOffset,

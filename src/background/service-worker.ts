@@ -15,7 +15,11 @@ import {
 } from './validation';
 import { deriveChatGptCaptureTarget, type ChatGptCaptureTarget } from './chatgpt-route-target';
 import { handleTestConnection } from './obsidian-handlers';
-import { handleMultiOutput, handlePersistArchiveCompanion } from './output-handlers';
+import {
+  handleMultiOutput,
+  handlePersistArchiveCompanion,
+  handlePersistDerivedHtmlPresentation,
+} from './output-handlers';
 import { handleStagedBinaryAssetMessage } from './binary-asset-handlers';
 import { handleArchiveStageMessage } from './archive-stage-handlers';
 import { startStagedBinaryDownloadRecovery } from './binary-download-recovery';
@@ -79,6 +83,7 @@ type DurableOutputMessage = Extract<
     action:
       | 'saveToOutputs'
       | 'persistArchiveCompanion'
+      | 'persistDerivedHtmlPresentation'
       | 'commitStagedArchiveCompanion'
       | 'commitStagedBinaryAsset';
   }
@@ -387,7 +392,11 @@ function isAuthorizedArchiveCompanionRequest(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): boolean {
-  if (message.action !== 'persistArchiveCompanion') return true;
+  if (
+    message.action !== 'persistArchiveCompanion' &&
+    message.action !== 'persistDerivedHtmlPresentation'
+  )
+    return true;
   if (message.source !== 'chatgpt' && message.source !== 'deepseek') return false;
   return validateArchiveStageSender(sender, message.source);
 }
@@ -722,7 +731,8 @@ async function handleMessage(
     'expectedSyncSettingsSnapshot' in message &&
     message.expectedSyncSettingsSnapshot !== undefined &&
     (serializeSyncSettingsSnapshot(settings) !== message.expectedSyncSettingsSnapshot ||
-      message.outputs.some(destination => !settings.outputOptions[destination]))
+      message.outputs.some(destination => !settings.outputOptions[destination]) ||
+      (message.action === 'persistDerivedHtmlPresentation' && settings.enableHtmlExport !== true))
   ) {
     // Admission only: do not dispatch outputs, adopt new settings, or retry
     // without the guard. A relinquished stage still needs its exact abort.
@@ -743,6 +753,9 @@ async function handleMessage(
 
     case 'persistArchiveCompanion':
       return handlePersistArchiveCompanion(message, settings);
+
+    case 'persistDerivedHtmlPresentation':
+      return handlePersistDerivedHtmlPresentation(message);
 
     case 'beginStagedBinaryAsset':
     case 'appendStagedBinaryAsset':

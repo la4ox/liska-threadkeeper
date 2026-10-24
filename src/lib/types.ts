@@ -7,6 +7,7 @@ import type { RawCaptureBundle } from '../archive/capture';
 import type { LiskaThreadArchive } from '../archive/types';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
 import type { ChatGptRouteFamily } from './chatgpt-owner-context';
+import type { DerivedHtmlArtifact } from './derived-presentation-contract';
 
 /**
  * Supported AI platform identifiers
@@ -227,7 +228,7 @@ export const ARCHIVE_COMPANION_RELATIVE_PATHS: Readonly<Record<ArchiveCompanionK
 };
 
 /** Shared immutable identity for one JSON artifact in a structured snapshot. */
-interface ArchiveCompanionArtifactBase {
+export interface ArchiveCompanionArtifactBase {
   kind: ArchiveCompanionKind;
   relativePath: string;
   mediaType: 'application/json';
@@ -284,20 +285,36 @@ export interface ChatGptAssetExportContext {
   rawArtifact: ArchiveCompanionArtifact;
 }
 
-/** Runtime-only identity of the initial, validated current/selected presentation.
- * The archive is retained by reference, not cloned; its digest is checked again
- * before deriving localized text. Never serialize this context into an output.
+/**
+ * Runtime-only identity of one verified current/selected structured view.
+ *
+ * The canonical archive is deliberately retained by reference. Only the
+ * bounded scalar/path evidence around it is detached and frozen; provider
+ * request data, credentials, output destinations, and rendered Markdown do
+ * not belong in this context.
  */
-export interface ChatGptStructuredPresentationContext {
+export interface StructuredPresentationContext {
+  readonly source: StructuredArchiveSource;
   readonly archive: LiskaThreadArchive;
-  readonly assetExportContext: ChatGptAssetExportContext;
   readonly captureId: string;
   readonly conversationKey: string;
-  readonly manifestSha256: string;
-  readonly canonical: Readonly<ArchiveCompanionArtifactBase>;
-  readonly targetNodeId: string | null;
+  readonly manifest: Readonly<ArchiveCompanionArtifactBase & { kind: 'manifest' }>;
+  readonly canonical: Readonly<ArchiveCompanionArtifactBase & { kind: 'canonical' }>;
+  readonly targetNodeId: string;
   readonly selectedNodeIds: readonly string[];
   readonly includeToolContent: boolean;
+}
+
+/**
+ * ChatGPT's stricter localization context. Generic structured presentation
+ * survives without attachment evidence; this subtype exists only when the
+ * original ChatGPT asset-export evidence is also available.
+ */
+export interface ChatGptStructuredPresentationContext extends StructuredPresentationContext {
+  readonly source: 'chatgpt';
+  readonly assetExportContext: ChatGptAssetExportContext;
+  /** Compatibility alias retained for the existing sandbox-localization API. */
+  readonly manifestSha256: string;
 }
 
 /**
@@ -428,6 +445,8 @@ export interface SyncSettings {
   enableToolContent: boolean;
   /** Export conversation images (Obsidian vault + file download). */
   enableImageExport: boolean;
+  /** Add a canonical-derived offline HTML reading view to File archive snapshots. */
+  enableHtmlExport: boolean;
   /**
    * Experimental ChatGPT metadata-only opaque request probe. While enabled a
    * ChatGPT export stops before capture, DOM fallback, or persistence.
@@ -554,6 +573,17 @@ export type ExtensionMessage =
       outputs: PersistentOutputDestination[];
     }
   | {
+      action: 'persistDerivedHtmlPresentation';
+      reportDurableWriteOutcome: true;
+      source: StructuredArchiveSource;
+      captureId: string;
+      conversationKey: string;
+      expectedSyncSettingsSnapshot: string;
+      artifact: DerivedHtmlArtifact;
+      /** HTML delivery is File-only in version 1. */
+      outputs: ['file'];
+    }
+  | {
       action: 'beginStagedArchiveArtifact';
       source: StructuredArchiveSource;
       descriptor: ArchiveStageDescriptor;
@@ -678,7 +708,7 @@ export interface OffscreenArchiveBlobCreateMessage {
   action: 'archiveBlobCreate';
   target: 'offscreen';
   bodyBase64: string;
-  mediaType: 'application/json';
+  mediaType: 'application/json' | 'text/html';
 }
 
 /** Revoke only a Blob URL previously created by this offscreen document. */
@@ -874,6 +904,8 @@ export interface ExtractionResult {
   /** Runtime-only source evidence for optional destination-honest ChatGPT attachment export. */
   chatGptAssetExportContext?: ChatGptAssetExportContext;
   /** Current/selected structured presentation only; absent on fallback/all-branches. */
+  structuredPresentationContext?: StructuredPresentationContext;
+  /** Current/selected ChatGPT presentation with stricter attachment evidence. */
   chatGptStructuredPresentationContext?: ChatGptStructuredPresentationContext;
   /** Runtime-only source evidence for optional destination-honest DeepSeek attachment export. */
   deepSeekAssetExportContext?: DeepSeekAssetExportContext;

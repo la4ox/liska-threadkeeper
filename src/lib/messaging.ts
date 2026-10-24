@@ -33,6 +33,7 @@ interface MessageResponseMap {
   testConnection: { success: boolean; error?: string };
   saveToOutputs: MultiOutputResponse;
   persistArchiveCompanion: MultiOutputResponse;
+  persistDerivedHtmlPresentation: MultiOutputResponse;
   beginStagedArchiveArtifact: ArchiveStageResponse;
   appendStagedArchiveArtifact: ArchiveStageResponse;
   sealStagedArchiveArtifact: ArchiveStageResponse;

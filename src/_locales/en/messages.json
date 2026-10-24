@@ -388,6 +388,14 @@
     "message": "Save supported conversation images and attachments",
     "description": "Help text for image and attachment export toggle"
   },
+  "settings_enableHtmlExport": {
+    "message": "Canonical HTML reading view",
+    "description": "Label for the optional canonical HTML reading-view file"
+  },
+  "settings_htmlExportHelp": {
+    "message": "Add an offline HTML companion alongside Markdown for structured ChatGPT and DeepSeek File snapshots only. Not PDF, Obsidian, or Clipboard.",
+    "description": "Explains the scope and destinations of the optional canonical HTML output"
+  },
   "settings_imageVaultPath": {
     "message": "Image Folder",
     "description": "Label for image vault folder input"

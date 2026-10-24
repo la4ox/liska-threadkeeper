@@ -181,6 +181,7 @@ describe('DeepSeekExtractor', () => {
         expect(result.warnings?.join(' ')).not.toContain('preserves verified raw');
         expect(result.archiveCompanion).toBeUndefined();
         expect(result.deepSeekAssetExportContext).toBeUndefined();
+        expect(result.structuredPresentationContext).toBeUndefined();
         expect(fetchSpy).not.toHaveBeenCalled();
       }
     );
@@ -222,6 +223,11 @@ describe('DeepSeekExtractor', () => {
         }
         expect(atob(raw.bodyBase64)).toBe(rawText);
         expect(JSON.parse(atob(canonical.bodyBase64)).conversation.title).toBe(title);
+        expect(result.structuredPresentationContext).toMatchObject({
+          source: 'deepseek',
+          targetNodeId: '2',
+          selectedNodeIds: ['1', '2'],
+        });
       }
     );
 
@@ -460,6 +466,7 @@ describe('DeepSeekExtractor', () => {
       expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
       expect(result.archiveCompanion).toBeUndefined();
       expect(result.deepSeekAssetExportContext).toBeUndefined();
+      expect(result.structuredPresentationContext).toBeUndefined();
     });
 
     it('marks network-error fallback as partial without claiming preserved evidence', async () => {
@@ -569,6 +576,7 @@ describe('DeepSeekExtractor', () => {
       expect(result.warnings).toContain(deepSeekApi.DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING);
       expect(result.warnings).not.toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
       expect(result.deepSeekAssetExportContext).toBeUndefined();
+      expect(result.structuredPresentationContext).toBeUndefined();
     });
 
     it('retains verified raw and manifest evidence when normalization and DOM both fail', async () => {

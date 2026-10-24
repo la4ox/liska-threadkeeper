@@ -53,6 +53,7 @@ import {
   type ChatGptStructuredPresentationContext,
   type InlineArchiveCompanionArtifact,
   type StagedArchiveCompanionArtifact,
+  type StructuredPresentationContext,
 } from '../../lib/types';
 import {
   abortStagedArchiveArtifact,
@@ -97,6 +98,7 @@ import {
   interpreterResolverRunFailureDetails,
   type ChatGptInterpreterAssetDetail,
 } from './chatgpt-interpreter-resolver-diagnostics';
+import { retainStructuredPresentation } from '../structured-presentation';
 
 const ARTIFACT_ID = 'conversation';
 const ARTIFACT_PATH = 'responses/conversation.json';
@@ -1176,7 +1178,9 @@ export async function captureChatGptCurrentBranch(
   conversationId: string,
   includeToolContent: boolean,
   dependencies: ChatGptCurrentBranchDependencies = {}
-): Promise<ArchiveProjectionResult> {
+): Promise<
+  ArchiveProjectionResult & { structuredPresentationContext: StructuredPresentationContext }
+> {
   const { archive, archiveCompanion, assetExportContext } = await captureChatGptArchive(
     conversationId,
     dependencies
@@ -1184,14 +1188,27 @@ export async function captureChatGptCurrentBranch(
 
   try {
     const projection = projectArchiveBranch(archive, { includeToolContent });
+    const structuredPresentationContext = retainStructuredPresentation({
+      source: 'chatgpt',
+      archive,
+      archiveCompanion,
+      targetNodeId: projection.selectedNodeIds[projection.selectedNodeIds.length - 1] ?? null,
+      selectedNodeIds: projection.selectedNodeIds,
+      includeToolContent,
+    });
+    if (!structuredPresentationContext) {
+      throw new ChatGptCurrentBranchError('projection-failed', { archiveCompanion });
+    }
     return {
       ...projection,
       archiveCompanion,
       chatGptAssetExportContext: assetExportContext,
+      structuredPresentationContext,
       chatGptStructuredPresentationContext: retainChatGptStructuredPresentation(
         { archive, archiveCompanion, assetExportContext },
         projection,
-        includeToolContent
+        includeToolContent,
+        structuredPresentationContext
       ),
     };
   } catch {
@@ -1203,23 +1220,36 @@ export async function captureChatGptCurrentBranch(
 export function retainChatGptStructuredPresentation(
   capture: Pick<ChatGptArchiveCapture, 'archive' | 'archiveCompanion' | 'assetExportContext'>,
   projection: ArchiveProjectionResult,
-  includeToolContent: boolean
+  includeToolContent: boolean,
+  retained?: StructuredPresentationContext
 ): ChatGptStructuredPresentationContext | undefined {
   const { archive, archiveCompanion, assetExportContext } = capture;
   if (!assetExportContext) return undefined;
-  const canonical = archiveCompanion.artifacts.filter(artifact => artifact.kind === 'canonical');
-  const manifest = archiveCompanion.artifacts.filter(artifact => artifact.kind === 'manifest');
-  if (canonical.length !== 1 || manifest.length !== 1) return undefined;
-  const { kind, relativePath, mediaType, byteLength, sha256 } = canonical[0];
+  const targetNodeId = projection.selectedNodeIds[projection.selectedNodeIds.length - 1] ?? null;
+  const retainedMatches =
+    retained?.source === 'chatgpt' &&
+    retained.archive === archive &&
+    retained.captureId === archiveCompanion.captureId &&
+    retained.conversationKey === archiveCompanion.conversationKey &&
+    retained.targetNodeId === targetNodeId &&
+    retained.includeToolContent === includeToolContent &&
+    retained.selectedNodeIds.length === projection.selectedNodeIds.length &&
+    retained.selectedNodeIds.every((nodeId, index) => nodeId === projection.selectedNodeIds[index]);
+  const structured = retainedMatches
+    ? retained
+    : retainStructuredPresentation({
+        source: 'chatgpt',
+        archive,
+        archiveCompanion,
+        targetNodeId,
+        selectedNodeIds: projection.selectedNodeIds,
+        includeToolContent,
+      });
+  if (!structured) return undefined;
   return Object.freeze({
-    archive,
+    ...structured,
+    source: 'chatgpt' as const,
     assetExportContext,
-    captureId: archiveCompanion.captureId,
-    conversationKey: archiveCompanion.conversationKey,
-    manifestSha256: manifest[0].sha256,
-    canonical: Object.freeze({ kind, relativePath, mediaType, byteLength, sha256 }),
-    targetNodeId: projection.selectedNodeIds[projection.selectedNodeIds.length - 1] ?? null,
-    selectedNodeIds: Object.freeze([...projection.selectedNodeIds]),
-    includeToolContent,
+    manifestSha256: structured.manifest.sha256,
   });
 }

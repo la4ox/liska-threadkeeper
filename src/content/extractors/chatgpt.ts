@@ -19,6 +19,7 @@ import type {
   ArchiveCompanionBundle,
   ConversationMessage,
   ExtractionResult,
+  StructuredPresentationContext,
   SyncSettings,
 } from '../../lib/types';
 import { getArchiveBranchCatalog, type ArchiveBranchCatalog } from '../../archive';
@@ -44,6 +45,7 @@ import {
   type ArchiveBranchPickerSelection,
 } from '../ui';
 import { abortStagedArchiveArtifact } from '../archive-stage';
+import { retainStructuredPresentation } from '../structured-presentation';
 
 import { SELECTORS } from './selectors/chatgpt';
 
@@ -134,7 +136,7 @@ export interface ChatGPTExtractorDependencies {
   captureCurrentBranch?: (
     conversationId: string,
     includeToolContent: boolean
-  ) => Promise<ArchiveProjectionResult>;
+  ) => Promise<StructuredArchiveProjectionResult>;
   captureArchive?: (conversationId: string) => Promise<ChatGptArchiveCapture>;
   selectBranch?: (options: ArchiveBranchPickerOption[]) => Promise<ArchiveBranchPickerSelection>;
   manifestAllowsStructuredCapture?: () => boolean;
@@ -142,14 +144,14 @@ export interface ChatGPTExtractorDependencies {
   captureReplayCurrentBranch?: (
     conversationId: string,
     includeToolContent: boolean
-  ) => Promise<ArchiveProjectionResult>;
+  ) => Promise<StructuredArchiveProjectionResult>;
   captureReplayArchive?: (conversationId: string) => Promise<ChatGptArchiveCapture>;
 }
 
 export type ChatGptBranchExportMode = 'current' | 'selected';
 
 type ProjectionSelection =
-  | { kind: 'projection'; projection: ArchiveProjectionResult }
+  | { kind: 'projection'; projection: StructuredArchiveProjectionResult }
   | { kind: 'cancelled' }
   | { kind: 'selection-failed'; archiveCompanion: ArchiveCompanionBundle }
   | {
@@ -157,6 +159,10 @@ type ProjectionSelection =
       capture: ChatGptArchiveCapture;
       catalog: ArchiveBranchCatalog;
     };
+
+type StructuredArchiveProjectionResult = ArchiveProjectionResult & {
+  structuredPresentationContext?: StructuredPresentationContext;
+};
 
 type ChatGptStructuredRoute =
   | { kind: 'valid'; conversationId: string }
@@ -316,7 +322,9 @@ export class ChatGPTExtractor extends BaseExtractor {
     return this.finalizeStructuredProjection(selection.projection);
   }
 
-  private finalizeStructuredProjection(projection: ArchiveProjectionResult): ExtractionResult {
+  private finalizeStructuredProjection(
+    projection: StructuredArchiveProjectionResult
+  ): ExtractionResult {
     const { data } = projection;
     const guarded =
       this.branchExportMode === 'selected'
@@ -336,6 +344,12 @@ export class ChatGPTExtractor extends BaseExtractor {
       ...(projection.archiveCompanion && { archiveCompanion: projection.archiveCompanion }),
       ...(projection.chatGptAssetExportContext && {
         chatGptAssetExportContext: projection.chatGptAssetExportContext,
+      }),
+      ...((projection.structuredPresentationContext ??
+        projection.chatGptStructuredPresentationContext) && {
+        structuredPresentationContext:
+          projection.structuredPresentationContext ??
+          projection.chatGptStructuredPresentationContext,
       }),
       ...(projection.chatGptStructuredPresentationContext && {
         chatGptStructuredPresentationContext: projection.chatGptStructuredPresentationContext,
@@ -398,6 +412,15 @@ export class ChatGPTExtractor extends BaseExtractor {
         targetNodeId: branch.targetNodeId,
         includeToolContent: this.enableToolContent,
       });
+      const structuredPresentationContext = retainStructuredPresentation({
+        source: 'chatgpt',
+        archive: capture.archive,
+        archiveCompanion: capture.archiveCompanion,
+        targetNodeId: branch.targetNodeId,
+        selectedNodeIds: projection.selectedNodeIds,
+        includeToolContent: this.enableToolContent,
+      });
+      if (!structuredPresentationContext) throw new Error('invalid structured presentation');
       return {
         kind: 'projection',
         projection: {
@@ -414,10 +437,12 @@ export class ChatGPTExtractor extends BaseExtractor {
           },
           archiveCompanion: capture.archiveCompanion,
           chatGptAssetExportContext: capture.assetExportContext,
+          structuredPresentationContext,
           chatGptStructuredPresentationContext: retainChatGptStructuredPresentation(
             capture,
             projection,
-            this.enableToolContent
+            this.enableToolContent,
+            structuredPresentationContext
           ),
         },
       };
