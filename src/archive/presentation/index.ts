@@ -1,2 +1,9 @@
 export * from './contracts';
-export { renderArchiveHtml } from './html';
+export { prepareArchiveHtmlBranchSession, renderArchiveHtml } from './html';
+export {
+  HTML_BRANCH_MAX_ORDINAL,
+  htmlBranchRelativePath,
+  snapshotHtmlBranchTarget,
+  type HtmlBranchTarget,
+  type HtmlBranchRelativePath,
+} from './branch-paths';

@@ -7,6 +7,8 @@ import type {
   ExtractionResult,
   MultiOutputResponse,
   ChatGptStructuredPresentationContext,
+  StructuredArchivePresentationContext,
+  StructuredPresentationContext,
 } from '../../src/lib/types';
 import { resetLocation, setChatGPTLocation } from '../fixtures/dom-helpers';
 
@@ -18,12 +20,14 @@ const mocks = vi.hoisted(() => {
     stopDispose,
     applySettings: vi.fn(),
     attachmentExport: vi.fn(),
+    html: vi.fn(),
     localize: vi.fn(),
     extract: vi.fn(),
     prepareAllBranchesPersistence: vi.fn(() => ({
       session: {},
       structural: { accepted: true, plannedArtifactWrites: 6 },
       requestedOutputs: ['file'],
+      fileHtmlRequested: false,
     })),
     persistAllBranchesPresentation: vi.fn(),
     sendMessage: vi.fn(),
@@ -57,6 +61,12 @@ vi.mock('../../src/content/extractors/chatgpt', () => ({
 vi.mock('../../src/content/chatgpt-asset-export', () => ({
   persistChatGptDestinationHonestAttachments: mocks.attachmentExport,
 }));
+
+vi.mock('../../src/content/derived-html-persistence', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/content/derived-html-persistence')>();
+  return { ...actual, persistDerivedHtmlForFile: mocks.html };
+});
 
 vi.mock('../../src/content/chatgpt-sandbox-localization', () => ({
   localizeChatGptSandboxLinks: mocks.localize,
@@ -99,6 +109,7 @@ const settings: ContentScriptSettings = {
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
+  enableHtmlExport: false,
   enableChatGptOpaqueProbe: false,
   enableChatGptOpaqueReplay: false,
   imageVaultPath: 'AI/{platform}/images',
@@ -194,10 +205,12 @@ const fileReceipt = {
     },
   ],
 };
+const fileArchivePresentation = { opaque: 'finalized-file-archive-presentation' };
 
 function mockSettingsAndSave(): void {
   mocks.sendMessage.mockImplementation((message: { action: string }) => {
     if (message.action === 'getSettings') return Promise.resolve(settings);
+    if (message.action === 'testConnection') return Promise.resolve({ success: true });
     if (message.action === 'saveToOutputs') return Promise.resolve(successfulSave);
     return Promise.reject(new Error(`unexpected background message: ${message.action}`));
   });
@@ -207,11 +220,13 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     settings.enableImageExport = true;
+    settings.enableHtmlExport = false;
     settings.enableChatGptOpaqueReplay = false;
     settings.outputOptions = { obsidian: false, file: true, clipboard: false };
     setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
     mockSettingsAndSave();
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
+    mocks.html.mockResolvedValue({ success: true, warnings: [] });
     mocks.localize.mockImplementation(async data => data);
     mocks.attachmentExport.mockResolvedValue({
       rawSuccessfulDestinations: ['file'],
@@ -416,6 +431,8 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryAsset');
+      expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('presentationContext');
+      expect(mocks.html).not.toHaveBeenCalled();
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'saveToOutputs',
@@ -439,6 +456,61 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('writes finalized File HTML after attachment finalization and before Markdown', async () => {
+    settings.enableHtmlExport = true;
+    const presentationContext = {
+      source: 'chatgpt',
+      captureId: companion.captureId,
+      conversationKey: companion.conversationKey,
+    } as StructuredPresentationContext;
+    const filePresentation = {
+      context: presentationContext,
+      assetBindings: { bindings: [], sha256: null },
+    };
+    mocks.extract.mockResolvedValue({
+      ...noteResult,
+      structuredPresentationContext: presentationContext,
+    });
+    mocks.attachmentExport.mockImplementationOnce(async (...args) => {
+      expect(args[4]).toEqual(
+        expect.objectContaining({
+          presentationContext,
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+        })
+      );
+      return {
+        rawSuccessfulDestinations: ['file'],
+        completeDestinations: ['file'],
+        destinationReceipts: [fileReceipt],
+        filePresentation,
+        warnings: [],
+      };
+    });
+    const order: string[] = [];
+    mocks.html.mockImplementationOnce(async (...args) => {
+      order.push('html');
+      expect(args).toEqual([
+        presentationContext,
+        serializeSyncSettingsSnapshot(settings),
+        filePresentation.assetBindings,
+      ]);
+      return { success: true, warnings: [] };
+    });
+    mocks.sendMessage.mockImplementation(async message => {
+      if (message.action === 'getSettings') return settings;
+      if (message.action === 'saveToOutputs') {
+        order.push('markdown');
+        return successfulSave;
+      }
+      throw new Error('unexpected-message');
+    });
+
+    await handleSync();
+
+    expect(order).toEqual(['html', 'markdown']);
+    expect(mocks.html).toHaveBeenCalledOnce();
   });
 
   it('writes per-destination archive provenance and never gives Clipboard a local archive link', async () => {
@@ -628,6 +700,9 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryAsset');
+    expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty(
+      'archivePresentationContext'
+    );
     expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledWith(
       allBranchesResult.allBranches,
       companion,
@@ -641,13 +716,127 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         fingerprintNote: expect.any(Function),
       })
     );
+    expect(mocks.persistAllBranchesPresentation.mock.calls[0][5]).not.toHaveProperty('fileHtml');
     expect(mocks.showWarningToast).toHaveBeenCalledWith(
       expect.stringContaining('ChatGPT attachment export recorded one destination caveat.')
     );
   });
 
+  it('passes archive presentation context only to an HTML-opted-in all-branches File finalization', async () => {
+    settings.enableHtmlExport = true;
+    const archivePresentationContext = {} as StructuredArchivePresentationContext;
+    const allBranchesResult: ExtractionResult = {
+      success: true,
+      archiveCompanion: companion,
+      chatGptAssetExportContext: context,
+      allBranches: {
+        structuredArchivePresentationContext: archivePresentationContext,
+      } as AllBranchesPresentationPlan,
+    };
+    mocks.extract.mockResolvedValue(allBranchesResult);
+    mocks.attachmentExport.mockResolvedValueOnce({
+      rawSuccessfulDestinations: ['file'],
+      completeDestinations: ['file'],
+      destinationReceipts: [fileReceipt],
+      fileArchivePresentation,
+      warnings: [],
+    });
+    mocks.persistAllBranchesPresentation.mockResolvedValue({
+      branchCount: 2,
+      omissionBranchCount: 0,
+      canonicalOnlyCount: 0,
+      clipboardSkipped: false,
+      allSuccessful: true,
+      destinations: [
+        { destination: 'file', archiveSaved: true, branchFilesSaved: 2, indexSaved: true },
+      ],
+    });
+
+    await handleSync('selected');
+
+    expect(mocks.attachmentExport.mock.calls[0][4]).toEqual(
+      expect.objectContaining({ archivePresentationContext })
+    );
+    expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('presentationContext');
+    expect(mocks.prepareAllBranchesPersistence).toHaveBeenCalledWith(
+      allBranchesResult.allBranches,
+      companion,
+      settings.templateOptions,
+      settings.enableToolContent,
+      ['file'],
+      false,
+      true
+    );
+    expect(mocks.persistAllBranchesPresentation.mock.calls[0][5].fileHtml).toEqual({
+      expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+      fileArchivePresentation,
+    });
+    expect(
+      mocks.persistAllBranchesPresentation.mock.calls[0][5].fileHtml.fileArchivePresentation
+    ).toBe(fileArchivePresentation);
+    expect(mocks.showToast).toHaveBeenCalledWith(
+      'Saving all-branches Markdown before File HTML...',
+      'info',
+      0
+    );
+    expect(mocks.html).not.toHaveBeenCalled();
+    expect(
+      mocks.showWarningToast.mock.calls.some(call =>
+        String(call[0]).includes('not available yet for all-branches bundles')
+      )
+    ).toBe(false);
+  });
+
+  it('withholds archive presentation context when all-branches File output is not requested', async () => {
+    settings.enableHtmlExport = true;
+    settings.outputOptions = { obsidian: true, file: false, clipboard: false };
+    const archivePresentationContext = {} as StructuredArchivePresentationContext;
+    mocks.extract.mockResolvedValue({
+      success: true,
+      archiveCompanion: companion,
+      chatGptAssetExportContext: context,
+      allBranches: {
+        structuredArchivePresentationContext: archivePresentationContext,
+      } as AllBranchesPresentationPlan,
+    } satisfies ExtractionResult);
+    mocks.attachmentExport.mockResolvedValueOnce({
+      rawSuccessfulDestinations: ['obsidian'],
+      completeDestinations: ['obsidian'],
+      destinationReceipts: [],
+      warnings: [],
+    });
+    mocks.persistAllBranchesPresentation.mockResolvedValue({
+      branchCount: 2,
+      omissionBranchCount: 0,
+      canonicalOnlyCount: 0,
+      clipboardSkipped: false,
+      allSuccessful: true,
+      destinations: [
+        { destination: 'obsidian', archiveSaved: true, branchFilesSaved: 2, indexSaved: true },
+      ],
+    });
+
+    await handleSync('selected');
+
+    expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty(
+      'archivePresentationContext'
+    );
+    expect(mocks.prepareAllBranchesPersistence).toHaveBeenCalledWith(
+      expect.any(Object),
+      companion,
+      settings.templateOptions,
+      settings.enableToolContent,
+      ['obsidian'],
+      false,
+      false
+    );
+    expect(mocks.persistAllBranchesPresentation.mock.calls[0][5]).not.toHaveProperty('fileHtml');
+    expect(mocks.html).not.toHaveBeenCalled();
+  });
+
   it('wires the full-trio plain path without acquiring attachments when image export is disabled', async () => {
     settings.enableImageExport = false;
+    settings.enableHtmlExport = true;
     mocks.extract.mockResolvedValue({
       success: true,
       archiveCompanion: companion,
@@ -677,8 +866,15 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         persistArtifacts: expect.any(Function),
         destinationReceipts: undefined,
         fingerprintNote: expect.any(Function),
+        fileHtml: {
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+        },
       })
     );
+    expect(mocks.persistAllBranchesPresentation.mock.calls[0][5].fileHtml).not.toHaveProperty(
+      'fileArchivePresentation'
+    );
+    expect(mocks.html).not.toHaveBeenCalled();
     const options = mocks.persistAllBranchesPresentation.mock.calls[0][5];
     await options.persistArtifacts(companion, 'all.md', 'chatgpt', ['file']);
     expect(mocks.sendMessage).toHaveBeenCalledWith(
@@ -690,7 +886,8 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects structural over-budget work before the attachment pipeline writes anything', async () => {
+  it('rejects the 2052-write HTML plan before the attachment pipeline writes anything', async () => {
+    settings.enableHtmlExport = true;
     const allBranchesResult: ExtractionResult = {
       success: true,
       archiveCompanion: companion,
@@ -701,10 +898,11 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       session: {},
       structural: {
         accepted: false,
-        budgetKind: 'leaves',
-        plannedArtifactWrites: 600,
+        budgetKind: 'planned-artifact-writes',
+        plannedArtifactWrites: 2052,
       },
       requestedOutputs: ['file'],
+      fileHtmlRequested: true,
     };
     mocks.extract.mockResolvedValue(allBranchesResult);
     mocks.prepareAllBranchesPersistence.mockReturnValueOnce(rejectedPrepared);
@@ -712,20 +910,20 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       version: 1,
       status: 'rejected',
       phase: 'structural-preflight',
-      budgetKind: 'leaves',
+      budgetKind: 'planned-artifact-writes',
       cancelRequested: false,
       metrics: {
         nodeCount: 600,
-        leafCount: 513,
+        leafCount: 512,
         branchPointCount: 1,
         pathVisits: 600,
         sourceWorkBytes: 600,
       },
-      plannedArtifactWrites: 600,
+      plannedArtifactWrites: 2052,
       plannedPhysicalBytes: 0,
       measuredLeaves: 0,
       renderedLeaves: 0,
-      branchCount: 513,
+      branchCount: 512,
       omissionBranchCount: 0,
       canonicalOnlyCount: 0,
       clipboardSkipped: false,
@@ -748,14 +946,29 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     await handleSync('selected');
 
     expect(mocks.attachmentExport).not.toHaveBeenCalled();
+    expect(mocks.prepareAllBranchesPersistence).toHaveBeenCalledWith(
+      allBranchesResult.allBranches,
+      companion,
+      settings.templateOptions,
+      settings.enableToolContent,
+      ['file'],
+      false,
+      true
+    );
     expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledWith(
       allBranchesResult.allBranches,
       companion,
       settings.templateOptions,
       settings.enableToolContent,
       ['file'],
-      expect.objectContaining({ prepared: rejectedPrepared })
+      expect.objectContaining({
+        prepared: rejectedPrepared,
+        fileHtml: {
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+        },
+      })
     );
+    expect(mocks.html).not.toHaveBeenCalled();
     expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
   });
 

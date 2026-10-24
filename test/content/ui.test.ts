@@ -365,6 +365,10 @@ describe('ui', () => {
       expect(launcher().getAttribute('aria-busy')).toBe('true');
       expect(launcher().getAttribute('aria-label')).toBe('ui_launcherLoading');
       expect(launcher().querySelectorAll('.spinner')).toHaveLength(1);
+      pointer('pointerenter');
+      launcher().focus();
+      expect(actions().hidden).toBe(true);
+      expect(actions().inert).toBe(true);
       showErrorToast('private-filename.md: detailed failure');
       expect(launcher().outerHTML).not.toContain('private-filename');
       expect(document.querySelector('.g2o-toast .message')?.textContent).toContain(
@@ -377,6 +381,23 @@ describe('ui', () => {
       expect(launcher().getAttribute('aria-label')).toBe('ui_launcherLabel');
       expect(launcher().querySelector('.spinner')).toBeNull();
       expect(launcher().querySelector('svg')).not.toBeNull();
+    });
+
+    it('ignores trusted launcher toggles while busy and opens on the first idle click', () => {
+      const trustedClick = captureClicks(() => {
+        injectSyncButton(vi.fn());
+        injectBranchExportButton(vi.fn());
+      });
+
+      setButtonLoading(true);
+      trustedClick(launcher());
+      expect(actions().hidden).toBe(true);
+      expect(launcher().getAttribute('aria-expanded')).toBe('false');
+
+      setButtonLoading(false);
+      trustedClick(launcher());
+      expect(actions().hidden).toBe(false);
+      expect(launcher().getAttribute('aria-expanded')).toBe('true');
     });
 
     it('keeps stop control and modal outside the collapsing shell', async () => {
@@ -460,6 +481,10 @@ describe('ui', () => {
       expect(mobileCss).toContain('bottom: auto');
       expect(mobileCss).toContain('env(safe-area-inset-right, 0px)');
       expect(mobileCss).toContain('env(safe-area-inset-left, 0px)');
+      expect(mobileCss).toContain('.g2o-toast.g2o-toast-with-stop');
+      expect(mobileCss).toContain(
+        'bottom: calc(max(20px, env(safe-area-inset-bottom, 0px)) + 60px)'
+      );
     });
   });
 
@@ -541,7 +566,9 @@ describe('ui', () => {
       const root = getRoot();
 
       showToast('Exporting', 'info', 0);
+      expect(document.querySelector('.g2o-toast')?.classList).toContain('g2o-toast-with-stop');
       showToast('Still exporting', 'warning', 0);
+      expect(document.querySelector('.g2o-toast')?.classList).toContain('g2o-toast-with-stop');
       document.querySelector<HTMLButtonElement>('.g2o-toast .close')!.click();
 
       expect(getRoot()).toBe(root);
@@ -549,6 +576,19 @@ describe('ui', () => {
       expect(document.querySelector('.g2o-toast')).toBeNull();
       control.requestStop({ isTrusted: true } as Event);
       expect(onStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('moves an existing mobile toast away only while the stop panel is active', () => {
+      showToast('Before export', 'info', 0);
+      const toast = document.querySelector<HTMLDivElement>('.g2o-toast')!;
+      expect(toast.classList).not.toContain('g2o-toast-with-stop');
+
+      control = showAllBranchesStopControl(vi.fn());
+      expect(toast.classList).toContain('g2o-toast-with-stop');
+
+      control.dispose();
+      control = undefined;
+      expect(toast.classList).not.toContain('g2o-toast-with-stop');
     });
 
     it('replaces the previous control and removes its listener without firing its callback', () => {

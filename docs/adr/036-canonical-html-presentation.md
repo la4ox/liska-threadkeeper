@@ -110,6 +110,32 @@ complete one.
 5. Extend branch-bundle delivery only after aggregate HTML work/write budgets
    and cancellation semantics are demonstrated.
 
+The all-branches extension is split deliberately. B1 defines closed
+ordinal-derived leaf/index artifact contracts and a pure prepared rendering
+session. The session validates the archive, profile, limits and finalized
+binding evidence once; snapshots structural links and scalar presentation data;
+then renders one leaf at a time without caching all bodies or repeating a
+whole-graph traversal. Its index accepts only a complete ordered set of frozen
+facts issued by that exact session. B1 does not claim any file was written.
+
+B2a supplies a closed background primitive for one already-built leaf or index:
+it writes HTML first and only a terminal exact-path HTML confirmation can
+authorize the locally built matching receipt. The two physical writes retain
+independent durable outcomes; the primitive never accepts or emits a bundle
+completion claim. A bounded content sender preserves not-dispatched,
+dispatched-but-unconfirmed, and observed outcomes without retry.
+
+B2b authorizes the exact finalized canonical bytes once and connects the
+prepared session to those derived artifacts. Its archive-level context carries
+no selected target; the existing selected-view context extends the same evidence
+and keeps the current renderer contract. Leaf and index HTML are materialized and
+hashed only on demand, never cached as a complete bundle.
+
+B3 will add two-pass measurement and recreation, cancellation, settings drift,
+unknown-write stop, independent Markdown/HTML completion, and exact aggregate
+physical-write accounting. A complete branch index remains forbidden until
+every leaf HTML and receipt for that output lane is confirmed.
+
 ## Deferred decisions
 
 Automatic PDF generation is not part of `liska-html/1`. Browser printing is a

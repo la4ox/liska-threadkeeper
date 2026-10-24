@@ -10,6 +10,7 @@ import {
   type RawCaptureAsset,
   type RawCaptureAssetRecord,
   type RawCaptureBundle,
+  type LiskaThreadArchive,
 } from '../archive';
 import { bytesToBase64 } from '../lib/image-utils';
 import {
@@ -23,6 +24,7 @@ import {
   type PersistentOutputDestination,
   type StagedBinaryAssetDescriptor,
   type StagedBinaryAssetResult,
+  type StructuredPresentationContext,
 } from '../lib/types';
 import {
   acquireDeepSeekSignedAssets,
@@ -36,6 +38,10 @@ import {
   stagedBinaryCleanupWarnings,
 } from './staged-binary-persistence';
 import { DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING } from './extractors/deepseek-api';
+import {
+  buildFinalizedFilePresentationEvidence,
+  type FinalizedFilePresentationEvidence,
+} from './finalized-html-assets';
 
 const ARTIFACT_ID = 'conversation';
 const ARTIFACT_PATH = 'responses/conversation.json';
@@ -74,11 +80,16 @@ export interface DeepSeekAssetExportDependencies {
   acquireAssets?: typeof acquireDeepSeekSignedAssets;
   persistBinaryAssets?: typeof persistVerifiedBinaryAssets;
   buildDestinationCompanion?: typeof buildDeepSeekBinaryAwareArchiveCompanion;
+  buildDestinationArchive?: typeof buildDeepSeekBinaryAwareDestinationArchive;
+  buildFilePresentationEvidence?: typeof buildFinalizedFilePresentationEvidence;
+  /** Present only for an opt-in File HTML run; never authorizes another destination. */
+  presentationContext?: StructuredPresentationContext;
 }
 
 export interface DeepSeekAssetExportResult {
   rawSuccessfulDestinations: PersistentOutputDestination[];
   completeDestinations: PersistentOutputDestination[];
+  filePresentation?: FinalizedFilePresentationEvidence;
   warnings: string[];
 }
 
@@ -225,12 +236,27 @@ async function inlineJsonArtifact(
 }
 
 /** Rebuild one destination only from bytes that actually succeeded there. */
-// eslint-disable-next-line max-lines-per-function -- Manifest overlay, runtime-byte verification, normalization, and companion rebuild stay in evidence order.
 export async function buildDeepSeekBinaryAwareArchiveCompanion(
   context: DeepSeekAssetExportContext,
   assetRecords: readonly RawCaptureAssetRecord[],
   runtimeAssets: readonly RawCaptureAsset[]
 ): Promise<ArchiveCompanionBundle> {
+  return (await buildDeepSeekBinaryAwareDestinationArchive(context, assetRecords, runtimeAssets))
+    .companion;
+}
+
+export interface DeepSeekBuiltDestinationArchive {
+  companion: ArchiveCompanionBundle;
+  archive: LiskaThreadArchive;
+}
+
+/** Retain the exact normalized destination archive without re-normalizing for HTML. */
+// eslint-disable-next-line max-lines-per-function -- Manifest overlay, runtime-byte verification, normalization, and companion rebuild stay in evidence order.
+export async function buildDeepSeekBinaryAwareDestinationArchive(
+  context: DeepSeekAssetExportContext,
+  assetRecords: readonly RawCaptureAssetRecord[],
+  runtimeAssets: readonly RawCaptureAsset[]
+): Promise<DeepSeekBuiltDestinationArchive> {
   const originalRaw = await verifyDeepSeekAssetExportContext(context);
   const originalManifest = context.rawCaptureBundle.manifest;
   const warnings = originalManifest.warnings.filter(
@@ -286,7 +312,15 @@ export async function buildDeepSeekBinaryAwareArchiveCompanion(
       await inlineJsonArtifact('manifest', ARCHIVE_COMPANION_RELATIVE_PATHS.manifest, manifest),
     ],
   };
-  return appendJsonCanonicalCompanion(rawManifest, normalized.archive, sha256Hex, 'deepseek');
+  return {
+    companion: await appendJsonCanonicalCompanion(
+      rawManifest,
+      normalized.archive,
+      sha256Hex,
+      'deepseek'
+    ),
+    archive: normalized.archive,
+  };
 }
 
 function recordsMatch(record: RawCaptureAssetRecord, runtime: RawCaptureAsset): boolean {
@@ -471,6 +505,7 @@ export async function persistDeepSeekDestinationHonestAttachments(
   warnings.push(...stagedBinaryCleanupWarnings(binaryResults));
 
   const completeDestinations: PersistentOutputDestination[] = [];
+  let filePresentation: FinalizedFilePresentationEvidence | undefined;
   for (const destination of rawSuccessfulDestinations) {
     const destinationState = destinationAssets(acquisition, binaryResults, destination);
     if (destinationState.binaryFailed) {
@@ -479,9 +514,26 @@ export async function persistDeepSeekDestinationHonestAttachments(
       );
     }
     try {
-      const destinationCompanion = await (
-        dependencies.buildDestinationCompanion ?? buildDeepSeekBinaryAwareArchiveCompanion
-      )(context, destinationState.records, destinationState.runtimeAssets);
+      const builtDestination = dependencies.buildDestinationArchive
+        ? await dependencies.buildDestinationArchive(
+            context,
+            destinationState.records,
+            destinationState.runtimeAssets
+          )
+        : dependencies.buildDestinationCompanion
+          ? undefined
+          : await buildDeepSeekBinaryAwareDestinationArchive(
+              context,
+              destinationState.records,
+              destinationState.runtimeAssets
+            );
+      const destinationCompanion = builtDestination
+        ? builtDestination.companion
+        : await dependencies.buildDestinationCompanion!(
+            context,
+            destinationState.records,
+            destinationState.runtimeAssets
+          );
       const outcome = await dependencies.persistArtifacts(
         destinationCompanion,
         noteFileName,
@@ -492,7 +544,27 @@ export async function persistDeepSeekDestinationHonestAttachments(
         ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
       );
       warnings.push(...outcome.warnings);
-      if (outcome.activeOutputs.includes(destination)) completeDestinations.push(destination);
+      const complete = outcome.activeOutputs.includes(destination);
+      if (complete) completeDestinations.push(destination);
+      if (
+        complete &&
+        destination === 'file' &&
+        builtDestination &&
+        dependencies.presentationContext
+      ) {
+        try {
+          filePresentation = await (
+            dependencies.buildFilePresentationEvidence ?? buildFinalizedFilePresentationEvidence
+          )(
+            dependencies.presentationContext,
+            builtDestination.archive,
+            destinationCompanion,
+            destinationState.records.filter(record => record.state === 'fetched')
+          );
+        } catch {
+          // Archive completion remains authoritative; HTML receives no weaker evidence.
+        }
+      }
     } catch {
       warnings.push(DEEPSEEK_ASSET_FINALIZATION_FAILED_WARNING);
     }
@@ -500,6 +572,7 @@ export async function persistDeepSeekDestinationHonestAttachments(
   return {
     rawSuccessfulDestinations,
     completeDestinations,
+    ...(filePresentation && { filePresentation }),
     warnings: [...new Set(warnings)],
   };
 }

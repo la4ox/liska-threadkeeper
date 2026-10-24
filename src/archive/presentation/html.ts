@@ -1,13 +1,17 @@
-import type { ArchiveBlock, ArchiveMessage, LiskaThreadArchive } from '../types';
+import type { ArchiveBlock, ArchiveMessage } from '../types';
 import { getNodePath } from '../traverse';
 import { validateLiskaThreadArchive } from '../validate';
 import { validateHtmlBindings } from './assets';
+import { createPreparedBranchSession } from './branches';
 import {
   HTML_DIAGNOSTIC_LABELS,
+  HTML_BRANCH_SESSION_MAX_LEAVES,
   HtmlPresentationError,
   LISKA_HTML_RENDERER_VERSION,
   LISKA_HTML_SCHEMA,
   type HtmlAssetBinding,
+  type HtmlBranchSession,
+  type HtmlBranchSessionInput,
   type HtmlPresentationInput,
   type HtmlPresentationLimits,
   type HtmlPresentationResult,
@@ -85,7 +89,7 @@ class BlockRenderer {
   constructor(
     readonly context: PresentationContext,
     readonly parts: string[],
-    readonly archive: LiskaThreadArchive,
+    readonly source: HtmlRenderSource,
     readonly bindings: Map<string, HtmlAssetBinding>,
     readonly includeToolContent: boolean
   ) {}
@@ -111,10 +115,10 @@ class BlockRenderer {
   }
 
   attachment(assetId: string): void {
-    const asset = this.archive.assets[assetId];
-    if (asset.filename === null) this.context.diagnostic('attachment-name-absent');
-    else if (asset.filename === '') this.context.diagnostic('attachment-name-empty');
-    const label = asset.filename || 'Unnamed attachment';
+    const filename = this.source.assetFilenames.get(assetId);
+    if (filename === null) this.context.diagnostic('attachment-name-absent');
+    else if (filename === '') this.context.diagnostic('attachment-name-empty');
+    const label = filename || 'Unnamed attachment';
     const binding = this.bindings.get(assetId);
     if (!binding) {
       this.context.diagnostic('attachment-unbound');
@@ -270,30 +274,52 @@ class BlockRenderer {
   }
 }
 
-function requireInput(input: HtmlPresentationInput): HtmlPresentationLimits {
-  // Inspect only top-level data descriptors first. This lets a caller's lower
-  // work ceilings govern the first traversal of the untrusted archive instead
-  // of doing one pass at the global maximum before reading `limits`.
-  if (!isRecord(input)) fail('html-input-invalid');
+/** Capture own data once; later validation/use never reads the caller's get trap. */
+function snapshotOwnData(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) fail('html-input-invalid');
+  const snapshot: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') fail('html-input-invalid');
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor?.enumerable || !hasOwn(descriptor, 'value')) fail('html-input-invalid');
+    Object.defineProperty(snapshot, key, {
+      value: descriptor.value,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return snapshot;
+}
+
+function snapshotInput<T extends HtmlPresentationInput | HtmlBranchSessionInput>(
+  value: T,
+  branchSession: boolean
+): T {
+  const snapshot = snapshotOwnData(value);
   const allowed = new Set([
     'archive',
     'canonicalSha256',
-    'targetNodeId',
+    branchSession ? 'maxBranches' : 'targetNodeId',
     'profile',
     'assetBindings',
     'limits',
   ]);
-  const keys = Reflect.ownKeys(input);
-  const descriptors = Object.getOwnPropertyDescriptors(input);
-  if (
-    keys.some(key => typeof key !== 'string' || !allowed.has(key)) ||
-    keys.some(key => {
-      if (typeof key !== 'string') return true;
-      const descriptor = descriptors[key];
-      return !descriptor || !descriptor.enumerable || !hasOwn(descriptor, 'value');
-    })
-  )
-    fail('html-input-invalid');
+  if (Object.keys(snapshot).some(key => !allowed.has(key))) fail('html-input-invalid');
+  // These small configuration records contain scalars only. Retain no caller
+  // Proxy for the profile or limits; the graph is intentionally not deep-cloned.
+  if (isRecord(snapshot.profile)) snapshot.profile = snapshotOwnData(snapshot.profile);
+  if (isRecord(snapshot.limits)) snapshot.limits = snapshotOwnData(snapshot.limits);
+  return snapshot as unknown as T;
+}
+
+function requireInput<T extends HtmlPresentationInput | HtmlBranchSessionInput>(
+  value: T,
+  branchSession = false
+): { input: T; limits: HtmlPresentationLimits } {
+  // The detached limits govern the first traversal of the untrusted archive.
+  const input = snapshotInput(value, branchSession);
+  if (branchSession) requireMaxBranches((input as HtmlBranchSessionInput).maxBranches);
   if (input.limits !== undefined) preflightJson(input.limits, resolveLimits(undefined));
   const limits = resolveLimits(input.limits);
   preflightJson(input, limits);
@@ -306,55 +332,83 @@ function requireInput(input: HtmlPresentationInput): HtmlPresentationLimits {
   )
     fail('html-profile-invalid');
   if (!validateLiskaThreadArchive(input.archive).valid) fail('html-archive-invalid');
-  return limits;
+  return { input, limits };
 }
 
 function accountSelectedSource(
-  archive: LiskaThreadArchive,
-  path: readonly string[],
+  source: HtmlRenderSource,
+  messages: readonly (ArchiveMessage | undefined)[],
   context: PresentationContext
 ): void {
   let blocks = 0;
-  accountSource(archive.conversation.title, context);
-  for (const nodeId of path) {
-    const message = archive.graph.nodes[nodeId].message;
+  accountSource(source.title, context);
+  for (const message of messages) {
     if (message) {
       blocks += message.blocks.length;
       if (blocks > context.limits.maxSelectedBlocks) fail('html-selected-block-limit');
       accountSource(message.blocks, context);
       for (const block of message.blocks) {
         if (block.type === 'attachment')
-          accountSource(archive.assets[block.assetId].filename, context);
+          accountSource(source.assetFilenames.get(block.assetId), context);
       }
     }
   }
 }
 
-function prepare(input: HtmlPresentationInput): { renderer: BlockRenderer; path: string[] } {
-  const limits = requireInput(input);
-  const path = requireSelectedPath(input);
-  if (path.length > limits.maxSelectedNodes) fail('html-selected-node-limit');
-  const bindings = validateHtmlBindings(
+interface HtmlRenderSource {
+  title: string | null;
+  assetFilenames: ReadonlyMap<string, string | null>;
+}
+
+interface HtmlRenderPreparation {
+  source: HtmlRenderSource;
+  limits: HtmlPresentationLimits;
+  bindings: Map<string, HtmlAssetBinding>;
+  includeToolContent: boolean;
+  canonicalSha256: string;
+  assetBindingSha256: string | null;
+}
+
+function snapshotPresentation(
+  input: HtmlPresentationInput | HtmlBranchSessionInput,
+  limits: HtmlPresentationLimits
+): HtmlRenderPreparation {
+  const finalizedBindings = validateHtmlBindings(
     input.assetBindings,
     input.archive,
     limits.maxAssetBindings
   );
-  const context = new PresentationContext(limits);
-  accountSelectedSource(input.archive, path, context);
-  const parts: string[] = [];
-  const renderer = new BlockRenderer(
-    context,
-    parts,
-    input.archive,
-    bindings,
-    input.profile.includeToolContent
-  );
-  return { renderer, path };
+  return {
+    source: {
+      title: input.archive.conversation.title,
+      assetFilenames: new Map(
+        Object.entries(input.archive.assets).map(([id, asset]) => [id, asset.filename])
+      ),
+    },
+    limits,
+    bindings: finalizedBindings.bindings,
+    includeToolContent: input.profile.includeToolContent,
+    canonicalSha256: input.canonicalSha256,
+    assetBindingSha256: finalizedBindings.sha256,
+  };
 }
 
-function renderHeader(input: HtmlPresentationInput, renderer: BlockRenderer): void {
+function prepareRenderer(
+  prepared: HtmlRenderPreparation,
+  messages: readonly (ArchiveMessage | undefined)[]
+): BlockRenderer {
+  const { limits, source, bindings, includeToolContent } = prepared;
+  if (messages.length > limits.maxSelectedNodes) fail('html-selected-node-limit');
+  const context = new PresentationContext(limits);
+  accountSelectedSource(source, messages, context);
+  const parts: string[] = [];
+  const renderer = new BlockRenderer(context, parts, source, bindings, includeToolContent);
+  return renderer;
+}
+
+function renderHeader(input: HtmlRenderPreparation, renderer: BlockRenderer): void {
   const { context } = renderer;
-  const title = input.archive.conversation.title;
+  const title = input.source.title;
   if (title === null) context.diagnostic('title-absent');
   else if (title === '') context.diagnostic('title-empty');
   renderer.emit('<!doctype html><html lang="und"><head><meta charset="utf-8">');
@@ -379,15 +433,17 @@ function renderHeader(input: HtmlPresentationInput, renderer: BlockRenderer): vo
   renderer.text(input.canonicalSha256);
   renderer.emit('</small>');
   renderer.emit('<small>Asset binding SHA-256: ');
-  renderer.text(input.assetBindings?.sha256 ?? 'none');
+  renderer.text(input.assetBindingSha256 ?? 'none');
   renderer.emit('</small></header><main>');
 }
 
-function renderMessages(path: readonly string[], renderer: BlockRenderer): number {
-  const { archive, context } = renderer;
+function renderMessages(
+  messages: readonly (ArchiveMessage | undefined)[],
+  renderer: BlockRenderer
+): number {
+  const { context } = renderer;
   let renderedMessageCount = 0;
-  for (const nodeId of path) {
-    const message = archive.graph.nodes[nodeId].message;
+  for (const message of messages) {
     if (!message) {
       context.diagnostic('structural-node');
       renderer.placeholder('Structural node: no message.');
@@ -431,30 +487,70 @@ function renderDiagnostics(renderer: BlockRenderer): void {
   renderer.emit('</section></body></html>');
 }
 
-function render(input: HtmlPresentationInput): HtmlPresentationResult {
-  const { renderer, path } = prepare(input);
+function renderPrepared(
+  input: HtmlRenderPreparation,
+  messages: readonly (ArchiveMessage | undefined)[]
+): HtmlPresentationResult {
+  const renderer = prepareRenderer(input, messages);
   renderHeader(input, renderer);
-  const renderedMessageCount = renderMessages(path, renderer);
+  const renderedMessageCount = renderMessages(messages, renderer);
   renderDiagnostics(renderer);
   return {
     schema: LISKA_HTML_SCHEMA,
     rendererVersion: LISKA_HTML_RENDERER_VERSION,
     html: renderer.parts.join(''),
-    selectedNodeCount: path.length,
+    selectedNodeCount: messages.length,
     renderedMessageCount,
     diagnostics: renderer.context.diagnostics(),
     canonicalSha256: input.canonicalSha256,
-    assetBindingSha256: input.assetBindings?.sha256 ?? null,
+    assetBindingSha256: input.assetBindingSha256,
   };
 }
 
 /** Pure, deterministic, fail-closed canonical branch presentation. Never mutates the archive. */
-export function renderArchiveHtml(input: HtmlPresentationInput): HtmlPresentationResult {
+export function renderArchiveHtml(value: HtmlPresentationInput): HtmlPresentationResult {
   try {
-    return render(input);
+    const { input, limits } = requireInput(value);
+    const path = requireSelectedPath(input);
+    if (path.length > limits.maxSelectedNodes) fail('html-selected-node-limit');
+    const prepared = snapshotPresentation(input, limits);
+    return renderPrepared(
+      prepared,
+      path.map(id => input.archive.graph.nodes[id].message)
+    );
   } catch (error) {
     if (error instanceof HtmlPresentationError) throw error;
     // Unexpected proxy/descriptor/parser errors must never leak provider values.
+    fail('html-input-invalid');
+  }
+}
+
+function requireMaxBranches(value: unknown): number {
+  if (value === undefined) return HTML_BRANCH_SESSION_MAX_LEAVES;
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > HTML_BRANCH_SESSION_MAX_LEAVES
+  )
+    fail('html-limits-invalid');
+  return value as number;
+}
+
+/** Validate once; retain private structure/scalars, never every rendered leaf body. */
+export function prepareArchiveHtmlBranchSession(value: HtmlBranchSessionInput): HtmlBranchSession {
+  try {
+    const { input, limits } = requireInput(value, true);
+    const prepared = snapshotPresentation(input, limits);
+    return createPreparedBranchSession({
+      archive: input.archive,
+      maxBranches: requireMaxBranches(input.maxBranches),
+      limits,
+      canonicalSha256: prepared.canonicalSha256,
+      assetBindingSha256: prepared.assetBindingSha256,
+      renderMessages: messages => renderPrepared(prepared, messages),
+    });
+  } catch (error) {
+    if (error instanceof HtmlPresentationError) throw error;
     fail('html-input-invalid');
   }
 }

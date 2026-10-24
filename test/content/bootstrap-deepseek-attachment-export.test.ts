@@ -19,12 +19,14 @@ import type {
   ExtractionResult,
   MultiOutputResponse,
   OutputDestination,
+  StructuredPresentationContext,
 } from '../../src/lib/types';
 import { resetLocation } from '../fixtures/dom-helpers';
 
 const mocks = vi.hoisted(() => ({
   applySettings: vi.fn(),
   attachmentExport: vi.fn(),
+  html: vi.fn(),
   extract: vi.fn(),
   sendMessage: vi.fn(),
   setButtonLoading: vi.fn(),
@@ -51,6 +53,12 @@ vi.mock('../../src/content/deepseek-asset-export', () => ({
   persistDeepSeekDestinationHonestAttachments: mocks.attachmentExport,
 }));
 
+vi.mock('../../src/content/derived-html-persistence', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/content/derived-html-persistence')>();
+  return { ...actual, persistDerivedHtmlForFile: mocks.html };
+});
+
 vi.mock('../../src/content/ui', () => ({
   injectBranchExportButton: vi.fn(),
   injectSyncButton: vi.fn(),
@@ -72,6 +80,7 @@ const settings: ContentScriptSettings = {
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
+  enableHtmlExport: false,
   imageVaultPath: 'AI/{platform}/images',
   flattenLargeCallouts: true,
   maxCalloutLines: 200,
@@ -243,10 +252,12 @@ describe('DeepSeek attachment bootstrap gate', () => {
       configurable: true,
     });
     settings.enableImageExport = true;
+    settings.enableHtmlExport = false;
     settings.outputOptions = { obsidian: false, file: true, clipboard: false };
     ({ companion, context } = await capture());
     mocks.extract.mockResolvedValue(result());
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
+    mocks.html.mockResolvedValue({ success: true, warnings: [] });
     mocks.attachmentExport.mockResolvedValue({
       rawSuccessfulDestinations: ['file'],
       completeDestinations: ['file'],
@@ -270,6 +281,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
           expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
         }
       );
+      expect(mocks.html).not.toHaveBeenCalled();
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'saveToOutputs',
@@ -282,6 +294,64 @@ describe('DeepSeek attachment bootstrap gate', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('writes finalized File HTML after attachment finalization and before Markdown', async () => {
+    settings.enableHtmlExport = true;
+    const presentationContext = {
+      source: 'deepseek',
+      captureId: companion.captureId,
+      conversationKey: companion.conversationKey,
+    } as StructuredPresentationContext;
+    const filePresentation = {
+      context: presentationContext,
+      assetBindings: { bindings: [], sha256: null },
+    };
+    mocks.extract.mockResolvedValue({
+      ...result(),
+      structuredPresentationContext: presentationContext,
+    });
+    mocks.attachmentExport.mockImplementationOnce(async (...args) => {
+      expect(args[4]).toEqual(
+        expect.objectContaining({
+          presentationContext,
+          expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+        })
+      );
+      return {
+        rawSuccessfulDestinations: ['file'],
+        completeDestinations: ['file'],
+        filePresentation,
+        warnings: [],
+      };
+    });
+    const order: string[] = [];
+    mocks.html.mockImplementationOnce(async (...args) => {
+      order.push('html');
+      expect(args).toEqual([
+        presentationContext,
+        serializeSyncSettingsSnapshot(settings),
+        filePresentation.assetBindings,
+      ]);
+      return { success: true, warnings: [] };
+    });
+    mocks.sendMessage.mockImplementation(async message => {
+      if (message.action === 'getSettings') return settings;
+      if (message.action === 'saveToOutputs') {
+        order.push('markdown');
+        return {
+          results: [{ destination: 'file', success: true }],
+          allSuccessful: true,
+          anySuccessful: true,
+        } satisfies MultiOutputResponse;
+      }
+      throw new Error('unexpected-message');
+    });
+
+    await handleSync();
+
+    expect(order).toEqual(['html', 'markdown']);
+    expect(mocks.html).toHaveBeenCalledOnce();
   });
 
   it.each(['file', 'obsidian'] as const)(

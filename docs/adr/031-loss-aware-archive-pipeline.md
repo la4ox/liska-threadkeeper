@@ -829,6 +829,39 @@ destination only after every intended leaf file was confirmed there; otherwise
 the user gets a partial-bundle warning and the complete canonical archive stays
 the recovery source.
 
+Multi-document HTML follows the same fail-before-write rule. Before any
+presentation dispatch, one prepared plan measures every leaf and its index,
+their deterministic receipts, and the exact extension-message envelopes. It
+then recreates only one document at a time and releases that transient body
+only after every measured field matches. Markdown and HTML consume one shared
+physical-byte budget; HTML additionally counts both render passes as
+homogeneous rendered-byte work. Planned writes include the HTML and receipt as
+two distinct sink operations, so an oversized destination combination is
+rejected explicitly instead of increasing a ceiling or dropping a requested
+format. Unknown delivery never authorizes a retry or the final index.
+
+HTML authorization uses destination-final evidence, not the extractor's
+pre-write archive alone. All-branches extraction retains a target-free archive
+context, while current/selected export retains its separate selected context.
+After attachment reconciliation, only a confirmed File manifest/canonical pair
+and File-confirmed fetched assets can produce the archive-level presentation
+capability. Obsidian evidence and incomplete File outcomes cannot be borrowed.
+
+The all-branches coordinator must bind that capability to the exact accepted
+File receipt before rendering. The finalized manifest digest and archive byte
+lengths, plus every content-addressed asset descriptor, are reconciled against
+one detached evidence snapshot. Attachment mode never compares against or
+rebuilds from the older pre-attachment companion. Canonical SHA-256 remains the
+renderer authorization boundary because the current sink receipt carries the
+canonical length rather than its digest.
+
+Bootstrap must make the File HTML decision before any attachment/raw write and
+carry that same decision through preparation and persistence. User-facing
+completion stays format-specific: Markdown names every durable destination,
+while multi-document HTML is always described as File-only. A completed archive
+or Markdown bundle cannot make an incomplete requested HTML bundle appear
+green; attachment and loss caveats remain authoritative.
+
 Append, merge, automatic deduplication, and a monolithic branching Markdown
 document remain separate later decisions. The initial implementation favors
 complete, inspectable snapshots over implicit mutation.

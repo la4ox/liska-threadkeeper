@@ -28,6 +28,7 @@ import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { stripImagePlaceholders } from '../../src/lib/image-output';
 import { generateNoteContent } from '../../src/lib/note-generator';
 import type { AllBranchesPersistenceSummary } from '../../src/content/archive-branch-persistence';
+import type { AllBranchesFileHtmlSummary } from '../../src/content/archive-branch-html-delivery';
 import type {
   ArchiveCompanionBundle,
   ContentScriptSettings,
@@ -76,6 +77,26 @@ function summary(
     ],
     allSuccessful: true,
     accountingMode: 'receipts',
+    ...overrides,
+  };
+}
+
+function fileHtmlSummary(
+  overrides: Partial<AllBranchesFileHtmlSummary> = {}
+): AllBranchesFileHtmlSummary {
+  return {
+    requested: true,
+    status: 'complete',
+    measuredDocuments: 3,
+    recreatedDocuments: 3,
+    confirmedLeafPairs: 2,
+    indexPair: 'confirmed',
+    htmlWrites: { confirmed: 3, failed: 0, unknown: 0, notDispatched: 0 },
+    receiptWrites: { confirmed: 3, failed: 0, unknown: 0, notDispatched: 0 },
+    confirmedBytes: 900,
+    unknownBytes: 0,
+    cleanupDeferred: 0,
+    cancelRequested: false,
     ...overrides,
   };
 }
@@ -197,6 +218,161 @@ describe('all-branches user summary', () => {
     expect(showToast).toHaveBeenCalledWith('Saved 2 branches and an index to file', 'success');
     expect(showWarningToast).not.toHaveBeenCalled();
   });
+
+  it('names both Markdown and File HTML in the green complete summary', () => {
+    displayAllBranchesSummary(summary({ fileHtml: fileHtmlSummary() }));
+
+    expect(showToast).toHaveBeenCalledWith(
+      'Saved 2 Markdown branches and an index to file; saved 2 File HTML branches and an HTML index to file',
+      'success'
+    );
+    expect(showWarningToast).not.toHaveBeenCalled();
+  });
+
+  it('attributes File HTML only to File when Markdown also reaches Obsidian', () => {
+    const file = summary().destinations[0];
+    displayAllBranchesSummary(
+      summary({
+        destinations: [
+          file,
+          {
+            ...file,
+            destination: 'obsidian',
+          },
+        ],
+        fileHtml: fileHtmlSummary(),
+      })
+    );
+
+    expect(showToast).toHaveBeenCalledWith(
+      'Saved 2 Markdown branches and an index to file, obsidian; saved 2 File HTML branches and an HTML index to file',
+      'success'
+    );
+  });
+
+  it('keeps attachment warnings authoritative after both formats complete', () => {
+    displayAllBranchesSummary(summary({ fileHtml: fileHtmlSummary() }), [
+      'One attachment remained unavailable.',
+    ]);
+
+    expect(showToast).not.toHaveBeenCalledWith(expect.any(String), 'success');
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Saved 2 Markdown branches and an index to file; saved 2 File HTML branches and an HTML index to file'
+      )
+    );
+    expect(showWarningToast).toHaveBeenCalledWith(
+      expect.stringContaining('One attachment remained unavailable.')
+    );
+  });
+
+  it('warns about deferred cleanup without inventing a failed HTML write', () => {
+    displayAllBranchesSummary(summary({ fileHtml: fileHtmlSummary({ cleanupDeferred: 1 }) }));
+
+    const message = String(vi.mocked(showWarningToast).mock.calls.at(-1)?.[0]);
+    expect(message).toContain('File HTML complete: 2/2 leaf pair(s) confirmed');
+    expect(message).toContain('index pair confirmed');
+    expect(message).toContain('temporary cleanup was deferred for 1 write(s)');
+    expect(message).not.toContain('failed write');
+  });
+
+  it.each([
+    {
+      label: 'failed',
+      overall: { status: 'partial' as const, allSuccessful: false },
+      html: fileHtmlSummary({
+        status: 'failed',
+        reason: 'evidence-unavailable',
+        measuredDocuments: 0,
+        recreatedDocuments: 0,
+        confirmedLeafPairs: 0,
+        indexPair: 'not-dispatched',
+        htmlWrites: { confirmed: 0, failed: 0, unknown: 0, notDispatched: 3 },
+        receiptWrites: { confirmed: 0, failed: 0, unknown: 0, notDispatched: 3 },
+        confirmedBytes: 0,
+      }),
+      expected: [
+        'All-branches export was partial: 2/2 branch writes',
+        'File HTML failed (evidence-unavailable)',
+        '0/2 leaf pair(s) confirmed',
+      ],
+    },
+    {
+      label: 'partial with unknown outcomes',
+      overall: { status: 'partial' as const, allSuccessful: false },
+      html: fileHtmlSummary({
+        status: 'partial',
+        reason: 'write-unknown',
+        confirmedLeafPairs: 1,
+        indexPair: 'unknown',
+        htmlWrites: { confirmed: 2, failed: 0, unknown: 1, notDispatched: 0 },
+        receiptWrites: { confirmed: 1, failed: 0, unknown: 1, notDispatched: 1 },
+        unknownBytes: 77,
+        cleanupDeferred: 1,
+      }),
+      expected: [
+        'File HTML partial (write-unknown)',
+        'All-branches export was partial: 2/2 branch writes',
+        '1/2 leaf pair(s) confirmed',
+        'index pair unknown',
+        '77 byte(s) have unknown outcomes',
+        'temporary cleanup was deferred for 1 write(s)',
+      ],
+    },
+    {
+      label: 'cancelled',
+      overall: { status: 'cancelled' as const, allSuccessful: false, cancelRequested: true },
+      html: fileHtmlSummary({
+        status: 'cancelled',
+        reason: 'cancelled',
+        confirmedLeafPairs: 1,
+        indexPair: 'not-dispatched',
+        htmlWrites: { confirmed: 1, failed: 0, unknown: 0, notDispatched: 2 },
+        receiptWrites: { confirmed: 1, failed: 0, unknown: 0, notDispatched: 2 },
+        cancelRequested: true,
+      }),
+      expected: [
+        '2 branch write(s)',
+        'File HTML cancelled (cancelled)',
+        '1/2 leaf pair(s) confirmed',
+      ],
+    },
+    {
+      label: 'rejected',
+      overall: {
+        status: 'rejected' as const,
+        phase: 'measurement' as const,
+        allSuccessful: false,
+        budgetKind: 'physical-planned-bytes' as const,
+      },
+      html: fileHtmlSummary({
+        status: 'rejected',
+        reason: 'budget-exceeded',
+        budgetKind: 'physical-planned-bytes',
+        confirmedLeafPairs: 0,
+        indexPair: 'not-dispatched',
+        htmlWrites: { confirmed: 0, failed: 0, unknown: 0, notDispatched: 3 },
+        receiptWrites: { confirmed: 0, failed: 0, unknown: 0, notDispatched: 3 },
+      }),
+      expected: [
+        'after archive evidence was retained; no branch notes or index were written',
+        'File HTML rejected (budget-exceeded)',
+        '0/2 leaf pair(s) confirmed',
+      ],
+    },
+  ])(
+    'reports closed File HTML $label facts without provider errors',
+    ({ overall, html, expected }) => {
+      displayAllBranchesSummary(summary({ ...overall, fileHtml: html }));
+
+      expect(showToast).not.toHaveBeenCalledWith(expect.any(String), 'success');
+      const message = String(vi.mocked(showWarningToast).mock.calls.at(-1)?.[0]);
+      for (const fragment of expected) expect(message).toContain(fragment);
+      expect(message).not.toContain('provider');
+      expect(message).not.toContain('native');
+      expect(message).not.toContain('failed write');
+    }
+  );
 
   it('keeps attachment archive caveats visible even when remaining destinations completed', () => {
     displayAllBranchesSummary(summary(), [

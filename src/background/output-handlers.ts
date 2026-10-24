@@ -24,7 +24,20 @@ import {
   DERIVED_HTML_RECEIPT_RELATIVE_PATH,
   verifyDerivedHtmlArtifact,
   type DerivedHtmlArtifact,
+  type DerivedOutputIdentity,
 } from '../lib/derived-presentation-contract';
+import {
+  buildDerivedBranchOutputReceipt,
+  buildDerivedBranchOutputReceiptBytes,
+  deriveBranchHtmlReceiptRelativePath,
+  matchDerivedBranchOutputReceipt,
+  verifyDerivedBranchHtmlArtifact,
+  type DerivedBranchHtmlArtifact,
+} from '../lib/derived-branch-presentation-contract';
+import {
+  buildDerivedBranchHtmlPersistResponse,
+  type DerivedBranchHtmlPersistResponse,
+} from '../lib/derived-branch-persistence-contract';
 import type {
   ArchiveBlobCreateResponse,
   ArchiveCompanionArtifact,
@@ -35,6 +48,7 @@ import type {
   OutputDestination,
   OutputResult,
   DurableWriteState,
+  DurableWriteOutcome,
   MultiOutputResponse,
   OffscreenClipboardMessage,
   StructuredArchiveSource,
@@ -790,6 +804,83 @@ export async function handlePersistDerivedHtmlPresentation(
       cleanupDeferred
     )
   );
+}
+
+/** Each dispatch owns its observation; malformed post-dispatch evidence is unknown. */
+async function branchHtmlDownload(
+  artifact: InlineDownloadArtifact,
+  path: string
+): Promise<DurableWriteOutcome> {
+  try {
+    const result = await handleVerifiedInlineDownload(artifact, path, true);
+    return durableWriteOutcomeFromResult(result) ?? { state: 'unknown' };
+  } catch {
+    return { state: 'unknown' };
+  }
+}
+
+async function persistDerivedBranchHtmlReceipt(
+  identity: DerivedOutputIdentity,
+  artifact: DerivedBranchHtmlArtifact,
+  prefix: string
+): Promise<DurableWriteOutcome> {
+  let bodyBase64: string;
+  let relativePath: string;
+  try {
+    const receipt = buildDerivedBranchOutputReceipt(identity, artifact);
+    if (!matchDerivedBranchOutputReceipt(receipt, identity, artifact)) throw new Error();
+    const bytes = buildDerivedBranchOutputReceiptBytes(receipt);
+    bodyBase64 = bytesToBase64(bytes);
+    const sha256 = await sha256Hex(bytes);
+    const decoded = decodeCanonicalBase64(bodyBase64);
+    if (
+      !decoded ||
+      decoded.byteLength !== bytes.byteLength ||
+      (await sha256Hex(decoded)) !== sha256 ||
+      !matchDerivedBranchOutputReceipt(
+        JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(decoded)),
+        identity,
+        artifact
+      )
+    )
+      throw new Error();
+    relativePath = deriveBranchHtmlReceiptRelativePath(
+      artifact.role === 'leaf' ? { role: 'leaf', ordinal: artifact.ordinal } : { role: 'index' }
+    );
+  } catch {
+    return { state: 'not-dispatched' };
+  }
+  return branchHtmlDownload(
+    { transport: 'inline', bodyBase64, mediaType: 'application/json' },
+    `${prefix}${relativePath}`
+  );
+}
+
+/** One verified branch artifact, then its locally built receipt. No retry or bundle inference. */
+export async function handlePersistDerivedBranchHtmlPresentation(
+  message: Extract<ExtensionMessage, { action: 'persistDerivedBranchHtmlPresentation' }>
+): Promise<DerivedBranchHtmlPersistResponse> {
+  const identity = {
+    source: message.source,
+    captureId: message.captureId,
+    conversationKey: message.conversationKey,
+  };
+  const verified = await verifyDerivedBranchHtmlArtifact(message.artifact, sha256Hex);
+  if (!verified)
+    return buildDerivedBranchHtmlPersistResponse(
+      { state: 'not-dispatched' },
+      { state: 'not-dispatched' }
+    );
+  const prefix = `_liska-archive/${identity.conversationKey}/${identity.captureId}/`;
+  const html = await branchHtmlDownload(
+    verified.artifact,
+    `${prefix}${verified.artifact.relativePath}`
+  );
+  const receipt =
+    html.state === 'confirmed'
+      ? await persistDerivedBranchHtmlReceipt(identity, verified.artifact, prefix)
+      : ({ state: 'not-dispatched' } as const);
+  return buildDerivedBranchHtmlPersistResponse(html, receipt);
 }
 
 async function handleArchiveSaveToObsidian(

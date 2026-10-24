@@ -7,6 +7,7 @@ import {
   inventoryDeepSeekRawAssets,
   normalizeDeepSeekCapture,
   preflightDeepSeekHistoryArtifact,
+  type LiskaThreadArchive,
   type RawCaptureBundle,
 } from '../../src/archive';
 import { acquireDeepSeekSignedAssets } from '../../src/content/capture/deepseek-asset-acquisition';
@@ -31,7 +32,9 @@ import type {
   ArchiveCompanionBundle,
   DeepSeekAssetExportContext,
   StagedBinaryAssetResult,
+  StructuredPresentationContext,
 } from '../../src/lib/types';
+import type { FinalizedFilePresentationEvidence } from '../../src/content/finalized-html-assets';
 
 const PROVIDER_ID = 'file-11111111-2222-4333-8444-555555555555';
 const FILE_ID = '11111111-2222-4333-8444-555555555555';
@@ -125,6 +128,55 @@ async function capture(options: { signedPath?: boolean } = {}): Promise<{
 }
 
 describe('DeepSeek destination-honest asset export', () => {
+  it('exposes finalized presentation evidence only after the File trio is confirmed', async () => {
+    const captured = await capture();
+    const finalCompanion = captured.companion;
+    const finalArchive = {} as LiskaThreadArchive;
+    const presentationContext = {} as StructuredPresentationContext;
+    const filePresentation = {
+      context: presentationContext,
+      assetBindings: { bindings: [], sha256: null },
+    } as FinalizedFilePresentationEvidence;
+    const buildFilePresentationEvidence = vi.fn().mockResolvedValue(filePresentation);
+
+    const result = await persistDeepSeekDestinationHonestAttachments(
+      captured.context,
+      captured.companion,
+      'synthetic.md',
+      ['file', 'obsidian'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs) => ({
+          activeOutputs: [...outputs] as Array<'file' | 'obsidian'>,
+          warnings: [],
+        }),
+        deriveCandidates: async () => [],
+        acquireAssets: async () => ({
+          records: captured.context.rawCaptureBundle.manifest.assets.map(record => ({
+            ...record,
+            sourceRefs: record.sourceRefs.map(sourceRef => ({ ...sourceRef })),
+          })),
+          runtimeAssets: [],
+          completeness: 'not-attempted',
+        }),
+        buildDestinationArchive: async () => ({
+          companion: finalCompanion,
+          archive: finalArchive,
+        }),
+        buildFilePresentationEvidence,
+        presentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['file', 'obsidian']);
+    expect(result.filePresentation).toBe(filePresentation);
+    expect(buildFilePresentationEvidence).toHaveBeenCalledExactlyOnceWith(
+      presentationContext,
+      finalArchive,
+      finalCompanion,
+      []
+    );
+  });
+
   it('persists raw first and publishes fetched claims only to the destination that stored bytes', async () => {
     const snapshot = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
     const { context, companion } = await capture();

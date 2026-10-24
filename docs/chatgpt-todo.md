@@ -162,7 +162,32 @@ terminal states, and the existing no-credential-export boundary.
 
 ### 7. User-facing derived outputs
 
-- Render canonical archives to HTML/PDF after capture fidelity is stable.
+- The pure `liska-html/1` renderer and opt-in current/selected File delivery are
+  implemented. HTML is derived only from a hash-verified canonical archive and
+  carries a deterministic provenance receipt; it is never reconstructed from
+  legacy Markdown.
+- Destination-finalized asset binding is implemented for current/selected File
+  snapshots. A real archived JPEG passed exact byte/path/hash reconciliation,
+  rendered through a local content-addressed image reference, and retained an
+  honest placeholder for its unbound sibling.
+- The pure all-branches core is implemented: closed ordinal-derived branch/index
+  artifact contracts plus one prepared rendering session validate graph and
+  bindings once, render leaves without repeated whole-graph traversal, and
+  accept only complete same-session facts for a deterministic local index. This
+  is not yet delivery evidence.
+- B2a background persistence is implemented but not yet invoked by the exporter:
+  one closed leaf/index artifact can write HTML and then a locally built receipt
+  with independent confirmed/unknown/not-dispatched outcomes, exact settings and
+  sender admission, one-send transport and no retry/completeness claim.
+- B2b canonical authorization is implemented but not yet invoked by the
+  exporter: a target-free finalized File context authorizes canonical bytes once,
+  prepares one B1 session and builds leaf/index artifacts on demand through the
+  B2a seam without caching HTML or claiming delivery.
+- Next HTML slice (B3): two-pass measurement/recreation, aggregate HTML
+  work/write accounting, cancellation, unknown-write stop and independent
+  Markdown/HTML bundle completion, followed by the explicit bootstrap hookup.
+- Automatic PDF remains a separate transport/rendering decision after HTML
+  bundle behavior is stable.
 - Design image-aware append behavior for existing Obsidian notes.
 - Add an explicit snapshot deduplicator; never replace immutable captures by
   default.
@@ -171,6 +196,16 @@ terminal states, and the existing no-credential-export boundary.
 
 ### 8. Remaining hardening
 
+- Repair current ChatGPT capture compatibility as a separate slice. Fresh live
+  historical-image retries confirmed three honest pre-destination stops:
+  A-strict can reject a newly observed opaque path, passive structured capture
+  can time out after the page uses a different request family, and the DOM
+  fallback currently finds no primary turn selectors on that UI. Do not weaken
+  complete-graph claims or fold this provider drift into HTML asset binding.
+  The timeout is specifically the 15-second no-claim timer for the legacy
+  queryless singular request, not a payload/image timeout. First add value-free
+  strict-replay mismatch categories, then inspect current live turn attributes;
+  widen neither route equivalence nor DOM selectors without that evidence.
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Settings-stable durable routing is implemented across first-party archive,
@@ -248,12 +283,14 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-The operation-local write ledger and typed partial-DOM shrink guard are
-checkpointed in code. Choose the next evidence-backed ChatGPT gate: a real
-staged capture above 16 MiB, a live multi-output same-title sample, or one
-available additional binary family. If no suitable live specimen exists,
-proceed with the independent untouched-provider/upstream audit instead of
-inventing transport authority. The 1 GiB source-work limit remains a deliberate
-refusal for the measured 1.051 GiB graph; only a separately reviewed limit
-change may authorize that full 239-leaf run. Keep custom-GPT/project binaries
-and the sole archived Library WebP separately evidence-gated.
+Submit the fully checked and live-smoked compact-launcher + all-branches HTML
+delivery stack on top of the exact current `main`. After clean current-head CI,
+code review, security review, and merge, choose the next
+evidence-backed ChatGPT gate: a real staged capture above 16 MiB, a live
+multi-output same-title sample, or one available additional binary family. If
+no suitable live specimen exists, proceed with the independent
+untouched-provider/upstream audit instead of inventing transport authority. The
+1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB
+graph; only a separately reviewed limit change may authorize that full 239-leaf
+run. Keep custom-GPT/project binaries and the sole archived Library WebP
+separately evidence-gated.

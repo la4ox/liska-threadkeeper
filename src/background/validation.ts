@@ -56,6 +56,7 @@ import { platformOrigins } from '../lib/platform-registry';
 import { validateSettingsUpdate } from './settings-validation';
 import { deriveChatGptCaptureTarget, isExactChatGptDocumentUrl } from './chatgpt-route-target';
 import { validatePersistDerivedHtmlMessage } from './derived-html-validation';
+import { snapshotPersistDerivedBranchHtmlMessage } from './derived-branch-html-validation';
 
 const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
 
@@ -704,6 +705,10 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     )
   )
     return false;
+  if (action.value === 'persistDerivedBranchHtmlPresentation') {
+    const snapshot = snapshotPersistDerivedBranchHtmlMessage(message);
+    return snapshot !== undefined && jsonUtf8ByteLength(snapshot) <= MAX_EXTENSION_MESSAGE_SIZE;
+  }
   // Inspect this opt-in before JSON sizing, which would otherwise invoke an accessor.
   const reportOutcome = Object.getOwnPropertyDescriptor(message, 'reportDurableWriteOutcome');
   if (!reportOutcome && 'reportDurableWriteOutcome' in message) return false;
@@ -715,6 +720,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
       ![
         'persistArchiveCompanion',
         'persistDerivedHtmlPresentation',
+        'persistDerivedBranchHtmlPresentation',
         'commitStagedArchiveCompanion',
         'commitStagedBinaryAsset',
       ].includes(extensionMessage.action))

@@ -3,12 +3,17 @@ import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import { createOperationWriteLedger } from '../../src/lib/operation-write-ledger';
 import { describe, expect, it, vi } from 'vitest';
-import { buildCaptureManifest, type RawCaptureAssetRecord } from '../../src/archive';
+import {
+  buildCaptureManifest,
+  type LiskaThreadArchive,
+  type RawCaptureAssetRecord,
+} from '../../src/archive';
 import { chatGptActiveResolverMetricFromResponse } from '../../src/content/capture/chatgpt-active-resolver-audit';
 import { buildChatGptBinaryAwareArchiveCompanion } from '../../src/content/capture/chatgpt-current-branch';
 import {
   CHATGPT_ASSET_ACQUISITION_FAILED_WARNING,
   CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL,
+  CHATGPT_ASSET_FINALIZATION_FAILED_WARNING,
   persistChatGptDestinationHonestAttachments,
   validateChatGptAssetExportBinding,
   type ChatGptAssetExportDependencies,
@@ -17,7 +22,13 @@ import type {
   ArchiveCompanionBundle,
   ChatGptAssetExportContext,
   StagedBinaryAssetResult,
+  StructuredArchivePresentationContext,
+  StructuredPresentationContext,
 } from '../../src/lib/types';
+import type {
+  FinalizedFileArchivePresentationEvidence,
+  FinalizedFilePresentationEvidence,
+} from '../../src/content/finalized-html-assets';
 
 const CONVERSATION_ID = '11111111-2222-4333-8444-555555555555';
 const CAPTURE_ID = 'capture-chatgpt-11111111-2222-4333-8444-555555555555';
@@ -186,6 +197,171 @@ function binaryResult(
 }
 
 describe('destination-honest ChatGPT attachment export', () => {
+  it('exposes finalized presentation evidence only after the File trio is confirmed', async () => {
+    const finalCompanion = companion();
+    const finalArchive = {} as LiskaThreadArchive;
+    const presentationContext = {} as StructuredPresentationContext;
+    const filePresentation = {
+      context: presentationContext,
+      assetBindings: { bindings: [], sha256: null },
+    } as FinalizedFilePresentationEvidence;
+    const buildFilePresentationEvidence = vi.fn().mockResolvedValue(filePresentation);
+    const buildDestinationArchive = vi.fn().mockResolvedValue({
+      companion: finalCompanion,
+      archive: finalArchive,
+    });
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'synthetic.md',
+      ['file', 'obsidian'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs) => persisted([...outputs]),
+        buildDestinationArchive,
+        buildFilePresentationEvidence,
+        presentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['file', 'obsidian']);
+    expect(result.fileArchivePresentation).toBeUndefined();
+    expect(result.filePresentation).toBe(filePresentation);
+    expect(buildFilePresentationEvidence).toHaveBeenCalledExactlyOnceWith(
+      presentationContext,
+      finalArchive,
+      finalCompanion,
+      []
+    );
+  });
+
+  it('exposes archive-level evidence only from the complete File destination archive', async () => {
+    const asset = fetchedAsset();
+    const finalCompanion = companion();
+    const finalArchive = {} as LiskaThreadArchive;
+    const archivePresentationContext = {} as StructuredArchivePresentationContext;
+    const fileArchivePresentation = {
+      context: archivePresentationContext,
+      assetBindings: { bindings: [], sha256: null },
+    } as FinalizedFileArchivePresentationEvidence;
+    const buildFileArchivePresentationEvidence = vi.fn().mockResolvedValue(fileArchivePresentation);
+    const buildDestinationArchive = vi.fn().mockResolvedValue({
+      companion: finalCompanion,
+      archive: finalArchive,
+    });
+
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(),
+      companion(),
+      'synthetic.md',
+      ['file', 'obsidian'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs) => persisted([...outputs]),
+        observeResolvers: async () => ({
+          kind: 'matched',
+          candidates: [{ assetId: asset.record.id, downloadUrl: 'synthetic-url' }],
+        }),
+        acquireAssets: async () => ({
+          records: [asset.record],
+          runtimeAssets: [asset],
+          completeness: 'complete',
+        }),
+        persistBinaryAssets: async () => binaryResult(asset.record, true, false),
+        buildDestinationArchive,
+        buildFileArchivePresentationEvidence,
+        archivePresentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['file', 'obsidian']);
+    expect(result.fileArchivePresentation).toBe(fileArchivePresentation);
+    expect(result.filePresentation).toBeUndefined();
+    expect(buildFileArchivePresentationEvidence).toHaveBeenCalledExactlyOnceWith(
+      archivePresentationContext,
+      finalArchive,
+      finalCompanion,
+      [asset.record]
+    );
+  });
+
+  it('withholds archive-level evidence when File finalization is incomplete', async () => {
+    const buildFileArchivePresentationEvidence = vi.fn();
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'synthetic.md',
+      ['file'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs, kinds) =>
+          persisted(kinds.includes('canonical') ? [] : [...outputs]),
+        buildDestinationArchive: async () => ({
+          companion: companion(),
+          archive: {} as LiskaThreadArchive,
+        }),
+        buildFileArchivePresentationEvidence,
+        archivePresentationContext: {} as StructuredArchivePresentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual([]);
+    expect(result.fileArchivePresentation).toBeUndefined();
+    expect(buildFileArchivePresentationEvidence).not.toHaveBeenCalled();
+  });
+
+  it('keeps File archive completion authoritative when archive evidence construction throws', async () => {
+    const buildFileArchivePresentationEvidence = vi
+      .fn()
+      .mockRejectedValue(new Error('synthetic evidence failure'));
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'synthetic.md',
+      ['file'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs) => persisted([...outputs]),
+        buildDestinationArchive: async () => ({
+          companion: companion(),
+          archive: {} as LiskaThreadArchive,
+        }),
+        buildFileArchivePresentationEvidence,
+        archivePresentationContext: {} as StructuredArchivePresentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['file']);
+    expect(result.destinationReceipts).toHaveLength(1);
+    expect(result.fileArchivePresentation).toBeUndefined();
+    expect(result.warnings).not.toContain(CHATGPT_ASSET_FINALIZATION_FAILED_WARNING);
+  });
+
+  it('never exposes Obsidian-finalized assets as File presentation evidence', async () => {
+    const buildFileArchivePresentationEvidence = vi.fn();
+    const buildFilePresentationEvidence = vi.fn();
+    const result = await persistChatGptDestinationHonestAttachments(
+      context(false),
+      companion(),
+      'synthetic.md',
+      ['obsidian'],
+      {
+        persistArtifacts: async (_value, _name, _source, outputs) => persisted([...outputs]),
+        buildDestinationArchive: async () => ({
+          companion: companion(),
+          archive: {} as LiskaThreadArchive,
+        }),
+        buildFileArchivePresentationEvidence,
+        buildFilePresentationEvidence,
+        archivePresentationContext: {} as StructuredArchivePresentationContext,
+        presentationContext: {} as StructuredPresentationContext,
+      }
+    );
+
+    expect(result.completeDestinations).toEqual(['obsidian']);
+    expect(result.fileArchivePresentation).toBeUndefined();
+    expect(result.filePresentation).toBeUndefined();
+    expect(buildFileArchivePresentationEvidence).not.toHaveBeenCalled();
+    expect(buildFilePresentationEvidence).not.toHaveBeenCalled();
+  });
+
   it('retains confirmed raw and binary facts when destination builders fail without creating receipts or localization evidence', async () => {
     const ledger = createOperationWriteLedger(CAPTURE_ID);
     const asset = fetchedAsset();

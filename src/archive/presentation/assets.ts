@@ -30,17 +30,38 @@ const MIME_EXTENSIONS: Readonly<Record<string, string>> = {
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
-function requireBindingPath(value: Record<string, unknown>): void {
-  const { mimeType, path, sha256 } = value;
-  if (
-    typeof mimeType !== 'string' ||
-    !hasOwn(MIME_EXTENSIONS, mimeType) ||
-    path !== `assets/${sha256}.${MIME_EXTENSIONS[mimeType]}`
-  )
-    fail('html-bindings-invalid');
+/** Presentation only: this policy never grants acquisition permission. */
+export function htmlAssetMediaPolicy(
+  mimeType: unknown
+): Readonly<{ extension: string; renderMode: HtmlAssetBinding['renderMode'] }> | undefined {
+  if (typeof mimeType !== 'string' || !hasOwn(MIME_EXTENSIONS, mimeType)) return undefined;
+  return Object.freeze({
+    extension: MIME_EXTENSIONS[mimeType],
+    renderMode: IMAGE_MIMES.has(mimeType) ? 'image' : 'download',
+  });
 }
 
-function requireBinding(candidate: unknown): HtmlAssetBinding {
+function requireBindingPath(value: Record<string, unknown>): void {
+  const { mimeType, path, sha256 } = value;
+  const policy = htmlAssetMediaPolicy(mimeType);
+  if (!policy || path !== `assets/${sha256}.${policy.extension}`) fail('html-bindings-invalid');
+}
+
+/** Descriptor-only capture closes validation-to-use races in caller Proxy records. */
+function snapshotBindingData(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) fail('html-bindings-invalid');
+  const snapshot: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') fail('html-bindings-invalid');
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor?.enumerable || !hasOwn(descriptor, 'value')) fail('html-bindings-invalid');
+    Object.defineProperty(snapshot, key, { value: descriptor.value, enumerable: true });
+  }
+  return snapshot;
+}
+
+function requireBinding(value: unknown): HtmlAssetBinding {
+  const candidate = snapshotBindingData(value);
   if (
     !isRecord(candidate) ||
     !exactKeys(candidate, ['assetId', 'path', 'sha256', 'mimeType', 'byteLength', 'renderMode'])
@@ -57,11 +78,7 @@ function requireBinding(candidate: unknown): HtmlAssetBinding {
   requireBindingPath(candidate);
   if (!Number.isSafeInteger(byteLength) || (byteLength as number) < 0)
     fail('html-bindings-invalid');
-  if (
-    (renderMode !== 'image' && renderMode !== 'download') ||
-    (renderMode === 'image' && !IMAGE_MIMES.has(mimeType as string))
-  )
-    fail('html-bindings-invalid');
+  if (renderMode !== htmlAssetMediaPolicy(mimeType)?.renderMode) fail('html-bindings-invalid');
   return candidate as unknown as HtmlAssetBinding;
 }
 
@@ -70,6 +87,8 @@ function requireCanonicalMatch(binding: HtmlAssetBinding, archive: LiskaThreadAr
   const asset = archive.assets[binding.assetId];
   if (
     asset.acquisition.state !== 'fetched' ||
+    asset.id !== binding.assetId ||
+    asset.localArtifactRef !== binding.path ||
     asset.sha256 !== binding.sha256 ||
     asset.mimeType !== binding.mimeType ||
     asset.byteLength !== binding.byteLength
@@ -77,13 +96,8 @@ function requireCanonicalMatch(binding: HtmlAssetBinding, archive: LiskaThreadAr
     fail('html-binding-mismatch');
 }
 
-export function validateHtmlBindings(
-  input: HtmlAssetBindingSet | undefined,
-  archive: LiskaThreadArchive,
-  maxBindings: number
-): Map<string, HtmlAssetBinding> {
-  const bindings = new Map<string, HtmlAssetBinding>();
-  if (input === undefined) return bindings;
+function bindingHeader(value: HtmlAssetBindingSet, maxBindings: number) {
+  const input = snapshotBindingData(value);
   if (
     !isRecord(input) ||
     !exactKeys(input, ['bindings', 'sha256']) ||
@@ -91,28 +105,52 @@ export function validateHtmlBindings(
   ) {
     fail('html-bindings-invalid');
   }
-  if (input.bindings.length > maxBindings) fail('html-binding-count-limit');
+  const list = input.bindings;
+  if (Object.getPrototypeOf(list) !== Array.prototype) fail('html-bindings-invalid');
+  const length = Object.getOwnPropertyDescriptor(list, 'length')?.value as number;
+  if (!Number.isSafeInteger(length) || length < 0) fail('html-bindings-invalid');
+  if (length > maxBindings) fail('html-binding-count-limit');
   if (
-    input.bindings.length === 0
+    length === 0
       ? input.sha256 !== null
       : typeof input.sha256 !== 'string' || !LOWERCASE_SHA256.test(input.sha256)
   ) {
     fail('html-bindings-invalid');
   }
+  if (Reflect.ownKeys(list).length !== length + 1) fail('html-bindings-invalid');
+  return { list, length, sha256: input.sha256 as string | null };
+}
+
+function bindingAt(list: unknown[], index: number): HtmlAssetBinding {
+  const descriptor = Object.getOwnPropertyDescriptor(list, String(index));
+  if (!descriptor?.enumerable || !hasOwn(descriptor, 'value')) fail('html-bindings-invalid');
+  return requireBinding(descriptor.value);
+}
+
+export function validateHtmlBindings(
+  value: HtmlAssetBindingSet | undefined,
+  archive: LiskaThreadArchive,
+  maxBindings: number
+): { bindings: Map<string, HtmlAssetBinding>; sha256: string | null } {
+  const bindings = new Map<string, HtmlAssetBinding>();
+  if (value === undefined) return { bindings, sha256: null };
+  const { list, length, sha256 } = bindingHeader(value, maxBindings);
   const paths = new Map<string, HtmlAssetBinding>();
-  for (const candidate of input.bindings) {
-    const binding = requireBinding(candidate);
+  for (let index = 0; index < length; index++) {
+    const binding = bindingAt(list, index);
     if (bindings.has(binding.assetId)) fail('html-bindings-invalid');
     requireCanonicalMatch(binding, archive);
     const samePath = paths.get(binding.path);
     // Byte-identical aliases may share a file; conflicting receipts cannot.
     if (
       samePath &&
-      (samePath.mimeType !== binding.mimeType || samePath.byteLength !== binding.byteLength)
+      (samePath.sha256 !== binding.sha256 ||
+        samePath.mimeType !== binding.mimeType ||
+        samePath.byteLength !== binding.byteLength)
     )
       fail('html-binding-mismatch');
     bindings.set(binding.assetId, binding);
     paths.set(binding.path, binding);
   }
-  return bindings;
+  return { bindings, sha256 };
 }

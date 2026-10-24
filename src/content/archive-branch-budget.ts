@@ -11,6 +11,8 @@ export const ALL_BRANCHES_BUDGET_LIMITS = Object.freeze({
   individualNoteBytes: 16 * 1024 ** 2,
   logicalMarkdownBytesPerDestination: 1024 ** 3,
   physicalPlannedBytes: 2 * 1024 ** 3,
+  /** Homogeneous rendered HTML bytes across the measurement and recreation passes. */
+  htmlRenderWorkBytes: 4 * 1024 ** 3,
 });
 
 export interface ArchiveBranchWorkMetrics {
@@ -29,7 +31,13 @@ export type AllBranchesBudgetKind =
   | 'planned-artifact-writes'
   | 'individual-note-bytes'
   | 'logical-markdown-bytes'
-  | 'physical-planned-bytes';
+  | 'physical-planned-bytes'
+  | 'html-render-work-bytes';
+
+export interface AllBranchesHtmlStructuralPlan {
+  /** File delivery writes one HTML artifact and one receipt for every leaf plus the index. */
+  readonly file: true;
+}
 
 export interface AllBranchesStructuralBudgetResult {
   readonly accepted: boolean;
@@ -60,7 +68,8 @@ export function structuralBudgetPreflight(
   destinationCount: number,
   companionArtifactCount: number,
   archiveAlreadyPersisted: boolean,
-  limits = ALL_BRANCHES_BUDGET_LIMITS
+  limits = ALL_BRANCHES_BUDGET_LIMITS,
+  htmlPlan?: AllBranchesHtmlStructuralPlan
 ): AllBranchesStructuralBudgetResult {
   const presentationWrites = checkedAdd(metrics.leafCount, 1, 'planned presentation writes');
   const writesPerDestination = checkedAdd(
@@ -68,9 +77,17 @@ export function structuralBudgetPreflight(
     archiveAlreadyPersisted ? 0 : companionArtifactCount,
     'planned writes per destination'
   );
-  const plannedArtifactWrites = checkedMultiply(
+  const markdownArtifactWrites = checkedMultiply(
     writesPerDestination,
     destinationCount,
+    'planned artifact writes'
+  );
+  const htmlArtifactWrites = htmlPlan?.file
+    ? checkedMultiply(presentationWrites, 2, 'planned HTML artifact writes')
+    : 0;
+  const plannedArtifactWrites = checkedAdd(
+    markdownArtifactWrites,
+    htmlArtifactWrites,
     'planned artifact writes'
   );
   const checks: ReadonlyArray<[number, number, AllBranchesBudgetKind]> = [
@@ -122,15 +139,24 @@ export function operationArtifactBytes(
 
 export class ExactPresentationBudget {
   private readonly logicalBytes = new Map<PersistentOutputDestination, number>();
+  private readonly limits: typeof ALL_BRANCHES_BUDGET_LIMITS;
   private physicalBytes: number;
+  private htmlRenderBytes = 0;
   private initialExceeded = false;
 
   constructor(
     retainedBytesByDestination: ReadonlyMap<PersistentOutputDestination, number>,
-    private readonly limits = ALL_BRANCHES_BUDGET_LIMITS
+    limits = ALL_BRANCHES_BUDGET_LIMITS
   ) {
+    this.limits = Object.freeze({ ...limits });
     this.physicalBytes = 0;
-    checkedAdd(0, this.limits.physicalPlannedBytes, 'physical planned byte cap');
+    for (const [label, value] of [
+      ['individual note byte cap', this.limits.individualNoteBytes],
+      ['logical Markdown byte cap', this.limits.logicalMarkdownBytesPerDestination],
+      ['physical planned byte cap', this.limits.physicalPlannedBytes],
+      ['HTML render work byte cap', this.limits.htmlRenderWorkBytes],
+    ] as const)
+      checkedAdd(0, value, label);
     for (const [destination, retainedBytes] of retainedBytesByDestination) {
       this.logicalBytes.set(destination, 0);
       const validatedBytes = checkedAdd(0, retainedBytes, 'physical planned bytes');
@@ -174,11 +200,52 @@ export class ExactPresentationBudget {
     return null;
   }
 
+  /** Checks a whole HTML bundle without mutating the shared budget. */
+  preflightHtmlBundle(artifactBytes: number, receiptBytes: number): AllBranchesBudgetKind | null {
+    const initialExceeded = this.preflight();
+    if (initialExceeded) return initialExceeded;
+    const bundleBytes = checkedAdd(artifactBytes, receiptBytes, 'HTML artifact bundle bytes');
+    const documentRenderWork = checkedMultiply(artifactBytes, 2, 'HTML render work bytes');
+    const htmlRenderBytes = checkedAdd(
+      this.htmlRenderBytes,
+      documentRenderWork,
+      'HTML render work bytes'
+    );
+    if (htmlRenderBytes > this.limits.htmlRenderWorkBytes) return 'html-render-work-bytes';
+    const physical = checkedAdd(this.physicalBytes, bundleBytes, 'physical planned bytes');
+    if (physical > this.limits.physicalPlannedBytes) return 'physical-planned-bytes';
+    return null;
+  }
+
+  /**
+   * Atomically reserves a File HTML bundle and its receipts in the shared physical budget.
+   * Render work counts the exact aggregate HTML bytes twice: measured, then recreated.
+   */
+  addHtmlBundle(artifactBytes: number, receiptBytes: number): AllBranchesBudgetKind | null {
+    const exceeded = this.preflightHtmlBundle(artifactBytes, receiptBytes);
+    if (exceeded) return exceeded;
+    const bundleBytes = checkedAdd(artifactBytes, receiptBytes, 'HTML artifact bundle bytes');
+    const documentRenderWork = checkedMultiply(artifactBytes, 2, 'HTML render work bytes');
+    const htmlRenderBytes = checkedAdd(
+      this.htmlRenderBytes,
+      documentRenderWork,
+      'HTML render work bytes'
+    );
+    const physical = checkedAdd(this.physicalBytes, bundleBytes, 'physical planned bytes');
+    this.htmlRenderBytes = htmlRenderBytes;
+    this.physicalBytes = physical;
+    return null;
+  }
+
   logicalBytesFor(destination: PersistentOutputDestination): number {
     return this.logicalBytes.get(destination) ?? 0;
   }
 
   get totalPhysicalBytes(): number {
     return this.physicalBytes;
+  }
+
+  get totalHtmlRenderWorkBytes(): number {
+    return this.htmlRenderBytes;
   }
 }

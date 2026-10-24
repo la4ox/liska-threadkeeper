@@ -19,6 +19,7 @@ import {
   handleMultiOutput,
   handlePersistArchiveCompanion,
   handlePersistDerivedHtmlPresentation,
+  handlePersistDerivedBranchHtmlPresentation,
 } from './output-handlers';
 import { handleStagedBinaryAssetMessage } from './binary-asset-handlers';
 import { handleArchiveStageMessage } from './archive-stage-handlers';
@@ -72,6 +73,8 @@ import type {
   OutputOptions,
 } from '../lib/types';
 import { serializeSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
+import { snapshotPersistDerivedBranchHtmlMessage } from './derived-branch-html-validation';
+import { buildDerivedBranchHtmlPersistResponse } from '../lib/derived-branch-persistence-contract';
 
 /** Latest popup destination intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
@@ -159,9 +162,10 @@ migrateSettings().catch(() => {
 function dispatchMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender,
-  sendResponse: (response: unknown) => void
+  sendResponse: (response: unknown) => void,
+  branchHtmlAdmitted: boolean
 ): void {
-  handleMessage(message, sender)
+  handleMessage(message, sender, branchHtmlAdmitted)
     .then(response => {
       try {
         sendResponse(response);
@@ -182,12 +186,20 @@ function dispatchMessage(
 /**
  * Handle incoming messages from content script and popup
  */
+/* eslint-disable max-lines-per-function -- Keep branch detachment visible at the same boundary as every sender check. */
 chrome.runtime.onMessage.addListener(
   (
     message: unknown,
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: unknown) => void
   ) => {
+    const branchSnapshot = snapshotPersistDerivedBranchHtmlMessage(message);
+    const branchHtmlAdmitted = branchSnapshot !== undefined;
+    if (branchSnapshot) message = branchSnapshot;
+    else if (hasOwnDataProperty(message, 'action', 'persistDerivedBranchHtmlPresentation')) {
+      sendResponse({ success: false, error: 'Invalid message content' });
+      return false;
+    }
     // Ignore messages targeted at offscreen document
     // These are handled by the offscreen document's own listener
     if (!isChatGptBridgeMessage(message) && hasOwnDataProperty(message, 'target', 'offscreen')) {
@@ -240,10 +252,11 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    dispatchMessage(message, sender, sendResponse);
+    dispatchMessage(message, sender, sendResponse, branchHtmlAdmitted);
     return true; // Indicates async response
   }
 );
+/* eslint-enable max-lines-per-function */
 
 /**
  * Check if sender is a content script (tab) vs extension page (popup)
@@ -394,7 +407,8 @@ function isAuthorizedArchiveCompanionRequest(
 ): boolean {
   if (
     message.action !== 'persistArchiveCompanion' &&
-    message.action !== 'persistDerivedHtmlPresentation'
+    message.action !== 'persistDerivedHtmlPresentation' &&
+    message.action !== 'persistDerivedBranchHtmlPresentation'
   )
     return true;
   if (message.source !== 'chatgpt' && message.source !== 'deepseek') return false;
@@ -685,8 +699,14 @@ function redactSettingsForContentScript(settings: ExtensionSettings): ContentScr
 // eslint-disable-next-line complexity, max-lines-per-function -- The worker's validated action families remain visible in one routing table.
 async function handleMessage(
   message: ExtensionMessage,
-  sender: chrome.runtime.MessageSender
+  sender: chrome.runtime.MessageSender,
+  branchHtmlAdmitted: boolean
 ): Promise<unknown> {
+  if (
+    !branchHtmlAdmitted &&
+    hasOwnDataProperty(message, 'action', 'persistDerivedBranchHtmlPresentation')
+  )
+    return { success: false, error: 'Invalid message content' };
   if (isChatGptBridgeAction(message)) {
     return handleChatGptBridgeMessage(message, sender);
   }
@@ -723,6 +743,12 @@ async function handleMessage(
   }
 
   const storedSettings = await getSettings();
+  if (
+    !branchHtmlAdmitted &&
+    (hasOwnDataProperty(message, 'action', 'persistDerivedBranchHtmlPresentation') ||
+      message.action === 'persistDerivedBranchHtmlPresentation')
+  )
+    return { success: false, error: 'Invalid message content' };
   const settings = outputOptionsOverride
     ? { ...storedSettings, outputOptions: { ...outputOptionsOverride } }
     : storedSettings;
@@ -732,11 +758,20 @@ async function handleMessage(
     message.expectedSyncSettingsSnapshot !== undefined &&
     (serializeSyncSettingsSnapshot(settings) !== message.expectedSyncSettingsSnapshot ||
       message.outputs.some(destination => !settings.outputOptions[destination]) ||
-      (message.action === 'persistDerivedHtmlPresentation' && settings.enableHtmlExport !== true))
+      ((message.action === 'persistDerivedHtmlPresentation' ||
+        message.action === 'persistDerivedBranchHtmlPresentation') &&
+        settings.enableHtmlExport !== true))
   ) {
     // Admission only: do not dispatch outputs, adopt new settings, or retry
     // without the guard. A relinquished stage still needs its exact abort.
-    return rejectChangedSettings(message, settings);
+    return message.action === 'persistDerivedBranchHtmlPresentation'
+      ? branchHtmlAdmitted
+        ? buildDerivedBranchHtmlPersistResponse(
+            { state: 'not-dispatched' },
+            { state: 'not-dispatched' }
+          )
+        : { success: false, error: 'Invalid message content' }
+      : rejectChangedSettings(message, settings);
   }
 
   if (isArchiveStageMessage(message)) return handleArchiveStageMessage(message, settings);
@@ -756,6 +791,10 @@ async function handleMessage(
 
     case 'persistDerivedHtmlPresentation':
       return handlePersistDerivedHtmlPresentation(message);
+
+    case 'persistDerivedBranchHtmlPresentation':
+      if (!branchHtmlAdmitted) return { success: false, error: 'Invalid message content' };
+      return handlePersistDerivedBranchHtmlPresentation(message);
 
     case 'beginStagedBinaryAsset':
     case 'appendStagedBinaryAsset':

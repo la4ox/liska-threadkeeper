@@ -8,6 +8,7 @@ import type { LiskaThreadArchive } from '../archive/types';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
 import type { ChatGptRouteFamily } from './chatgpt-owner-context';
 import type { DerivedHtmlArtifact } from './derived-presentation-contract';
+import type { DerivedBranchHtmlArtifact } from './derived-branch-presentation-contract';
 
 /**
  * Supported AI platform identifiers
@@ -293,23 +294,27 @@ export interface ChatGptAssetExportContext {
 }
 
 /**
- * Runtime-only identity of one verified current/selected structured view.
+ * Runtime-only identity of one verified structured archive, without a selected view.
  *
  * The canonical archive is deliberately retained by reference. Only the
- * bounded scalar/path evidence around it is detached and frozen; provider
+ * bounded scalar/descriptor evidence around it is detached and frozen; provider
  * request data, credentials, output destinations, and rendered Markdown do
  * not belong in this context.
  */
-export interface StructuredPresentationContext {
+export interface StructuredArchivePresentationContext {
   readonly source: StructuredArchiveSource;
   readonly archive: LiskaThreadArchive;
   readonly captureId: string;
   readonly conversationKey: string;
   readonly manifest: Readonly<ArchiveCompanionArtifactBase & { kind: 'manifest' }>;
   readonly canonical: Readonly<ArchiveCompanionArtifactBase & { kind: 'canonical' }>;
+  readonly includeToolContent: boolean;
+}
+
+/** Exact current/selected path layered over the same archive evidence. */
+export interface StructuredPresentationContext extends StructuredArchivePresentationContext {
   readonly targetNodeId: string;
   readonly selectedNodeIds: readonly string[];
-  readonly includeToolContent: boolean;
 }
 
 /**
@@ -361,6 +366,8 @@ export interface StagedBinaryAssetResult {
 export interface AllBranchesPresentationPlan {
   archive: LiskaThreadArchive;
   catalog: ArchiveBranchCatalog;
+  /** Runtime-only archive capability; deliberately has no selected target/path. */
+  structuredArchivePresentationContext?: StructuredArchivePresentationContext;
 }
 
 /** Evidence mode attached to a projected conversation, not to rendered text. */
@@ -588,6 +595,17 @@ export type ExtensionMessage =
       expectedSyncSettingsSnapshot: string;
       artifact: DerivedHtmlArtifact;
       /** HTML delivery is File-only in version 1. */
+      outputs: ['file'];
+    }
+  | {
+      action: 'persistDerivedBranchHtmlPresentation';
+      reportDurableWriteOutcome: true;
+      source: StructuredArchiveSource;
+      captureId: string;
+      conversationKey: string;
+      expectedSyncSettingsSnapshot: string;
+      artifact: DerivedBranchHtmlArtifact;
+      /** One already-built branch leaf or index, File only. */
       outputs: ['file'];
     }
   | {

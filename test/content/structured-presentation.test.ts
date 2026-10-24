@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { LiskaThreadArchive } from '../../src/archive';
-import { retainStructuredPresentation } from '../../src/content/structured-presentation';
+import {
+  retainStructuredArchivePresentation,
+  retainStructuredPresentation,
+} from '../../src/content/structured-presentation';
 import type {
   ArchiveCompanionArtifact,
   ArchiveCompanionBundle,
@@ -137,6 +140,176 @@ function retain(
 }
 
 describe('provider-neutral structured presentation retention', () => {
+  it.each(['chatgpt', 'deepseek'] as const)(
+    'retains a target-free %s archive with a null current node',
+    source => {
+      const value = archive(source);
+      value.conversation.currentNodeId = null;
+      const evidence = companion(source, value);
+      const base = retainStructuredArchivePresentation({
+        source,
+        archive: value,
+        archiveCompanion: evidence,
+        includeToolContent: false,
+      })!;
+      expect(base.archive).toBe(value);
+      expect(Object.keys(base)).toEqual([
+        'source',
+        'archive',
+        'captureId',
+        'conversationKey',
+        'manifest',
+        'canonical',
+        'includeToolContent',
+      ]);
+      expect(base).not.toHaveProperty('targetNodeId');
+      expect(base).not.toHaveProperty('selectedNodeIds');
+      const selected = retain(source, value, evidence, 'alternate')!;
+      const { targetNodeId, selectedNodeIds, ...rest } = selected;
+      expect(targetNodeId).toBe('alternate');
+      expect(selectedNodeIds).toEqual(['root', 'user', 'alternate']);
+      expect({ ...rest, includeToolContent: false }).toEqual(base);
+      expect(Object.isFrozen(base)).toBe(true);
+      expect(Object.isFrozen(base.manifest)).toBe(true);
+      expect(Object.isFrozen(base.canonical)).toBe(true);
+      evidence.artifacts[2]!.sha256 = 'f'.repeat(64);
+      expect(base.canonical.sha256).toBe('c'.repeat(64));
+    }
+  );
+
+  it.each(['raw', 'manifest', 'canonical'] as const)(
+    'requires exactly one fixed %s descriptor in the base context',
+    kind => {
+      const value = archive();
+      const evidence = companion();
+      const item = evidence.artifacts.find(artifact => artifact.kind === kind)!;
+      for (const field of ['kind', 'relativePath', 'mediaType', 'sha256', 'byteLength'] as const) {
+        const mutated = { ...item, [field]: field === 'byteLength' ? 0 : 'invalid' };
+        const broken = {
+          ...evidence,
+          artifacts: evidence.artifacts.map(a => (a === item ? mutated : a)),
+        } as ArchiveCompanionBundle;
+        expect(
+          retainStructuredArchivePresentation({
+            source: 'chatgpt',
+            archive: value,
+            archiveCompanion: broken,
+            includeToolContent: false,
+          })
+        ).toBeUndefined();
+      }
+      expect(
+        retainStructuredArchivePresentation({
+          source: 'chatgpt',
+          archive: value,
+          archiveCompanion: {
+            ...evidence,
+            artifacts: [evidence.artifacts[1], evidence.artifacts[1], evidence.artifacts[2]!],
+          },
+          includeToolContent: false,
+        })
+      ).toBeUndefined();
+    }
+  );
+
+  it.each([
+    'input',
+    'companion',
+    'artifact',
+    'array',
+    'archive',
+    'conversation',
+    'capture',
+    'selection',
+    'node',
+  ])('rejects used %s accessors without evaluating them', location => {
+    const value = archive();
+    const evidence = companion();
+    const input = {
+      source: 'chatgpt' as const,
+      archive: value,
+      archiveCompanion: evidence,
+      includeToolContent: false,
+      targetNodeId: 'current',
+      selectedNodeIds: ['root', 'user', 'current'],
+    };
+    const getter = vi.fn(() => {
+      throw new Error('private');
+    });
+    const targets: Record<string, [object, string]> = {
+      input: [input, 'source'],
+      companion: [evidence, 'captureId'],
+      artifact: [evidence.artifacts[0], 'sha256'],
+      array: [evidence.artifacts, '0'],
+      archive: [value, 'schema'],
+      conversation: [value.conversation, 'id'],
+      capture: [value.inputs[0], 'captureId'],
+      selection: [input.selectedNodeIds, '0'],
+      node: [value.graph.nodes.current, 'parentId'],
+    };
+    const [object, key] = targets[location];
+    Object.defineProperty(object, key, { get: getter, enumerable: true });
+    expect(retainStructuredPresentation(input)).toBeUndefined();
+    if (location !== 'selection' && location !== 'node')
+      expect(retainStructuredArchivePresentation(input)).toBeUndefined();
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it.each(['proxy', 'custom prototype', 'sparse', 'extra array field', 'inherited descriptor'])(
+    'rejects %s artifact metadata without leaking exceptions',
+    kind => {
+      const value = archive();
+      const evidence = companion();
+      if (kind === 'proxy')
+        evidence.artifacts[0] = new Proxy(evidence.artifacts[0], {
+          getOwnPropertyDescriptor() {
+            throw new Error('private');
+          },
+        });
+      if (kind === 'custom prototype')
+        Object.setPrototypeOf(evidence.artifacts, Object.create(Array.prototype));
+      if (kind === 'sparse') delete (evidence.artifacts as unknown[])[0];
+      if (kind === 'extra array field') Object.assign(evidence.artifacts, { private: true });
+      if (kind === 'inherited descriptor')
+        evidence.artifacts[0] = Object.create(evidence.artifacts[0]);
+      expect(
+        retainStructuredArchivePresentation({
+          source: 'chatgpt',
+          archive: value,
+          archiveCompanion: evidence,
+          includeToolContent: false,
+        })
+      ).toBeUndefined();
+    }
+  );
+
+  it('does not visit runtime, raw payloads, staged handles or selected-view extras for a base context', () => {
+    const value = archive();
+    const evidence = companion();
+    const getter = vi.fn(() => {
+      throw new Error('private');
+    });
+    const input = {
+      source: 'chatgpt' as const,
+      archive: value,
+      archiveCompanion: evidence,
+      includeToolContent: false,
+    };
+    for (const key of ['targetNodeId', 'selectedNodeIds', 'rawCaptureBundle', 'assetExportContext'])
+      Object.defineProperty(input, key, { get: getter, enumerable: true });
+    for (const item of evidence.artifacts)
+      for (const key of ['transport', 'bodyBase64', 'stageId'])
+        Object.defineProperty(item, key, { get: getter, enumerable: true });
+    const stringify = vi.spyOn(JSON, 'stringify');
+    const base = retainStructuredArchivePresentation(input);
+    expect(base).toBeDefined();
+    expect(stringify).not.toHaveBeenCalled();
+    stringify.mockRestore();
+    expect(getter).not.toHaveBeenCalled();
+    expect(JSON.stringify({ ...base, archive: undefined })).not.toMatch(
+      /raw|transport|stage|targetNode|selectedNode/
+    );
+  });
   it.each([
     ['chatgpt', 'current', ['root', 'user', 'current']],
     ['chatgpt', 'alternate', ['root', 'user', 'alternate']],

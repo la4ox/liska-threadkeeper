@@ -160,7 +160,8 @@ export function bindLiskaLauncherInteraction(
   let hovered = false;
   let dismissed = false;
   const update = (focused = shell.contains(document.activeElement)): void => {
-    const expanded = !dismissed && (pinned || hovered || focused);
+    const expanded =
+      launcher.getAttribute('aria-busy') !== 'true' && !dismissed && (pinned || hovered || focused);
     setLauncherExpanded(shell, launcher, actions, expanded, dismissed);
   };
   const collapse = (): void => {
@@ -171,7 +172,7 @@ export function bindLiskaLauncherInteraction(
     update();
   };
   launcher.addEventListener('click', event => {
-    if (!event.isTrusted) return;
+    if (!event.isTrusted || launcher.getAttribute('aria-busy') === 'true') return;
     dismissed = pinned;
     pinned = !pinned;
     if (dismissed) collapse();

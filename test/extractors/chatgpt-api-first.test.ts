@@ -525,6 +525,7 @@ describe('ChatGPTExtractor API-first bridge', () => {
       manifestAllowsStructuredCapture: () => true,
     });
     extractor.setBranchExportMode('selected');
+    extractor.applySettings({ enableToolContent: true } as never);
 
     const result = await extractor.extract();
 
@@ -539,8 +540,57 @@ describe('ChatGPTExtractor API-first bridge', () => {
     });
     expect(result.data).toBeUndefined();
     expect(result.allBranches?.catalog.branches).toHaveLength(2);
+    expect(result.allBranches?.structuredArchivePresentationContext).toMatchObject({
+      source: 'chatgpt',
+      archive: capture.archive,
+      captureId: capture.archiveCompanion.captureId,
+      conversationKey: capture.archiveCompanion.conversationKey,
+      manifest: {
+        kind: 'manifest',
+        relativePath: 'manifest.json',
+        sha256: 'c'.repeat(64),
+      },
+      canonical: {
+        kind: 'canonical',
+        relativePath: 'canonical/liska-thread-1.json',
+        sha256: 'd'.repeat(64),
+      },
+      includeToolContent: true,
+    });
+    expect(result.allBranches?.structuredArchivePresentationContext).not.toHaveProperty(
+      'targetNodeId'
+    );
+    expect(result.allBranches?.structuredArchivePresentationContext).not.toHaveProperty(
+      'selectedNodeIds'
+    );
     expect(result.chatGptStructuredPresentationContext).toBeUndefined();
     expect(result.structuredPresentationContext).toBeUndefined();
+  });
+
+  it('fails closed without provider values when all-branches archive evidence is invalid', async () => {
+    renderedConversation();
+    const capture = branchCapture();
+    const manifest = capture.archiveCompanion.artifacts.find(
+      artifact => artifact.kind === 'manifest'
+    );
+    if (!manifest) throw new Error('manifest fixture missing');
+    manifest.sha256 = 'e'.repeat(64);
+    const extractor = new ChatGPTExtractor({
+      captureArchive: vi.fn().mockResolvedValue(capture),
+      selectBranch: vi.fn().mockResolvedValue('all'),
+      manifestAllowsStructuredCapture: () => true,
+    });
+    extractor.setBranchExportMode('selected');
+
+    const result = await extractor.extract();
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Selected ChatGPT branch could not be projected from the complete archive.',
+      archiveCompanion: capture.archiveCompanion,
+    });
+    expect(JSON.stringify(result)).not.toContain(CONVERSATION_ID);
+    expect(result.allBranches).toBeUndefined();
   });
 
   it('cancels a branch choice without saving evidence or falling back to rendered DOM', async () => {

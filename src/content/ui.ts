@@ -317,6 +317,11 @@ const STYLES = `
       bottom: auto;
       max-width: calc(100vw - max(20px, env(safe-area-inset-right, 0px)) - max(20px, env(safe-area-inset-left, 0px)));
     }
+
+    .g2o-toast.g2o-toast-with-stop {
+      top: auto;
+      bottom: calc(max(20px, env(safe-area-inset-bottom, 0px)) + 60px);
+    }
   }
 `;
 
@@ -328,6 +333,7 @@ let activeAllBranchesStopControl: AllBranchesStopControl | null = null;
 const BRANCH_BUTTON_ID = 'g2o-branch-button';
 const BRANCH_PICKER_BACKDROP_ID = 'g2o-branch-picker-backdrop';
 const ALL_BRANCHES_STOP_ID = 'g2o-all-branches-stop';
+const TOAST_WITH_STOP_CLASS = 'g2o-toast-with-stop';
 const MAX_BRANCH_PREVIEW_LENGTH = 280;
 
 export interface AllBranchesStopControl {
@@ -538,13 +544,17 @@ export function showAllBranchesStopControl(onStop: () => void): AllBranchesStopC
       const hadFocus = root.contains(document.activeElement);
       button.removeEventListener('click', requestStop);
       root.remove();
-      if (activeAllBranchesStopControl === controller) activeAllBranchesStopControl = null;
+      if (activeAllBranchesStopControl === controller) {
+        activeAllBranchesStopControl = null;
+        currentToast?.classList.remove(TOAST_WITH_STOP_CLASS);
+      }
       if (hadFocus) restoreAllBranchesStopFocus(previousFocus);
     },
   };
   button.addEventListener('click', requestStop);
   activeAllBranchesStopControl = controller;
   document.body.appendChild(root);
+  currentToast?.classList.add(TOAST_WITH_STOP_CLASS);
   return controller;
 }
 
@@ -758,6 +768,8 @@ export function settleArchiveBranchPickerForTest(selection: ArchiveBranchPickerS
 function setLauncherLoading(loading: boolean): void {
   const launcher = document.getElementById('g2o-launcher');
   if (launcher) {
+    const actions = document.getElementById('g2o-launcher-actions');
+    const shell = document.getElementById('g2o-launcher-shell');
     // Disabling the focused action otherwise drops browser focus onto the page,
     // making Escape unavailable. Do not steal focus from outside the launcher.
     if (
@@ -767,6 +779,12 @@ function setLauncherLoading(loading: boolean): void {
       launcher.focus();
     }
     launcher.setAttribute('aria-busy', String(loading));
+    if (loading && actions instanceof HTMLDivElement && shell instanceof HTMLDivElement) {
+      shell.dataset.expanded = 'false';
+      launcher.setAttribute('aria-expanded', 'false');
+      actions.hidden = true;
+      actions.inert = true;
+    }
     launcher.setAttribute(
       'aria-label',
       getMessage(loading ? 'ui_launcherLoading' : 'ui_launcherLabel')
@@ -843,6 +861,7 @@ export function showToast(
 
   const toast = document.createElement('div');
   toast.className = `g2o-toast ${type}`;
+  if (activeAllBranchesStopControl) toast.classList.add(TOAST_WITH_STOP_CLASS);
   currentToast = toast;
 
   const toastIcon = document.createElement('span');

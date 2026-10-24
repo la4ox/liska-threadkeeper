@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Keep destination-honest acquisition, finalization, and evidence handoff auditable in one provider boundary. */
 /**
  * Destination-honest optional ChatGPT attachment export.
  *
@@ -25,6 +26,7 @@ import {
 } from './capture/chatgpt-asset-acquisition';
 import {
   buildChatGptBinaryAwareArchiveCompanion,
+  buildChatGptBinaryAwareDestinationArchive,
   CHATGPT_ASSET_RECAPTURE_FAILED_WARNING,
   CHATGPT_INTERPRETER_RESOLUTION_FAILED_WARNING,
   observeChatGptAssetResolvers,
@@ -34,6 +36,12 @@ import {
   verifyChatGptAssetExportContext,
   type ChatGptAssetResolverObservation,
 } from './capture/chatgpt-current-branch';
+import {
+  buildFinalizedFileArchivePresentationEvidence,
+  buildFinalizedFilePresentationEvidence,
+  type FinalizedFileArchivePresentationEvidence,
+  type FinalizedFilePresentationEvidence,
+} from './finalized-html-assets';
 import {
   chatGptActiveResolverAuditWarning,
   chatGptActiveResolverMetricFromResponse,
@@ -67,6 +75,8 @@ import type {
   OutputDestination,
   PersistentOutputDestination,
   StagedBinaryAssetResult,
+  StructuredArchivePresentationContext,
+  StructuredPresentationContext,
 } from '../lib/types';
 
 export { CHATGPT_ASSET_DESTINATION_WRITE_FAILED_DETAIL } from './chatgpt-destination-receipt';
@@ -129,6 +139,13 @@ export interface ChatGptAssetExportDependencies {
   acquireAssets?: typeof acquireChatGptPageOwnedAssets;
   persistBinaryAssets?: typeof persistVerifiedBinaryAssets;
   buildDestinationCompanion?: typeof buildChatGptBinaryAwareArchiveCompanion;
+  buildDestinationArchive?: typeof buildChatGptBinaryAwareDestinationArchive;
+  buildFileArchivePresentationEvidence?: typeof buildFinalizedFileArchivePresentationEvidence;
+  buildFilePresentationEvidence?: typeof buildFinalizedFilePresentationEvidence;
+  /** Present only for an opt-in all-branches File HTML run. */
+  archivePresentationContext?: StructuredArchivePresentationContext;
+  /** Present only for an opt-in File HTML run; never authorizes another destination. */
+  presentationContext?: StructuredPresentationContext;
 }
 
 export interface ChatGptAssetExportResult {
@@ -137,6 +154,8 @@ export interface ChatGptAssetExportResult {
   destinationReceipts: ChatGptDestinationArchiveReceipt[];
   /** Private detached proof, never a durable receipt field or output payload. */
   destinationLocalizationEvidence?: ChatGptSandboxLocalizationEvidence[];
+  fileArchivePresentation?: FinalizedFileArchivePresentationEvidence;
+  filePresentation?: FinalizedFilePresentationEvidence;
   warnings: string[];
 }
 
@@ -157,6 +176,8 @@ interface FinalizedDestination {
   complete: boolean;
   receipt?: ChatGptDestinationArchiveReceipt;
   localizationEvidence?: ChatGptSandboxLocalizationEvidence;
+  fileArchivePresentation?: FinalizedFileArchivePresentationEvidence;
+  filePresentation?: FinalizedFilePresentationEvidence;
   warnings: string[];
 }
 
@@ -681,7 +702,7 @@ async function attemptAssets(
   };
 }
 
-// eslint-disable-next-line max-lines-per-function -- Snapshot evidence before final writes, expose it only after the same destination succeeds.
+// eslint-disable-next-line max-lines-per-function, complexity -- Snapshot evidence before final writes, expose it only after the same destination succeeds.
 async function finalizeDestination(
   context: ChatGptAssetExportContext,
   noteFileName: string,
@@ -700,9 +721,32 @@ async function finalizeDestination(
     );
   }
   try {
-    const destinationCompanion = await (
-      dependencies.buildDestinationCompanion ?? buildChatGptBinaryAwareArchiveCompanion
-    )(context, state.records, state.runtimeAssets, activeResolverMetric, archiveWarnings);
+    const builtDestination = dependencies.buildDestinationArchive
+      ? await dependencies.buildDestinationArchive(
+          context,
+          state.records,
+          state.runtimeAssets,
+          activeResolverMetric,
+          archiveWarnings
+        )
+      : dependencies.buildDestinationCompanion
+        ? undefined
+        : await buildChatGptBinaryAwareDestinationArchive(
+            context,
+            state.records,
+            state.runtimeAssets,
+            activeResolverMetric,
+            archiveWarnings
+          );
+    const destinationCompanion = builtDestination
+      ? builtDestination.companion
+      : await dependencies.buildDestinationCompanion!(
+          context,
+          state.records,
+          state.runtimeAssets,
+          activeResolverMetric,
+          archiveWarnings
+        );
     const receipt = buildChatGptDestinationArchiveReceipt(
       destinationCompanion,
       destination,
@@ -722,10 +766,53 @@ async function finalizeDestination(
       ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
     );
     const complete = outcome.activeOutputs.includes(destination);
+    let fileArchivePresentation: FinalizedFileArchivePresentationEvidence | undefined;
+    let filePresentation: FinalizedFilePresentationEvidence | undefined;
+    if (
+      complete &&
+      destination === 'file' &&
+      builtDestination &&
+      dependencies.archivePresentationContext
+    ) {
+      try {
+        fileArchivePresentation = await (
+          dependencies.buildFileArchivePresentationEvidence ??
+          buildFinalizedFileArchivePresentationEvidence
+        )(
+          dependencies.archivePresentationContext,
+          builtDestination.archive,
+          destinationCompanion,
+          state.records.filter(record => record.state === 'fetched')
+        );
+      } catch {
+        // Archive completion remains authoritative; HTML receives no weaker evidence.
+      }
+    }
+    if (
+      complete &&
+      destination === 'file' &&
+      builtDestination &&
+      dependencies.presentationContext
+    ) {
+      try {
+        filePresentation = await (
+          dependencies.buildFilePresentationEvidence ?? buildFinalizedFilePresentationEvidence
+        )(
+          dependencies.presentationContext,
+          builtDestination.archive,
+          destinationCompanion,
+          state.records.filter(record => record.state === 'fetched')
+        );
+      } catch {
+        // Archive completion remains authoritative; HTML receives no weaker evidence.
+      }
+    }
     return {
       complete,
       ...(complete && { receipt }),
       ...(complete && localizationEvidence && { localizationEvidence }),
+      ...(fileArchivePresentation && { fileArchivePresentation }),
+      ...(filePresentation && { filePresentation }),
       warnings: [...warnings, ...outcome.warnings],
     };
   } catch {
@@ -741,7 +828,7 @@ async function finalizeDestination(
  * produce manifest/canonical companions separately for every raw-successful
  * destination. Markdown callers retain control of their own non-fatal write.
  */
-// eslint-disable-next-line max-lines-per-function -- The durable raw -> observe -> acquire -> per-destination finalization sequence is intentionally auditable end-to-end.
+// eslint-disable-next-line max-lines-per-function, complexity -- The durable raw -> observe -> acquire -> per-destination finalization sequence is intentionally auditable end-to-end.
 export async function persistChatGptDestinationHonestAttachments(
   context: ChatGptAssetExportContext,
   companion: ArchiveCompanionBundle,
@@ -818,6 +905,8 @@ export async function persistChatGptDestinationHonestAttachments(
   const completeDestinations: PersistentOutputDestination[] = [];
   const destinationReceipts: ChatGptDestinationArchiveReceipt[] = [];
   const destinationLocalizationEvidence: ChatGptSandboxLocalizationEvidence[] = [];
+  let fileArchivePresentation: FinalizedFileArchivePresentationEvidence | undefined;
+  let filePresentation: FinalizedFilePresentationEvidence | undefined;
   for (const destination of rawSuccessfulDestinations) {
     const finalized = await finalizeDestination(
       context,
@@ -836,6 +925,12 @@ export async function persistChatGptDestinationHonestAttachments(
       if (finalized.localizationEvidence)
         destinationLocalizationEvidence.push(finalized.localizationEvidence);
     }
+    if (destination === 'file' && finalized.filePresentation) {
+      filePresentation = finalized.filePresentation;
+    }
+    if (destination === 'file' && finalized.fileArchivePresentation) {
+      fileArchivePresentation = finalized.fileArchivePresentation;
+    }
   }
   destinationReceipts.sort(
     (left, right) => requested.indexOf(left.destination) - requested.indexOf(right.destination)
@@ -845,6 +940,8 @@ export async function persistChatGptDestinationHonestAttachments(
     completeDestinations,
     destinationReceipts,
     ...(destinationLocalizationEvidence.length > 0 && { destinationLocalizationEvidence }),
+    ...(fileArchivePresentation && { fileArchivePresentation }),
+    ...(filePresentation && { filePresentation }),
     warnings,
   };
 }

@@ -41,6 +41,8 @@ function context(
   archive.conversation.title = 'Русский 中文 🦊';
   archive.archiveId = `${source}:${archive.conversation.id}`;
   archive.inputs[0].captureId = `capture-${source}-html-test`;
+  const image = archive.assets['asset-synthetic-image'];
+  image.localArtifactRef = `assets/${image.sha256}.png`;
   const bytes = new TextEncoder().encode(JSON.stringify(archive, null, 2));
   const artifact = (kind: 'raw' | 'manifest' | 'canonical'): ArchiveCompanionArtifact => ({
     kind,
@@ -86,7 +88,7 @@ function bindings(value: StructuredPresentationContext): HtmlAssetBindingSet {
     bindings: [
       {
         assetId: asset.id,
-        path: `assets/${asset.sha256}.png`,
+        path: asset.localArtifactRef!,
         sha256: asset.sha256!,
         mimeType: asset.mimeType!,
         byteLength: asset.byteLength!,

@@ -1356,6 +1356,345 @@ its requested close/reopen Comet proof is covered by the live reload above. The
 next HTML slice is destination-finalized local-asset bindings and then
 all-branches reading bundles. Automatic PDF remains separate.
 
+## Canonical HTML finalized-asset checkpoint
+
+Source head `d1eae64` on `codex/html-finalized-assets` adds the second opt-in
+File-only HTML slice. ChatGPT and DeepSeek attachment finalization can now return
+the exact destination-final canonical archive plus confirmed File asset records.
+Only after raw, manifest, canonical, and asset writes succeed does the content
+layer build `liska-html-asset-bindings/1`, rebind the retained presentation to
+that final canonical, and render local images/download links. Every binding must
+match opaque asset ID, content-addressed path, MIME type, byte length, SHA-256,
+canonical acquisition state, and `localArtifactRef`; unsupported active types
+remain unbound. Obsidian success cannot authorize File HTML.
+
+All 181 test files / 5,707 tests pass in six memory-bounded batches. The content
+batch passes with four workers; an additional unlimited-worker rerun exhausted
+memory without an assertion failure and is not used as evidence. Production
+build/typecheck, repository formatting, diff checks, source/platform lint, and
+`npm audit` pass with only the same three pre-existing warnings and zero known
+dependency vulnerabilities. Independent review found no P0-P3 issue.
+
+A local real-archive smoke reused an earlier destination-confirmed ChatGPT
+snapshot containing one fetched 188,009-byte JPEG and one honest
+`not-attempted` sibling. Production code reverified the actual JPEG bytes,
+canonical descriptor, final record, selected path, and non-null binding digest;
+the derived receipt carried the same digest. The saved HTML contained one exact
+local `assets/<sha256>.jpg` image, no remote image source and no script element.
+It rendered successfully in a browser; the unbound sibling remained an explicit
+placeholder plus diagnostic rather than disappearing or borrowing the fetched
+file. A separate live no-asset File smoke from the parent slice remains valid.
+
+Fresh live recapture attempts on two older image conversations exposed a
+separate provider-capture gap before any destination write: fail-closed A-strict
+replay rejected a newly observed opaque path, then ordinary structured capture
+timed out and the current ChatGPT DOM fallback found no primary turn selectors.
+No archive or Markdown was falsely reported as saved. Treat this as a ChatGPT
+capture-compatibility follow-up, not as evidence against finalized HTML binding.
+
+All temporary smoke overrides were removed; the worktree is clean. The user's
+stable installed build and ordinary settings (Obsidian + File on, Clipboard and
+HTML off) were restored. The exact asset-aware candidate build is preserved at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-html-assets-candidate-d1eae64-20261024`.
+Do not open this slice's PR until parent PR 36 merges cleanly; then rebase onto
+current main, rerun focused/build checks, and open the next reviewed PR.
+
+## Canonical HTML all-branches B1 core checkpoint
+
+Stacked source commits `47e9f2b` and `002f998` define the pure all-branches
+foundation without adding delivery. The separate
+`liska-derived-branch-html/1` and
+`liska-derived-branch-output-receipt/1` contracts accept only a closed leaf
+ordinal or index role and derive exact capture-root paths themselves:
+`branch-000001.html`, `branches.html`, and matching fixed receipt paths under
+`presentation/`. Existing current-view v1 validators remain mutually exclusive
+and unchanged.
+
+`prepareArchiveHtmlBranchSession` preflights and validates the archive, profile,
+limits and finalized binding evidence once. An iterative private graph snapshot
+retains deterministic declared root/child order, parent links and compact branch
+metrics. Each `renderLeaf(ordinal)` rebuilds only that selected message path and
+returns one HTML result plus a frozen compact fact; the session retains no leaf
+HTML cache and performs no repeated child-array, catalog or `getNodePath` work.
+The default 512-leaf ceiling may only be tightened. A deterministic local index
+accepts only the complete ordered set of unmodified facts issued by the same
+session and exposes only generated local links, generic branch labels, counts,
+current flags, aggregate diagnostics and canonical/binding provenance.
+
+An independent review found one confirmed P2 validation-to-use race: a stateful
+top-level Proxy could present a valid canonical digest during validation and
+markup during a later index read. Inputs, profile/limits, binding-set headers and
+binding scalars are now captured once from own enumerable data descriptors and
+used only through detached snapshots; both index digests are escaped as defense
+in depth. Exact Proxy regressions now perform zero ordinary getter reads. The
+repeat review found no remaining P0-P3 issue.
+
+Evidence: all 183 test files / 5,865 tests pass in six memory-bounded batches.
+The focused 13-suite / 894-test matrix includes byte-equivalence with the
+defensive current renderer, a 12,000-node chain, exact 512/513 leaf boundaries,
+wide/shared-prefix order, session-bound fact rejection, hostile inputs and both
+current/branch transport contracts. Production typecheck/build (241 modules),
+repository formatting, diff checks, source/platform lint and `npm audit` pass
+with only the same three pre-existing warnings and zero known dependency
+vulnerabilities. Browser delivery, persistence, aggregate HTML budgets,
+cancellation and unknown-write behavior remain B2/B3; the closure-private
+message bodies retain the documented no-mutation obligation.
+
+## Canonical HTML all-branches B2a persistence checkpoint
+
+Source commits `395c80d` and `f28281e` add a closed, not-yet-invoked File
+transport for one already-built branch leaf or index. The exact
+`persistDerivedBranchHtmlPresentation` envelope accepts no caller path, receipt,
+bundle count or completeness flag. Background verifies the detached
+`liska-derived-branch-html/1` bytes first, writes the exact generated HTML path
+once, and only terminal exact-path confirmation authorizes construction and one
+write of the locally matched receipt. Current-view v1 remains a separate action
+and response contract.
+
+`liska-derived-branch-html-persist-response/1` retains two independent sink
+facts. Confirmed HTML is not downgraded when its receipt is unknown or
+not-dispatched; unknown HTML blocks the receipt and cannot authorize a retry.
+Cleanup-deferred evidence stays on the affected write. A bounded content sender
+distinguishes pre-dispatch refusal, attempted-but-unconfirmed transport, and a
+validated detached response; its 120-second deadline reports only unconfirmed,
+does not cancel the background write, ignores late callbacks and never retries.
+
+Independent review found two admission P2s before the final state. First,
+descriptor validation did not retain the admitted caller envelope, so a Proxy
+or mutation during `getSettings()` could replace capture identity before File
+dispatch. The listener now snapshots the complete envelope, artifact and dense
+File output exactly once before sizing and uses that detached value throughout.
+Second, a stateful `action` descriptor could initially evade detachment and flip
+later. New branch dispatch now also requires a closure-local admission
+capability threaded through every async gate and checked at the final handler;
+the message cannot supply it. Five tested flip points produce zero writes. A
+separate callback-context loss that could leave the sender pending is bounded
+and settles value-free as unconfirmed.
+
+Evidence: all 188 test files / 6,079 tests pass in six memory-bounded batches.
+The focused background/B1/B2a matrix passes 33 suites / 1,097 tests, and the
+bounded sender matrix passes 10 suites / 434 tests. Production typecheck/build
+(244 modules), repository formatting, diff checks, source/platform lint and
+`npm audit` pass with only the same three pre-existing warnings and zero known
+dependency vulnerabilities. B2a has no bootstrap caller and makes no delivery
+claim; live Chrome timing, B2b canonical authorization and B3 bundle
+orchestration remain explicit next gates.
+
+## Canonical HTML all-branches B2b authorization checkpoint
+
+Source commit `107e763` adds the target-free archive evidence and authorization
+layer without enabling the exporter. `StructuredArchivePresentationContext`
+retains only provider-neutral archive identity, exact manifest/canonical
+descriptors and the presentation profile. The existing selected context extends
+that base with an exact target/path; ChatGPT's stricter subtype and current
+single-view API remain compatible.
+
+One shared authorization boundary preflights the closure-private archive,
+serializes the exact canonical JSON once, verifies UTF-8 length and SHA-256, and
+rechecks detached identity/descriptors across the single async hash. Current
+`prepareDerivedHtmlArtifact` and the new branch adapter use that same path.
+`prepareDerivedHtmlBranchPresentationSession` then creates one B1 session and
+builds leaf or index artifacts on demand: canonical hashing is not repeated,
+each materialized HTML body receives its own artifact hash, and no all-leaf HTML
+cache or persistence claim exists.
+
+File-finalized evidence now also has an archive-level builder. It reconciles the
+whole final canonical asset map and binding digest once; the prior selected-view
+builder is a compatibility wrapper over the same work. Tests compose one
+synthetic ChatGPT/DeepSeek finalized context through B2b into the bounded B2a
+sender, but no bootstrap/provider route invokes it yet.
+
+Independent review found one selected-path P2 during the refactor: the manual
+parent walk had lost declared-root membership and parent-to-child symmetry checks
+from the old `getNodePath`. A shared descriptor-only helper now verifies dense
+root/child arrays, exact bidirectional ancestry, root uniqueness, path bounds and
+cycle/repeat rejection in both retention and selected authorization. The initial
+authorization preserves the prior archive/selected JSON-preflight ordering and
+error codes; post-hash checks preflight only the selected array before detecting
+structural drift. Repeat review found no remaining P0-P3 issue.
+
+Evidence: all 190 test files / 6,212 tests pass in six memory-bounded batches.
+The focused B2b matrix passes 15 suites / 848 tests, including a 4,096-node
+selected path, once-only canonical hashing, per-output hashes, 512 branches,
+same-session facts, hostile descriptors and B2b-to-B2a composition. Production
+typecheck/build (246 modules), repository formatting, diff checks,
+source/platform lint and `npm audit` pass with only the same three pre-existing
+warnings and zero known dependency vulnerabilities. B3 orchestration, aggregate
+budgets, cancellation, index-completion gating and live browser delivery remain
+explicitly unimplemented.
+
+## Canonical HTML all-branches B3a measurement checkpoint
+
+The pure B3a plan now measures the complete File HTML bundle without dispatching
+or writing anything. One destination-finalized archive capability authorizes the
+canonical bytes once, then renders every leaf followed by the local index. The
+plan retains only compact artifact, receipt and exact message-envelope
+fingerprints plus the original same-session rendering facts; HTML/base64 bodies
+exist only transiently. A closure recreates one document at a time in the same
+session and withholds the body unless its descriptor, provenance, receipt bytes
+and full JSON envelope reproduce exactly. Cancellation and failure are sticky,
+concurrent recreation fails closed, and there is no retry or caller-supplied
+path/completeness authority.
+
+Markdown and HTML now share one exact physical-byte budget. HTML reserves its
+artifact and receipt bytes atomically and separately accounts the homogeneous
+HTML bytes produced by both render passes. Structural preflight also counts two
+File writes for every leaf and the index: 512 leaves with two Markdown
+destinations plus File HTML is rejected before persistence at 2,052 planned
+writes rather than silently raising the 2,048 ceiling or omitting an output.
+The normal sender and dry measurement use the same deterministic envelope
+builder, so message-size admission cannot drift between the two passes.
+
+Independent review found and the implementation closed one P2 identity race: a
+stateful context could previously present capture identity A through ordinary
+property reads and canonical B through own descriptors. The plan now detaches
+the exact archive-context descriptors before its first await and uses that one
+snapshot for both receipt identity and B2b authorization. Proxy and first-yield
+shell-mutation regressions cover the boundary. The repeat review found no
+remaining P0-P3 issue.
+
+Evidence after the fix: the focused plan/budget/transport set passes 3 suites /
+95 tests; the complete content set passes 62 suites / 2,523 tests. Production
+typecheck/build transforms 246 modules, scoped ESLint, Prettier and diff checks
+are clean, and the independent rereview passes 5 suites / 199 tests. B3a still
+has no bootstrap caller and performs zero destination writes. B3b must wire the
+shared structural option, finalized File evidence, sequential observations,
+unknown-write halting and index-completion summary before any live canary.
+
+## Canonical HTML all-branches B3b1 evidence checkpoint
+
+ChatGPT all-branches extraction now retains a separate target-free
+`StructuredArchivePresentationContext` from the exact captured archive,
+companion descriptors and snapshotted tool-content profile. It carries no
+selected target or path and remains distinct from the existing current/selected
+presentation capability. Invalid archive evidence fails closed through the
+established selection-failure path without provider-value details.
+
+Attachment finalization can now return a separate
+`fileArchivePresentation` capability. It is created only after the
+destination-normalized File manifest/canonical pair is confirmed and only from
+asset records whose exact File binary writes were reconciled as fetched.
+Obsidian completion, incomplete File finalization and evidence-builder failure
+cannot authorize it; builder failure also does not downgrade the already
+completed archive. Bootstrap forwards the archive context only for an explicit
+all-branches HTML + File request. The deferred warning remains and no HTML or
+receipt dispatch is enabled by this checkpoint.
+
+Evidence: the complete repository suite passes 191 files / 6,234 tests; content
+passes 62 / 2,528 and extractors pass 17 / 578. Production build transforms 246
+modules; lint has zero errors and only the same three baseline warnings;
+formatting and diff checks are clean. Main-agent focused verification passes 3
+suites / 110 tests and the independent review passes 5 suites / 251 tests with
+no P0-P3 finding. B3b2 still owns the no-attachment File evidence path, combined
+measurement, sequential delivery, unknown-write halting and user summary.
+
+## Canonical HTML all-branches B3b2a persistence checkpoint
+
+The all-branches persistence layer can now accept an explicit File HTML request,
+and that request must match the exact bit retained by the structural preflight.
+HTML cannot be added after a weaker preflight. Markdown measurement and B3a HTML
+measurement consume one physical-byte budget before the first presentation
+write; a combined budget rejection leaves the retained archive intact and
+dispatches neither Markdown nor HTML. Without the opt-in, the legacy version-1
+summary shape and behavior remain unchanged.
+
+After combined measurement, Markdown keeps its existing per-destination
+independence. File HTML then recreates and sends one leaf pair at a time. HTML
+and receipt outcomes are counted separately; an unconfirmed transport charges
+both planned files as unknown and stops all later File HTML without retry.
+Confirmed HTML remains confirmed when its receipt is unavailable. Known
+non-dispatch may allow later leaves, but the index body is not even recreated
+unless every leaf pair is confirmed. A Stop waits for an in-flight pair's
+observation, records it, and prevents the next pair. File Markdown unknown also
+blocks subsequent HTML, while a confirmed Markdown failure may leave the
+independent HTML route available.
+
+Plain/no-attachment export may create presentation evidence only after the exact
+File trio is confirmed. Attachment-finalized export may use only its supplied
+evidence and never rebuild from the older pre-attachment archive. A new
+reconciliation boundary detaches context descriptors and bindings once, then
+matches them to the exact accepted File receipt by destination, identity,
+manifest digest/length, canonical length and every supported asset's
+path/hash/MIME/length. The accepted receipt protocol does not carry canonical
+SHA-256, so B3a still reserializes and authorizes the canonical body/hash; the
+sink link available here is its exact length plus the finalized manifest hash.
+
+Independent review found and the implementation closed one P2: valid evidence
+for canonical B could previously be paired with a File receipt for A when both
+shared capture identity. The mixed A/B regression now produces HTML
+`evidence-unavailable`, preserves Markdown, and sends zero HTML messages. The
+repeat review found no remaining P0-P3 issue.
+
+Evidence: the complete content set passes 63 suites / 2,577 tests; main-agent
+focused verification passes 5 suites / 284 tests. Production build transforms
+250 modules, scoped ESLint, Prettier and diff checks are clean, and the final
+independent rereview passes 4 suites / 216 tests. This checkpoint exposes no
+bootstrap/UI caller yet; summary rendering and live delivery remain B3b2b.
+
+## Canonical HTML all-branches B3b2b bootstrap checkpoint
+
+Bootstrap now computes one File HTML opt-in before the structural preflight and
+passes the same decision into the prepared persistence session. An oversized
+combined plan is therefore rejected before the ChatGPT attachment/raw pipeline
+writes anything. Attachment mode forwards only the destination-final
+`fileArchivePresentation`; the plain/no-attachment path supplies no evidence
+and lets the persistence layer create it only after the File trio is confirmed.
+HTML-off and no-File paths omit the request entirely and preserve the legacy
+summary/messages. The single-view HTML helper is never used for all-branches.
+
+The former “not available yet” warning is removed. The authoritative summary
+now reports Markdown/archive and File-only HTML separately. A clean complete
+run names both formats and attributes HTML only to File even when Markdown also
+reaches Obsidian. Partial, failed, rejected and cancelled runs expose closed
+HTML status/reason, confirmed leaf pairs, index-pair state, confirmed/unknown/
+not-dispatched sink counts, unknown bytes and deferred cleanup without
+inventing a failed physical-write state or leaking provider/native errors.
+Attachment caveats still turn an otherwise complete run into a warning.
+
+Evidence: focused bootstrap/summary verification passes 3 suites / 48 tests;
+the complete content set passes 63 suites / 2,584 tests. Production build
+transforms 250 modules; scoped ESLint, Prettier and diff checks are clean. The
+independent bootstrap review passes 4 suites / 142 tests with no P0-P3 finding.
+The content chunk is now 501.07 kB minified and crosses Vite's informational
+500 kB warning threshold; behavior is unaffected, and code splitting remains a
+later maintainability task rather than a last-minute delivery rewrite. Live
+browser delivery is the remaining gate for this stacked checkpoint.
+
+## Canonical HTML all-branches live reconciliation fix
+
+The first live all-branches File canary retained a complete raw/manifest/
+canonical archive, two confirmed PNG assets, two Markdown leaves and the
+Markdown index, but produced no HTML or presentation receipts. Replaying the
+fresh capture through the pure pipeline proved that archive identity, File
+receipt reconciliation and both asset bindings were valid; plan preparation
+then failed at the renderer boundary with `html-input-invalid`.
+
+The defect was in the reconciliation snapshot itself. Strict descriptor reads
+materialized each accepted binding as a null-prototype record, while the HTML
+JSON preflight intentionally accepts only ordinary plain records. Reconciled
+evidence therefore became unusable immediately after it had been validated.
+Bindings are now copied into frozen ordinary objects after the same exact-key
+read. The security and destination-honesty checks are unchanged.
+
+A regression now passes reconciled File evidence with a confirmed PNG through
+the real all-branches renderer and builds a leaf. The live capture also passes
+the complete offline evidence, reconciliation and three-document planning path
+after the fix. The popup regression additionally sends its real settings
+message through structured-clone/JSON transport and the worker validator, so a
+mixed popup/worker generation remains distinguishable from a schema defect.
+
+Evidence: the focused affected set passes 6 suites / 295 tests; production
+build transforms 250 modules; lint has zero errors and the same three baseline
+warnings; formatting and diff checks are clean; the complete suite passes 192
+files / 6,292 tests. The rebuilt installed extension
+matches its candidate at 29/29 files. The final live canary produced one
+complete capture with raw/manifest/canonical, two confirmed PNGs, two Markdown
+leaves plus index, two HTML leaves plus index, and three receipt files. Every
+HTML byte length and SHA-256 matches its receipt; no blob, extension, backend
+API, signed-query or provider download route remains in the HTML. The local
+index and one leaf were opened in Comet and rendered with working relative
+navigation and readable layout. This checkpoint is ready to commit.
+
 ## Compact launcher current-main port checkpoint
 
 The compact launcher delta now sits directly above the reviewed typed-partial
@@ -1373,3 +1712,36 @@ in authority, trusted-event, focus, busy/reinjection, picker/stop-card,
 localization, HTML-setting, or typed-guard boundaries. The previous live Comet
 launcher smoke remains applicable to the unchanged six-file delta; the combined
 current-main build has not yet replaced the installed all-branches canary.
+
+## Compact launcher + all-branches HTML integration checkpoint
+
+The reviewed compact launcher head `fea4680` is now integrated with the
+live-verified all-branches HTML delivery stack. Typed partial-DOM persistence,
+canonical HTML, finalized asset bindings, all-branches Markdown/HTML receipts,
+and the compact two-action ChatGPT launcher coexist in one build. The merge had
+documentation-only conflicts; code and message contracts merged without manual
+rewrites.
+
+Independent review found and the integration closed two narrow mobile/busy UI
+issues. At widths up to 540 pixels, an active all-branches Stop panel formerly
+shared the toast's top-right coordinates and obscured progress. Such toasts now
+move to a safe-area-aware bottom position above the collapsed launcher only
+while Stop is active, including existing/replaced toasts and controller cleanup.
+The busy spinner also ignores trusted launcher toggles, so hidden disabled
+actions cannot reopen or leave a stale pinned latch; the first idle click opens
+normally.
+
+Evidence: the focused integration set passes 10 files / 602 tests; the launcher
+suite passes 72 tests; and the final clean complete suite passes 193 files /
+6,378 tests. Production build transforms 251 modules; lint has zero errors and
+the same three baseline warnings; platform lint, formatting and diff checks are
+clean. Final independent review found no remaining P0-P3 issue. A combined live
+Comet smoke loaded an exact 29-file candidate, showed the collapsed fox without
+covering the page, revealed exactly the current-thread and branch actions, and
+collapsed on Escape. The known two-branch ChatGPT canary reached the picker with
+653- and 73-message branches plus `Export all branches`; Cancel wrote nothing.
+During capture the launcher remained collapsed/busy, and the first idle click
+after cancellation reopened both actions, directly covering the latch fix. The
+prior exact all-branches HTML/receipt write remains valid because the delivery
+path is unchanged. Real narrow touch/safe-area geometry remains a visual
+follow-up, not claimed proof. This checkpoint is ready to commit and submit.
