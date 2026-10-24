@@ -439,10 +439,14 @@ export class ClaudeExtractor extends BaseExtractor {
     const parts: string[] = [];
     for (const { element: header } of ordered) {
       if (header.matches(SELECTORS.toolStatus[0])) {
+        budget.beginSection(header.innerHTML);
         const label = this.sanitizeText(
           header.querySelector(':scope > [data-cds-row] bdi')?.textContent ?? ''
         );
-        if (label) parts.push(`**${label}**`);
+        if (label) {
+          budget.addMetadataEntries(1);
+          appendClaudeToolPart(parts, `**${label}**`, budget);
+        }
         continue;
       }
       // Extended Thinking is presented separately from tool activity. Skip just

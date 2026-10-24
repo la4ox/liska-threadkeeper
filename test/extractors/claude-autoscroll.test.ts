@@ -196,6 +196,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
       semanticRoot: false,
       sidebar: true,
+      indexedSidebar: true,
     });
     extractor.applySettings(settings());
 

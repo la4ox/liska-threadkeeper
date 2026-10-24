@@ -7,6 +7,11 @@
 
 import type { SelectorGroup, ComputedSelectors } from './types';
 
+const THREAD_MESSAGE_ROOT =
+  ':is([data-testid="user-message"], [data-cds="UserMessage"], ' +
+  '[data-testid="assistant-message"], [data-cds="AssistantMessage"], ' +
+  '.font-claude-response, [class*="font-claude-response"])';
+
 /**
  * CSS Selectors for normal chat extraction
  */
@@ -82,7 +87,9 @@ export const SELECTORS = {
   // Broad overflow-only fallbacks can scroll the sidebar instead of the chat.
   scrollContainer: [
     '[data-autoscroll-container]', // Semantic scroll root (HIGH)
-    '.overflow-y-auto.overflow-x-hidden.flex-1:has([data-index])', // Thread-only fallback (MEDIUM)
+    '.overflow-y-auto.overflow-x-hidden.flex-1' +
+      ':not(nav):not([role="navigation"]):not(nav *):not([role="navigation"] *)' +
+      `:has([data-index] ${THREAD_MESSAGE_ROOT})`, // Extractor-owned thread fallback (MEDIUM)
   ],
 } as const satisfies SelectorGroup;
 

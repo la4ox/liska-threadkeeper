@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ClaudeExtractor } from '../../src/content/extractors/claude';
 import {
+  CLAUDE_TOOL_LIMITS,
+  ClaudeToolConversionBudget,
+} from '../../src/content/extractors/claude-tool-markdown';
+import {
   clearFixture,
   loadFixture,
   resetLocation,
@@ -26,6 +30,21 @@ function legacyTool(label: string, suffix = ''): string {
     </div>
     <div class="row-start-2"><div class="row-start-1"><div class="standard-markdown"><p>Visible preamble${suffix}</p></div></div></div>
   </div>`;
+}
+
+function extractToolContentWithBudget(
+  extractor: ClaudeExtractor,
+  element: Element,
+  budget: ClaudeToolConversionBudget
+): string | null {
+  return (
+    extractor as unknown as {
+      extractToolContentFromElement(
+        element: Element,
+        budget: ClaudeToolConversionBudget
+      ): string | null;
+    }
+  ).extractToolContentFromElement(element, budget);
 }
 
 describe('Claude 2026-10 assistant roots', () => {
@@ -450,6 +469,36 @@ describe('Claude 2026-10 answer cleanup and tool activity', () => {
     ]);
 
     expect(extractor.extractMessages()[0].toolContent).toBe('**Loaded skill**');
+  });
+
+  it('charges October rows to the shared section budget across repeated harvest windows', () => {
+    loadFixture(`<div id="tool-root">${renderClaudeHubStatus('cblk_budget', 'Tool')}</div>`);
+    const root = document.getElementById('tool-root')!;
+    const budget = new ClaudeToolConversionBudget();
+
+    for (let index = 0; index < CLAUDE_TOOL_LIMITS.sections; index += 1) {
+      expect(extractToolContentWithBudget(extractor, root, budget)).toBe('**Tool**');
+    }
+    expect(() => extractToolContentWithBudget(extractor, root, budget)).toThrow(
+      'Claude tool conversion limit exceeded: tool sections.'
+    );
+  });
+
+  it('charges October labels to metadata and Markdown output budgets', () => {
+    loadFixture(`<div id="tool-root">${renderClaudeHubStatus('cblk_budget', 'Tool')}</div>`);
+    const root = document.getElementById('tool-root')!;
+
+    const metadata = new ClaudeToolConversionBudget();
+    metadata.addMetadataEntries(CLAUDE_TOOL_LIMITS.metadataEntries);
+    expect(() => extractToolContentWithBudget(extractor, root, metadata)).toThrow(
+      'Claude tool conversion limit exceeded: tool metadata entries.'
+    );
+
+    const markdown = new ClaudeToolConversionBudget();
+    markdown.addMarkdownBytes(CLAUDE_TOOL_LIMITS.markdownBytes);
+    expect(() => extractToolContentWithBudget(extractor, root, markdown)).toThrow(
+      'Claude tool conversion limit exceeded: Markdown bytes.'
+    );
   });
 
   it.each([false, true])(
