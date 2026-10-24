@@ -8,6 +8,7 @@ import type { LiskaThreadArchive } from '../archive/types';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
 import type { ChatGptRouteFamily } from './chatgpt-owner-context';
 import type { DerivedHtmlArtifact } from './derived-presentation-contract';
+import type { DerivedBranchHtmlArtifact } from './derived-branch-presentation-contract';
 
 /**
  * Supported AI platform identifiers
@@ -581,6 +582,17 @@ export type ExtensionMessage =
       expectedSyncSettingsSnapshot: string;
       artifact: DerivedHtmlArtifact;
       /** HTML delivery is File-only in version 1. */
+      outputs: ['file'];
+    }
+  | {
+      action: 'persistDerivedBranchHtmlPresentation';
+      reportDurableWriteOutcome: true;
+      source: StructuredArchiveSource;
+      captureId: string;
+      conversationKey: string;
+      expectedSyncSettingsSnapshot: string;
+      artifact: DerivedBranchHtmlArtifact;
+      /** One already-built branch leaf or index, File only. */
       outputs: ['file'];
     }
   | {
