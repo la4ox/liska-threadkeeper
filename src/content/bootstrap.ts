@@ -50,6 +50,12 @@ import {
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
 import {
+  DERIVED_HTML_ALL_BRANCHES_PENDING_WARNING,
+  DERIVED_HTML_ATTACHMENT_PENDING_WARNING,
+  DERIVED_HTML_UNAVAILABLE_WARNING,
+  persistDerivedHtmlForFile,
+} from './derived-html-persistence';
+import {
   injectBranchExportButton,
   injectSyncButton,
   setButtonLoading,
@@ -692,6 +698,7 @@ export async function persistFailedExtractionArchive(
 async function persistExtractedNote(
   data: ConversationData,
   archiveCompanion: ArchiveCompanionBundle | undefined,
+  structuredPresentationContext: ExtractionResult['structuredPresentationContext'],
   settings: ContentScriptSettings,
   outputs: OutputDestination[],
   extractionWarnings: string[] | undefined
@@ -700,14 +707,23 @@ async function persistExtractedNote(
   const expectedSyncSettingsSnapshot = archiveCompanion
     ? serializeSyncSettingsSnapshot(settings)
     : undefined;
-  const archiveWarnings = await persistArchiveCompanions(
+  const archiveOutcome = await persistArchiveCompanionArtifacts(
     archiveCompanion,
     note.fileName,
     data.source,
     outputs,
+    undefined,
     expectedSyncSettingsSnapshot
   );
-  const warnings = [...(extractionWarnings ?? []), ...archiveWarnings];
+  const htmlWarnings = await derivedHtmlWarnings(
+    data.source,
+    settings,
+    outputs,
+    archiveOutcome,
+    structuredPresentationContext,
+    expectedSyncSettingsSnapshot
+  );
+  const warnings = [...(extractionWarnings ?? []), ...archiveOutcome.warnings, ...htmlWarnings];
   await persistNote(
     note,
     outputs,
@@ -716,6 +732,40 @@ async function persistExtractedNote(
     archiveCompanion?.capturedAt,
     expectedSyncSettingsSnapshot
   );
+}
+
+async function derivedHtmlWarnings(
+  source: AIPlatform,
+  settings: ContentScriptSettings,
+  outputs: readonly OutputDestination[],
+  archiveOutcome: ArchiveCompanionPersistenceOutcome,
+  context: ExtractionResult['structuredPresentationContext'],
+  expectedSyncSettingsSnapshot: string | undefined
+): Promise<string[]> {
+  if (
+    settings.enableHtmlExport !== true ||
+    !outputs.includes('file') ||
+    (source !== 'chatgpt' && source !== 'deepseek')
+  )
+    return [];
+  if (!context) return [DERIVED_HTML_UNAVAILABLE_WARNING];
+  if (!expectedSyncSettingsSnapshot || !archiveOutcome.activeOutputs.includes('file')) return [];
+  return (await persistDerivedHtmlForFile(context, expectedSyncSettingsSnapshot)).warnings;
+}
+
+function deferredDerivedHtmlWarnings(
+  settings: ContentScriptSettings,
+  outputs: readonly OutputDestination[],
+  fileArchiveConfirmed: boolean,
+  mode: 'attachments' | 'all-branches'
+): string[] {
+  if (settings.enableHtmlExport !== true || !outputs.includes('file') || !fileArchiveConfirmed)
+    return [];
+  return [
+    mode === 'attachments'
+      ? DERIVED_HTML_ATTACHMENT_PENDING_WARNING
+      : DERIVED_HTML_ALL_BRANCHES_PENDING_WARNING,
+  ];
 }
 
 /** Runtime guard: the worker can return a generic error envelope on rejection. */
@@ -1374,7 +1424,15 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           settings,
           enabledOutputs,
           attachmentExport.destinationReceipts ?? [],
-          attachmentExport.warnings,
+          [
+            ...attachmentExport.warnings,
+            ...deferredDerivedHtmlWarnings(
+              settings,
+              enabledOutputs,
+              attachmentExport.completeDestinations.includes('file'),
+              'all-branches'
+            ),
+          ],
           allBranchesAbortController.signal,
           preparedAllBranches,
           writeLedger
@@ -1388,7 +1446,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         settings,
         enabledOutputs,
         undefined,
-        [],
+        deferredDerivedHtmlWarnings(settings, enabledOutputs, true, 'all-branches'),
         allBranchesAbortController.signal,
         preparedAllBranches,
         writeLedger
@@ -1434,6 +1492,14 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       );
       stage = 'saving the ChatGPT note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
+      warnings.push(
+        ...deferredDerivedHtmlWarnings(
+          settings,
+          enabledOutputs,
+          attachmentExport.completeDestinations.includes('file'),
+          'attachments'
+        )
+      );
       await persistDestinationHonestChatGptNote(
         note,
         enabledOutputs,
@@ -1463,6 +1529,14 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       );
       stage = 'saving the DeepSeek note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings];
+      warnings.push(
+        ...deferredDerivedHtmlWarnings(
+          settings,
+          enabledOutputs,
+          attachmentExport.completeDestinations.includes('file'),
+          'attachments'
+        )
+      );
       await persistNote(
         note,
         enabledOutputs,
@@ -1477,6 +1551,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     await persistExtractedNote(
       result.data,
       result.archiveCompanion,
+      result.structuredPresentationContext,
       settings,
       enabledOutputs,
       result.warnings

@@ -22,6 +22,7 @@ const validSettings: ExtensionSettings = {
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
+  enableHtmlExport: false,
   enableChatGptOpaqueProbe: false,
   enableChatGptOpaqueReplay: false,
   imageVaultPath: 'AI/deepseek/images',
@@ -49,6 +50,10 @@ describe('popup settings transport validation', () => {
   it('accepts an omitted API key without making other settings optional', () => {
     const { obsidianApiKey: _unchangedKey, ...settings } = validSettings;
     expect(validateSettingsUpdate(settings)).toBe(true);
+  });
+
+  it('accepts an explicit HTML opt-in', () => {
+    expect(validateSettingsUpdate({ ...validSettings, enableHtmlExport: true })).toBe(true);
   });
 
   it.each([null, undefined, false, [], 'settings'])('rejects a non-record root: %s', value => {
@@ -116,6 +121,8 @@ describe('popup settings transport validation', () => {
     ['enableAppendMode', 1],
     ['enableToolContent', null],
     ['enableImageExport', undefined],
+    ['enableHtmlExport', undefined],
+    ['enableHtmlExport', 'true'],
     ['enableChatGptOpaqueProbe', 'true'],
     ['enableChatGptOpaqueReplay', 0],
     ['imageVaultPath', false],

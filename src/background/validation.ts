@@ -55,6 +55,7 @@ import { isSerializedSyncSettingsSnapshot } from '../lib/sync-settings-snapshot'
 import { platformOrigins } from '../lib/platform-registry';
 import { validateSettingsUpdate } from './settings-validation';
 import { deriveChatGptCaptureTarget, isExactChatGptDocumentUrl } from './chatgpt-route-target';
+import { validatePersistDerivedHtmlMessage } from './derived-html-validation';
 
 const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
 
@@ -694,6 +695,15 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   }
 
   const extensionMessage = message as ExtensionMessage;
+  const action = Object.getOwnPropertyDescriptor(message, 'action');
+  if (!action || !('value' in action)) return false;
+  if (
+    action.value === 'persistDerivedHtmlPresentation' &&
+    !validatePersistDerivedHtmlMessage(
+      extensionMessage as Extract<ExtensionMessage, { action: 'persistDerivedHtmlPresentation' }>
+    )
+  )
+    return false;
   // Inspect this opt-in before JSON sizing, which would otherwise invoke an accessor.
   const reportOutcome = Object.getOwnPropertyDescriptor(message, 'reportDurableWriteOutcome');
   if (!reportOutcome && 'reportDurableWriteOutcome' in message) return false;
@@ -704,6 +714,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
       !reportOutcome.enumerable ||
       ![
         'persistArchiveCompanion',
+        'persistDerivedHtmlPresentation',
         'commitStagedArchiveCompanion',
         'commitStagedBinaryAsset',
       ].includes(extensionMessage.action))
@@ -738,6 +749,8 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   if (extensionMessage.action === 'persistArchiveCompanion') {
     return validatePersistArchiveCompanionMessage(extensionMessage);
   }
+
+  if (extensionMessage.action === 'persistDerivedHtmlPresentation') return true;
 
   if (
     extensionMessage.action === 'beginStagedArchiveArtifact' ||

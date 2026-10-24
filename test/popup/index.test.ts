@@ -6,6 +6,7 @@
  * index.ts entry shim stays a DOMContentLoaded one-liner.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { ExtensionSettings, PopupSettingsUpdate } from '../../src/lib/types';
 
 vi.mock('../../src/lib/storage', () => ({
@@ -32,6 +33,7 @@ const storedSettings: ExtensionSettings = {
   enableAppendMode: false,
   enableToolContent: false,
   enableImageExport: true,
+  enableHtmlExport: false,
   enableChatGptOpaqueProbe: false,
   enableChatGptOpaqueReplay: false,
   flattenLargeCallouts: true,
@@ -86,6 +88,18 @@ function buildPopupDom(): void {
       <input type="text" id="imageVaultPath" />
       <input type="number" id="maxCalloutLines" />
     </section>
+    <label class="toggle-row" id="htmlExportRow">
+      <span class="toggle-label">
+        <span data-i18n="settings_enableHtmlExport">Canonical HTML reading view</span>
+        <span class="toggle-sublabel" data-i18n="settings_htmlExportHelp">
+          Add an offline HTML companion alongside Markdown for structured ChatGPT and DeepSeek File snapshots only. Not PDF, Obsidian, or Clipboard.
+        </span>
+      </span>
+      <span class="toggle-switch">
+        <input type="checkbox" id="enableHtmlExport" role="switch" aria-checked="false" aria-disabled="true" disabled />
+        <span class="slider" aria-hidden="true"></span>
+      </span>
+    </label>
     ${switches}
     <select id="messageFormat">
       <option value="callout">callout</option>
@@ -129,6 +143,40 @@ function settingsSaveAt(index: number): PopupSettingsUpdate {
   return message.settings;
 }
 
+describe('canonical HTML popup setting markup', () => {
+  it('provides a localized opt-in toggle and help text in English and Japanese', () => {
+    const html = readFileSync('src/popup/index.html', 'utf8');
+    const popup = new DOMParser().parseFromString(html, 'text/html');
+    const english = JSON.parse(readFileSync('src/_locales/en/messages.json', 'utf8')) as Record<
+      string,
+      { message: string }
+    >;
+    const japanese = JSON.parse(readFileSync('src/_locales/ja/messages.json', 'utf8')) as Record<
+      string,
+      { message: string }
+    >;
+
+    const toggle = popup.getElementById('enableHtmlExport');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.getAttribute('role')).toBe('switch');
+    expect(toggle?.hasAttribute('checked')).toBe(false);
+    expect(toggle?.getAttribute('aria-checked')).toBe('false');
+    expect(popup.querySelector('[data-i18n="settings_enableHtmlExport"]')).not.toBeNull();
+    expect(popup.querySelector('[data-i18n="settings_htmlExportHelp"]')).not.toBeNull();
+    expect(english.settings_enableHtmlExport.message).toBe('Canonical HTML reading view');
+    expect(english.settings_htmlExportHelp.message).toContain('alongside Markdown');
+    expect(english.settings_htmlExportHelp.message).toContain(
+      'ChatGPT and DeepSeek File snapshots only'
+    );
+    expect(english.settings_htmlExportHelp.message).toContain('Not PDF, Obsidian, or Clipboard');
+    expect(japanese.settings_enableHtmlExport.message).toContain('HTML');
+    expect(japanese.settings_htmlExportHelp.message).toContain('Markdown');
+    expect(japanese.settings_htmlExportHelp.message).toContain('ChatGPT / DeepSeek');
+    expect(japanese.settings_htmlExportHelp.message).toContain('PDF');
+    expect(japanese.settings_htmlExportHelp.message).toContain('クリップボード');
+  });
+});
+
 describe('popup/app', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -145,6 +193,8 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('outputObsidian').checked).toBe(true);
       expect(el<HTMLInputElement>('outputClipboard').checked).toBe(true);
       expect(el<HTMLInputElement>('outputFile').checked).toBe(false);
+      expect(el<HTMLInputElement>('enableHtmlExport').checked).toBe(false);
+      expect(el<HTMLInputElement>('enableHtmlExport').disabled).toBe(true);
       expect(el<HTMLInputElement>('enableAutoScroll').checked).toBe(true);
       expect(el<HTMLInputElement>('enableChatGptOpaqueProbe').checked).toBe(false);
       expect(el<HTMLInputElement>('enableChatGptOpaqueReplay').checked).toBe(false);
@@ -265,6 +315,7 @@ describe('popup/app', () => {
         enableAutoScroll: undefined,
         enableAppendMode: undefined,
         enableToolContent: undefined,
+        enableHtmlExport: undefined,
         templateOptions: { messageFormat: '', userCalloutType: '', assistantCalloutType: '' },
       } as unknown as ExtensionSettings;
       vi.mocked(getSettingsOrThrow).mockResolvedValue(partial);
@@ -274,6 +325,7 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('outputObsidian').checked).toBe(true); // default on
       expect(el<HTMLInputElement>('outputFile').checked).toBe(false);
       expect(el<HTMLInputElement>('enableAutoScroll').checked).toBe(false);
+      expect(el<HTMLInputElement>('enableHtmlExport').checked).toBe(false);
       expect(el<HTMLInputElement>('obsidianUrl').value).toBe('http://127.0.0.1:27123');
       expect(el<HTMLSelectElement>('messageFormat').value).toBe('callout');
       expect(el<HTMLInputElement>('userCallout').value).toBe('QUESTION');
@@ -301,6 +353,12 @@ describe('popup/app', () => {
         expect(document.getElementById('i18nLabel')!.textContent).toBe('T_settings_title');
         expect((document.getElementById('i18nInput') as HTMLInputElement).placeholder).toBe(
           'T_settings_apiKeyPlaceholder'
+        );
+        expect(document.querySelector('[data-i18n="settings_enableHtmlExport"]')!.textContent).toBe(
+          'T_settings_enableHtmlExport'
+        );
+        expect(document.querySelector('[data-i18n="settings_htmlExportHelp"]')!.textContent).toBe(
+          'T_settings_htmlExportHelp'
         );
         expect(document.title).toBe('T_extName');
       } finally {
@@ -385,6 +443,64 @@ describe('popup/app', () => {
   });
 
   describe('section visibility', () => {
+    it('disables HTML export when File output is off without discarding its selected value', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        enableHtmlExport: true,
+        outputOptions: { obsidian: true, file: false, clipboard: true },
+      });
+
+      const htmlExport = el<HTMLInputElement>('enableHtmlExport');
+      expect(htmlExport.checked).toBe(true);
+      expect(htmlExport.disabled).toBe(true);
+      expect(htmlExport.getAttribute('aria-checked')).toBe('true');
+      expect(htmlExport.getAttribute('aria-disabled')).toBe('true');
+      expect(el('htmlExportRow').style.opacity).toBe('0.5');
+    });
+
+    it('updates HTML export availability immediately as File output changes', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        enableHtmlExport: true,
+        outputOptions: { obsidian: true, file: false, clipboard: true },
+      });
+      const htmlExport = el<HTMLInputElement>('enableHtmlExport');
+      const fileOutput = el<HTMLInputElement>('outputFile');
+
+      fileOutput.checked = true;
+      fileOutput.dispatchEvent(new Event('change'));
+      expect(htmlExport.disabled).toBe(false);
+      expect(htmlExport.checked).toBe(true);
+      expect(htmlExport.getAttribute('aria-disabled')).toBe('false');
+      expect(el('htmlExportRow').style.opacity).toBe('');
+
+      fileOutput.checked = false;
+      fileOutput.dispatchEvent(new Event('change'));
+      expect(htmlExport.disabled).toBe(true);
+      expect(htmlExport.checked).toBe(true);
+      expect(htmlExport.getAttribute('aria-disabled')).toBe('true');
+      expect(el('htmlExportRow').style.opacity).toBe('0.5');
+
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(sendMessage).mock.calls).toEqual([
+        [
+          {
+            action: 'updateOutputOptions',
+            outputOptions: { obsidian: true, file: true, clipboard: true },
+          },
+        ],
+        [
+          {
+            action: 'updateOutputOptions',
+            outputOptions: { obsidian: true, file: false, clipboard: true },
+          },
+        ],
+      ]);
+      expect(sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'saveSettings' })
+      );
+    });
+
     it('disables the Obsidian section when Obsidian output is off', async () => {
       buildPopupDom();
       vi.mocked(getSettingsOrThrow).mockResolvedValue({
@@ -451,6 +567,41 @@ describe('popup/app', () => {
   });
 
   describe('save flow', () => {
+    it('collects and saves the selected HTML option with the rest of the settings', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        outputOptions: { obsidian: true, file: true, clipboard: true },
+      });
+
+      const htmlExport = el<HTMLInputElement>('enableHtmlExport');
+      expect(htmlExport.disabled).toBe(false);
+      htmlExport.checked = true;
+      htmlExport.dispatchEvent(new Event('change'));
+      expect(htmlExport.getAttribute('aria-checked')).toBe('true');
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({ enableHtmlExport: true }),
+        })
+      );
+    });
+
+    it('preserves the configured HTML choice when saving while File output is disabled', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        enableHtmlExport: true,
+        outputOptions: { obsidian: true, file: false, clipboard: true },
+      });
+
+      expect(el<HTMLInputElement>('enableHtmlExport').disabled).toBe(true);
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      expect(settingsSaveAt(0)).toHaveProperty('enableHtmlExport', true);
+    });
+
     it('saves the experimental opaque-probe switch with an explicit default-off value', async () => {
       await initWithDefaults();
 
@@ -548,7 +699,8 @@ describe('popup/app', () => {
 
     it('saves other collected settings without resending an unchanged loaded key', async () => {
       await initWithDefaults();
-      const { obsidianApiKey: _unchangedKey, ...syncSettings } = storedSettings;
+      const { obsidianApiKey, ...syncSettings } = storedSettings;
+      expect(obsidianApiKey).toBe(VALID_API_KEY);
 
       el<HTMLInputElement>('vaultPath').value = '  AI/Claude  ';
       el<HTMLButtonElement>('saveBtn').click();

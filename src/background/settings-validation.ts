@@ -12,6 +12,7 @@ const REQUIRED_SETTINGS_UPDATE_KEYS = [
   'enableAppendMode',
   'enableToolContent',
   'enableImageExport',
+  'enableHtmlExport',
   'enableChatGptOpaqueProbe',
   'enableChatGptOpaqueReplay',
   'imageVaultPath',
@@ -129,6 +130,7 @@ export function validateSettingsUpdate(value: unknown): value is PopupSettingsUp
     typeof settings.enableAppendMode === 'boolean' &&
     typeof settings.enableToolContent === 'boolean' &&
     typeof settings.enableImageExport === 'boolean' &&
+    typeof settings.enableHtmlExport === 'boolean' &&
     typeof settings.enableChatGptOpaqueProbe === 'boolean' &&
     typeof settings.enableChatGptOpaqueReplay === 'boolean' &&
     typeof settings.imageVaultPath === 'string' &&

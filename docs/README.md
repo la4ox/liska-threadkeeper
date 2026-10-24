@@ -37,3 +37,4 @@
 - [ADR-033](adr/033-trusted-append-message-boundaries.md): extension-owned message identity for safe append
 - [ADR-034](adr/034-citation-footnote-provenance.md): capability-bound citations and safe Markdown destinations
 - [ADR-035](adr/035-provider-markdown-rendering-safety.md): structural provider-Markdown policy and receipt-proven local links
+- [ADR-036](adr/036-canonical-html-presentation.md): pure canonical-derived HTML and destination-owned asset bindings
