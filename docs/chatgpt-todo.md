@@ -281,15 +281,22 @@ terminal states, and the existing no-credential-export boundary.
   it never upgrades a failed graph to a complete archive.
 - Local evidence covers the real 109,346,038-byte export and one real branched
   conversation without logging content. See ADR-037 and STATUS.
-- Next slice: a pure compare-only report scoped by left/right capture. Compare
-  provider/conversation identity, exact node/message IDs, structure, typed
-  blocks, assets, and diagnostics; report matched/source-only/conflicting facts.
+- Pure compare-only core implemented: `liska-chatgpt-comparison/1` accepts one
+  web and one official canonical snapshot of the same exact conversation,
+  scopes every fact left/right, and reports exact-ID matched, source-only, and
+  typed conflicting facts without copying conversation prose or merging inputs.
+- A private content-free real pair exposed 200 web-only nodes/messages while all
+  42 exact asset IDs matched. This is retention evidence, not proof of why the
+  official export omitted those nodes or that either source is complete. See
+  ADR-038 and STATUS.
 - Do not merge canonical archives yet. Source refs currently name artifact IDs
   without capture IDs, so concatenating provenance across snapshots would be
   ambiguous. Do not infer equality from title, timestamp, filename, archive ID,
   or current-branch Markdown.
-- Browser file picker, export ZIP discovery, durable destination writes, and
-  external binary import remain later explicit slices.
+- Next slice: an explicit user-selected local flow for official import plus a
+  durable bounded comparison artifact beside both unchanged source snapshots.
+  Browser file picker, export ZIP discovery, external binary import, archive
+  merge, and snapshot deduplication remain later explicit slices.
 
 ### 9. Adjacent provider: Dots chat export
 
@@ -308,6 +315,13 @@ terminal states, and the existing no-credential-export boundary.
 - First identify the authenticated page-owned conversation transport, raw graph
   or event model, current-thread identity, pagination, branches, tool content,
   media, and attachment families without reading unrelated Dots/account state.
+- Probe design gate: do not add a generic same-origin request observer. Unknown
+  path segments and query-key names can themselves disclose memory/persona or
+  account data. Require one independently grounded conversation-history route
+  grammar first; observe only that exact candidate in the selected top-frame
+  document under one trusted, short-lived capability. No reload/disposable tab,
+  request generation, header values/content-type, body, cookies/storage, or
+  dynamic allowlist learning.
 - Preserve one exact conversation-scoped raw artifact before designing the
   provider adapter; retain unknown event types instead of flattening them.
 - Map verified Dots raw data into `liska-thread/1`, then reuse existing Markdown,
@@ -341,10 +355,11 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Finish the official-export core PR, then implement the compare-only
-cross-format report described above. Use a synthetic web/official pair first,
-then one private local pair only if both exact raw sources already exist. Keep
-the 1 GiB source-work refusal, real staged >16 MiB gate, fetched same-title
-destination naming, custom-GPT/project binaries, and the archived Library WebP
-as separate evidence-gated work; official-export success does not authorize or
-silently close any of them.
+Finish the compare-only cross-format core PR, then add an explicit local delivery
+flow: the user selects an official export and an existing web canonical snapshot,
+the exact-ID comparator runs under its current hard ceilings, and a separate
+content-free report is durably written beside both unchanged source snapshots.
+Keep archive merge/deduplication, the 1 GiB source-work refusal, real staged
+
+> 16 MiB gate, fetched same-title destination naming, custom-GPT/project
+> binaries, and the archived Library WebP as separate evidence-gated work.
