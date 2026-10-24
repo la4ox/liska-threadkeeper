@@ -1606,6 +1606,22 @@ describe('ChatGPT current-branch capture composition', () => {
     ]);
     expect(projection.data.messages[1]?.content).toContain('First text part.');
     expect(projection.data.messages[1]?.toolContent).toContain('Synthetic recap.');
+    expect(projection.structuredPresentationContext).toMatchObject({
+      source: 'chatgpt',
+      captureId: fixedCaptureId(),
+      targetNodeId: 'node/current',
+      selectedNodeIds: ['node/root~structural', 'node/user', 'node/current'],
+      includeToolContent: true,
+      manifest: { kind: 'manifest', relativePath: 'manifest.json' },
+      canonical: { kind: 'canonical', relativePath: 'canonical/liska-thread-1.json' },
+    });
+    expect(projection.chatGptStructuredPresentationContext).toMatchObject({
+      source: 'chatgpt',
+      assetExportContext: projection.chatGptAssetExportContext,
+    });
+    expect(projection.structuredPresentationContext.archive).toBe(
+      projection.chatGptStructuredPresentationContext?.archive
+    );
   });
 
   it('returns exactly three deterministic archive companions and preserves raw base64 verbatim', async () => {
