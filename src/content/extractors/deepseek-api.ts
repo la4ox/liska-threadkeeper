@@ -13,6 +13,7 @@ import type {
   ArchiveCompanionBundle,
   ConversationData,
   DeepSeekAssetExportContext,
+  StructuredPresentationContext,
 } from '../../lib/types';
 import { projectArchiveBranch } from '../archive-projection';
 import {
@@ -20,6 +21,7 @@ import {
   buildJsonRawManifestCompanion,
 } from '../capture/json-archive-companion';
 import { captureResponseArtifact, hashCaptureManifest, sha256Hex } from '../capture/response';
+import { retainStructuredPresentation } from '../structured-presentation';
 
 const HISTORY_ENDPOINT = 'https://chat.deepseek.com/api/v0/chat/history_messages';
 const HISTORY_PATH_PATTERN = '/api/v0/chat/history_messages';
@@ -40,6 +42,7 @@ export interface DeepSeekApiConversation {
   archive: LiskaThreadArchive;
   archiveCompanion: ArchiveCompanionBundle;
   assetExportContext: DeepSeekAssetExportContext;
+  structuredPresentationContext: StructuredPresentationContext;
   warnings: string[];
 }
 
@@ -135,12 +138,24 @@ export async function fetchDeepSeekConversation(
         sha256Hex,
         'deepseek'
       );
+      const structuredPresentationContext = retainStructuredPresentation({
+        source: 'deepseek',
+        archive,
+        archiveCompanion,
+        targetNodeId: projected.selectedNodeIds[projected.selectedNodeIds.length - 1] ?? null,
+        selectedNodeIds: projected.selectedNodeIds,
+        includeToolContent: includeThinking,
+      });
+      if (!structuredPresentationContext) {
+        throw new DeepSeekStructuredCaptureError('presentation-context-invalid', archiveCompanion);
+      }
       const rawArtifact = archiveCompanion.artifacts.find(candidate => candidate.kind === 'raw');
       if (!rawArtifact) throw new DeepSeekStructuredCaptureError('companion-build-failed');
       return {
         archive,
         archiveCompanion,
         assetExportContext: { rawCaptureBundle: bundle, rawArtifact },
+        structuredPresentationContext,
         warnings: projected.warnings,
         data: {
           ...projected.data,

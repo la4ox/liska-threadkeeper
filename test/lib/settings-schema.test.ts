@@ -40,6 +40,12 @@ describe('normalizeSyncSettings', () => {
     expect(result.enableImageExport).toBe(false); // valid → preserved
   });
 
+  it('keeps canonical HTML delivery opt-in and preserves only an explicit boolean', () => {
+    expect(DEFAULT_SYNC_SETTINGS.enableHtmlExport).toBe(false);
+    expect(normalizeSyncSettings({ enableHtmlExport: true }).enableHtmlExport).toBe(true);
+    expect(normalizeSyncSettings({ enableHtmlExport: 'yes' }).enableHtmlExport).toBe(false);
+  });
+
   it('keeps the opaque probe disabled by default and preserves an explicit boolean opt-in', () => {
     expect(DEFAULT_SYNC_SETTINGS.enableChatGptOpaqueProbe).toBe(false);
     expect(normalizeSyncSettings({ enableChatGptOpaqueProbe: true }).enableChatGptOpaqueProbe).toBe(

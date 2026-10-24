@@ -226,6 +226,7 @@ export const VALID_MESSAGE_ACTIONS = [
   'resolveChatGptInterpreterAssets',
   'updateOutputOptions',
   'persistArchiveCompanion',
+  'persistDerivedHtmlPresentation',
   'beginStagedArchiveArtifact',
   'appendStagedArchiveArtifact',
   'sealStagedArchiveArtifact',

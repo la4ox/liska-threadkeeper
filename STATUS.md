@@ -1164,6 +1164,49 @@ starting an export. The installed tree was then restored to the prior stable
 build. Real touch input, narrow-device safe-area geometry, and other-provider
 host CSS remain live visual follow-ups rather than claimed proof.
 
+## Canonical HTML renderer foundation checkpoint
+
+Source head `3a5af58` introduces the pure `liska-html/1` presentation boundary
+described by ADR-036. It renders one validated canonical branch directly rather
+than reconstructing HTML from the deliberately lossy legacy Markdown view.
+The renderer is deterministic and browser/destination-independent: it performs
+no capture, network, storage, clock, DOM, download, or archive mutation.
+
+The default profile exposes only ordinary visible user/assistant messages.
+Non-user roles, hidden/non-final/tool-recipient messages, and their bodies stay
+canonical-only. Enabling tool content reveals only typed reasoning, tool,
+execution, and error blocks inside otherwise eligible messages. Every canonical
+block family is either rendered or represented by an explicit aggregate
+diagnostic/placeholder; provider HTML and Markdown images remain inert.
+External navigation is limited to exact credential-free HTTP(S) links that
+require a user click.
+
+Optional local assets require a separate finalized binding set. Each binding
+must agree with a canonical fetched asset on opaque ID, content-addressed path,
+lowercase SHA-256, MIME type, and byte length. Only PNG/JPEG/GIF/WebP may become
+local images; other allowlisted passive types are download links. The renderer
+never infers authority from canonical paths, filenames, provider URLs, or
+acquisition state alone, and it cannot itself verify absent bytes or a caller's
+binding-set digest.
+
+Work is bounded before recursive validation and before expensive Markdown AST
+construction. Caller ceilings may only tighten global limits. The parser guard
+covers direct and mixed quote/list nesting, CR/LF/CRLF, CommonMark backtick and
+tilde fences, invalid backtick info strings, ambiguous raw-HTML fence state,
+per-line container runs, and aggregate container work. UTF-8 output bytes are
+counted incrementally. Exceeding a limit fails with a stable value-free code and
+never returns a partial HTML document.
+
+Evidence: the focused renderer suite passes 127 tests. Independent review found
+and closed inherited array behavior plus four Markdown pre-parser/state bypass
+families; its final pass found no remaining P0-P3 issue. All 171 repository test
+files / 5,329 tests pass in six memory-bounded groups. Production build/typecheck,
+repository formatting, diff checks, source/platform lint, and `npm audit` pass
+with only the same three pre-existing warnings and zero known vulnerabilities.
+Live provider/browser delivery and offline asset-bundle opening are intentionally
+not claimed: settings, destination receipts, File persistence, and UI wiring are
+the next slice. Automatic PDF remains a separate transport/rendering decision.
+
 ## Local append-boundary security checkpoint
 
 PR 30, merged as `7ff531f`, addresses Security Cloud occurrence
@@ -1268,3 +1311,65 @@ footnotes, or math. Production build, repository formatting, and
 source/platform lint pass with only the same three pre-existing warnings; `npm
 audit` reports zero known vulnerabilities. Actual Obsidian rendering was not
 repeated, so renderer network behavior remains an explicit live proof gap.
+
+## Canonical HTML File-delivery checkpoint
+
+Source head `4528871` completes the first opt-in File-only delivery slice on
+`codex/canonical-html-delivery`. Structured ChatGPT and DeepSeek snapshots retain
+provider-neutral presentation context only after the raw/manifest/canonical
+archive trio is confirmed. The content layer then reserializes and rehashes the
+exact canonical archive once, invokes pure `liska-html/1`, and asks background to
+persist fixed `index.html` followed by a deterministic
+`presentation/liska-html-1.receipt.json`. Background independently revalidates
+base64, strict UTF-8, byte length, SHA-256, sender, destination, and current
+settings. HTML is not offered for PDF, Obsidian, Clipboard, DOM fallback, or an
+unfinalized asset-bearing snapshot.
+
+The popup exposes `Canonical HTML reading view` as a default-off opt-in enabled
+only while File output is selected. A live Comet smoke found that the new field
+had been omitted from the storage pass-through list: the popup reported success,
+but reload returned it to false. The field is now persisted alongside the other
+non-secret sync settings, with a round-trip regression test. The temporary
+test-only sender relaxation was never committed. The original user settings
+were restored after the smoke, and the previously installed stable build was
+put back after an exact reload.
+
+The first private canary unexpectedly contained attachment evidence. It
+correctly retained Markdown plus raw/manifest/canonical and a verified JPEG,
+while producing no HTML or receipt under the current no-unfinalized-assets rule.
+A separate no-asset structured canary then wrote raw (41,929 bytes), manifest
+(857 bytes), canonical (73,478 bytes), HTML (33,716 bytes), receipt (539 bytes),
+and Markdown (33,033 bytes). It retained 11 canonical nodes, one root, zero
+manifest warnings, and zero assets. A local 36-check verifier reconciled every
+length/hash/provenance edge, canonical metadata, fixed paths, null asset-binding
+digest, renderer version, CSP, and the absence of executable elements, event
+handlers, remote `src`, external styles, base elements, and meta refresh. Comet
+also rendered the saved file as a readable offline conversation.
+
+All 180 test files / 5,615 tests pass in the established six memory-bounded
+batches. A monolithic Vitest run again exhausted worker memory and is not used as
+evidence; it produced no assertion failure before worker teardown. Production
+build/typecheck, repository formatting, source/platform lint, and `npm audit`
+pass with only the same three pre-existing warnings and zero known dependency
+vulnerabilities. Independent review found no P0-P3 issue in the persistence fix;
+its requested close/reopen Comet proof is covered by the live reload above. The
+next HTML slice is destination-finalized local-asset bindings and then
+all-branches reading bundles. Automatic PDF remains separate.
+
+## Compact launcher current-main port checkpoint
+
+The compact launcher delta now sits directly above the reviewed typed-partial
+head `e7455ec`, which already includes canonical HTML File delivery from current
+`main`. The port retains the same six launcher/localization/test/documentation
+files; canonical HTML settings/messages and partial-capture persistence guards
+are inherited unchanged. The only manual merge resolution preserved the typed,
+launcher, and canonical HTML checkpoint sections together in this file.
+
+Evidence: the launcher UI suite passes 1 file / 70 tests and the complete suite
+passes 181 files / 5,699 tests. Production build transforms 239 modules; lint
+has zero errors and the same three baseline warnings; platform lint, formatting
+and diff checks are clean. Independent integration review found no P0-P3 issue
+in authority, trusted-event, focus, busy/reinjection, picker/stop-card,
+localization, HTML-setting, or typed-guard boundaries. The previous live Comet
+launcher smoke remains applicable to the unchanged six-file delta; the combined
+current-main build has not yet replaced the installed all-branches canary.

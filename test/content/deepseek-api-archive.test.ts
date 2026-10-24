@@ -209,6 +209,17 @@ describe('DeepSeek structured archive composition', () => {
     expect(JSON.stringify(canonical)).not.toContain('deepseek-file-beta');
     expect(JSON.stringify({ manifest, canonical })).not.toContain('transient-local-token');
     expect(result!.data.capture).toEqual({ mode: 'structured-api', completeness: 'complete' });
+    expect(result!.structuredPresentationContext).toMatchObject({
+      source: 'deepseek',
+      archive: result!.archive,
+      captureId: 'capture-deepseek-fixed-001',
+      targetNodeId: 'current-answer',
+      includeToolContent: false,
+      manifest: { kind: 'manifest', relativePath: 'manifest.json' },
+      canonical: { kind: 'canonical', relativePath: 'canonical/liska-thread-1.json' },
+    });
+    expect(result!.structuredPresentationContext.selectedNodeIds.at(-1)).toBe('current-answer');
+    expect(result!.structuredPresentationContext.archive).toBe(result!.archive);
     expect(result!.assetExportContext).toMatchObject({
       rawCaptureBundle: { manifest: { captureId: 'capture-deepseek-fixed-001' } },
       rawArtifact: { kind: 'raw', sha256: hash(fixtureBytes) },
@@ -393,6 +404,8 @@ describe('DeepSeek structured archive composition', () => {
     );
     expect(withoutThinking!.archive).toEqual(withThinking!.archive);
     expect(withoutThinking!.archiveCompanion).toEqual(withThinking!.archiveCompanion);
+    expect(withoutThinking!.structuredPresentationContext.includeToolContent).toBe(false);
+    expect(withThinking!.structuredPresentationContext.includeToolContent).toBe(true);
     expect(JSON.stringify(withThinking!.archive)).not.toContain('synthetic-fixture-secret');
     const rawArtifact = withThinking!.archiveCompanion.artifacts.find(
       artifact => artifact.kind === 'raw'
