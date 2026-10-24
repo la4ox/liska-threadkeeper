@@ -30,14 +30,21 @@ const MIME_EXTENSIONS: Readonly<Record<string, string>> = {
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
+/** Presentation only: this policy never grants acquisition permission. */
+export function htmlAssetMediaPolicy(
+  mimeType: unknown
+): Readonly<{ extension: string; renderMode: HtmlAssetBinding['renderMode'] }> | undefined {
+  if (typeof mimeType !== 'string' || !hasOwn(MIME_EXTENSIONS, mimeType)) return undefined;
+  return Object.freeze({
+    extension: MIME_EXTENSIONS[mimeType],
+    renderMode: IMAGE_MIMES.has(mimeType) ? 'image' : 'download',
+  });
+}
+
 function requireBindingPath(value: Record<string, unknown>): void {
   const { mimeType, path, sha256 } = value;
-  if (
-    typeof mimeType !== 'string' ||
-    !hasOwn(MIME_EXTENSIONS, mimeType) ||
-    path !== `assets/${sha256}.${MIME_EXTENSIONS[mimeType]}`
-  )
-    fail('html-bindings-invalid');
+  const policy = htmlAssetMediaPolicy(mimeType);
+  if (!policy || path !== `assets/${sha256}.${policy.extension}`) fail('html-bindings-invalid');
 }
 
 function requireBinding(candidate: unknown): HtmlAssetBinding {
@@ -57,11 +64,7 @@ function requireBinding(candidate: unknown): HtmlAssetBinding {
   requireBindingPath(candidate);
   if (!Number.isSafeInteger(byteLength) || (byteLength as number) < 0)
     fail('html-bindings-invalid');
-  if (
-    (renderMode !== 'image' && renderMode !== 'download') ||
-    (renderMode === 'image' && !IMAGE_MIMES.has(mimeType as string))
-  )
-    fail('html-bindings-invalid');
+  if (renderMode !== htmlAssetMediaPolicy(mimeType)?.renderMode) fail('html-bindings-invalid');
   return candidate as unknown as HtmlAssetBinding;
 }
 
@@ -70,6 +73,8 @@ function requireCanonicalMatch(binding: HtmlAssetBinding, archive: LiskaThreadAr
   const asset = archive.assets[binding.assetId];
   if (
     asset.acquisition.state !== 'fetched' ||
+    asset.id !== binding.assetId ||
+    asset.localArtifactRef !== binding.path ||
     asset.sha256 !== binding.sha256 ||
     asset.mimeType !== binding.mimeType ||
     asset.byteLength !== binding.byteLength
@@ -108,7 +113,9 @@ export function validateHtmlBindings(
     // Byte-identical aliases may share a file; conflicting receipts cannot.
     if (
       samePath &&
-      (samePath.mimeType !== binding.mimeType || samePath.byteLength !== binding.byteLength)
+      (samePath.sha256 !== binding.sha256 ||
+        samePath.mimeType !== binding.mimeType ||
+        samePath.byteLength !== binding.byteLength)
     )
       fail('html-binding-mismatch');
     bindings.set(binding.assetId, binding);

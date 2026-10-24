@@ -98,6 +98,7 @@ function binding(
   asset.sha256 = result.sha256;
   asset.mimeType = result.mimeType;
   asset.byteLength = result.byteLength;
+  asset.localArtifactRef = result.path;
   return result;
 }
 
@@ -538,6 +539,7 @@ describe('canonical-derived liska-html/1 presentation', () => {
     { byteLength: 0.5 },
     { byteLength: Number.MAX_SAFE_INTEGER + 1 },
     { renderMode: 'script' },
+    { renderMode: 'download' },
     { mimeType: 'application/pdf', path: `assets/${assetSha256}.pdf`, renderMode: 'image' },
   ])('rejects malformed binding records: %j', override => {
     const candidate = input();
@@ -547,7 +549,7 @@ describe('canonical-derived liska-html/1 presentation', () => {
     expectFailure(candidate, 'html-bindings-invalid');
   });
 
-  it.each(['sha256', 'mimeType', 'byteLength', 'acquisition', 'assetId'])(
+  it.each(['sha256', 'mimeType', 'byteLength', 'acquisition', 'assetId', 'id', 'localArtifactRef'])(
     'rejects receipts mismatching canonical %s',
     field => {
       const candidate = input();
@@ -559,7 +561,9 @@ describe('canonical-derived liska-html/1 presentation', () => {
       if (field === 'byteLength') asset.byteLength = 43;
       if (field === 'acquisition') asset.acquisition.state = 'expired';
       if (field === 'assetId') record.assetId = 'missing-secret-id';
-      expectFailure(candidate, 'html-binding-mismatch');
+      if (field === 'id') asset.id = 'other-asset';
+      if (field === 'localArtifactRef') asset.localArtifactRef = `assets/${assetSha256}.jpg`;
+      expectFailure(candidate, field === 'id' ? 'html-archive-invalid' : 'html-binding-mismatch');
     }
   );
 
