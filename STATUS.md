@@ -1102,6 +1102,49 @@ same three pre-existing advisory warnings and zero known dependency
 vulnerabilities. A real Chrome/Claude timing smoke was not repeated, so JSDOM
 proves the bounded paths and regressions but not a hard browser wall-clock.
 
+## Canonical HTML renderer foundation checkpoint
+
+Source head `3a5af58` introduces the pure `liska-html/1` presentation boundary
+described by ADR-036. It renders one validated canonical branch directly rather
+than reconstructing HTML from the deliberately lossy legacy Markdown view.
+The renderer is deterministic and browser/destination-independent: it performs
+no capture, network, storage, clock, DOM, download, or archive mutation.
+
+The default profile exposes only ordinary visible user/assistant messages.
+Non-user roles, hidden/non-final/tool-recipient messages, and their bodies stay
+canonical-only. Enabling tool content reveals only typed reasoning, tool,
+execution, and error blocks inside otherwise eligible messages. Every canonical
+block family is either rendered or represented by an explicit aggregate
+diagnostic/placeholder; provider HTML and Markdown images remain inert.
+External navigation is limited to exact credential-free HTTP(S) links that
+require a user click.
+
+Optional local assets require a separate finalized binding set. Each binding
+must agree with a canonical fetched asset on opaque ID, content-addressed path,
+lowercase SHA-256, MIME type, and byte length. Only PNG/JPEG/GIF/WebP may become
+local images; other allowlisted passive types are download links. The renderer
+never infers authority from canonical paths, filenames, provider URLs, or
+acquisition state alone, and it cannot itself verify absent bytes or a caller's
+binding-set digest.
+
+Work is bounded before recursive validation and before expensive Markdown AST
+construction. Caller ceilings may only tighten global limits. The parser guard
+covers direct and mixed quote/list nesting, CR/LF/CRLF, CommonMark backtick and
+tilde fences, invalid backtick info strings, ambiguous raw-HTML fence state,
+per-line container runs, and aggregate container work. UTF-8 output bytes are
+counted incrementally. Exceeding a limit fails with a stable value-free code and
+never returns a partial HTML document.
+
+Evidence: the focused renderer suite passes 127 tests. Independent review found
+and closed inherited array behavior plus four Markdown pre-parser/state bypass
+families; its final pass found no remaining P0-P3 issue. All 171 repository test
+files / 5,329 tests pass in six memory-bounded groups. Production build/typecheck,
+repository formatting, diff checks, source/platform lint, and `npm audit` pass
+with only the same three pre-existing warnings and zero known vulnerabilities.
+Live provider/browser delivery and offline asset-bundle opening are intentionally
+not claimed: settings, destination receipts, File persistence, and UI wiring are
+the next slice. Automatic PDF remains a separate transport/rendering decision.
+
 ## Local append-boundary security checkpoint
 
 PR 30, merged as `7ff531f`, addresses Security Cloud occurrence
