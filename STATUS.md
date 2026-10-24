@@ -2037,7 +2037,7 @@ without launching a new Cloud scan: TypedArray capture integrity
 version 7/new to version 8/fixed only after its fix ancestry and current-main
 invariant were reread. Eight existing findings remained open at that point.
 
-The current candidate repairs two shared runtime boundaries. Append-mode path
+PR 46 merged the two shared runtime-boundary repairs as `4070b1d`. Append-mode path
 hints are keyed by normalized endpoint, exact vault template, stable search
 root, provider, and conversation id; no API key enters the key. The current
 direct path has authority over a memo, and the hinted file's parent must match
@@ -2052,9 +2052,10 @@ streamed bytes regardless of headers, cancels on the first over-limit chunk,
 and retains the existing five-second deadline through the body read. Missing
 bodies, unsupported MIME, HTTP errors, stalled reads, and cancellation failures
 produce stable local failures; ordinary credentialed CDN fetch and exact-cap
-images retain their prior result contract. This candidate covers the stale
-append-path occurrence, the post-buffer image-size occurrence, and the
-overlapping timeout occurrence after merge.
+images retain their prior result contract. The stale append-path occurrence,
+the post-buffer image-size occurrence, and the overlapping timeout occurrence
+are now closed as fixed against that merged head. Five informational findings
+remained open afterward.
 
 Focused source-to-sink coverage passes 6 files / 295 tests. The complete suite
 passes 198 files / 6,633 tests. Production build transforms 253 modules;
@@ -2066,3 +2067,43 @@ static refresh found no remaining bypass or compatibility regression. A live
 Chrome CDN transfer was not repeated, so actual browser decompression,
 same-host redirect, and transport-cancellation behavior remain explicit proof
 gaps rather than claimed runtime evidence.
+
+## Security Cloud final-hygiene checkpoint
+
+The five remaining historical findings now have one bounded candidate. Obsidian
+text, binary, and directory body consumption uses the same transport-error
+normalization as the initial fetch. Append mode no longer treats any uncertain
+read or operation as proof that the old note is absent: recognized API errors
+return the established user guidance, while unknown errors fail with the fixed
+`append-operation-failed` code; neither path starts a fresh overwrite.
+
+Frontmatter list parsing now mutates its fresh per-key array with `push` instead
+of copying the complete prefix for every item. Ordering, duplicates, quoted
+values, duplicate-key reset, LF/CRLF handling, raw frontmatter, and body bytes
+remain unchanged; a 20,000-item regression covers the former quadratic shape.
+
+The real Google account-avatar URL has been removed from the captured Gemini
+fixture and replaced by an inert one-pixel data URL without changing extracted
+conversation output. A fixture-wide architecture test rejects that account
+avatar namespace while leaving legitimate generated-image CDN paths available.
+The fixture guides now require account/profile identifiers to be synthetic.
+Historical Git copies are not rewritten by this source fix and remain an
+explicit repository-history limitation.
+
+The Chrome Web Store draft now marks Authentication information `Yes`: the
+user-supplied Obsidian key is locally stored and used only for authenticated
+loopback requests, never synced, exported, or sent to a third party. CI keeps
+its existing triggers, read-only token, Node 24, npm cache, and commands, but
+pins checkout v7 and setup-node v7 to the exact full SHAs returned by their
+official GitHub tag refs; checkout credential persistence is explicitly off.
+The exact pinned action metadata also declares `node24`.
+
+Focused verification passes 14 files / 498 tests. The complete suite passes
+200 files / 6,651 tests. Independent review found one surviving unknown-body
+error route into the old append fallback; the final fail-closed change and its
+no-write regressions remove it, and the refreshed review is clean. Production
+build transforms 253 modules; source/platform lint has zero errors and the same
+three pre-existing advisory warnings; formatting and diff checks pass. No live
+Obsidian body interruption, Store dashboard submission, or hosted GitHub runner
+has yet been exercised on this head; those are explicit PR/runtime gates, not
+inferred success.

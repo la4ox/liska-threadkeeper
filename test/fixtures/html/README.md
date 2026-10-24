@@ -55,7 +55,9 @@ Save the captured HTML with the following template:
 
 - Do not use conversations containing personal or confidential information
 - Replace conversation content with test content if needed
-- Generic values can be used for URLs and IDs
+- Replace account/profile URLs, opaque account IDs, and other captured identifiers
+  with inert synthetic values before committing; keep only provider URLs required
+  by the behavior under test
 
 ## Fixture Update Flow
 

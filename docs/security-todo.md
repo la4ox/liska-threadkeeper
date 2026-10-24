@@ -271,8 +271,8 @@ security review are clean. Do not automatically retry or spend security-review
 credits. After the current large roadmap block is complete, launch one explicit
 Cloud Security repository scan and reconcile its full-repository findings.
 
-The current runtime-boundary candidate addresses three of the eight records
-left by that reconciliation without starting another scan. Append hints are now
+PR 46 merged the runtime-boundary candidate as `4070b1d` without starting
+another scan. Append hints are now
 keyed by normalized endpoint, exact vault template, stable search root,
 provider, and conversation id; the current direct path wins, and a memo path is
 admitted only when its parent matches the exact template with date tokens kept
@@ -286,12 +286,33 @@ ceiling regardless of absent, invalid, or falsely small headers. The existing
 five-second AbortController remains armed through body reads; bodyless,
 unsupported-MIME, unsuccessful, stalled, and cancellation-failure paths return
 stable local failures without an unbounded `blob()`/`arrayBuffer()` fallback.
-This candidate is intended to close
 `commit:72ec616ef89c81918fae119209a1107b`,
 `commit:43efe06fa6b08191b8bfe3ce69fa19be`, and the overlapping timeout occurrence
-`commit:621515f4ee488191a93dd9a3c856df77` only after reviewed source is merged.
+`commit:621515f4ee488191a93dd9a3c856df77` are now closed as fixed against that
+reviewed merged head.
 Real Chrome CDN decompression, redirect, and transport-cancellation behavior
 remains a live-runtime proof gap; the code does not claim otherwise.
+
+The five remaining informational findings now have one final-hygiene candidate:
+
+- Obsidian text, binary, and directory response bodies share the initial
+  fetch's stable network-error translation. Append refuses every uncertain read
+  or operation instead of treating it as absence and starting a fresh write.
+- Frontmatter list accumulation is linear without changing parser semantics.
+- The captured Gemini fixture carries an inert synthetic avatar; a narrow
+  fixture-wide guard rejects live Google account-avatar URLs, and both fixture
+  guides require account/profile identifiers to be replaced before commit.
+- The Store draft declares Authentication information `Yes` for the locally
+  stored Obsidian API key while retaining the local-only/no-sync/no-third-party
+  disclosure.
+- CI pins checkout v7 and setup-node v7 to the exact immutable SHAs returned by
+  their official tag refs, keeps its read-only token and Node 24 behavior, and
+  disables checkout credential persistence.
+
+This candidate does not rewrite public Git history, submit the Store dashboard,
+or claim a live interrupted Obsidian response. Close the corresponding Cloud
+records only after reviewed source is merged and fetched `main` contains the
+reviewed head.
 
 ## Remaining finding triage
 
@@ -302,16 +323,16 @@ head, preserving one verdict per finding:
    merge. YAML, math, question-heading, tool-content, append, and citation
    occurrences are fixed; resolve the historical Claude tool-conversion review
    thread only after its bounded single-pass follow-up is on current `main`.
-2. Resource bounds: finish review/merge/Cloud closure for the bounded image
-   stream candidate; retain quadratic frontmatter parsing as local robustness
-   work. Branch fan-out and Canmore are reconciled and closed.
+2. Resource bounds: branch fan-out, Canmore, and the bounded image stream are
+   reconciled and closed. Finish review/merge/Cloud closure for the linear
+   frontmatter candidate.
 3. Capture integrity: retain the merged TypedArray late-prototype regressions;
    its Cloud occurrence is reconciled and closed.
-4. Storage and Obsidian boundaries: finish review/merge/Cloud closure for the
-   scoped append memo; separately classify response-body error handling and the
-   authentication-disclosure declaration.
-5. Supply-chain and repository hygiene: mutable CI action tags and the live
-   fixture URL remain open.
+4. Storage and Obsidian boundaries: the scoped append memo is reconciled and
+   closed. Finish review/merge/Cloud closure for body-error handling and the
+   authentication declaration.
+5. Supply-chain and repository hygiene: finish review/merge/Cloud closure for
+   immutable CI action pins and the sanitized fixture URL.
 
 Prioritize confirmed reachable medium/low findings. Treat informational items
 as evidence-backed hardening, not automatic defects. Do not close, merge, or

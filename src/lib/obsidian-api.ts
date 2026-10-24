@@ -107,6 +107,30 @@ export class ObsidianApiClient {
     };
   }
 
+  /** Convert every recognized transport failure to the same stable API error. */
+  private rethrowNetworkError(error: unknown): never {
+    const errorType = classifyNetworkError(error);
+    if (errorType !== 'unknown') {
+      const message =
+        errorType === 'timeout'
+          ? 'Request timed out. Please check your connection.'
+          : errorType === 'connection'
+            ? 'Cannot reach Obsidian. Is it running?'
+            : 'Request was cancelled.';
+      throw this.createError(0, message);
+    }
+    throw error;
+  }
+
+  /** Keep the timeout/network contract active after response headers resolve. */
+  private async readResponseBody<T>(read: () => Promise<T>): Promise<T> {
+    try {
+      return await read();
+    } catch (error) {
+      this.rethrowNetworkError(error);
+    }
+  }
+
   /**
    * Fetch with timeout and unified network error handling.
    * Wraps fetch() with AbortSignal.timeout and converts network errors
@@ -125,17 +149,7 @@ export class ObsidianApiClient {
         signal: createTimeoutSignal(timeoutMs),
       });
     } catch (error) {
-      const errorType = classifyNetworkError(error);
-      if (errorType !== 'unknown') {
-        const message =
-          errorType === 'timeout'
-            ? 'Request timed out. Please check your connection.'
-            : errorType === 'connection'
-              ? 'Cannot reach Obsidian. Is it running?'
-              : 'Request was cancelled.';
-        throw this.createError(0, message);
-      }
-      throw error;
+      this.rethrowNetworkError(error);
     }
   }
 
@@ -217,7 +231,7 @@ export class ObsidianApiClient {
       throw this.createError(response.status, `Failed to get file: ${response.statusText}`);
     }
 
-    return await response.text();
+    return await this.readResponseBody(() => response.text());
   }
 
   /**
@@ -242,7 +256,7 @@ export class ObsidianApiClient {
     if (!response.ok) {
       throw this.createError(response.status, `Failed to get file: ${response.statusText}`);
     }
-    return new Uint8Array(await response.arrayBuffer());
+    return new Uint8Array(await this.readResponseBody(() => response.arrayBuffer()));
   }
 
   /**
@@ -340,7 +354,7 @@ export class ObsidianApiClient {
       throw this.createError(response.status, `Failed to list files: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
+    const data = (await this.readResponseBody(() => response.json())) as Record<string, unknown>;
     const rawFiles = Array.isArray(data?.files) ? data.files : [];
     return rawFiles.filter((f): f is string => typeof f === 'string');
   }
