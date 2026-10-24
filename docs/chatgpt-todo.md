@@ -196,6 +196,12 @@ terminal states, and the existing no-credential-export boundary.
   DeepSeek expose the optional seam but do not manufacture unused audit state;
   no persistence across browser/worker restart, retry, deletion, recovery, or
   net-disk claim is implied.
+- Typed DOM history loading is now separate from archive completeness. Known
+  partial Base/Gemini results cannot replace a longer exact same-conversation
+  mutable Obsidian note, and an untrusted old count fails closed before image or
+  Markdown writes. New partial notes, File/Clipboard, valid complete/unknown traffic,
+  and immutable snapshots retain their earlier behavior. This is a count-based
+  shrink guard, not proof of prefix alignment.
 - Finish aggregate limits for branch materialization and destination writes.
 - Re-run focused security/diff review at meaningful boundaries, not after every
   cosmetic change.
@@ -242,12 +248,12 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Checkpoint the live-verified operation-local write ledger in its own pull
-request. Then choose the next evidence-backed ChatGPT gate: a real staged
-capture above 16 MiB, a live multi-output same-title sample, or one available
-additional binary family. If no suitable live specimen exists, proceed with the
-independent untouched-provider/upstream audit instead of inventing transport
-authority. The 1 GiB source-work limit remains a deliberate refusal for the
-measured 1.051 GiB graph; only a separately reviewed limit change may authorize
-that full 239-leaf run. Keep custom-GPT/project binaries and the sole archived
-Library WebP separately evidence-gated.
+The operation-local write ledger and typed partial-DOM shrink guard are
+checkpointed in code. Choose the next evidence-backed ChatGPT gate: a real
+staged capture above 16 MiB, a live multi-output same-title sample, or one
+available additional binary family. If no suitable live specimen exists,
+proceed with the independent untouched-provider/upstream audit instead of
+inventing transport authority. The 1 GiB source-work limit remains a deliberate
+refusal for the measured 1.051 GiB graph; only a separately reviewed limit
+change may authorize that full 239-leaf run. Keep custom-GPT/project binaries
+and the sole archived Library WebP separately evidence-gated.

@@ -795,6 +795,25 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   return true;
 }
 
+const VALID_DOM_HISTORY_LOADS = ['complete', 'partial', 'unknown'] as const;
+
+function validateDomHistoryLoad(note: ObsidianNote): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(note, 'domHistoryLoad');
+  if (!descriptor) return !('domHistoryLoad' in note);
+  if (!('value' in descriptor) || !descriptor.enumerable) return false;
+  const value = descriptor.value;
+  if (
+    typeof value !== 'string' ||
+    !VALID_DOM_HISTORY_LOADS.includes(value as (typeof VALID_DOM_HISTORY_LOADS)[number])
+  ) {
+    return false;
+  }
+  return (
+    value !== 'partial' ||
+    (Number.isSafeInteger(note.frontmatter.message_count) && note.frontmatter.message_count >= 0)
+  );
+}
+
 /**
  * Validate note data structure
  */
@@ -828,6 +847,8 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
   if (!validateFrontmatter(note.frontmatter)) {
     return false;
   }
+
+  if (!validateDomHistoryLoad(note)) return false;
 
   // Validate attached images (content scripts are semi-trusted; cap count/size)
   if (note.images !== undefined && !validateImages(note.images)) {

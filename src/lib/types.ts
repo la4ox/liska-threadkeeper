@@ -14,6 +14,9 @@ import type { DerivedHtmlArtifact } from './derived-presentation-contract';
  */
 export type AIPlatform = 'gemini' | 'claude' | 'perplexity' | 'chatgpt' | 'notebooklm' | 'deepseek';
 
+/** Outcome of the existing DOM history loader only, not provider/archive/branch/attachment completeness. */
+export type DomHistoryLoad = 'complete' | 'partial' | 'unknown';
+
 /**
  * An image captured from a conversation (e.g. a Gemini-generated image).
  *
@@ -72,6 +75,8 @@ export interface ConversationData {
   images?: ExtractedImage[];
   extractedAt: Date;
   metadata: ConversationMetadata;
+  /** Runtime-only outcome of the DOM history loader, separate from archive capture evidence. */
+  domHistoryLoad?: DomHistoryLoad;
   /** Presence describes whether this export came from a complete archive capture. */
   capture?: ConversationCaptureMetadata;
   /** Optional derived view identity; the canonical archive remains unchanged. */
@@ -147,6 +152,8 @@ export interface ObsidianNote {
   frontmatter: NoteFrontmatter;
   body: string;
   contentHash: string;
+  /** Runtime-only DOM history loader outcome; never serialized as frontmatter. */
+  domHistoryLoad?: DomHistoryLoad;
   /**
    * Images referenced by `g2o-image://{id}` placeholders in {@link body}.
    * Resolved per output destination in the background (Obsidian embed,

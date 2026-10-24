@@ -101,12 +101,16 @@ function frontmatterMessageCount(value: string | string[] | undefined): number |
 function trustedExistingMessageCount(
   body: string,
   fields: Record<string, string | string[]>
-): number {
+): number | null {
   const renderedCount = countExistingMessages(body);
   const storedCount = frontmatterMessageCount(fields.message_count);
 
   if (hasTrustedMessageBoundaries(body)) {
-    if (storedCount !== null && storedCount !== renderedCount) throw new AppendBoundaryError();
+    if (
+      Object.prototype.hasOwnProperty.call(fields, 'message_count') &&
+      storedCount !== renderedCount
+    )
+      return null;
     return renderedCount;
   }
 
@@ -114,8 +118,14 @@ function trustedExistingMessageCount(
   // extension-generated frontmatter count is authoritative; visible labels
   // may include attacker-controlled lookalikes, but cannot safely be fewer
   // than the declared number of messages.
-  if (storedCount === null || renderedCount < storedCount) throw new AppendBoundaryError();
+  if (storedCount === null || renderedCount < storedCount) return null;
   return storedCount;
+}
+
+/** Strict append-compatible count; null means existing history cannot be trusted. */
+export function getTrustedExistingMessageCount(content: string): number | null {
+  const parsed = parseFrontmatter(content);
+  return parsed ? trustedExistingMessageCount(parsed.body, parsed.fields) : null;
 }
 
 /**
@@ -429,6 +439,7 @@ export function buildAppendContent(
   // 2. Resolve existing message identity from v1 sentinels or trusted legacy
   // frontmatter. Never derive authority solely from ambiguous visible labels.
   const existingCount = trustedExistingMessageCount(parsed.body, parsed.fields);
+  if (existingCount === null) throw new AppendBoundaryError();
 
   // 3. Compare counts
   const newTotal = note.frontmatter.message_count;

@@ -228,6 +228,7 @@ export function conversationToNote(
     frontmatter,
     body,
     contentHash,
+    ...(data.domHistoryLoad !== undefined && { domHistoryLoad: data.domHistoryLoad }),
     images: data.images ?? [],
   };
 }

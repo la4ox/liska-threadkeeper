@@ -91,11 +91,20 @@ a longer same-conversation note. This requires a shared contract and write
 guard; warning prose alone is insufficient. It must not alter immutable raw
 archive companions or equate an unknown count with completeness.
 
+Implemented in the typed partial-DOM persistence checkpoint: Base virtualized
+extractors and Gemini now carry a runtime-only DOM loader outcome through note
+dispatch. Exact same-conversation mutable Obsidian overwrites refuse a smaller
+known-partial count and also fail closed when the old count cannot be trusted.
+File/Clipboard, first saves, valid complete/unknown traffic, and immutable archive
+presentations remain unchanged. The count comparison deliberately does not
+claim message-prefix equivalence.
+
 ### Gemini completeness and title
 
 Source commits: `c2edc47`, `2c06dbe`.
 
-- propagate a typed timeout/incomplete outcome rather than warning text only;
+- typed timeout/incomplete propagation is implemented; warning text remains for
+  user visibility;
 - prefer a meaningful document title before falling back to the first query.
 
 ### Google image redirect host

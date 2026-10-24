@@ -116,11 +116,12 @@
 - Synthetic ChatGPT raw fixture and end-to-end projection test: `test/fixtures/archive/chatgpt-raw/branching-mixed-content.json` and `test/content/chatgpt-archive-pipeline.test.ts`
 - Canonical-to-legacy branch adapter: `src/content/archive-projection.ts`
 
-## Current integration checkpoint
+## Historical ChatGPT integration checkpoint
 
-Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10) is merged
-into `main` at `ef24f3e`. Current work continues from that exact head on
-`codex/chatgpt-2026-10-compat`; no release or tag is implied.
+Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10) merged
+into `main` at `ef24f3e`. This section records the compatibility starting point;
+later checkpoints in this file, not the historical
+`codex/chatgpt-2026-10-compat` branch name, describe current merged state.
 
 The current ChatGPT compatibility slice repairs the October 2026 page request
 shape without weakening the loss-aware archive boundary:
@@ -927,13 +928,14 @@ evidence only. The subsequent capture-ID boundary fix does not alter this
 ordinary UUID path; its 29-file build is installed, reloaded, and byte-identical
 to `dist`.
 
-Next: checkpoint this live-verified write-ledger slice in its own pull request.
-The next ChatGPT live gates still require a real provider response above 16 MiB,
-a multiple-same-title produced-file sample, or an available additional binary
+The operation-local write ledger is checkpointed and live-verified. The next
+ChatGPT live gates still require a real provider response above 16 MiB, a
+multiple-same-title produced-file sample, or an available additional binary
 family. Until such evidence exists, the 1 GiB source-work limit remains a
 deliberate refusal for the known 1.051 GiB graph, and custom-GPT/project binaries
-plus the archived Library WebP remain separately evidence-gated. The untouched
-provider/upstream audit can proceed independently after this checkpoint.
+plus the archived Library WebP remain separately evidence-gated. Independent
+typed truncation and untouched-provider/upstream hardening can proceed without
+inventing transport authority.
 
 ## Local math-Markdown security checkpoint
 
@@ -1101,6 +1103,37 @@ formatting, diff checks, source/platform lint, and `npm audit` pass with only th
 same three pre-existing advisory warnings and zero known dependency
 vulnerabilities. A real Chrome/Claude timing smoke was not repeated, so JSDOM
 proves the bounded paths and regressions but not a hard browser wall-clock.
+
+## Typed partial DOM persistence checkpoint
+
+Source head `32fb7b5` carries the existing DOM loader outcome as runtime-only
+`complete`, `partial`, or `unknown` evidence from shared virtualized extractors
+and Gemini. A skipped, disabled, unconfigured, or missing-container loader is
+explicitly unknown; only a non-skipped successful load is complete. Existing
+timeout warnings remain unchanged. This signal is distinct from structured
+archive `capture_completeness` and is never serialized into note frontmatter or
+body.
+
+Before authorizing an exact same-conversation mutable Obsidian overwrite, a
+known-partial note now compares its incoming message count with the existing
+note's trusted v1 sentinels or strict legacy `message_count`. A smaller capture
+fails as `partial-capture-would-shrink-note`; absent, malformed, mismatched, or
+otherwise untrusted old count fails as
+`partial-capture-existing-count-untrusted`. The guard stops before image or
+Markdown writes and never escapes to a suffix filename. First saves,
+equal/larger partial counts, File/Clipboard, valid complete/unknown traffic,
+and immutable archive presentations retain their previous behavior. Invalid
+partial direct-call counts fail with a fixed value-free code.
+
+Evidence: all 171 test files / 5,272 tests pass in six memory-bounded batches;
+the focused extraction/note/validation/append/background matrix passes 9 files /
+569 tests. Independent review passed 8 focused suites / 404 tests plus 14 strict
+count probes and 24 isolated save scenarios with no P0-P3 finding. Production
+build, targeted formatting, diff checks, source/platform lint, and `npm audit`
+pass with only the same three pre-existing advisory warnings and zero known
+dependency vulnerabilities. No destructive live Obsidian timeout smoke was run.
+This count guard does not prove message-prefix/content alignment and does not
+eliminate concurrent-write races.
 
 ## Canonical HTML renderer foundation checkpoint
 
