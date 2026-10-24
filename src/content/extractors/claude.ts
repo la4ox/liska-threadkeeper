@@ -236,11 +236,29 @@ export class ClaudeExtractor extends BaseExtractor {
   }
 
   /** Candidates are already in identity-priority order; text is never a key. */
-  private distinctElements(candidates: Element[]): Element[] {
+  private distinctElements(candidates: Element[], budget?: ClaudeToolConversionBudget): Element[] {
     const selected: Element[] = [];
+    const selectedSet = new Set<Element>();
+    const ancestorsWithSelectedDescendant = new Set<Element>();
     for (const candidate of candidates) {
-      if (selected.some(other => other.contains(candidate) || candidate.contains(other))) continue;
+      if (selectedSet.has(candidate) || ancestorsWithSelectedDescendant.has(candidate)) continue;
+
+      let hasSelectedAncestor = false;
+      for (let ancestor = candidate.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        budget?.addDomNodes(1);
+        if (selectedSet.has(ancestor)) {
+          hasSelectedAncestor = true;
+          break;
+        }
+      }
+      if (hasSelectedAncestor) continue;
+
       selected.push(candidate);
+      selectedSet.add(candidate);
+      for (let ancestor = candidate.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        budget?.addDomNodes(1);
+        ancestorsWithSelectedDescendant.add(ancestor);
+      }
     }
     return selected;
   }
@@ -433,7 +451,9 @@ export class ClaudeExtractor extends BaseExtractor {
     const legacyHeaders = this.collectStatusHeaders(element).filter(
       header => !header.closest(STEP_ROW_SELECTOR)
     );
-    const candidates = this.distinctElements([...octoberRows, ...legacyHeaders]);
+    const toolCandidates = [...octoberRows, ...legacyHeaders];
+    budget.assertSectionCapacity(toolCandidates.length);
+    const candidates = this.distinctElements(toolCandidates, budget);
     const ordered = this.sortByDomPosition(candidates.map(element => ({ element })));
 
     const parts: string[] = [];

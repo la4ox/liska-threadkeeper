@@ -80,12 +80,16 @@ superseded truncation guard. The port preserves the current shared
 collapsed inert content only inside a live indexed row, removes answer chrome
 on a detached clone, and merges October labels with rich legacy tool evidence.
 
-Independent review found two retained gaps before publication: October labels
-bypassed the aggregate tool budget, and the class fallback could scroll an
-earlier indexed navigation sidebar. October rows now consume section, metadata,
-separator, and Markdown budgets; the fallback excludes navigation ancestry and
-requires extractor-owned message content inside the indexed row. Focused and
-full evidence plus the bounded live canary are recorded in `STATUS.md`.
+Independent review found four retained gaps before publication: October labels
+bypassed the aggregate tool budget; the class fallback could scroll an earlier
+indexed navigation sidebar; containment deduplication ran quadratically before
+the budget; and the first hardened fallback omitted two supported legacy role
+roots. October rows now consume section, metadata, separator, Markdown, and DOM
+work budgets. Selector anchors derive from the complete supported role groups
+outside navigation ancestry. Priority-preserving ancestry sets replace pairwise
+containment without merging sibling operations; the first connected-component
+attempt was rejected by a dedicated data-loss regression. Focused and full
+evidence plus the bounded live canary are recorded in `STATUS.md`.
 
 ### ChatGPT DOM fallback
 

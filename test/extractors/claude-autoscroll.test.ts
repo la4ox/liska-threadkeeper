@@ -21,11 +21,13 @@ interface Turn {
 }
 
 /** Render one turn wrapped in a `data-index` virtual-row wrapper. */
-function renderTurn(turn: Turn, index: number): string {
+function renderTurn(turn: Turn, index: number, fallbackOnly = false): string {
   const inner =
     turn.role === 'user'
-      ? `<div class="bg-bg-300 rounded-xl"><div data-testid="user-message">${turn.content}</div></div>`
-      : `<div class="font-claude-response">${
+      ? fallbackOnly
+        ? `<p class="whitespace-pre-wrap break-words">${turn.content}</p>`
+        : `<div class="bg-bg-300 rounded-xl"><div data-testid="user-message">${turn.content}</div></div>`
+      : `<div ${fallbackOnly ? 'data-is-streaming="false"' : 'class="font-claude-response"'}>${
           turn.toolHtml === undefined
             ? `<div class="standard-markdown"><p>${turn.content}</p></div>`
             : `<div class="row-start-1"><div class="standard-markdown">${turn.toolHtml}</div></div>
@@ -42,7 +44,7 @@ function renderTurn(turn: Turn, index: number): string {
 function mountVirtualizedClaude(
   turns: Turn[],
   windowSize: number,
-  { semanticRoot = true, sidebar = false, indexedSidebar = false } = {}
+  { semanticRoot = true, sidebar = false, indexedSidebar = false, fallbackOnly = false } = {}
 ) {
   document.body.innerHTML = `
     ${sidebar ? `<div id="sidebar" role="navigation" class="overflow-y-auto overflow-x-hidden flex-1">${indexedSidebar ? '<div data-index="99">Sidebar item</div>' : 'Sidebar item'}</div>` : ''}
@@ -66,7 +68,7 @@ function mountVirtualizedClaude(
     const frac = scrollTop / MAX_SCROLL;
     const start = Math.round(frac * maxStart);
     const mounted = turns.slice(start, start + windowSize);
-    scroller.innerHTML = mounted.map((t, i) => renderTurn(t, start + i)).join('');
+    scroller.innerHTML = mounted.map((t, i) => renderTurn(t, start + i, fallbackOnly)).join('');
   };
 
   Object.defineProperty(scroller, 'scrollTop', {
@@ -215,6 +217,32 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     ]);
     expect(sidebarScroll).not.toHaveBeenCalled();
     expect(result.warnings).toBeUndefined();
+  });
+
+  it('scrolls fallback-only legacy roles when the semantic root is absent', async () => {
+    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      semanticRoot: false,
+      sidebar: true,
+      indexedSidebar: true,
+      fallbackOnly: true,
+    });
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    expect(result.data?.messages.map(message => plainText(message.content))).toEqual([
+      'Q1',
+      'A1',
+      'Q2',
+      'A2',
+      'Q3',
+      'A3',
+    ]);
+    expect(result.data?.domHistoryLoad).toBe('complete');
+    expect(sidebarScroll).not.toHaveBeenCalled();
   });
 
   it.each([

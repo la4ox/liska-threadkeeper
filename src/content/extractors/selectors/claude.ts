@@ -7,10 +7,21 @@
 
 import type { SelectorGroup, ComputedSelectors } from './types';
 
-const THREAD_MESSAGE_ROOT =
-  ':is([data-testid="user-message"], [data-cds="UserMessage"], ' +
-  '[data-testid="assistant-message"], [data-cds="AssistantMessage"], ' +
-  '.font-claude-response, [class*="font-claude-response"])';
+const USER_MESSAGE_SELECTORS = [
+  '[data-testid="user-message"]',
+  '.whitespace-pre-wrap.break-words',
+] as const;
+const ASSISTANT_RESPONSE_SELECTORS = [
+  '[data-testid="assistant-message"]',
+  '[data-cds="AssistantMessage"]',
+  '.font-claude-response',
+  '[class*="font-claude-response"]',
+  '[data-is-streaming]',
+] as const;
+const THREAD_MESSAGE_ROOT = `:is(${[
+  ...USER_MESSAGE_SELECTORS,
+  ...ASSISTANT_RESPONSE_SELECTORS,
+].join(', ')})`;
 
 /**
  * CSS Selectors for normal chat extraction
@@ -39,10 +50,7 @@ export const SELECTORS = {
   // attribute, not by a class; the `!font-user-message` class that made this
   // substring match work disappeared a day after bg-bg-300 did. Chasing either
   // token would only buy the next rename.
-  userMessage: [
-    '[data-testid="user-message"]', // Grid container (HIGH)
-    '.whitespace-pre-wrap.break-words', // Legacy inner <p> (LOW fallback)
-  ],
+  userMessage: USER_MESSAGE_SELECTORS,
 
   // Virtual row of one conversation turn: the numeric index gives the
   // accumulation order, and the row boundary distinguishes a collapsed
@@ -52,13 +60,7 @@ export const SELECTORS = {
   // Assistant roots: prefer October's identities while retaining legacy turns.
   // The extractor unions these in priority order instead of stopping at the
   // first matching selector, so mixed old/new DOM does not lose distinct turns.
-  assistantResponse: [
-    '[data-testid="assistant-message"]', // Test id (HIGH)
-    '[data-cds="AssistantMessage"]', // Design-system component (HIGH)
-    '.font-claude-response', // Legacy semantic class (MEDIUM)
-    '[class*="font-claude-response"]', // Legacy partial match (LOW)
-    '[data-is-streaming]', // Weakest functional fallback (LOW)
-  ],
+  assistantResponse: ASSISTANT_RESPONSE_SELECTORS,
 
   // October tool rows are positively classified by their content-block group.
   // Thinking (:grp:th...) and unknown groups are not tool activity. Only the

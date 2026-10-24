@@ -52,6 +52,11 @@ export class ClaudeToolConversionBudget {
     return this.consumeHtml(rawHtml);
   }
 
+  /** Reject candidate batches that cannot fit before any overlap analysis. */
+  assertSectionCapacity(count: number): void {
+    checkedTotal(this.sections, count, CLAUDE_TOOL_LIMITS.sections, 'tool sections');
+  }
+
   /**
    * Count input work, not unique source bytes. Header inspection and each HTML
    * conversion both consume input, including nested/overlapping fragments.

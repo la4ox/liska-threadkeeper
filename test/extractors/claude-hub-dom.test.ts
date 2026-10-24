@@ -97,6 +97,18 @@ describe('Claude 2026-10 assistant roots', () => {
     expect(messages[1].content).toBe('<p>Separate legacy answer</p>');
   });
 
+  it('keeps strong sibling assistant roots inside one weaker streaming wrapper', () => {
+    loadFixture(`<div data-is-streaming="false">
+      <div data-testid="assistant-message"><div class="standard-markdown"><p>First answer</p></div></div>
+      <div data-cds="AssistantMessage"><div class="standard-markdown"><p>Second answer</p></div></div>
+    </div>`);
+
+    expect(extractor.extractMessages().map(message => message.content)).toEqual([
+      '<p>First answer</p>',
+      '<p>Second answer</p>',
+    ]);
+  });
+
   it('does not create an assistant turn from a weak streaming element inside a user', () => {
     loadFixture(`<div data-testid="user-message"><p>Real question</p>
       <div data-is-streaming="false"><p>Quoted streaming marker</p></div>
@@ -471,6 +483,24 @@ describe('Claude 2026-10 answer cleanup and tool activity', () => {
     expect(extractor.extractMessages()[0].toolContent).toBe('**Loaded skill**');
   });
 
+  it('keeps sibling October rows while rejecting their weaker containing legacy header', () => {
+    extractor.enableToolContent = true;
+    loadFixture(`<div id="tool-root">
+      <div>
+        <div class="row-start-1">
+          ${renderClaudeHubStatus('cblk_first', 'First operation')}
+          ${renderClaudeHubStatus('cblk_second', 'Second operation')}
+        </div>
+        <div class="row-start-2"><p>Visible answer</p></div>
+      </div>
+    </div>`);
+
+    const root = document.getElementById('tool-root')!;
+    expect(extractToolContentWithBudget(extractor, root, new ClaudeToolConversionBudget())).toBe(
+      '**First operation**\n\n**Second operation**'
+    );
+  });
+
   it('charges October rows to the shared section budget across repeated harvest windows', () => {
     loadFixture(`<div id="tool-root">${renderClaudeHubStatus('cblk_budget', 'Tool')}</div>`);
     const root = document.getElementById('tool-root')!;
@@ -482,6 +512,51 @@ describe('Claude 2026-10 answer cleanup and tool activity', () => {
     expect(() => extractToolContentWithBudget(extractor, root, budget)).toThrow(
       'Claude tool conversion limit exceeded: tool sections.'
     );
+  });
+
+  it('rejects an oversized October candidate batch before pairwise containment work', () => {
+    const count = CLAUDE_TOOL_LIMITS.sections + 1;
+    const rows = Array.from(
+      { length: count },
+      (_, index) =>
+        `<div data-cds="TurnStatus" data-item-key="turn:grp:cblk_${index}"><div data-cds-row><bdi>Tool</bdi></div></div>`
+    ).join('');
+    loadFixture(`<div id="tool-root">${rows}</div>`);
+    const root = document.getElementById('tool-root')!;
+    const contains = vi.spyOn(Node.prototype, 'contains');
+
+    try {
+      expect(() =>
+        extractToolContentWithBudget(extractor, root, new ClaudeToolConversionBudget())
+      ).toThrow('Claude tool conversion limit exceeded: tool sections.');
+      expect(contains.mock.calls.length).toBeLessThanOrEqual(count * 5);
+    } finally {
+      contains.mockRestore();
+    }
+  });
+
+  it('deduplicates a large allowed October batch without quadratic contains scans', () => {
+    const count = 2_000;
+    const rows = Array.from(
+      { length: count },
+      (_, index) =>
+        `<div data-cds="TurnStatus" data-item-key="turn:grp:cblk_${index}"><div data-cds-row><bdi>Tool ${index}</bdi></div></div>`
+    ).join('');
+    loadFixture(`<div id="tool-root">${rows}</div>`);
+    const root = document.getElementById('tool-root')!;
+    const contains = vi.spyOn(Node.prototype, 'contains');
+
+    try {
+      const output = extractToolContentWithBudget(
+        extractor,
+        root,
+        new ClaudeToolConversionBudget()
+      );
+      expect(output?.match(/\*\*Tool \d+\*\*/gu)).toHaveLength(count);
+      expect(contains.mock.calls.length).toBeLessThanOrEqual(count * 5);
+    } finally {
+      contains.mockRestore();
+    }
   });
 
   it('charges October labels to metadata and Markdown output budgets', () => {

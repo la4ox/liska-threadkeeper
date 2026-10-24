@@ -1116,7 +1116,9 @@ Claude now prefers the semantic transcript scroller and accepts the class
 fallback only outside navigation ancestry when an indexed row contains an
 extractor-owned user or assistant root. Strong October identities, distinct
 legacy roots, and the weak streaming fallback are unioned in priority order;
-overlapping wrappers collapse by DOM identity rather than message text. A
+overlapping wrappers retain the prior greedy priority semantics without
+quadratic pairwise scans, so strong siblings survive while a later containing
+weak wrapper is discarded. A
 collapsed inert wrapper inside a live indexed row remains readable, while a
 hidden/inert row, dismissed outer panel, or closed artifact remains excluded.
 Assistant answer chrome, October status rows, and legacy status headers are
@@ -1127,17 +1129,22 @@ October tool rows merge with the richer legacy tool path in DOM order. Every
 inspected row consumes the existing shared section/input budget; every retained
 label consumes one metadata entry plus exact separator/Markdown bytes. The same
 mutable budget remains shared across virtual scroll windows before
-deduplication. Independent review reproduced and then closed two P2s: a 4,097th
-October row and output after an exhausted 32 MiB Markdown budget now fail with
-fixed value-free errors, and an indexed navigation sidebar no longer receives
-scroll writes or produces a false `complete` result when the semantic root is
-absent.
+deduplication. Independent review iterations closed four retained P2s and one
+interim data-loss regression: a 4,097th October row and output after an
+exhausted 32 MiB Markdown budget now fail with fixed value-free errors; an
+indexed navigation sidebar no longer receives scroll writes or produces a
+false `complete` result; the fallback derives anchors from every supported user
+and assistant role; and candidate preflight plus ancestry-set selection replaces
+the former pairwise containment curve without collapsing sibling operations.
 
-Evidence: five focused Claude suites pass 225 tests; the complete suite passes
-194 files / 6,469 tests. Production build transforms 251 modules; formatting,
+Evidence: five focused Claude suites pass 230 tests; the complete suite passes
+194 files / 6,474 tests. Production build transforms 251 modules; formatting,
 diff checks, and source/platform lint pass with zero errors and the same three
 pre-existing warnings. The final independent review loaded production modules,
-rechecked both P2 reproducers, and found no remaining blocking issue.
+rechecked every reproducer, compared 3,000 synthetic candidate sets against the
+former greedy semantics without a mismatch, and measured 4,001 / 8,001 / 16,389
+`contains` calls for 1,000 / 2,000 / 4,097 rows instead of the prior quadratic
+curve. No blocking issue remained.
 
 For one bounded live canary, Comet loaded the exact 29-file build of source head
 `7f4595c` from the established unpacked-extension directory after creating a
