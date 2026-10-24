@@ -13,6 +13,7 @@ import { ChatGPTExtractor } from './extractors/chatgpt';
 import { PerplexityExtractor } from './extractors/perplexity';
 import { NotebookLMExtractor } from './extractors/notebooklm';
 import { DeepSeekExtractor } from './extractors/deepseek';
+import { CONVERSATION_READY_SELECTORS } from './extractors/selectors/ready';
 import { extractErrorMessage } from '../lib/error-utils';
 import type {
   AllBranchesPresentationPlan,
@@ -141,10 +142,6 @@ const EXTRACTOR_CONSTRUCTORS: Record<AIPlatform, new () => IConversationExtracto
   deepseek: DeepSeekExtractor,
 };
 
-/** Conversation container selectors to detect when content is ready */
-const CONVERSATION_CONTAINER_SELECTOR =
-  '.conversation-container, [class*="conversation"], section[data-turn-id], article[data-turn-id], div[class*="threadContentWidth"], .ds-message';
-
 /**
  * Get the optimal observation root for the current platform
  * Falls back to document.body if no platform-specific root is found
@@ -167,17 +164,17 @@ function getObservationRoot(): Element {
 }
 
 /**
- * Wait for conversation container to appear (L-03)
+ * Wait for the selected platform's UI-injection readiness hint (L-03)
  * Uses MutationObserver with debouncing instead of fixed timeout
  *
  * Performance optimizations:
  * - Observes platform-specific root instead of document.body (P-1)
  * - Debouncing prevents excessive DOM queries during rapid mutation bursts
  */
-function waitForConversationContainer(): Promise<void> {
+function waitForConversationContainer(readinessSelector: string): Promise<void> {
   return new Promise(resolve => {
     // Check if already exists
-    const existing = document.querySelector(CONVERSATION_CONTAINER_SELECTOR);
+    const existing = document.querySelector(readinessSelector);
     if (existing) {
       resolve();
       return;
@@ -187,7 +184,7 @@ function waitForConversationContainer(): Promise<void> {
 
     // Debounced check function
     const checkForContainer = (obs: MutationObserver) => {
-      const container = document.querySelector(CONVERSATION_CONTAINER_SELECTOR);
+      const container = document.querySelector(readinessSelector);
       if (container) {
         obs.disconnect();
         if (debounceTimer) {
@@ -271,8 +268,8 @@ export async function initialize(): Promise<void> {
 
   console.info(`[G2O] Using ${extractor.platform} extractor`);
 
-  // Wait for conversation container (L-03)
-  await waitForConversationContainer();
+  // Only this platform's hint may trigger UI injection (L-03).
+  await waitForConversationContainer(CONVERSATION_READY_SELECTORS[extractor.platform]);
 
   // Apply throttle to sync handler (NEW-06)
   const throttledHandleSync = throttle(() => handleSync('current'), EVENT_THROTTLE_DELAY);

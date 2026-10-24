@@ -118,6 +118,22 @@ File/Clipboard, first saves, valid complete/unknown traffic, and immutable archi
 presentations remain unchanged. The count comparison deliberately does not
 claim message-prefix equivalence.
 
+### Selector-derived provider readiness — local candidate complete
+
+Four compatibility commits are ported independently onto current `main` without
+the stale branch's truncation or roadmap history. Bootstrap's old joined generic
+selector is replaced by an exhaustive typed map derived from each provider's
+owned selector module. The current provider alone is queried, with complete
+current/legacy fallbacks and one unchanged 10-second escape for absent or
+virtualized DOM.
+
+This is an injection hint, not extraction authority. It starts no capture,
+request, message, write, or credential path, and it does not change ChatGPT or
+DeepSeek structured-first behavior. Perplexity's legacy query path is
+single-sourced for extraction and readiness without joining it to the current
+live-selector contract. Focused/full evidence and the independent cross-provider
+matrix are recorded in `STATUS.md`; live provider timing remains unproven.
+
 ### Gemini completeness and title
 
 Source commits: `c2edc47`, `2c06dbe`.

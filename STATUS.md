@@ -1170,6 +1170,40 @@ hash or size differences and was reloaded once. The extension details page
 showed an active service worker and no Errors control. No second private-chat
 export was needed or performed.
 
+## Provider-owned readiness checkpoint
+
+The fresh `codex/provider-readiness-port` branch ports only the four selector
+readiness commits from the stale compatibility stack onto current `main`.
+Historical STATUS/provider-plan edits and the superseded truncation guard are
+absent from the code diff. Bootstrap now receives one exhaustive typed
+`CONVERSATION_READY_SELECTORS` map derived from each extractor's owned selector
+module instead of carrying a broad duplicate cross-provider literal.
+
+The map covers six logical platforms and all seven registered host surfaces:
+Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and both Gemini Notebook hosts.
+Immediate and MutationObserver checks query only the selected provider's full
+supported readiness surface, including current and legacy fallbacks. Perplexity's
+legacy query selector is single-sourced outside its current live-selector group;
+Claude combines the complete post-PR-43 user/assistant role groups while requiring
+an indexed owned row or supported rowless transcript root. Foreign-provider,
+broad conversation-class, dead ChatGPT article, and thread-width decoys do not
+trigger early injection.
+
+Readiness remains only a local UI-control hint. It performs no extraction,
+capture, messaging, fetch, persistence, or credential read. ChatGPT and DeepSeek
+remain structured-first, the 100 ms mutation debounce is unchanged, and the
+unconditional 10-second escape still injects controls when a supported page has
+no mounted conversation DOM.
+
+Evidence: the focused selector/bootstrap/Perplexity matrix passes 5 files / 276
+tests; the complete suite passes 196 files / 6,594 tests. Production build
+transforms 252 modules; formatting, diff checks, and source/platform lint pass
+with zero errors and the same three pre-existing warnings. Independent review
+ran the production modules through 18 positive, 90 cross-provider negative, and
+four unsupported DOM cases with zero discrepancy and found no material issue.
+No live-provider timing or injection claim is attached to this wiring
+checkpoint.
+
 ## Typed partial DOM persistence checkpoint
 
 Source head `32fb7b5` carries the existing DOM loader outcome as runtime-only

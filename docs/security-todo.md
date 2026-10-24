@@ -285,17 +285,20 @@ The first source audit is complete in
 The follow-up [`upstream-2.14.15-audit.md`](upstream-2.14.15-audit.md) classifies
 the 13 commits through `v2.14.15`. Dependency updates are already present or
 inapplicable; the NotebookLM selector change is optional housekeeping. The
-bounded DES-019 follow-up confirmed a list-fence/raw-HTML seam and now has a
-sentinel-range-aware local candidate; upstream append-context and size-policy
-work remain deliberately unported.
+bounded DES-019 follow-up and its sentinel-range-aware final-note boundary are
+merged through PR 42; upstream append-context and size-policy work remain
+deliberately unported.
 
 - Inspect provider blocks that Liska has changed least: Perplexity,
   Gemini/NotebookLM, Claude, common Markdown conversion, storage/Obsidian, UI,
   and CI.
-- The October Claude DOM/thread slice now has a current-main candidate with
+- The October Claude DOM/thread slice is merged through PR 43 with
   bounded offline coverage and one current-window live canary. Full-history
   auto-scroll and live October tool-label output remain explicit runtime gaps;
   do not reuse the stale compatibility branch's truncation implementation.
+- Selector-derived provider readiness now has a current-main candidate with an
+  exhaustive provider/host map and cross-provider negative matrix. It remains a
+  UI-injection hint; no live-provider timing claim or capture authority follows.
 - Map upstream fixes to the current Liska architecture before porting them;
   preserve raw-first archives, explicit branch selection, destination honesty,
   immutable snapshots, and the no-credential-export boundary.
@@ -309,8 +312,8 @@ work remain deliberately unported.
    duplicate, or hardening-only items against the zero-finding final scan.
 2. Close a finding only after the corresponding current-head invariant and
    verification evidence are explicit.
-3. Review and merge the bounded DES-019 local candidate, then retain only the
-   still-unproven append-context, transformed-size, and ordering candidates.
+3. Retain only the still-unproven DES-019 append-context, transformed-size, and
+   ordering candidates; the confirmed final-note seam is already merged.
 4. Send each later provider/security slice through its own focused pull request
    and final-main continuous scan.
 
