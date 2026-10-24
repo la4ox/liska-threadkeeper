@@ -175,10 +175,14 @@ terminal states, and the existing no-credential-export boundary.
   bindings once, render leaves without repeated whole-graph traversal, and
   accept only complete same-session facts for a deterministic local index. This
   is not yet delivery evidence.
-- Next HTML slice: authorize one finalized canonical session, then add two-pass
+- B2a background persistence is implemented but not yet invoked by the exporter:
+  one closed leaf/index artifact can write HTML and then a locally built receipt
+  with independent confirmed/unknown/not-dispatched outcomes, exact settings and
+  sender admission, one-send transport and no retry/completeness claim.
+- Next HTML slice (B2b): authorize one finalized canonical session and build
+  branch artifacts through that transport. B3 then adds two-pass
   measurement/recreation, aggregate HTML work/write accounting, cancellation,
-  unknown-write stop, independent Markdown/HTML completion, and deterministic
-  per-leaf/index persistence receipts.
+  unknown-write stop and independent Markdown/HTML bundle completion.
 - Automatic PDF remains a separate transport/rendering decision after HTML
   bundle behavior is stable.
 - Design image-aware append behavior for existing Obsidian notes.
@@ -273,8 +277,9 @@ The ChatGPT block is ready to call broadly complete when:
 Wait for the parent canonical HTML File-delivery pull request to finish clean
 review, merge it, then rebase and submit the already verified
 destination-finalized asset-binding slice. Rebase the prepared all-branches HTML
-core after that, review it independently, then implement B2/B3 delivery and
-aggregate accounting without folding in ChatGPT provider drift. The remaining
+core/B2a stack after that, review it independently, then implement B2b/B3
+authorization, orchestration and aggregate accounting without folding in
+ChatGPT provider drift. The remaining
 evidence-backed gates are a real staged capture above 16 MiB, a live
 multi-output same-title sample, or one available additional binary family. The
 1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB

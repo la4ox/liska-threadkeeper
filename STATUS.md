@@ -1377,3 +1377,43 @@ with only the same three pre-existing warnings and zero known dependency
 vulnerabilities. Browser delivery, persistence, aggregate HTML budgets,
 cancellation and unknown-write behavior remain B2/B3; the closure-private
 message bodies retain the documented no-mutation obligation.
+
+## Canonical HTML all-branches B2a persistence checkpoint
+
+Source commits `395c80d` and `f28281e` add a closed, not-yet-invoked File
+transport for one already-built branch leaf or index. The exact
+`persistDerivedBranchHtmlPresentation` envelope accepts no caller path, receipt,
+bundle count or completeness flag. Background verifies the detached
+`liska-derived-branch-html/1` bytes first, writes the exact generated HTML path
+once, and only terminal exact-path confirmation authorizes construction and one
+write of the locally matched receipt. Current-view v1 remains a separate action
+and response contract.
+
+`liska-derived-branch-html-persist-response/1` retains two independent sink
+facts. Confirmed HTML is not downgraded when its receipt is unknown or
+not-dispatched; unknown HTML blocks the receipt and cannot authorize a retry.
+Cleanup-deferred evidence stays on the affected write. A bounded content sender
+distinguishes pre-dispatch refusal, attempted-but-unconfirmed transport, and a
+validated detached response; its 120-second deadline reports only unconfirmed,
+does not cancel the background write, ignores late callbacks and never retries.
+
+Independent review found two admission P2s before the final state. First,
+descriptor validation did not retain the admitted caller envelope, so a Proxy
+or mutation during `getSettings()` could replace capture identity before File
+dispatch. The listener now snapshots the complete envelope, artifact and dense
+File output exactly once before sizing and uses that detached value throughout.
+Second, a stateful `action` descriptor could initially evade detachment and flip
+later. New branch dispatch now also requires a closure-local admission
+capability threaded through every async gate and checked at the final handler;
+the message cannot supply it. Five tested flip points produce zero writes. A
+separate callback-context loss that could leave the sender pending is bounded
+and settles value-free as unconfirmed.
+
+Evidence: all 188 test files / 6,079 tests pass in six memory-bounded batches.
+The focused background/B1/B2a matrix passes 33 suites / 1,097 tests, and the
+bounded sender matrix passes 10 suites / 434 tests. Production typecheck/build
+(244 modules), repository formatting, diff checks, source/platform lint and
+`npm audit` pass with only the same three pre-existing warnings and zero known
+dependency vulnerabilities. B2a has no bootstrap caller and makes no delivery
+claim; live Chrome timing, B2b canonical authorization and B3 bundle
+orchestration remain explicit next gates.
