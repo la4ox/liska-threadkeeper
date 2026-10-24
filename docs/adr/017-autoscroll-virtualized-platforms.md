@@ -102,6 +102,34 @@ Fix: anchor on the semantic `[data-scroll-root]`; secondary
 thread scroller — the nav uses plain `overflow-y-auto`). Regression covered by a
 decoy-nav fixture in `test/extractors/chatgpt-autoscroll.test.ts`.
 
+## Paired turns and reversed scroll origin (2026-10-25 extension)
+
+Upstream September evidence reported a second ChatGPT layout: one
+`div[data-turn-key]` contains both the prompt and answer, while the semantic
+timeline scroller uses `flex-direction: column-reverse`. In that layout
+`scrollTop = 0` means newest/bottom and older content is reached through
+negative values. Treating zero as oldest/top therefore skips the whole
+accumulation pass.
+
+Liska now normalizes ordinary and reversed containers through one `ScrollAxis`
+whose public measure is distance from the oldest edge. Existing Claude and
+legacy ChatGPT positive-axis behavior stays unchanged. ChatGPT additionally
+requires a two-second visible rest at the oldest edge: a zero-range seed is not
+declared complete while older pages can still appear, newly loaded history
+restarts the settle, and a hidden document times out as runtime `partial`.
+
+Current and legacy ChatGPT turn selectors are collected together and
+priority-deduplicated by DOM overlap. A current pair emits prompt then answer;
+legacy sections retain their global ordinal. Valid `data-turn-key` evidence
+outranks late child message IDs so a streaming remount replaces stale content
+instead of duplicating it. Keyless remount identity remains best-effort and is
+acceptable only because every rendered fallback is explicitly marked partial.
+
+The change is fallback-only. API-first complete graph capture, selected/replay
+fail-closed behavior, raw/canonical archives, verified binary acquisition, and
+destination receipts are outside this axis contract. Upstream blob-image
+capture is not included.
+
 ## Open questions
 
 - **Live desktop ChatGPT end-to-end**: both automated Chromes force the mweb
@@ -114,3 +142,7 @@ decoy-nav fixture in `test/extractors/chatgpt-autoscroll.test.ts`.
   turns while keeping the newest ones mounted.
 - Exact stop-condition tuning (stable-iteration threshold, per-window scroll
   delta) per platform.
+- The current paired CSS anchors and a real reversed-scroll pass could not be
+  inspected through browser automation because host authority was denied. The
+  implementation is therefore backed by upstream measurements plus synthetic
+  fixtures, not a fresh raw-DOM/live-scroll claim.

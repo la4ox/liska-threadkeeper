@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { ChatGPTExtractor } from '../../src/content/extractors/chatgpt';
-import { SELECTORS } from '../../src/content/extractors/selectors/chatgpt';
+import { LEGACY_SELECTORS } from '../../src/content/extractors/selectors/chatgpt';
 import {
   clearFixture,
   loadFixture,
@@ -214,7 +214,7 @@ describe('ChatGPTExtractor auto-scroll (virtualization)', () => {
     );
     loadFixture(html);
 
-    const container = extractor['queryWithFallback']<HTMLElement>(SELECTORS.scrollContainer);
+    const container = extractor['queryWithFallback']<HTMLElement>(LEGACY_SELECTORS.scrollContainer);
     expect(container).not.toBeNull();
   });
 });

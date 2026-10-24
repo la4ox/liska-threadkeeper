@@ -299,6 +299,10 @@ deliberately unported.
 - Selector-derived provider readiness now has a current-main candidate with an
   exhaustive provider/host map and cross-provider negative matrix. It remains a
   UI-injection hint; no live-provider timing claim or capture authority follows.
+- ChatGPT paired-turn and reverse-axis handling now has a fallback-only local
+  candidate. API-first archives remain authoritative; live CSS/reverse-scroll
+  and keyless cross-window identity remain explicit gaps rather than inferred
+  support.
 - Map upstream fixes to the current Liska architecture before porting them;
   preserve raw-first archives, explicit branch selection, destination honesty,
   immutable snapshots, and the no-credential-export boundary.

@@ -13,7 +13,7 @@
 import type { AIPlatform } from '../../../lib/types';
 import { SELECTORS as GEMINI } from './gemini';
 import { SELECTORS as CLAUDE } from './claude';
-import { SELECTORS as CHATGPT } from './chatgpt';
+import { SELECTORS as CHATGPT, LEGACY_SELECTORS as CHATGPT_LEGACY } from './chatgpt';
 import { SELECTORS as PERPLEXITY, LEGACY_USER_QUERY } from './perplexity';
 import { SELECTORS as DEEPSEEK } from './deepseek';
 import { SELECTORS as NOTEBOOKLM } from './notebooklm';
@@ -29,7 +29,7 @@ export const CONVERSATION_READY_SELECTORS: Readonly<Record<AIPlatform, string>> 
     ...CLAUDE.conversationRow.map(row => `${row}:has(${CLAUDE_MESSAGE_SELECTOR})`),
     `.conversation-thread:has(${CLAUDE_MESSAGE_SELECTOR})`,
   ].join(', '),
-  chatgpt: CHATGPT.conversationTurn.join(', '),
+  chatgpt: [...CHATGPT.conversationTurn, ...CHATGPT_LEGACY.conversationTurn].join(', '),
   // The user query renders before an answer; Perplexity has no turn wrapper.
   perplexity: [...PERPLEXITY.userQuery, ...LEGACY_USER_QUERY].join(', '),
   deepseek: DEEPSEEK.message.join(', '),

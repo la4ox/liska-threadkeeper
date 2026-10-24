@@ -489,6 +489,111 @@ describe('accumulateWhileScrolling', () => {
     expect(result.items).toEqual(['v0', 'v1', 'v2']);
   });
 
+  it('does not skip a zero-range reversed view while a top-settle load can still arrive', async () => {
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column-reverse';
+    const started = Date.now();
+    let scrollTop = 0;
+    Object.defineProperty(container, 'scrollTop', {
+      get: () => scrollTop,
+      set: (value: number) => {
+        const range = Date.now() - started >= 1_000 ? 1_000 : 0;
+        scrollTop = Math.max(-range, Math.min(0, value));
+      },
+      configurable: true,
+    });
+    Object.defineProperty(container, 'clientHeight', { get: () => 500, configurable: true });
+    Object.defineProperty(container, 'scrollHeight', {
+      get: () => (Date.now() - started >= 1_000 ? 1_500 : 500),
+      configurable: true,
+    });
+    const harvest = () =>
+      Date.now() - started >= 1_000
+        ? [
+            { key: 'older', value: 'older' },
+            { key: 'newest', value: 'newest' },
+          ]
+        : [{ key: 'newest', value: 'newest' }];
+
+    const promise = accumulateWhileScrolling(container, harvest, { topSettleMs: 2_000 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.skipped).toBe(false);
+    expect(result.fullyLoaded).toBe(true);
+    expect(result.items).toEqual(['older', 'newest']);
+  });
+
+  it('restarts the full top settle whenever another zero-range history page arrives', async () => {
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column-reverse';
+    Object.defineProperty(container, 'scrollTop', {
+      get: () => 0,
+      set: () => {},
+      configurable: true,
+    });
+    Object.defineProperty(container, 'clientHeight', { get: () => 1_000, configurable: true });
+    Object.defineProperty(container, 'scrollHeight', { get: () => 1_000, configurable: true });
+    const started = Date.now();
+    const harvest = () => {
+      const elapsed = Date.now() - started;
+      if (elapsed >= 4_000) {
+        return [
+          { key: 'oldest', value: 'oldest' },
+          { key: 'older', value: 'older' },
+          { key: 'newest', value: 'newest' },
+        ];
+      }
+      if (elapsed >= 2_200) {
+        return [
+          { key: 'older', value: 'older' },
+          { key: 'newest', value: 'newest' },
+        ];
+      }
+      return [{ key: 'newest', value: 'newest' }];
+    };
+
+    const promise = accumulateWhileScrolling(container, harvest, { topSettleMs: 2_000 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.fullyLoaded).toBe(true);
+    expect(result.items).toEqual(['oldest', 'older', 'newest']);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(6_000);
+  });
+
+  it('never calls a hidden zero-range settled pass complete', async () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column-reverse';
+    Object.defineProperty(container, 'scrollTop', {
+      get: () => 0,
+      set: () => {},
+      configurable: true,
+    });
+    Object.defineProperty(container, 'clientHeight', { get: () => 500, configurable: true });
+    Object.defineProperty(container, 'scrollHeight', { get: () => 500, configurable: true });
+
+    try {
+      const promise = accumulateWhileScrolling(
+        container,
+        () => [{ key: 'visible-window', value: 'visible-window' }],
+        { topSettleMs: 2_000 }
+      );
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.skipped).toBe(false);
+      expect(result.fullyLoaded).toBe(false);
+      expect(result.items).toEqual(['visible-window']);
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    }
+  });
+
   it('reports fullyLoaded=false when the DOM never stabilizes (timeout)', async () => {
     // Harvest that always yields a brand-new unique key → never stabilizes.
     const container = document.createElement('div');

@@ -1204,6 +1204,55 @@ four unsupported DOM cases with zero discrepancy and found no material issue.
 No live-provider timing or injection claim is attached to this wiring
 checkpoint.
 
+## ChatGPT paired-DOM fallback checkpoint
+
+The fresh `codex/chatgpt-dom-fallback` branch selectively adapts upstream
+`b60e88c` to Liska's explicitly partial rendered fallback. API-first complete
+graph capture remains the ordinary path; selected-branch and explicit replay
+failures remain fail-closed; raw/manifest/canonical companions, structured
+projection, archive image authority, destination receipts, and partial-DOM
+overwrite protection are unchanged. Upstream's blob-image collector and global
+current-layout-first switch are deliberately absent.
+
+The fallback now recognizes current `div[data-turn-key]` pairs and every
+supported legacy section selector together. Priority-preserving DOM overlap
+selection keeps distinct mixed-rollout roots while dropping only a weaker
+containing duplicate. A paired turn emits its prompt followed by its rendered
+answer blocks; date separators and the assistant role label stay out of both.
+A valid stable turn key always controls both role keys even when child message
+IDs arrive later. Child IDs are used only when the turn key is absent; keyless
+same-window duplicates retain distinct fallback keys. Identity across keyless
+virtual remounts remains best-effort, consistent with the mandatory
+`dom-fallback / partial` result.
+
+One shared scroll axis now measures distance from the oldest edge for ordinary
+positive and column-reverse negative scroll origins. ChatGPT requests a two-
+second visible top settle so late older pages can mount before completion. A
+zero-range current window is not skipped while that settle can still produce
+history; hidden pages never settle complete and flow into the existing runtime
+`partial` outcome. Normal-axis Claude and legacy ChatGPT behavior retain their
+previous accumulation semantics.
+
+Independent review found and closed four P2 data-integrity seams: paired user
+fallback could misclassify assistant preformatted text; first-match legacy turn
+selection could discard a distinct testid-only root; and late child IDs could
+change stable remount keys and retain stale plus final messages. GitHub review
+then proved that zero-range history growth reset stability but not the settle
+clock, letting a second late page be skipped; every growth now restarts both.
+The final pass
+also verified API-first/selected/replay isolation, mixed current/legacy order,
+reverse-axis delayed loading, hidden/zero-range handling, and typed partial-DOM
+persistence.
+
+Evidence: ten focused suites pass 366 tests; the complete suite passes 198
+files / 6,615 tests. Production build transforms 253 modules; formatting, diff
+checks, and source/platform lint pass with zero errors and the same three
+pre-existing warnings. Raw browser DOM access was unavailable under the browser
+host policy. A native read-only observation exposed one visible user heading and
+two assistant headings plus the current compact launcher, but does not prove the
+CSS selectors or real reverse-scroll mechanics. No forced live fallback or live
+full-history claim is attached to this checkpoint.
+
 ## Typed partial DOM persistence checkpoint
 
 Source head `32fb7b5` carries the existing DOM loader outcome as runtime-only

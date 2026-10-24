@@ -8,48 +8,38 @@
 import type { SelectorGroup } from './types';
 
 export const SELECTORS = {
-  // Conversation turn (each Q&A pair)
-  // ChatGPT changed from <article> to <section> in 2026-03; the article
-  // variants matched nothing on the live site by 2026-07 and were removed
-  // (the baseline contract rejects zero-match entries).
-  // The `data-testid` ordinal is numbered across the whole conversation and is
-  // NOT renumbered per mounted window (measured live 2026-07-29: a mid-scroll
-  // window reported turns 17-21, the top window 1-21). ChatGPTExtractor reads it
-  // as the accumulation order index — see `turnOrdinal()` and issue #353.
-  conversationTurn: [
-    'section[data-turn-id]', // Current structure (HIGH)
-    'section[data-testid^="conversation-turn"]', // Current test attr (MEDIUM)
-  ],
+  // Current paired turn: one stable wrapper holds a prompt and its answer.
+  // `fallback-turn-N` descendants are window-relative and are never used as
+  // conversation-wide order evidence.
+  conversationTurn: ['div[data-turn-key]'],
 
-  // User message
+  // Prompt text inside a paired turn.
+  userMessage: ['[data-user-message-bubble] .whitespace-pre-wrap'],
+
+  // Role marker, not answer content. It also exists on image-only answers.
+  assistantRole: ['[data-conversation-role="assistant"]'],
+
+  // Assistant Markdown blocks inside a paired turn.
+  markdownContent: ['[data-markdown-text-style="assistant-message"]'],
+
+  // Current semantic thread scroller. It is column-reverse; the sidebar uses a
+  // distinct data-app-action-sidebar-scroll attribute.
+  scrollContainer: ['[data-app-action-timeline-scroll]'],
+} as const satisfies SelectorGroup;
+
+/** Supported pre-paired rollout, kept outside the current live baseline. */
+export const LEGACY_SELECTORS = {
+  conversationTurn: ['section[data-turn-id]', 'section[data-testid^="conversation-turn"]'],
   userMessage: [
-    '[data-message-author-role="user"] .whitespace-pre-wrap', // Structure (HIGH)
-    'section[data-turn="user"] .whitespace-pre-wrap', // Current structure (HIGH)
-    '.user-message-bubble-color .whitespace-pre-wrap', // Style (MEDIUM)
+    '[data-message-author-role="user"] .whitespace-pre-wrap',
+    'section[data-turn="user"] .whitespace-pre-wrap',
+    '.user-message-bubble-color .whitespace-pre-wrap',
   ],
-
-  // Assistant message
   assistantResponse: [
-    '[data-message-author-role="assistant"] .markdown.prose', // Structure (HIGH)
-    'section[data-turn="assistant"] .markdown.prose', // Current structure (HIGH)
-    '.markdown.prose.dark\\:prose-invert', // Style (MEDIUM)
+    '[data-message-author-role="assistant"] .markdown.prose',
+    'section[data-turn="assistant"] .markdown.prose',
+    '.markdown.prose.dark\\:prose-invert',
   ],
-
-  // Markdown content
-  markdownContent: [
-    '.markdown.prose', // Semantic (HIGH)
-    '.markdown-new-styling', // Style (MEDIUM)
-  ],
-
-  // Scroll container for virtualized-conversation auto-scroll (ADR-017).
-  // ChatGPT windows/evicts turns; the thread scroller carries data-scroll-root
-  // and uses the `not-print:overflow-y-auto` token. IMPORTANT: the sidebar <nav>
-  // also has `flex-1 flex-col overflow-y-auto` (plain, scrollTop 0), so a
-  // class-only `overflow-y-auto` selector picks the nav and skips auto-scroll
-  // (verified live 2026-07). Anchor on data-scroll-root; the `not-print:` prefix
-  // uniquely distinguishes the thread scroller from the nav.
-  scrollContainer: [
-    '[data-scroll-root]', // Semantic scroll root (HIGH)
-    '[class*="not-print:overflow-y-auto"]', // Thread-only overflow token (MEDIUM)
-  ],
+  markdownContent: ['.markdown.prose', '.markdown-new-styling'],
+  scrollContainer: ['[data-scroll-root]', '[class*="not-print:overflow-y-auto"]'],
 } as const satisfies SelectorGroup;

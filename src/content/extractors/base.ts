@@ -37,6 +37,8 @@ export interface ScrollConfig {
   readonly container: readonly string[];
   /** Harvest the currently-mounted window as keyed messages, in DOM order. */
   harvest(): HarvestEntry<ConversationMessage>[];
+  /** Visible rest required at the oldest edge before completion. */
+  readonly topSettleMs?: number;
 }
 
 /**
@@ -175,7 +177,9 @@ export abstract class BaseExtractor implements IConversationExtractor {
       return { messages: this.extractMessages(), domHistoryLoad: 'unknown' };
     }
 
-    const result = await accumulateWhileScrolling(container, () => config.harvest());
+    const result = await accumulateWhileScrolling(container, () => config.harvest(), {
+      topSettleMs: config.topSettleMs,
+    });
     // Re-index into contiguous conversation order after de-duplication.
     const messages = result.items.map((message, index) => ({ ...message, index }));
 

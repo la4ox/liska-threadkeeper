@@ -2,7 +2,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { CONVERSATION_READY_SELECTORS } from '../../src/content/extractors/selectors/ready';
 import { SELECTORS as GEMINI } from '../../src/content/extractors/selectors/gemini';
 import { SELECTORS as CLAUDE } from '../../src/content/extractors/selectors/claude';
-import { SELECTORS as CHATGPT } from '../../src/content/extractors/selectors/chatgpt';
+import {
+  SELECTORS as CHATGPT,
+  LEGACY_SELECTORS as CHATGPT_LEGACY,
+} from '../../src/content/extractors/selectors/chatgpt';
 import {
   SELECTORS as PERPLEXITY,
   LEGACY_USER_QUERY,
@@ -48,12 +51,21 @@ describe('CONVERSATION_READY_SELECTORS', () => {
 
   it.each([
     ['gemini', [...GEMINI.conversationTurn, ...GEMINI.userQuery, ...GEMINI.modelResponse]],
-    ['chatgpt', CHATGPT.conversationTurn],
+    ['chatgpt', [...CHATGPT.conversationTurn, ...CHATGPT_LEGACY.conversationTurn]],
     ['perplexity', [...PERPLEXITY.userQuery, ...LEGACY_USER_QUERY]],
     ['deepseek', DEEPSEEK.message],
     ['notebooklm', NOTEBOOKLM.conversationTurn],
   ] as const)('includes the full %s extractor group in priority order', (platform, selectors) => {
     expect(CONVERSATION_READY_SELECTORS[platform]).toBe(selectors.join(', '));
+  });
+
+  it.each([
+    ['current', '<div data-turn-key="turn-1"></div>'],
+    ['legacy id', '<section data-turn-id="turn-1"></section>'],
+    ['legacy test id', '<section data-testid="conversation-turn-1"></section>'],
+  ])('accepts the supported ChatGPT %s turn', (_label, html) => {
+    document.body.innerHTML = html;
+    expect(document.querySelector(CONVERSATION_READY_SELECTORS.chatgpt)).not.toBeNull();
   });
 
   it('includes all owned Claude row and message selectors in its qualified hint', () => {
