@@ -6,6 +6,12 @@
     "message": "Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook のスレッドをローカル Markdown として保存"
   },
 
+  "ui_launcherLabel": {
+    "message": "Liska の書き出し操作"
+  },
+  "ui_launcherLoading": {
+    "message": "Liska — 書き出し中"
+  },
   "ui_syncButton": {
     "message": "スレッドを書き出す"
   },
