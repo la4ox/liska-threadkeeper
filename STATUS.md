@@ -1002,3 +1002,29 @@ and diff checks pass; lint retains only the same three pre-existing advisory
 warnings. This protects affirmative DOM-deadline truncation, not arbitrary
 provider incompleteness or concurrent read-to-write vault races; no live
 browser/vault claim is made for this checkpoint.
+
+Provider UI readiness is now derived from the same owned selector modules as
+the extractors on `codex/provider-readiness`. The exhaustive typed map covers
+six logical providers and all seven registered host surfaces: Gemini, Claude,
+ChatGPT, Perplexity, DeepSeek, and both Gemini Notebook hosts. Bootstrap no
+longer carries its own broad conversation-class, dead ChatGPT article, or
+thread-width selector copies.
+
+This remains only an early control-injection hint. ChatGPT and DeepSeek stay
+structured-first; initialization performs no extraction, messaging, fetch, or
+capture, and the trusted-click boundary is unchanged. GitHub review caught six
+P2 readiness edges across three heads. Bootstrap now queries only the current
+extractor's typed hint and includes every supported DOM fallback: ChatGPT's
+alternate turn identity, Gemini's rowless root extraction, a single-sourced
+Perplexity legacy query span, and Claude messages either in a qualified indexed
+row or inside its legacy `.conversation-thread` root. Indexed sidebars,
+message-like elements outside that root, and cross-provider legacy markup remain
+excluded. Thirty-four failing-before-fix regressions cover the review follow-ups;
+the final independent pass found no residual P0-P3 issue. The existing 100 ms
+mutation debounce and unconditional 10-second escape remain intact so missing
+or virtualized provider DOM cannot permanently hide the controls. Exact-tree
+validation passes 171 test files / 5,299 tests; coverage is 95.34% statements,
+91.41% branches, 98.68% functions, and 97.79% lines. TypeScript/build,
+source/platform lint, formatting, and diff checks pass; lint retains only the
+same three pre-existing advisory warnings. No live-provider claim is attached
+to this wiring checkpoint.

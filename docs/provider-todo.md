@@ -63,11 +63,27 @@ implementation and validation receipts remain in [`STATUS.md`](../STATUS.md).
 
 ### 3. Selector-derived readiness and Gemini title
 
-- Derive provider readiness from each provider's owned selectors rather than the
-  inline bootstrap literal. Include DeepSeek and Liska's raw-first ChatGPT
-  selectors rather than copying upstream's narrower provider map.
-- Consider Gemini document-title naming separately. Before enabling it, verify
-  append on/off and existing-note reuse because changed titles affect filenames.
+- Selector-derived readiness is implemented on `codex/provider-readiness`.
+  The exhaustive map uses each provider's owned primary group, includes
+  DeepSeek, and covers both Gemini Notebook hosts through the registry. The
+  bootstrap duplicate literal and its broad/dead variants are gone.
+- Readiness remains only a UI-injection hint: ChatGPT and DeepSeek are still
+  structured-first, initialization performs no capture, and the 100 ms debounce
+  plus unconditional 10-second escape are unchanged. Six GitHub P2s across
+  three heads closed cross-provider matches, current/legacy fallback omissions,
+  and Claude sidebar/rowless ambiguity. Bootstrap now queries the current
+  platform's complete supported readiness surface; Perplexity's legacy query is
+  single-sourced outside its live selector contract, Gemini root fallback is
+  included, and Claude rowless identities require `.conversation-thread`.
+  Thirty-four failing-before-fix regressions cover the follow-ups and the final
+  independent review is clean. Exact-tree validation passes 171 files / 5,299
+  tests; build, lint, formatting, and diff checks pass. No live-provider claim
+  is made.
+- Gemini document-title naming remains a separate evidence-gated change. It
+  affects new filename slugs and append-off duplication even though append-on
+  lookup remains ID-based. Before enabling it, verify a named chat, an unnamed
+  chat, and SPA navigation title timing against current Gemini, then recheck
+  both filename schemes and collision behavior.
 
 ### 4. Later bounded product slices
 
