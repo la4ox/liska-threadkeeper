@@ -2,9 +2,13 @@
 import { jsonUtf8ByteLength } from '../lib/byte-size';
 import { MAX_EXTENSION_MESSAGE_SIZE } from '../lib/constants';
 import {
+  buildDerivedBranchOutputReceiptBytes,
   buildDerivedBranchOutputReceipt,
+  deriveBranchHtmlReceiptRelativePath,
   matchDerivedBranchOutputReceipt,
   snapshotDerivedBranchHtmlArtifact,
+  type DerivedBranchHtmlReceiptRelativePath,
+  type DerivedBranchOutputReceipt,
 } from '../lib/derived-branch-presentation-contract';
 import {
   snapshotDerivedBranchHtmlPersistResponse,
@@ -14,10 +18,17 @@ import type { DerivedOutputIdentity } from '../lib/derived-presentation-contract
 import { isSerializedSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 import type { ExtensionMessage } from '../lib/types';
 
-type BranchHtmlMessage = Extract<
+export type BranchHtmlMessage = Extract<
   ExtensionMessage,
   { action: 'persistDerivedBranchHtmlPresentation' }
 >;
+export interface DerivedBranchHtmlPersistenceEnvelope {
+  readonly message: BranchHtmlMessage;
+  readonly messageByteLength: number;
+  readonly receipt: DerivedBranchOutputReceipt;
+  readonly receiptBytes: Uint8Array;
+  readonly receiptRelativePath: DerivedBranchHtmlReceiptRelativePath;
+}
 export type DerivedBranchHtmlSend = (message: BranchHtmlMessage) => Promise<unknown>;
 export type DerivedBranchHtmlPersistenceObservation =
   | { state: 'not-dispatched' }
@@ -26,6 +37,50 @@ export type DerivedBranchHtmlPersistenceObservation =
 
 /** Two sequential 30s Downloads windows plus offscreen/path checks; expiry never cancels or retries. */
 export const DERIVED_BRANCH_HTML_DEFAULT_SEND_DEADLINE_MS = 120_000;
+
+/**
+ * Deterministic, side-effect-free preflight shared by measurement and the real sender.
+ * Returned bodies are transient caller-owned values; the measurement plan never retains them.
+ */
+export function buildDerivedBranchHtmlPersistenceEnvelope(
+  expectedIdentity: DerivedOutputIdentity,
+  value: unknown,
+  expectedSyncSettingsSnapshot: string
+): DerivedBranchHtmlPersistenceEnvelope | undefined {
+  try {
+    if (!isSerializedSyncSettingsSnapshot(expectedSyncSettingsSnapshot)) return undefined;
+    const artifact = snapshotDerivedBranchHtmlArtifact(value);
+    if (!artifact) return undefined;
+    const receipt = buildDerivedBranchOutputReceipt(expectedIdentity, artifact);
+    const identity = {
+      source: receipt.source,
+      captureId: receipt.captureId,
+      conversationKey: receipt.conversationKey,
+    };
+    if (!matchDerivedBranchOutputReceipt(receipt, identity, artifact)) return undefined;
+    const message: BranchHtmlMessage = {
+      action: 'persistDerivedBranchHtmlPresentation',
+      reportDurableWriteOutcome: true,
+      ...identity,
+      expectedSyncSettingsSnapshot,
+      artifact,
+      outputs: ['file'],
+    };
+    const messageByteLength = jsonUtf8ByteLength(message);
+    if (messageByteLength > MAX_EXTENSION_MESSAGE_SIZE) return undefined;
+    return {
+      message,
+      messageByteLength,
+      receipt,
+      receiptBytes: buildDerivedBranchOutputReceiptBytes(receipt),
+      receiptRelativePath: deriveBranchHtmlReceiptRelativePath(
+        artifact.role === 'leaf' ? { role: 'leaf', ordinal: artifact.ordinal } : { role: 'index' }
+      ),
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 /** Keep this new closed response separate from legacy MultiOutputResponse messaging. */
 function sendBranchHtmlMessage(message: BranchHtmlMessage): Promise<unknown> {
@@ -68,33 +123,14 @@ export async function persistDerivedBranchHtmlArtifactForFile(
 ): Promise<DerivedBranchHtmlPersistenceObservation> {
   let message: BranchHtmlMessage;
   try {
-    if (
-      typeof send !== 'function' ||
-      !isSerializedSyncSettingsSnapshot(expectedSyncSettingsSnapshot)
-    )
-      return { state: 'not-dispatched' };
-    const artifact = snapshotDerivedBranchHtmlArtifact(value);
-    if (!artifact) return { state: 'not-dispatched' };
-    // The strict receipt builder snapshots caller identity through own data descriptors.
-    // Match against its detached identity, never against the caller object again.
-    const receipt = buildDerivedBranchOutputReceipt(expectedIdentity, artifact);
-    const identity = {
-      source: receipt.source,
-      captureId: receipt.captureId,
-      conversationKey: receipt.conversationKey,
-    };
-    if (!matchDerivedBranchOutputReceipt(receipt, identity, artifact))
-      return { state: 'not-dispatched' };
-    message = {
-      action: 'persistDerivedBranchHtmlPresentation',
-      reportDurableWriteOutcome: true,
-      ...identity,
-      expectedSyncSettingsSnapshot,
-      artifact,
-      outputs: ['file'],
-    };
-    if (jsonUtf8ByteLength(message) > MAX_EXTENSION_MESSAGE_SIZE)
-      return { state: 'not-dispatched' };
+    if (typeof send !== 'function') return { state: 'not-dispatched' };
+    const envelope = buildDerivedBranchHtmlPersistenceEnvelope(
+      expectedIdentity,
+      value,
+      expectedSyncSettingsSnapshot
+    );
+    if (!envelope) return { state: 'not-dispatched' };
+    message = envelope.message;
   } catch {
     return { state: 'not-dispatched' };
   }

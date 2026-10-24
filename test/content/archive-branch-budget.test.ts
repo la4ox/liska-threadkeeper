@@ -63,6 +63,45 @@ describe('all-branches budgets', () => {
     ).toMatchObject({ accepted: false, budgetKind: 'planned-artifact-writes' });
   });
 
+  it('combines Markdown and File HTML+receipt writes without raising the 2048 ceiling', () => {
+    const metrics = { ...atLimits(), leafCount: 512 };
+    expect(structuralBudgetPreflight(metrics, 2, 3, true).plannedArtifactWrites).toBe(1026);
+    expect(
+      structuralBudgetPreflight(metrics, 2, 3, true, ALL_BRANCHES_BUDGET_LIMITS, { file: true })
+    ).toEqual({
+      accepted: false,
+      budgetKind: 'planned-artifact-writes',
+      plannedArtifactWrites: 2052,
+    });
+    expect(
+      structuralBudgetPreflight(
+        { ...metrics, leafCount: 511 },
+        2,
+        3,
+        true,
+        ALL_BRANCHES_BUDGET_LIMITS,
+        { file: true }
+      )
+    ).toEqual({ accepted: true, plannedArtifactWrites: 2048 });
+  });
+
+  it('uses checked arithmetic for optional File HTML write accounting', () => {
+    expect(() =>
+      structuralBudgetPreflight(
+        { ...atLimits(), leafCount: Number.MAX_SAFE_INTEGER },
+        0,
+        0,
+        true,
+        {
+          ...ALL_BRANCHES_BUDGET_LIMITS,
+          leafCount: Number.MAX_SAFE_INTEGER,
+          plannedArtifactWrites: Number.MAX_SAFE_INTEGER,
+        },
+        { file: true }
+      )
+    ).toThrow('safe integer range');
+  });
+
   it('admits the existing 12k-depth and 400-leaf fixture shapes but rejects shared-prefix overflow', () => {
     expect(
       structuralBudgetPreflight(
@@ -229,5 +268,63 @@ describe('all-branches budgets', () => {
     );
     expect(aggregateOverflow.preflight()).toBe('physical-planned-bytes');
     expect(aggregateOverflow.totalPhysicalBytes).toBe(cap + 1);
+  });
+
+  it('atomically reserves HTML artifact+receipt bytes in the shared physical budget', () => {
+    const budget = new ExactPresentationBudget(new Map([['file', 10]]), {
+      ...ALL_BRANCHES_BUDGET_LIMITS,
+      physicalPlannedBytes: 30,
+      htmlRenderWorkBytes: 100,
+    });
+    expect(budget.preflightHtmlBundle(10, 10)).toBeNull();
+    expect(budget.totalPhysicalBytes).toBe(10);
+    expect(budget.totalHtmlRenderWorkBytes).toBe(0);
+    expect(budget.addHtmlBundle(10, 10)).toBeNull();
+    expect(budget.totalPhysicalBytes).toBe(30);
+    expect(budget.totalHtmlRenderWorkBytes).toBe(20);
+    expect(budget.addHtmlBundle(0, 1)).toBe('physical-planned-bytes');
+    expect(budget.totalPhysicalBytes).toBe(30);
+    expect(budget.totalHtmlRenderWorkBytes).toBe(20);
+  });
+
+  it('counts both HTML render passes with a homogeneous byte cap and no partial mutation', () => {
+    const exact = new ExactPresentationBudget(new Map([['file', 0]]), {
+      ...ALL_BRANCHES_BUDGET_LIMITS,
+      physicalPlannedBytes: 100,
+      htmlRenderWorkBytes: 20,
+    });
+    expect(exact.addHtmlBundle(10, 1)).toBeNull();
+    expect(exact.totalHtmlRenderWorkBytes).toBe(20);
+    expect(exact.addHtmlBundle(1, 0)).toBe('html-render-work-bytes');
+    expect(exact.totalHtmlRenderWorkBytes).toBe(20);
+    expect(exact.totalPhysicalBytes).toBe(11);
+
+    const tooLarge = new ExactPresentationBudget(new Map([['file', 0]]), {
+      ...ALL_BRANCHES_BUDGET_LIMITS,
+      physicalPlannedBytes: Number.MAX_SAFE_INTEGER,
+      htmlRenderWorkBytes: Number.MAX_SAFE_INTEGER,
+    });
+    expect(() => tooLarge.preflightHtmlBundle(Number.MAX_SAFE_INTEGER, 1)).toThrow(
+      'safe integer range'
+    );
+  });
+
+  it('detaches custom caps at construction so late caller mutation cannot change admission', () => {
+    const limits = {
+      ...ALL_BRANCHES_BUDGET_LIMITS,
+      individualNoteBytes: 20,
+      logicalMarkdownBytesPerDestination: 20,
+      physicalPlannedBytes: 100,
+      htmlRenderWorkBytes: 100,
+    };
+    const budget = new ExactPresentationBudget(new Map([['file', 0]]), limits);
+    limits.individualNoteBytes = 0;
+    limits.logicalMarkdownBytesPerDestination = 0;
+    limits.physicalPlannedBytes = 0;
+    limits.htmlRenderWorkBytes = 0;
+    expect(budget.addNote('file', 10)).toBeNull();
+    expect(budget.addHtmlBundle(10, 1)).toBeNull();
+    expect(budget.totalPhysicalBytes).toBe(21);
+    expect(budget.totalHtmlRenderWorkBytes).toBe(20);
   });
 });

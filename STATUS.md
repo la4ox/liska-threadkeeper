@@ -1460,3 +1460,41 @@ source/platform lint and `npm audit` pass with only the same three pre-existing
 warnings and zero known dependency vulnerabilities. B3 orchestration, aggregate
 budgets, cancellation, index-completion gating and live browser delivery remain
 explicitly unimplemented.
+
+## Canonical HTML all-branches B3a measurement checkpoint
+
+The pure B3a plan now measures the complete File HTML bundle without dispatching
+or writing anything. One destination-finalized archive capability authorizes the
+canonical bytes once, then renders every leaf followed by the local index. The
+plan retains only compact artifact, receipt and exact message-envelope
+fingerprints plus the original same-session rendering facts; HTML/base64 bodies
+exist only transiently. A closure recreates one document at a time in the same
+session and withholds the body unless its descriptor, provenance, receipt bytes
+and full JSON envelope reproduce exactly. Cancellation and failure are sticky,
+concurrent recreation fails closed, and there is no retry or caller-supplied
+path/completeness authority.
+
+Markdown and HTML now share one exact physical-byte budget. HTML reserves its
+artifact and receipt bytes atomically and separately accounts the homogeneous
+HTML bytes produced by both render passes. Structural preflight also counts two
+File writes for every leaf and the index: 512 leaves with two Markdown
+destinations plus File HTML is rejected before persistence at 2,052 planned
+writes rather than silently raising the 2,048 ceiling or omitting an output.
+The normal sender and dry measurement use the same deterministic envelope
+builder, so message-size admission cannot drift between the two passes.
+
+Independent review found and the implementation closed one P2 identity race: a
+stateful context could previously present capture identity A through ordinary
+property reads and canonical B through own descriptors. The plan now detaches
+the exact archive-context descriptors before its first await and uses that one
+snapshot for both receipt identity and B2b authorization. Proxy and first-yield
+shell-mutation regressions cover the boundary. The repeat review found no
+remaining P0-P3 issue.
+
+Evidence after the fix: the focused plan/budget/transport set passes 3 suites /
+95 tests; the complete content set passes 62 suites / 2,523 tests. Production
+typecheck/build transforms 246 modules, scoped ESLint, Prettier and diff checks
+are clean, and the independent rereview passes 5 suites / 199 tests. B3a still
+has no bootstrap caller and performs zero destination writes. B3b must wire the
+shared structural option, finalized File evidence, sequential observations,
+unknown-write halting and index-completion summary before any live canary.

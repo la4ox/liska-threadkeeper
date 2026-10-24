@@ -829,6 +829,17 @@ destination only after every intended leaf file was confirmed there; otherwise
 the user gets a partial-bundle warning and the complete canonical archive stays
 the recovery source.
 
+Multi-document HTML follows the same fail-before-write rule. Before any
+presentation dispatch, one prepared plan measures every leaf and its index,
+their deterministic receipts, and the exact extension-message envelopes. It
+then recreates only one document at a time and releases that transient body
+only after every measured field matches. Markdown and HTML consume one shared
+physical-byte budget; HTML additionally counts both render passes as
+homogeneous rendered-byte work. Planned writes include the HTML and receipt as
+two distinct sink operations, so an oversized destination combination is
+rejected explicitly instead of increasing a ceiling or dropping a requested
+format. Unknown delivery never authorizes a retry or the final index.
+
 Append, merge, automatic deduplication, and a monolithic branching Markdown
 document remain separate later decisions. The initial implementation favors
 complete, inspectable snapshots over implicit mutation.
