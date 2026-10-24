@@ -1164,6 +1164,11 @@ It does not prove full-history auto-scroll for the 32-message chat, because the
 persisted auto-scroll setting was not changed and earlier messages remained
 behind Claude's explicit load control. It also produced no tool-activity block,
 so live October label output remains unproven despite the bounded offline path.
+After the final candidate-work and sibling-preservation fixes, the exact
+29-file build of source head `c5ea76c` replaced the installed tree with zero
+hash or size differences and was reloaded once. The extension details page
+showed an active service worker and no Errors control. No second private-chat
+export was needed or performed.
 
 ## Typed partial DOM persistence checkpoint
 
