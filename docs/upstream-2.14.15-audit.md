@@ -63,7 +63,7 @@ gap before implementation.
 
 - question headings are entity-serialized after truncation;
 - tool metadata uses literal fences and shared conversion-work budgets;
-- citations use a per-run provenance capability plus strict labels and safe
+- citations use a per-isolated-world provenance capability plus strict labels and safe
   destination/title serialization;
 - math, tables, image descriptions, unsafe links and collision-safe code fences
   have independent hardened local implementations;
