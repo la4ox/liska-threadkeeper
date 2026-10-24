@@ -1822,3 +1822,23 @@ This is a negative compatibility result, not authority to add a CSV route. The
 current live frontend supplied no exact resolver evidence for either CSV record.
 CSV stays unsupported until a credential-free, owner-bound live contract is
 observed and independently gated.
+
+## Upstream 2.14.15 audit checkpoint
+
+The upstream audit now covers `244df7f..c1c199c` (`v2.14.9` through
+`v2.14.15`): 13 commits and 52 changed files. DOMPurify, Vite, Vitest and
+coverage updates are already present; fast-uri, markdown-it and zod changes are
+inapplicable to the current dependency tree. Release/copy churn and the
+NotebookLM dead-selector cleanup do not justify a broad merge. No upstream
+permission, host-permission, CSP, provider-route, or persistence-protocol change
+was found.
+
+The high-value signal is upstream DES-019's final note-body HTML boundary, but a
+direct port would escape Liska's trusted HTML-comment message sentinels, collide
+with the structured `contentFormat` contract, weaken byte-accurate accounting,
+and import more revealing logs. Question, tool, citation, math, table, link and
+code-fence subpaths are already superseded by stronger local fixes. The next
+security slice is therefore a bounded local raw-text/attribute reproducer matrix;
+only a confirmed reachable seam may receive an isolated per-path fix. Final
+sink-gate work remains deferred until sentinel provenance and append context are
+designed explicitly.

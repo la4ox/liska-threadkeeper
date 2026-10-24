@@ -282,6 +282,12 @@ The first source audit is complete in
 [`upstream-2.14.9-audit.md`](upstream-2.14.9-audit.md). It compares upstream
 `v2.7.13` through `v2.14.9` without merging wholesale.
 
+The follow-up [`upstream-2.14.15-audit.md`](upstream-2.14.15-audit.md) classifies
+the 13 commits through `v2.14.15`. Dependency updates are already present or
+inapplicable; the NotebookLM selector change is optional housekeeping. The
+substantive DES-019 note-body HTML boundary requires local reproducers and a
+sentinel-aware design before any port.
+
 - Inspect provider blocks that Liska has changed least: Perplexity,
   Gemini/NotebookLM, Claude, common Markdown conversion, storage/Obsidian, UI,
   and CI.
@@ -298,7 +304,8 @@ The first source audit is complete in
    duplicate, or hardening-only items against the zero-finding final scan.
 2. Close a finding only after the corresponding current-head invariant and
    verification evidence are explicit.
-3. Continue the evidence-gated ports recorded in the completed upstream audit.
+3. Run the bounded DES-019 text/attribute reproducer matrix recorded in the
+   2.14.15 audit; port only a locally reachable seam.
 4. Send each later provider/security slice through its own focused pull request
    and final-main continuous scan.
 
