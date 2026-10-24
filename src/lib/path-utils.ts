@@ -54,6 +54,43 @@ export function resolvePathTemplate(path: string, variables: Record<string, stri
  * Used by {@link getSearchBasePath} to detect the date-templated portion of a path.
  */
 const DATE_TOKEN_PATTERN = /\{(YYYY|YY|MM|DD)\}/;
+const TEMPLATE_TOKEN_PATTERN = /\{(\w+)\}/g;
+const DATE_SCOPE_PATTERNS: Readonly<Record<string, string>> = {
+  YYYY: '\\d{4}',
+  YY: '\\d{2}',
+  MM: '\\d{2}',
+  DD: '\\d{2}',
+};
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Test whether a resolved vault folder belongs to one exact configured path
+ * template. Date tokens remain variable so a memoized append path can survive
+ * calendar rollover, including tokens embedded inside a path segment.
+ */
+export function matchesVaultPathTemplate(
+  path: string,
+  template: string,
+  variables: Record<string, string>
+): boolean {
+  if (path.includes('\\') || containsPathTraversal(path)) return false;
+
+  let pattern = '^';
+  let offset = 0;
+  for (const match of template.matchAll(TEMPLATE_TOKEN_PATTERN)) {
+    const index = match.index;
+    const token = match[0];
+    const key = match[1];
+    pattern += escapeRegExp(template.slice(offset, index));
+    pattern += DATE_SCOPE_PATTERNS[key] ?? escapeRegExp(variables[key] ?? token);
+    offset = index + token.length;
+  }
+  pattern += `${escapeRegExp(template.slice(offset))}$`;
+  return new RegExp(pattern).test(path);
+}
 
 /**
  * Build the date variables object for the given date in local time.

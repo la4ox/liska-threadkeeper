@@ -4,6 +4,7 @@ import {
   resolvePathTemplate,
   getDateVariables,
   getSearchBasePath,
+  matchesVaultPathTemplate,
 } from '../../src/lib/path-utils';
 
 describe('containsPathTraversal', () => {
@@ -186,5 +187,39 @@ describe('getSearchBasePath', () => {
 
   it('returns the full resolved template when no date tokens appear', () => {
     expect(getSearchBasePath('AI/Static/Folder', { platform: 'gemini' })).toBe('AI/Static/Folder');
+  });
+});
+
+describe('matchesVaultPathTemplate', () => {
+  it('matches calendar rollover folders for segment and inline date tokens', () => {
+    expect(
+      matchesVaultPathTemplate('AI/claude/2025/09', 'AI/{platform}/{YYYY}/{MM}', {
+        platform: 'claude',
+      })
+    ).toBe(true);
+    expect(
+      matchesVaultPathTemplate('AI/claude-2025', 'AI/{platform}-{YYYY}', {
+        platform: 'claude',
+      })
+    ).toBe(true);
+  });
+
+  it('does not admit a sibling prefix or a different provider scope', () => {
+    expect(
+      matchesVaultPathTemplate('AI/claude-public/2025', 'AI/{platform}/{YYYY}', {
+        platform: 'claude',
+      })
+    ).toBe(false);
+    expect(
+      matchesVaultPathTemplate('AI/chatgpt/2025', 'AI/{platform}/{YYYY}', {
+        platform: 'claude',
+      })
+    ).toBe(false);
+  });
+
+  it('matches the vault root exactly and rejects traversing or absolute folders', () => {
+    expect(matchesVaultPathTemplate('', '', {})).toBe(true);
+    expect(matchesVaultPathTemplate('../Private', '{YYYY}', {})).toBe(false);
+    expect(matchesVaultPathTemplate('/Private', '{YYYY}', {})).toBe(false);
   });
 });

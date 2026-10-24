@@ -497,22 +497,44 @@ function maybeFlatten(content: string, settings: ExtensionSettings): string {
 }
 
 /**
- * conversationId → vault path where the conversation's note was last found
- * (append mode). Best-effort cache: after a calendar rollover the direct path
- * misses on every save and the fallback directory scan re-runs each time —
- * the memo turns that into a single GET. Service-worker restarts clear it;
- * misses simply fall back to the scan.
+ * Destination-scoped conversation key → vault path where the note was last
+ * found (append mode). The key contains no credential: it binds the hint to the
+ * normalized endpoint, exact vault-path template, stable search root, provider,
+ * and conversation id. Service-worker restarts clear it; misses simply fall
+ * back to the bounded scan.
  */
 const appendPathMemo = new Map<string, string>();
 
 /** Bound memory: far above any realistic number of active conversations */
 const APPEND_MEMO_MAX_ENTRIES = 100;
 
-function rememberAppendPath(conversationId: string, path: string): void {
-  if (appendPathMemo.size >= APPEND_MEMO_MAX_ENTRIES && !appendPathMemo.has(conversationId)) {
+function appendMemoKey(
+  settings: ExtensionSettings,
+  note: ObsidianNote,
+  searchBasePath: string
+): string {
+  return JSON.stringify([
+    validateObsidianUrl(settings.obsidianUrl),
+    settings.vaultPath,
+    searchBasePath,
+    note.frontmatter.source,
+    note.frontmatter.id,
+  ]);
+}
+
+function rememberAppendPath(memoKey: string, path: string): void {
+  if (appendPathMemo.size >= APPEND_MEMO_MAX_ENTRIES && !appendPathMemo.has(memoKey)) {
     appendPathMemo.clear();
   }
-  appendPathMemo.set(conversationId, path);
+  appendPathMemo.set(memoKey, path);
+}
+
+function isAppendModeEligible(settings: ExtensionSettings, note: ObsidianNote): boolean {
+  return (
+    settings.enableAppendMode &&
+    note.frontmatter.type !== 'deep-research' &&
+    !hasImmutableArchivePresentationFields(note.frontmatter)
+  );
 }
 
 /**
@@ -525,20 +547,20 @@ async function tryAppendMode(
   note: ObsidianNote,
   fullPath: string,
   resolvedPath: string,
-  searchBasePath: string
+  searchBasePath: string,
+  templateVariables: Record<string, string>
 ): Promise<SaveResponse | null> {
-  if (
-    !settings.enableAppendMode ||
-    note.frontmatter.type === 'deep-research' ||
-    hasImmutableArchivePresentationFields(note.frontmatter)
-  ) {
-    return null;
-  }
+  if (!isAppendModeEligible(settings, note)) return null;
 
   try {
+    const memoKey = appendMemoKey(settings, note, searchBasePath);
     const lookup = await lookupExistingFile(client, fullPath, resolvedPath, note, {
       searchBasePath,
-      hintPath: appendPathMemo.get(note.frontmatter.id),
+      hintPath: appendPathMemo.get(memoKey),
+      hintScope: {
+        folderTemplate: settings.vaultPath,
+        variables: templateVariables,
+      },
       filenameScheme: settings.templateOptions.filenameScheme,
     });
     if (!lookup.found) {
@@ -550,7 +572,7 @@ async function tryAppendMode(
       });
       return null;
     }
-    rememberAppendPath(note.frontmatter.id, lookup.path);
+    rememberAppendPath(memoKey, lookup.path);
 
     const appendResult = buildAppendContent(lookup.content, note, settings);
     if (appendResult !== null) {
@@ -647,7 +669,8 @@ export async function handleSave(
       appendNote,
       fullPath,
       resolvedPath,
-      searchBasePath
+      searchBasePath,
+      templateVariables
     );
     if (appendResult) return withAppendImageWarning(settings, note, appendResult);
 

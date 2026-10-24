@@ -3376,6 +3376,90 @@ describe('background/index', () => {
       expect(response.allSuccessful).toBe(true);
       expect(mockClient.listFiles).not.toHaveBeenCalled();
     });
+
+    it('does not reuse a warm append path after the configured vault scope changes', async () => {
+      const publicSettings = { ...appendSettings, vaultPath: 'Published/{platform}' };
+      const privateSettings = { ...appendSettings, vaultPath: 'Private/{platform}' };
+      mockGetSettings = vi
+        .fn()
+        .mockResolvedValueOnce(publicSettings)
+        .mockResolvedValueOnce(privateSettings);
+
+      const publicPath = 'Published/claude/test-abc12345.md';
+      const privatePath = 'Private/claude/test-abc12345.md';
+      mockClient.getFile.mockImplementation((path: string) => {
+        if (path === publicPath || path === privatePath) return Promise.resolve(existingContent);
+        return Promise.resolve(null);
+      });
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const firstResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: appendNote },
+        validSender as chrome.runtime.MessageSender,
+        firstResponse
+      );
+      await vi.waitFor(() => expect(firstResponse).toHaveBeenCalled());
+
+      const secondResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: appendNote },
+        validSender as chrome.runtime.MessageSender,
+        secondResponse
+      );
+      await vi.waitFor(() => expect(secondResponse).toHaveBeenCalled());
+
+      expect(secondResponse.mock.calls[0][0].allSuccessful).toBe(true);
+      expect(mockClient.getFile.mock.calls.map(call => call[0])).toEqual([publicPath, privatePath]);
+      expect(mockClient.putFile.mock.calls.map(call => call[0])).toEqual([publicPath, privatePath]);
+    });
+
+    it('does not reuse a warm append path after the Obsidian endpoint changes', async () => {
+      const firstSettings = { ...appendSettings, obsidianUrl: 'https://127.0.0.1:27123' };
+      const secondSettings = { ...appendSettings, obsidianUrl: 'https://127.0.0.1:27124' };
+      mockGetSettings = vi
+        .fn()
+        .mockResolvedValueOnce(firstSettings)
+        .mockResolvedValueOnce(secondSettings);
+
+      const directPath = 'AI/claude/test-abc12345.md';
+      const firstFoundPath = 'AI/claude/old-title-abc12345.md';
+      const secondFoundPath = 'AI/claude/new-title-abc12345.md';
+      mockClient.getFile.mockImplementation((path: string) => {
+        if (path === directPath) return Promise.resolve(null);
+        if (path === firstFoundPath || path === secondFoundPath) {
+          return Promise.resolve(existingContent);
+        }
+        return Promise.resolve(null);
+      });
+      mockClient.listFiles
+        .mockResolvedValueOnce(['old-title-abc12345.md'])
+        .mockResolvedValueOnce(['new-title-abc12345.md']);
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const firstResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: appendNote },
+        validSender as chrome.runtime.MessageSender,
+        firstResponse
+      );
+      await vi.waitFor(() => expect(firstResponse).toHaveBeenCalled());
+
+      const secondResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: appendNote },
+        validSender as chrome.runtime.MessageSender,
+        secondResponse
+      );
+      await vi.waitFor(() => expect(secondResponse).toHaveBeenCalled());
+
+      expect(secondResponse.mock.calls[0][0].allSuccessful).toBe(true);
+      expect(mockClient.listFiles).toHaveBeenCalledTimes(2);
+      expect(mockClient.putFile.mock.calls.map(call => call[0])).toEqual([
+        firstFoundPath,
+        secondFoundPath,
+      ]);
+    });
   });
 
   describe('handleMessage rejection path', () => {

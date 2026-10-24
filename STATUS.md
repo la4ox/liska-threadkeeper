@@ -2026,3 +2026,43 @@ retained a two-message count throughout; 10k/20k/40k helper-line probes complete
 in 250/415/857 ms without the former quadratic curve. Live Obsidian rendering
 was not repeated; parser reparse evidence proves the active nodes are absent
 from generated source while exact generated markers remain.
+
+## Security Cloud runtime-boundary checkpoint
+
+The 2026-10-25 reconciliation closed three already-merged historical findings
+without launching a new Cloud scan: TypedArray capture integrity
+(`commit:0fb1786e6cf08191a25da26b5593adfc`), unbounded branch fan-out
+(`commit:16702a6e90648191ba8a63da60539e95`), and nested Canmore JSON
+(`commit:8fc721c0bb0881919910f4805e72250d`). Each occurrence advanced from
+version 7/new to version 8/fixed only after its fix ancestry and current-main
+invariant were reread. Eight existing findings remained open at that point.
+
+The current candidate repairs two shared runtime boundaries. Append-mode path
+hints are keyed by normalized endpoint, exact vault template, stable search
+root, provider, and conversation id; no API key enters the key. The current
+direct path has authority over a memo, and the hinted file's parent must match
+the exact current template with date tokens retained as rollover variables.
+Endpoint or destination changes, sibling prefixes, leading-date templates, and
+inline forms such as `AI/{platform}-{YYYY}` are covered without breaking title
+renames or calendar rollover.
+
+The Gemini CDN worker no longer calls `response.blob()` before enforcing its
+10 MiB limit. It rejects a clearly oversized `Content-Length`, counts actual
+streamed bytes regardless of headers, cancels on the first over-limit chunk,
+and retains the existing five-second deadline through the body read. Missing
+bodies, unsupported MIME, HTTP errors, stalled reads, and cancellation failures
+produce stable local failures; ordinary credentialed CDN fetch and exact-cap
+images retain their prior result contract. This candidate covers the stale
+append-path occurrence, the post-buffer image-size occurrence, and the
+overlapping timeout occurrence after merge.
+
+Focused source-to-sink coverage passes 6 files / 295 tests. The complete suite
+passes 198 files / 6,633 tests. Production build transforms 253 modules;
+formatting and diff checks are clean. Source/platform lint has zero errors and
+the same three pre-existing advisory warnings. Independent review found one
+real rollover regression for a date token embedded inside a path segment; the
+template matcher above fixes it, its reproducer is retained, and the final
+static refresh found no remaining bypass or compatibility regression. A live
+Chrome CDN transfer was not repeated, so actual browser decompression,
+same-host redirect, and transport-cancellation behavior remain explicit proof
+gaps rather than claimed runtime evidence.
