@@ -5,6 +5,7 @@ import {
   validateMessageContent,
 } from '../../src/background/validation';
 import {
+  classifyChatGptCaptureTargetUrl,
   deriveChatGptCaptureTarget,
   isChatGptCaptureTarget,
   isEquivalentChatGptCaptureTargetUrl,
@@ -125,6 +126,107 @@ describe('ChatGPT capture message validation', () => {
       `https://example.com/g/g-p-project/c/${CONVERSATION_ID}${marker}`,
     ]) {
       expect(isEquivalentChatGptCaptureTargetUrl(url, target, marker)).toBe(false);
+    }
+  });
+
+  it.each([
+    ['/c/', '/c/'],
+    ['/g/private-owner/c/', '/g/private-owner-canonical-title/c/'],
+    ['/g/g-p-private-project/c/', '/g/g-p-private-project-canonical-title/c/'],
+  ])('classifies equivalent %s routes without changing the boolean gate', (prefix, canonical) => {
+    const target = parseChatGptCaptureTarget(
+      `https://chatgpt.com${prefix}${CONVERSATION_ID}`,
+      CONVERSATION_ID
+    )!;
+    const marker = '#liska-capture=synthetic-marker&liska-opaque-replay=1';
+    for (const trailing of ['', '/']) {
+      for (const emptyQuery of ['', '?']) {
+        const url = `https://chatgpt.com${canonical}${CONVERSATION_ID}${trailing}${emptyQuery}${marker}`;
+        expect(classifyChatGptCaptureTargetUrl(url, target, marker)).toBe('equivalent');
+        expect(isEquivalentChatGptCaptureTargetUrl(url, target, marker)).toBe(true);
+      }
+    }
+  });
+
+  it.each([
+    ['malformed origin', 'https://[invalid]/', 'unexpected-origin'],
+    ['unparseable URL', 'not-a-url', 'unexpected-origin'],
+    [
+      'wrong origin with other mismatches',
+      `https://example.com/c/${OTHER_CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-origin',
+    ],
+    [
+      'credentialed origin',
+      `https://synthetic-user@chatgpt.com/c/${CONVERSATION_ID}`,
+      'unexpected-origin',
+    ],
+    ['unknown same-origin route', 'https://chatgpt.com/auth/login', 'unexpected-path'],
+    [
+      'malformed UUID with query and hash mismatches',
+      'https://chatgpt.com/g/private-owner/c/not-a-uuid?synthetic-query=1#synthetic-marker',
+      'unexpected-path',
+    ],
+    [
+      'encoded slug with query and hash mismatches',
+      `https://chatgpt.com/g/%70rivate-owner/c/${CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-path',
+    ],
+    [
+      'different UUID before family, query, and hash',
+      `https://chatgpt.com/c/${OTHER_CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-conversation',
+    ],
+    [
+      'same-family different UUID',
+      `https://chatgpt.com/g/g-p-private-project/c/${OTHER_CONVERSATION_ID}`,
+      'unexpected-conversation',
+    ],
+    [
+      'standard-family movement before query and hash',
+      `https://chatgpt.com/c/${CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-route-family',
+    ],
+    [
+      'custom-family movement before query and hash',
+      `https://chatgpt.com/g/private-owner/c/${CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-route-family',
+    ],
+    [
+      'nonempty query before hash',
+      `https://chatgpt.com/g/g-p-private-project/c/${CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-query',
+    ],
+    [
+      'missing marker',
+      `https://chatgpt.com/g/g-p-private-project/c/${CONVERSATION_ID}`,
+      'unexpected-marker',
+    ],
+    [
+      'different marker',
+      `https://chatgpt.com/g/g-p-private-project/c/${CONVERSATION_ID}#synthetic-marker`,
+      'unexpected-marker',
+    ],
+  ])('returns only a stable category for %s', (_label, url, category) => {
+    const target = parseChatGptCaptureTarget(
+      `https://chatgpt.com/g/g-p-private-project/c/${CONVERSATION_ID}`,
+      CONVERSATION_ID
+    )!;
+    const marker = '#liska-capture=expected-marker&liska-opaque-replay=1';
+    const result = classifyChatGptCaptureTargetUrl(url, target, marker);
+    expect(result).toBe(category);
+    expect(isEquivalentChatGptCaptureTargetUrl(url, target, marker)).toBe(false);
+    for (const privateValue of [
+      url,
+      CONVERSATION_ID,
+      OTHER_CONVERSATION_ID,
+      'private-owner',
+      'private-project',
+      'synthetic-query',
+      'synthetic-marker',
+      marker,
+    ]) {
+      expect(result).not.toContain(privateValue);
     }
   });
 

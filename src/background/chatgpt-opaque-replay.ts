@@ -7,9 +7,10 @@
 import { canonicalBase64ByteLength } from '../lib/base64';
 import { CHATGPT_CAPTURE_ENDPOINT } from '../lib/chatgpt-capture-contract';
 import {
+  classifyChatGptCaptureTargetUrl,
   isChatGptCaptureTarget,
-  isEquivalentChatGptCaptureTargetUrl,
   type ChatGptCaptureTarget,
+  type ChatGptCaptureTargetUrlClassification,
 } from './chatgpt-route-target';
 import {
   createChatGptOpaqueReplayFailure,
@@ -57,7 +58,7 @@ export interface ChatGptOpaqueReplayDependencies {
 }
 
 type HookState = ChatGptOpaqueReplayHookResult | { kind: 'missing' };
-type Readiness = 'ready' | 'waiting' | 'unexpected-origin' | 'unexpected-path';
+type Readiness = 'ready' | 'waiting' | Exclude<ChatGptCaptureTargetUrlClassification, 'equivalent'>;
 
 function normalizeTimeout(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return CHATGPT_OPAQUE_REPLAY_TIMEOUT_MS;
@@ -169,14 +170,8 @@ async function waitForTemporaryTarget(
     try {
       const tab = await withinDeadline(chromeApi.tabs.get(tabId), remainingTimeout(deadline, now));
       if (tab.status === 'complete' && typeof tab.url === 'string' && tab.url !== 'about:blank') {
-        const url = new URL(tab.url);
-        if (url.origin !== CHATGPT_ORIGIN || url.username !== '' || url.password !== '') {
-          readiness = 'unexpected-origin';
-        } else if (isEquivalentChatGptCaptureTargetUrl(tab.url, target, marker(nonce))) {
-          readiness = 'ready';
-        } else {
-          readiness = 'unexpected-path';
-        }
+        const classification = classifyChatGptCaptureTargetUrl(tab.url, target, marker(nonce));
+        readiness = classification === 'equivalent' ? 'ready' : classification;
       }
     } catch {
       readiness = 'waiting';
@@ -405,14 +400,10 @@ export async function captureChatGptConversationViaOpaqueReplay(
       resolved.sleep,
       resolved.pollIntervalMs
     );
-    if (readiness === 'unexpected-origin') {
-      return createChatGptOpaqueReplayFailure('unexpected-origin');
-    }
-    if (readiness === 'unexpected-path') {
-      return createChatGptOpaqueReplayFailure('unexpected-path');
-    }
     if (readiness !== 'ready') {
-      return createChatGptOpaqueReplayFailure('temporary-tab-ready-timeout');
+      return createChatGptOpaqueReplayFailure(
+        readiness === 'waiting' ? 'temporary-tab-ready-timeout' : readiness
+      );
     }
     return await waitForReplayResult(resolved, tabId, nonce, immutableTarget, deadline);
   } catch {
@@ -454,6 +445,10 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
       'temporary-tab-missing-id',
       'unexpected-origin',
       'unexpected-path',
+      'unexpected-conversation',
+      'unexpected-route-family',
+      'unexpected-query',
+      'unexpected-marker',
       'temporary-tab-ready-timeout',
       'replay-result-timeout',
       'hook-state-failed',

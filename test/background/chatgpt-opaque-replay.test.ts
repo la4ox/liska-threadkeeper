@@ -81,7 +81,21 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     }
   });
 
-  it('rejects route movement during verification without fallback', async () => {
+  it.each([
+    [`https://chatgpt.com/c/${CONVERSATION_ID}${MARKER}`, 'unexpected-route-family'],
+    [
+      `https://chatgpt.com/g/g-p-private-project/c/${OTHER_CONVERSATION_ID}${MARKER}`,
+      'unexpected-conversation',
+    ],
+    [
+      `https://chatgpt.com/g/g-p-private-project/c/${CONVERSATION_ID}?synthetic-query=1${MARKER}`,
+      'unexpected-query',
+    ],
+    [
+      `https://chatgpt.com/g/g-p-private-project/c/${CONVERSATION_ID}#synthetic-marker`,
+      'unexpected-marker',
+    ],
+  ])('rejects post-capture %s movement without fallback', async (url, code) => {
     const target = {
       ...TARGET,
       pathname: `/g/g-p-private-project/c/${CONVERSATION_ID}/`,
@@ -94,15 +108,42 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
       digestSha256: async () => {
         chrome.api.tabs.get.mockResolvedValue({
           status: 'complete',
-          url: `https://chatgpt.com/c/${CONVERSATION_ID}${MARKER}`,
+          url,
         });
         return SHA256;
       },
     });
-    expect(result).toEqual({ success: false, code: 'unexpected-path', singularDispatchCount: 1 });
+    expect(result).toEqual({ success: false, code, singularDispatchCount: 1 });
     expect(chrome.create).toHaveBeenCalledOnce();
+    expect(chrome.api.scripting.executeScript).toHaveBeenCalledOnce();
     expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
   });
+
+  it.each([
+    ['custom-gpt', 'private-owner', 'private-owner-canonical-title'],
+    ['project', 'g-p-private-project', 'g-p-private-project-canonical-title'],
+  ] as const)(
+    'accepts %s slug canonicalization with the exact marker',
+    async (routeFamily, slug, canonical) => {
+      const target = { ...TARGET, pathname: `/g/${slug}/c/${CONVERSATION_ID}`, routeFamily };
+      const chrome = chromeApi(
+        capturedState(),
+        `https://chatgpt.com/g/${canonical}/c/${CONVERSATION_ID}/${MARKER}`
+      );
+      const response = await captureChatGptConversationViaOpaqueReplay(target, {
+        chromeApi: chrome.api,
+        createNonce: () => NONCE,
+        digestSha256: async () => SHA256,
+      });
+      expect(response).toMatchObject({ success: true, data: { routeFamily } });
+      expect(chrome.create).toHaveBeenCalledExactlyOnceWith({
+        url: `https://chatgpt.com${target.pathname}${MARKER}`,
+        active: false,
+      });
+      expect(chrome.api.scripting.executeScript).toHaveBeenCalledOnce();
+      expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+    }
+  );
 
   it.each([
     ['target-not-observed', 0],
@@ -302,19 +343,113 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     expect(chrome.remove).toHaveBeenCalledWith(123);
   });
 
-  it('fails closed on marker/path mismatch before reading MAIN-world state', async () => {
-    const chrome = chromeApi(
-      capturedState(),
-      `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${NONCE}&liska-opaque-probe=1`
-    );
+  it.each([
+    [
+      'exact marker mismatch',
+      `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${NONCE}&liska-opaque-probe=1`,
+      'unexpected-marker',
+    ],
+    ['missing marker', `https://chatgpt.com/c/${CONVERSATION_ID}`, 'unexpected-marker'],
+    [
+      'different nonce in the marker',
+      `https://chatgpt.com/c/${CONVERSATION_ID}#liska-capture=${OTHER_CONVERSATION_ID}&liska-opaque-replay=1`,
+      'unexpected-marker',
+    ],
+    [
+      'reordered marker members',
+      `https://chatgpt.com/c/${CONVERSATION_ID}#liska-opaque-replay=1&liska-capture=${NONCE}`,
+      'unexpected-marker',
+    ],
+    [
+      'extra marker member',
+      `https://chatgpt.com/c/${CONVERSATION_ID}${MARKER}&synthetic-extra=1`,
+      'unexpected-marker',
+    ],
+    [
+      'nonempty query with the exact marker',
+      `https://chatgpt.com/c/${CONVERSATION_ID}?synthetic-query=1${MARKER}`,
+      'unexpected-query',
+    ],
+    [
+      'query before a different marker',
+      `https://chatgpt.com/c/${CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-query',
+    ],
+    [
+      'different valid conversation',
+      `https://chatgpt.com/c/${OTHER_CONVERSATION_ID}${MARKER}`,
+      'unexpected-conversation',
+    ],
+    [
+      'different conversation before family, query, and marker',
+      `https://chatgpt.com/g/private-owner/c/${OTHER_CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-conversation',
+    ],
+    [
+      'route family before query and marker',
+      `https://chatgpt.com/g/private-owner/c/${CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-route-family',
+    ],
+    [
+      'malformed path before query and marker',
+      'https://chatgpt.com/g/private-owner/c/not-a-uuid?synthetic-query=1#synthetic-marker',
+      'unexpected-path',
+    ],
+    ['unknown same-origin path', 'https://chatgpt.com/auth/login', 'unexpected-path'],
+    ['malformed origin', 'https://[invalid]/', 'unexpected-origin'],
+    [
+      'wrong origin before other mismatches',
+      `https://example.com/g/private-owner/c/${OTHER_CONVERSATION_ID}?synthetic-query=1#synthetic-marker`,
+      'unexpected-origin',
+    ],
+  ])('fails closed on %s before reading MAIN-world state', async (_label, url, code) => {
+    const chrome = chromeApi(capturedState(), url);
     const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
       chromeApi: chrome.api,
       createNonce: () => NONCE,
     });
 
-    expect(response).toEqual({ success: false, code: 'unexpected-path', singularDispatchCount: 0 });
+    expect(response).toEqual({ success: false, code, singularDispatchCount: 0 });
+    expect(chrome.create).toHaveBeenCalledOnce();
     expect(chrome.api.scripting.executeScript).not.toHaveBeenCalled();
-    expect(chrome.remove).toHaveBeenCalledWith(123);
+    expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+    const serialized = JSON.stringify(response);
+    for (const privateValue of [
+      url,
+      CONVERSATION_ID,
+      OTHER_CONVERSATION_ID,
+      NONCE,
+      MARKER,
+      'private-owner',
+      'synthetic-query',
+      'synthetic-marker',
+    ]) {
+      expect(serialized).not.toContain(privateValue);
+    }
+  });
+
+  it('does not read MAIN world if readiness fails after the initial ready check', async () => {
+    const chrome = chromeApi(capturedState());
+    chrome.api.tabs.get
+      .mockResolvedValueOnce({
+        status: 'complete',
+        url: `https://chatgpt.com/c/${CONVERSATION_ID}${MARKER}`,
+      })
+      .mockResolvedValue({
+        status: 'complete',
+        url: `https://chatgpt.com/c/${CONVERSATION_ID}#synthetic-marker`,
+      });
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
+      chromeApi: chrome.api,
+      createNonce: () => NONCE,
+    });
+    expect(response).toEqual({
+      success: false,
+      code: 'unexpected-marker',
+      singularDispatchCount: 0,
+    });
+    expect(chrome.api.scripting.executeScript).not.toHaveBeenCalled();
+    expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
   });
 
   it('returns the stable one-count failure from MAIN world without a retry', async () => {
