@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- One phase coordinator shares Markdown and opt-in HTML budgets; HTML delivery mechanics are isolated in archive-branch-html-delivery. */
 import type {
   AIPlatform,
   AllBranchesPresentationPlan,
@@ -33,6 +34,16 @@ import {
   type ArchiveBranchLeafRender,
   type PreparedArchiveBranchPresentation,
 } from './archive-branch-bundle';
+import {
+  createFileHtmlSummary,
+  prepareFileHtmlDelivery,
+  deliverFileHtml,
+  stopFileHtml,
+  snapshotFileHtmlRequest,
+  type AllBranchesFileHtmlRequest,
+  type AllBranchesFileHtmlSeams,
+  type AllBranchesFileHtmlSummary,
+} from './archive-branch-html-delivery';
 
 export type AllBranchesWriteOutcome = 'confirmed' | 'failed' | 'unknown';
 export type AllBranchesPersistenceStatus =
@@ -83,9 +94,12 @@ export interface AllBranchesPersistenceSummary {
   allSuccessful: boolean;
   accountingMode: 'receipts' | 'write-ledger';
   writeLedgerValid?: boolean;
+  /** Separate File HTML facts; absent preserves the legacy Markdown summary contract. */
+  fileHtml?: AllBranchesFileHtmlSummary;
 }
 
-export interface AllBranchesPersistenceDependencies {
+export interface AllBranchesPersistenceDependencies extends AllBranchesFileHtmlSeams {
+  fileHtml?: AllBranchesFileHtmlRequest;
   persistArtifacts: (
     companion: ArchiveCompanionBundle,
     noteFileName: string,
@@ -127,6 +141,7 @@ export interface PreparedAllBranchesPersistence {
   readonly session: PreparedArchiveBranchPresentation;
   readonly structural: AllBranchesStructuralBudgetResult;
   readonly requestedOutputs: readonly PersistentOutputDestination[];
+  readonly fileHtmlRequested: boolean;
 }
 
 interface Measurement {
@@ -159,7 +174,8 @@ export function prepareAllBranchesPersistence(
   templateOptions: TemplateOptions,
   includeToolContent: boolean,
   outputs: OutputDestination[],
-  archiveAlreadyPersisted = false
+  archiveAlreadyPersisted = false,
+  fileHtmlRequested = false
 ): PreparedAllBranchesPersistence {
   requireCompleteCompanion(companion);
   const session = prepareArchiveBranchPresentation(
@@ -173,11 +189,14 @@ export function prepareAllBranchesPersistence(
   return {
     session,
     requestedOutputs: Object.freeze([...requestedOutputs]),
+    fileHtmlRequested,
     structural: structuralBudgetPreflight(
       session.metrics,
       requestedOutputs.length,
       companion.artifacts.length,
-      archiveAlreadyPersisted
+      archiveAlreadyPersisted,
+      undefined,
+      fileHtmlRequested ? { file: true } : undefined
     ),
   };
 }
@@ -662,7 +681,19 @@ function finalizeSummary(
   base: Omit<AllBranchesPersistenceSummary, 'status' | 'allSuccessful'>,
   forcedStatus?: AllBranchesPersistenceStatus
 ): AllBranchesPersistenceSummary {
+  if (base.fileHtml && (base.fileHtml.status === 'not-attempted' || forcedStatus === 'cancelled')) {
+    stopFileHtml(
+      base.fileHtml,
+      forcedStatus === 'cancelled'
+        ? 'cancelled'
+        : base.budgetKind
+          ? 'budget-exceeded'
+          : 'presentation-not-started',
+      base.budgetKind
+    );
+  }
   const allSuccessful =
+    (!base.fileHtml || base.fileHtml.status === 'complete') &&
     base.destinations.length > 0 &&
     base.destinations.every(
       destination =>
@@ -692,6 +723,16 @@ export async function persistAllBranchesPresentation(
   const ownedCompanion = structuredClone(companion);
   requireCompleteCompanion(ownedCompanion);
   const suppliedReceipts = dependencies.destinationReceipts !== undefined;
+  // Keep the original expected-settings string throughout both passes and every dispatch.
+  const fileHtmlRequest = snapshotFileHtmlRequest(dependencies.fileHtml);
+  const htmlControls = {
+    signal: dependencies.signal,
+    yieldTask: () => yieldTask(dependencies),
+    prepareDerivedBranchHtmlPlan: dependencies.prepareDerivedBranchHtmlPlan,
+    buildFinalizedFileArchivePresentationEvidence:
+      dependencies.buildFinalizedFileArchivePresentationEvidence,
+    persistDerivedBranchHtmlArtifactForFile: dependencies.persistDerivedBranchHtmlArtifactForFile,
+  };
   const ledgerMode = Object.prototype.hasOwnProperty.call(dependencies, 'writeLedgerSnapshot');
   const receipts = snapshotOwnedReceipts(
     dependencies.destinationReceipts,
@@ -706,8 +747,15 @@ export async function persistAllBranchesPresentation(
       templateOptions,
       includeToolContent,
       outputs,
-      suppliedReceipts
+      suppliedReceipts,
+      fileHtmlRequest !== undefined
     );
+  if (
+    (prepared.fileHtmlRequested === true) !== (fileHtmlRequest !== undefined) ||
+    (fileHtmlRequest !== undefined && !requested.includes('file'))
+  ) {
+    throw new Error('All-branches HTML request differs from its structural preflight.');
+  }
   if (requested.some(destination => !prepared.requestedOutputs.includes(destination))) {
     throw new Error('All-branches outputs exceed their structural preflight.');
   }
@@ -729,6 +777,7 @@ export async function persistAllBranchesPresentation(
     destinations,
     accountingMode: ledgerMode ? ('write-ledger' as const) : ('receipts' as const),
     ...(ledgerMode && { writeLedgerValid: false }),
+    ...(fileHtmlRequest && { fileHtml: createFileHtmlSummary(session.branchCount) }),
   };
   if (ledgerMode && (!structural.accepted || base.cancelRequested)) {
     // Attachment processing may already have written artifacts before cancellation.
@@ -805,6 +854,28 @@ export async function persistAllBranchesPresentation(
   }
   if (measurement.failed) return finalizeSummary(measured, 'failed');
 
+  const htmlPlan =
+    fileHtmlRequest && measured.fileHtml
+      ? await prepareFileHtmlDelivery(
+          plan,
+          ownedCompanion,
+          fileHtmlRequest,
+          suppliedReceipts,
+          receipts.get('file'),
+          session.branchCount,
+          budget,
+          measured.fileHtml,
+          htmlControls
+        )
+      : undefined;
+  measured.plannedPhysicalBytes = budget.totalPhysicalBytes;
+  if (measured.fileHtml?.cancelRequested || aborted(dependencies)) {
+    return finalizeSummary({ ...measured, cancelRequested: true }, 'cancelled');
+  }
+  if (measured.fileHtml?.status === 'rejected') {
+    return finalizeSummary({ ...measured, budgetKind: measured.fileHtml.budgetKind }, 'rejected');
+  }
+
   const renderedLeaves = await writeLeaves(session, active, measurement, receipts, dependencies);
   const written = { ...measured, phase: 'writing' as const, renderedLeaves };
   if (aborted(dependencies)) {
@@ -819,6 +890,31 @@ export async function persistAllBranchesPresentation(
   );
   if (stoppedBeforeAllIndexes) {
     return finalizeSummary({ ...written, phase: 'index', cancelRequested: true }, 'cancelled');
+  }
+  if (fileHtmlRequest && written.fileHtml) {
+    if (aborted(dependencies)) {
+      stopFileHtml(written.fileHtml, 'cancelled');
+      return finalizeSummary({ ...written, cancelRequested: true }, 'cancelled');
+    }
+    const file = destinations.find(destination => destination.destination === 'file');
+    if (htmlPlan && file && (file.branchWrites.unknown > 0 || file.indexState === 'unknown')) {
+      stopFileHtml(written.fileHtml, 'file-markdown-unknown');
+    } else if (htmlPlan) {
+      await deliverFileHtml(
+        htmlPlan,
+        {
+          source: 'chatgpt',
+          captureId: ownedCompanion.captureId,
+          conversationKey: ownedCompanion.conversationKey,
+        },
+        fileHtmlRequest.expectedSyncSettingsSnapshot,
+        written.fileHtml,
+        htmlControls
+      );
+    }
+    if (written.fileHtml.cancelRequested || aborted(dependencies)) {
+      return finalizeSummary({ ...written, cancelRequested: true }, 'cancelled');
+    }
   }
   return finalizeSummary({ ...written, phase: 'complete' });
 }

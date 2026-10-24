@@ -10,10 +10,12 @@ import { htmlAssetMediaPolicy } from '../../src/archive/presentation/assets';
 import {
   buildFinalizedFilePresentationEvidence,
   buildFinalizedFileArchivePresentationEvidence,
+  reconcileFinalizedFileArchivePresentationEvidence,
   LISKA_HTML_ASSET_BINDINGS_SCHEMA,
 } from '../../src/content/finalized-html-assets';
 import { retainStructuredPresentation } from '../../src/content/structured-presentation';
 import * as sha256Module from '../../src/lib/sha256';
+import { buildChatGptDestinationArchiveReceipt } from '../../src/content/chatgpt-destination-receipt';
 import type {
   ArchiveCompanionArtifact,
   ArchiveCompanionBundle,
@@ -121,6 +123,126 @@ function build(value = setup()) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('destination-finalized HTML asset binding evidence', () => {
+  async function reconciledSetup() {
+    const value = setup([record('asset-a'), record('asset-b')]);
+    const evidence = (await buildFinalizedFileArchivePresentationEvidence(
+      value.initialContext,
+      value.finalArchive,
+      value.finalCompanion,
+      value.records
+    ))!;
+    const receipt = buildChatGptDestinationArchiveReceipt(value.finalCompanion, 'file', [
+      { record: value.records[0], bytes: new Uint8Array(42) },
+    ]);
+    return { evidence, receipt };
+  }
+
+  it('reconciles byte-identical aliases against one physical File receipt and detaches the capability', async () => {
+    const { evidence, receipt } = await reconciledSetup();
+    expect(receipt.assets).toHaveLength(1);
+    const detached = reconcileFinalizedFileArchivePresentationEvidence(evidence, receipt)!;
+    expect(detached).toEqual(evidence);
+    expect(detached).not.toBe(evidence);
+    expect(detached.context).not.toBe(evidence.context);
+    expect(detached.context.archive).toBe(evidence.context.archive);
+    expect(detached.assetBindings.bindings).toHaveLength(2);
+    expect(detached.assetBindings.bindings[0]).not.toBe(evidence.assetBindings.bindings[0]);
+    for (const item of [
+      detached,
+      detached.context,
+      detached.context.manifest,
+      detached.context.canonical,
+      detached.assetBindings,
+      detached.assetBindings.bindings,
+      ...detached.assetBindings.bindings,
+    ])
+      expect(Object.isFrozen(item)).toBe(true);
+  });
+
+  it.each([
+    'destination',
+    'captureId',
+    'conversationKey',
+    'manifestHash',
+    'manifestLength',
+    'canonicalLength',
+  ] as const)('rejects mismatched receipt %s', async field => {
+    const { evidence, receipt } = await reconciledSetup();
+    if (field === 'destination') receipt.destination = 'obsidian';
+    if (field === 'captureId') receipt.captureId += '-other';
+    if (field === 'conversationKey') receipt.conversationKey = 'e'.repeat(64);
+    if (field === 'manifestHash') receipt.manifestSha256 = 'e'.repeat(64);
+    if (field === 'manifestLength') receipt.archiveByteLengths.manifest += 1;
+    if (field === 'canonicalLength') receipt.archiveByteLengths.canonical += 1;
+    expect(reconcileFinalizedFileArchivePresentationEvidence(evidence, receipt)).toBeUndefined();
+  });
+
+  it.each([
+    'path',
+    'hash',
+    'mime',
+    'length',
+    'missing-receipt',
+    'missing-binding',
+    'missing-supported-asset',
+  ] as const)('rejects File asset/binding disagreement: %s', async field => {
+    const { evidence, receipt } = await reconciledSetup();
+    if (field === 'path') receipt.assets[0].relativePath = `assets/${'c'.repeat(64)}.png`;
+    if (field === 'hash') receipt.assets[0].sha256 = 'c'.repeat(64);
+    if (field === 'mime') receipt.assets[0].mediaType = 'image/jpeg';
+    if (field === 'length') receipt.assets[0].byteLength += 1;
+    if (field === 'missing-receipt') receipt.assets = [];
+    const input =
+      field === 'missing-binding'
+        ? { ...evidence, assetBindings: { bindings: [], sha256: null } }
+        : evidence;
+    if (field === 'missing-supported-asset')
+      receipt.assets.push({
+        sha256: 'c'.repeat(64),
+        relativePath: `assets/${'c'.repeat(64)}.pdf`,
+        mediaType: 'application/pdf',
+        byteLength: 10,
+      });
+    expect(reconcileFinalizedFileArchivePresentationEvidence(input, receipt)).toBeUndefined();
+  });
+
+  it('reads stateful context and binding descriptors once and passes the same detached capability onward', async () => {
+    const { evidence, receipt } = await reconciledSetup();
+    const propertyReads = vi.fn(() => {
+      throw new Error('ordinary read forbidden');
+    });
+    const observed: Array<{ key: string | symbol; count: number }> = [];
+    const wrap = <T extends object>(target: T): T => {
+      const counts = new Map<string | symbol, number>();
+      return new Proxy(target, {
+        get: propertyReads,
+        getOwnPropertyDescriptor(object, key) {
+          const count = (counts.get(key) ?? 0) + 1;
+          counts.set(key, count);
+          observed.push({ key, count });
+          if (count > 1) throw new Error('second descriptor read');
+          return Reflect.getOwnPropertyDescriptor(object, key);
+        },
+      });
+    };
+    const input = wrap({
+      context: wrap({
+        ...evidence.context,
+        manifest: wrap({ ...evidence.context.manifest }),
+        canonical: wrap({ ...evidence.context.canonical }),
+      }),
+      assetBindings: wrap({
+        sha256: evidence.assetBindings.sha256,
+        bindings: wrap(evidence.assetBindings.bindings.map(binding => wrap({ ...binding }))),
+      }),
+    });
+    const detached = reconcileFinalizedFileArchivePresentationEvidence(input, receipt);
+    expect(detached).toEqual(evidence);
+    expect(propertyReads).not.toHaveBeenCalled();
+    expect(observed.every(row => row.count === 1)).toBe(true);
+    expect(reconcileFinalizedFileArchivePresentationEvidence(detached!, receipt)).toEqual(evidence);
+    expect(propertyReads).not.toHaveBeenCalled();
+  });
   it.each(['chatgpt', 'deepseek'] as const)(
     'shares exactly one binding digest between the %s base and selected APIs',
     async source => {

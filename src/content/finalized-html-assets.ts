@@ -8,6 +8,7 @@ import {
 } from '../archive/presentation/contracts';
 import { LOWERCASE_SHA256, preflightJson } from '../archive/presentation/safety';
 import { sha256Hex } from '../lib/sha256';
+import type { ChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
 import type {
   ArchiveCompanionBundle,
   StructuredArchivePresentationContext,
@@ -54,14 +55,120 @@ function ownData(value: unknown, keys: readonly string[]): Record<string, unknow
 
 function denseArray(value: unknown, maxLength: number): unknown[] {
   if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) invalid();
-  if (value.length > maxLength || Reflect.ownKeys(value).length !== value.length + 1) invalid();
+  const length = Object.getOwnPropertyDescriptor(value, 'length')?.value;
+  if (
+    !Number.isSafeInteger(length) ||
+    length < 0 ||
+    length > maxLength ||
+    Reflect.ownKeys(value).length !== length + 1
+  )
+    invalid();
   const result: unknown[] = [];
-  for (let index = 0; index < value.length; index++) {
+  for (let index = 0; index < length; index++) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) invalid();
     result.push(descriptor.value);
   }
   return result;
+}
+
+function exactOwnData(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  const data = ownData(value, keys);
+  const actual = Reflect.ownKeys(value as object);
+  if (
+    actual.length !== keys.length ||
+    actual.some(key => typeof key !== 'string' || !keys.includes(key))
+  )
+    invalid();
+  return data;
+}
+
+/** Snapshot descriptors/bindings exactly once; B3a still owns canonical byte/hash authorization. */
+function detachedArchiveEvidence(
+  value: FinalizedFileArchivePresentationEvidence
+): FinalizedFileArchivePresentationEvidence {
+  const evidence = exactOwnData(value, ['context', 'assetBindings']);
+  const base = exactOwnData(evidence.context, [
+    'source',
+    'archive',
+    'captureId',
+    'conversationKey',
+    'manifest',
+    'canonical',
+    'includeToolContent',
+  ]);
+  const context = Object.freeze({
+    ...base,
+    manifest: Object.freeze(exactOwnData(base.manifest, ARTIFACT_KEYS)),
+    canonical: Object.freeze(exactOwnData(base.canonical, ARTIFACT_KEYS)),
+  }) as unknown as StructuredArchivePresentationContext;
+  const set = exactOwnData(evidence.assetBindings, ['bindings', 'sha256']);
+  const bindings = Object.freeze(
+    denseArray(set.bindings, HTML_PRESENTATION_LIMITS.maxAssetBindings).map(
+      binding =>
+        Object.freeze(
+          exactOwnData(binding, [
+            'assetId',
+            'path',
+            'sha256',
+            'mimeType',
+            'byteLength',
+            'renderMode',
+          ])
+        ) as unknown as HtmlAssetBinding
+    )
+  );
+  return Object.freeze({
+    context,
+    assetBindings: Object.freeze({ bindings, sha256: set.sha256 as string | null }),
+  });
+}
+
+/**
+ * Reconcile the presentation capability with the already-snapshotted, accepted File receipt.
+ * Attachment-finalized canonical metadata is compared only with that receipt, never the old
+ * companion. Multiple canonical asset aliases may share one exact confirmed physical file.
+ */
+export function reconcileFinalizedFileArchivePresentationEvidence(
+  value: FinalizedFileArchivePresentationEvidence,
+  fileReceipt: ChatGptDestinationArchiveReceipt
+): FinalizedFileArchivePresentationEvidence | undefined {
+  try {
+    const evidence = detachedArchiveEvidence(value);
+    const { context, assetBindings } = evidence;
+    if (
+      fileReceipt.destination !== 'file' ||
+      context.source !== 'chatgpt' ||
+      context.captureId !== fileReceipt.captureId ||
+      context.conversationKey !== fileReceipt.conversationKey ||
+      context.manifest.sha256 !== fileReceipt.manifestSha256 ||
+      context.manifest.byteLength !== fileReceipt.archiveByteLengths.manifest ||
+      context.canonical.byteLength !== fileReceipt.archiveByteLengths.canonical
+    )
+      return undefined;
+    const assets = new Map(fileReceipt.assets.map(asset => [asset.relativePath, asset]));
+    const represented = new Set<string>();
+    for (const binding of assetBindings.bindings) {
+      const asset = assets.get(binding.path);
+      if (
+        !asset ||
+        binding.sha256 !== asset.sha256 ||
+        binding.mimeType !== asset.mediaType ||
+        binding.byteLength !== asset.byteLength
+      )
+        return undefined;
+      represented.add(binding.path);
+    }
+    if (
+      fileReceipt.assets.some(
+        asset => htmlAssetMediaPolicy(asset.mediaType) && !represented.has(asset.relativePath)
+      )
+    )
+      return undefined;
+    return evidence;
+  } catch {
+    return undefined;
+  }
 }
 
 function companionMetadata(value: ArchiveCompanionBundle): ArchiveCompanionBundle {

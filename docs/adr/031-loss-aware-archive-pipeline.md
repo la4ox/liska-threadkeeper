@@ -847,6 +847,14 @@ After attachment reconciliation, only a confirmed File manifest/canonical pair
 and File-confirmed fetched assets can produce the archive-level presentation
 capability. Obsidian evidence and incomplete File outcomes cannot be borrowed.
 
+The all-branches coordinator must bind that capability to the exact accepted
+File receipt before rendering. The finalized manifest digest and archive byte
+lengths, plus every content-addressed asset descriptor, are reconciled against
+one detached evidence snapshot. Attachment mode never compares against or
+rebuilds from the older pre-attachment companion. Canonical SHA-256 remains the
+renderer authorization boundary because the current sink receipt carries the
+canonical length rather than its digest.
+
 Append, merge, automatic deduplication, and a monolithic branching Markdown
 document remain separate later decisions. The initial implementation favors
 complete, inspectable snapshots over implicit mutation.

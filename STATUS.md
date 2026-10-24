@@ -1525,3 +1525,46 @@ formatting and diff checks are clean. Main-agent focused verification passes 3
 suites / 110 tests and the independent review passes 5 suites / 251 tests with
 no P0-P3 finding. B3b2 still owns the no-attachment File evidence path, combined
 measurement, sequential delivery, unknown-write halting and user summary.
+
+## Canonical HTML all-branches B3b2a persistence checkpoint
+
+The all-branches persistence layer can now accept an explicit File HTML request,
+and that request must match the exact bit retained by the structural preflight.
+HTML cannot be added after a weaker preflight. Markdown measurement and B3a HTML
+measurement consume one physical-byte budget before the first presentation
+write; a combined budget rejection leaves the retained archive intact and
+dispatches neither Markdown nor HTML. Without the opt-in, the legacy version-1
+summary shape and behavior remain unchanged.
+
+After combined measurement, Markdown keeps its existing per-destination
+independence. File HTML then recreates and sends one leaf pair at a time. HTML
+and receipt outcomes are counted separately; an unconfirmed transport charges
+both planned files as unknown and stops all later File HTML without retry.
+Confirmed HTML remains confirmed when its receipt is unavailable. Known
+non-dispatch may allow later leaves, but the index body is not even recreated
+unless every leaf pair is confirmed. A Stop waits for an in-flight pair's
+observation, records it, and prevents the next pair. File Markdown unknown also
+blocks subsequent HTML, while a confirmed Markdown failure may leave the
+independent HTML route available.
+
+Plain/no-attachment export may create presentation evidence only after the exact
+File trio is confirmed. Attachment-finalized export may use only its supplied
+evidence and never rebuild from the older pre-attachment archive. A new
+reconciliation boundary detaches context descriptors and bindings once, then
+matches them to the exact accepted File receipt by destination, identity,
+manifest digest/length, canonical length and every supported asset's
+path/hash/MIME/length. The accepted receipt protocol does not carry canonical
+SHA-256, so B3a still reserializes and authorizes the canonical body/hash; the
+sink link available here is its exact length plus the finalized manifest hash.
+
+Independent review found and the implementation closed one P2: valid evidence
+for canonical B could previously be paired with a File receipt for A when both
+shared capture identity. The mixed A/B regression now produces HTML
+`evidence-unavailable`, preserves Markdown, and sends zero HTML messages. The
+repeat review found no remaining P0-P3 issue.
+
+Evidence: the complete content set passes 63 suites / 2,577 tests; main-agent
+focused verification passes 5 suites / 284 tests. Production build transforms
+250 modules, scoped ESLint, Prettier and diff checks are clean, and the final
+independent rereview passes 4 suites / 216 tests. This checkpoint exposes no
+bootstrap/UI caller yet; summary rendering and live delivery remain B3b2b.
