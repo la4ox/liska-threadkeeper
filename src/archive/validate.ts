@@ -1,4 +1,8 @@
-export { isLiskaThreadArchive, validateLiskaThreadArchive } from './validation/archive';
+export {
+  isLiskaThreadArchive,
+  validateLiskaThreadArchive,
+  validateLiskaThreadArchiveBounded,
+} from './validation/archive';
 export type {
   ArchiveValidationIssue,
   ArchiveValidationResult,

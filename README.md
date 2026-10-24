@@ -10,6 +10,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 
 - **Loss-aware DeepSeek export:** signed-in conversations preserve the exact same-origin history response, normalize its complete graph into `liska-thread/1`, and render the active branch without scrolling through the page.
 - **Fast ChatGPT export:** after a trusted click, an inactive disposable tab observes ChatGPT's page-native conversation response at document start and reconstructs the complete graph without scrolling. The default view follows the current branch; a local chooser can export one explicit branch or every leaf plus an index. A marked DOM fallback remains available for the default view.
+- **Offline ChatGPT reconciliation:** a separate Archive Tools page compares an existing web canonical snapshot with the exact matching conversation in an official export, then saves one verifiable local ZIP without modifying either source.
 - **Local outputs:** download Markdown, copy it, or write to Obsidian. Liska has no analytics, telemetry, account, or operated server.
 - **Long-thread support:** the text pipeline accepts large notes up to 32 MiB of UTF-8; other supported sites can accumulate virtualized conversations with bounded auto-scroll.
 - **Readable archives:** YAML frontmatter, citations, math, configurable callouts, thinking/tool content, question headings, and collision-safe filenames.
@@ -54,6 +55,14 @@ Then open `chrome://extensions`, enable Developer mode, choose **Load unpacked**
 
 File and clipboard export work without Obsidian or an API key.
 
+### Compare a web snapshot with an official ChatGPT export
+
+1. Open Liska's popup and choose **Archive Tools → Compare ChatGPT archives**.
+2. Select an existing web `canonical/liska-thread-1.json` and the uncompressed official conversations JSON file.
+3. Choose where to save the content-addressed reconciliation ZIP.
+
+Liska matches only the exact conversation ID declared by the web snapshot. A successful bundle contains the exact official excerpt, manifest, official canonical snapshot, content-free comparison report, and root bundle manifest. If official canonical normalization fails, Liska instead saves an explicitly marked raw-only recovery bundle. The selected files are read-only and never uploaded; choose their folder in **Save As** if you want the ZIP physically beside them.
+
 ### Optional Obsidian setup
 
 1. Install and enable [Obsidian Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) 4.1.3 or later.
@@ -67,6 +76,7 @@ The bearer key is stored in `chrome.storage.local`, is never exposed to supporte
 
 - The main button exports the provider-selected current branch. ChatGPT also offers a local chooser for one explicit branch or every leaf plus an index.
 - Automatic scheduled backups are not implemented yet; every export begins with a real click.
+- Reconciliation currently accepts an uncompressed official conversations JSON file and writes one File ZIP through **Save As**. Official export ZIP discovery and direct Obsidian bundle delivery are separate follow-ups.
 - DeepSeek structured exports save raw/manifest/canonical companions beside durable Markdown outputs. Text, Markdown, the active branch, and optional Thinking are supported. With **Export images & attachments** enabled for File or Obsidian, Liska can fetch up to 20 passive files from exact current `signed_path` records in verified history, or from an exact file-service fetch that the current page already recorded in the newest bounded ResourceTiming tail and that uniquely matches a current raw file ID. In-band history wins. Liska never clicks a file card or calls `fetch_files`; a missing preview remains honestly unresolved. Raw is saved first, writes are destination-specific, and provider IDs/signed URLs stay out of manifest/canonical output.
 - ChatGPT structured archives always retain attachment references and metadata. With **Export images & attachments** enabled, Liska can also acquire a bounded subset of ordinary-chat file-ID assets and interpreter/sandbox documents after the raw archive is durably saved. Active ordinary dispatch is limited to PNG/JPEG; GIF/WebP can only use the existing exact passive-observation path and have not passed the active live-evidence gate. Every asset remains honestly marked as `fetched`, `not-attempted`, or failed; custom-GPT/project and Calpico fallback routes are not supported yet.
 - One exact Library-associated JPEG in an ordinary ChatGPT conversation may use a separate evidence-gated admission path. It is re-bound from committed raw immediately before the unchanged page-owned resolver, consumes one of the existing four active image slots, and never treats `library_file_id`, filename, `source: local`, or a pointer fallback as request authority. Library/gizmo/project/template identifiers stay raw-only; unsupported owner context and every other Library asset remain `not-attempted`.

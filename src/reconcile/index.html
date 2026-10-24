@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="reconcile_title">Compare ChatGPT archives — Liska</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <img src="/icons/icon48.png" alt="" width="48" height="48" />
+        <div>
+          <p class="eyebrow" data-i18n="extName">Liska — AI Threadkeeper</p>
+          <h1 data-i18n="reconcile_heading">Compare ChatGPT archives</h1>
+          <p data-i18n="reconcile_intro">
+            Reconcile one saved web canonical snapshot with the matching conversation in an official
+            ChatGPT export. Everything is processed in this local extension page.
+          </p>
+        </div>
+      </header>
+
+      <section class="panel" aria-labelledby="sourceHeading">
+        <h2 id="sourceHeading" data-i18n="reconcile_sources">Choose two read-only sources</h2>
+        <label class="file-card" for="webCanonicalFile">
+          <span class="step">1</span>
+          <span class="file-copy">
+            <strong data-i18n="reconcile_webCanonical">Web canonical snapshot</strong>
+            <span data-i18n="reconcile_webCanonicalHelp">
+              Select canonical/liska-thread-1.json from an existing Liska web capture.
+            </span>
+          </span>
+          <input id="webCanonicalFile" type="file" accept=".json,application/json" />
+        </label>
+
+        <label class="file-card" for="officialExportFile">
+          <span class="step">2</span>
+          <span class="file-copy">
+            <strong data-i18n="reconcile_officialExport">Official conversations export</strong>
+            <span data-i18n="reconcile_officialExportHelp">
+              Select the uncompressed conversations JSON file. Liska reads the whole stream but
+              retains only the exact matching conversation.
+            </span>
+          </span>
+          <input id="officialExportFile" type="file" accept=".json,application/json" />
+        </label>
+      </section>
+
+      <section class="panel boundary" aria-labelledby="boundaryHeading">
+        <h2 id="boundaryHeading" data-i18n="reconcile_boundary">What this tool will do</h2>
+        <ul>
+          <li data-i18n="reconcile_boundaryLocal">
+            Keep both selected files unchanged and process them locally.
+          </li>
+          <li data-i18n="reconcile_boundaryExact">
+            Match only the exact conversation ID declared by the web canonical snapshot.
+          </li>
+          <li data-i18n="reconcile_boundaryBundle">
+            Ask where to save one immutable ZIP. It always preserves official raw and manifest;
+            canonical and comparison are included only when normalization succeeds.
+          </li>
+        </ul>
+        <p class="note" data-i18n="reconcile_saveLocation">
+          A browser file selection does not grant write access to the source folder. Choose that
+          folder in the Save As dialog if you want the bundle beside your snapshots.
+        </p>
+      </section>
+
+      <div class="actions">
+        <button id="runBtn" class="primary" type="button" data-i18n="reconcile_run">
+          Prepare and save bundle
+        </button>
+        <button
+          id="cancelBtn"
+          class="secondary"
+          type="button"
+          disabled
+          data-i18n="reconcile_cancel"
+        >
+          Cancel
+        </button>
+      </div>
+
+      <section class="status-panel" aria-live="polite" aria-atomic="true">
+        <div id="status" class="status" data-state="idle" data-i18n="reconcile_ready">
+          Choose both files to begin.
+        </div>
+        <div id="result" class="result" hidden></div>
+      </section>
+    </main>
+
+    <script type="module" src="index.ts"></script>
+  </body>
+</html>

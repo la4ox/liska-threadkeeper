@@ -381,5 +381,113 @@
   },
   "ui_branchPickerExportAllHelp": {
     "message": "すべての分岐を書き出すと、複数のローカル Markdown ファイルが作成されます。完全なグラフは1つの正規アーカイブに残ります。"
+  },
+  "settings_archiveTools": {
+    "message": "アーカイブツール"
+  },
+  "settings_compareChatGptArchives": {
+    "message": "ChatGPT アーカイブを比較"
+  },
+  "settings_compareChatGptArchivesHelp": {
+    "message": "Web の正規スナップショットと公式エクスポートをローカルで比較します"
+  },
+  "reconcile_openFailed": {
+    "message": "アーカイブ比較ツールを開けませんでした"
+  },
+  "reconcile_title": {
+    "message": "ChatGPT アーカイブを比較 — Liska"
+  },
+  "reconcile_heading": {
+    "message": "ChatGPT アーカイブを比較"
+  },
+  "reconcile_intro": {
+    "message": "保存済みの Web 正規スナップショットと、ChatGPT 公式エクスポート内の同じ会話を照合します。処理はすべてこのローカル拡張ページ内で行われます。"
+  },
+  "reconcile_sources": {
+    "message": "読み取り専用の2つのソースを選択"
+  },
+  "reconcile_webCanonical": {
+    "message": "Web 正規スナップショット"
+  },
+  "reconcile_webCanonicalHelp": {
+    "message": "既存の Liska Web キャプチャから canonical/liska-thread-1.json を選択してください。"
+  },
+  "reconcile_officialExport": {
+    "message": "公式 conversations エクスポート"
+  },
+  "reconcile_officialExportHelp": {
+    "message": "展開済みの conversations JSON ファイルを選択してください。Liska はストリーム全体を読みますが、完全に一致する会話だけを保持します。"
+  },
+  "reconcile_boundary": {
+    "message": "このツールが行うこと"
+  },
+  "reconcile_boundaryLocal": {
+    "message": "選択した2つのファイルを変更せず、ローカルで処理します。"
+  },
+  "reconcile_boundaryExact": {
+    "message": "Web 正規スナップショットが宣言する正確な会話 ID だけを照合します。"
+  },
+  "reconcile_boundaryBundle": {
+    "message": "変更不能な ZIP の保存先を確認します。公式 raw と manifest は常に保持し、canonical と比較結果は正規化に成功した場合だけ含めます。"
+  },
+  "reconcile_saveLocation": {
+    "message": "ブラウザでファイルを選択しても元フォルダーへの書き込み権限は得られません。スナップショットの隣に保存する場合は、名前を付けて保存ダイアログでそのフォルダーを選択してください。"
+  },
+  "reconcile_run": {
+    "message": "バンドルを作成して保存"
+  },
+  "reconcile_cancel": {
+    "message": "キャンセル"
+  },
+  "reconcile_ready": {
+    "message": "開始するには2つのファイルを選択してください。"
+  },
+  "reconcile_missingFiles": {
+    "message": "先に2つの JSON ファイルを選択してください。"
+  },
+  "reconcile_readingWeb": {
+    "message": "Web 正規スナップショットを読み込み、検証しています…"
+  },
+  "reconcile_scanningOfficial": {
+    "message": "公式エクスポートから正確な会話を検索しています…"
+  },
+  "reconcile_buildingBundle": {
+    "message": "変更不能な照合 ZIP を作成しています…"
+  },
+  "reconcile_waitingSave": {
+    "message": "照合 ZIP の保存先を選択してください。"
+  },
+  "reconcile_saved": {
+    "message": "ブラウザが照合バンドルの保存完了を確認しました。"
+  },
+  "reconcile_savedRawOnly": {
+    "message": "ブラウザが raw-only 復旧バンドルを確認しました。正規比較の完了は主張しません。"
+  },
+  "reconcile_cancelled": {
+    "message": "照合をキャンセルしました。出力は開始されていません。"
+  },
+  "reconcile_failed": {
+    "message": "照合に失敗しました。選択したソースファイルは変更されていません。"
+  },
+  "reconcile_downloadUnknown": {
+    "message": "ダウンロードは開始されましたが、完了を確認できませんでした。ブラウザのダウンロードを確認するまで再試行しないでください。"
+  },
+  "reconcile_downloadInterrupted": {
+    "message": "ブラウザが照合ダウンロードの中断を報告しました。"
+  },
+  "reconcile_downloadNotStarted": {
+    "message": "名前を付けて保存がキャンセルされたか、ブラウザがダウンロードを開始できませんでした。"
+  },
+  "reconcile_resultNormalized": {
+    "message": "ZIP には公式の正確な抜粋、manifest、canonical、比較レポート、バンドル manifest が含まれます。"
+  },
+  "reconcile_resultRawOnly": {
+    "message": "ZIP には検証済みの公式抜粋、その manifest、raw-only バンドル manifest が含まれます。"
+  },
+  "reconcile_resultBundleId": {
+    "message": "バンドル ID"
+  },
+  "reconcile_resultSavedAs": {
+    "message": "ブラウザが確認したファイル"
   }
 }

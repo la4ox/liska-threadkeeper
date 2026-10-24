@@ -10,6 +10,7 @@ Liska は、AI との会話を読みやすい Markdown としてローカルに�
 
 - **情報を失わない DeepSeek 書き出し:** ログイン中の会話では同一オリジンの履歴レスポンスを正確に保存し、完全なグラフを `liska-thread/1` に正規化して、ページ全体をスクロールせずに現在の分岐を描画します。
 - **高速な ChatGPT 書き出し:** 実際のクリック後、非アクティブな一時タブが document start から ChatGPT 自身の会話レスポンスを監視し、ページをスクロールせずに会話グラフ全体を復元します。既定では現在の分岐を使い、ローカル選択画面から特定の分岐、または全 leaf と索引も書き出せます。既定表示には明示的な DOM フォールバックも残ります。
+- **オフライン ChatGPT 照合:** Archive Tools の専用ページで既存の Web 正規スナップショットと公式エクスポート内の完全一致する会話を比較し、どちらのソースも変更せずに検証可能なローカル ZIP を保存します。
 - **ローカル出力:** Markdown ダウンロード、クリップボード、Obsidian に対応。解析、テレメトリ、Liska 独自のサーバーはありません。
 - **長い会話:** 最大 32 MiB（UTF-8）のテキストノートを処理し、他の対応サイトでは仮想化された会話を制限付き自動スクロールで収集します。
 - **整理された記録:** YAML フロントマター、引用、数式、コールアウト、Thinking／ツール内容、質問見出し、衝突しないファイル名。
@@ -45,6 +46,14 @@ npm run build
 
 ファイルとクリップボードは、Obsidian や API キーなしで利用できます。
 
+### Web スナップショットと ChatGPT 公式エクスポートを比較
+
+1. Liska のポップアップから **Archive Tools → ChatGPT アーカイブを比較** を開きます。
+2. 既存の Web `canonical/liska-thread-1.json` と、展開済みの公式 conversations JSON ファイルを選択します。
+3. コンテンツアドレス付き照合 ZIP の保存先を選択します。
+
+Liska は Web スナップショットが宣言する正確な会話 ID だけを照合します。成功したバンドルには公式の正確な抜粋、manifest、公式 canonical、内容を直接含まない比較レポート、ルート manifest が入ります。公式 canonical の正規化に失敗した場合は、明示的な raw-only 復旧バンドルを保存します。選択したファイルは読み取り専用で、アップロードされません。同じフォルダーに置く場合は **名前を付けて保存** でその場所を選択してください。
+
 ### Obsidian（オプション）
 
 1. [Obsidian Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) 4.1.3 以降をインストールして有効にします。
@@ -58,6 +67,7 @@ API キーは `chrome.storage.local` にのみ保存され、対応 AI ページ
 
 - メインボタンはプロバイダーが選択した現在の分岐を書き出します。ChatGPT では、ローカル選択画面から特定の分岐、または全 leaf と索引も書き出せます。
 - 自動スケジュールバックアップはまだありません。各書き出しは実際のクリックから始まります。
+- 照合機能は現在、展開済みの公式 conversations JSON を受け取り、**名前を付けて保存** で1つの File ZIP を出力します。公式エクスポート ZIP の自動検出と Obsidian への直接バンドル保存は別の今後の対応です。
 - DeepSeek の構造化書き出しは、永続的な Markdown 出力の横に raw／manifest／canonical companion を保存します。テキスト、Markdown、現在の分岐、任意の Thinking に対応します。**画像と添付ファイルをエクスポート**を有効にし、出力先に File または Obsidian を選ぶと、Liska は検証済み履歴内の現在の正確な `signed_path`、または最新の上限付き ResourceTiming tail にページが記録した file-service fetch のうち現在の raw file ID に一意に対応するものから、最大 20 件の passive file を取得できます。履歴内の情報を優先します。Liska は file card をクリックせず、`fetch_files` も呼び出しません。preview がない場合は未解決として正確に残します。raw を最初に保存し、書き込みは出力先ごとに管理され、provider ID と signed URL は manifest／canonical に残りません。
 - ChatGPT の構造化アーカイブは、添付ファイルの参照とメタデータを常に保持します。**画像と添付ファイルをエクスポート**を有効にすると、raw アーカイブの保存後に、通常チャットの image/file-ID asset と interpreter/sandbox document のうち対応するものを上限付きで取得できます。各 asset は `fetched`、`not-attempted`、または失敗として正確に記録されます。custom-GPT、Library-ID、Calpico fallback はまだ対応していません。
 - 16 MiB 以下の ChatGPT graph response は検証済みの inline path を使用します。16 MiB を超え 64 MiB 以下の response は extension-owned staging を使って分割転送されます。この staged path は synthetic live test 済みですが、16 MiB を超える実際の provider response はまだ明示的な検証課題です。

@@ -83,6 +83,7 @@ function queryElements() {
     outputObsidian: getElement<HTMLInputElement>('outputObsidian'),
     outputFile: getElement<HTMLInputElement>('outputFile'),
     outputClipboard: getElement<HTMLInputElement>('outputClipboard'),
+    openReconciliationBtn: getElement<HTMLButtonElement>('openReconciliationBtn'),
     obsidianSettings: getElement<HTMLElement>('obsidianSettings'),
     // Obsidian settings
     apiKey: getElement<HTMLInputElement>('apiKey'),
@@ -247,6 +248,12 @@ function updateHtmlExportAvailability(): void {
 function setupEventListeners(): void {
   elements.saveBtn.addEventListener('click', handleSave);
   elements.testBtn.addEventListener('click', handleTest);
+  elements.openReconciliationBtn.addEventListener('click', () => {
+    const url = chrome.runtime.getURL('src/reconcile/index.html');
+    void chrome.tabs.create({ url }).catch(() => {
+      showStatus(getMessage('reconcile_openFailed'), 'error');
+    });
+  });
 
   // Output destination checkbox listeners
   elements.outputObsidian.addEventListener('change', () => {

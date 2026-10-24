@@ -27,7 +27,46 @@ const ARCHIVE_FIELDS = [
  * exceptions, which makes it suitable for downloaded archive files.
  */
 export function validateLiskaThreadArchive(input: unknown): ArchiveValidationResult {
-  const issues: ArchiveValidationIssue[] = [];
+  return validateWithIssues(input, []);
+}
+
+class IssueLimitReached extends Error {}
+
+class BoundedIssues extends Array<ArchiveValidationIssue> {
+  readonly limitReached = new IssueLimitReached();
+
+  constructor(private readonly maximum: number) {
+    super();
+  }
+
+  override push(...items: ArchiveValidationIssue[]): number {
+    if (this.length + items.length > this.maximum) throw this.limitReached;
+    return super.push(...items);
+  }
+}
+
+/** Fail-fast validation for untrusted large local files that only need a verdict. */
+export function validateLiskaThreadArchiveBounded(
+  input: unknown,
+  maxIssues: number
+): ArchiveValidationResult {
+  if (!Number.isSafeInteger(maxIssues) || maxIssues < 1 || maxIssues > 10_000) {
+    throw new RangeError('Archive validation issue limit must be between 1 and 10000.');
+  }
+  const issues = new BoundedIssues(maxIssues);
+  try {
+    const result = validateWithIssues(input, issues);
+    return { ...result, issues: [...result.issues] };
+  } catch (error) {
+    if (error !== issues.limitReached) throw error;
+    return { valid: false, issues: [...issues], truncated: true };
+  }
+}
+
+function validateWithIssues(
+  input: unknown,
+  issues: ArchiveValidationIssue[]
+): ArchiveValidationResult {
   const archive = expectExactObject(
     input,
     '',

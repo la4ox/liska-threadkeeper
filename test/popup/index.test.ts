@@ -120,6 +120,7 @@ function buildPopupDom(): void {
     </div>
     <button id="testBtn"></button>
     <button id="saveBtn"></button>
+    <button id="openReconciliationBtn"></button>
     <div id="status" class="status"></div>
   `;
 }
@@ -201,6 +202,18 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('enableChatGptOpaqueReplay').checked).toBe(false);
       expect(el<HTMLInputElement>('includeTags').checked).toBe(false);
       expect(el<HTMLSelectElement>('messageFormat').value).toBe('callout');
+    });
+
+    it('opens the dedicated local reconciliation page', async () => {
+      await initWithDefaults();
+
+      el<HTMLButtonElement>('openReconciliationBtn').click();
+
+      expect(chrome.runtime.getURL).toHaveBeenCalledWith('src/reconcile/index.html');
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: 'chrome-extension://test-extension-id/src/reconcile/index.html',
+      });
+      expect(sendMessage).not.toHaveBeenCalled();
     });
 
     it('keeps settings actions disabled until the strict read succeeds', async () => {
