@@ -137,6 +137,49 @@ h2 {
   cursor: pointer;
 }
 
+.destination-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.destination-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-strong);
+  cursor: pointer;
+}
+
+.destination-card:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.35);
+}
+
+.destination-card input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.destination-card span {
+  display: grid;
+  gap: 4px;
+}
+
+.destination-card span span,
+.destination-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.destination-note {
+  margin: 12px 0 0;
+}
+
 .boundary ul {
   margin: 0 0 14px;
   padding-left: 21px;
@@ -234,5 +277,9 @@ input:focus-visible {
 
   .actions {
     flex-direction: column;
+  }
+
+  .destination-list {
+    grid-template-columns: 1fr;
   }
 }

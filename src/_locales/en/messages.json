@@ -546,6 +546,24 @@
   "reconcile_boundary": {
     "message": "What this tool will do"
   },
+  "reconcile_destinations": {
+    "message": "Choose explicit local destinations"
+  },
+  "reconcile_destinationFile": {
+    "message": "File ZIP"
+  },
+  "reconcile_destinationFileHelp": {
+    "message": "Open one Save As dialog for the deterministic reconciliation ZIP."
+  },
+  "reconcile_destinationObsidian": {
+    "message": "Obsidian snapshot"
+  },
+  "reconcile_destinationObsidianHelp": {
+    "message": "Create a separate verified artifact directory in the configured local vault."
+  },
+  "reconcile_obsidianRequires": {
+    "message": "Obsidian delivery requires Local REST API 5.5.0 or later for atomic create-only writes. It is off by default."
+  },
   "reconcile_boundaryLocal": {
     "message": "Keep both selected files unchanged and process them locally."
   },
@@ -570,6 +588,9 @@
   "reconcile_missingFiles": {
     "message": "Choose both JSON files first."
   },
+  "reconcile_missingDestination": {
+    "message": "Choose at least one local destination."
+  },
   "reconcile_readingWeb": {
     "message": "Reading and validating the web canonical snapshot…"
   },
@@ -581,6 +602,21 @@
   },
   "reconcile_waitingSave": {
     "message": "Choose where to save the reconciliation ZIP."
+  },
+  "reconcile_writingObsidian": {
+    "message": "Writing and reading back the immutable Obsidian snapshot… Keep this page open."
+  },
+  "reconcile_outputsConfirmed": {
+    "message": "All selected local destinations were verified."
+  },
+  "reconcile_outputsPartial": {
+    "message": "At least one destination was verified, but another remains incomplete or refused."
+  },
+  "reconcile_outputsIncomplete": {
+    "message": "The Obsidian snapshot is incomplete. Some files may exist; nothing was deleted or retried."
+  },
+  "reconcile_obsidianUpgrade": {
+    "message": "Obsidian was not changed. Update Local REST API to 5.5.0 or later for atomic create-only snapshots."
   },
   "reconcile_saved": {
     "message": "The browser confirmed that the reconciliation bundle was saved."
@@ -614,5 +650,26 @@
   },
   "reconcile_resultSavedAs": {
     "message": "Browser-confirmed file"
+  },
+  "reconcile_resultFileConfirmed": {
+    "message": "File ZIP confirmed"
+  },
+  "reconcile_resultFileUnknown": {
+    "message": "File ZIP completion unconfirmed"
+  },
+  "reconcile_resultFileFailed": {
+    "message": "File ZIP not saved"
+  },
+  "reconcile_resultObsidianConfirmed": {
+    "message": "Obsidian snapshot verified"
+  },
+  "reconcile_resultObsidianUpgrade": {
+    "message": "Obsidian snapshot refused: Local REST API 5.5.0 or later is required"
+  },
+  "reconcile_resultObsidianCancelled": {
+    "message": "Obsidian snapshot cancelled; partial files may remain"
+  },
+  "reconcile_resultObsidianIncomplete": {
+    "message": "Obsidian snapshot incomplete; no files were deleted or retried"
   }
 }

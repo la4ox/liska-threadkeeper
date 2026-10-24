@@ -301,10 +301,14 @@ terminal states, and the existing no-credential-export boundary.
 - The selected web bytes are bound by exact length/SHA-256; source filenames and
   paths never enter bundle metadata. Because file selection grants no write
   authority, the user chooses physical same-folder placement in Save As.
-- Browser export-ZIP discovery, external binary import, archive merge, snapshot
-  deduplication, and Obsidian bundle delivery remain later explicit slices.
-  Obsidian must use immutable per-artifact readback receipts, not Markdown append
-  or rewritten official paths.
+- Stacked Obsidian candidate implemented: direct extension-page delivery is
+  explicit and off by default; it requires Local REST API 5.5+ atomic
+  `If-None-Match: *`, preflights every fixed target, writes/readbacks each
+  artifact sequentially, and commits the unchanged root manifest last. Any
+  uncertainty stops successors without retry or deletion. Installed 5.1.0 is
+  correctly refused before vault-path access; a 5.5+ live canary remains.
+- Browser export-ZIP discovery, external binary import, archive merge, and
+  snapshot deduplication remain later explicit slices.
 
 ### 9. Adjacent provider: Dots chat export
 
@@ -365,8 +369,10 @@ The ChatGPT block is ready to call broadly complete when:
 
 Finish the local reconciliation delivery PR and complete one user-owned Save As
 canary in the already-loaded exact candidate extension. Verify every ZIP entry
-against the root manifest and prove that no unrelated official conversation was retained. Then
-design the separate Obsidian immutable-bundle destination. Keep archive merge/
+against the root manifest and prove that no unrelated official conversation was
+retained, then merge PR #51. Rebase the stacked Obsidian slice onto that main;
+after the user updates Local REST API from 5.1.0 to 5.5+, run create-only,
+collision, exact-readback, and cancellation canaries. Keep archive merge/
 deduplication, export-ZIP discovery, the 1 GiB source-work refusal, real staged
-`>16 MiB` gate, fetched same-title destination naming, custom-GPT/project binaries,
-and the archived Library WebP as separate evidence-gated work.
+`>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
+binaries, and the archived Library WebP as separate evidence-gated work.

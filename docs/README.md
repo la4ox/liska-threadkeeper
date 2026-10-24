@@ -42,3 +42,4 @@
 - [ADR-037](adr/037-chatgpt-official-export-import.md): exact single-conversation import from an official ChatGPT export
 - [ADR-038](adr/038-chatgpt-cross-format-reconciliation.md): compare-only web-vs-official canonical reconciliation
 - [ADR-039](adr/039-chatgpt-reconciliation-delivery.md): explicit local official-vs-web reconciliation and immutable File ZIP delivery
+- [ADR-040](adr/040-chatgpt-reconciliation-obsidian.md): atomic create-only Obsidian reconciliation snapshots with root-last readback

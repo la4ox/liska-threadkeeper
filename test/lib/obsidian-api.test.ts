@@ -168,6 +168,164 @@ describe('ObsidianApiClient', () => {
     });
   });
 
+  describe('getServerVersions', () => {
+    const info = {
+      status: 'OK',
+      service: 'Obsidian Local REST API',
+      authenticated: true,
+      versions: { self: '5.5.0', obsidian: '1.14.4' },
+    };
+
+    it('returns only strict authenticated versions from the root endpoint', async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ ...info, state: { private: true } }))
+      );
+      await expect(client.getServerVersions(60_000)).resolves.toEqual(info.versions);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:27123/',
+        expect.objectContaining({
+          method: 'GET',
+          redirect: 'error',
+          credentials: 'omit',
+          headers: { Authorization: 'Bearer test-api-key', Accept: 'application/json' },
+        })
+      );
+    });
+
+    it.each([
+      { ...info, authenticated: false },
+      { ...info, status: 'NOT-OK' },
+      { ...info, service: 'Other' },
+      { ...info, versions: { self: '5.5.0' } },
+      { ...info, versions: { self: '5.5.0', obsidian: '1.14.4', extra: 'private' } },
+      { ...info, versions: { self: {}, obsidian: '1.14.4' } },
+    ])('rejects invalid capability facts without returning server data', async value => {
+      mockFetch.mockResolvedValue(new Response(JSON.stringify(value)));
+      await expect(client.getServerVersions()).rejects.toMatchObject({
+        status: 0,
+        message: 'Obsidian server information is invalid.',
+      });
+    });
+
+    it('bounds root bytes and rejects invalid UTF-8 or non-200 responses', async () => {
+      mockFetch.mockResolvedValueOnce(new Response(new Uint8Array(65_537)));
+      await expect(client.getServerVersions()).rejects.toMatchObject({
+        message: 'Obsidian response body exceeds its limit.',
+      });
+      mockFetch.mockResolvedValueOnce(new Response(new Uint8Array([255])));
+      await expect(client.getServerVersions()).rejects.toMatchObject({
+        message: 'Obsidian server information is invalid.',
+      });
+      mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+      await expect(client.getServerVersions()).rejects.toMatchObject({ status: 401 });
+    });
+
+    it('keeps a caller timeout and normalizes connection failure', async () => {
+      const timeout = vi.spyOn(AbortSignal, 'timeout');
+      mockFetch.mockRejectedValue(new TypeError('private network error'));
+      await expect(client.getServerVersions(4321)).rejects.toMatchObject({
+        status: 0,
+        message: 'Cannot reach Obsidian. Is it running?',
+      });
+      expect(timeout).toHaveBeenCalledWith(4321);
+      timeout.mockRestore();
+    });
+  });
+
+  describe('strict reconciliation binary methods', () => {
+    it('uses create-only PUT with exact encoded path, byte body and timeout', async () => {
+      const timeout = vi.spyOn(AbortSignal, 'timeout');
+      const bytes = new Uint8Array([0, 255, 1]);
+      mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+      await client.putBinaryFileIfAbsent(
+        'AI/Лис #1/archive.json',
+        bytes,
+        'application/octet-stream',
+        60_000
+      );
+      expect(mockFetch).toHaveBeenCalledWith(
+        `http://127.0.0.1:27123/vault/AI/${encodeURIComponent('Лис #1')}/archive.json`,
+        expect.objectContaining({
+          method: 'PUT',
+          body: bytes,
+          redirect: 'error',
+          credentials: 'omit',
+          headers: {
+            Authorization: 'Bearer test-api-key',
+            'Content-Type': 'application/octet-stream',
+            'If-None-Match': '*',
+          },
+        })
+      );
+      expect(timeout).toHaveBeenCalledWith(60_000);
+      timeout.mockRestore();
+    });
+
+    it('reports 412 without retrying or copying response prose', async () => {
+      mockFetch.mockResolvedValue(new Response('private target name', { status: 412 }));
+      await expect(
+        client.putBinaryFileIfAbsent('a.json', new Uint8Array([1]), 'application/octet-stream')
+      ).rejects.toMatchObject({
+        status: 412,
+        message: 'Obsidian create-only target already exists.',
+      });
+      expect(mockFetch).toHaveBeenCalledOnce();
+    });
+
+    it('normalizes timeout and network failures on create-only writes', async () => {
+      mockFetch.mockRejectedValueOnce(new DOMException('private', 'TimeoutError'));
+      await expect(
+        client.putBinaryFileIfAbsent('a.json', new Uint8Array(), 'application/octet-stream')
+      ).rejects.toMatchObject({
+        status: 0,
+        message: 'Request timed out. Please check your connection.',
+      });
+      mockFetch.mockRejectedValueOnce(new TypeError('private'));
+      await expect(
+        client.putBinaryFileIfAbsent('a.json', new Uint8Array(), 'application/octet-stream')
+      ).rejects.toMatchObject({ status: 0, message: 'Cannot reach Obsidian. Is it running?' });
+    });
+
+    it('checks occupied binary paths without reading or retaining their bodies', async () => {
+      const cancel = vi.fn(async () => undefined);
+      mockFetch.mockResolvedValueOnce({ status: 200, ok: true, body: { cancel } });
+      await expect(client.binaryFileExists('a.json', 60_000)).resolves.toBe(true);
+      expect(cancel).toHaveBeenCalledOnce();
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+      await expect(client.binaryFileExists('missing.json')).resolves.toBe(false);
+      expect(mockFetch).toHaveBeenLastCalledWith(
+        'http://127.0.0.1:27123/vault/missing.json',
+        expect.objectContaining({ method: 'GET', redirect: 'error', credentials: 'omit' })
+      );
+    });
+
+    it('reads exact binary bytes with a strict size ceiling', async () => {
+      mockFetch.mockResolvedValueOnce(new Response(new Uint8Array([0, 255, 1])));
+      await expect(client.getBinaryFileBounded('a.json', 3, 60_000)).resolves.toEqual(
+        new Uint8Array([0, 255, 1])
+      );
+      mockFetch.mockResolvedValueOnce(new Response(new Uint8Array([0, 255, 1])));
+      await expect(client.getBinaryFileBounded('a.json', 2)).rejects.toMatchObject({
+        message: 'Obsidian response body exceeds its limit.',
+      });
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+      await expect(client.getBinaryFileBounded('missing.json', 0)).resolves.toBeNull();
+    });
+
+    it('rejects redirected root, binary preflight, create and readback responses', async () => {
+      const response = { status: 200, ok: true, redirected: true, body: { cancel: vi.fn() } };
+      mockFetch.mockResolvedValue(response);
+      await expect(client.getServerVersions()).rejects.toBeInstanceOf(ObsidianApiError);
+      await expect(client.binaryFileExists('a.json')).rejects.toBeInstanceOf(ObsidianApiError);
+      await expect(
+        client.putBinaryFileIfAbsent('a.json', new Uint8Array(), 'application/octet-stream')
+      ).rejects.toBeInstanceOf(ObsidianApiError);
+      await expect(client.getBinaryFileBounded('a.json', 3)).rejects.toBeInstanceOf(
+        ObsidianApiError
+      );
+    });
+  });
+
   describe('getFile', () => {
     it('returns file content when file exists', async () => {
       mockFetch.mockResolvedValue({

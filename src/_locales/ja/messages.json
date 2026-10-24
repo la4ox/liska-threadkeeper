@@ -421,6 +421,24 @@
   "reconcile_boundary": {
     "message": "このツールが行うこと"
   },
+  "reconcile_destinations": {
+    "message": "明示的なローカル保存先を選択"
+  },
+  "reconcile_destinationFile": {
+    "message": "ファイル ZIP"
+  },
+  "reconcile_destinationFileHelp": {
+    "message": "決定的な照合 ZIP 用に、名前を付けて保存ダイアログを1回開きます。"
+  },
+  "reconcile_destinationObsidian": {
+    "message": "Obsidian スナップショット"
+  },
+  "reconcile_destinationObsidianHelp": {
+    "message": "設定済みのローカル vault に、検証済みの独立した artifact ディレクトリを作成します。"
+  },
+  "reconcile_obsidianRequires": {
+    "message": "Obsidian 出力には atomic create-only 書き込み対応の Local REST API 5.5.0 以降が必要です。既定では無効です。"
+  },
   "reconcile_boundaryLocal": {
     "message": "選択した2つのファイルを変更せず、ローカルで処理します。"
   },
@@ -445,6 +463,9 @@
   "reconcile_missingFiles": {
     "message": "先に2つの JSON ファイルを選択してください。"
   },
+  "reconcile_missingDestination": {
+    "message": "ローカル保存先を少なくとも1つ選択してください。"
+  },
   "reconcile_readingWeb": {
     "message": "Web 正規スナップショットを読み込み、検証しています…"
   },
@@ -456,6 +477,21 @@
   },
   "reconcile_waitingSave": {
     "message": "照合 ZIP の保存先を選択してください。"
+  },
+  "reconcile_writingObsidian": {
+    "message": "変更不能な Obsidian スナップショットを書き込み、読み戻して検証しています… このページを開いたままにしてください。"
+  },
+  "reconcile_outputsConfirmed": {
+    "message": "選択したすべてのローカル保存先を検証しました。"
+  },
+  "reconcile_outputsPartial": {
+    "message": "少なくとも1つの保存先は検証されましたが、別の保存先は未完了または拒否されました。"
+  },
+  "reconcile_outputsIncomplete": {
+    "message": "Obsidian スナップショットは未完了です。一部のファイルが存在する可能性がありますが、削除や再試行はしていません。"
+  },
+  "reconcile_obsidianUpgrade": {
+    "message": "Obsidian は変更されていません。atomic create-only スナップショットには Local REST API 5.5.0 以降へ更新してください。"
   },
   "reconcile_saved": {
     "message": "ブラウザが照合バンドルの保存完了を確認しました。"
@@ -489,5 +525,26 @@
   },
   "reconcile_resultSavedAs": {
     "message": "ブラウザが確認したファイル"
+  },
+  "reconcile_resultFileConfirmed": {
+    "message": "ファイル ZIP を確認しました"
+  },
+  "reconcile_resultFileUnknown": {
+    "message": "ファイル ZIP の完了を確認できません"
+  },
+  "reconcile_resultFileFailed": {
+    "message": "ファイル ZIP は保存されませんでした"
+  },
+  "reconcile_resultObsidianConfirmed": {
+    "message": "Obsidian スナップショットを検証しました"
+  },
+  "reconcile_resultObsidianUpgrade": {
+    "message": "Obsidian スナップショットを拒否しました: Local REST API 5.5.0 以降が必要です"
+  },
+  "reconcile_resultObsidianCancelled": {
+    "message": "Obsidian スナップショットをキャンセルしました。部分ファイルが残っている可能性があります"
+  },
+  "reconcile_resultObsidianIncomplete": {
+    "message": "Obsidian スナップショットは未完了です。ファイルの削除や再試行はしていません"
   }
 }
