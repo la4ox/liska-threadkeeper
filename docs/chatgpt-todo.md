@@ -170,9 +170,15 @@ terminal states, and the existing no-credential-export boundary.
   snapshots. A real archived JPEG passed exact byte/path/hash reconciliation,
   rendered through a local content-addressed image reference, and retained an
   honest placeholder for its unbound sibling.
-- Next HTML slice: one bounded all-branches reading bundle with collision-free
-  branch files, a local index, aggregate work/write accounting, independent
-  Markdown/HTML completion, and deterministic per-leaf receipts.
+- The pure all-branches core is implemented: closed ordinal-derived branch/index
+  artifact contracts plus one prepared rendering session validate graph and
+  bindings once, render leaves without repeated whole-graph traversal, and
+  accept only complete same-session facts for a deterministic local index. This
+  is not yet delivery evidence.
+- Next HTML slice: authorize one finalized canonical session, then add two-pass
+  measurement/recreation, aggregate HTML work/write accounting, cancellation,
+  unknown-write stop, independent Markdown/HTML completion, and deterministic
+  per-leaf/index persistence receipts.
 - Automatic PDF remains a separate transport/rendering decision after HTML
   bundle behavior is stable.
 - Design image-aware append behavior for existing Obsidian notes.
@@ -266,12 +272,12 @@ The ChatGPT block is ready to call broadly complete when:
 
 Wait for the parent canonical HTML File-delivery pull request to finish clean
 review, merge it, then rebase and submit the already verified
-destination-finalized asset-binding slice. After that, implement the bounded
-all-branches HTML bundle. Keep the newly reconfirmed ChatGPT request/DOM drift as
-an independent compatibility fix so it cannot weaken archive completeness or
-asset authority. The remaining evidence-backed gates are a real staged capture
-above 16 MiB, a live multi-output same-title sample, or one available additional
-binary family. The 1 GiB source-work limit remains a deliberate refusal for the
-measured 1.051 GiB graph; only a separately reviewed limit change may authorize
-that full 239-leaf run. Keep custom-GPT/project binaries and the sole archived
-Library WebP separately evidence-gated.
+destination-finalized asset-binding slice. Rebase the prepared all-branches HTML
+core after that, review it independently, then implement B2/B3 delivery and
+aggregate accounting without folding in ChatGPT provider drift. The remaining
+evidence-backed gates are a real staged capture above 16 MiB, a live
+multi-output same-title sample, or one available additional binary family. The
+1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB
+graph; only a separately reviewed limit change may authorize that full 239-leaf
+run. Keep custom-GPT/project binaries and the sole archived Library WebP
+separately evidence-gated.

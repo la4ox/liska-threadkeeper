@@ -1336,3 +1336,44 @@ HTML off) were restored. The exact asset-aware candidate build is preserved at
 `C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-html-assets-candidate-d1eae64-20261024`.
 Do not open this slice's PR until parent PR 36 merges cleanly; then rebase onto
 current main, rerun focused/build checks, and open the next reviewed PR.
+
+## Canonical HTML all-branches B1 core checkpoint
+
+Stacked source commits `47e9f2b` and `002f998` define the pure all-branches
+foundation without adding delivery. The separate
+`liska-derived-branch-html/1` and
+`liska-derived-branch-output-receipt/1` contracts accept only a closed leaf
+ordinal or index role and derive exact capture-root paths themselves:
+`branch-000001.html`, `branches.html`, and matching fixed receipt paths under
+`presentation/`. Existing current-view v1 validators remain mutually exclusive
+and unchanged.
+
+`prepareArchiveHtmlBranchSession` preflights and validates the archive, profile,
+limits and finalized binding evidence once. An iterative private graph snapshot
+retains deterministic declared root/child order, parent links and compact branch
+metrics. Each `renderLeaf(ordinal)` rebuilds only that selected message path and
+returns one HTML result plus a frozen compact fact; the session retains no leaf
+HTML cache and performs no repeated child-array, catalog or `getNodePath` work.
+The default 512-leaf ceiling may only be tightened. A deterministic local index
+accepts only the complete ordered set of unmodified facts issued by the same
+session and exposes only generated local links, generic branch labels, counts,
+current flags, aggregate diagnostics and canonical/binding provenance.
+
+An independent review found one confirmed P2 validation-to-use race: a stateful
+top-level Proxy could present a valid canonical digest during validation and
+markup during a later index read. Inputs, profile/limits, binding-set headers and
+binding scalars are now captured once from own enumerable data descriptors and
+used only through detached snapshots; both index digests are escaped as defense
+in depth. Exact Proxy regressions now perform zero ordinary getter reads. The
+repeat review found no remaining P0-P3 issue.
+
+Evidence: all 183 test files / 5,865 tests pass in six memory-bounded batches.
+The focused 13-suite / 894-test matrix includes byte-equivalence with the
+defensive current renderer, a 12,000-node chain, exact 512/513 leaf boundaries,
+wide/shared-prefix order, session-bound fact rejection, hostile inputs and both
+current/branch transport contracts. Production typecheck/build (241 modules),
+repository formatting, diff checks, source/platform lint and `npm audit` pass
+with only the same three pre-existing warnings and zero known dependency
+vulnerabilities. Browser delivery, persistence, aggregate HTML budgets,
+cancellation and unknown-write behavior remain B2/B3; the closure-private
+message bodies retain the documented no-mutation obligation.
