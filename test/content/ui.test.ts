@@ -188,6 +188,306 @@ describe('ui', () => {
     });
   });
 
+  describe('compact Liska launcher', () => {
+    const launcher = () => document.getElementById('g2o-launcher') as HTMLButtonElement;
+    const actions = () => document.getElementById('g2o-launcher-actions') as HTMLDivElement;
+    const shell = () => document.getElementById('g2o-launcher-shell') as HTMLDivElement;
+    const pointer = (type: string, pointerType = 'mouse') => {
+      const event = new Event(type);
+      Object.defineProperty(event, 'pointerType', { value: pointerType });
+      shell().dispatchEvent(event);
+    };
+    // jsdom cannot mint trusted clicks. Capture the actual installed listener,
+    // then exercise that listener with only the browser trust bit substituted.
+    function captureClicks(
+      setup: () => void
+    ): (button: HTMLButtonElement, target?: EventTarget) => void {
+      const spy = vi.spyOn(EventTarget.prototype, 'addEventListener');
+      setup();
+      const registrations = spy.mock.calls.map((args, i) => ({
+        target: spy.mock.contexts[i],
+        type: args[0],
+        listener: args[1] as EventListener,
+      }));
+      spy.mockRestore();
+      return (button, target = button) => {
+        const path = [
+          target,
+          button,
+          button.parentElement,
+          button.parentElement?.parentElement,
+        ].filter(
+          (entry, index, entries): entry is EventTarget =>
+            entry !== null && entry !== undefined && entries.indexOf(entry) === index
+        );
+        const event = {
+          isTrusted: true,
+          target,
+          composedPath: () => path,
+        } as unknown as Event;
+        let invoked = 0;
+        for (const currentTarget of path) {
+          for (const registration of registrations.filter(
+            candidate => candidate.target === currentTarget && candidate.type === 'click'
+          )) {
+            registration.listener.call(currentTarget, event);
+            invoked += 1;
+          }
+        }
+        expect(invoked).toBeGreaterThan(0);
+      };
+    }
+
+    it.each(['main-first', 'branch-first'])(
+      'shares one shell across %s injection and repeated replacements',
+      order => {
+        if (order === 'main-first') injectSyncButton(vi.fn());
+        injectBranchExportButton(vi.fn());
+        const originalLauncher = launcher();
+        injectSyncButton(vi.fn());
+        injectBranchExportButton(vi.fn());
+        const main = injectSyncButton(vi.fn());
+        expect(document.querySelectorAll('#g2o-launcher-shell')).toHaveLength(1);
+        expect(launcher()).toBe(originalLauncher);
+        expect(actions().querySelectorAll('button')).toHaveLength(2);
+        expect(main.parentElement).toBe(actions());
+        expect(actions().firstElementChild?.id).toBe('g2o-branch-button');
+        expect(document.querySelectorAll('#g2o-styles')).toHaveLength(1);
+      }
+    );
+
+    it('starts with only the localized launcher available, without an optional branch', () => {
+      injectSyncButton(vi.fn());
+      expect(launcher().getAttribute('aria-label')).toBe('ui_launcherLabel');
+      expect(launcher().getAttribute('aria-expanded')).toBe('false');
+      expect(launcher().getAttribute('aria-controls')).toBe(actions().id);
+      expect(launcher().type).toBe('button');
+      expect(actions().hidden).toBe(true);
+      expect(actions().inert).toBe(true);
+      expect(actions().querySelector('#g2o-sync-button')?.closest('[hidden]')).toBe(actions());
+      expect(document.getElementById('g2o-branch-button')).toBeNull();
+      expect(launcher().querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+      expect(launcher().querySelector('svg')?.getAttribute('focusable')).toBe('false');
+      expect(shell().querySelector('img, image, use')).toBeNull();
+    });
+
+    it('toggles on trusted clicks without hover, rejects synthetic clicks, and never exports', () => {
+      const sync = vi.fn();
+      const branch = vi.fn();
+      const trustedClick = captureClicks(() => {
+        injectSyncButton(sync);
+        injectBranchExportButton(branch);
+      });
+      const syntheticClick = vi.spyOn(HTMLElement.prototype, 'click');
+      launcher().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(actions().hidden).toBe(true);
+      trustedClick(launcher());
+      expect(actions().hidden).toBe(false);
+      expect(actions().inert).toBe(false);
+      expect(launcher().getAttribute('aria-expanded')).toBe('true');
+      trustedClick(launcher());
+      expect(actions().hidden).toBe(true);
+      expect(launcher().getAttribute('aria-expanded')).toBe('false');
+      expect(syntheticClick).not.toHaveBeenCalled();
+      expect(sync).not.toHaveBeenCalled();
+      expect(branch).not.toHaveBeenCalled();
+      syntheticClick.mockRestore();
+    });
+
+    it('keeps real action listeners and trusted callbacks on the returned buttons', () => {
+      const sync = vi.fn();
+      const branch = vi.fn();
+      let main!: HTMLButtonElement;
+      let alternate!: HTMLButtonElement;
+      const trustedClick = captureClicks(() => {
+        main = injectSyncButton(sync);
+        alternate = injectBranchExportButton(branch);
+      });
+      trustedClick(launcher());
+      main.click();
+      alternate.click();
+      expect(sync).not.toHaveBeenCalled();
+      expect(branch).not.toHaveBeenCalled();
+      trustedClick(main);
+      trustedClick(alternate);
+      expect(sync).toHaveBeenCalledTimes(1);
+      expect(branch).toHaveBeenCalledTimes(1);
+    });
+
+    it('reveals on mouse hover, but not touch hover, and keeps a pinned panel open on leave', () => {
+      const trustedClick = captureClicks(() => injectSyncButton(vi.fn()));
+      pointer('pointerenter', 'touch');
+      expect(actions().hidden).toBe(true);
+      pointer('pointerenter');
+      expect(actions().hidden).toBe(false);
+      pointer('pointerleave');
+      expect(actions().hidden).toBe(true);
+      pointer('pointerenter');
+      trustedClick(launcher());
+      pointer('pointerleave');
+      expect(actions().hidden).toBe(false);
+    });
+
+    it('supports focus-within, Escape collapse and reentry without a Tab trap', () => {
+      const main = injectSyncButton(vi.fn());
+      launcher().focus();
+      expect(actions().hidden).toBe(false);
+      expect(shell().contains(document.activeElement)).toBe(true);
+      main.focus();
+      expect(actions().hidden).toBe(false);
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      main.dispatchEvent(tab);
+      expect(tab.defaultPrevented).toBe(false);
+      main.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(document.activeElement).toBe(launcher());
+      expect(actions().hidden).toBe(true);
+      expect(actions().inert).toBe(true);
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      expect(actions().hidden).toBe(true);
+      launcher().focus();
+      expect(actions().hidden).toBe(false);
+      outside.focus();
+      expect(actions().hidden).toBe(true);
+    });
+
+    it('keeps collapsed loading generic and restores the fox and labels after reinjection', () => {
+      injectBranchExportButton(vi.fn());
+      setButtonLoading(true);
+      const main = injectSyncButton(vi.fn());
+      const branch = injectBranchExportButton(vi.fn());
+      setButtonLoading(true);
+      expect(actions().hidden).toBe(true);
+      expect(main.disabled).toBe(true);
+      expect(branch.disabled).toBe(true);
+      expect(launcher().disabled).toBe(false);
+      expect(launcher().getAttribute('aria-busy')).toBe('true');
+      expect(launcher().getAttribute('aria-label')).toBe('ui_launcherLoading');
+      expect(launcher().querySelectorAll('.spinner')).toHaveLength(1);
+      pointer('pointerenter');
+      launcher().focus();
+      expect(actions().hidden).toBe(true);
+      expect(actions().inert).toBe(true);
+      showErrorToast('private-filename.md: detailed failure');
+      expect(launcher().outerHTML).not.toContain('private-filename');
+      expect(document.querySelector('.g2o-toast .message')?.textContent).toContain(
+        'private-filename'
+      );
+      setButtonLoading(false);
+      expect(main.disabled).toBe(false);
+      expect(branch.disabled).toBe(false);
+      expect(launcher().getAttribute('aria-busy')).toBe('false');
+      expect(launcher().getAttribute('aria-label')).toBe('ui_launcherLabel');
+      expect(launcher().querySelector('.spinner')).toBeNull();
+      expect(launcher().querySelector('svg')).not.toBeNull();
+    });
+
+    it('ignores trusted launcher toggles while busy and opens on the first idle click', () => {
+      const trustedClick = captureClicks(() => {
+        injectSyncButton(vi.fn());
+        injectBranchExportButton(vi.fn());
+      });
+
+      setButtonLoading(true);
+      trustedClick(launcher());
+      expect(actions().hidden).toBe(true);
+      expect(launcher().getAttribute('aria-expanded')).toBe('false');
+
+      setButtonLoading(false);
+      trustedClick(launcher());
+      expect(actions().hidden).toBe(false);
+      expect(launcher().getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('keeps stop control and modal outside the collapsing shell', async () => {
+      injectSyncButton(vi.fn());
+      const stop = showAllBranchesStopControl(vi.fn());
+      const stopRoot = document.getElementById('g2o-all-branches-stop')!;
+      expect(stopRoot.parentElement).toBe(document.body);
+      expect(shell().contains(stopRoot)).toBe(false);
+      const result = showArchiveBranchPicker([
+        { ordinal: 1, messageCount: 1, uniqueMessageCount: 1, isCurrent: true },
+      ]);
+      expect(document.getElementById('g2o-branch-picker-backdrop')?.parentElement).toBe(
+        document.body
+      );
+      expect(stopRoot.isConnected).toBe(true);
+      settleArchiveBranchPickerForTest(null);
+      await expect(result).resolves.toBeNull();
+      stop.dispose();
+    });
+
+    it('preserves Escape access when loading disables a focused action without stealing outside focus', () => {
+      const main = injectSyncButton(vi.fn());
+      launcher().focus();
+      main.focus();
+      setButtonLoading(true);
+      expect(document.activeElement).toBe(launcher());
+      launcher().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(actions().hidden).toBe(true);
+      const outside = document.createElement('input');
+      document.body.appendChild(outside);
+      outside.focus();
+      setButtonLoading(false);
+      setButtonLoading(true);
+      expect(document.activeElement).toBe(outside);
+    });
+
+    it('collapses to the busy launcher after a trusted action starts loading', () => {
+      let main!: HTMLButtonElement;
+      const trustedClick = captureClicks(() => {
+        main = injectSyncButton(() => setButtonLoading(true));
+      });
+      trustedClick(launcher());
+      const icon = main.querySelector('.icon')!;
+      main.focus();
+      trustedClick(main, icon);
+      expect(icon.isConnected).toBe(false);
+      expect(launcher().getAttribute('aria-busy')).toBe('true');
+      expect(document.activeElement).toBe(launcher());
+      expect(actions().hidden).toBe(true);
+      expect(actions().inert).toBe(true);
+      expect(launcher().getAttribute('aria-expanded')).toBe('false');
+      setButtonLoading(false);
+    });
+
+    it('includes inward expansion, safe-area clamps, focus and reduced-motion styles', () => {
+      injectSyncButton(vi.fn());
+      const css = document.getElementById('g2o-styles')!.textContent!;
+      expect(css).toContain('right: 100%');
+      expect(css).toContain('pointer-events: none');
+      expect(css).toContain('#g2o-launcher-actions[hidden] { display: none; }');
+      expect(css).toContain(':focus-within');
+      expect(css).toContain('(max-width: 540px)');
+      expect(css).toContain('100dvh');
+      for (const side of ['left', 'right', 'top', 'bottom']) {
+        expect(css).toContain(`env(safe-area-inset-${side}, 0px)`);
+      }
+      const reducedMotion = css.indexOf('@media (prefers-reduced-motion: reduce)');
+      expect(reducedMotion).toBeGreaterThan(css.indexOf('animation: g2o-spin'));
+      expect(css.slice(reducedMotion)).toContain('animation: none');
+    });
+
+    it('moves mobile toasts above the page so they cannot cover stacked actions', () => {
+      injectSyncButton(vi.fn());
+      const css = document.getElementById('g2o-styles')!.textContent!;
+      const baseToast = css.indexOf('.g2o-toast {');
+      const mobileOverride = css.lastIndexOf('@media (max-width: 540px)');
+      expect(mobileOverride).toBeGreaterThan(baseToast);
+      const mobileCss = css.slice(mobileOverride);
+      expect(mobileCss).toContain('.g2o-toast');
+      expect(mobileCss).toContain('top: max(20px, env(safe-area-inset-top, 0px))');
+      expect(mobileCss).toContain('bottom: auto');
+      expect(mobileCss).toContain('env(safe-area-inset-right, 0px)');
+      expect(mobileCss).toContain('env(safe-area-inset-left, 0px)');
+      expect(mobileCss).toContain('.g2o-toast.g2o-toast-with-stop');
+      expect(mobileCss).toContain(
+        'bottom: calc(max(20px, env(safe-area-inset-bottom, 0px)) + 60px)'
+      );
+    });
+  });
+
   describe('all-branches stop control', () => {
     let control: ReturnType<typeof showAllBranchesStopControl> | undefined;
 
@@ -266,7 +566,9 @@ describe('ui', () => {
       const root = getRoot();
 
       showToast('Exporting', 'info', 0);
+      expect(document.querySelector('.g2o-toast')?.classList).toContain('g2o-toast-with-stop');
       showToast('Still exporting', 'warning', 0);
+      expect(document.querySelector('.g2o-toast')?.classList).toContain('g2o-toast-with-stop');
       document.querySelector<HTMLButtonElement>('.g2o-toast .close')!.click();
 
       expect(getRoot()).toBe(root);
@@ -274,6 +576,19 @@ describe('ui', () => {
       expect(document.querySelector('.g2o-toast')).toBeNull();
       control.requestStop({ isTrusted: true } as Event);
       expect(onStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('moves an existing mobile toast away only while the stop panel is active', () => {
+      showToast('Before export', 'info', 0);
+      const toast = document.querySelector<HTMLDivElement>('.g2o-toast')!;
+      expect(toast.classList).not.toContain('g2o-toast-with-stop');
+
+      control = showAllBranchesStopControl(vi.fn());
+      expect(toast.classList).toContain('g2o-toast-with-stop');
+
+      control.dispose();
+      control = undefined;
+      expect(toast.classList).not.toContain('g2o-toast-with-stop');
     });
 
     it('replaces the previous control and removes its listener without firing its callback', () => {

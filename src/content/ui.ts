@@ -10,18 +10,21 @@ import {
   WARNING_TOAST_DURATION,
 } from '../lib/constants';
 import { getMessage } from '../lib/i18n';
+import {
+  bindLiskaLauncherInteraction,
+  createLiskaMark,
+  LISKA_LAUNCHER_STYLES,
+} from './liska-launcher';
 
 // CSS styles for UI components
 const STYLES = `
+  ${LISKA_LAUNCHER_STYLES}
+
   #g2o-sync-button {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 10000;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 20px;
+    padding: 10px 16px;
     background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
     color: white;
     border: none;
@@ -53,20 +56,18 @@ const STYLES = `
     font-size: 16px;
   }
 
-  #g2o-sync-button .spinner {
+  #g2o-sync-button .spinner,
+  #g2o-launcher .spinner {
     width: 16px;
     height: 16px;
     border: 2px solid rgba(255,255,255,0.3);
     border-top-color: white;
     border-radius: 50%;
     animation: g2o-spin 0.8s linear infinite;
+    flex-shrink: 0;
   }
 
   #g2o-branch-button {
-    position: fixed;
-    bottom: 76px;
-    right: 20px;
-    z-index: 10000;
     padding: 8px 12px;
     color: #ede9fe;
     background: #312e81;
@@ -79,6 +80,11 @@ const STYLES = `
 
   #g2o-branch-button:hover { background: #4338ca; }
   #g2o-branch-button:disabled { opacity: 0.7; cursor: not-allowed; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #g2o-launcher, #g2o-sync-button { transition: none; }
+    #g2o-launcher .spinner, #g2o-sync-button .spinner { animation: none; }
+  }
 
   #g2o-all-branches-stop {
     position: fixed;
@@ -303,6 +309,20 @@ const STYLES = `
   .g2o-toast .close:hover {
     opacity: 1;
   }
+
+  @media (max-width: 540px) {
+    .g2o-toast {
+      top: max(20px, env(safe-area-inset-top, 0px));
+      right: max(20px, env(safe-area-inset-right, 0px));
+      bottom: auto;
+      max-width: calc(100vw - max(20px, env(safe-area-inset-right, 0px)) - max(20px, env(safe-area-inset-left, 0px)));
+    }
+
+    .g2o-toast.g2o-toast-with-stop {
+      top: auto;
+      bottom: calc(max(20px, env(safe-area-inset-bottom, 0px)) + 60px);
+    }
+  }
 `;
 
 let styleInjected = false;
@@ -313,6 +333,7 @@ let activeAllBranchesStopControl: AllBranchesStopControl | null = null;
 const BRANCH_BUTTON_ID = 'g2o-branch-button';
 const BRANCH_PICKER_BACKDROP_ID = 'g2o-branch-picker-backdrop';
 const ALL_BRANCHES_STOP_ID = 'g2o-all-branches-stop';
+const TOAST_WITH_STOP_CLASS = 'g2o-toast-with-stop';
 const MAX_BRANCH_PREVIEW_LENGTH = 280;
 
 export interface AllBranchesStopControl {
@@ -353,6 +374,28 @@ function injectStyles(): void {
   styleInjected = true;
 }
 
+/** Shared by both injection orders. Only the 44px anchor occupies the page when closed. */
+function ensureLauncherActions(): HTMLDivElement {
+  const existing = document.getElementById('g2o-launcher-actions');
+  if (existing instanceof HTMLDivElement) return existing;
+
+  const shell = document.createElement('div');
+  shell.id = 'g2o-launcher-shell';
+  const launcher = document.createElement('button');
+  launcher.id = 'g2o-launcher';
+  launcher.type = 'button';
+  launcher.setAttribute('aria-label', getMessage('ui_launcherLabel'));
+  launcher.setAttribute('aria-busy', 'false');
+  launcher.appendChild(createLiskaMark());
+  const actions = document.createElement('div');
+  actions.id = 'g2o-launcher-actions';
+  launcher.setAttribute('aria-controls', actions.id);
+  shell.append(launcher, actions);
+  document.body.appendChild(shell);
+  bindLiskaLauncherInteraction(shell, launcher, actions);
+  return actions;
+}
+
 /**
  * Create and inject the sync button
  */
@@ -376,6 +419,7 @@ export function injectSyncButton(onClick: () => void): HTMLButtonElement {
 
   const button = document.createElement('button');
   button.id = 'g2o-sync-button';
+  button.type = 'button';
 
   const icon = document.createElement('span');
   icon.className = 'icon';
@@ -389,7 +433,10 @@ export function injectSyncButton(onClick: () => void): HTMLButtonElement {
   button.appendChild(text);
 
   button.addEventListener('click', event => handleTrustedSyncClick(event, onClick));
-  document.body.appendChild(button);
+  ensureLauncherActions().appendChild(button);
+  if (document.getElementById('g2o-launcher')?.getAttribute('aria-busy') === 'true') {
+    setButtonLoading(true);
+  }
 
   return button;
 }
@@ -409,7 +456,7 @@ export function handleTrustedBranchClick(event: Event, onClick: () => void): voi
 }
 
 /**
- * Inject the optional branch-export entry point directly above the main button.
+ * Inject the optional branch-export entry point into the shared launcher.
  */
 export function injectBranchExportButton(onClick: () => void): HTMLButtonElement {
   injectStyles();
@@ -423,12 +470,8 @@ export function injectBranchExportButton(onClick: () => void): HTMLButtonElement
   button.title = label;
   button.setAttribute('aria-label', label);
   button.addEventListener('click', event => handleTrustedBranchClick(event, onClick));
-  const mainButton = document.getElementById('g2o-sync-button');
-  if (mainButton) {
-    mainButton.before(button);
-  } else {
-    document.body.appendChild(button);
-  }
+  ensureLauncherActions().prepend(button);
+  button.disabled = document.getElementById('g2o-launcher')?.getAttribute('aria-busy') === 'true';
 
   return button;
 }
@@ -501,13 +544,17 @@ export function showAllBranchesStopControl(onStop: () => void): AllBranchesStopC
       const hadFocus = root.contains(document.activeElement);
       button.removeEventListener('click', requestStop);
       root.remove();
-      if (activeAllBranchesStopControl === controller) activeAllBranchesStopControl = null;
+      if (activeAllBranchesStopControl === controller) {
+        activeAllBranchesStopControl = null;
+        currentToast?.classList.remove(TOAST_WITH_STOP_CLASS);
+      }
       if (hadFocus) restoreAllBranchesStopFocus(previousFocus);
     },
   };
   button.addEventListener('click', requestStop);
   activeAllBranchesStopControl = controller;
   document.body.appendChild(root);
+  currentToast?.classList.add(TOAST_WITH_STOP_CLASS);
   return controller;
 }
 
@@ -718,10 +765,46 @@ export function settleArchiveBranchPickerForTest(selection: ArchiveBranchPickerS
   activeBranchPicker?.settle(selection);
 }
 
+function setLauncherLoading(loading: boolean): void {
+  const launcher = document.getElementById('g2o-launcher');
+  if (launcher) {
+    const actions = document.getElementById('g2o-launcher-actions');
+    const shell = document.getElementById('g2o-launcher-shell');
+    // Disabling the focused action otherwise drops browser focus onto the page,
+    // making Escape unavailable. Do not steal focus from outside the launcher.
+    if (
+      loading &&
+      document.getElementById('g2o-launcher-actions')?.contains(document.activeElement)
+    ) {
+      launcher.focus();
+    }
+    launcher.setAttribute('aria-busy', String(loading));
+    if (loading && actions instanceof HTMLDivElement && shell instanceof HTMLDivElement) {
+      shell.dataset.expanded = 'false';
+      launcher.setAttribute('aria-expanded', 'false');
+      actions.hidden = true;
+      actions.inert = true;
+    }
+    launcher.setAttribute(
+      'aria-label',
+      getMessage(loading ? 'ui_launcherLoading' : 'ui_launcherLabel')
+    );
+    if (loading && !launcher.querySelector('.spinner')) {
+      const spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      launcher.replaceChildren(spinner);
+    } else if (!loading && launcher.querySelector('.spinner')) {
+      launcher.replaceChildren(createLiskaMark());
+    }
+  }
+}
+
 /**
  * Set button loading state
  */
 export function setButtonLoading(loading: boolean): void {
+  setLauncherLoading(loading);
   const button = document.getElementById('g2o-sync-button') as HTMLButtonElement | null;
   const branchButton = document.getElementById(BRANCH_BUTTON_ID) as HTMLButtonElement | null;
   if (branchButton) branchButton.disabled = loading;
@@ -778,6 +861,7 @@ export function showToast(
 
   const toast = document.createElement('div');
   toast.className = `g2o-toast ${type}`;
+  if (activeAllBranchesStopControl) toast.classList.add(TOAST_WITH_STOP_CLASS);
   currentToast = toast;
 
   const toastIcon = document.createElement('span');

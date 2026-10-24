@@ -116,11 +116,12 @@
 - Synthetic ChatGPT raw fixture and end-to-end projection test: `test/fixtures/archive/chatgpt-raw/branching-mixed-content.json` and `test/content/chatgpt-archive-pipeline.test.ts`
 - Canonical-to-legacy branch adapter: `src/content/archive-projection.ts`
 
-## Current integration checkpoint
+## Historical ChatGPT integration checkpoint
 
-Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10) is merged
-into `main` at `ef24f3e`. Current work continues from that exact head on
-`codex/chatgpt-2026-10-compat`; no release or tag is implied.
+Combined [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10) merged
+into `main` at `ef24f3e`. This section records the compatibility starting point;
+later checkpoints in this file, not the historical
+`codex/chatgpt-2026-10-compat` branch name, describe current merged state.
 
 The current ChatGPT compatibility slice repairs the October 2026 page request
 shape without weakening the loss-aware archive boundary:
@@ -927,13 +928,14 @@ evidence only. The subsequent capture-ID boundary fix does not alter this
 ordinary UUID path; its 29-file build is installed, reloaded, and byte-identical
 to `dist`.
 
-Next: checkpoint this live-verified write-ledger slice in its own pull request.
-The next ChatGPT live gates still require a real provider response above 16 MiB,
-a multiple-same-title produced-file sample, or an available additional binary
+The operation-local write ledger is checkpointed and live-verified. The next
+ChatGPT live gates still require a real provider response above 16 MiB, a
+multiple-same-title produced-file sample, or an available additional binary
 family. Until such evidence exists, the 1 GiB source-work limit remains a
 deliberate refusal for the known 1.051 GiB graph, and custom-GPT/project binaries
-plus the archived Library WebP remain separately evidence-gated. The untouched
-provider/upstream audit can proceed independently after this checkpoint.
+plus the archived Library WebP remain separately evidence-gated. Independent
+typed truncation and untouched-provider/upstream hardening can proceed without
+inventing transport authority.
 
 ## Local math-Markdown security checkpoint
 
@@ -1101,6 +1103,66 @@ formatting, diff checks, source/platform lint, and `npm audit` pass with only th
 same three pre-existing advisory warnings and zero known dependency
 vulnerabilities. A real Chrome/Claude timing smoke was not repeated, so JSDOM
 proves the bounded paths and regressions but not a hard browser wall-clock.
+
+## Typed partial DOM persistence checkpoint
+
+Source head `32fb7b5` carries the existing DOM loader outcome as runtime-only
+`complete`, `partial`, or `unknown` evidence from shared virtualized extractors
+and Gemini. A skipped, disabled, unconfigured, or missing-container loader is
+explicitly unknown; only a non-skipped successful load is complete. Existing
+timeout warnings remain unchanged. This signal is distinct from structured
+archive `capture_completeness` and is never serialized into note frontmatter or
+body.
+
+Before authorizing an exact same-conversation mutable Obsidian overwrite, a
+known-partial note now compares its incoming message count with the existing
+note's trusted v1 sentinels or strict legacy `message_count`. A smaller capture
+fails as `partial-capture-would-shrink-note`; absent, malformed, mismatched, or
+otherwise untrusted old count fails as
+`partial-capture-existing-count-untrusted`. The guard stops before image or
+Markdown writes and never escapes to a suffix filename. First saves,
+equal/larger partial counts, File/Clipboard, valid complete/unknown traffic,
+and immutable archive presentations retain their previous behavior. Invalid
+partial direct-call counts fail with a fixed value-free code.
+
+Evidence: all 171 test files / 5,272 tests pass in six memory-bounded batches;
+the focused extraction/note/validation/append/background matrix passes 9 files /
+569 tests. Independent review passed 8 focused suites / 404 tests plus 14 strict
+count probes and 24 isolated save scenarios with no P0-P3 finding. Production
+build, targeted formatting, diff checks, source/platform lint, and `npm audit`
+pass with only the same three pre-existing advisory warnings and zero known
+dependency vulnerabilities. No destructive live Obsidian timeout smoke was run.
+This count guard does not prove message-prefix/content alignment and does not
+eliminate concurrent-write races.
+
+## Compact Liska launcher checkpoint
+
+Source head `d8f711d` replaces the two permanently expanded export controls with
+one fixed 44 by 44 pixel local-SVG Liska launcher. A trusted launcher click,
+mouse hover, or keyboard focus reveals the existing controls; `Escape`, focus
+departure, or a completed action collapses them again. The launcher itself has
+no export authority: only the unchanged real action buttons can start work, and
+their trusted-event checks remain in force. Non-ChatGPT providers receive only
+the current-thread action, while ChatGPT retains both current-thread and branch
+selection.
+
+Busy state, reinjection, focus handoff, localization, and mobile safe-area
+placement are covered without new assets, permissions, dependencies, network
+requests, or persisted state. At viewports up to 540 pixels, ordinary toasts
+move to the top-right so they cannot cover the vertically stacked launcher
+actions. The all-branches stop card intentionally remains above progress toasts;
+its final result becomes visible after the stop card is removed.
+
+Evidence: all 171 test files / 5,285 tests pass in six memory-bounded batches;
+the UI/bootstrap subset passes 2 files / 104 tests and the complete content
+batch passes 52 files / 2,141 tests. Production build/typecheck, formatting,
+diff checks, source/platform lint, and `npm audit` pass with only the same three
+pre-existing advisory warnings and zero known dependency vulnerabilities. A
+live Comet smoke loaded the candidate unpacked build, confirmed the collapsed
+fox, trusted reveal of both ChatGPT actions, and `Escape` collapse without
+starting an export. The installed tree was then restored to the prior stable
+build. Real touch input, narrow-device safe-area geometry, and other-provider
+host CSS remain live visual follow-ups rather than claimed proof.
 
 ## Canonical HTML renderer foundation checkpoint
 
@@ -1632,3 +1694,54 @@ HTML byte length and SHA-256 matches its receipt; no blob, extension, backend
 API, signed-query or provider download route remains in the HTML. The local
 index and one leaf were opened in Comet and rendered with working relative
 navigation and readable layout. This checkpoint is ready to commit.
+
+## Compact launcher current-main port checkpoint
+
+The compact launcher delta now sits directly above the reviewed typed-partial
+head `e7455ec`, which already includes canonical HTML File delivery from current
+`main`. The port retains the same six launcher/localization/test/documentation
+files; canonical HTML settings/messages and partial-capture persistence guards
+are inherited unchanged. The only manual merge resolution preserved the typed,
+launcher, and canonical HTML checkpoint sections together in this file.
+
+Evidence: the launcher UI suite passes 1 file / 70 tests and the complete suite
+passes 181 files / 5,699 tests. Production build transforms 239 modules; lint
+has zero errors and the same three baseline warnings; platform lint, formatting
+and diff checks are clean. Independent integration review found no P0-P3 issue
+in authority, trusted-event, focus, busy/reinjection, picker/stop-card,
+localization, HTML-setting, or typed-guard boundaries. The previous live Comet
+launcher smoke remains applicable to the unchanged six-file delta; the combined
+current-main build has not yet replaced the installed all-branches canary.
+
+## Compact launcher + all-branches HTML integration checkpoint
+
+The reviewed compact launcher head `fea4680` is now integrated with the
+live-verified all-branches HTML delivery stack. Typed partial-DOM persistence,
+canonical HTML, finalized asset bindings, all-branches Markdown/HTML receipts,
+and the compact two-action ChatGPT launcher coexist in one build. The merge had
+documentation-only conflicts; code and message contracts merged without manual
+rewrites.
+
+Independent review found and the integration closed two narrow mobile/busy UI
+issues. At widths up to 540 pixels, an active all-branches Stop panel formerly
+shared the toast's top-right coordinates and obscured progress. Such toasts now
+move to a safe-area-aware bottom position above the collapsed launcher only
+while Stop is active, including existing/replaced toasts and controller cleanup.
+The busy spinner also ignores trusted launcher toggles, so hidden disabled
+actions cannot reopen or leave a stale pinned latch; the first idle click opens
+normally.
+
+Evidence: the focused integration set passes 10 files / 602 tests; the launcher
+suite passes 72 tests; and the final clean complete suite passes 193 files /
+6,378 tests. Production build transforms 251 modules; lint has zero errors and
+the same three baseline warnings; platform lint, formatting and diff checks are
+clean. Final independent review found no remaining P0-P3 issue. A combined live
+Comet smoke loaded an exact 29-file candidate, showed the collapsed fox without
+covering the page, revealed exactly the current-thread and branch actions, and
+collapsed on Escape. The known two-branch ChatGPT canary reached the picker with
+653- and 73-message branches plus `Export all branches`; Cancel wrote nothing.
+During capture the launcher remained collapsed/busy, and the first idle click
+after cancellation reopened both actions, directly covering the latch fix. The
+prior exact all-branches HTML/receipt write remains valid because the delivery
+path is unchanged. Real narrow touch/safe-area geometry remains a visual
+follow-up, not claimed proof. This checkpoint is ready to commit and submit.

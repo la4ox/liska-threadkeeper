@@ -12,6 +12,7 @@ import type {
   ConversationMetadata,
   DeepResearchLinks,
   DeepResearchSource,
+  DomHistoryLoad,
 } from '../../lib/types';
 import { extractErrorMessage } from '../../lib/error-utils';
 import { sha256Hex } from '../../lib/sha256';
@@ -104,10 +105,11 @@ export abstract class BaseExtractor implements IConversationExtractor {
       }
 
       console.info(`[G2O] Extracting ${this.platformLabel} conversation`);
-      const { messages, warning } = await this.collectMessages();
+      const { messages, warning, domHistoryLoad } = await this.collectMessages();
       const conversationId = this.getConversationId() || `${this.platform}-${Date.now()}`;
       const title = this.getTitle();
       const result = this.buildConversationResult(messages, conversationId, title, this.platform);
+      if (result.success && result.data) result.data.domHistoryLoad = domHistoryLoad;
       if (warning && result.success) {
         return { ...result, warnings: [...(result.warnings ?? []), warning] };
       }
@@ -159,17 +161,18 @@ export abstract class BaseExtractor implements IConversationExtractor {
    */
   protected async collectMessages(): Promise<{
     messages: ConversationMessage[];
+    domHistoryLoad: DomHistoryLoad;
     warning?: string;
   }> {
     const config = this.getScrollConfig();
     if (!this.enableAutoScroll || !config) {
-      return { messages: this.extractMessages() };
+      return { messages: this.extractMessages(), domHistoryLoad: 'unknown' };
     }
 
     const container = this.queryWithFallback<HTMLElement>(config.container);
     if (!container) {
       console.info('[G2O] No scroll container found, skipping auto-scroll');
-      return { messages: this.extractMessages() };
+      return { messages: this.extractMessages(), domHistoryLoad: 'unknown' };
     }
 
     const result = await accumulateWhileScrolling(container, () => config.harvest());
@@ -177,10 +180,11 @@ export abstract class BaseExtractor implements IConversationExtractor {
     const messages = result.items.map((message, index) => ({ ...message, index }));
 
     if (result.fullyLoaded || result.skipped) {
-      return { messages };
+      return { messages, domHistoryLoad: result.skipped ? 'unknown' : 'complete' };
     }
     return {
       messages,
+      domHistoryLoad: 'partial',
       warning:
         `Auto-scroll timed out before reaching the top. ` +
         `Some earlier messages may be missing (${result.itemCount} turns loaded).`,

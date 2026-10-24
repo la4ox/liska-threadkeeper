@@ -14,6 +14,7 @@ import type {
   ConversationMessage,
   DeepResearchSource,
   ExtractedImage,
+  DomHistoryLoad,
 } from '../../lib/types';
 
 import { SELECTORS, DEEP_RESEARCH_SELECTORS, COMPUTED_SELECTORS } from './selectors/gemini';
@@ -70,6 +71,10 @@ export class GeminiExtractor extends BaseExtractor {
       this.imageFailures = [];
 
       const scrollResult = await this.runAutoScroll();
+      let domHistoryLoad: DomHistoryLoad = 'unknown';
+      if (!scrollResult.skipped) {
+        domHistoryLoad = scrollResult.fullyLoaded ? 'complete' : 'partial';
+      }
 
       console.info(`[G2O] Extracting ${this.platformLabel} conversation`);
       const messages = this.extractMessages();
@@ -81,6 +86,7 @@ export class GeminiExtractor extends BaseExtractor {
         title,
         this.platform
       );
+      if (baseResult.success && baseResult.data) baseResult.data.domHistoryLoad = domHistoryLoad;
 
       // Fetch captured generated images (blob → base64) and attach to the data.
       const result = await this.attachImages(baseResult);

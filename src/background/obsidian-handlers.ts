@@ -13,7 +13,12 @@ import {
   getDateVariables,
   getSearchBasePath,
 } from '../lib/path-utils';
-import { lookupExistingFile, buildAppendContent, AppendBoundaryError } from '../lib/append-utils';
+import {
+  lookupExistingFile,
+  buildAppendContent,
+  AppendBoundaryError,
+  getTrustedExistingMessageCount,
+} from '../lib/append-utils';
 import { applyLineEnding } from '../lib/frontmatter-parser';
 import {
   classifyNoteProbe,
@@ -605,6 +610,12 @@ export async function handleSave(
   note: ObsidianNote,
   capturedAt?: string
 ): Promise<SaveResponse> {
+  if (
+    note.domHistoryLoad === 'partial' &&
+    (!Number.isSafeInteger(note.frontmatter.message_count) || note.frontmatter.message_count < 0)
+  )
+    return { success: false, error: 'partial-capture-invalid-message-count' };
+
   const client = createObsidianClient(settings);
   if (isClientError(client)) {
     return { success: false, error: client.error };
@@ -816,6 +827,16 @@ async function resolveCollisionFreePath(
       isAppendEligibleConversation(probe) &&
       !hasImmutableArchivePresentationFields(note.frontmatter)
     ) {
+      if (note.domHistoryLoad === 'partial') {
+        const incomingCount = note.frontmatter.message_count;
+        const existingCount = getTrustedExistingMessageCount(existing as string);
+        if (existingCount === null) {
+          return { error: 'partial-capture-existing-count-untrusted' };
+        }
+        if (existingCount > incomingCount) {
+          return { error: 'partial-capture-would-shrink-note' };
+        }
+      }
       return { path, fileName, isNewFile: false, renamed: attempt > 0, probes };
     }
     // Occupied by a different conversation, or holding something we cannot
