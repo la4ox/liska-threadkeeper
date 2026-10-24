@@ -16,6 +16,7 @@ import {
   hasTrustedMessageBoundaries,
 } from './message-counter';
 import { formatDateWithTimezone } from './date-utils';
+import { containsPathTraversal, matchesVaultPathTemplate } from './path-utils';
 
 /**
  * Why a lookup failed to find the conversation's existing note (issue #365).
@@ -156,10 +157,20 @@ export interface LookupOptions {
   searchBasePath?: string;
   /**
    * Path where this conversation's file was previously found (caller-memoized).
-   * Tried before anything else so repeat appends after a calendar rollover cost
-   * one GET instead of a directory scan.
+   * Tried after the current direct path so a cache entry cannot override the
+   * destination the current settings resolve explicitly.
    */
   hintPath?: string;
+  /**
+   * Current destination scope for the hint. A hint without an explicit scope is
+   * ignored: conversation identity alone does not authorize a previous path.
+   */
+  hintScope?: {
+    /** Exact configured folder template; date tokens remain rollover variables. */
+    folderTemplate: string;
+    /** Non-date variables used by the template, including the active provider. */
+    variables: Record<string, string>;
+  };
   /**
    * File-naming scheme in effect. Decides how scan candidates are pre-filtered;
    * see {@link createCandidateMatcher}. Defaults to `'title-id'`.
@@ -265,16 +276,31 @@ async function readCandidate(
 }
 
 /**
- * Step 0 of {@link lookupExistingFile}: try the caller-memoized path.
- * The id is re-verified because the memo may be stale.
+ * Try a caller-memoized path only when it remains inside the current configured
+ * destination scope. The id is re-verified because the memo may still be stale.
  */
+function isHintInsideScope(
+  hintPath: string,
+  scope: NonNullable<LookupOptions['hintScope']>
+): boolean {
+  if (hintPath.includes('\\') || containsPathTraversal(hintPath)) {
+    return false;
+  }
+  const separator = hintPath.lastIndexOf('/');
+  const folder = separator === -1 ? '' : hintPath.slice(0, separator);
+  return matchesVaultPathTemplate(folder, scope.folderTemplate, scope.variables);
+}
+
 async function tryHintPath(
   client: ObsidianApiClient,
   hintPath: string | undefined,
+  hintScope: LookupOptions['hintScope'],
   fullPath: string,
   expectedId: string
 ): Promise<FileLookupResult | null> {
-  if (!hintPath || hintPath === fullPath) return null;
+  if (!hintPath || !hintScope || hintPath === fullPath || !isHintInsideScope(hintPath, hintScope)) {
+    return null;
+  }
   const content = await client.getFile(hintPath);
   if (!isAppendEligibleConversation(classifyNoteProbe(content, expectedId))) return null;
   return { found: true, path: hintPath, content: content as string, matchType: 'memo' };
@@ -283,22 +309,23 @@ async function tryHintPath(
 /**
  * Look up an existing file for a conversation.
  *
- * Strategy (ordered by cost):
+ * Strategy (ordered by authority, then cost):
  * 1. Direct path: GET fullPath → verify frontmatter ID
- * 2a. ID scan (flat): listFiles(resolvedPath) → filter by ID suffix → verify frontmatter ID
- * 2b. ID scan (recursive): when {@link searchBasePath} differs from resolvedPath
+ * 2. Scoped memo hint: GET the previously found path → verify frontmatter ID
+ * 3a. ID scan (flat): listFiles(resolvedPath) → filter by ID suffix → verify frontmatter ID
+ * 3b. ID scan (recursive): when {@link searchBasePath} differs from resolvedPath
  *     (i.e. the vault-path template contains date variables), walk subdirectories
  *     from searchBasePath looking for `-{idSuffix}.md` matches. This lets append-mode
  *     find a previous-month file even when the current resolved path points at a
  *     not-yet-existing folder.
- * 3. Not found
+ * 4. Not found
  *
  * @param searchBasePath - Optional. When provided AND different from resolvedPath,
  *   triggers the recursive scan. Defaults to resolvedPath (preserves the legacy
  *   flat-scan behaviour for templates without date variables).
  * @param hintPath - Optional. Path where this conversation's file was previously
- *   found (caller-memoized). Tried before anything else so repeat appends after
- *   a calendar rollover cost one GET instead of a directory scan.
+ *   found (caller-memoized). Tried after the current direct path and only inside
+ *   {@link LookupOptions.hintScope}.
  */
 export async function lookupExistingFile(
   client: ObsidianApiClient,
@@ -307,12 +334,13 @@ export async function lookupExistingFile(
   note: ObsidianNote,
   options: LookupOptions = {}
 ): Promise<FileLookupResult> {
-  const { searchBasePath = resolvedPath, hintPath, filenameScheme = 'title-id' } = options;
+  const {
+    searchBasePath = resolvedPath,
+    hintPath,
+    hintScope,
+    filenameScheme = 'title-id',
+  } = options;
   const expectedId = note.frontmatter.id;
-
-  // Step 0: Caller-memoized hint
-  const memoHit = await tryHintPath(client, hintPath, fullPath, expectedId);
-  if (memoHit) return memoHit;
 
   // Step 1: Direct path match
   const directContent = await client.getFile(fullPath);
@@ -327,7 +355,11 @@ export async function lookupExistingFile(
     };
   }
 
-  // Step 2: Directory scan, bounded by a shared request budget
+  // Step 2: A scoped hint is an optimization, never authority over the current path.
+  const memoHit = await tryHintPath(client, hintPath, hintScope, fullPath, expectedId);
+  if (memoHit) return { ...memoHit, directProbe };
+
+  // Step 3: Directory scan, bounded by a shared request budget
   const matches = createCandidateMatcher(note.fileName, filenameScheme);
   if (!matches) return notFound(fullPath, 'no-candidate-suffix', directProbe);
 
@@ -341,7 +373,7 @@ export async function lookupExistingFile(
       : NO_SCAN;
   if (scan.hit) return { ...scan.hit, directProbe };
 
-  // Step 3: Not found
+  // Step 4: Not found
   return notFound(fullPath, scanMissReason(scan, budget), directProbe);
 }
 

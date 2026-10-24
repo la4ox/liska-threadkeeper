@@ -49,6 +49,14 @@ finding, `commit:41c1f05321f48191b8bbc9bf9e9ffb91`, is also closed: published
 commit `ccf9a56` serializes migration/settings mutations, fresh-reads sync after
 local verification, and has a deterministic interleaving regression test.
 
+The 2026-10-25 current-main reconciliation closed three additional historical
+occurrences with explicit merged ancestry and static invariant evidence:
+`commit:0fb1786e6cf08191a25da26b5593adfc` (TypedArray capture integrity),
+`commit:16702a6e90648191ba8a63da60539e95` (unbounded branch fan-out), and
+`commit:8fc721c0bb0881919910f4805e72250d` (nested Canmore JSON). No new Cloud scan
+was launched; the existing occurrence records advanced from version 7/new to
+version 8/fixed.
+
 The math-attribute occurrence
 `commit:eb1705ab69ac8191a043d3d6cb44fe4c` is administratively marked fixed in
 Security Cloud, but that status was applied before the saved fix-check's active
@@ -62,8 +70,8 @@ delimiters. Current-head CI and code review were clean; the separate GitHub
 Security Review did not execute because its quota was exhausted.
 
 The nested-Canmore occurrence `commit:8fc721c0bb0881919910f4805e72250d`
-remains open for later Cloud reconciliation, but its source fix merged through
-PR 26 as `915e367`. A single-part JSON-looking payload is scanned without
+is closed as fixed after current-main reconciliation. Its source fix merged
+through PR 26 as `915e367`. A single-part JSON-looking payload is scanned without
 materializing an object graph before `JSON.parse`: 4 MiB of source text, 64
 nested containers, and 4,096 structural tokens are explicit parse ceilings.
 They deliberately exceed the canonical sanitizer's existing 16-level/512-entry
@@ -73,8 +81,8 @@ manifest evidence and creates no canonical companion. Current-head CI and Code
 Review were clean; the unavailable Security Review was deliberately deferred.
 
 The page-prototype occurrence `commit:0fb1786e6cf08191a25da26b5593adfc`
-remains open for later Cloud reconciliation, but its source fix merged through
-PR 27 as `cf733f1`. The implementation
+is closed as fixed after current-main reconciliation. Its source fix merged
+through PR 27 as `cf733f1`. The implementation
 captures native TypedArray buffer/length getters at document start, removes
 species-sensitive `subarray` and `ArrayBuffer.slice`, copies digest input through
 captured internal-slot operations, Base64-encodes indexed bytes directly, and
@@ -83,6 +91,15 @@ Late getters, constructor/species hooks, and `Uint8Array.prototype.then` no
 longer observe or mutate closure-owned response bytes. Current-head CI and Code
 Review were clean; Security Review completed clean on the pre-batching security
 head, and the reviewed batching-only follow-up had no unresolved finding.
+
+The branch-fan-out occurrence `commit:16702a6e90648191ba8a63da60539e95`
+is likewise closed as fixed. The merged wide-branch stack caps nodes, leaves,
+path visits, source work, planned writes, per-note bytes, per-destination logical
+bytes, physical planned bytes, and HTML render work; safe-integer overflow fails
+closed. Prepared parent paths avoid per-leaf full-catalog rescans, while one
+AbortSignal-backed Stop path reaches measurement, branch writes, indexes, and
+HTML finalization. The live 239-leaf capture remains positive evidence for the
+bounded catalog, not authority to raise the separate 1 GiB source-work ceiling.
 
 The question-heading occurrence `commit:3a431a24ce6c81919819b0c524645220`
 is fixed through PR 28 as `f53fd6d`. The shared heading
@@ -254,6 +271,28 @@ security review are clean. Do not automatically retry or spend security-review
 credits. After the current large roadmap block is complete, launch one explicit
 Cloud Security repository scan and reconcile its full-repository findings.
 
+The current runtime-boundary candidate addresses three of the eight records
+left by that reconciliation without starting another scan. Append hints are now
+keyed by normalized endpoint, exact vault template, stable search root,
+provider, and conversation id; the current direct path wins, and a memo path is
+admitted only when its parent matches the exact template with date tokens kept
+as bounded rollover variables. This covers endpoint/scope changes, sibling
+prefixes, leading-date templates, and inline forms such as
+`AI/{platform}-{YYYY}` without storing or logging the API key.
+
+The Gemini CDN worker now rejects an oversized declared length early and also
+counts the actual streamed response bytes, cancelling at the existing 10 MiB
+ceiling regardless of absent, invalid, or falsely small headers. The existing
+five-second AbortController remains armed through body reads; bodyless,
+unsupported-MIME, unsuccessful, stalled, and cancellation-failure paths return
+stable local failures without an unbounded `blob()`/`arrayBuffer()` fallback.
+This candidate is intended to close
+`commit:72ec616ef89c81918fae119209a1107b`,
+`commit:43efe06fa6b08191b8bfe3ce69fa19be`, and the overlapping timeout occurrence
+`commit:621515f4ee488191a93dd9a3c856df77` only after reviewed source is merged.
+Real Chrome CDN decompression, redirect, and transport-cancellation behavior
+remains a live-runtime proof gap; the code does not claim otherwise.
+
 ## Remaining finding triage
 
 Review the remaining Security Cloud findings against the current pull-request
@@ -263,14 +302,16 @@ head, preserving one verdict per finding:
    merge. YAML, math, question-heading, tool-content, append, and citation
    occurrences are fixed; resolve the historical Claude tool-conversion review
    thread only after its bounded single-pass follow-up is on current `main`.
-2. Resource bounds: branch fan-out, image response buffering/timeouts, and
-   frontmatter parsing; reconcile the merged Canmore fix.
-3. Capture integrity: reconcile the merged TypedArray primordial fix and retain
-   its late-prototype regressions.
-4. Storage and Obsidian boundaries: stale append paths, remaining credential
-   disclosure paths, and response-body error handling.
-5. Supply-chain and repository hygiene: mutable CI actions and live fixture
-   URLs.
+2. Resource bounds: finish review/merge/Cloud closure for the bounded image
+   stream candidate; retain quadratic frontmatter parsing as local robustness
+   work. Branch fan-out and Canmore are reconciled and closed.
+3. Capture integrity: retain the merged TypedArray late-prototype regressions;
+   its Cloud occurrence is reconciled and closed.
+4. Storage and Obsidian boundaries: finish review/merge/Cloud closure for the
+   scoped append memo; separately classify response-body error handling and the
+   authentication-disclosure declaration.
+5. Supply-chain and repository hygiene: mutable CI action tags and the live
+   fixture URL remain open.
 
 Prioritize confirmed reachable medium/low findings. Treat informational items
 as evidence-backed hardening, not automatic defects. Do not close, merge, or

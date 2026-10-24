@@ -15,19 +15,35 @@ import { MAX_IMAGE_SIZE_BYTES } from '../../src/lib/image-utils';
 
 const IMAGE_URL = 'https://lh3.googleusercontent.com/gg/AbC123=s1024-rj';
 
-/** Build a Blob-like object (jsdom's Blob lacks a usable arrayBuffer()). */
-function blobLike(bytes: Uint8Array, type: string): Blob {
-  return {
-    size: bytes.byteLength,
-    type,
-    arrayBuffer: () => Promise.resolve(bytes.buffer),
-  } as unknown as Blob;
+function responseFromChunks(
+  chunks: Uint8Array[],
+  type = 'image/png',
+  extraHeaders: Record<string, string> = {},
+  onCancel?: (reason: unknown) => void,
+  status = 200
+): Response {
+  let index = 0;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        if (index >= chunks.length) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(chunks[index]);
+        index += 1;
+      },
+      cancel: onCancel,
+    },
+    { highWaterMark: 0 }
+  );
+  const headers = new Headers(extraHeaders);
+  if (type) headers.set('content-type', type);
+  return new Response(body, { status, headers });
 }
 
-function mockFetchBlob(blob: Blob): ReturnType<typeof vi.fn> {
-  const spy = vi
-    .fn()
-    .mockResolvedValue({ ok: true, status: 200, blob: () => Promise.resolve(blob) });
+function mockFetchResponse(response: Response): ReturnType<typeof vi.fn> {
+  const spy = vi.fn().mockResolvedValue(response);
   vi.stubGlobal('fetch', spy);
   return spy;
 }
@@ -40,7 +56,7 @@ afterEach(() => {
 
 describe('handleFetchImage', () => {
   it('fetches an allow-listed image and returns base64 data', async () => {
-    mockFetchBlob(blobLike(new Uint8Array([0x50, 0x4e, 0x47]), 'image/png'));
+    mockFetchResponse(responseFromChunks([new Uint8Array([0x50, 0x4e, 0x47])]));
 
     const result = await handleFetchImage(IMAGE_URL);
 
@@ -50,7 +66,7 @@ describe('handleFetchImage', () => {
   it('sends credentials so cookie-gated CDN URLs resolve', async () => {
     // The <img> on the page loads these URLs with cookies; an extension fetch
     // without them gets 403. Host permissions let the worker send them.
-    const spy = mockFetchBlob(blobLike(new Uint8Array([1]), 'image/png'));
+    const spy = mockFetchResponse(responseFromChunks([new Uint8Array([1])]));
 
     await handleFetchImage(IMAGE_URL);
 
@@ -61,7 +77,7 @@ describe('handleFetchImage', () => {
   });
 
   it('defaults to image/png when the response carries no type', async () => {
-    mockFetchBlob(blobLike(new Uint8Array([1, 2, 3]), ''));
+    mockFetchResponse(responseFromChunks([new Uint8Array([1, 2, 3])], ''));
 
     const result = await handleFetchImage(IMAGE_URL);
 
@@ -69,7 +85,7 @@ describe('handleFetchImage', () => {
   });
 
   it('refuses a URL outside the allow-list without issuing a request', async () => {
-    const spy = mockFetchBlob(blobLike(new Uint8Array([1]), 'image/png'));
+    const spy = mockFetchResponse(responseFromChunks([new Uint8Array([1])]));
 
     const result = await handleFetchImage('https://127.0.0.1:27123/vault/secret.md');
 
@@ -84,12 +100,23 @@ describe('handleFetchImage', () => {
   });
 
   it('reports a failed response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
 
     const result = await handleFetchImage(IMAGE_URL);
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('403');
+  });
+
+  it('cancels an unread error response body', async () => {
+    const cancelled = vi.fn();
+    mockFetchResponse(responseFromChunks([new Uint8Array([1])], 'image/png', {}, cancelled, 403));
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: false,
+      error: 'Image fetch failed: HTTP 403',
+    });
+    expect(cancelled).toHaveBeenCalled();
   });
 
   it('reports a network error instead of throwing', async () => {
@@ -123,32 +150,125 @@ describe('handleFetchImage', () => {
   });
 
   it('rejects an image above the size cap', async () => {
-    mockFetchBlob(blobLike(new Uint8Array(1), 'image/png'));
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        blob: () =>
-          Promise.resolve({
-            size: MAX_IMAGE_SIZE_BYTES + 1,
-            type: 'image/png',
-            arrayBuffer: () => Promise.resolve(new Uint8Array(0).buffer),
-          } as unknown as Blob),
-      })
+    const cancelled = vi.fn();
+    mockFetchResponse(
+      responseFromChunks(
+        [new Uint8Array([1])],
+        'image/png',
+        {
+          'content-length': String(MAX_IMAGE_SIZE_BYTES + 1),
+        },
+        cancelled
+      )
     );
 
     const result = await handleFetchImage(IMAGE_URL);
 
-    expect(result.success).toBe(false);
+    expect(result).toEqual({ success: false, error: 'Image exceeds the size limit' });
+    expect(cancelled).toHaveBeenCalled();
   });
 
   it('rejects a MIME type outside the image allow-list', async () => {
-    mockFetchBlob(blobLike(new Uint8Array([1]), 'image/svg+xml'));
+    const cancelled = vi.fn();
+    mockFetchResponse(responseFromChunks([new Uint8Array([1])], 'image/svg+xml', {}, cancelled));
 
     const result = await handleFetchImage(IMAGE_URL);
 
-    expect(result.success).toBe(false);
+    expect(result).toEqual({ success: false, error: 'Unsupported image type: image/svg+xml' });
+    expect(cancelled).toHaveBeenCalled();
+  });
+
+  it('accepts the exact byte cap across multiple chunks', async () => {
+    const first = new Uint8Array(MAX_IMAGE_SIZE_BYTES - 1);
+    const last = new Uint8Array([0xff]);
+    mockFetchResponse(responseFromChunks([first, last], 'image/webp'));
+
+    const result = await handleFetchImage(IMAGE_URL);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.mimeType).toBe('image/webp');
+      expect(result.data.length).toBe(4 * Math.ceil(MAX_IMAGE_SIZE_BYTES / 3));
+    }
+  });
+
+  it('cancels as soon as streamed bytes cross the cap despite a false small length', async () => {
+    const cancelled = vi.fn();
+    mockFetchResponse(
+      responseFromChunks(
+        [new Uint8Array(MAX_IMAGE_SIZE_BYTES), new Uint8Array([1])],
+        'image/png',
+        { 'content-length': '1' },
+        cancelled
+      )
+    );
+
+    const result = await handleFetchImage(IMAGE_URL);
+
+    expect(result).toEqual({ success: false, error: 'Image exceeds the size limit' });
+    expect(cancelled).toHaveBeenCalled();
+  });
+
+  it('does not replace the size failure when stream cancellation also fails', async () => {
+    const response = responseFromChunks(
+      [new Uint8Array(MAX_IMAGE_SIZE_BYTES), new Uint8Array([1])],
+      'image/png',
+      {},
+      () => {
+        throw new Error('cancel failed');
+      }
+    );
+    mockFetchResponse(response);
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: false,
+      error: 'Image exceeds the size limit',
+    });
+  });
+
+  it('fails closed when a successful response exposes no readable body', async () => {
+    mockFetchResponse(
+      new Response(null, { status: 200, headers: { 'content-type': 'image/png' } })
+    );
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: false,
+      error: 'Image response body is unavailable',
+    });
+  });
+
+  it('keeps the timeout active while the response body is stalled', async () => {
+    vi.useFakeTimers();
+    const spy = vi.fn((_url: string, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () =>
+            controller.error(new DOMException('Aborted', 'AbortError'))
+          );
+        },
+      });
+      return Promise.resolve(
+        new Response(body, { status: 200, headers: { 'content-type': 'image/png' } })
+      );
+    });
+    vi.stubGlobal('fetch', spy);
+
+    const pending = handleFetchImage(IMAGE_URL);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await expect(pending).resolves.toEqual({ success: false, error: 'Image fetch timed out' });
+  });
+
+  it('keeps MIME parameters on a valid image response', async () => {
+    mockFetchResponse(
+      responseFromChunks([new Uint8Array([0xff, 0xd8, 0xff])], 'Image/JPEG; charset=binary')
+    );
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: true,
+      data: '/9j/',
+      mimeType: 'Image/JPEG; charset=binary',
+    });
   });
 });
 

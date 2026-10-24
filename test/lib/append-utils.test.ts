@@ -115,11 +115,123 @@ describe('lookupExistingFile', () => {
       'AI/claude/my-chat-abc12345.md',
       'AI/claude',
       testNote,
-      { hintPath: 'AI/claude/snapshot.md' }
+      {
+        hintPath: 'AI/claude/snapshot.md',
+        hintScope: { folderTemplate: 'AI/claude', variables: {} },
+      }
     );
 
     expect(result).toMatchObject({ found: true, matchType: 'direct' });
     expect(result.path).toBe('AI/claude/my-chat-abc12345.md');
+  });
+
+  it('prefers the current direct path over a valid same-scope memo hint', async () => {
+    const ordinary = '---\nid: claude_abc-def-123\n---\nBody';
+    mockClient.getFile.mockResolvedValue(ordinary);
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      'Private/claude/current-abc12345.md',
+      'Private/claude',
+      testNote,
+      {
+        hintPath: 'Private/claude/old-abc12345.md',
+        hintScope: { folderTemplate: 'Private/claude', variables: {} },
+      }
+    );
+
+    expect(result).toMatchObject({ found: true, matchType: 'direct' });
+    expect(result.path).toBe('Private/claude/current-abc12345.md');
+    expect(mockClient.getFile).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['outside the configured root', 'Published/claude/old-abc12345.md'],
+    ['inside a sibling prefix', 'Private/claude-public/old-abc12345.md'],
+  ])('ignores a memo hint %s before issuing a GET', async (_label, hintPath) => {
+    mockClient.getFile.mockResolvedValueOnce(null);
+    mockClient.listFiles.mockResolvedValue([]);
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      'Private/claude/current-abc12345.md',
+      'Private/claude',
+      testNote,
+      {
+        searchBasePath: 'Private/claude',
+        hintPath,
+        hintScope: { folderTemplate: 'Private/claude', variables: {} },
+      }
+    );
+
+    expect(result.found).toBe(false);
+    expect(mockClient.getFile).toHaveBeenCalledTimes(1);
+    expect(mockClient.getFile).not.toHaveBeenCalledWith(hintPath);
+  });
+
+  it('uses a scoped rollover hint only after the current direct path misses', async () => {
+    const ordinary = '---\nid: claude_abc-def-123\n---\nBody';
+    mockClient.getFile.mockResolvedValueOnce(null).mockResolvedValueOnce(ordinary);
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      'AI/claude/2026/10/current-abc12345.md',
+      'AI/claude/2026/10',
+      testNote,
+      {
+        searchBasePath: 'AI/claude',
+        hintPath: 'AI/claude/2026/09/old-abc12345.md',
+        hintScope: { folderTemplate: 'AI/claude/{YYYY}/{MM}', variables: {} },
+      }
+    );
+
+    expect(result).toMatchObject({ found: true, matchType: 'memo' });
+    expect(mockClient.getFile.mock.calls.map(call => call[0])).toEqual([
+      'AI/claude/2026/10/current-abc12345.md',
+      'AI/claude/2026/09/old-abc12345.md',
+    ]);
+  });
+
+  it('preserves a leading-date template memo under an explicit recursive root scope', async () => {
+    const ordinary = '---\nid: claude_abc-def-123\n---\nBody';
+    mockClient.getFile.mockResolvedValueOnce(null).mockResolvedValueOnce(ordinary);
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      '2026/10/current-abc12345.md',
+      '2026/10',
+      testNote,
+      {
+        searchBasePath: '',
+        hintPath: '2026/09/old-abc12345.md',
+        hintScope: { folderTemplate: '{YYYY}/{MM}', variables: {} },
+      }
+    );
+
+    expect(result).toMatchObject({ found: true, matchType: 'memo' });
+  });
+
+  it('preserves rollover when a date token is embedded inside a folder segment', async () => {
+    const ordinary = '---\nid: claude_abc-def-123\n---\nBody';
+    mockClient.getFile.mockResolvedValueOnce(null).mockResolvedValueOnce(ordinary);
+
+    const result = await lookupExistingFile(
+      mockClient as never,
+      'AI/claude-2026/current-abc12345.md',
+      'AI/claude-2026',
+      testNote,
+      {
+        searchBasePath: 'AI/claude-',
+        hintPath: 'AI/claude-2025/old-abc12345.md',
+        hintScope: {
+          folderTemplate: 'AI/{platform}-{YYYY}',
+          variables: { platform: 'claude' },
+        },
+      }
+    );
+
+    expect(result).toMatchObject({ found: true, matchType: 'memo' });
+    expect(result.path).toBe('AI/claude-2025/old-abc12345.md');
   });
 
   it('returns not found when direct path has different ID', async () => {
