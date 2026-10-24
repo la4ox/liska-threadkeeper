@@ -174,17 +174,18 @@ disclosed accordingly.
 | 個人を特定できる情報 / Personally identifiable information <!-- declaration: data.personally_identifiable_information, value: no -->     | No      |
 | 健康に関する情報 / Health information <!-- declaration: data.health_information, value: no -->                                           | No      |
 | 財務状況や支払いに関する情報 / Financial and payment information <!-- declaration: data.financial_and_payment_information, value: no --> | No      |
-| 認証に関する情報 / Authentication information <!-- declaration: data.authentication_information, value: no -->                           | No      |
+| 認証に関する情報 / Authentication information <!-- declaration: data.authentication_information, value: yes -->                          | **Yes** |
 | 個人的コミュニケーション / Personal communications <!-- declaration: data.personal_communications, value: no -->                         | No      |
 | 位置情報 / Location <!-- declaration: data.location, value: no -->                                                                       | No      |
 | ウェブ履歴 / Web history <!-- declaration: data.web_history, value: no -->                                                               | No      |
 | ユーザーのアクティビティ / User activity <!-- declaration: data.user_activity, value: no -->                                             | No      |
 | **ウェブサイトのコンテンツ / Website content** <!-- declaration: data.website_content, value: yes -->                                    | **Yes** |
 
-The Obsidian API key is user-supplied configuration held in `chrome.storage.local`,
-not data gathered about the user, so it is not an authentication-information
-disclosure. Nothing is gathered about the user's identity, location, browsing or
-input.
+The user-supplied Obsidian API key is authentication information under this broad
+handling definition: Liska stores it in `chrome.storage.local` and uses it only to
+authenticate requests to the configured loopback Obsidian Local REST API. It is
+never synced, exported with conversations, or sent to a third party. Nothing is
+gathered about the user's identity, location, browsing, or input.
 
 `個人的コミュニケーション` stays unticked: its examples are mail and chat messages
 between people, and the dashboard does not define whether a conversation with a

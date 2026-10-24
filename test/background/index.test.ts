@@ -3294,13 +3294,9 @@ describe('background/index', () => {
       expect(content).not.toContain('Preserve my content');
     });
 
-    it('falls back to overwrite when append throws error', async () => {
+    it('fails closed on an unknown append lookup error', async () => {
       mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
-      // First getFile call (append lookup) throws, but catch block falls through
-      mockClient.getFile
-        .mockRejectedValueOnce(new Error('Network error')) // append lookup fails
-        .mockResolvedValueOnce(null); // overwrite path: file doesn't exist
-      mockClient.putFile.mockResolvedValue(undefined);
+      mockClient.getFile.mockRejectedValue(new Error('Unexpected body reader failure'));
 
       const sendResponse = vi.fn();
       capturedListener(
@@ -3310,8 +3306,36 @@ describe('background/index', () => {
       );
 
       await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-      const response = sendResponse.mock.calls[0][0];
-      expect(response.allSuccessful).toBe(true);
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.allSuccessful).toBe(false);
+      expect(response.results[0]).toMatchObject({
+        success: false,
+        error: 'append-operation-failed',
+      });
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+    });
+
+    it('fails closed instead of overwriting when an Obsidian read is uncertain', async () => {
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      mockClient.getFile.mockRejectedValue(
+        Object.assign(new Error('Cannot reach Obsidian. Is it running?'), { status: 0 })
+      );
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: appendNote },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.allSuccessful).toBe(false);
+      expect(response.results[0]).toMatchObject({
+        success: false,
+        error: expect.stringContaining('Obsidian REST API is not running'),
+      });
+      expect(mockClient.putFile).not.toHaveBeenCalled();
     });
 
     it('uses ID scan when direct path has wrong ID', async () => {

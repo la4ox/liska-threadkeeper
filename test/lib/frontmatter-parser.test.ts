@@ -109,6 +109,39 @@ describe('frontmatter-parser', () => {
       expect(result).not.toBeNull();
       expect(result!.body).toBe('Paragraph 1\n\nParagraph 2\n\nParagraph 3');
     });
+
+    it('accumulates a large ordered list without changing values or duplicates', () => {
+      const values = Array.from({ length: 20_000 }, (_, index) => `value-${index % 997}`);
+      const content = ['---', 'tags:', ...values.map(value => `  - ${value}`), '---', 'Body'].join(
+        '\n'
+      );
+
+      const result = parseFrontmatter(content);
+
+      expect(result?.fields.tags).toHaveLength(values.length);
+      expect(result?.fields.tags).toEqual(values);
+    });
+
+    it('keeps list keys independent and preserves duplicate-key reset semantics', () => {
+      const content = [
+        '---',
+        'first:',
+        '  - old',
+        'second:',
+        '  - "quoted"',
+        'first:',
+        '  - current',
+        '---',
+        'Body',
+      ].join('\n');
+
+      const first = parseFrontmatter(content)!;
+      const second = parseFrontmatter(content)!;
+
+      expect(first.fields).toMatchObject({ first: ['current'], second: ['quoted'] });
+      expect(second.fields).toEqual(first.fields);
+      expect(second.fields.first).not.toBe(first.fields.first);
+    });
   });
 
   // ========== updateFrontmatter ==========

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../src/lib/obsidian-api', () => ({
   ObsidianApiClient: mocks.client,
+  isObsidianApiError: () => false,
 }));
 
 import {

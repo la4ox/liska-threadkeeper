@@ -375,21 +375,16 @@ describe('partial DOM history mutable-note overwrite guard', () => {
     }
   );
 
-  it.each([existing(), existing(undefined, 3, false)])(
-    'append non-boundary fallback still refuses unsafe overwrite',
-    async content => {
-      client.getFile
-        .mockRejectedValueOnce(new Error('synthetic transient lookup failure'))
-        .mockResolvedValue(content);
-      const result = await handleSave({ ...settings, enableAppendMode: true }, incoming());
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(
-        /^partial-capture-(?:would-shrink-note|existing-count-untrusted)$/
-      );
-      expect(client.putFile).not.toHaveBeenCalled();
-      expect(client.putBinaryFile).not.toHaveBeenCalled();
-    }
-  );
+  it('append lookup failure refuses before any unsafe overwrite fallback', async () => {
+    client.getFile.mockRejectedValue(new Error('synthetic transient lookup failure'));
+
+    const result = await handleSave({ ...settings, enableAppendMode: true }, incoming());
+
+    expect(result).toEqual({ success: false, error: 'append-operation-failed' });
+    expect(client.getFile).toHaveBeenCalledTimes(1);
+    expect(client.putFile).not.toHaveBeenCalled();
+    expect(client.putBinaryFile).not.toHaveBeenCalled();
+  });
 
   it.each([2, 3])('append retains its no-op for existing %s >= incoming', async rendered => {
     client.getFile.mockResolvedValue(existing(String(rendered), rendered));

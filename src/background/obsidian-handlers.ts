@@ -4,7 +4,7 @@
  * Handles save, get, and connection test operations
  */
 
-import { ObsidianApiClient } from '../lib/obsidian-api';
+import { isObsidianApiError, ObsidianApiClient } from '../lib/obsidian-api';
 import { getErrorMessage } from '../lib/error-utils';
 import { generateNoteContent } from '../lib/note-generator';
 import {
@@ -591,8 +591,12 @@ async function tryAppendMode(
       console.warn('[G2O Background] Append refused: message boundaries are untrusted');
       return { success: false, error: error.code };
     }
-    console.warn('[G2O Background] Append mode failed, falling back to overwrite:', error);
-    return null;
+    if (isObsidianApiError(error)) {
+      console.warn('[G2O Background] Append refused: Obsidian read failed');
+      return { success: false, error: getErrorMessage(error) };
+    }
+    console.warn('[G2O Background] Append refused: unexpected operation failure');
+    return { success: false, error: 'append-operation-failed' };
   }
 }
 

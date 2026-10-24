@@ -169,6 +169,16 @@ describe('architecture: privacy declarations are version-controlled', () => {
     expect(declarations.get('data.website_content')).toBe('yes');
   });
 
+  it('declares authentication information because the local Obsidian key is stored and used', () => {
+    expect(declarations.get('data.authentication_information')).toBe('yes');
+
+    const storage = read('src/lib/storage.ts');
+    const api = read('src/lib/obsidian-api.ts');
+    expect(storage).toContain('chrome.storage.local.set');
+    expect(storage).toContain('obsidianApiKey');
+    expect(api).toContain('Authorization: `Bearer ${this.apiKey}`');
+  });
+
   it('keeps the remote-code answer consistent with the manifest CSP', () => {
     const answer = declarations.get('remote_code');
     expect(['yes', 'no'], 'declare remote_code as yes or no').toContain(answer);

@@ -225,6 +225,48 @@ describe('ObsidianApiClient', () => {
       });
     });
 
+    it('normalizes a connection failure while reading the response body', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.reject(new TypeError('Body stream failed')),
+      });
+
+      const error = await client.getFile('path/to/file.md').catch(value => value);
+
+      expect(error).toBeInstanceOf(ObsidianApiError);
+      expect(error).toMatchObject({
+        status: 0,
+        message: 'Cannot reach Obsidian. Is it running?',
+      });
+    });
+
+    it('normalizes a synchronous transport failure from the body reader', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => {
+          throw new TypeError('Body reader failed synchronously');
+        },
+      });
+
+      await expect(client.getFile('path/to/file.md')).rejects.toMatchObject({
+        status: 0,
+        message: 'Cannot reach Obsidian. Is it running?',
+      });
+    });
+
+    it('preserves an unknown body parser error unchanged', async () => {
+      const malformed = new SyntaxError('Malformed body');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: () => Promise.reject(malformed),
+      });
+
+      await expect(client.getFile('path/to/file.md')).rejects.toBe(malformed);
+    });
+
     it('encodes path correctly', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
@@ -316,6 +358,20 @@ describe('ObsidianApiClient', () => {
     it('returns null for a missing binary archive companion', async () => {
       mockFetch.mockResolvedValue({ ok: false, status: 404 });
       await expect(client.getBinaryFile('missing.json')).resolves.toBeNull();
+    });
+
+    it('normalizes a timeout while reading exact binary bytes', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: () =>
+          Promise.reject(new DOMException('The operation timed out', 'TimeoutError')),
+      });
+
+      await expect(client.getBinaryFile('archive.json')).rejects.toMatchObject({
+        status: 0,
+        message: 'Request timed out. Please check your connection.',
+      });
     });
   });
 
@@ -546,6 +602,19 @@ describe('ObsidianApiClient', () => {
       const entries = await client.listEntries('AI');
 
       expect(entries).toEqual(['2026/', 'note.md']);
+    });
+
+    it('normalizes an abort while reading a directory response body', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new DOMException('The operation was aborted', 'AbortError')),
+      });
+
+      await expect(client.listEntries('AI')).rejects.toMatchObject({
+        status: 0,
+        message: 'Request was cancelled.',
+      });
     });
   });
 
