@@ -1293,3 +1293,46 @@ vulnerabilities. Independent review found no P0-P3 issue in the persistence fix;
 its requested close/reopen Comet proof is covered by the live reload above. The
 next HTML slice is destination-finalized local-asset bindings and then
 all-branches reading bundles. Automatic PDF remains separate.
+
+## Canonical HTML finalized-asset checkpoint
+
+Source head `d1eae64` on `codex/html-finalized-assets` adds the second opt-in
+File-only HTML slice. ChatGPT and DeepSeek attachment finalization can now return
+the exact destination-final canonical archive plus confirmed File asset records.
+Only after raw, manifest, canonical, and asset writes succeed does the content
+layer build `liska-html-asset-bindings/1`, rebind the retained presentation to
+that final canonical, and render local images/download links. Every binding must
+match opaque asset ID, content-addressed path, MIME type, byte length, SHA-256,
+canonical acquisition state, and `localArtifactRef`; unsupported active types
+remain unbound. Obsidian success cannot authorize File HTML.
+
+All 181 test files / 5,707 tests pass in six memory-bounded batches. The content
+batch passes with four workers; an additional unlimited-worker rerun exhausted
+memory without an assertion failure and is not used as evidence. Production
+build/typecheck, repository formatting, diff checks, source/platform lint, and
+`npm audit` pass with only the same three pre-existing warnings and zero known
+dependency vulnerabilities. Independent review found no P0-P3 issue.
+
+A local real-archive smoke reused an earlier destination-confirmed ChatGPT
+snapshot containing one fetched 188,009-byte JPEG and one honest
+`not-attempted` sibling. Production code reverified the actual JPEG bytes,
+canonical descriptor, final record, selected path, and non-null binding digest;
+the derived receipt carried the same digest. The saved HTML contained one exact
+local `assets/<sha256>.jpg` image, no remote image source and no script element.
+It rendered successfully in a browser; the unbound sibling remained an explicit
+placeholder plus diagnostic rather than disappearing or borrowing the fetched
+file. A separate live no-asset File smoke from the parent slice remains valid.
+
+Fresh live recapture attempts on two older image conversations exposed a
+separate provider-capture gap before any destination write: fail-closed A-strict
+replay rejected a newly observed opaque path, then ordinary structured capture
+timed out and the current ChatGPT DOM fallback found no primary turn selectors.
+No archive or Markdown was falsely reported as saved. Treat this as a ChatGPT
+capture-compatibility follow-up, not as evidence against finalized HTML binding.
+
+All temporary smoke overrides were removed; the worktree is clean. The user's
+stable installed build and ordinary settings (Obsidian + File on, Clipboard and
+HTML off) were restored. The exact asset-aware candidate build is preserved at
+`C:\Users\GIGABYTE\AppData\Local\CodexTools\liska-html-assets-candidate-d1eae64-20261024`.
+Do not open this slice's PR until parent PR 36 merges cleanly; then rebase onto
+current main, rerun focused/build checks, and open the next reviewed PR.
