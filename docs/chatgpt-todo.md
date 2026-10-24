@@ -171,6 +171,13 @@ terminal states, and the existing no-credential-export boundary.
 
 ### 8. Remaining hardening
 
+- Replay readiness now distinguishes value-free marker, query, conversation,
+  and route-family drift while preserving every exact authorization check. A
+  post-build live retry stayed on the authorized route and instead ended with
+  `opaque-replay-source-http-error`, so the current canary reached the
+  reconstructed provider request and was rejected there. Diagnose that request
+  contract separately; do not widen capture routes or DOM selectors from this
+  outcome alone.
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Settings-stable durable routing is implemented across first-party archive,

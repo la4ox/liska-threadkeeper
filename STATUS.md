@@ -1249,3 +1249,29 @@ footnotes, or math. Production build, repository formatting, and
 source/platform lint pass with only the same three pre-existing warnings; `npm
 audit` reports zero known vulnerabilities. Actual Obsidian rendering was not
 repeated, so renderer network behavior remains an explicit live proof gap.
+
+## ChatGPT replay-route diagnostics checkpoint
+
+Source commit `0c3ac6c` keeps opaque replay authorization unchanged while
+replacing one ambiguous background `unexpected-path` result with four bounded,
+value-free categories: marker mismatch, nonempty query, different valid
+conversation UUID, and route-family movement. Malformed same-origin paths retain
+the legacy code, wrong/malformed origins retain `unexpected-origin`, and every
+legacy response code remains accepted. Same-family slug canonicalization,
+optional trailing slash, exact empty query, UUID, route family, and nonce marker
+semantics are unchanged.
+
+The classifier is used at every temporary-tab readiness check. A failed first
+or post-capture check closes the exact disposable tab and does not read MAIN
+world; post-capture categories preserve the one-dispatch count. No URL, slug,
+conversation ID, query, hash, marker, or provider value enters the response.
+
+Five focused suites / 220 tests, production typecheck/build (233 modules),
+scoped ESLint/Prettier, and diff checks pass. An independent final review reran
+four suites / 174 tests and found no P0-P3 issue. A live historical-image retry
+did not reproduce route drift: it stayed on the exact authorized route and
+ended later with `capture-failed:opaque-replay-source-http-error`. No fallback
+or destination output was created. This narrows the current provider regression
+to the reconstructed source-request contract for that canary; it does not
+justify relaxing readiness or DOM selection. The stable installed build was
+restored after the smoke.
