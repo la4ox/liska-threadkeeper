@@ -1135,6 +1135,35 @@ dependency vulnerabilities. No destructive live Obsidian timeout smoke was run.
 This count guard does not prove message-prefix/content alignment and does not
 eliminate concurrent-write races.
 
+## Compact Liska launcher checkpoint
+
+Source head `d8f711d` replaces the two permanently expanded export controls with
+one fixed 44 by 44 pixel local-SVG Liska launcher. A trusted launcher click,
+mouse hover, or keyboard focus reveals the existing controls; `Escape`, focus
+departure, or a completed action collapses them again. The launcher itself has
+no export authority: only the unchanged real action buttons can start work, and
+their trusted-event checks remain in force. Non-ChatGPT providers receive only
+the current-thread action, while ChatGPT retains both current-thread and branch
+selection.
+
+Busy state, reinjection, focus handoff, localization, and mobile safe-area
+placement are covered without new assets, permissions, dependencies, network
+requests, or persisted state. At viewports up to 540 pixels, ordinary toasts
+move to the top-right so they cannot cover the vertically stacked launcher
+actions. The all-branches stop card intentionally remains above progress toasts;
+its final result becomes visible after the stop card is removed.
+
+Evidence: all 171 test files / 5,285 tests pass in six memory-bounded batches;
+the UI/bootstrap subset passes 2 files / 104 tests and the complete content
+batch passes 52 files / 2,141 tests. Production build/typecheck, formatting,
+diff checks, source/platform lint, and `npm audit` pass with only the same three
+pre-existing advisory warnings and zero known dependency vulnerabilities. A
+live Comet smoke loaded the candidate unpacked build, confirmed the collapsed
+fox, trusted reveal of both ChatGPT actions, and `Escape` collapse without
+starting an export. The installed tree was then restored to the prior stable
+build. Real touch input, narrow-device safe-area geometry, and other-provider
+host CSS remain live visual follow-ups rather than claimed proof.
+
 ## Local append-boundary security checkpoint
 
 PR 30, merged as `7ff531f`, addresses Security Cloud occurrence
