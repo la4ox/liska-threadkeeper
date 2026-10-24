@@ -1121,7 +1121,7 @@ fails as `partial-capture-would-shrink-note`; absent, malformed, mismatched, or
 otherwise untrusted old count fails as
 `partial-capture-existing-count-untrusted`. The guard stops before image or
 Markdown writes and never escapes to a suffix filename. First saves,
-equal/larger partial counts, File/Clipboard, complete/unknown legacy traffic,
+equal/larger partial counts, File/Clipboard, valid complete/unknown traffic,
 and immutable archive presentations retain their previous behavior. Invalid
 partial direct-call counts fail with a fixed value-free code.
 

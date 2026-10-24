@@ -199,7 +199,7 @@ terminal states, and the existing no-credential-export boundary.
 - Typed DOM history loading is now separate from archive completeness. Known
   partial Base/Gemini results cannot replace a longer exact same-conversation
   mutable Obsidian note, and an untrusted old count fails closed before image or
-  Markdown writes. New partial notes, File/Clipboard, complete/unknown traffic,
+  Markdown writes. New partial notes, File/Clipboard, valid complete/unknown traffic,
   and immutable snapshots retain their earlier behavior. This is a count-based
   shrink guard, not proof of prefix alignment.
 - Finish aggregate limits for branch materialization and destination writes.

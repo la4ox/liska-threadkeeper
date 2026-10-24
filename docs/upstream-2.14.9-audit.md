@@ -95,7 +95,7 @@ Implemented in the typed partial-DOM persistence checkpoint: Base virtualized
 extractors and Gemini now carry a runtime-only DOM loader outcome through note
 dispatch. Exact same-conversation mutable Obsidian overwrites refuse a smaller
 known-partial count and also fail closed when the old count cannot be trusted.
-File/Clipboard, first saves, complete/unknown traffic, and immutable archive
+File/Clipboard, first saves, valid complete/unknown traffic, and immutable archive
 presentations remain unchanged. The count comparison deliberately does not
 claim message-prefix equivalence.
 
