@@ -221,24 +221,73 @@ describe('offscreen/offscreen', () => {
     }
   });
 
-  it('rejects archive Blob creation for non-JSON media types', () => {
-    const sendResponse = vi.fn();
+  it.each(['text/plain', 'text/html;charset=utf-8', 'image/png', 'application/javascript'])(
+    'rejects archive Blob creation for media type %s',
+    mediaType => {
+      const sendResponse = vi.fn();
 
+      capturedListener(
+        {
+          action: 'archiveBlobCreate',
+          target: 'offscreen',
+          bodyBase64: 'e30=',
+          mediaType,
+        },
+        { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      expect(sendResponse).toHaveBeenCalledWith({
+        success: false,
+        error: 'Could not prepare archive download',
+      });
+    }
+  );
+
+  it('creates and revokes exact HTML bytes through the same private Blob ownership', () => {
+    const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/html');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    const response = vi.fn();
+    const bytes = new TextEncoder().encode('<p>♥ 字</p>');
     capturedListener(
       {
         action: 'archiveBlobCreate',
         target: 'offscreen',
-        bodyBase64: 'e30=',
-        mediaType: 'text/plain',
+        bodyBase64: bytesToBase64(bytes),
+        mediaType: 'text/html',
       },
       { id: chrome.runtime.id } as chrome.runtime.MessageSender,
-      sendResponse
+      response
     );
-
-    expect(sendResponse).toHaveBeenCalledWith({
-      success: false,
-      error: 'Could not prepare archive download',
+    expect(response).toHaveBeenCalledWith({
+      success: true,
+      url: 'blob:chrome-extension://test/html',
     });
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(blob.type).toBe('text/html');
+    expect(blob.size).toBe(bytes.byteLength);
+    const released = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobRevoke',
+        target: 'offscreen',
+        url: 'blob:chrome-extension://test/html',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      released
+    );
+    expect(released).toHaveBeenCalledWith({ success: true });
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:chrome-extension://test/html');
   });
 
   it('does not report a revoked archive URL when URL release throws', () => {

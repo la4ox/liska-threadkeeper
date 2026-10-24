@@ -285,6 +285,12 @@
   "settings_imageExportHelp": {
     "message": "対応する会話の画像と添付ファイルを保存する"
   },
+  "settings_enableHtmlExport": {
+    "message": "Canonical HTML 閲覧ビュー"
+  },
+  "settings_htmlExportHelp": {
+    "message": "構造化された ChatGPT / DeepSeek のファイル保存時に、Markdown と併せてオフラインで読める HTML ファイルを追加します。PDF・Obsidian・クリップボードには適用されません。"
+  },
   "settings_imageVaultPath": {
     "message": "画像フォルダ"
   },

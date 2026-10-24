@@ -12,7 +12,19 @@ import { resolveImagesForFile, stripImagePlaceholders } from '../lib/image-outpu
 import { MAX_CONTENT_SIZE } from '../lib/constants';
 import { CHATGPT_INLINE_CAPTURE_MAX_BYTES } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
-import { withDurableWriteOutcome } from '../lib/operation-write-ledger';
+import {
+  durableWriteOutcomeFromResult,
+  withDurableWriteOutcome,
+} from '../lib/operation-write-ledger';
+import { sha256Hex } from '../lib/sha256';
+import { bytesToBase64 } from '../lib/image-utils';
+import {
+  buildDerivedOutputReceipt,
+  buildDerivedOutputReceiptBytes,
+  DERIVED_HTML_RECEIPT_RELATIVE_PATH,
+  verifyDerivedHtmlArtifact,
+  type DerivedHtmlArtifact,
+} from '../lib/derived-presentation-contract';
 import type {
   ArchiveBlobCreateResponse,
   ArchiveCompanionArtifact,
@@ -254,19 +266,6 @@ function decodeCanonicalBase64(value: string): Uint8Array | undefined {
   }
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string | undefined> {
-  try {
-    const exact = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength
-    ) as ArrayBuffer;
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', exact);
-    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-  } catch {
-    return undefined;
-  }
-}
-
 /** Verify the independently validated envelope immediately before persistence. */
 async function verifyArchiveCompanion(
   artifact: ArchiveCompanionArtifact,
@@ -280,7 +279,11 @@ async function verifyArchiveCompanion(
       : MAX_CONTENT_SIZE;
   if (!bytes || bytes.byteLength !== artifact.byteLength || bytes.byteLength > maxBytes)
     return null;
-  return (await sha256Hex(bytes)) === artifact.sha256 ? bytes : null;
+  try {
+    return (await sha256Hex(bytes)) === artifact.sha256 ? bytes : null;
+  } catch {
+    return null;
+  }
 }
 
 function isArchiveBlobCreateResponse(value: unknown): value is ArchiveBlobCreateResponse {
@@ -330,7 +333,7 @@ interface ArchiveBlobCreateOutcome {
 }
 
 async function createArchiveBlobUrl(
-  artifact: ArchiveCompanionArtifact
+  artifact: InlineDownloadArtifact
 ): Promise<ArchiveBlobCreateOutcome> {
   if (artifact.transport !== 'inline') return { url: null };
   const createResponse = chrome.runtime.sendMessage({
@@ -601,6 +604,12 @@ export function downloadArchiveBlob(
 }
 /* eslint-enable max-lines-per-function */
 
+interface InlineDownloadArtifact {
+  transport: 'inline';
+  bodyBase64: string;
+  mediaType: 'application/json' | 'text/html';
+}
+
 function archiveCompanionDownloadPath(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
 ): string {
@@ -613,8 +622,10 @@ function archiveCompanionDownloadPath(
 }
 
 // eslint-disable-next-line max-lines-per-function -- Blob lease transfer, the terminal sink observation, and cleanup reporting must retain one ownership lifecycle.
-async function handleArchiveDownload(
-  message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
+async function handleVerifiedInlineDownload(
+  artifact: InlineDownloadArtifact,
+  expectedPath: string,
+  reportDurableWriteOutcome: boolean | undefined
 ): Promise<OutputResult> {
   let blobUrl: string | null = null;
   let lease: OffscreenLease | undefined;
@@ -628,7 +639,7 @@ async function handleArchiveDownload(
   };
   try {
     lease = await acquireOffscreenLease();
-    const blobCreate = await createArchiveBlobUrl(message.artifact);
+    const blobCreate = await createArchiveBlobUrl(artifact);
     blobUrl = blobCreate.url;
     if (!blobUrl) {
       if (blobCreate.lateCleanup) {
@@ -636,7 +647,6 @@ async function handleArchiveDownload(
         void blobCreate.lateCleanup.finally(() => lease?.release());
       }
     } else {
-      const expectedPath = archiveCompanionDownloadPath(message);
       state = 'unknown';
       const outcome = await downloadArchiveBlob(blobUrl, expectedPath, async () => {
         try {
@@ -680,8 +690,105 @@ async function handleArchiveDownload(
   return withDurableWriteOutcome(
     { ...result, ...(cleanupDeferred && { warning: 'archive-stage-cleanup-deferred' }) },
     state,
-    message.reportDurableWriteOutcome,
+    reportDurableWriteOutcome,
     cleanupDeferred
+  );
+}
+
+async function handleArchiveDownload(
+  message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>
+): Promise<OutputResult> {
+  if (message.artifact.transport !== 'inline')
+    return withDurableWriteOutcome(
+      { destination: 'file', success: false, error: 'Archive download setup failed' },
+      'not-dispatched',
+      message.reportDurableWriteOutcome
+    );
+  return handleVerifiedInlineDownload(
+    message.artifact,
+    archiveCompanionDownloadPath(message),
+    message.reportDurableWriteOutcome
+  );
+}
+
+function derivedHtmlResponse(result: OutputResult): MultiOutputResponse {
+  return { results: [result], allSuccessful: result.success, anySuccessful: result.success };
+}
+
+function derivedHtmlFailure(error: string): MultiOutputResponse {
+  return derivedHtmlResponse(
+    withDurableWriteOutcome({ destination: 'file', success: false, error }, 'not-dispatched', true)
+  );
+}
+
+async function persistDerivedHtmlReceipt(
+  message: Extract<ExtensionMessage, { action: 'persistDerivedHtmlPresentation' }>,
+  artifact: DerivedHtmlArtifact,
+  prefix: string
+): Promise<OutputResult> {
+  try {
+    const bytes = buildDerivedOutputReceiptBytes(
+      buildDerivedOutputReceipt(
+        {
+          source: message.source,
+          captureId: message.captureId,
+          conversationKey: message.conversationKey,
+        },
+        artifact
+      )
+    );
+    const bodyBase64 = bytesToBase64(bytes);
+    const sha256 = await sha256Hex(bytes);
+    const decoded = decodeCanonicalBase64(bodyBase64);
+    if (
+      !decoded ||
+      decoded.byteLength !== bytes.byteLength ||
+      (await sha256Hex(decoded)) !== sha256
+    )
+      throw new Error();
+    return await handleVerifiedInlineDownload(
+      { transport: 'inline', bodyBase64, mediaType: 'application/json' },
+      `${prefix}${DERIVED_HTML_RECEIPT_RELATIVE_PATH}`,
+      true
+    );
+  } catch {
+    return { destination: 'file', success: false };
+  }
+}
+
+/** Only a verified HTML write can authorize the deterministic local receipt. */
+export async function handlePersistDerivedHtmlPresentation(
+  message: Extract<ExtensionMessage, { action: 'persistDerivedHtmlPresentation' }>
+): Promise<MultiOutputResponse> {
+  const verified = await verifyDerivedHtmlArtifact(message.artifact, sha256Hex);
+  if (!verified) return derivedHtmlFailure('derived-html-integrity-verification-failed');
+  const prefix = `_liska-archive/${message.conversationKey}/${message.captureId}/`;
+  const html = await handleVerifiedInlineDownload(
+    verified.artifact,
+    `${prefix}${verified.artifact.relativePath}`,
+    true
+  );
+  if (!html.success)
+    return derivedHtmlResponse({ ...html, error: 'derived-html-download-unconfirmed' });
+  const receipt = await persistDerivedHtmlReceipt(message, verified.artifact, prefix);
+  const cleanupDeferred =
+    durableWriteOutcomeFromResult(html)?.cleanupDeferred === true ||
+    durableWriteOutcomeFromResult(receipt)?.cleanupDeferred === true;
+  return derivedHtmlResponse(
+    withDurableWriteOutcome(
+      {
+        destination: 'file',
+        success: receipt.success,
+        ...(!receipt.success && {
+          error: 'derived-html-receipt-unconfirmed',
+          warning: 'HTML may exist without a confirmed receipt; no retry was attempted.',
+        }),
+        ...(receipt.success && cleanupDeferred && { warning: 'archive-stage-cleanup-deferred' }),
+      },
+      'confirmed',
+      true,
+      cleanupDeferred
+    )
   );
 }
 

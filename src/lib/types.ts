@@ -7,6 +7,7 @@ import type { RawCaptureBundle } from '../archive/capture';
 import type { LiskaThreadArchive } from '../archive/types';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
 import type { ChatGptRouteFamily } from './chatgpt-owner-context';
+import type { DerivedHtmlArtifact } from './derived-presentation-contract';
 
 /**
  * Supported AI platform identifiers
@@ -444,6 +445,8 @@ export interface SyncSettings {
   enableToolContent: boolean;
   /** Export conversation images (Obsidian vault + file download). */
   enableImageExport: boolean;
+  /** Add a canonical-derived offline HTML reading view to File archive snapshots. */
+  enableHtmlExport: boolean;
   /**
    * Experimental ChatGPT metadata-only opaque request probe. While enabled a
    * ChatGPT export stops before capture, DOM fallback, or persistence.
@@ -570,6 +573,17 @@ export type ExtensionMessage =
       outputs: PersistentOutputDestination[];
     }
   | {
+      action: 'persistDerivedHtmlPresentation';
+      reportDurableWriteOutcome: true;
+      source: StructuredArchiveSource;
+      captureId: string;
+      conversationKey: string;
+      expectedSyncSettingsSnapshot: string;
+      artifact: DerivedHtmlArtifact;
+      /** HTML delivery is File-only in version 1. */
+      outputs: ['file'];
+    }
+  | {
       action: 'beginStagedArchiveArtifact';
       source: StructuredArchiveSource;
       descriptor: ArchiveStageDescriptor;
@@ -694,7 +708,7 @@ export interface OffscreenArchiveBlobCreateMessage {
   action: 'archiveBlobCreate';
   target: 'offscreen';
   bodyBase64: string;
-  mediaType: 'application/json';
+  mediaType: 'application/json' | 'text/html';
 }
 
 /** Revoke only a Blob URL previously created by this offscreen document. */
