@@ -2,6 +2,7 @@ export * from './capture';
 export * from './branches';
 export * from './normalizers/chatgpt';
 export * from './normalizers/deepseek';
+export * from './importers/chatgpt-official';
 export * from './traverse';
 export * from './types';
 export * from './validate';

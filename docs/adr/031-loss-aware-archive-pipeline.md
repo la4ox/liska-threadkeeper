@@ -973,8 +973,13 @@ future phase.
    current verified raw sourceRefs and its recomputed opaque asset ID. An in-band
    signed path wins. This passive fallback never clicks a card, clears timing,
    calls `fetch_files`, copies provider headers, or persists the observed URL.
-9. Add official-export importers and cross-format reconciliation later, using
-   source IDs and raw pointers instead of field-name guesses.
+9. Add official-export importers and cross-format reconciliation using source
+   IDs and raw pointers instead of field-name guesses. The first pure importer
+   core is implemented in ADR-037: it streams the batch, retains one exact
+   conversation excerpt, records honest file-slice provenance, derives official
+   parent-only child links explicitly, and preserves canonical refusal as
+   `raw-only`. Browser orchestration, durable writes, binary-directory import,
+   and compare-only reconciliation remain later slices.
 
 PDF, automatic scheduling, a local daemon, archive merging, Bridge/Ariadne
 integration, and other providers are intentionally deferred until the first six

@@ -25,14 +25,40 @@ export interface CaptureEndpoint {
   pathPattern: string;
 }
 
-export interface RawCaptureArtifactRecord {
+/** Exact excerpt provenance for one object selected from a local official export array. */
+export interface OfficialExportSliceSource {
+  kind: 'official-export-slice';
+  /** Semantic file role only; local filenames and absolute paths are never retained. */
+  fileRole: 'conversations';
+  /** Zero-based array position in the source export. */
+  conversationIndex: number;
+  /** Byte offset of the retained object in the original source file. */
+  byteStart: number;
+  /** Total bytes observed while validating the complete source array. */
+  sourceByteLength: number;
+}
+
+interface RawCaptureArtifactRecordBase {
   id: string;
   relativePath: string;
   mediaType: string;
   byteLength: number;
   sha256: string;
-  endpoint: CaptureEndpoint;
 }
+
+export interface RawHttpCaptureArtifactRecord extends RawCaptureArtifactRecordBase {
+  endpoint: CaptureEndpoint;
+  source?: never;
+}
+
+export interface RawOfficialExportArtifactRecord extends RawCaptureArtifactRecordBase {
+  endpoint?: never;
+  source: OfficialExportSliceSource;
+}
+
+export type RawCaptureArtifactRecord =
+  | RawHttpCaptureArtifactRecord
+  | RawOfficialExportArtifactRecord;
 
 /** Exact raw locations that support a discovered asset without retaining its transport value. */
 export interface RawCaptureAssetSourceRef {
@@ -173,8 +199,66 @@ function normalizeEndpoint(endpoint: CaptureEndpoint): CaptureEndpoint {
   };
 }
 
+function normalizeOfficialExportSource(
+  source: OfficialExportSliceSource,
+  artifactByteLength: number
+): OfficialExportSliceSource {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('Official export artifact source must be a plain object.');
+  }
+  if (source.kind !== 'official-export-slice' || source.fileRole !== 'conversations') {
+    throw new Error('Official export artifact source kind is invalid.');
+  }
+  if (!Number.isSafeInteger(source.conversationIndex) || source.conversationIndex < 0) {
+    throw new Error('Official export conversation index must be a non-negative safe integer.');
+  }
+  if (!Number.isSafeInteger(source.byteStart) || source.byteStart < 0) {
+    throw new Error('Official export byte offset must be a non-negative safe integer.');
+  }
+  if (!Number.isSafeInteger(source.sourceByteLength) || source.sourceByteLength <= 0) {
+    throw new Error('Official export source length must be a positive safe integer.');
+  }
+  if (source.byteStart > source.sourceByteLength - artifactByteLength) {
+    throw new Error('Official export slice must stay inside its source file.');
+  }
+  return {
+    kind: 'official-export-slice',
+    fileRole: 'conversations',
+    conversationIndex: source.conversationIndex,
+    byteStart: source.byteStart,
+    sourceByteLength: source.sourceByteLength,
+  };
+}
+
+function normalizeArtifactOrigin(
+  record: RawCaptureArtifactRecord,
+  captureMethod: CaptureMethod | undefined
+):
+  | Pick<RawHttpCaptureArtifactRecord, 'endpoint'>
+  | Pick<RawOfficialExportArtifactRecord, 'source'> {
+  const endpoint = 'endpoint' in record ? record.endpoint : undefined;
+  const source = 'source' in record ? record.source : undefined;
+  if ((endpoint === undefined) === (source === undefined)) {
+    throw new Error('Capture artifacts require exactly one transport endpoint or file source.');
+  }
+  if (captureMethod === 'official-export' && source === undefined) {
+    throw new Error('Official export artifacts require exact file-slice provenance.');
+  }
+  if (
+    captureMethod !== undefined &&
+    captureMethod !== 'official-export' &&
+    endpoint === undefined
+  ) {
+    throw new Error('Browser capture artifacts require an exact HTTP endpoint.');
+  }
+  return endpoint !== undefined
+    ? { endpoint: normalizeEndpoint(endpoint) }
+    : { source: normalizeOfficialExportSource(source!, record.byteLength) };
+}
+
 export function normalizeCaptureArtifactRecord(
-  record: RawCaptureArtifactRecord
+  record: RawCaptureArtifactRecord,
+  captureMethod?: CaptureMethod
 ): RawCaptureArtifactRecord {
   requireSafeId(record.id, 'artifact id');
   if (
@@ -190,14 +274,14 @@ export function normalizeCaptureArtifactRecord(
   if (!SHA256_PATTERN.test(record.sha256)) {
     throw new Error('Capture artifact sha256 must be lowercase hexadecimal.');
   }
-  return {
+  const base = {
     id: record.id,
     relativePath: requireRelativePath(record.relativePath),
     mediaType: requireCredentialFreeText(record.mediaType, 'Capture artifact mediaType', 255),
     byteLength: record.byteLength,
     sha256: record.sha256,
-    endpoint: normalizeEndpoint(record.endpoint),
   };
+  return { ...base, ...normalizeArtifactOrigin(record, captureMethod) };
 }
 
 function requireAssetState(state: CaptureAssetState): void {
@@ -372,7 +456,9 @@ function validateCaptureBundleUniqueness(
 /** Build a deterministic, credential-free capture manifest. */
 export function buildCaptureManifest(input: BuildCaptureManifestInput): RawCaptureManifest {
   validateCaptureManifestIdentity(input);
-  const artifacts = input.artifacts.map(normalizeCaptureArtifactRecord).sort(compareIds);
+  const artifacts = input.artifacts
+    .map(record => normalizeCaptureArtifactRecord(record, input.method))
+    .sort(compareIds);
   const artifactIds = new Set(artifacts.map(artifact => artifact.id));
   const assets = (input.assets ?? [])
     .map(asset => normalizeAsset(asset, artifactIds))

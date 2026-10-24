@@ -2070,7 +2070,7 @@ gaps rather than claimed runtime evidence.
 
 ## Security Cloud final-hygiene checkpoint
 
-The five remaining historical findings now have one bounded candidate. Obsidian
+PR 47 merged the final-hygiene candidate as `47c944b`. Obsidian
 text, binary, and directory body consumption uses the same transport-error
 normalization as the initial fetch. Append mode no longer treats any uncertain
 read or operation as proof that the old note is absent: recognized API errors
@@ -2103,7 +2103,58 @@ Focused verification passes 14 files / 498 tests. The complete suite passes
 error route into the old append fallback; the final fail-closed change and its
 no-write regressions remove it, and the refreshed review is clean. Production
 build transforms 253 modules; source/platform lint has zero errors and the same
-three pre-existing advisory warnings; formatting and diff checks pass. No live
-Obsidian body interruption, Store dashboard submission, or hosted GitHub runner
-has yet been exercised on this head; those are explicit PR/runtime gates, not
-inferred success.
+three pre-existing advisory warnings; formatting and diff checks pass. Exact-head
+CI, Code Review, and Security Review completed clean, and all five corresponding
+Cloud records were then closed. The repository currently has zero open
+`new`/`triaged`/`in_progress` Security Cloud findings. No live Obsidian body
+interruption or Store dashboard submission was repeated; those remain explicit
+runtime boundaries rather than inferred success.
+
+## ChatGPT official-export importer core checkpoint
+
+The first browser-independent official-export slice is implemented on
+`codex/chatgpt-official-export-importer`. It streams a complete conversations
+JSON array under fixed source/object/count/depth ceilings, selects exactly one
+conversation by provider ID, and retains only that object's byte-exact owned
+excerpt. Neighboring chats are parsed for source validity and duplicate IDs but
+their bytes are cleared rather than retained. Titles, array position, and graph
+shape are never selectors.
+
+`liska-capture/1` now distinguishes existing HTTP artifacts from an honest
+`official-export-slice` file source. Existing browser manifest serialization is
+unchanged; official provenance retains only semantic file role, conversation
+index, byte offset, and observed source length—never a local filename or path.
+The selected excerpt hash is authoritative. This first slice does not claim a
+portable whole-file digest or reconstructability after the parent export is
+gone.
+
+The official normalizer profile is fixed to `chatgpt-official/1` and can run
+only with method `official-export`. Official nodes in the measured format omit
+`children`, so canonical child links are derived from the authoritative
+`parent` relation in parsed mapping order and disclosed through
+`official-export-children-derived`. Mixed explicit/derived child shapes fail
+closed. Asset descriptors are inventoried as metadata-only `not-attempted`
+records; no binary directory or signed transport is inferred. A valid excerpt
+whose graph cannot normalize returns the last verified conservative `raw-only`
+bundle with graph/messages/branches marked `unknown`, never false canonical
+success. Duplicate keys at any JSON object depth fail before `JSON.parse` can
+discard the earlier value.
+
+Synthetic focused coverage currently passes 8 files / 242 tests, including 86
+selector cases. Two content-free local smokes streamed the 109,346,038-byte
+official file end to end: a 1,051,058-byte excerpt produced 294 nodes / 293
+messages / 42 assets, and a 2,322,195-byte branched excerpt produced 686 nodes,
+two leaves, one branch point, and 22 assets. Both canonical archives validated;
+no title, message, filename, or attachment value entered the logs or repository.
+
+The complete suite passes 202 files / 6,750 tests. Production build transforms
+256 modules; source/platform lint has zero errors and the same three
+pre-existing advisory warnings; formatting and diff checks pass. Independent
+review found two material loss paths—duplicate JSON keys discarded by
+`JSON.parse`, and recovery rehashing that could lose an already verified
+raw-only bundle. Nested key tracking and conservative-first manifest promotion
+close both; the final review is clean.
+
+Browser file-picker/orchestration, durable raw/manifest/canonical writes,
+official export ZIP/binary association, parent-file hashing, and cross-format
+comparison are not part of this core slice. ADR-037 records the exact boundary.

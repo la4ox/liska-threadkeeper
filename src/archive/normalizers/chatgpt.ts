@@ -8,6 +8,8 @@
 export { normalizeChatGptCapture } from './chatgpt/core';
 export {
   ChatGptNormalizationError,
+  OFFICIAL_EXPORT_NORMALIZER_ID,
+  OFFICIAL_EXPORT_SOURCE_FORMAT,
   type ChatGptNormalizationInput,
   type ChatGptNormalizationResult,
 } from './chatgpt/contracts';

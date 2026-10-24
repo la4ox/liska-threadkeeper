@@ -264,10 +264,46 @@ terminal states, and the existing no-credential-export boundary.
 - Continue repository-wide triage and the untouched-provider upstream audit in
   the [security follow-up plan](security-todo.md).
 
+### 8. Official export import and cross-format reconciliation
+
+- Pure core implemented: stream a bounded official conversations array, select
+  one exact provider ID, and retain only that object's original bytes with
+  index/offset/source-length provenance. No neighboring conversation content is
+  copied into the result.
+- Official captures use an explicit file-slice source instead of a fabricated
+  HTTP endpoint. Existing web and DeepSeek manifest bytes remain unchanged.
+- Official parent-only graphs derive child links in parsed mapping order and
+  disclose that derivation. Mixed explicit/derived links fail closed; metadata
+  lineage never overrides node `parent`.
+- Asset descriptors are preserved as metadata-only `not-attempted` records.
+  This core does not search the export directory or infer binary ownership.
+- Canonical refusal returns `raw-only` with the verified excerpt and manifest;
+  it never upgrades a failed graph to a complete archive.
+- Local evidence covers the real 109,346,038-byte export and one real branched
+  conversation without logging content. See ADR-037 and STATUS.
+- Next slice: a pure compare-only report scoped by left/right capture. Compare
+  provider/conversation identity, exact node/message IDs, structure, typed
+  blocks, assets, and diagnostics; report matched/source-only/conflicting facts.
+- Do not merge canonical archives yet. Source refs currently name artifact IDs
+  without capture IDs, so concatenating provenance across snapshots would be
+  ambiguous. Do not infer equality from title, timestamp, filename, archive ID,
+  or current-branch Markdown.
+- Browser file picker, export ZIP discovery, durable destination writes, and
+  external binary import remain later explicit slices.
+
 ### 9. Adjacent provider: Dots chat export
 
 - Treat Dots as a separate provider investigation, not as another ChatGPT URL or
   a DOM-selector variant.
+- Confirmed false positive: two trusted clicks on `https://chatgpt.com/dots/home`
+  produced separate 9,091-byte files that were identical after removing only
+  generated ID/timestamps. They were labelled `source: chatgpt`, used a
+  timestamp-derived identity, and contained only ten visible DOM messages (five
+  user/five assistant) with no raw, manifest, canonical archive, or loss warning.
+  This is not Dots support.
+- First safety slice: classify `/dots/*` before ordinary ChatGPT extraction,
+  suppress the misleading ChatGPT export path, and show one explicit local
+  unsupported-provider message. Do not silently fall through to Base DOM.
 - First identify the authenticated page-owned conversation transport, raw graph
   or event model, current-thread identity, pagination, branches, tool content,
   media, and attachment families without reading unrelated Dots/account state.
@@ -304,15 +340,10 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-The compact-launcher + all-branches HTML delivery stack is merged. The live
-same-title identity gate is now covered for acquisition-denied owner context;
-fetched same-title destination naming remains part of the future owner-context
-binary contract. Generic ZIP is now independently live-confirmed. Choose the
-next evidence-backed ChatGPT gate: a real staged capture above 16 MiB or one
-available remaining binary family such as plain text/PPTX. If no suitable
-live specimen exists, proceed with the independent
-untouched-provider/upstream audit instead of inventing transport authority. The
-1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB
-graph; only a separately reviewed limit change may authorize that full 239-leaf
-run. Keep custom-GPT/project binaries and the sole archived Library WebP
-separately evidence-gated.
+Finish the official-export core PR, then implement the compare-only
+cross-format report described above. Use a synthetic web/official pair first,
+then one private local pair only if both exact raw sources already exist. Keep
+the 1 GiB source-work refusal, real staged >16 MiB gate, fetched same-title
+destination naming, custom-GPT/project binaries, and the archived Library WebP
+as separate evidence-gated work; official-export success does not authorize or
+silently close any of them.

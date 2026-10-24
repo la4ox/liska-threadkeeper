@@ -1,5 +1,11 @@
 import type { ArchiveBlock, ArchiveMessage, ArchiveNode, JsonValue } from '../../types';
-import type { BlockContext, JsonRecord, NormalizedGraph, RawEnvelope } from './contracts';
+import {
+  OFFICIAL_EXPORT_SOURCE_FORMAT,
+  type BlockContext,
+  type JsonRecord,
+  type NormalizedGraph,
+  type RawEnvelope,
+} from './contracts';
 import {
   appendMetadataBlocks,
   canmoreMessageEvent,
@@ -26,12 +32,40 @@ export function normalizeGraph(envelope: RawEnvelope, context: BlockContext): No
   const mapping = requireMapping(envelope.conversation);
   const rawNodes = readRawNodes(mapping, envelope.basePointer);
   const currentNodeId = readCurrentNode(envelope.conversation, rawNodes, envelope.basePointer);
-  const links = readAllLinks(rawNodes, envelope.basePointer);
+  const { links, linkSource } = linksForFormat(rawNodes, envelope.basePointer, context.format);
   validateGraphLinks(links);
   return {
     rootIds: [...links.entries()].filter(([, link]) => link.parentId === null).map(([id]) => id),
     nodes: normalizeNodes(rawNodes, links, envelope.basePointer, context),
     currentNodeId,
+    linkSource,
+  };
+}
+
+function linksForFormat(
+  nodes: Map<string, JsonRecord>,
+  basePointer: string,
+  format: string
+): {
+  links: Map<string, { parentId: string | null; childIds: string[] }>;
+  linkSource: NormalizedGraph['linkSource'];
+} {
+  if (format !== OFFICIAL_EXPORT_SOURCE_FORMAT) {
+    return { links: readAllLinks(nodes, basePointer), linkSource: 'explicit-children' };
+  }
+  const childrenFields = [...nodes.values()].map(node => hasOwn(node, 'children'));
+  if (childrenFields.every(Boolean)) {
+    return { links: readAllLinks(nodes, basePointer), linkSource: 'explicit-children' };
+  }
+  if (childrenFields.some(Boolean)) {
+    fail(
+      'malformed-node-links',
+      'Official ChatGPT export nodes must either all include children or all derive them from parent.'
+    );
+  }
+  return {
+    links: deriveChildrenFromParents(nodes, basePointer),
+    linkSource: 'parent-derived-children',
   };
 }
 
@@ -90,6 +124,29 @@ function readAllLinks(
   nodes.forEach((node, nodeId) =>
     links.set(nodeId, readNodeLinks(node, nodeId, nodes, basePointer))
   );
+  return links;
+}
+
+function deriveChildrenFromParents(
+  nodes: Map<string, JsonRecord>,
+  basePointer: string
+): Map<string, { parentId: string | null; childIds: string[] }> {
+  const links = new Map<string, { parentId: string | null; childIds: string[] }>();
+  nodes.forEach((node, nodeId) => {
+    if (!hasOwn(node, 'parent')) {
+      fail('malformed-node-links', `Official export node ${nodeId} is missing parent.`);
+    }
+    links.set(nodeId, {
+      parentId: readParent(node.parent, nodeId, nodes, basePointer),
+      childIds: [],
+    });
+  });
+  links.forEach((link, nodeId) => {
+    if (link.parentId === null) return;
+    const parent = links.get(link.parentId);
+    if (!parent) fail('parent-missing', `Node ${nodeId} points to a missing parent.`);
+    parent.childIds.push(nodeId);
+  });
   return links;
 }
 

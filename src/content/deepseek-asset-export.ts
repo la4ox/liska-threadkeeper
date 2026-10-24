@@ -141,7 +141,7 @@ export async function verifyDeepSeekAssetExportContext(
   if (
     raw.record.id !== ARTIFACT_ID ||
     raw.record.relativePath !== ARTIFACT_PATH ||
-    raw.record.endpoint.method !== 'GET' ||
+    raw.record.endpoint?.method !== 'GET' ||
     raw.record.endpoint.pathPattern !== '/api/v0/chat/history_messages' ||
     context.rawArtifact.kind !== 'raw' ||
     context.rawArtifact.relativePath !== raw.record.relativePath ||

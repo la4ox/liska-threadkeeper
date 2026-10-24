@@ -60,6 +60,30 @@ function input(): BuildCaptureManifestInput {
   };
 }
 
+function officialInput(): BuildCaptureManifestInput {
+  return {
+    ...input(),
+    captureId: 'capture-chatgpt-official-001',
+    method: 'official-export',
+    artifacts: [
+      {
+        id: 'official-conversation',
+        relativePath: 'official/conversation.json',
+        mediaType: 'application/json',
+        byteLength: 4,
+        sha256: SHA256,
+        source: {
+          kind: 'official-export-slice',
+          fileRole: 'conversations',
+          conversationIndex: 7,
+          byteStart: 1_024,
+          sourceByteLength: 4_096,
+        },
+      },
+    ],
+  };
+}
+
 describe('raw capture manifest', () => {
   it('builds deterministic credential-free metadata without embedding bytes', () => {
     const manifest = buildCaptureManifest(input());
@@ -78,6 +102,54 @@ describe('raw capture manifest', () => {
       observedUnknownContentTypes: ['alpha', 'zeta'],
     });
     expect(JSON.stringify(manifest)).not.toMatch(/authorization|cookie|bytes/i);
+  });
+
+  it('records an official export excerpt without inventing an HTTP endpoint or local path', () => {
+    const manifest = buildCaptureManifest(officialInput());
+
+    expect(manifest.method).toBe('official-export');
+    expect(manifest.artifacts[0]).toEqual(officialInput().artifacts[0]);
+    expect(manifest.artifacts[0]).not.toHaveProperty('endpoint');
+    expect(JSON.stringify(manifest)).not.toMatch(/[A-Z]:\\|file:\/\//i);
+  });
+
+  it.each([
+    [
+      'HTTP provenance for an official export',
+      () => {
+        const value = officialInput();
+        value.artifacts = input().artifacts;
+        return value;
+      },
+    ],
+    [
+      'file provenance for a browser capture',
+      () => {
+        const value = officialInput();
+        value.method = 'same-origin-api';
+        return value;
+      },
+    ],
+    [
+      'negative conversation index',
+      () => {
+        const value = officialInput();
+        const artifact = value.artifacts[0];
+        if ('source' in artifact) artifact.source.conversationIndex = -1;
+        return value;
+      },
+    ],
+    [
+      'slice outside the source file',
+      () => {
+        const value = officialInput();
+        const artifact = value.artifacts[0];
+        if ('source' in artifact) artifact.source.byteStart = artifact.source.sourceByteLength - 1;
+        return value;
+      },
+    ],
+  ] as const)('rejects %s', (_label, build) => {
+    expect(() => buildCaptureManifest(build())).toThrow();
   });
 
   it('strips unexpected runtime fields instead of persisting request secrets', () => {

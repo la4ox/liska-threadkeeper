@@ -11,6 +11,8 @@ import {
   DEFAULT_SOURCE_FORMAT,
   HASH_PATTERN,
   NORMALIZER_ID,
+  OFFICIAL_EXPORT_NORMALIZER_ID,
+  OFFICIAL_EXPORT_SOURCE_FORMAT,
   ChatGptNormalizationError,
   type BlockContext,
   type ChatGptNormalizationInput,
@@ -51,7 +53,15 @@ export async function normalizeChatGptCapture(
     );
     const graph = normalizeGraph(envelope, context);
     reconcileManifestAssets(context);
-    const archive = buildArchive(input, manifest, envelope, conversationId, graph, context);
+    const archive = buildArchive(
+      input,
+      manifest,
+      artifact,
+      envelope,
+      conversationId,
+      graph,
+      context
+    );
     assertArchiveValidity(archive);
     return { archive, observedUnknownContentTypes: [...context.observedUnknownContentTypes] };
   } catch (error) {
@@ -172,6 +182,12 @@ function createContext(
   if (typeof format !== 'string' || format.length === 0 || format.length > 255) {
     fail('invalid-source-format', 'sourceFormat must be a bounded non-empty string.');
   }
+  if ((format === OFFICIAL_EXPORT_SOURCE_FORMAT) !== (manifest.method === 'official-export')) {
+    fail(
+      'source-format-mismatch',
+      'Official export manifests and source formats must be selected together.'
+    );
+  }
   return {
     assets: {},
     assetIdsByIdentity: new Map(),
@@ -228,45 +244,62 @@ function conversationIdFrom(
 function buildArchive(
   input: ChatGptNormalizationInput,
   manifest: RawCaptureManifest,
+  artifact: RawCaptureArtifact,
   envelope: RawEnvelope,
   conversationId: string,
   graph: ReturnType<typeof normalizeGraph>,
   context: BlockContext
 ): LiskaThreadArchive {
   const source = sourceRef(context, 'conversation', conversationId, envelope.basePointer);
+  const normalizerId = normalizerIdFor(context.format);
   return {
     schema: LISKA_THREAD_SCHEMA,
     archiveId: `chatgpt:${conversationId}`,
-    inputs: [archiveInput(input, manifest, envelope, source)],
+    inputs: [archiveInput(input, manifest, artifact, envelope, source, normalizerId)],
     conversation: archiveConversation(envelope, conversationId, graph, source, context),
     graph: { rootIds: graph.rootIds, nodes: graph.nodes },
     assets: context.assets,
     diagnostics: {
-      entries: diagnosticsFor(manifest, context, envelope.basePointer),
+      entries: diagnosticsFor(manifest, context, envelope.basePointer, graph),
       extensions: {},
     },
-    extensions: { openai: { normalizer: NORMALIZER_ID, sourceFormat: context.format } },
+    extensions: { openai: { normalizer: normalizerId, sourceFormat: context.format } },
   };
+}
+
+function normalizerIdFor(format: string): string {
+  return format === OFFICIAL_EXPORT_SOURCE_FORMAT ? OFFICIAL_EXPORT_NORMALIZER_ID : NORMALIZER_ID;
 }
 
 function archiveInput(
   input: ChatGptNormalizationInput,
   manifest: RawCaptureManifest,
+  artifact: RawCaptureArtifact,
   envelope: RawEnvelope,
-  source: ReturnType<typeof sourceRef>
+  source: ReturnType<typeof sourceRef>,
+  normalizerId: string
 ): LiskaThreadArchive['inputs'][number] {
+  const officialSource = 'source' in artifact.record ? artifact.record.source : undefined;
+  const openai: Record<string, JsonValue> = {
+    rawArtifactId: input.artifactId,
+    envelope: envelope.basePointer === '' ? 'root' : 'conversation',
+  };
+  if (officialSource !== undefined) {
+    openai.officialExport = {
+      kind: officialSource.kind,
+      fileRole: officialSource.fileRole,
+      conversationIndex: officialSource.conversationIndex,
+      byteStart: officialSource.byteStart,
+      sourceByteLength: officialSource.sourceByteLength,
+    };
+  }
   return {
     captureId: manifest.captureId,
     manifestSha256: input.manifestSha256,
-    normalizer: NORMALIZER_ID,
+    normalizer: normalizerId,
     capturedAt: normalizeTimestamp(manifest.capturedAt, 'manifest.capturedAt'),
     sourceRefs: [source],
-    extensions: {
-      openai: {
-        rawArtifactId: input.artifactId,
-        envelope: envelope.basePointer === '' ? 'root' : 'conversation',
-      },
-    },
+    extensions: { openai },
   };
 }
 
@@ -389,7 +422,8 @@ function conversationMetadata(
 function diagnosticsFor(
   manifest: RawCaptureManifest,
   context: BlockContext,
-  pointer: string
+  pointer: string,
+  graph: ReturnType<typeof normalizeGraph>
 ): LiskaThreadArchive['diagnostics']['entries'] {
   const source = sourceRef(context, 'conversation', manifest.conversationId, pointer);
   const completeness = manifestCompletenessDiagnostics(manifest, source);
@@ -409,7 +443,21 @@ function diagnosticsFor(
     sourceRefs: [sourceRef(context, 'privacy-redaction', null, redaction.pointer)],
     extensions: {},
   }));
-  return [...completeness, ...unknown, ...privacy];
+  const derivedGraph =
+    graph.linkSource === 'parent-derived-children'
+      ? [
+          {
+            severity: 'info' as const,
+            code: 'official-export-children-derived',
+            message:
+              'Child links were reconstructed from official-export parent links in parsed mapping order.',
+            path: null,
+            sourceRefs: [source],
+            extensions: { openai: { relation: 'parent', order: 'parsed-mapping-order' } },
+          },
+        ]
+      : [];
+  return [...completeness, ...derivedGraph, ...unknown, ...privacy];
 }
 
 function manifestCompletenessDiagnostics(
