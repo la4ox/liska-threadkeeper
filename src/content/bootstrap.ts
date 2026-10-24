@@ -28,6 +28,7 @@ import {
   prepareAllBranchesPersistence,
   persistAllBranchesPresentation,
   type AllBranchesPersistenceSummary,
+  type AllBranchesPersistenceDependencies,
   type AllBranchesNoteFingerprint,
   type AllBranchesWriteOutcome,
   type PreparedAllBranchesPersistence,
@@ -38,7 +39,11 @@ import { decorateChatGptArchiveNote } from './chatgpt-archive-links';
 import { snapshotChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
 import { localizeChatGptSandboxLinks } from './chatgpt-sandbox-localization';
 import { persistDeepSeekDestinationHonestAttachments } from './deepseek-asset-export';
-import type { FinalizedFilePresentationEvidence } from './finalized-html-assets';
+import type {
+  FinalizedFileArchivePresentationEvidence,
+  FinalizedFilePresentationEvidence,
+} from './finalized-html-assets';
+import type { AllBranchesFileHtmlRequest } from './archive-branch-html-delivery';
 import {
   canExportChatGptAttachments,
   canExportDeepSeekAttachments,
@@ -51,7 +56,6 @@ import {
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
 import {
-  DERIVED_HTML_ALL_BRANCHES_PENDING_WARNING,
   DERIVED_HTML_UNAVAILABLE_WARNING,
   persistDerivedHtmlForFile,
 } from './derived-html-persistence';
@@ -771,16 +775,6 @@ async function finalizedAttachmentDerivedHtmlWarnings(
   ).warnings;
 }
 
-function deferredAllBranchesHtmlWarnings(
-  settings: ContentScriptSettings,
-  outputs: readonly OutputDestination[],
-  fileArchiveConfirmed: boolean
-): string[] {
-  if (settings.enableHtmlExport !== true || !outputs.includes('file') || !fileArchiveConfirmed)
-    return [];
-  return [DERIVED_HTML_ALL_BRANCHES_PENDING_WARNING];
-}
-
 /** Runtime guard: the worker can return a generic error envelope on rejection. */
 function isMultiOutputResponse(
   value: unknown,
@@ -897,6 +891,98 @@ function allBranchesDestinationNames(summary: AllBranchesPersistenceSummary): st
   return summary.destinations.map(destination => destination.destination).join(', ');
 }
 
+function allBranchesSuccessMessage(summary: AllBranchesPersistenceSummary): string {
+  const destinationNames = allBranchesDestinationNames(summary);
+  if (!summary.fileHtml) {
+    return `Saved ${summary.branchCount} branches and an index to ${destinationNames}`;
+  }
+  return `Saved ${summary.branchCount} Markdown branches and an index to ${destinationNames}; saved ${summary.fileHtml.confirmedLeafPairs} File HTML branches and an HTML index to file`;
+}
+
+function allBranchesFileHtmlCaveats(summary: AllBranchesPersistenceSummary): string[] {
+  const html = summary.fileHtml;
+  if (
+    !html ||
+    (html.status === 'complete' && html.unknownBytes === 0 && html.cleanupDeferred === 0)
+  )
+    return [];
+  const status = html.reason
+    ? `File HTML ${html.status} (${html.reason})`
+    : `File HTML ${html.status}`;
+  const counts = [
+    `${status}: ${html.confirmedLeafPairs}/${summary.branchCount} leaf pair(s) confirmed`,
+    `index pair ${html.indexPair}`,
+    `HTML writes ${html.htmlWrites.confirmed} confirmed, ${html.htmlWrites.unknown} unknown, ${html.htmlWrites.notDispatched} not dispatched`,
+    `receipt writes ${html.receiptWrites.confirmed} confirmed, ${html.receiptWrites.unknown} unknown, ${html.receiptWrites.notDispatched} not dispatched`,
+  ];
+  if (html.unknownBytes > 0) counts.push(`${html.unknownBytes} byte(s) have unknown outcomes`);
+  if (html.cleanupDeferred > 0)
+    counts.push(`temporary cleanup was deferred for ${html.cleanupDeferred} write(s)`);
+  return [counts.join('; ')];
+}
+
+function allBranchesFileHtmlRequest(
+  settings: ContentScriptSettings,
+  outputs: readonly OutputDestination[],
+  expectedSyncSettingsSnapshot: string,
+  fileArchivePresentation: FinalizedFileArchivePresentationEvidence | undefined
+) {
+  if (settings.enableHtmlExport !== true || !outputs.includes('file')) return undefined;
+  return {
+    expectedSyncSettingsSnapshot,
+    ...(fileArchivePresentation && { fileArchivePresentation }),
+  };
+}
+
+interface AllBranchesBootstrapDependencies {
+  settings: ContentScriptSettings;
+  capturedAt: string | undefined;
+  expectedSyncSettingsSnapshot: string;
+  progressLabel: string;
+  destinationReceipts: readonly unknown[] | undefined;
+  signal: AbortSignal | undefined;
+  prepared: PreparedAllBranchesPersistence | undefined;
+  writeLedger: OperationWriteLedger | undefined;
+  fileHtml: AllBranchesFileHtmlRequest | undefined;
+}
+
+function createAllBranchesBootstrapDependencies({
+  settings,
+  capturedAt,
+  expectedSyncSettingsSnapshot,
+  progressLabel,
+  destinationReceipts,
+  signal,
+  prepared,
+  writeLedger,
+  fileHtml,
+}: AllBranchesBootstrapDependencies): AllBranchesPersistenceDependencies {
+  let lastReported = 0;
+  return {
+    persistArtifacts: archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot, writeLedger),
+    ...(writeLedger && { writeLedgerSnapshot: () => writeLedger.snapshot() }),
+    destinationReceipts,
+    signal,
+    prepared,
+    ...(fileHtml && { fileHtml }),
+    fingerprintNote: (note, destination) => fingerprintAllBranchesNote(note, destination, settings),
+    writeNote: (note, destination, messageCount) =>
+      writeAllBranchesNote(
+        note,
+        destination,
+        messageCount,
+        capturedAt,
+        expectedSyncSettingsSnapshot
+      ),
+    onProgress: (completed, total) => {
+      if (completed === total || completed - lastReported >= 10) {
+        lastReported = completed;
+        showToast(`${progressLabel} ${completed}/${total}`, 'info', 0);
+      }
+    },
+  };
+}
+
 function classifyStrictFileWrite(
   note: ObsidianNote,
   result: OutputResult
@@ -996,6 +1082,7 @@ export function displayAllBranchesSummary(
   );
   const caveats = [
     ...new Set(archiveWarnings),
+    ...allBranchesFileHtmlCaveats(summary),
     ...(summary.writeLedgerValid === false
       ? ['Artifact accounting could not be validated; no further Markdown was scheduled']
       : []),
@@ -1049,15 +1136,12 @@ export function displayAllBranchesSummary(
   }
 
   if (summary.allSuccessful && caveats.length === 0) {
-    showToast(
-      `Saved ${summary.branchCount} branches and an index to ${allBranchesDestinationNames(summary)}`,
-      'success'
-    );
+    showToast(allBranchesSuccessMessage(summary), 'success');
     return;
   }
 
   const writeStatus = summary.allSuccessful
-    ? `Saved ${summary.branchCount} branches and an index to ${allBranchesDestinationNames(summary)}`
+    ? allBranchesSuccessMessage(summary)
     : `All-branches export was partial: ${savedBranchWrites}/${expectedBranchWrites} branch writes, ${savedIndexes}/${destinationCount} indexes, and ${archiveDestinations}/${destinationCount} complete archive bundles succeeded`;
   showWarningToast(`${writeStatus}${caveats.length > 0 ? `. ${caveats.join('. ')}` : ''}`);
 }
@@ -1071,41 +1155,38 @@ export async function persistAllBranchesBundle(
   archiveWarnings: readonly string[] = [],
   signal?: AbortSignal,
   prepared?: PreparedAllBranchesPersistence,
-  writeLedger?: OperationWriteLedger
+  writeLedger?: OperationWriteLedger,
+  fileArchivePresentation?: FinalizedFileArchivePresentationEvidence
 ): Promise<void> {
-  showToast('Saving all branches...', 'info', 0);
   const capturedAt = companion.capturedAt;
   const expectedSyncSettingsSnapshot = serializeSyncSettingsSnapshot(settings);
-  let lastReported = 0;
+  const fileHtml = allBranchesFileHtmlRequest(
+    settings,
+    outputs,
+    expectedSyncSettingsSnapshot,
+    fileArchivePresentation
+  );
+  const progressLabel = fileHtml
+    ? 'Saving all-branches Markdown before File HTML...'
+    : 'Saving all branches...';
+  showToast(progressLabel, 'info', 0);
   const summary = await persistAllBranchesPresentation(
     plan,
     companion,
     settings.templateOptions,
     settings.enableToolContent,
     outputs,
-    {
-      persistArtifacts: archivePersistenceWithSnapshot(expectedSyncSettingsSnapshot, writeLedger),
-      ...(writeLedger && { writeLedgerSnapshot: () => writeLedger.snapshot() }),
+    createAllBranchesBootstrapDependencies({
+      settings,
+      capturedAt,
+      expectedSyncSettingsSnapshot,
+      progressLabel,
       destinationReceipts,
       signal,
       prepared,
-      fingerprintNote: (note, destination) =>
-        fingerprintAllBranchesNote(note, destination, settings),
-      writeNote: (note, destination, messageCount) =>
-        writeAllBranchesNote(
-          note,
-          destination,
-          messageCount,
-          capturedAt,
-          expectedSyncSettingsSnapshot
-        ),
-      onProgress: (completed, total) => {
-        if (completed === total || completed - lastReported >= 10) {
-          lastReported = completed;
-          showToast(`Saving all branches... ${completed}/${total}`, 'info', 0);
-        }
-      },
-    }
+      writeLedger,
+      fileHtml,
+    })
   );
   displayAllBranchesSummary(summary, archiveWarnings);
 }
@@ -1393,12 +1474,16 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         showErrorToast('All-branches export requires a complete canonical archive');
         return;
       }
+      const fileHtmlRequested =
+        settings.enableHtmlExport === true && enabledOutputs.includes('file');
       const preparedAllBranches = prepareAllBranchesPersistence(
         result.allBranches,
         result.archiveCompanion,
         settings.templateOptions,
         settings.enableToolContent,
-        enabledOutputs
+        enabledOutputs,
+        false,
+        fileHtmlRequested
       );
       const writeLedger = createOperationWriteLedger(result.archiveCompanion.captureId);
       if (!preparedAllBranches.structural.accepted) {
@@ -1438,35 +1523,33 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
               : undefined
           )
         );
-        stage = 'saving the all-branches Markdown bundle';
+        stage = fileHtmlRequested
+          ? 'saving the all-branches Markdown and File HTML bundle'
+          : 'saving the all-branches Markdown bundle';
         await persistAllBranchesBundle(
           result.allBranches,
           result.archiveCompanion,
           settings,
           enabledOutputs,
           attachmentExport.destinationReceipts ?? [],
-          [
-            ...attachmentExport.warnings,
-            ...deferredAllBranchesHtmlWarnings(
-              settings,
-              enabledOutputs,
-              attachmentExport.completeDestinations.includes('file')
-            ),
-          ],
+          attachmentExport.warnings,
           allBranchesAbortController.signal,
           preparedAllBranches,
-          writeLedger
+          writeLedger,
+          attachmentExport.fileArchivePresentation
         );
         return;
       }
-      stage = 'saving the all-branches archive and Markdown bundle';
+      stage = fileHtmlRequested
+        ? 'saving the all-branches archive, Markdown, and File HTML bundle'
+        : 'saving the all-branches archive and Markdown bundle';
       await persistAllBranchesBundle(
         result.allBranches,
         result.archiveCompanion,
         settings,
         enabledOutputs,
         undefined,
-        deferredAllBranchesHtmlWarnings(settings, enabledOutputs, true),
+        [],
         allBranchesAbortController.signal,
         preparedAllBranches,
         writeLedger

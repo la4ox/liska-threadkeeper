@@ -1568,3 +1568,32 @@ focused verification passes 5 suites / 284 tests. Production build transforms
 250 modules, scoped ESLint, Prettier and diff checks are clean, and the final
 independent rereview passes 4 suites / 216 tests. This checkpoint exposes no
 bootstrap/UI caller yet; summary rendering and live delivery remain B3b2b.
+
+## Canonical HTML all-branches B3b2b bootstrap checkpoint
+
+Bootstrap now computes one File HTML opt-in before the structural preflight and
+passes the same decision into the prepared persistence session. An oversized
+combined plan is therefore rejected before the ChatGPT attachment/raw pipeline
+writes anything. Attachment mode forwards only the destination-final
+`fileArchivePresentation`; the plain/no-attachment path supplies no evidence
+and lets the persistence layer create it only after the File trio is confirmed.
+HTML-off and no-File paths omit the request entirely and preserve the legacy
+summary/messages. The single-view HTML helper is never used for all-branches.
+
+The former “not available yet” warning is removed. The authoritative summary
+now reports Markdown/archive and File-only HTML separately. A clean complete
+run names both formats and attributes HTML only to File even when Markdown also
+reaches Obsidian. Partial, failed, rejected and cancelled runs expose closed
+HTML status/reason, confirmed leaf pairs, index-pair state, confirmed/unknown/
+not-dispatched sink counts, unknown bytes and deferred cleanup without
+inventing a failed physical-write state or leaking provider/native errors.
+Attachment caveats still turn an otherwise complete run into a warning.
+
+Evidence: focused bootstrap/summary verification passes 3 suites / 48 tests;
+the complete content set passes 63 suites / 2,584 tests. Production build
+transforms 250 modules; scoped ESLint, Prettier and diff checks are clean. The
+independent bootstrap review passes 4 suites / 142 tests with no P0-P3 finding.
+The content chunk is now 501.07 kB minified and crosses Vite's informational
+500 kB warning threshold; behavior is unaffected, and code splitting remains a
+later maintainability task rather than a last-minute delivery rewrite. Live
+browser delivery is the remaining gate for this stacked checkpoint.

@@ -855,6 +855,13 @@ rebuilds from the older pre-attachment companion. Canonical SHA-256 remains the
 renderer authorization boundary because the current sink receipt carries the
 canonical length rather than its digest.
 
+Bootstrap must make the File HTML decision before any attachment/raw write and
+carry that same decision through preparation and persistence. User-facing
+completion stays format-specific: Markdown names every durable destination,
+while multi-document HTML is always described as File-only. A completed archive
+or Markdown bundle cannot make an incomplete requested HTML bundle appear
+green; attachment and loss caveats remain authoritative.
+
 Append, merge, automatic deduplication, and a monolithic branching Markdown
 document remain separate later decisions. The initial implementation favors
 complete, inspectable snapshots over implicit mutation.
