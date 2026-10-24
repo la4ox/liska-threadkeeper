@@ -63,6 +63,7 @@ import {
 import {
   injectBranchExportButton,
   injectSyncButton,
+  removeExportControls,
   setButtonLoading,
   showAllBranchesStopControl,
   showErrorToast,
@@ -141,6 +142,52 @@ const EXTRACTOR_CONSTRUCTORS: Record<AIPlatform, new () => IConversationExtracto
   notebooklm: NotebookLMExtractor,
   deepseek: DeepSeekExtractor,
 };
+
+let chatGptRouteObserver: MutationObserver | null = null;
+let observedChatGptHref = '';
+let observedChatGptEligibility = false;
+let routeRefresh: Promise<void> | null = null;
+let syncOperationActive = false;
+
+function stopChatGptRouteObserver(): void {
+  chatGptRouteObserver?.disconnect();
+  chatGptRouteObserver = null;
+  observedChatGptHref = '';
+  observedChatGptEligibility = false;
+}
+
+/** @internal Test/lifecycle seam; production navigation normally keeps the observer alive. */
+export function stopRouteAdmissionObserver(): void {
+  stopChatGptRouteObserver();
+}
+
+function installChatGptRouteObserver(): void {
+  if (platformForHost(window.location.hostname) !== 'chatgpt') {
+    stopChatGptRouteObserver();
+    return;
+  }
+  if (chatGptRouteObserver) return;
+  observedChatGptHref = window.location.href;
+  observedChatGptEligibility = getExtractor() !== null;
+  chatGptRouteObserver = new MutationObserver(() => {
+    if (window.location.href === observedChatGptHref) return;
+    observedChatGptHref = window.location.href;
+    const eligible = getExtractor() !== null;
+    if (eligible === observedChatGptEligibility) return;
+    observedChatGptEligibility = eligible;
+    if (!eligible) {
+      removeExportControls();
+      return;
+    }
+    if (routeRefresh) return;
+    routeRefresh = initialize()
+      .catch(() => console.error('[G2O] Route refresh initialization failed'))
+      .finally(() => {
+        routeRefresh = null;
+      });
+  });
+  chatGptRouteObserver.observe(document.documentElement, { childList: true, subtree: true });
+}
 
 /**
  * Get the optimal observation root for the current platform
@@ -232,7 +279,9 @@ export function getExtractor(): IConversationExtractor | null {
   // platformForHost uses strict hostname equality, which prevents attacks
   // like "evil-gemini.google.com.attacker.com"
   const platform = platformForHost(window.location.hostname);
-  return platform ? new EXTRACTOR_CONSTRUCTORS[platform]() : null;
+  if (!platform) return null;
+  const extractor = new EXTRACTOR_CONSTRUCTORS[platform]();
+  return extractor.canExtract() ? extractor : null;
 }
 
 /**
@@ -258,6 +307,7 @@ export function startContentScript(): void {
  */
 export async function initialize(): Promise<void> {
   console.info('[G2O] Content script initializing on:', window.location.hostname);
+  installChatGptRouteObserver();
 
   // Check if we have a valid extractor for this page
   const extractor = getExtractor();
@@ -270,6 +320,10 @@ export async function initialize(): Promise<void> {
 
   // Only this platform's hint may trigger UI injection (L-03).
   await waitForConversationContainer(CONVERSATION_READY_SELECTORS[extractor.platform]);
+  if (!extractor.canExtract()) {
+    removeExportControls();
+    return;
+  }
 
   // Apply throttle to sync handler (NEW-06)
   const throttledHandleSync = throttle(() => handleSync('current'), EVENT_THROTTLE_DELAY);
@@ -278,6 +332,7 @@ export async function initialize(): Promise<void> {
     const throttledBranchSync = throttle(() => handleSync('selected'), EVENT_THROTTLE_DELAY);
     injectBranchExportButton(throttledBranchSync);
   }
+  if (syncOperationActive) setButtonLoading(true);
   console.info('[G2O] Sync button injected');
 }
 
@@ -1431,6 +1486,11 @@ const chatGptAttachmentDependencies = (
  */
 // eslint-disable-next-line complexity, max-lines-per-function -- The staged user-visible pipeline stays linear so evidence persistence always precedes Markdown validation.
 export async function handleSync(branchMode: 'current' | 'selected' = 'current'): Promise<void> {
+  if (syncOperationActive) {
+    showWarningToast('An export is already in progress.');
+    return;
+  }
+  syncOperationActive = true;
   console.info('[G2O] Sync initiated');
   setButtonLoading(true);
   let stage = 'loading extension settings';
@@ -1671,6 +1731,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     showErrorToast(`Failed while ${stage}: ${extractErrorMessage(error)}`);
   } finally {
     allBranchesStopControl?.dispose();
+    syncOperationActive = false;
     setButtonLoading(false);
   }
 }

@@ -23,6 +23,7 @@ import {
 vi.mock('../../src/content/ui', () => ({
   injectBranchExportButton: vi.fn(),
   injectSyncButton: vi.fn(),
+  removeExportControls: vi.fn(),
   showArchiveBranchPicker: vi.fn(),
   setButtonLoading: vi.fn(),
   showSuccessToast: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock('../../src/lib/messaging', () => ({
 import {
   injectBranchExportButton,
   injectSyncButton,
+  removeExportControls,
   setButtonLoading,
   showSuccessToast,
   showErrorToast,
@@ -50,6 +52,7 @@ import {
   handleSync,
   getExtractor,
   startContentScript,
+  stopRouteAdmissionObserver,
 } from '../../src/content/bootstrap';
 import { GeminiExtractor } from '../../src/content/extractors/gemini';
 import { ClaudeExtractor } from '../../src/content/extractors/claude';
@@ -220,6 +223,7 @@ describe('content/bootstrap', () => {
   });
 
   afterEach(() => {
+    stopRouteAdmissionObserver();
     clearFixture();
     resetLocation();
   });
@@ -260,6 +264,11 @@ describe('content/bootstrap', () => {
       setNonGeminiLocation('gemini.google.com.attacker.com');
       expect(getExtractor()).toBeNull();
     });
+
+    it('returns null on the distinct Dots product surface', () => {
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      expect(getExtractor()).toBeNull();
+    });
   });
 
   describe('initialize', () => {
@@ -287,6 +296,17 @@ describe('content/bootstrap', () => {
 
       expect(injectSyncButton).toHaveBeenCalledWith(expect.any(Function));
       expect(injectBranchExportButton).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('does not inject misleading ChatGPT controls on Dots', async () => {
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      loadFixture('<main><section data-turn-id="dots-visible"></section></main>');
+
+      await initialize();
+
+      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectBranchExportButton).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
     });
   });
 
@@ -432,6 +452,94 @@ describe('content/bootstrap', () => {
       expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
       expect(extract).not.toHaveBeenCalled();
       expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rechecks ChatGPT route admission after a pending readiness wait', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      loadFixture('<main></main>');
+      const pending = initialize();
+
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      document.querySelector('main')!.innerHTML =
+        '<section data-testid="conversation-turn-1"></section>';
+      await vi.advanceTimersByTimeAsync(100);
+      await pending;
+
+      expect(removeExportControls).toHaveBeenCalled();
+      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectBranchExportButton).not.toHaveBeenCalled();
+    });
+
+    it('removes stale controls on Dots SPA navigation and restores them on return', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      loadFixture('<main><section data-testid="conversation-turn-1"></section></main>');
+      await initialize();
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      document.querySelector('main')!.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(removeExportControls).toHaveBeenCalledTimes(1);
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+
+      setChatGPTLocation('11111111-2222-4333-8444-555555555555');
+      document.querySelector('main')!.innerHTML =
+        '<section data-testid="conversation-turn-2"></section>';
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(injectSyncButton).toHaveBeenCalledTimes(2));
+      expect(injectBranchExportButton).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps existing controls across ordinary ChatGPT route changes', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      loadFixture('<main><section data-testid="conversation-turn-1"></section></main>');
+      await initialize();
+
+      setChatGPTLocation('11111111-2222-4333-8444-555555555555');
+      document.querySelector('main')!.innerHTML =
+        '<section data-testid="conversation-turn-2"></section>';
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(removeExportControls).not.toHaveBeenCalled();
+      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectBranchExportButton).toHaveBeenCalledTimes(1);
+    });
+
+    it('restores Dots-return controls as busy while the original export is active', async () => {
+      setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
+      loadFixture('<main><section data-testid="conversation-turn-1"></section></main>');
+      await initialize();
+
+      let resolveSettings!: (settings: ContentScriptSettings) => void;
+      const pendingSettings = new Promise<ContentScriptSettings>(resolve => {
+        resolveSettings = resolve;
+      });
+      vi.mocked(sendMessage).mockImplementation(message => {
+        if ((message as { action: string }).action === 'getSettings') return pendingSettings;
+        return Promise.resolve(okSave);
+      });
+      const activeExport = handleSync();
+      expect(setButtonLoading).toHaveBeenCalledWith(true);
+
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      document.querySelector('main')!.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(0);
+      setChatGPTLocation('11111111-2222-4333-8444-555555555555');
+      document.querySelector('main')!.innerHTML =
+        '<section data-testid="conversation-turn-2"></section>';
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(injectSyncButton).toHaveBeenCalledTimes(2));
+
+      expect(setButtonLoading.mock.calls.filter(call => call[0] === true)).toHaveLength(2);
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      document.querySelector('main')!.appendChild(document.createElement('div'));
+      await vi.advanceTimersByTimeAsync(0);
+      resolveSettings({
+        ...baseSettings,
+        outputOptions: { obsidian: false, file: true, clipboard: false },
+      });
+      await activeExport;
+      expect(setButtonLoading).toHaveBeenLastCalledWith(false);
     });
 
     it('injects after 100ms when a ChatGPT data-testid-only conversation turn arrives', async () => {
@@ -827,6 +935,46 @@ describe('content/bootstrap', () => {
       await handleSync();
 
       expect(showErrorToast).toHaveBeenCalledWith('Not on a valid conversation page');
+    });
+
+    it('refuses Dots without dispatching any output', async () => {
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      loadFixture('<main><section data-turn-id="dots-visible"></section></main>');
+      mockMessaging({});
+
+      await handleSync();
+
+      expect(showErrorToast).toHaveBeenCalledWith('Not on a valid conversation page');
+      expect(sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'saveToOutputs' })
+      );
+    });
+
+    it('refuses a second export while the first operation is still active', async () => {
+      setNonGeminiLocation('chatgpt.com', '/dots/home');
+      let resolveSettings!: (settings: ContentScriptSettings) => void;
+      const pendingSettings = new Promise<ContentScriptSettings>(resolve => {
+        resolveSettings = resolve;
+      });
+      vi.mocked(sendMessage).mockImplementation(message => {
+        if ((message as { action: string }).action === 'getSettings') return pendingSettings;
+        return Promise.resolve(okSave);
+      });
+
+      const first = handleSync();
+      await handleSync();
+
+      expect(showWarningToast).toHaveBeenCalledWith('An export is already in progress.');
+      expect(
+        vi
+          .mocked(sendMessage)
+          .mock.calls.filter(call => (call[0] as { action: string }).action === 'getSettings')
+      ).toHaveLength(1);
+      resolveSettings({
+        ...baseSettings,
+        outputOptions: { obsidian: false, file: true, clipboard: false },
+      });
+      await first;
     });
 
     it('shows an error when the page has no extractable conversation', async () => {

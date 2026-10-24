@@ -48,6 +48,11 @@ describe('ChatGPTExtractor', () => {
         setNonChatGPTLocation('chat.openai.com', '/c/test-123');
         expect(extractor.canExtract()).toBe(false);
       });
+
+      it('refuses the distinct Dots product surface on chatgpt.com', () => {
+        setNonChatGPTLocation('chatgpt.com', '/dots/home');
+        expect(extractor.canExtract()).toBe(false);
+      });
     });
   });
 
@@ -125,6 +130,21 @@ describe('ChatGPTExtractor', () => {
       const result = await extractor.extract();
       expect(result.success).toBe(true);
       expect(result.data?.id).toMatch(/^chatgpt-\d+$/);
+    });
+
+    it('never turns a Dots DOM window into a synthetic ChatGPT fallback export', async () => {
+      setNonChatGPTLocation('chatgpt.com', '/dots/home');
+      loadFixture(
+        createChatGPTConversationDOM([
+          { role: 'user', content: 'Synthetic Dots-visible question' },
+          { role: 'assistant', content: '<p>Synthetic Dots-visible answer</p>' },
+        ])
+      );
+
+      const result = await extractor.extract();
+
+      expect(result).toEqual({ success: false, error: 'Not on a ChatGPT page' });
+      expect(result).not.toHaveProperty('data');
     });
   });
 
