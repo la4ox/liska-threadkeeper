@@ -175,6 +175,11 @@ terminal states, and the existing no-credential-export boundary.
 - The same live capture kept five PPTX and two text/plain references
   `not-attempted`. ZIP success does not authorize relabeling those records or
   claim Office-package support.
+- A separate fresh ordinary-owner capture retained two `text/csv` references as
+  distinct `not-attempted` assets while the evidence-backed active route fetched
+  only four JPEG images. No CSV bytes, local paths, or SHA-256 claims were
+  created. CSV therefore remains unsupported until an exact live resolver route
+  is observed.
 
 ### 7. User-facing derived outputs
 
@@ -304,7 +309,7 @@ same-title identity gate is now covered for acquisition-denied owner context;
 fetched same-title destination naming remains part of the future owner-context
 binary contract. Generic ZIP is now independently live-confirmed. Choose the
 next evidence-backed ChatGPT gate: a real staged capture above 16 MiB or one
-available remaining binary family such as CSV/plain text. If no suitable
+available remaining binary family such as plain text/PPTX. If no suitable
 live specimen exists, proceed with the independent
 untouched-provider/upstream audit instead of inventing transport authority. The
 1 GiB source-work limit remains a deliberate refusal for the measured 1.051 GiB

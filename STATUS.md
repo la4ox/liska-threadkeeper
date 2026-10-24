@@ -1808,3 +1808,17 @@ same three baseline warnings; platform lint, formatting and diff checks are
 clean. Independent review reproduced both ZIPs and found no P0-P3 issue while
 confirming the prefix-only compatibility boundary. The final complete suite
 passes 193 files / 6,385 tests.
+
+## Live CSV negative-evidence checkpoint
+
+A separate fresh ordinary-owner ChatGPT recapture retained a 2,341,476-byte raw
+response, 34,869-byte manifest, and 5,392,330-byte canonical archive with 64
+asset records. The established active route fetched four verified JPEG images;
+both `text/csv` records remained distinct and `not-attempted`. No CSV byte
+fetch, SHA-256, local path, or false completion claim occurred, and the only
+manifest warning describes the bounded four-image active audit.
+
+This is a negative compatibility result, not authority to add a CSV route. The
+current live frontend supplied no exact resolver evidence for either CSV record.
+CSV stays unsupported until a credential-free, owner-bound live contract is
+observed and independently gated.
