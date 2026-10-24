@@ -58,7 +58,7 @@ dated registry result, not a permanent safety claim.
 
 ## High-value remaining ports
 
-### Claude current DOM and scrolling
+### Claude current DOM and scrolling — local candidate complete
 
 Source commits: `472ec7d`, `af7b475`, `54b8f7c`, `f5d240f`.
 
@@ -71,6 +71,21 @@ Adapt in one evidence-gated slice:
   ordinary answer body;
 - preserve Liska's richer legacy tool-content path instead of replacing the
   extractor wholesale with upstream's label-only implementation.
+
+The fresh `codex/claude-october-dom` port carries only the two prior local
+compatibility commits for transcript scrolling and October message roots onto
+current `main`; it does not merge the stale compatibility branch or its
+superseded truncation guard. The port preserves the current shared
+`ClaudeToolConversionBudget`, unions strong and legacy turn identities, admits
+collapsed inert content only inside a live indexed row, removes answer chrome
+on a detached clone, and merges October labels with rich legacy tool evidence.
+
+Independent review found two retained gaps before publication: October labels
+bypassed the aggregate tool budget, and the class fallback could scroll an
+earlier indexed navigation sidebar. October rows now consume section, metadata,
+separator, and Markdown budgets; the fallback excludes navigation ancestry and
+requires extractor-owned message content inside the indexed row. Focused and
+full evidence plus the bounded live canary are recorded in `STATUS.md`.
 
 ### ChatGPT DOM fallback
 

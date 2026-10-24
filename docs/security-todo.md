@@ -292,6 +292,10 @@ work remain deliberately unported.
 - Inspect provider blocks that Liska has changed least: Perplexity,
   Gemini/NotebookLM, Claude, common Markdown conversion, storage/Obsidian, UI,
   and CI.
+- The October Claude DOM/thread slice now has a current-main candidate with
+  bounded offline coverage and one current-window live canary. Full-history
+  auto-scroll and live October tool-label output remain explicit runtime gaps;
+  do not reuse the stale compatibility branch's truncation implementation.
 - Map upstream fixes to the current Liska architecture before porting them;
   preserve raw-first archives, explicit branch selection, destination honesty,
   immutable snapshots, and the no-credential-export boundary.
