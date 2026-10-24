@@ -91,14 +91,22 @@ containment without merging sibling operations; the first connected-component
 attempt was rejected by a dedicated data-loss regression. Focused and full
 evidence plus the bounded live canary are recorded in `STATUS.md`.
 
-### ChatGPT DOM fallback
+### ChatGPT DOM fallback — local candidate complete
 
 Source commit: `b60e88c`.
 
-Upstream supports paired prompt/answer turns, current selectors and a reversed
-scroll axis. Liska should adapt those only inside its explicitly partial DOM
-fallback. API-first complete graph capture, selected-branch failure behavior,
-raw companions and canonical projection remain authoritative.
+The local candidate adapts paired prompt/answer turns and a direction-neutral
+scroll axis only inside the rendered fallback. Current and legacy roots are
+unioned by DOM identity rather than using upstream's global current-layout
+switch. Stable turn keys outrank late child IDs; keyless remount identity stays
+explicitly best-effort. A visible top-settle prevents late history from being
+declared complete, including the zero-range seed edge, while hidden pages remain
+runtime-partial.
+
+API-first complete graph capture, selected/replay failure behavior, raw archive
+companions, canonical projection, verified binary acquisition, and destination
+receipts remain authoritative. Upstream blob-image collection is not ported.
+Focused/full tests and exact residual live gaps are recorded in `STATUS.md`.
 
 ### Typed truncation protection
 
