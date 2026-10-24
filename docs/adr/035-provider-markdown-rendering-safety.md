@@ -57,6 +57,22 @@ When an unsafe link or image becomes literal, bracket syntax inside its opaque
 title, destination, or description is neutralized too, so the edit cannot expose
 a new child node.
 
+Parser-confirmed raw HTML nodes are entity-literalized at the same final-body
+boundary. The two Liska message-boundary comments are preserved only through
+exact UTF-16 ranges supplied by the structured body composer. Each range must be
+ordered, non-overlapping, full-line, in bounds, and contain one exact
+extension-owned marker. Provider copies are made inert before composition, and
+the trusted ranges are shifted through every applied source edit. Marker-shaped
+text alone grants no authority. The edited result is parsed again; any HTML node
+newly exposed by an outer edit is neutralized, and a parser or range failure
+falls back to literal brackets and angle brackets.
+
+The earlier line-oriented angle escape remains defense in depth. It normalizes
+CommonMark LF, CRLF, and lone-CR line endings before fence tracking, while exact
+fenced, indented, and multiline inline-code ranges come from the same CommonMark parser. Large or
+unparseable helper-only inputs fall back to conservative line-local code spans;
+the final composed-note pass remains the authoritative sink boundary.
+
 Complete Obsidian `$...$` and `$$...$$` math ranges outside Markdown code are
 treated as opaque during active-syntax edits. Double brackets inside TeX remain
 mathematical notation rather than becoming wiki links or HTML entities.
@@ -100,6 +116,10 @@ policy for safety.
 - Safe public links, formatting, math, footnotes, and code remain readable.
 - Remote/loopback images and Obsidian embeds cannot become automatic resources
   in the derived note.
+- Provider raw HTML cannot remain active in an ordinary composed note, including
+  after list-contained fences or edits that expose a previously nested tag.
+- Exact Liska append/count markers survive through composer-owned ranges rather
+  than a forgeable text allowlist.
 - Structured user-role records receive the same active-resource boundary as
   assistant Markdown.
 - The production content bundle includes the MIT-licensed

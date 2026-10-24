@@ -6,11 +6,15 @@
  */
 
 import { fromMarkdown } from 'mdast-util-from-markdown';
-import type { Definition, Image, ImageReference, Link, Root, RootContent, Text } from 'mdast';
+import type { Definition, Html, Image, ImageReference, Link, Root, RootContent, Text } from 'mdast';
 import type { Node } from 'unist';
+import { MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER } from '../lib/message-counter';
 
 const LITERAL_OPEN_BRACKET = '&#91;';
 const LITERAL_IMAGE_OPEN = '&#33;&#91;';
+const LITERAL_OPEN_ANGLE = '&lt;';
+const LITERAL_CLOSE_ANGLE = '&gt;';
+const TRUSTED_GENERATED_HTML = [MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER] as const;
 const TRUSTED_CHATGPT_ARCHIVE_TARGET =
   /^_liska-archive\/[a-f0-9]{64}\/capture-chatgpt-[A-Za-z0-9_-]{1,240}\/assets\/[a-f0-9]{64}\.[a-z0-9]{1,16}$/u;
 const TRUSTED_IMAGE_PLACEHOLDER = /^g2o-image:\/\/[^)$\r\n]{1,256}$/u;
@@ -25,6 +29,8 @@ interface SourceRange {
   readonly start: number;
   readonly end: number;
 }
+
+export type TrustedHtmlRange = SourceRange;
 
 type MarkdownNode = Root | RootContent;
 
@@ -243,6 +249,69 @@ function addEdit(edits: Map<number, SourceEdit>, edit: SourceEdit): void {
   if (!existing || existing.deleteCount < edit.deleteCount) edits.set(edit.start, edit);
 }
 
+function trustedHtmlAuthority(
+  source: string,
+  ranges: readonly TrustedHtmlRange[]
+): ReadonlyMap<number, number> {
+  const authority = new Map<number, number>();
+  let priorEnd = -1;
+  for (const range of ranges) {
+    const { start, end } = range;
+    const marker = source.slice(start, end);
+    const startsOnLine = start === 0 || source[start - 1] === '\n' || source[start - 1] === '\r';
+    const endsOnLine = end === source.length || source[end] === '\n' || source[end] === '\r';
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end <= start ||
+      end > source.length ||
+      start < priorEnd ||
+      !startsOnLine ||
+      !endsOnLine ||
+      !TRUSTED_GENERATED_HTML.includes(marker as (typeof TRUSTED_GENERATED_HTML)[number])
+    ) {
+      throw new Error('Invalid trusted HTML range.');
+    }
+    authority.set(start, end);
+    priorEnd = end;
+  }
+  return authority;
+}
+
+function neutralizeHtml(
+  source: string,
+  node: Html,
+  edits: Map<number, SourceEdit>,
+  trustedHtml: ReadonlyMap<number, number>
+): void {
+  const position = nodeOffsets(node);
+  if (!position) return;
+  // Markdown inside a raw HTML node is opaque in the original parse. Keep it
+  // literal when the surrounding HTML becomes text; otherwise an image, link,
+  // definition, or wikilink could become active only because of this edit.
+  neutralizeBracketsInRange(source, position.start, position.end, edits);
+  for (let cursor = position.start; cursor < position.end; cursor += 1) {
+    // These exact full-line comments are emitted by conversationToNote after
+    // provider copies have already been made inert by
+    // neutralizeMessageBoundaryMarkers. Preserve them even when malformed
+    // provider HTML made the parser include a later marker in one larger node.
+    const trustedEnd = trustedHtml.get(cursor);
+    if (trustedEnd !== undefined && trustedEnd <= position.end) {
+      cursor = trustedEnd - 1;
+      continue;
+    }
+    const character = source[cursor];
+    if (character === '<' || character === '>') {
+      addEdit(edits, {
+        start: cursor,
+        deleteCount: 1,
+        replacement: character === '<' ? LITERAL_OPEN_ANGLE : LITERAL_CLOSE_ANGLE,
+      });
+    }
+  }
+}
+
 function neutralizeBracketsInRange(
   source: string,
   start: number,
@@ -322,7 +391,7 @@ function neutralizeUnsafeLink(
       if (body.includes('[')) {
         mergeShiftedEdits(
           edits,
-          collectEdits(body, fromMarkdown(body), trustedDestinations, false),
+          collectEdits(body, fromMarkdown(body), trustedDestinations, false, new Map()),
           bodyStart
         );
       }
@@ -374,7 +443,8 @@ function collectEdits(
   source: string,
   tree: Root,
   trustedDestinations: ReadonlySet<string>,
-  preserveFootnotes = true
+  preserveFootnotes = true,
+  trustedHtml: ReadonlyMap<number, number> = new Map()
 ): Map<number, SourceEdit> {
   const edits = new Map<number, SourceEdit>();
   const protectedMath = mathRanges(source, tree);
@@ -391,18 +461,30 @@ function collectEdits(
         neutralizeUnsafeLink(source, node, trustedDestinations, edits, preserveFootnotes);
     } else if (node.type === 'text') {
       wikiEdits(source, node, edits, protectedMath);
+    } else if (node.type === 'html') {
+      neutralizeHtml(source, node, edits, trustedHtml);
     }
     for (const child of childNodes(node)) pending.push(child);
   }
   return edits;
 }
 
-function applyEdits(source: string, edits: ReadonlyMap<number, SourceEdit>): string {
+function applicableEdits(edits: ReadonlyMap<number, SourceEdit>): SourceEdit[] {
   const ordered = [...edits.values()].sort((left, right) => left.start - right.start);
-  const chunks: string[] = [];
+  const applicable: SourceEdit[] = [];
   let cursor = 0;
   for (const edit of ordered) {
     if (edit.start < cursor) continue;
+    applicable.push(edit);
+    cursor = edit.start + edit.deleteCount;
+  }
+  return applicable;
+}
+
+function applyEdits(source: string, edits: ReadonlyMap<number, SourceEdit>): string {
+  const chunks: string[] = [];
+  let cursor = 0;
+  for (const edit of applicableEdits(edits)) {
     chunks.push(source.slice(cursor, edit.start), edit.replacement);
     cursor = edit.start + edit.deleteCount;
   }
@@ -410,7 +492,32 @@ function applyEdits(source: string, edits: ReadonlyMap<number, SourceEdit>): str
   return chunks.join('');
 }
 
-/** Parser failure disables all bracket syntax instead of preserving an active sink. */
+function shiftTrustedHtmlRanges(
+  ranges: readonly TrustedHtmlRange[],
+  edits: ReadonlyMap<number, SourceEdit>
+): TrustedHtmlRange[] {
+  const orderedEdits = applicableEdits(edits);
+  const shifted: TrustedHtmlRange[] = [];
+  let editIndex = 0;
+  let delta = 0;
+  for (const range of ranges) {
+    while (editIndex < orderedEdits.length && orderedEdits[editIndex].start < range.start) {
+      const edit = orderedEdits[editIndex];
+      if (edit.start + edit.deleteCount > range.start) {
+        throw new Error('Trusted HTML range overlaps a source edit.');
+      }
+      delta += edit.replacement.length - edit.deleteCount;
+      editIndex += 1;
+    }
+    if (editIndex < orderedEdits.length && orderedEdits[editIndex].start < range.end) {
+      throw new Error('Trusted HTML range contains a source edit.');
+    }
+    shifted.push({ start: range.start + delta, end: range.end + delta });
+  }
+  return shifted;
+}
+
+/** Parser failure disables bracket and raw-HTML syntax instead of preserving an active sink. */
 function failClosedMarkdown(source: string): string {
   const chunks: string[] = [];
   let slashParity = 0;
@@ -422,7 +529,10 @@ function failClosedMarkdown(source: string): string {
     }
     const escaped = slashParity === 1;
     slashParity = 0;
-    chunks.push(character === '[' && !escaped ? LITERAL_OPEN_BRACKET : character);
+    if (!escaped && character === '[') chunks.push(LITERAL_OPEN_BRACKET);
+    else if (!escaped && character === '<') chunks.push(LITERAL_OPEN_ANGLE);
+    else if (!escaped && character === '>') chunks.push(LITERAL_CLOSE_ANGLE);
+    else chunks.push(character);
   }
   return chunks.join('');
 }
@@ -433,13 +543,33 @@ function failClosedMarkdown(source: string): string {
  */
 export function neutralizeActiveProviderMarkdown(
   source: string,
-  trustedDestinations: readonly string[] = []
+  trustedDestinations: readonly string[] = [],
+  trustedHtmlRanges: readonly TrustedHtmlRange[] = []
 ): string {
-  if (!source.includes('[')) return source;
+  if (!source.includes('[') && !source.includes('<')) return source;
+  let output = source;
   try {
     const trusted = new Set(trustedDestinations);
-    return applyEdits(source, collectEdits(source, fromMarkdown(source), trusted));
+    let trustedRanges = [...trustedHtmlRanges];
+    let trustedHtml = trustedHtmlAuthority(source, trustedRanges);
+    const initialEdits = collectEdits(source, fromMarkdown(source), trusted, true, trustedHtml);
+    trustedRanges = shiftTrustedHtmlRanges(trustedRanges, initialEdits);
+    output = applyEdits(source, initialEdits);
+    if (initialEdits.size === 0) return output;
+
+    // Neutralizing an unsafe outer construct may expose syntax that was opaque
+    // in the first parse. Reparse once through the complete active-resource
+    // policy, then prove that no further edit remains.
+    trustedHtml = trustedHtmlAuthority(output, trustedRanges);
+    const residual = collectEdits(output, fromMarkdown(output), trusted, true, trustedHtml);
+    if (residual.size === 0) return output;
+    trustedRanges = shiftTrustedHtmlRanges(trustedRanges, residual);
+    output = applyEdits(output, residual);
+    trustedHtml = trustedHtmlAuthority(output, trustedRanges);
+    return collectEdits(output, fromMarkdown(output), trusted, true, trustedHtml).size === 0
+      ? output
+      : failClosedMarkdown(output);
   } catch {
-    return failClosedMarkdown(source);
+    return failClosedMarkdown(output);
   }
 }

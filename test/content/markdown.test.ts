@@ -13,7 +13,11 @@ import { sanitizeHtml } from '../../src/lib/sanitize';
 import { MAX_MATH_LENGTH } from '../../src/lib/constants';
 import { stripImagePlaceholders } from '../../src/lib/image-output';
 import type { ConversationData, TemplateOptions, DeepResearchLinks } from '../../src/lib/types';
-import { countExistingMessages } from '../../src/lib/message-counter';
+import {
+  countExistingMessages,
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+} from '../../src/lib/message-counter';
 
 describe('escapeUserText — math dollar escaping (Obsidian hang fix)', () => {
   it('escapes $ so shell/YAML text is not parsed as math', () => {
@@ -36,6 +40,102 @@ describe('escapeUserText — math dollar escaping (Obsidian hang fix)', () => {
 
   it('preserves $ inside inline code', () => {
     expect(escapeUserText('use `$HOME` now')).toBe('use `$HOME` now');
+  });
+
+  it.each([
+    ['lone CR', '\r'],
+    ['CRLF', '\r\n'],
+  ])('normalizes %s before fence tracking and escapes later HTML', (_label, eol) => {
+    const input = ['~~~', 'code', '~~~', '<iframe src=https://evil.example/>'].join(eol);
+    const expected = '~~~\ncode\n~~~\n\\<iframe src=https://evil.example/\\>';
+
+    for (const output of [escapeUserText(input), escapeAngleBrackets(input)]) {
+      expect(output).toBe(expected);
+      const pending: Array<{ type: string; value?: string; children?: unknown[] }> = [
+        fromMarkdown(output),
+      ];
+      while (pending.length > 0) {
+        const node = pending.pop()!;
+        expect(node.type).not.toBe('html');
+        if (Array.isArray(node.children)) {
+          for (const child of node.children) {
+            if (typeof child === 'object' && child !== null && 'type' in child) {
+              pending.push(child as { type: string; value?: string; children?: unknown[] });
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('does not let a lone CR hide a closing fence inside an LF stream', () => {
+    const input = '~~~\ncode\r~~~\n<iframe src=https://evil.example/>';
+    const expected = '~~~\ncode\n~~~\n\\<iframe src=https://evil.example/\\>';
+
+    for (const output of [escapeUserText(input), escapeAngleBrackets(input)]) {
+      expect(output).toBe(expected);
+      const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(output)];
+      while (pending.length > 0) {
+        const node = pending.pop()!;
+        expect(node.type).not.toBe('html');
+        if (Array.isArray(node.children)) {
+          for (const child of node.children) {
+            if (typeof child === 'object' && child !== null && 'type' in child) {
+              pending.push(child as { type: string; children?: unknown[] });
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it.each([
+    ['LF', '\n'],
+    ['CRLF', '\r\n'],
+    ['lone CR', '\r'],
+  ])('preserves a complete inline code span across a %s soft break', (_label, eol) => {
+    const input = `\`a${eol}value <T> $HOME\``;
+    const expected = '`a\nvalue <T> $HOME`';
+    expect(escapeUserText(input)).toBe(expected);
+    expect(escapeAngleBrackets(input)).toBe(expected);
+    const root = fromMarkdown(expected) as {
+      children: Array<{ type: string; value?: string }>;
+    };
+    expect(root.children).toEqual([expect.objectContaining({ type: 'paragraph' })]);
+    expect(JSON.stringify(root)).toContain('"type":"inlineCode"');
+    expect(JSON.stringify(root)).toContain('"value":"a\\nvalue <T> $HOME"');
+  });
+
+  it.each([
+    ['blank-line block boundary', '`a\n\n<iframe src=https://evil.example></iframe>\n\n`'],
+    ['thematic-break block boundary', '`a\n***\n<iframe src=https://evil.example></iframe>\n`'],
+  ])('does not preserve a pseudo code span across a %s', (_label, input) => {
+    for (const output of [escapeUserText(input), escapeAngleBrackets(input)]) {
+      expect(output).toContain('\\<iframe src=https://evil.example\\>');
+      const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(output)];
+      while (pending.length > 0) {
+        const node = pending.pop()!;
+        expect(node.type).not.toBe('html');
+        if (Array.isArray(node.children)) {
+          for (const child of node.children) {
+            if (typeof child === 'object' && child !== null && 'type' in child) {
+              pending.push(child as { type: string; children?: unknown[] });
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('escapes a large collection of independent inline spans without quadratic rescans', () => {
+    const input = Array.from({ length: 35_000 }, (_, index) => `line ${index} uses \`<T>\``).join(
+      '\n'
+    );
+    const output = escapeAngleBrackets(input);
+
+    expect(output.split('\n')).toHaveLength(35_000);
+    expect(output).toContain('line 0 uses `<T>`');
+    expect(output).toContain('line 34999 uses `<T>`');
   });
 });
 
@@ -664,6 +764,16 @@ describe('escapeAngleBrackets', () => {
       expect(escapeAngleBrackets(input)).toBe(input);
     });
 
+    it('preserves parser-confirmed fenced code blocks inside lists', () => {
+      const input = '- ```\n  code <T>\n  ```\n<div>';
+      expect(escapeAngleBrackets(input)).toBe('- ```\n  code <T>\n  ```\n\\<div\\>');
+    });
+
+    it('preserves parser-confirmed indented code blocks', () => {
+      const input = '    code <T>\n\n<div>';
+      expect(escapeAngleBrackets(input)).toBe('    code <T>\n\n\\<div\\>');
+    });
+
     it('stops preserving a quoted fence when the blockquote container ends', () => {
       const input = '> ~~~\n> code\n\n<img src=https://attacker.invalid/pixel>';
       expect(escapeAngleBrackets(input)).toBe(
@@ -1176,6 +1286,176 @@ describe('conversationToNote', () => {
     expect(note.body).toContain('\\<unsafe-tag\\>');
     expect(note.body).toContain('```ts\n> const value: Array<T> = [];\n> ```');
     expect(note.body).not.toContain('\\*\\*Bold answer\\*\\*');
+  });
+
+  it('neutralizes HTML after a list-contained fence on the final note boundary', () => {
+    const hostile = [
+      '- ```',
+      '  code',
+      '  ```',
+      '<div>',
+      '![track](https://attacker.example/pixel)',
+      '[private](http://127.0.0.1/admin)',
+      '</div>',
+    ].join('\n');
+    for (const role of ['user', 'assistant'] as const) {
+      const note = conversationToNote(
+        {
+          ...mockData,
+          source: 'deepseek',
+          messages: [
+            {
+              id: `msg-${role}`,
+              role,
+              content: hostile,
+              ...(role === 'assistant' ? { contentFormat: 'markdown' as const } : {}),
+              index: 0,
+            },
+          ],
+        },
+        { ...defaultOptions, messageFormat: 'plain' }
+      );
+
+      expect(note.body.includes('&lt;div&gt;') || note.body.includes('\\<div\\>')).toBe(true);
+      expect(
+        note.body.includes('!&#91;track](https://attacker.example/pixel)') ||
+          note.body.includes('&#33;&#91;track](https://attacker.example/pixel)')
+      ).toBe(true);
+      expect(note.body).toContain('&#91;private](http://127.0.0.1/admin)');
+      const pending: Array<{ type: string; value?: string; children?: unknown[] }> = [
+        fromMarkdown(note.body),
+      ];
+      const html: string[] = [];
+      const activeResources: string[] = [];
+      while (pending.length > 0) {
+        const node = pending.pop()!;
+        if (node.type === 'html') html.push(node.value ?? '');
+        if (
+          ['image', 'imageReference', 'link', 'linkReference', 'definition'].includes(node.type)
+        ) {
+          activeResources.push(node.type);
+        }
+        if (Array.isArray(node.children)) {
+          for (const child of node.children) {
+            if (typeof child === 'object' && child !== null && 'type' in child) {
+              pending.push(child as { type: string; value?: string; children?: unknown[] });
+            }
+          }
+        }
+      }
+      expect(html.sort()).toEqual([MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER].sort());
+      expect(activeResources).toEqual([]);
+    }
+  });
+
+  it('keeps only composer-owned HTML across the bounded production fence matrix', () => {
+    const eols = [
+      ['LF', '\n'],
+      ['CRLF', '\r\n'],
+      ['lone CR', '\r'],
+    ] as const;
+    const formats = ['plain', 'blockquote', 'callout'] as const;
+    const roles = ['user', 'assistant'] as const;
+    const fenceContexts = [
+      ['top-level', ['~~~', 'code <T>', '~~~']],
+      ['list', ['- ```', '  code <T>', '  ```']],
+      ['blockquote', ['> ~~~', '> code <T>', '> ~~~']],
+    ] as const;
+    let checked = 0;
+
+    for (const [eolName, eol] of eols) {
+      for (const format of formats) {
+        for (const attackedRole of roles) {
+          for (const [contextName, fence] of fenceContexts) {
+            const label = `${eolName}/${format}/${attackedRole}/${contextName}`;
+            const hostile = [
+              ...fence,
+              '<div>',
+              '![track](https://attacker.example/pixel)',
+              '[private](http://127.0.0.1/admin)',
+              '</div>',
+              '<!-- unterminated',
+            ].join(eol);
+            const note = conversationToNote(
+              {
+                ...mockData,
+                source: 'deepseek',
+                messages: [
+                  {
+                    id: `hostile-${checked}`,
+                    role: attackedRole,
+                    content: hostile,
+                    ...(attackedRole === 'assistant' ? { contentFormat: 'markdown' as const } : {}),
+                    index: 0,
+                  },
+                  {
+                    id: `tail-${checked}`,
+                    role: attackedRole === 'assistant' ? 'user' : 'assistant',
+                    content: 'Second message',
+                    ...(attackedRole === 'user' ? { contentFormat: 'markdown' as const } : {}),
+                    index: 1,
+                  },
+                ],
+              },
+              { ...defaultOptions, messageFormat: format }
+            );
+
+            const pending: Array<{ type: string; value?: string; children?: unknown[] }> = [
+              fromMarkdown(note.body),
+            ];
+            const html: string[] = [];
+            const activeResources: string[] = [];
+            while (pending.length > 0) {
+              const node = pending.pop()!;
+              if (node.type === 'html') html.push(node.value ?? '');
+              if (
+                ['image', 'imageReference', 'link', 'linkReference', 'definition'].includes(
+                  node.type
+                )
+              ) {
+                activeResources.push(node.type);
+              }
+              if (Array.isArray(node.children)) {
+                for (const child of node.children) {
+                  if (typeof child === 'object' && child !== null && 'type' in child) {
+                    pending.push(child as { type: string; value?: string; children?: unknown[] });
+                  }
+                }
+              }
+            }
+
+            expect(html.sort(), label).toEqual(
+              [
+                MESSAGE_BOUNDARY_FORMAT_MARKER,
+                MESSAGE_BOUNDARY_MARKER,
+                MESSAGE_BOUNDARY_MARKER,
+              ].sort()
+            );
+            expect(activeResources, label).toEqual([]);
+            expect(countExistingMessages(note.body), label).toBe(2);
+            expect(note.body, label).toContain('<T>');
+            expect(
+              note.body.includes('&lt;div&gt;') || note.body.includes('\\<div\\>'),
+              label
+            ).toBe(true);
+            expect(
+              note.body.includes('!&#91;track](https://attacker.example/pixel)') ||
+                note.body.includes('&#33;&#91;track](https://attacker.example/pixel)'),
+              label
+            ).toBe(true);
+            expect(note.body, label).toContain('&#91;private](http://127.0.0.1/admin)');
+            expect(
+              note.body.includes('&lt;!-- unterminated') ||
+                note.body.includes('\\<!-- unterminated'),
+              label
+            ).toBe(true);
+            checked += 1;
+          }
+        }
+      }
+    }
+
+    expect(checked).toBe(54);
   });
 
   it('neutralizes active DeepSeek API Markdown outside literal code', () => {

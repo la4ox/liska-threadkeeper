@@ -6,6 +6,7 @@
  */
 
 import TurndownService from 'turndown';
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { MAX_LANG_HINT_LENGTH, MAX_MATH_LENGTH } from '../lib/constants';
 import {
   FOOTNOTE_DEF_ATTR,
@@ -25,6 +26,7 @@ const ANGLE_BRACKET_PATTERN = /\\[<>]|[<>]/g;
  * the KaTeX/MathJax renderer.
  */
 const ANGLE_BRACKET_DOLLAR_PATTERN = /\\[<>]|[<>$]/g;
+const MAX_MULTILINE_INLINE_PARSE_CHARS = 1 << 20;
 
 interface CodeSpanRange {
   start: number;
@@ -120,21 +122,170 @@ function escapeTextSegment(text: string, pattern: RegExp): string {
   });
 }
 
-/** Escape special characters while preserving only complete inline code spans. */
-function escapeSpecialCharsInLine(line: string, pattern: RegExp): string {
-  const blockquote = markdownBlockquotePrefix(line);
-  const prefix = line.slice(0, blockquote.length);
-  const rest = line.slice(blockquote.length);
-  const ranges = inlineCodeRanges(rest);
-  let cursor = 0;
-  let escaped = '';
-  for (const range of ranges) {
-    escaped += escapeTextSegment(rest.slice(cursor, range.start), pattern);
-    escaped += rest.slice(range.start, range.end);
-    cursor = range.end;
+interface EscapeLine {
+  text: string;
+  start: number;
+  fenced: boolean;
+}
+
+function escapeLines(text: string): EscapeLine[] {
+  const result: EscapeLine[] = [];
+  let offset = 0;
+  let fence: FenceState | null = null;
+  for (const line of text.split('\n')) {
+    const marker = fenceMarker(line);
+    const lineBlockquoteDepth = markdownBlockquotePrefix(line).depth;
+    if (fence && fence.blockquoteDepth > 0 && lineBlockquoteDepth < fence.blockquoteDepth) {
+      fence = null;
+    }
+    let fenced = fence !== null;
+    if (fence) {
+      if (
+        marker &&
+        marker.marker === fence.marker &&
+        marker.length >= fence.length &&
+        marker.blockquoteDepth === fence.blockquoteDepth &&
+        marker.tail.trim() === ''
+      ) {
+        fence = null;
+      }
+    } else if (marker && !(marker.marker === '`' && marker.tail.includes('`'))) {
+      fence = {
+        marker: marker.marker,
+        length: marker.length,
+        blockquoteDepth: marker.blockquoteDepth,
+      };
+      fenced = true;
+    }
+    result.push({ text: line, start: offset, fenced });
+    offset += line.length + 1;
   }
-  escaped += escapeTextSegment(rest.slice(cursor), pattern);
-  return prefix + escaped;
+  return result;
+}
+
+function lineLocalInlineCodeRanges(lines: readonly EscapeLine[]): CodeSpanRange[] {
+  const ranges: CodeSpanRange[] = [];
+  for (const line of lines) {
+    if (line.fenced) continue;
+    const prefixLength = markdownBlockquotePrefix(line.text).length;
+    for (const range of inlineCodeRanges(line.text.slice(prefixLength))) {
+      ranges.push({
+        start: line.start + prefixLength + range.start,
+        end: line.start + prefixLength + range.end,
+      });
+    }
+  }
+  return ranges;
+}
+
+interface MarkdownNode {
+  type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: MarkdownNode[];
+}
+
+interface ParsedCodeRangesResult {
+  ranges: CodeSpanRange[];
+  parserConfirmed: boolean;
+}
+
+function parsedNodeRange(node: MarkdownNode, textLength: number): CodeSpanRange | null {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    (start as number) < 0 ||
+    (end as number) <= (start as number) ||
+    (end as number) > textLength
+  ) {
+    return null;
+  }
+  return { start: start as number, end: end as number };
+}
+
+function collectParsedCodeRanges(root: MarkdownNode, textLength: number): CodeSpanRange[] | null {
+  const ranges: CodeSpanRange[] = [];
+  const pending = [root];
+  let visited = 0;
+  while (pending.length > 0) {
+    if (++visited > textLength + 1) return null;
+    const node = pending.pop()!;
+    if (node.type === 'inlineCode' || node.type === 'code') {
+      const range = parsedNodeRange(node, textLength);
+      if (!range) return null;
+      ranges.push(range);
+    }
+    for (const child of node.children ?? []) pending.push(child);
+  }
+  return ranges;
+}
+
+function orderedCodeRanges(ranges: CodeSpanRange[]): CodeSpanRange[] | null {
+  ranges.sort((left, right) => left.start - right.start || left.end - right.end);
+  let priorEnd = -1;
+  for (const range of ranges) {
+    if (range.start < priorEnd) return null;
+    priorEnd = range.end;
+  }
+  return ranges;
+}
+
+/** Use the installed CommonMark parser for multiline code containers and spans. */
+function parsedCodeRanges(text: string, lines: readonly EscapeLine[]): ParsedCodeRangesResult {
+  const fallback = (): CodeSpanRange[] => lineLocalInlineCodeRanges(lines);
+  if (text.length > MAX_MULTILINE_INLINE_PARSE_CHARS || !text.includes('\n')) {
+    return { ranges: fallback(), parserConfirmed: false };
+  }
+  let root: MarkdownNode;
+  try {
+    root = fromMarkdown(text) as unknown as MarkdownNode;
+  } catch {
+    return { ranges: fallback(), parserConfirmed: false };
+  }
+  const ranges = collectParsedCodeRanges(root, text.length);
+  const ordered = ranges ? orderedCodeRanges(ranges) : null;
+  return ordered
+    ? { ranges: ordered, parserConfirmed: true }
+    : { ranges: fallback(), parserConfirmed: false };
+}
+
+function escapeLinesWithRanges(
+  lines: readonly EscapeLine[],
+  ranges: readonly CodeSpanRange[],
+  pattern: RegExp,
+  parserConfirmed: boolean
+): string {
+  let rangeIndex = 0;
+  return lines
+    .map(line => {
+      const lineEnd = line.start + line.text.length;
+      while (rangeIndex < ranges.length && ranges[rangeIndex].end <= line.start) {
+        rangeIndex += 1;
+      }
+      if (line.fenced && !parserConfirmed) return line.text;
+      const prefixLength = markdownBlockquotePrefix(line.text).length;
+      let cursor = prefixLength;
+      let escaped = line.text.slice(0, prefixLength);
+      let index = rangeIndex;
+      while (index < ranges.length && ranges[index].start < lineEnd) {
+        const range = ranges[index];
+        const start = Math.max(range.start, line.start + prefixLength) - line.start;
+        const end = Math.min(range.end, lineEnd) - line.start;
+        if (start < end) {
+          escaped += escapeTextSegment(line.text.slice(cursor, start), pattern);
+          escaped += line.text.slice(start, end);
+          cursor = end;
+        }
+        index += 1;
+      }
+      escaped += escapeTextSegment(line.text.slice(cursor), pattern);
+      while (rangeIndex < ranges.length && ranges[rangeIndex].end <= lineEnd) {
+        rangeIndex += 1;
+      }
+      return escaped;
+    })
+    .join('\n');
 }
 
 function fenceMarker(
@@ -154,39 +305,16 @@ function fenceMarker(
 
 /** Escape text outside complete, length-matched CommonMark fenced blocks. */
 function escapeByLine(text: string, pattern: RegExp): string {
-  const lines = text.split('\n');
-  let fence: FenceState | null = null;
-
-  const result = lines.map(line => {
-    const marker = fenceMarker(line);
-    const lineBlockquoteDepth = markdownBlockquotePrefix(line).depth;
-    if (fence && fence.blockquoteDepth > 0 && lineBlockquoteDepth < fence.blockquoteDepth) {
-      fence = null;
-    }
-    if (fence) {
-      if (
-        marker &&
-        marker.marker === fence.marker &&
-        marker.length >= fence.length &&
-        marker.blockquoteDepth === fence.blockquoteDepth &&
-        marker.tail.trim() === ''
-      ) {
-        fence = null;
-      }
-      return line;
-    }
-    if (marker && !(marker.marker === '`' && marker.tail.includes('`'))) {
-      fence = {
-        marker: marker.marker,
-        length: marker.length,
-        blockquoteDepth: marker.blockquoteDepth,
-      };
-      return line;
-    }
-    return escapeSpecialCharsInLine(line, pattern);
-  });
-
-  return result.join('\n');
+  // CommonMark treats LF, CRLF, and lone CR as line endings. Normalize before
+  // fence tracking so a page-supplied lone CR cannot hide later active HTML
+  // inside what this scanner misreads as one long opening-fence line.
+  const normalized = text.replace(/\r\n?/g, '\n');
+  const containsEscapable =
+    pattern === ANGLE_BRACKET_PATTERN ? /[<>]/u.test(normalized) : /[<>$]/u.test(normalized);
+  if (!containsEscapable) return normalized;
+  const lines = escapeLines(normalized);
+  const protectedCode = parsedCodeRanges(normalized, lines);
+  return escapeLinesWithRanges(lines, protectedCode.ranges, pattern, protectedCode.parserConfirmed);
 }
 
 /**

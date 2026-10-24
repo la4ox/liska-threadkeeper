@@ -45,10 +45,10 @@ attribute escaping, append-context repair, post-transform size checks, and
 resolve-before-image-write ordering. These are high-value candidate behaviors,
 but the commit cannot be cherry-picked.
 
-### Missing candidate behavior
+### Audit-baseline candidate behavior
 
-- Liska has no equivalent final sink gate after every Markdown transform;
-  `note-generator.ts` still emits the prepared body directly.
+- At the audited baseline, Liska had no parser-confirmed raw-HTML gate at the
+  final ordinary-note boundary.
 - Upstream escapes page-derived text and ordinary link/image attributes inside
   Turndown rather than rescanning the generated Markdown.
 - Its append path parses existing and new bodies together, repairs only new
@@ -91,14 +91,27 @@ implementations.
 5. Upstream logs note IDs and image filenames/errors in paths where Liska keeps
    value-free or count-only diagnostics. Preserve the local privacy boundary.
 
-## Recommended next slice
+## Local reproducer-led follow-up
 
-Build a bounded local reproducer matrix from DES-019's raw text/attribute cases
-against Liska's current `htmlToMarkdown` and destination serializers. If a
-reachable page-text-to-live-HTML seam is confirmed, fix one per-path conversion
-boundary with focused tests. Defer a final sink gate until sentinel provenance,
-append context, `contentFormat`, and byte-accounting contracts are explicitly
-designed together.
+A bounded local matrix confirmed two reachable seams without importing the
+upstream implementation: lone-CR fence state could hide later HTML from the
+line escape, and a list-contained fence could make that scanner treat the
+closer as a new top-level opener. The latter survived the actual
+`conversationToNote` path for both user text and structured assistant Markdown.
+
+The local candidate now normalizes CommonMark line endings before fence
+tracking and uses parser positions for fenced, indented, and multiline inline
+code. More importantly,
+the final ordinary-note safety pass entity-literalizes parser-confirmed HTML and
+reparses after edits. The composer supplies exact ranges for its own two
+message-boundary comments; the safety layer validates and shifts those ranges,
+so a marker-shaped provider string receives no exception. Raw, manifest,
+canonical, canonical-derived HTML, destination receipts, append refusal, and
+physical-byte accounting are unchanged.
+
+This is the confirmed per-path port, not upstream's generic gate. Existing-note
+append-context repair, transformed-size policy, resolve-before-image ordering,
+and upstream diagnostics remain separate evidence-gated candidates.
 
 The NotebookLM selector removal may be taken later as an isolated maintenance
 commit. It should not displace the reproducer-led security work above.
