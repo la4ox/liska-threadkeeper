@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="snapshot_title">Compare local snapshots</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="workspace">
+      <header>
+        <p class="kicker" data-i18n="snapshot_kicker">Liska · Archive tools</p>
+        <h1 data-i18n="snapshot_title">Compare local snapshots</h1>
+        <p class="intro" data-i18n="snapshot_intro">
+          Inspect saved snapshots without changing them. Add each snapshot folder separately, then
+          compare the selected bytes locally.
+        </p>
+      </header>
+      <aside class="boundary" aria-labelledby="boundary-heading">
+        <h2 id="boundary-heading" data-i18n="snapshot_boundary">
+          Analysis only — every snapshot stays.
+        </h2>
+        <p data-i18n="snapshot_boundaryHelp">
+          Even identical bytes do not authorize cleanup. Links outside your selection are not
+          checked. This page cannot delete, move, or overwrite source files.
+        </p>
+      </aside>
+      <section class="panel" aria-labelledby="selection-heading">
+        <div class="section-heading">
+          <h2 id="selection-heading" data-i18n="snapshot_selection">Your selection</h2>
+          <span class="step">01</span>
+        </div>
+        <p class="muted" data-i18n="snapshot_supported">
+          Current ChatGPT web snapshots only. Other formats, incomplete captures, and extra files
+          remain preserved and may be unverifiable.
+        </p>
+        <p class="muted" data-i18n="snapshot_limits">
+          Choose 2–16 snapshot folders. Up to 256 files per folder, 1,024 files total, 64 MiB per
+          file and 256 MiB total. Folder names and source text are not displayed.
+        </p>
+        <input id="snapshot-picker" type="file" webkitdirectory multiple hidden />
+        <div class="toolbar">
+          <button id="add-snapshot" type="button" class="secondary" data-i18n="snapshot_pick">
+            Add snapshot folder
+          </button>
+          <button
+            id="clear-snapshots"
+            type="button"
+            class="quiet"
+            data-i18n="snapshot_clear"
+            disabled
+          >
+            Clear selection
+          </button>
+        </div>
+        <p id="selection-empty" class="empty" data-i18n="snapshot_empty">
+          No folders selected yet.
+        </p>
+        <ol id="snapshot-selections" class="selection-list"></ol>
+      </section>
+      <section class="panel" aria-labelledby="analysis-heading">
+        <h2 id="analysis-heading" class="sr-only" data-i18n="snapshot_analysis">Analysis</h2>
+        <div class="toolbar">
+          <button
+            id="analyze-snapshots"
+            type="button"
+            class="primary"
+            data-i18n="snapshot_analyze"
+            disabled
+          >
+            Analyze snapshots
+          </button>
+          <button
+            id="cancel-analysis"
+            type="button"
+            class="quiet"
+            data-i18n="snapshot_cancel"
+            disabled
+          >
+            Cancel analysis
+          </button>
+        </div>
+        <p id="analysis-status" class="status" role="status" aria-live="polite"></p>
+        <p class="muted small" data-i18n="snapshot_cancellationHelp">
+          Cancel takes effect between reads and hashes; synchronous parsing cannot stop instantly.
+          Peak memory can exceed selected file sizes.
+        </p>
+      </section>
+      <section id="analysis-report" class="panel" hidden></section>
+      <footer>
+        <button id="save-report" type="button" class="secondary" data-i18n="snapshot_save" disabled>
+          Save JSON report…
+        </button>
+        <p id="download-status" role="status" aria-live="polite" class="status"></p>
+      </footer>
+    </main>
+    <script type="module" src="snapshot-analysis-entry.ts"></script>
+  </body>
+</html>
