@@ -64,6 +64,10 @@ export default defineConfig(({ command }) => {
       rollupOptions: {
         input: {
           offscreen: resolve(import.meta.dirname, 'src/offscreen/offscreen.html'),
+          snapshotAnalysis: resolve(
+            import.meta.dirname,
+            'src/snapshot-analysis/snapshot-analysis.html'
+          ),
         },
       },
     },

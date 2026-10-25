@@ -2343,3 +2343,48 @@ and the unchanged three advisory warnings; repository formatting and diff
 checks pass. Coverage before the final four regressions was 95.01% statements,
 92.21% branches, 100% functions and 97.34% lines for the new core. ADR-043
 records the current-writer-only, selected-inputs-only and trusted-hash limits.
+
+## Snapshot analysis local-page checkpoint
+
+Branch `codex/snapshot-analysis-ui` exposes the preserve-only core through a
+dedicated extension page rather than the transient settings popup. The user
+adds two to sixteen snapshot folders separately; each trusted selection is
+copied immediately, one common top-level folder segment is validated then
+discarded, nested slots and opaque extras remain intact, and the complete
+operation is preflighted before sequential reads. The page displays only
+ordinals, counts, measured bytes, fixed evidence labels/codes and content
+commitments. No folder/file name, source text, native exception, setting,
+credential, storage value or runtime message crosses the page boundary.
+
+Analysis/cancellation uses an operation epoch and AbortSignal. New accepted
+selections, removals and reset invalidate stale results; opening then cancelling
+the picker or submitting a rejected folder preserves the existing report and
+unknown-download observer. Web Crypto yields between hashes, while copy warns
+that active digest and synchronous parser work cannot stop instantly. Exact
+encoded plan bytes can be saved only by a trusted click. The page distinguishes
+confirmed exact-ID terminal completion, failure and unknown; unknown disables
+redispatch until a deliberate new analysis/reset, and stale callbacks consume
+`runtime.lastError` without exposing its message.
+
+The page imports no background/content/offscreen/storage/network or filesystem-
+mutation layer. A static popup link opens it independently of settings reads.
+The production build keeps the page/analyzer/controller chunk private; one
+shared WAR chunk contains only the pure ChatGPT normalizer/validators used by
+both replay and content extraction. Removing the otherwise unused snapshots
+re-export from the broad archive barrel made this closure explicit without
+manual chunk duplication or manifest/permission changes.
+
+Focused verification passes 9 files / 91 tests; the complete suite passes 215
+files / 7,107 tests with two workers. TypeScript and the production build pass
+with 277 transformed modules; source/platform lint has zero errors and the same
+three warnings; formatting, diff and the actual built-page closure guard pass.
+Independent review found two lifecycle P2s—picker-open/invalid selection erased
+valid state, and stale Save As callbacks could leave `runtime.lastError`
+unconsumed—plus effective-language accessibility drift. All are fixed and the
+fresh built artifact recheck is clean.
+
+An isolated synthetic Chrome render reached ready state at 1280 px and 390 px
+with no page errors, external requests, horizontal overflow or canary-name
+display. This is layout evidence only. Installed extension folder selection,
+native Save As/Downloads behavior, browser portability and near-limit
+responsiveness were not exercised and remain explicit live gates.

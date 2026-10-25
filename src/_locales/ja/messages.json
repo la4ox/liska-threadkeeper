@@ -1,4 +1,240 @@
 {
+  "snapshot_title": {
+    "message": "ローカルスナップショットを比較",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_kicker": {
+    "message": "Liska · アーカイブツール",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_intro": {
+    "message": "保存済みスナップショットを変更せずに調べます。スナップショットのフォルダーを1つずつ追加し、選択したバイト列をローカルで比較します。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_boundary": {
+    "message": "分析のみ — すべてのスナップショットを保持します。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_boundaryHelp": {
+    "message": "バイト列が一致しても削除は許可されません。選択範囲外のリンクは確認しません。このページは元のファイルを削除・移動・上書きできません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_supported": {
+    "message": "現在のChatGPT Web形式のみ対応。他の形式、不完全な取得、追加ファイルは保持され、検証できない場合があります。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection": {
+    "message": "選択したスナップショット",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_analysis": {
+    "message": "分析",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_pick": {
+    "message": "スナップショットのフォルダーを追加",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_clear": {
+    "message": "選択をクリア",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_remove": {
+    "message": "選択から除く",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_analyze": {
+    "message": "スナップショットを分析",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_cancel": {
+    "message": "分析をキャンセル",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_save": {
+    "message": "JSONレポートを保存…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_limits": {
+    "message": "2～16個のフォルダーを選択してください。各フォルダー256ファイル、全体1,024ファイル、各ファイル64 MiB、合計256 MiBまで。フォルダー名や本文は表示しません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_empty": {
+    "message": "フォルダーはまだ選択されていません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selected": {
+    "message": "2個以上のフォルダーを選択すると分析できます。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_reading": {
+    "message": "選択したファイルを読み込み中…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_analyzing": {
+    "message": "バイト列、出所、正規化結果を検証中…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_ready": {
+    "message": "分析が完了しました。元のファイルは変更されていません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_cancelled": {
+    "message": "分析をキャンセルしました。レポートは保存されていません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_cancellationHelp": {
+    "message": "キャンセルは読み込みやハッシュ計算の間に反映されます。同期解析は即時停止できません。最大メモリ使用量は選択したファイルの合計サイズを超えることがあります。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_error": {
+    "message": "分析を完了できませんでした。レポートは保存されていません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection_invalid": {
+    "message": "相対パスを保ったスナップショットのフォルダーを1つ選択してください。この選択は無効または曖昧です。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection_limit": {
+    "message": "ファイル数、フォルダー数、またはサイズの上限を超えています。選択を減らしてください。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection_read_failed": {
+    "message": "選択したファイルを完全に読み込めませんでした。フォルダーを選び直してください。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_directory_unavailable": {
+    "message": "このブラウザーはフォルダー選択を提供していません。パスを失う個別ファイル選択には切り替えません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_report": {
+    "message": "分析レポート",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_snapshots": {
+    "message": "スナップショットの証拠",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_relations": {
+    "message": "候補の関係",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_noRelations": {
+    "message": "比較可能な候補の関係は見つかりませんでした。すべて保持してください。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_snapshot": {
+    "message": "スナップショット",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_files": {
+    "message": "ファイル",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_bytes": {
+    "message": "バイト",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_read": {
+    "message": "読み込み済み",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_verified": {
+    "message": "バイト列の整合性を検証済み",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_partial": {
+    "message": "部分的な証拠",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unverifiable": {
+    "message": "検証不可",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_digest": {
+    "message": "内容一覧のSHA-256",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_keepBoth": {
+    "message": "両方を保持",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_byte_identical": {
+    "message": "選択したファイル群のバイト列が一致",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_same_raw_different_evidence": {
+    "message": "RAWは一致、他の証拠は異なる",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_semantic_candidate": {
+    "message": "意味上の候補のみ",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_saving": {
+    "message": "名前を付けて保存を要求しました。ブラウザーの完了通知を待っています…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_confirmed": {
+    "message": "ブラウザーがJSONのダウンロード完了を報告しました。ディスク上のバイト列の再検証は行っていません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_failure": {
+    "message": "ブラウザーはレポートのダウンロードを完了しませんでした。自動再試行はしていません。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unknown": {
+    "message": "ダウンロード結果は不明です。再試行前にダウンロード履歴を確認してください。リセットまたは再分析で保存を有効にできます。",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_first_observed": {
+    "message": "選択範囲で最初の取得",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_latest_observed": {
+    "message": "選択範囲で最新の取得",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_chronology_ambiguous": {
+    "message": "取得順序が不明確",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_graph_change": {
+    "message": "グラフ変更の証拠",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unique_evidence": {
+    "message": "固有の証拠",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_partial_capture": {
+    "message": "元データの部分取得",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_raw_only": {
+    "message": "RAWのみの復旧証拠",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unsupported_version": {
+    "message": "未対応の形式またはバージョン",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_integrity_unverified": {
+    "message": "整合性未検証",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_presentation_reference": {
+    "message": "表示ファイルの参照を保持",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_external_references_unassessed": {
+    "message": "外部からの参照は未確認",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_opaque_files": {
+    "message": "追加の未解析ファイルを保持",
+    "description": "Local analysis-only snapshot page"
+  },
   "extName": {
     "message": "Liska — AI Threadkeeper"
   },

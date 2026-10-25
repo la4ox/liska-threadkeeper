@@ -67,6 +67,37 @@ contain incoming capture-specific references outside the selected folders.
     timestamps, source pointers, URLs, diagnostics text, or native exception
     prose.
 
+## Local analysis page
+
+The first UI adapter remains analysis-only. A dedicated extension page accepts
+two to sixteen separately selected snapshot folders through repeated trusted
+directory picks. It snapshots each `FileList`, validates one common top-level
+folder segment, strips and immediately discards that segment, preserves every
+nested snapshot-relative file (including opaque extras), and completes the full
+count/path/size preflight before its first sequential byte read.
+
+The page has no settings or storage dependency, background/runtime message,
+network request, filesystem handle, source-file write, or mutation control.
+Selection changes invalidate old results; cancelled or rejected picker attempts
+do not. Cancellation is honest: it stops between native reads and hashes and
+discards stale results, but synchronous parsing and an active Web Crypto digest
+cannot stop instantly.
+
+Rendering uses only fixed localized labels plus ordinal/count/length/digest/code
+fields from the validated encoded plan. Folder/file names, source text and
+native exception prose never enter the DOM or logs. The exact encoder bytes can
+be saved only by a fresh trusted click to a fixed JSON filename with browser
+Save As. Download-ID assignment is not success: exact-ID completion is
+confirmed, interruption/no-start is failure, and timeout/channel/search
+uncertainty is `unknown` with no automatic retry. Confirmation is still a
+browser terminal event, not independent disk readback.
+
+The page is a private build entry with a restrictive `connect-src 'none'` CSP.
+Its analyzer/controller/selection/download/render chunk is not web-accessible;
+the only shared provider-accessible chunk is the existing pure ChatGPT
+normalizer/validator code genuinely used by both content extraction and replay.
+No manifest permission or host scope is added.
+
 ## Limits
 
 Hard ceilings are 16 snapshots, 256 files per snapshot, 1,024 total files,
@@ -80,6 +111,9 @@ allocations necessarily occur before the resulting graph/block counts exist.
 This is not a proof of zero transient allocation. Presentations, receipts,
 Markdown, DeepSeek, official exports, old writer versions, and external
 backlinks are intentionally unsupported in version 1 and force preservation.
+Installed directory-picker behavior, native Save As/Downloads callbacks,
+supported-browser portability and responsiveness near the selected-byte ceiling
+remain live verification gates. Synthetic headless rendering cannot prove them.
 
 ## Future mutation adapter
 

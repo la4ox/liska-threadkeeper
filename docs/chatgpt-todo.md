@@ -218,6 +218,12 @@ terminal states, and the existing no-credential-export boundary.
   mutation capability. ADR-043 records the contract. A filesystem/UI adapter,
   backlink coverage, preview, quarantine/undo and cleanup confirmation remain
   separate required slices.
+- Local analysis/report page implemented on `codex/snapshot-analysis-ui`:
+  repeated explicit folder picks, preflight-before-read, sequential cancellable
+  reads/hashes, content-free ordinal rendering and one honest Save As JSON
+  report. It has no cleanup controls or mutation capability. Installed
+  picker/Save As/Downloads behavior, browser portability and near-limit
+  responsiveness remain live gates before calling the adapter verified.
 - Consider manual/automatic backup orchestration only after manual capture and
   recovery paths are boringly reliable.
 
