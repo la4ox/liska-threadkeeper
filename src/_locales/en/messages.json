@@ -742,5 +742,113 @@
   "ui_branchPickerExportAllHelp": {
     "message": "Exporting all branches creates multiple local Markdown files. The full graph remains in one canonical archive.",
     "description": "Clarifies the local outputs created by the export-all branch picker action"
+  },
+  "settings_archiveTools": {
+    "message": "Archive Tools"
+  },
+  "settings_compareChatGptArchives": {
+    "message": "Compare ChatGPT archives"
+  },
+  "settings_compareChatGptArchivesHelp": {
+    "message": "Compare one web canonical snapshot with an official export locally"
+  },
+  "reconcile_openFailed": {
+    "message": "Could not open the archive comparison tool"
+  },
+  "reconcile_title": {
+    "message": "Compare ChatGPT archives — Liska"
+  },
+  "reconcile_heading": {
+    "message": "Compare ChatGPT archives"
+  },
+  "reconcile_intro": {
+    "message": "Reconcile one saved web canonical snapshot with the matching conversation in an official ChatGPT export. Everything is processed in this local extension page."
+  },
+  "reconcile_sources": {
+    "message": "Choose two read-only sources"
+  },
+  "reconcile_webCanonical": {
+    "message": "Web canonical snapshot"
+  },
+  "reconcile_webCanonicalHelp": {
+    "message": "Select canonical/liska-thread-1.json from an existing Liska web capture."
+  },
+  "reconcile_officialExport": {
+    "message": "Official conversations export"
+  },
+  "reconcile_officialExportHelp": {
+    "message": "Select the uncompressed conversations JSON file. Liska reads the whole stream but retains only the exact matching conversation."
+  },
+  "reconcile_boundary": {
+    "message": "What this tool will do"
+  },
+  "reconcile_boundaryLocal": {
+    "message": "Keep both selected files unchanged and process them locally."
+  },
+  "reconcile_boundaryExact": {
+    "message": "Match only the exact conversation ID declared by the web canonical snapshot."
+  },
+  "reconcile_boundaryBundle": {
+    "message": "Ask where to save one immutable ZIP. It always preserves official raw and manifest; canonical and comparison are included only when normalization succeeds."
+  },
+  "reconcile_saveLocation": {
+    "message": "A browser file selection does not grant write access to the source folder. Choose that folder in the Save As dialog if you want the bundle beside your snapshots."
+  },
+  "reconcile_run": {
+    "message": "Prepare and save bundle"
+  },
+  "reconcile_cancel": {
+    "message": "Cancel"
+  },
+  "reconcile_ready": {
+    "message": "Choose both files to begin."
+  },
+  "reconcile_missingFiles": {
+    "message": "Choose both JSON files first."
+  },
+  "reconcile_readingWeb": {
+    "message": "Reading and validating the web canonical snapshot…"
+  },
+  "reconcile_scanningOfficial": {
+    "message": "Scanning the official export for the exact conversation…"
+  },
+  "reconcile_buildingBundle": {
+    "message": "Building the immutable reconciliation ZIP…"
+  },
+  "reconcile_waitingSave": {
+    "message": "Choose where to save the reconciliation ZIP."
+  },
+  "reconcile_saved": {
+    "message": "The browser confirmed that the reconciliation bundle was saved."
+  },
+  "reconcile_savedRawOnly": {
+    "message": "The browser confirmed a raw-only recovery bundle. No canonical comparison was claimed."
+  },
+  "reconcile_cancelled": {
+    "message": "Reconciliation cancelled. No output was dispatched."
+  },
+  "reconcile_failed": {
+    "message": "Reconciliation failed. The selected source files were not changed."
+  },
+  "reconcile_downloadUnknown": {
+    "message": "The download started, but completion could not be confirmed. Do not retry until you check the browser download."
+  },
+  "reconcile_downloadInterrupted": {
+    "message": "The browser reported that the reconciliation download was interrupted."
+  },
+  "reconcile_downloadNotStarted": {
+    "message": "The Save As operation was cancelled or the browser could not start the download."
+  },
+  "reconcile_resultNormalized": {
+    "message": "The ZIP contains the exact official excerpt, manifest, canonical snapshot, comparison report, and bundle manifest."
+  },
+  "reconcile_resultRawOnly": {
+    "message": "The ZIP contains the verified official excerpt, its manifest, and a raw-only bundle manifest."
+  },
+  "reconcile_resultBundleId": {
+    "message": "Bundle ID"
+  },
+  "reconcile_resultSavedAs": {
+    "message": "Browser-confirmed file"
   }
 }

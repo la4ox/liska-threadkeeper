@@ -55,6 +55,9 @@ const chromeMock = {
       removeListener: vi.fn(),
     },
   },
+  tabs: {
+    create: vi.fn(() => Promise.resolve({ id: 1 } as chrome.tabs.Tab)),
+  },
   // For clipboard operations via offscreen document
   offscreen: {
     createDocument: vi.fn(() => Promise.resolve()),

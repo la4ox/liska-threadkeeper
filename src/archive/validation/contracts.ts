@@ -12,6 +12,8 @@ export interface ArchiveValidationIssue {
 export interface ArchiveValidationResult {
   valid: boolean;
   issues: ArchiveValidationIssue[];
+  /** Present only when the bounded validator stopped after its issue ceiling. */
+  truncated?: true;
 }
 
 export type UnknownRecord = Record<string, unknown>;

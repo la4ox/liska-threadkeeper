@@ -305,10 +305,18 @@ terminal states, and the existing no-credential-export boundary.
   without capture IDs, so concatenating provenance across snapshots would be
   ambiguous. Do not infer equality from title, timestamp, filename, archive ID,
   or current-branch Markdown.
-- Next slice: an explicit user-selected local flow for official import plus a
-  durable bounded comparison artifact beside both unchanged source snapshots.
-  Browser file picker, export ZIP discovery, external binary import, archive
-  merge, and snapshot deduplication remain later explicit slices.
+- Local File flow implemented: the popup opens a dedicated extension page with
+  two read-only JSON inputs; the exact web conversation ID selects one official
+  conversation, and one deterministic Save As ZIP preserves official raw,
+  manifest, canonical, comparison, and a root bundle manifest. Canonical refusal
+  produces an explicit raw-only recovery ZIP rather than false success.
+- The selected web bytes are bound by exact length/SHA-256; source filenames and
+  paths never enter bundle metadata. Because file selection grants no write
+  authority, the user chooses physical same-folder placement in Save As.
+- Browser export-ZIP discovery, external binary import, archive merge, snapshot
+  deduplication, and Obsidian bundle delivery remain later explicit slices.
+  Obsidian must use immutable per-artifact readback receipts, not Markdown append
+  or rewritten official paths.
 
 ### 9. Adjacent provider: Dots chat export
 
@@ -367,11 +375,11 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Finish the compare-only cross-format core PR, then add an explicit local delivery
-flow: the user selects an official export and an existing web canonical snapshot,
-the exact-ID comparator runs under its current hard ceilings, and a separate
-content-free report is durably written beside both unchanged source snapshots.
-Keep archive merge/deduplication, the 1 GiB source-work refusal, real staged
-
-> 16 MiB gate, fetched same-title destination naming, custom-GPT/project
-> binaries, and the archived Library WebP as separate evidence-gated work.
+The fresh exact current-main reconciliation-delivery candidate passed its
+user-owned Save As canary: every ZIP entry reconciled against the root manifest,
+the official artifact matched one exact source slice, and no unrelated
+conversation payload was retained. Merge the File slice, then rebase/reverify
+the already implemented Obsidian and multi-shard candidates. Keep archive
+merge/cleanup, export-ZIP discovery, the 1 GiB source-work refusal, real staged
+`>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
+binaries, and the archived Library WebP as separate evidence-gated work.

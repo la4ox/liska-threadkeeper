@@ -160,6 +160,15 @@
       bytes leave it only for a durable local output you selected. Exact stages are removed after
       confirmed output, while interrupted remnants are eligible for bounded cleanup after 24 hours.
     </p>
+    <p>
+      The optional ChatGPT reconciliation page reads two files that you explicitly select: one
+      existing Liska web canonical snapshot and one uncompressed official conversations export. Both
+      remain read-only and are processed inside the extension page. Liska selects only the exact
+      conversation ID declared by the web snapshot, retains no source filename or local path in
+      bundle metadata, makes no network request, and asks where to save one local ZIP. A
+      normalization failure produces an explicitly marked raw-only recovery bundle instead of a
+      false comparison claim.
+    </p>
 
     <h2>Output Options</h2>
     <p>Conversations can be exported to three destinations:</p>
@@ -189,7 +198,7 @@
       </tr>
       <tr>
         <td>downloads</td>
-        <td>Save conversations as downloaded files</td>
+        <td>Save conversations and explicitly prepared reconciliation bundles as local files</td>
       </tr>
       <tr>
         <td>offscreen</td>

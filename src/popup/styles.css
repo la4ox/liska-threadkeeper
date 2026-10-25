@@ -405,6 +405,35 @@ select {
   gap: 4px;
 }
 
+.archive-tools {
+  margin-bottom: 12px;
+}
+
+.tool-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.archive-tools .tool-action + .tool-action {
+  margin-top: 6px;
+}
+
+.tool-action:hover,
+.tool-action:focus-visible {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+}
+
 /* Toggle row layout */
 .toggle-row {
   display: flex;

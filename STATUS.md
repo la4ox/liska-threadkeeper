@@ -2246,6 +2246,105 @@ suite passes 204 files / 6,809 tests; TypeScript plus the production build pass
 with 260 transformed modules. ESLint has zero errors and the unchanged three
 baseline warnings, while platform lint, Prettier, and `git diff --check` pass.
 
+## ChatGPT reconciliation local-delivery checkpoint
+
+Branch `codex/chatgpt-reconciliation-delivery` turns the merged official import
+and compare-only core into an explicit local File workflow. The popup opens a
+dedicated extension page rather than trying to keep a long 109 MiB stream alive
+inside the transient settings popup. The page accepts one existing web canonical
+JSON and one uncompressed official conversations JSON; neither source is
+modified, uploaded, discovered automatically, or matched by title/filename.
+
+The delivery core copies and caps web bytes before decode, rejects BOM, invalid
+UTF-8, malformed JSON, duplicate decoded keys, excessive depth/value work, and
+any archive except exactly one `chatgpt-web/1` ChatGPT input. Its exact provider
+conversation ID is the only official selector. Official bytes stream in bounded
+chunks through the complete-array importer. Normalized output contains exact
+official raw, official manifest, official canonical, a content-free comparison
+envelope, and a root `liska-chatgpt-reconciliation-bundle/1` manifest. Raw-only
+normalization failure preserves exact raw+manifest+root manifest and makes no
+comparison claim.
+
+The selected web file is bound by exact original byte length/SHA-256. The root
+manifest excludes itself; its exact byte hash is the opaque bundle ID, while the
+conversation path key is a hash of the provider ID. Fixed artifact paths, per-
+artifact and aggregate hard ceilings, sequential sanitized hashes, and owned
+bytes preserve deterministic append-only evidence without importing source
+filenames, local paths, titles, message text, source references, extensions, or
+diagnostic prose into metadata.
+
+One deterministic ZIP32 STORE archive carries the ordered artifacts with CRC-32,
+UTF-8 names, fixed timestamps, and bounded output. One content-addressed Save As
+download distinguishes confirmed, interrupted, start-failed, and unconfirmed
+states; uncertain dispatch is never retried automatically and retains its Blob
+lease for bounded late-terminal cleanup. Cancellation stops local stream work
+before output. The UI explicitly explains that the user must choose a source
+folder in Save As because read-only file selection grants no write authority.
+
+Independent review reproduced two P2s: collect-all canonical validation could
+amplify a compact malformed graph into millions of issues before refusal, and a
+completion first observed by timeout reconciliation could race into a false
+`unknown`. Exact input cardinality plus node/block/asset/diagnostic ceilings now
+run before a one-issue bounded validator, and timeout reconciliation awaits the
+already-observed terminal item. Focused reproducers and the bounded independent
+recheck are clean with no remaining material finding.
+
+A content-free real core smoke streamed the existing 109,346,038-byte official
+export against the existing 4,401,278-byte web canonical file. It completed as
+normalized in about three seconds, producing five artifacts totaling 2,516,091
+bytes, a 402,891-byte comparison envelope, and a 2,516,775-byte ZIP with the root
+manifest last. Only content-free counts/sizes were logged and no filesystem
+output was created; exact private raw/canonical data remained inside the
+in-memory bundle. Local browser rendering confirms the desktop page and popup
+entry are readable. The exact 36-file candidate was copied byte-for-byte into the
+established Comet unpacked-extension directory after preserving its previous
+29-file tree at `CodexTools/liska-rollbacks/reconciliation-delivery-prelive-
+20261025-041110-0336d76`; eleven stale hashed assets were removed from the live
+tree and remain recoverable there. Comet confirmed extension reload and opened
+the candidate reconciliation page. Product policy reserves local extension-page
+file selection and Save As for the user, so that final write remains the live
+gate rather than an automated claim.
+
+The focused importer/comparator/delivery/UI set passes 8 files / 232 tests.
+The memory-bounded complete suite passes 208 files / 6,861 tests; TypeScript and
+the production build pass with 269 transformed modules. Source/platform lint has
+zero errors and the same three baseline warnings; Prettier and diff checks pass,
+and the production dependency audit reports zero vulnerabilities. Independent
+review and its bounded recheck are clean. The user-owned installed-extension
+file-selection/Save As completion remains before the live gate can be closed.
+
+The branch was later merged with current `main` after the final reading-
+Markdown, provider-compatibility and snapshot-analysis core/page slices landed.
+The combined popup keeps both Archive Tools entries, Vite emits both private
+reconciliation and snapshot-analysis pages, and the snapshot analyzer remains
+outside provider web-accessible resources. The integrated targeted matrix
+passes 16 files / 367 tests; the complete suite passes 219 files / 7,160 tests
+with two workers. TypeScript/build pass with 286 transformed modules, source/
+platform lint has zero errors and the same three warnings, formatting/diff and
+the built snapshot-page closure guard pass.
+
+The fresh production candidate was then installed with a recoverable 36-file
+rollback and verified byte-for-byte across all 40 current files. One user-owned
+run saved a 2,516,895-byte normalized reconciliation ZIP from the existing
+4,401,278-byte web canonical plus 109,346,038-byte official source. Independent
+verification passed signature/central directory, CRC, five ordered STORE
+entries, fixed timestamps, root-last ordering, root-hash filename binding and
+every artifact length/SHA. The 1,051,058-byte official excerpt exactly matched
+its declared source slice; manifest, canonical and comparison identities
+reconciled; the 402,939-byte content-free comparison copied no tested complete
+title/message payload strings and the ZIP retained no neighboring conversation
+entry. The File delivery live gate is closed; merge and stacked PR rebases are
+next.
+
+The final current-head Code Review also found a terminal-ordering P2 in the
+Save As observer: a `complete` event racing an older timeout search could wait
+on a second filename lookup while the stale `in_progress` result settled the
+caller as `unknown`. Event completion now becomes terminal synchronously with a
+nullable filename; search completion still retains the observed name. The
+strengthened regression holds all unexpected later searches pending, fails on
+the old code as `unknown`, and passes on the fix with exactly two searches and
+one cleanup. Independent bounded recheck found no remaining material issue.
+
 ## Final reading-Markdown persistence seam checkpoint
 
 Branch `codex/persistence-seam-evidence` converts the upstream 2.14.15 DES-019

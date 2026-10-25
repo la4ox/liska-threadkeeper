@@ -4,6 +4,7 @@ export * from './normalizers/chatgpt';
 export * from './normalizers/deepseek';
 export * from './importers/chatgpt-official';
 export * from './reconciliation/chatgpt';
+export * from './reconciliation/chatgpt-delivery';
 export * from './traverse';
 export * from './types';
 export * from './validate';

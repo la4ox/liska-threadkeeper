@@ -16,17 +16,6 @@
       </header>
 
       <main class="settings">
-        <section class="section">
-          <h2 data-i18n="snapshot_kicker">Liska · Archive tools</h2>
-          <a
-            class="btn secondary"
-            href="../snapshot-analysis/snapshot-analysis.html"
-            target="_blank"
-            rel="noopener"
-            data-i18n="snapshot_title"
-            >Compare local snapshots</a
-          >
-        </section>
         <!-- OUTPUT DESTINATIONS -->
         <section class="section">
           <h2 data-i18n="settings_outputDestinations">Output Destinations</h2>
@@ -64,6 +53,33 @@
               </span>
             </label>
           </div>
+        </section>
+
+        <section class="section archive-tools">
+          <h2 data-i18n="settings_archiveTools">Archive Tools</h2>
+          <button id="openReconciliationBtn" class="tool-action" type="button">
+            <span class="toggle-icon" aria-hidden="true">⚖️</span>
+            <span class="toggle-label">
+              <span data-i18n="settings_compareChatGptArchives">Compare ChatGPT archives</span>
+              <span class="toggle-sublabel" data-i18n="settings_compareChatGptArchivesHelp">
+                Compare one web canonical snapshot with an official export locally
+              </span>
+            </span>
+          </button>
+          <a
+            class="tool-action"
+            href="../snapshot-analysis/snapshot-analysis.html"
+            target="_blank"
+            rel="noopener"
+          >
+            <span class="toggle-icon" aria-hidden="true">🧭</span>
+            <span class="toggle-label">
+              <span data-i18n="snapshot_title">Compare local snapshots</span>
+              <span class="toggle-sublabel" data-i18n="snapshot_intro">
+                Inspect saved snapshots locally without changing them
+              </span>
+            </span>
+          </a>
         </section>
 
         <!-- EXTRACTION -->
