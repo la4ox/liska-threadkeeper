@@ -212,6 +212,18 @@ terminal states, and the existing no-credential-export boundary.
 - Design image-aware append behavior for existing Obsidian notes.
 - Add an explicit snapshot deduplicator; never replace immutable captures by
   default.
+- Pure analysis core implemented on `codex/snapshot-dedup-analysis`: explicit
+  selected bytes only, strict bounded JSON, exact raw/manifest/assets/canonical
+  replay, sparse preserve-only classifications, path-free reports and no
+  mutation capability. ADR-043 records the contract. A filesystem/UI adapter,
+  backlink coverage, preview, quarantine/undo and cleanup confirmation remain
+  separate required slices.
+- Local analysis/report page implemented on `codex/snapshot-analysis-ui`:
+  repeated explicit folder picks, preflight-before-read, sequential cancellable
+  reads/hashes, content-free ordinal rendering and one honest Save As JSON
+  report. It has no cleanup controls or mutation capability. Installed
+  picker/Save As/Downloads behavior, browser portability and near-limit
+  responsiveness remain live gates before calling the adapter verified.
 - Consider manual/automatic backup orchestration only after manual capture and
   recovery paths are boringly reliable.
 
@@ -367,12 +379,11 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Finish the local reconciliation delivery PR and complete one user-owned Save As
-canary in the already-loaded exact candidate extension. Verify every ZIP entry
-against the root manifest and prove that no unrelated official conversation was
-retained, then merge PR #51. Rebase the stacked Obsidian slice onto that main;
-after the user updates Local REST API from 5.1.0 to 5.5+, run create-only,
-collision, exact-readback, and cancellation canaries. Keep archive merge/
-deduplication, export-ZIP discovery, the 1 GiB source-work refusal, real staged
+The reconciliation File slice is merged and its exact Save As ZIP verified.
+Integrate and reverify the stacked Obsidian slice on current `main`; after the
+user updates Local REST API from 5.1.0 to 5.5+, run create-only, collision,
+exact-readback, cancellation and page-lifetime canaries. Then rebase/reverify
+the multi-shard candidate. Keep archive merge/cleanup, export-ZIP discovery,
+the 1 GiB source-work refusal, real staged
 `>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
 binaries, and the archived Library WebP as separate evidence-gated work.

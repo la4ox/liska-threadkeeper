@@ -25,6 +25,17 @@ The upstream manifest change in this range is version-only. There are no new
 permissions, host permissions, CSP entries, provider routes, or persistence
 protocols to port.
 
+## Retained provider compatibility ports
+
+The wider merge-base-to-2.14.15 audit also found one older Gemini behavior that
+was not present locally. Upstream `2c06dbe` records the 2026-09 live contract:
+an open named chat exposes `"<name> - Google Gemini"` in `document.title`.
+Liska now prefers the shared bounded page-title parser and retains the first
+query/default path for empty or product-only titles. No lazy sidebar selector,
+route, permission, identity, append, or archive contract changed. Synthetic
+standard/Gem title cases are covered; a current authenticated live page was not
+repeated for this port.
+
 ## NotebookLM dead citation fallback
 
 Upstream `f11d50d` removes `.xap-inline-dialog.citation-marker`: its October
@@ -32,11 +43,11 @@ Upstream `f11d50d` removes `.xap-inline-dialog.citation-marker`: its October
 `button.citation-marker:not(:has(mat-icon))` matched all current citations,
 including the new `citation-marker chat-bidi-enabled` class.
 
-Liska still carries the dead fallback, but runtime citation transformation uses
-`button.citation-marker` independently and retains stronger capability-bound
-footnote provenance. Liska also removed the authenticated live-E2E selector
-baseline that the upstream change unblocked. Removing the fallback is safe
-housekeeping with a current-class fixture, not a runtime or security fix.
+Liska's runtime citation transformation already used `button.citation-marker`
+independently and retains stronger capability-bound footnote provenance. The
+dead fallback is now removed and the current `citation-marker
+chat-bidi-enabled` shape is covered. This remains selector-baseline housekeeping,
+not a runtime or security fix; no authenticated live baseline was repeated.
 
 ## DES-019 final note-body HTML boundary
 
@@ -109,9 +120,33 @@ so a marker-shaped provider string receives no exception. Raw, manifest,
 canonical, canonical-derived HTML, destination receipts, append refusal, and
 physical-byte accounting are unchanged.
 
-This is the confirmed per-path port, not upstream's generic gate. Existing-note
-append-context repair, transformed-size policy, resolve-before-image ordering,
-and upstream diagnostics remain separate evidence-gated candidates.
+This is the confirmed per-path port, not upstream's generic gate.
 
-The NotebookLM selector removal may be taken later as an isolated maintenance
-commit. It should not displace the reproducer-led security work above.
+### Final-context evidence and local adaptation
+
+A second source-exact matrix then exercised the complete Deep Research body and
+the joined append body. On the unchanged runtime, 11 of 18 cases failed: an old
+open `<script>`, `<pre>`, comment, or Markdown fence activated or swallowed an
+independently safe tail, and Deep Research retained an automatic remote image
+plus private body/References links. Closed contexts and parser/forgery controls
+passed. This promoted append context and complete Deep Research composition from
+candidate risks to confirmed local gaps.
+
+The adaptation remains smaller than upstream DES-019:
+
+- the complete Deep Research reading body now uses Liska's existing structural
+  active-Markdown policy after References are composed;
+- a separate bounded, refusal-only mdast gate validates the exact joined append
+  context, owned marker positions, opaque nodes, and cross-seam CommonMark
+  reference bindings;
+- only the new tail is transformed, the existing body is not sanitized, and a
+  refusal is terminal with no write or overwrite fallback;
+- fixed diagnostics contain no titles, paths, URLs, or parser prose.
+
+ADR-042 records the contract. Upstream's generic parser dependency, UTF-16 note
+cap, diagnostics, and whole-writer replacement were not imported. Final
+serialized-size policy and preflight-before-image-write remain separate product
+decisions; the current tests characterize them without claiming atomicity.
+
+The two provider compatibility ports remain isolated from the reproducer-led
+security work above and introduce no permission or persistence change.

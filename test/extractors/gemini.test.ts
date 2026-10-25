@@ -30,6 +30,8 @@ describe('GeminiExtractor', () => {
   beforeEach(() => {
     extractor = new GeminiExtractor();
     clearFixture();
+    // clearFixture() wipes only <body>; title state belongs to <head>.
+    document.title = '';
   });
 
   afterEach(() => {
@@ -163,6 +165,41 @@ describe('GeminiExtractor', () => {
         <p class="query-text-line">Query text fallback</p>
       `);
       expect(extractor.getTitle()).toBe('Query text fallback');
+    });
+
+    it('prefers the generated chat name in document.title over the first query', () => {
+      setGeminiLocation('test123');
+      document.title = 'Named conversation - Google Gemini';
+      loadFixture('<p class="query-text-line">First query fallback</p>');
+
+      expect(extractor.getTitle()).toBe('Named conversation');
+    });
+
+    it('uses the generated document title on a named Gem conversation route', () => {
+      setGeminiGemLocation('60d5b0d7ce06', '221ddad4c4c30f69');
+      document.title = 'Named Gem conversation - Google Gemini';
+      loadFixture('<p class="query-text-line">Gem query fallback</p>');
+
+      expect(extractor.getTitle()).toBe('Named Gem conversation');
+    });
+
+    it.each(['Google Gemini', '  Google Gemini  ', ''])(
+      'falls back to the first query for product-only title %j',
+      title => {
+        setGeminiLocation('test123');
+        document.title = title;
+        loadFixture('<p class="query-text-line">First query fallback</p>');
+
+        expect(extractor.getTitle()).toBe('First query fallback');
+      }
+    );
+
+    it('truncates a document-title conversation name to the shared limit', () => {
+      setGeminiLocation('test123');
+      document.title = `${'b'.repeat(150)} | Google Gemini`;
+      loadFixture('<p class="query-text-line">short fallback</p>');
+
+      expect(extractor.getTitle()).toBe('b'.repeat(100));
     });
   });
 
@@ -403,6 +440,7 @@ describe('GeminiExtractor', () => {
       expect(result.data).toBeDefined();
       expect(result.data?.id).toBe('abc123def456');
       expect(result.data?.source).toBe('gemini');
+      expect(result.data?.title).toBe('Test Conversation');
       expect(result.data?.messages.length).toBe(2);
     });
 

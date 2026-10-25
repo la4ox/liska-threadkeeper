@@ -63,7 +63,7 @@ const settings: ExtensionSettings = {
   maxCalloutLines: 5,
 };
 
-/** Four messages, the second one long enough to be flattened. */
+/** Four messages; both assistant callouts are long enough to be flattened. */
 const BODY_LINES = [
   '> [!QUESTION] User',
   '> Hello',
@@ -75,7 +75,7 @@ const BODY_LINES = [
   '> Second question',
   '',
   '> [!NOTE] Claude',
-  '> Second answer',
+  ...Array.from({ length: 8 }, (_, i) => `> new answer line ${i}`),
 ];
 
 const note: ObsidianNote = {
@@ -139,6 +139,8 @@ describe('append: body transforms run before the line-ending restore (ADR-026)',
     // The rule itself: no transform is ever handed a CR.
     for (const [content] of vi.mocked(flattenLargeCallouts).mock.calls) {
       expect(content).not.toContain('\r');
+      expect(content).not.toContain('> answer line 0');
+      expect(content).toContain('> new answer line 0');
     }
   });
 
@@ -160,6 +162,9 @@ describe('append: body transforms run before the line-ending restore (ADR-026)',
 
     const written = mockClient.putFile.mock.calls[0][1] as string;
     expect(written).toContain('**Claude:**');
+    // Only the new tail is transformed: existing user-owned callouts survive.
+    expect(written).toContain('> [!NOTE] Claude\r\n> answer line 0');
+    expect(written).toContain('new answer line 0');
     expect(written).not.toMatch(/^\[!\w+\]/m);
   });
 

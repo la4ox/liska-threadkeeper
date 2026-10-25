@@ -65,6 +65,10 @@ export default defineConfig(({ command }) => {
         input: {
           offscreen: resolve(import.meta.dirname, 'src/offscreen/offscreen.html'),
           reconcile: resolve(import.meta.dirname, 'src/reconcile/index.html'),
+          snapshotAnalysis: resolve(
+            import.meta.dirname,
+            'src/snapshot-analysis/snapshot-analysis.html'
+          ),
         },
       },
     },

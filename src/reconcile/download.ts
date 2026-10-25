@@ -99,7 +99,7 @@ class DownloadSession {
   }
 
   private readonly onChanged = (delta: DownloadDeltaLike): void => {
-    if (delta.id === this.downloadId) void this.applyState(delta.state?.current);
+    if (delta.id === this.downloadId) this.applyState(delta.state?.current);
   };
 
   private dispatch(): void {
@@ -134,26 +134,25 @@ class DownloadSession {
     }
   }
 
-  private async finishComplete(observed?: DownloadItemLike): Promise<void> {
+  private finishComplete(observed?: DownloadItemLike): void {
     if (this.downloadId === undefined || this.terminal) return;
-    const item = observed ?? (await this.inspect());
     this.finish({
       status: 'confirmed',
       downloadId: this.downloadId,
-      observedFileName: observedName(item?.filename),
+      observedFileName: observedName(observed?.filename),
     });
   }
 
-  private async applyState(state: string | undefined, observed?: DownloadItemLike): Promise<void> {
+  private applyState(state: string | undefined, observed?: DownloadItemLike): void {
     if (this.downloadId === undefined || this.terminal) return;
-    if (state === 'complete') await this.finishComplete(observed);
+    if (state === 'complete') this.finishComplete(observed);
     if (state === 'interrupted')
       this.finish({ status: 'failed', downloadId: this.downloadId, error: 'interrupted' });
   }
 
   private async reconcile(): Promise<void> {
     const item = await this.inspect();
-    await this.applyState(item?.state, item);
+    this.applyState(item?.state, item);
   }
 
   private async onTimeout(): Promise<void> {

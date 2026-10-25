@@ -421,6 +421,11 @@ select {
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
+}
+
+.archive-tools .tool-action + .tool-action {
+  margin-top: 6px;
 }
 
 .tool-action:hover,

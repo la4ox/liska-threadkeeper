@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NotebookLMExtractor } from '../../src/content/extractors/notebooklm';
+import { SELECTORS as NOTEBOOKLM_SELECTORS } from '../../src/content/extractors/selectors/notebooklm';
 import { htmlToMarkdown } from '../../src/content/markdown';
 import {
   loadFixture,
@@ -60,6 +61,12 @@ describe('NotebookLMExtractor', () => {
       });
       expect(extractor.canExtract()).toBe(false);
     });
+  });
+
+  it('keeps the citation baseline on the current numbered button without a dead fallback', () => {
+    expect(NOTEBOOKLM_SELECTORS.citationMarker).toEqual([
+      'button.citation-marker:not(:has(mat-icon))',
+    ]);
   });
 
   // ========== Conversation ID ==========
@@ -198,7 +205,7 @@ describe('NotebookLMExtractor', () => {
               <paragraph-element-view>
                 <div class="paragraph is-rich-chat-ui normal">
                   <span>A big claim</span>
-                  <span><button class="xap-inline-dialog citation-marker"><span aria-label="1: First Source">1</span></button></span>
+                  <span><button class="citation-marker chat-bidi-enabled"><span aria-label="1: First Source">1</span></button></span>
                   <span>.</span>
                 </div>
               </paragraph-element-view>
@@ -285,8 +292,8 @@ describe('NotebookLMExtractor', () => {
               <paragraph-element-view>
                 <div class="paragraph is-rich-chat-ui normal">
                   <span>Sourced fact</span>
-                  <span><button class="xap-inline-dialog citation-marker"><span aria-label="2: Real Source">2</span></button></span>
-                  <span><button class="xap-inline-dialog citation-marker"><mat-icon>more_horiz</mat-icon></button></span>
+                  <span><button class="citation-marker chat-bidi-enabled"><span aria-label="2: Real Source">2</span></button></span>
+                  <span><button class="citation-marker chat-bidi-enabled"><mat-icon>more_horiz</mat-icon></button></span>
                   <span>.</span>
                 </div>
               </paragraph-element-view>

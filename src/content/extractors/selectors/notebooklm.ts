@@ -38,9 +38,11 @@ export const SELECTORS = {
 
   // Citation markers (inline source references)
   // Excludes "more citations" button via :not(:has(mat-icon))
+  // No fallback: `.xap-inline-dialog.citation-marker` stopped matching in
+  // 2026-10 when the live button gained `citation-marker chat-bidi-enabled`.
+  // A dead fallback makes the provider-wide selector baseline fail.
   citationMarker: [
     'button.citation-marker:not(:has(mat-icon))', // Numbered citation (HIGH)
-    '.xap-inline-dialog.citation-marker', // Alt class (MEDIUM)
   ],
 
   // Notebook title (in chat panel header)

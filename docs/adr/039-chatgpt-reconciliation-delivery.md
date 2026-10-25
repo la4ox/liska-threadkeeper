@@ -2,10 +2,10 @@
 
 ## Status
 
-Candidate. The explicit local File workflow, bounded delivery bundle, and
-content-free real core smoke are implemented. The exact candidate page is loaded
-in the installed extension; completing its user-owned file/Save As dialogs and
-an independent Obsidian bundle destination remain separate gates.
+Live-verified candidate. The explicit local File workflow, bounded delivery
+bundle, content-free core smoke, fresh byte-matched installed build and one
+user-owned file-selection/Save As canary are complete. The reviewed Obsidian and
+multi-shard candidates remain stacked separately.
 
 ## Context
 
@@ -108,10 +108,36 @@ and a timeout/completion race; cheap shape ceilings, bounded validation, awaited
 terminal reconciliation, and exact regressions closed both. The bounded recheck
 reported no remaining material finding.
 
+The final current-head review found one further ordering race: a browser
+`complete` event arriving while the timeout's older `in_progress` search was
+pending could start a second filename lookup and leave terminal state unset long
+enough for `unknown` to win. Event-observed completion now records terminal
+success synchronously with a nullable observed filename; search-observed
+completion still retains its filename. A delayed-search regression leaves every
+unexpected third lookup pending, reproduces `unknown` on the old implementation,
+and confirms exactly two searches plus one cleanup on the fixed path.
+
+After integrating current `main`, the exact 40-file production build was copied
+over the installed unpacked extension only after moving its previous 36-file
+tree into a recoverable rollback. All 40 installed files matched the candidate
+length and SHA-256. One trusted local run selected the existing 4,401,278-byte
+web canonical snapshot plus the 109,346,038-byte official conversations file
+and saved `liska-chatgpt-reconciliation-048ff5d8…d77abd.zip`.
+
+Independent local verification confirmed a 2,516,895-byte ZIP with five ordered
+STORE entries, fixed timestamps, valid CRCs and the root manifest last. The
+2,018-byte root manifest SHA-256 equals the filename bundle ID; all four
+artifact length/hash descriptors match exact entry bytes. The selected web
+receipt matches its original bytes. The 1,051,058-byte official conversation is
+the exact declared byte slice of the 109,346,038-byte source; its manifest,
+canonical input and comparison envelope bind the same conversation and manifest
+hash. The 402,939-byte comparison artifact uses the fixed envelope/core schemas
+and contains none of the complete title/message payload strings tested from
+either canonical archive. No neighboring official conversation bytes or extra
+ZIP entries were retained.
+
 ## Follow-up
 
-Complete one user-owned real Save As canary in the already-loaded exact candidate
-build. Verify ZIP signature, central directory, every manifest entry length/
-SHA-256, the content-free report boundary, and absence of unrelated conversation
-bytes. Only then add an Obsidian bundle writer as a separate reviewed destination
-contract.
+Merge this File slice, then rebase the separately reviewed Obsidian and
+multi-shard candidates onto its merged head and repeat only the live gates that
+their additional destinations/input modes require.
