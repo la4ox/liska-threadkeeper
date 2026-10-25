@@ -21,6 +21,10 @@ import {
 } from '../lib/append-utils';
 import { applyLineEnding } from '../lib/frontmatter-parser';
 import {
+  finalizeAppendReadingMarkdown,
+  type FinalMarkdownMarkerRange,
+} from '../lib/final-markdown-gate';
+import {
   classifyNoteProbe,
   hasImmutableArchivePresentationFields,
   isAppendEligibleConversation,
@@ -31,7 +35,11 @@ import { flattenLargeCallouts } from '../lib/callout-flatten';
 import { base64ToBytes } from '../lib/image-utils';
 import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
-import { extractTailMessages } from '../lib/message-counter';
+import {
+  extractTailMessages,
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+} from '../lib/message-counter';
 import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../lib/constants';
 import { isStagedBinaryAssetDescriptor } from '../lib/binary-asset-contract';
 import {
@@ -538,8 +546,59 @@ function isAppendModeEligible(settings: ExtensionSettings, note: ObsidianNote): 
 }
 
 /**
+ * Derive marker authority only after the owned new tail has finished transforming.
+ * The composer reserves provider copies; every real new message must retain one
+ * exact full-line sentinel, and the final parser must still see it structurally.
+ */
+function appendedMarkerRanges(
+  tail: string,
+  appendFrom: number,
+  expectedCount: number
+): FinalMarkdownMarkerRange[] {
+  const ranges: FinalMarkdownMarkerRange[] = [];
+  let messageCount = 0;
+  let formatCount = 0;
+  let start = 0;
+  while (start < tail.length) {
+    const nextBreak = tail.indexOf('\n', start);
+    const end = nextBreak < 0 ? tail.length : nextBreak;
+    const line = tail.slice(start, end);
+    if (line === MESSAGE_BOUNDARY_MARKER) {
+      messageCount += 1;
+      ranges.push({ start: appendFrom + start, end: appendFrom + end });
+      if (messageCount > expectedCount) throw new AppendBoundaryError();
+    } else if (line === MESSAGE_BOUNDARY_FORMAT_MARKER) {
+      formatCount += 1;
+      if (start !== 0 || formatCount > 1) throw new AppendBoundaryError();
+      ranges.push({ start: appendFrom + start, end: appendFrom + end });
+    }
+    start = end + 1;
+  }
+  if (messageCount !== expectedCount) throw new AppendBoundaryError();
+  return ranges;
+}
+
+function prepareAppendWrite(
+  appendResult: NonNullable<ReturnType<typeof buildAppendContent>>,
+  settings: ExtensionSettings
+) {
+  // Transform only the new LF tail: the existing body is user-owned. Check
+  // the exact joined context before restoring the original EOL (ADR-026).
+  const tail = maybeFlatten(appendResult.newMessages, settings);
+  const prefix = `${appendResult.existingBody}\n\n`;
+  const finalized = finalizeAppendReadingMarkdown(prefix + tail, {
+    appendFrom: prefix.length,
+    requiredMarkerRanges: appendedMarkerRanges(tail, prefix.length, appendResult.messagesAppended),
+  });
+  return finalized.ok
+    ? { ok: true as const, content: `${appendResult.updatedFrontmatter}\n${finalized.body}` }
+    : finalized;
+}
+
+/**
  * Try to append new messages to an existing file.
- * Returns a SaveResponse on success, or null to fall through to overwrite.
+ * Returns null only when append is ineligible or lookup misses. Existing-note
+ * safety/read failures return a terminal failure and never fall through.
  */
 async function tryAppendMode(
   client: ObsidianApiClient,
@@ -576,13 +635,9 @@ async function tryAppendMode(
 
     const appendResult = buildAppendContent(lookup.content, note, settings);
     if (appendResult !== null) {
-      // Flatten first, restore the file's own line ending last (ADR-026).
-      // Reversing these two hands `flattenLargeCallouts()` lines ending in
-      // '\r', which its header pattern cannot match past — the callout label
-      // was dropped and a raw `[!TYPE] Label` left in the body, which in turn
-      // made the message invisible to countExistingMessages() (#406, #407).
-      const flattened = maybeFlatten(appendResult.content, settings);
-      await client.putFile(lookup.path, applyLineEnding(flattened, appendResult.eol));
+      const finalized = prepareAppendWrite(appendResult, settings);
+      if (!finalized.ok) return { success: false, error: finalized.code };
+      await client.putFile(lookup.path, applyLineEnding(finalized.content, appendResult.eol));
       return { success: true, isNewFile: false, messagesAppended: appendResult.messagesAppended };
     }
     return { success: true, isNewFile: false, messagesAppended: 0 };
@@ -629,7 +684,7 @@ function withAppendImageWarning(
  *
  * When append mode is enabled and the file already exists,
  * only new messages are appended while preserving existing content.
- * Falls back to full overwrite if append fails.
+ * A lookup miss may save a fresh note; append safety/read failures are terminal.
  */
 export async function handleSave(
   settings: ExtensionSettings,

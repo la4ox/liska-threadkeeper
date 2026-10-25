@@ -2312,3 +2312,157 @@ zero errors and the same three baseline warnings; Prettier and diff checks pass,
 and the production dependency audit reports zero vulnerabilities. Independent
 review and its bounded recheck are clean. The user-owned installed-extension
 file-selection/Save As completion remains before the live gate can be closed.
+
+The branch was later merged with current `main` after the final reading-
+Markdown, provider-compatibility and snapshot-analysis core/page slices landed.
+The combined popup keeps both Archive Tools entries, Vite emits both private
+reconciliation and snapshot-analysis pages, and the snapshot analyzer remains
+outside provider web-accessible resources. The integrated targeted matrix
+passes 16 files / 366 tests; the complete suite passes 219 files / 7,159 tests
+with two workers. TypeScript/build pass with 286 transformed modules, source/
+platform lint has zero errors and the same three warnings, formatting/diff and
+the built snapshot-page closure guard pass. A fresh exact installed build and
+user-owned reconciliation Save As remain required before merge.
+
+## Final reading-Markdown persistence seam checkpoint
+
+Branch `codex/persistence-seam-evidence` converts the upstream 2.14.15 DES-019
+audit into local evidence and a narrow adaptation. On unchanged current main, a
+synthetic matrix produced 11 failures from 18 cases: an existing open
+`<script>`, `<pre>`, HTML comment, or Markdown fence could activate or swallow a
+separately safe append tail, while Deep Research retained a remote Markdown
+image and private body/References links after its separate converter path.
+Closed contexts, forged-marker reservation, parser failure, and literal HTML
+controls stayed safe.
+
+The complete Deep Research body now enters the existing structural
+active-Markdown policy after References are appended. Public citations remain
+active; private destinations and automatic remote images become literal; only
+captured-image-backed `g2o-image://` placeholders retain authority. The final
+body hash follows that transformation, and source conversation objects remain
+unchanged.
+
+Append now transforms only the extracted new tail. A separate refusal-only
+mdast gate parses the exact LF-normalized joined body before any PUT, validates
+the new tail's exact composer-owned marker positions, and rejects HTML/code
+contexts or effective CommonMark references that cross the seam. The old body
+is never sanitized. Failure returns one fixed value-free code, performs no note
+or binary write, and cannot fall through to a fresh overwrite. The existing
+LF/CRLF/lone-CR restoration contract remains last. Trusted and empty legacy
+zero-message notes append their first message with exactly one format marker.
+
+The gate bounds parser input at the existing 32 MiB content ceiling and tree
+work at 200,000 scheduled nodes. That is not a new durable-file-size promise;
+the initial parser allocation, Obsidian-specific footnote/plugin semantics, and
+network failure after binary image writes remain explicit limits. Raw,
+manifest, canonical, canonical-derived HTML, reconciliation, staged transport,
+and archive receipts are unchanged. ADR-042 records the boundary.
+
+Focused verification passes 9 files / 606 tests. The complete local suite
+passes 206 files / 6,920 tests with two workers. TypeScript and the production
+build pass with 261 transformed modules; source/platform lint has zero errors
+and the unchanged three advisory warnings; repository formatting and diff
+checks pass. Independent review found one low-reachability zero-count
+compatibility regression; it is fixed, covered in trusted/legacy forms, and the
+bounded recheck is clean. Actual Obsidian rendering was not repeated.
+
+## Upstream provider compatibility checkpoint
+
+Branch `codex/upstream-provider-small-fixes` applies two narrow behavior ports
+from the retained upstream audit without importing divergent extractor modules.
+Gemini now prefers its bounded generated conversation name from
+`document.title` and retains the first-query/default fallback for empty or
+product-only titles. NotebookLM drops the obsolete
+`.xap-inline-dialog.citation-marker` selector; the current numbered
+`button.citation-marker` shape, including `chat-bidi-enabled`, remains covered
+and the `mat-icon` more-citations button stays excluded.
+
+No route, conversation identity, permission, setting, destination, append,
+raw/canonical archive, or citation-provenance contract changed. The complete
+suite passes 206 files / 6,927 tests; the focused Gemini/NotebookLM/readiness
+set passes 3 files / 157 tests. A current authenticated provider page was not
+repeated, so live title and selector compatibility remain explicit rollout
+gates rather than inferred success.
+
+## Snapshot analysis-only core checkpoint
+
+Branch `codex/snapshot-dedup-analysis` implements the first explicit snapshot
+deduplication slice without granting any mutation authority. Callers supply two
+to sixteen exact byte inventories; the core synchronously detaches accepted
+views, strictly parses bounded JSON with duplicate-key rejection, recomputes
+every file hash/length, verifies current-writer ChatGPT web raw/manifest/fetched
+assets, replays canonical normalization, and emits a deterministic ordinal-only
+plan. There is no filesystem discovery, browser/UI route, delete, move,
+quarantine, rewrite, or safe-to-delete result.
+
+Every candidate relation carries `preserveBoth: true`. Exact complete inventory
+bytes can be `byte-identical`; equal raw with differing evidence remains
+`same-raw-different-evidence`; equal versioned canonical projections with
+different raw are advisory `semantic-candidate`; partial or unsupported exact
+matches remain `unverifiable`. Raw-only, partial, opaque/presentation-bearing,
+unsupported-version, integrity-failed, first/latest/tied chronology and graph-
+change snapshots receive explicit preservation reasons. Graph transitions are
+set-based inside timestamp ties and bridge raw-only/unverifiable gaps, including
+A→B→A reversions.
+
+Independent review found three material boundaries. The public inventory digest
+initially committed private/title-derived slot names; it now hashes only a
+sorted multiset of byte lengths and content digests while exact path equality
+stays internal. Tied graph changes initially depended on selection order, and
+raw-only snapshots could hide a later verified transition; timestamp graph sets
+and adjacent nonempty observations close both. Replay output now receives the
+same canonical ceilings before certification. The bounded final recheck is
+clean.
+
+Focused verification passes 7 files / 214 tests. The complete local suite
+passes 209 files / 7,028 tests with two workers. TypeScript and the production
+build pass with 268 transformed modules; source/platform lint has zero errors
+and the unchanged three advisory warnings; repository formatting and diff
+checks pass. Coverage before the final four regressions was 95.01% statements,
+92.21% branches, 100% functions and 97.34% lines for the new core. ADR-043
+records the current-writer-only, selected-inputs-only and trusted-hash limits.
+
+## Snapshot analysis local-page checkpoint
+
+Branch `codex/snapshot-analysis-ui` exposes the preserve-only core through a
+dedicated extension page rather than the transient settings popup. The user
+adds two to sixteen snapshot folders separately; each trusted selection is
+copied immediately, one common top-level folder segment is validated then
+discarded, nested slots and opaque extras remain intact, and the complete
+operation is preflighted before sequential reads. The page displays only
+ordinals, counts, measured bytes, fixed evidence labels/codes and content
+commitments. No folder/file name, source text, native exception, setting,
+credential, storage value or runtime message crosses the page boundary.
+
+Analysis/cancellation uses an operation epoch and AbortSignal. New accepted
+selections, removals and reset invalidate stale results; opening then cancelling
+the picker or submitting a rejected folder preserves the existing report and
+unknown-download observer. Web Crypto yields between hashes, while copy warns
+that active digest and synchronous parser work cannot stop instantly. Exact
+encoded plan bytes can be saved only by a trusted click. The page distinguishes
+confirmed exact-ID terminal completion, failure and unknown; unknown disables
+redispatch until a deliberate new analysis/reset, and stale callbacks consume
+`runtime.lastError` without exposing its message.
+
+The page imports no background/content/offscreen/storage/network or filesystem-
+mutation layer. A static popup link opens it independently of settings reads.
+The production build keeps the page/analyzer/controller chunk private; one
+shared WAR chunk contains only the pure ChatGPT normalizer/validators used by
+both replay and content extraction. Removing the otherwise unused snapshots
+re-export from the broad archive barrel made this closure explicit without
+manual chunk duplication or manifest/permission changes.
+
+Focused verification passes 9 files / 91 tests; the complete suite passes 215
+files / 7,107 tests with two workers. TypeScript and the production build pass
+with 277 transformed modules; source/platform lint has zero errors and the same
+three warnings; formatting, diff and the actual built-page closure guard pass.
+Independent review found two lifecycle P2s—picker-open/invalid selection erased
+valid state, and stale Save As callbacks could leave `runtime.lastError`
+unconsumed—plus effective-language accessibility drift. All are fixed and the
+fresh built artifact recheck is clean.
+
+An isolated synthetic Chrome render reached ready state at 1280 px and 390 px
+with no page errors, external requests, horizontal overflow or canary-name
+display. This is layout evidence only. Installed extension folder selection,
+native Save As/Downloads behavior, browser portability and near-limit
+responsiveness were not exercised and remain explicit live gates.

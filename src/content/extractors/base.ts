@@ -506,9 +506,9 @@ export abstract class BaseExtractor implements IConversationExtractor {
    * Extract conversation title from document.title, stripping platform suffixes.
    * Returns null if document.title is empty or contains only the platform name.
    *
-   * Useful as a fallback for platforms where document.title reflects the
-   * conversation title (Claude, ChatGPT, Perplexity). Not suitable for Gemini
-   * where document.title is always "Google Gemini".
+   * Used by platforms where document.title reflects the conversation name;
+   * product-only titles such as "Google Gemini" are rejected for a DOM/query
+   * fallback.
    */
   protected getPageTitle(): string | null {
     const raw = document.title?.replace(BaseExtractor.TITLE_SUFFIX_PATTERN, '').trim();

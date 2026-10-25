@@ -1,4 +1,240 @@
 {
+  "snapshot_title": {
+    "message": "Compare local snapshots",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_kicker": {
+    "message": "Liska · Archive tools",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_intro": {
+    "message": "Inspect saved snapshots without changing them. Add each snapshot folder separately, then compare the selected bytes locally.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_boundary": {
+    "message": "Analysis only — every snapshot stays.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_boundaryHelp": {
+    "message": "Even identical bytes do not authorize cleanup. Links outside your selection are not checked. This page cannot delete, move, or overwrite source files.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_supported": {
+    "message": "Current ChatGPT web snapshots only. Other formats, incomplete captures, and extra files remain preserved and may be unverifiable.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection": {
+    "message": "Your selection",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_analysis": {
+    "message": "Analysis",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_pick": {
+    "message": "Add snapshot folder",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_clear": {
+    "message": "Clear selection",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_remove": {
+    "message": "Remove from selection",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_analyze": {
+    "message": "Analyze snapshots",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_cancel": {
+    "message": "Cancel analysis",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_save": {
+    "message": "Save JSON report…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_limits": {
+    "message": "Choose 2–16 snapshot folders. Up to 256 files per folder, 1,024 files total, 64 MiB per file and 256 MiB total. Folder names and source text are not displayed.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_empty": {
+    "message": "No folders selected yet.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selected": {
+    "message": "Ready to analyze after at least two folders are selected.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_reading": {
+    "message": "Reading selected files…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_analyzing": {
+    "message": "Checking bytes, provenance, and canonical replay…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_ready": {
+    "message": "Analysis complete. No source files were changed.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_cancelled": {
+    "message": "Analysis cancelled. No report was saved.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_cancellationHelp": {
+    "message": "Cancel takes effect between reads and hashes; synchronous parsing cannot stop instantly. Peak memory can exceed selected file sizes.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_error": {
+    "message": "Analysis could not finish. No report was saved.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection_invalid": {
+    "message": "Choose a single snapshot folder with intact relative paths. This selection is invalid or ambiguous.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection_limit": {
+    "message": "The selection exceeds a file, folder, or byte limit. Choose a smaller set.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_selection_read_failed": {
+    "message": "A selected file could not be read completely. Select the folder again.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_directory_unavailable": {
+    "message": "This browser does not provide directory selection. No flat-file fallback is used.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_report": {
+    "message": "Analysis report",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_snapshots": {
+    "message": "Snapshot evidence",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_relations": {
+    "message": "Candidate relationships",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_noRelations": {
+    "message": "No comparable candidate relationships were found. Keep every snapshot.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_snapshot": {
+    "message": "Snapshot",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_files": {
+    "message": "files",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_bytes": {
+    "message": "bytes",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_read": {
+    "message": "read",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_verified": {
+    "message": "Verified byte consistency",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_partial": {
+    "message": "Partial evidence",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unverifiable": {
+    "message": "Unverifiable",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_digest": {
+    "message": "Content inventory SHA-256",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_keepBoth": {
+    "message": "Keep both",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_byte_identical": {
+    "message": "Byte-identical selected inventories",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_same_raw_different_evidence": {
+    "message": "Same raw bytes, different evidence",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_semantic_candidate": {
+    "message": "Semantic candidate only",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_saving": {
+    "message": "Save As requested. Waiting for browser completion…",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_confirmed": {
+    "message": "The browser reports the JSON download completed. Disk bytes were not independently reread.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_failure": {
+    "message": "The browser did not complete the report download. No automatic retry was made.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unknown": {
+    "message": "Download outcome is unknown. Check Downloads before any deliberate new attempt. Reset or analyze again to enable Save.",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_first_observed": {
+    "message": "First observed capture",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_latest_observed": {
+    "message": "Latest observed capture",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_chronology_ambiguous": {
+    "message": "Capture order is ambiguous",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_graph_change": {
+    "message": "Graph-change evidence",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unique_evidence": {
+    "message": "Unique evidence",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_partial_capture": {
+    "message": "Partial source capture",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_raw_only": {
+    "message": "Raw-only recovery evidence",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_unsupported_version": {
+    "message": "Unsupported format or version",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_integrity_unverified": {
+    "message": "Integrity not verified",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_presentation_reference": {
+    "message": "Presentation reference retained",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_external_references_unassessed": {
+    "message": "External links not assessed",
+    "description": "Local analysis-only snapshot page"
+  },
+  "snapshot_opaque_files": {
+    "message": "Additional opaque files retained",
+    "description": "Local analysis-only snapshot page"
+  },
   "extName": {
     "message": "Liska — AI Threadkeeper",
     "description": "Extension name shown in browser"
