@@ -14,6 +14,7 @@ import {
   countExistingMessages,
   extractTailMessages,
   hasTrustedMessageBoundaries,
+  MESSAGE_BOUNDARY_MARKER,
 } from './message-counter';
 import { formatDateWithTimezone } from './date-utils';
 import { containsPathTraversal, matchesVaultPathTemplate } from './path-utils';
@@ -71,6 +72,12 @@ interface AppendResult {
    * see {@link eol}.
    */
   content: string;
+  /** Updated LF frontmatter; the caller serializes it only after body acceptance. */
+  updatedFrontmatter: string;
+  /** Existing LF body. Tail transforms must never rewrite this prefix. */
+  existingBody: string;
+  /** Newly extracted LF messages, before destination-specific tail transforms. */
+  newMessages: string;
   /** Number of new messages appended */
   messagesAppended: number;
   /**
@@ -457,7 +464,7 @@ async function recursiveIdScan(
 
 /**
  * Build appended file content.
- * Returns null if no new messages to append or cannot parse existing content.
+ * Returns null only if there are no new messages. Untrusted input throws.
  */
 export function buildAppendContent(
   existingContent: string,
@@ -485,8 +492,20 @@ export function buildAppendContent(
 
   // 5. Extract tail messages from the new formatted body
   // (note.body is exactly what generateNoteContent would embed after the frontmatter)
-  const newMessages = extractTailMessages(note.body, existingCount);
+  let newMessages = extractTailMessages(note.body, existingCount);
   if (!newMessages) throw new AppendBoundaryError();
+
+  // `extractTailMessages(..., 0)` intentionally returns the complete freshly
+  // generated body, including its format declaration. Keep that declaration
+  // only when the existing body is empty/whitespace, where it becomes the
+  // first non-empty line and upgrades a legacy zero-message note. A trusted
+  // empty note already owns the declaration; a non-empty legacy note must stay
+  // legacy rather than gaining a declaration halfway through its body.
+  if (existingCount === 0 && hasTrustedMessageBoundaries(note.body) && parsed.body.trim() !== '') {
+    const firstMessage = newMessages.indexOf(MESSAGE_BOUNDARY_MARKER);
+    if (firstMessage < 0) throw new AppendBoundaryError();
+    newMessages = newMessages.slice(firstMessage);
+  }
 
   // 6. Update frontmatter fields
   const timezone = settings.templateOptions.timezone ?? 'UTC';
@@ -506,6 +525,9 @@ export function buildAppendContent(
 
   return {
     content,
+    updatedFrontmatter: updatedRaw,
+    existingBody: parsed.body,
+    newMessages,
     messagesAppended: newTotal - existingCount,
     eol: parsed.eol,
   };

@@ -3023,8 +3023,10 @@ describe('background/index', () => {
       await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
       const written = mockClient.putFile.mock.calls[0][1] as string;
 
-      // The label survives flattening…
-      expect(written).toContain('**Claude:**');
+      // Only the new tail may flatten; the entire existing CRLF body survives.
+      expect(written).toContain(
+        `---\r\n${bodyLines.slice(0, -3).join('\r\n')}\r\n\r\n${MESSAGE_BOUNDARY_MARKER}`
+      );
       // …no raw callout marker is left as body text…
       expect(written).not.toMatch(/^\[!\w+\]/m);
       // …and the file the user maintains as CRLF stays CRLF throughout (ADR-026).

@@ -24,7 +24,11 @@ import type {
 } from '../lib/types';
 import { formatDateWithTimezone } from '../lib/date-utils';
 import { getDateVariables } from '../lib/path-utils';
-import { MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER } from '../lib/message-counter';
+import {
+  MESSAGE_BOUNDARY_FORMAT_MARKER,
+  MESSAGE_BOUNDARY_MARKER,
+  neutralizeMessageBoundaryMarkers,
+} from '../lib/message-counter';
 
 // Re-exports (preserve existing import paths)
 export { htmlToMarkdown, escapeAngleBrackets, escapeUserText } from './markdown-rules';
@@ -184,19 +188,10 @@ export function conversationToNote(
     ...presentationFrontmatter(data.presentation),
   };
 
-  // Generate body - different format for Deep Research vs normal conversation
-  let body: string;
-
-  if (data.type === 'deep-research') {
-    // Deep Research: convert with links support (footnotes + References)
-    if (data.messages.length === 0) {
-      body = '';
-    } else {
-      body = convertDeepResearchContent(data.messages[0].content, data.links);
-    }
-  } else {
-    body = ordinaryConversationBody(data, options);
-  }
+  const body =
+    data.type === 'deep-research'
+      ? deepResearchBody(data)
+      : ordinaryConversationBody(data, options);
 
   // Generate filename and content hash
   const fileName = presentationFileName(
@@ -213,6 +208,19 @@ export function conversationToNote(
     ...(data.domHistoryLoad !== undefined && { domHistoryLoad: data.domHistoryLoad }),
     images: data.images ?? [],
   };
+}
+
+function deepResearchBody(data: ConversationData): string {
+  if (data.messages.length === 0) return '';
+  // References are appended after HTML conversion, so apply the reading
+  // policy only after the entire report is composed. Reports do not own
+  // message sentinels, including copies preserved inside literal code.
+  return neutralizeActiveProviderMarkdown(
+    neutralizeMessageBoundaryMarkers(
+      convertDeepResearchContent(data.messages[0].content, data.links)
+    ),
+    readingTrustedDestinations(data)
+  );
 }
 
 function formatConversationMessage(
