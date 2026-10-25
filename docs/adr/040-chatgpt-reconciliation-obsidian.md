@@ -3,8 +3,9 @@
 ## Status
 
 Candidate. The direct extension-page writer and synthetic fault matrix are
-implemented on top of ADR-039. Live create-only verification requires updating
-the installed Obsidian Local REST API from 5.1.0 to 5.5.0 or later.
+implemented on top of ADR-039. The installed Obsidian Local REST API has been
+updated to 5.5.2, and the production-core writer now has live positive,
+create-only collision, readback and cancellation evidence.
 
 ## Context
 
@@ -92,16 +93,35 @@ malformed delivery/settings/limits; hostile accessors/proxies/hashes; duplicate
 root keys; and absence of credentials, URL, vault path, or private text from
 receipts.
 
-The installed unauthenticated root currently reports service
-`Obsidian Local REST API`, self version `5.1.0`, Obsidian `1.14.4`. Consequently
-the new writer must and does refuse this installation before any vault path is
-read or written. This is negative live evidence for the version gate, not a live
-5.5+ write/readback proof.
+Before the update, the installed unauthenticated root reported service
+`Obsidian Local REST API`, self version `5.1.0`, and Obsidian `1.14.4`; the new
+writer correctly refused it before any vault path was read or written. After
+the update, both public and authenticated root reads reported self `5.5.2`, and
+the authenticated response was admitted.
+
+An exact-head local production-core canary used the same measured web canonical
+and 109,346,038-byte official source as ADR-039. The real API confirmed a
+normalized five-artifact snapshot totaling 2,516,236 bytes. Independent
+filesystem verification matched all descriptor lengths and SHA-256 values, the
+official source slice, canonical/comparison schemas, root hash/bundle ID and
+root-last timestamp. A deliberate live race made preflight report absent while
+the first conditional PUT targeted that existing snapshot; Local REST API
+returned 412, Liska reported `collision`, issued no readback or successor write,
+and left the original bytes unchanged. Cancellation after authenticated server
+admission stopped before any artifact-path request and created no attempt
+directory.
+
+The exact extension build and reconciliation page were reloaded in Comet. The
+browser controller cannot acquire `chrome-extension://`, so this evidence does
+not claim a repeated native file-picker/result-rendering or mid-request page-
+unload run. Those bindings remain covered by the integrated page tests; the
+live claim is deliberately limited to preparation, writer, real server,
+readback, atomic 412 and cancellation semantics.
 
 ## Follow-up
 
-After the user updates Local REST API to 5.5.0 or later, run two bounded live
-canaries: one normalized five-artifact snapshot and one deliberate collision.
-Verify exact readback hashes, root-last completion, 412 with zero overwrite, and
-honest UI after page cancellation/reload. Do not enable Obsidian by default until
-those gates pass.
+Keep Obsidian off by default. A future user-driven extension-page run may add
+native file-picker/result-rendering and actual page-unload evidence, but must not
+weaken or replace the verified direct writer contract. Revisit background
+survival only as a separate design; this slice intentionally requires the page
+to remain open.

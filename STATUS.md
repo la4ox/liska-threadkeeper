@@ -2396,6 +2396,32 @@ strengthened regression holds all unexpected later searches pending, fails on
 the old code as `unknown`, and passes on the fix with exactly two searches and
 one cleanup. Independent bounded recheck found no remaining material issue.
 
+After Local REST API was updated, both public and authenticated loopback root
+reads identified service `Obsidian Local REST API`, self `5.5.2`, and Obsidian
+`1.14.4`; the authenticated response was admitted without reading a vault path.
+An exact-head local production-core canary then prepared the same measured web/
+official pair and wrote one normalized five-artifact snapshot through the real
+API. The directory contained exactly 2,516,236 bytes: official excerpt,
+official manifest, official canonical, content-free comparison, then the
+2,023-byte root manifest. Independent filesystem verification matched every
+descriptor length/SHA-256, the exact source-file byte slice, canonical and
+comparison schemas, root hash/bundle ID `370691c6...3015`, and a strictly later
+root timestamp.
+
+The same live target then exercised the atomic race boundary: preflight was
+deliberately held at absent while the first create-only PUT targeted the
+existing artifact. Local REST API returned 412, Liska reported fixed code
+`collision`, performed no readback or successor write, and the original bytes
+remained hash-identical. A separate cancellation immediately after authenticated
+server admission stopped before the first artifact-path request and created no
+attempt directory. The writer/API positive, exact-readback, root-last, 412 and
+cancellation gates are therefore live-verified. The installed exact build and
+its reconciliation page were reloaded in Comet, but browser control cannot
+acquire `chrome-extension://`; this run does not claim a repeated native file-
+picker/result-rendering or mid-request page-unload canary. Those page bindings
+remain covered by the integrated offline suite rather than hidden as live
+evidence.
+
 ## Final reading-Markdown persistence seam checkpoint
 
 Branch `codex/persistence-seam-evidence` converts the upstream 2.14.15 DES-019

@@ -317,8 +317,12 @@ terminal states, and the existing no-credential-export boundary.
   explicit and off by default; it requires Local REST API 5.5+ atomic
   `If-None-Match: *`, preflights every fixed target, writes/readbacks each
   artifact sequentially, and commits the unchanged root manifest last. Any
-  uncertainty stops successors without retry or deletion. Installed 5.1.0 is
-  correctly refused before vault-path access; a 5.5+ live canary remains.
+  uncertainty stops successors without retry or deletion. Installed 5.1.0 was
+  correctly refused before vault-path access; after updating to 5.5.2, a real
+  normalized five-artifact writer/readback, root-last completion, deliberate
+  412/no-overwrite race and post-admission cancellation all passed. Native
+  `chrome-extension://` file-picker/result rendering and actual page unload are
+  not claimed by that direct production-core canary.
 - Browser export-ZIP discovery, external binary import, archive merge, and
   snapshot deduplication remain later explicit slices.
 
@@ -380,10 +384,12 @@ The ChatGPT block is ready to call broadly complete when:
 ## Exact next step
 
 The reconciliation File slice is merged and its exact Save As ZIP verified.
-The stacked Obsidian slice is integrated and locally reverified on current
-`main`. Update Local REST API from 5.1.0 to 5.5+, then run create-only,
-collision, exact-readback, cancellation and page-lifetime canaries. After that,
-rebase/reverify the multi-shard candidate. Keep archive merge/cleanup,
+The stacked Obsidian slice is integrated on current `main`; Local REST API 5.5.2
+and the direct production-core live canary close its writer/API create-only,
+collision, exact-readback, root-last and cancellation gates. Complete its
+current-head review/merge, then rebase and reverify the multi-shard candidate.
+Keep a user-driven extension-page file-picker/result/unload canary as honest
+follow-up evidence rather than blocking the already verified writer. Keep archive merge/cleanup,
 export-ZIP discovery, the 1 GiB source-work refusal, real staged
 `>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
 binaries, and the archived Library WebP as separate evidence-gated work.
