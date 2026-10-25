@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ChatGptOfficialImportError,
   importChatGptOfficialConversation,
+  importChatGptOfficialConversationSources,
 } from '../../src/archive/importers/chatgpt-official';
 import { validateLiskaThreadArchive } from '../../src/archive/validate';
 
@@ -342,5 +343,154 @@ describe('ChatGPT official export importer', () => {
       name: 'ChatGptOfficialImportError',
       code: 'hash-failed',
     });
+    const thrown = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('private provider detail');
+        },
+      }
+    );
+    await expect(
+      importChatGptOfficialConversation({
+        ...input(),
+        sha256: () => Promise.reject(thrown),
+      })
+    ).rejects.toEqual(new ChatGptOfficialImportError('hash-failed'));
+  });
+
+  it('snapshots import metadata before source awaits and rejects hostile accessors', async () => {
+    const getter = vi.fn(() => sha256);
+    const accessor = input();
+    Object.defineProperty(accessor, 'sha256', { get: getter });
+    await expect(importChatGptOfficialConversation(accessor)).rejects.toEqual(
+      new ChatGptOfficialImportError('invalid-import-input')
+    );
+    expect(getter).not.toHaveBeenCalled();
+
+    const request = input();
+    const originalBytes = encoder.encode(JSON.stringify([officialConversation()]));
+    request.chunks = (async function* () {
+      request.captureId = 'mutated-capture';
+      request.importedAt = '2030-01-01T00:00:00.000Z';
+      request.sha256 = async () => '0'.repeat(64);
+      yield originalBytes;
+    })();
+    const result = await importChatGptOfficialConversation(request);
+    expect(result.bundle.manifest.captureId).toBe('capture-chatgpt-official-0001');
+    expect(result.bundle.manifest.capturedAt).toBe('2026-10-25T00:00:00.000Z');
+
+    const thrown = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('private');
+        },
+      }
+    );
+    const hostile = new Proxy(input(), {
+      getPrototypeOf() {
+        throw thrown;
+      },
+    });
+    await expect(importChatGptOfficialConversation(hostile)).rejects.toEqual(
+      new ChatGptOfficialImportError('invalid-import-input')
+    );
+  });
+
+  it('imports one exact shard only after every supplied shard validates', async () => {
+    const consumed: number[] = [];
+    const source = (shardIndex: number, values: unknown[]) => ({
+      shardIndex,
+      chunks: (async function* () {
+        consumed.push(shardIndex);
+        yield encoder.encode(JSON.stringify(values));
+      })(),
+    });
+    const result = await importChatGptOfficialConversationSources({
+      sources: [
+        source(5, [{}, {}, officialConversation('last')]),
+        source(0, [officialConversation('first')]),
+        source(2, [officialConversation()]),
+      ],
+      conversationId: 'official-chat-1',
+      captureId: 'capture-chatgpt-official-shards',
+      importedAt: '2026-10-25T00:00:00.000Z',
+      sha256,
+    });
+    expect(consumed).toEqual([0, 2, 5]);
+    expect(result.status).toBe('normalized');
+    if (result.status !== 'normalized') return;
+    expect(result.selection).toMatchObject({
+      shardIndex: 2,
+      conversationIndex: 0,
+      ignoredEmptyRecordCount: 2,
+    });
+    expect(result.bundle.manifest.artifacts[0].source).toMatchObject({
+      kind: 'official-export-slice',
+      shardIndex: 2,
+      conversationIndex: 0,
+      ignoredEmptyRecordCount: 2,
+    });
+    expect(result.bundle.manifest.warnings).toContain(
+      'Official export contained 2 empty padding record(s); they were counted and ignored during identity validation.'
+    );
+    expect(result.archive.inputs[0].extensions).toMatchObject({
+      openai: {
+        officialExport: {
+          shardIndex: 2,
+          conversationIndex: 0,
+          ignoredEmptyRecordCount: 2,
+        },
+      },
+    });
+  });
+
+  it('creates no partial import when a later shard fails after the target', async () => {
+    await expect(
+      importChatGptOfficialConversationSources({
+        sources: [
+          {
+            shardIndex: 0,
+            chunks: chunked(encoder.encode(JSON.stringify([officialConversation()])), 7),
+          },
+          { shardIndex: 1, chunks: chunked(encoder.encode('[{"broken":}]'), 2) },
+        ],
+        conversationId: 'official-chat-1',
+        captureId: 'capture-chatgpt-official-shards',
+        importedAt: '2026-10-25T00:00:00.000Z',
+        sha256,
+      })
+    ).rejects.toMatchObject({ code: 'invalid-json' });
+  });
+
+  it('preserves raw-only semantics and shard provenance for a selected malformed graph', async () => {
+    const malformed = officialConversation();
+    delete (malformed.mapping['assistant-current'] as { parent?: string }).parent;
+    const result = await importChatGptOfficialConversationSources({
+      sources: [
+        { shardIndex: 3, chunks: chunked(encoder.encode(JSON.stringify([malformed])), 11) },
+      ],
+      conversationId: 'official-chat-1',
+      captureId: 'capture-chatgpt-official-shards',
+      importedAt: '2026-10-25T00:00:00.000Z',
+      sha256,
+    });
+    expect(result).toMatchObject({
+      status: 'raw-only',
+      failureCode: 'malformed-node-links',
+      selection: { shardIndex: 3 },
+      bundle: { manifest: { artifacts: [{ source: { shardIndex: 3 } }] } },
+    });
+  });
+
+  it('omits shard provenance from the legacy single-source manifest and canonical archive', async () => {
+    const result = await importChatGptOfficialConversation(input());
+    expect(result.bundle.manifest.artifacts[0].source).not.toHaveProperty('shardIndex');
+    if (result.status === 'normalized') {
+      expect(
+        (result.archive.inputs[0].extensions.openai as Record<string, unknown>).officialExport
+      ).not.toHaveProperty('shardIndex');
+    }
   });
 });

@@ -43,5 +43,6 @@
 - [ADR-038](adr/038-chatgpt-cross-format-reconciliation.md): compare-only web-vs-official canonical reconciliation
 - [ADR-039](adr/039-chatgpt-reconciliation-delivery.md): explicit local official-vs-web reconciliation and immutable File ZIP delivery
 - [ADR-040](adr/040-chatgpt-reconciliation-obsidian.md): atomic create-only Obsidian reconciliation snapshots with root-last readback
+- [ADR-041](adr/041-chatgpt-official-shards.md): aggregate-bounded exact-ID import across explicit official conversation shards
 - [ADR-042](adr/042-final-reading-markdown-boundary.md): final Deep Research and append-context isolation for derived Markdown
 - [ADR-043](adr/043-snapshot-analysis-only.md): exact-byte snapshot analysis with no mutation authority

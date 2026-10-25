@@ -1,8 +1,10 @@
 import {
-  CHATGPT_OFFICIAL_HARD_LIMITS,
+  CHATGPT_OFFICIAL_MULTI_HARD_LIMITS,
   importChatGptOfficialConversation,
+  importChatGptOfficialConversationSources,
+  type ChatGptOfficialConversationSource,
   type ChatGptOfficialImportResult,
-  type ChatGptOfficialSelectionLimits,
+  type ChatGptOfficialMultiSelectionLimits,
 } from '../../importers/chatgpt-official';
 import type { LiskaThreadArchive } from '../../types';
 import { validateLiskaThreadArchiveBounded } from '../../validate';
@@ -43,14 +45,15 @@ function fail(code: ChatGptReconciliationDeliveryErrorCode): never {
 }
 
 interface ResolvedLimits extends ChatGptReconciliationDeliveryLimits {
-  official: ChatGptOfficialSelectionLimits;
+  official: ChatGptOfficialMultiSelectionLimits;
   comparison: ChatGptComparisonLimits;
 }
 
 interface PreparedInput {
   webBytes: Uint8Array;
   web: LiskaThreadArchive;
-  officialChunks: AsyncIterable<Uint8Array>;
+  officialChunks?: AsyncIterable<Uint8Array>;
+  officialSources?: ChatGptOfficialConversationSource[];
   captureId: string;
   importedAt: string;
   sha256: PrepareChatGptReconciliationDeliveryInput['sha256'];
@@ -105,7 +108,7 @@ function resolveLimits(raw: unknown): ResolvedLimits {
     const { official, comparison, ...own } = overrides;
     return {
       ...numericLimits(own, CHATGPT_RECONCILIATION_DELIVERY_HARD_LIMITS, 0),
-      official: numericLimits(official, { ...CHATGPT_OFFICIAL_HARD_LIMITS }, 1),
+      official: numericLimits(official, { ...CHATGPT_OFFICIAL_MULTI_HARD_LIMITS }, 1),
       comparison: numericLimits(comparison, { ...CHATGPT_COMPARISON_HARD_LIMITS }, 0),
     };
   } catch {
@@ -187,11 +190,46 @@ function requireWebArchive(value: unknown, limits: ResolvedLimits): LiskaThreadA
   return value as LiskaThreadArchive;
 }
 
+function validChunks(value: unknown): value is AsyncIterable<Uint8Array> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] === 'function'
+  );
+}
+
+function snapshotOfficialSources(
+  value: unknown,
+  maximum: number
+): ChatGptOfficialConversationSource[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > maximum) fail('invalid-input');
+  const keys = Reflect.ownKeys(value);
+  if (keys.some(key => typeof key !== 'string') || keys.length !== value.length + 1)
+    fail('invalid-input');
+  return Array.from({ length: value.length }, (_, index) => {
+    const item = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!item || !('value' in item) || !item.value || typeof item.value !== 'object')
+      fail('invalid-input');
+    const source = dataRecord(item.value, 2);
+    if (
+      Object.keys(source).some(key => !['shardIndex', 'chunks'].includes(key)) ||
+      typeof source.shardIndex !== 'number' ||
+      !Number.isSafeInteger(source.shardIndex) ||
+      source.shardIndex < 0 ||
+      source.shardIndex > 999 ||
+      !validChunks(source.chunks)
+    )
+      fail('invalid-input');
+    return { shardIndex: source.shardIndex, chunks: source.chunks };
+  });
+}
+
 function prepare(input: PrepareChatGptReconciliationDeliveryInput): PreparedInput {
-  const data = dataRecord(input, 6);
+  const data = dataRecord(input, 7);
   const allowed = [
     'webCanonicalBytes',
     'officialChunks',
+    'officialSources',
     'captureId',
     'importedAt',
     'sha256',
@@ -210,12 +248,16 @@ function prepare(input: PrepareChatGptReconciliationDeliveryInput): PreparedInpu
     typeof data.captureId !== 'string' ||
     !PORTABLE_ID.test(data.captureId) ||
     !validImportedAt(data.importedAt) ||
-    typeof data.sha256 !== 'function' ||
-    !data.officialChunks ||
-    typeof data.officialChunks !== 'object' ||
-    typeof (data.officialChunks as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] !== 'function'
+    typeof data.sha256 !== 'function'
   )
     fail('invalid-input');
+  const hasChunks = data.officialChunks !== undefined;
+  const hasSources = data.officialSources !== undefined;
+  if (hasChunks === hasSources || (hasChunks && !validChunks(data.officialChunks)))
+    fail('invalid-input');
+  const officialSources = hasSources
+    ? snapshotOfficialSources(data.officialSources, limits.official.maxSources)
+    : undefined;
   const webBytes = new Uint8Array(sourceBytes);
   const web = requireWebArchive(
     parseWebCanonicalJson(webBytes, limits.maxWebJsonDepth, limits.maxWebJsonValues, fail),
@@ -227,7 +269,8 @@ function prepare(input: PrepareChatGptReconciliationDeliveryInput): PreparedInpu
     limits,
     captureId: data.captureId,
     importedAt: data.importedAt,
-    officialChunks: data.officialChunks as AsyncIterable<Uint8Array>,
+    ...(hasChunks && { officialChunks: data.officialChunks as AsyncIterable<Uint8Array> }),
+    ...(officialSources && { officialSources }),
     sha256: data.sha256 as PreparedInput['sha256'],
   };
 }
@@ -268,14 +311,23 @@ async function importOfficial(
   context: HashContext
 ): Promise<ChatGptOfficialImportResult> {
   try {
-    const result = await importChatGptOfficialConversation({
-      chunks: input.officialChunks,
+    const common = {
       conversationId: input.web.conversation.id,
       captureId: input.captureId,
       importedAt: input.importedAt,
       sha256: context.hash,
-      limits: input.limits.official,
-    });
+    };
+    const result = input.officialSources
+      ? await importChatGptOfficialConversationSources({
+          ...common,
+          sources: input.officialSources,
+          limits: input.limits.official,
+        })
+      : await importChatGptOfficialConversation({
+          ...common,
+          chunks: input.officialChunks!,
+          limits: (({ maxSources: _maxSources, ...limits }) => limits)(input.limits.official),
+        });
     context.assertHealthy();
     return result;
   } catch {
@@ -329,6 +381,10 @@ function officialReceipt(
       byteStart: selected.byteStart,
       byteEndExclusive: selected.byteEndExclusive,
       sourceByteLength: selected.sourceByteLength,
+      ...(selected.shardIndex !== undefined && { shardIndex: selected.shardIndex }),
+      ...(selected.ignoredEmptyRecordCount !== undefined && {
+        ignoredEmptyRecordCount: selected.ignoredEmptyRecordCount,
+      }),
     },
   };
 }

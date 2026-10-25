@@ -323,6 +323,20 @@ terminal states, and the existing no-credential-export boundary.
   412/no-overwrite race and post-admission cancellation all passed. Native
   `chrome-extension://` file-picker/result rendering and actual page unload are
   not claimed by that direct production-core canary.
+- Stacked multi-shard candidate implemented: legacy `conversations.json` remains
+  supported, while explicitly selected `conversations-NNN.json` files are sorted
+  and fully validated sequentially under shared 2 GiB / 100,000-record / 1,000-
+  source ceilings. Exact IDs are unique across the whole set; later shards cannot
+  be skipped after a match. Shard-local provenance retains only numeric index.
+- Three measured manifest-v1 exports consistently declare six shards `000…005`.
+  A real 477,261,486-byte six-shard smoke completed normalized in about 11.7 s.
+  Four literal `{}` padding records in shard 004 are counted, disclosed and
+  ignored only for identity validation; nonempty identity-free records still
+  fail closed. An exact installed-page run accepted six files and verified an
+  Obsidian-only snapshot; direct exact-head canaries separately close shuffled
+  ordering, later-shard cancellation with zero output, ZIP parity and omitted-
+  target refusal. Actual browser Cancel timing and invalid-extra-file refusal
+  remain focused-test-backed UI follow-ups, not live claims.
 - Browser export-ZIP discovery, external binary import, archive merge, and
   snapshot deduplication remain later explicit slices.
 
@@ -383,13 +397,13 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-The reconciliation File slice is merged and its exact Save As ZIP verified.
-The stacked Obsidian slice is integrated on current `main`; Local REST API 5.5.2
-and the direct production-core live canary close its writer/API create-only,
-collision, exact-readback, root-last and cancellation gates. Complete its
-current-head review/merge, then rebase and reverify the multi-shard candidate.
-Keep a user-driven extension-page file-picker/result/unload canary as honest
-follow-up evidence rather than blocking the already verified writer. Keep archive merge/cleanup,
+The File and Obsidian reconciliation slices are merged; the exact Save As ZIP
+and Local REST API 5.5.2 writer/API gates are verified. The rebased multi-shard
+candidate now has exact integrated tests/build, clean independent review,
+direct shuffled/cancellation/ZIP/omitted-target evidence and one installed
+six-file Obsidian run. Complete its current-head review/merge. Keep actual
+browser Cancel timing, invalid-extra-file refusal and page unload as honest UI
+follow-ups rather than repeating the already verified core/output paths. Keep archive merge/deduplication,
 export-ZIP discovery, the 1 GiB source-work refusal, real staged
 `>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
 binaries, and the archived Library WebP as separate evidence-gated work.

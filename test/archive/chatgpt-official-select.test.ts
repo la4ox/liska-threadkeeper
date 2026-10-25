@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   CHATGPT_OFFICIAL_HARD_LIMITS,
+  CHATGPT_OFFICIAL_MULTI_HARD_LIMITS,
   ChatGptOfficialSelectionError,
   type ChatGptOfficialSelectionErrorCode,
   type ChatGptOfficialSelectionLimits,
+  type ChatGptOfficialMultiSelectionLimits,
   type SelectChatGptOfficialConversationInput,
 } from '../../src/archive/importers/chatgpt-official/contracts';
-import { selectChatGptOfficialConversation } from '../../src/archive/importers/chatgpt-official/select';
+import {
+  selectChatGptOfficialConversation,
+  selectChatGptOfficialConversationSources,
+} from '../../src/archive/importers/chatgpt-official/select';
 
 const textEncoder = new TextEncoder();
 const encoder = {
@@ -57,6 +62,23 @@ async function refuses(
     name: 'ChatGptOfficialSelectionError',
     code,
     message: `ChatGPT official export selection failed (${code}).`,
+  });
+}
+
+function multi(
+  sources: Array<{ shardIndex: number; source: string | Uint8Array; sizes?: number[] }>,
+  options: { id?: string; limits?: Partial<ChatGptOfficialMultiSelectionLimits> } = {}
+) {
+  return selectChatGptOfficialConversationSources({
+    sources: sources.map(source => ({
+      shardIndex: source.shardIndex,
+      chunks: chunks(
+        typeof source.source === 'string' ? encoder.encode(source.source) : source.source,
+        source.sizes
+      ),
+    })),
+    conversationId: options.id ?? 'selected',
+    limits: options.limits,
   });
 }
 
@@ -447,5 +469,224 @@ describe('official ChatGPT exact-byte conversation selector', () => {
       expect(JSON.stringify(failure)).not.toContain('PRIVATE_');
       expect(Object.keys(failure).sort()).toEqual(['code', 'name']);
     }
+  });
+
+  it('sanitizes hostile thrown Proxy values without inspecting their prototype', async () => {
+    const thrown = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('PRIVATE_THROWN_SENTINEL');
+        },
+      }
+    );
+    const hostileChunks = (async function* () {
+      throw thrown;
+    })();
+    await expect(
+      selectChatGptOfficialConversation({
+        chunks: hostileChunks,
+        conversationId: 'selected',
+      })
+    ).rejects.toEqual(new ChatGptOfficialSelectionError('source-read-failed'));
+
+    const hostileInput = new Proxy(
+      { sources: [], conversationId: 'selected' },
+      {
+        getPrototypeOf() {
+          throw thrown;
+        },
+      }
+    );
+    await expect(selectChatGptOfficialConversationSources(hostileInput as never)).rejects.toEqual(
+      new ChatGptOfficialSelectionError('invalid-input')
+    );
+  });
+
+  describe('multi-shard selection', () => {
+    it('sorts shards, validates all of them, and keeps shard-local provenance', async () => {
+      const consumed: number[] = [];
+      const source = (shardIndex: number, text: string) => ({
+        shardIndex,
+        chunks: (async function* () {
+          consumed.push(shardIndex);
+          yield encoder.encode(text);
+        })(),
+      });
+      const first = `[${conversation('before')}]`;
+      const middle = `[ ${conversation('selected')}, ${conversation('middle-after')} ]`;
+      const last = `[${conversation('last')}]`;
+      const result = await selectChatGptOfficialConversationSources({
+        sources: [source(5, last), source(1, middle), source(0, first)],
+        conversationId: 'selected',
+      });
+      expect(consumed).toEqual([0, 1, 5]);
+      expect(result).toMatchObject({
+        conversationId: 'selected',
+        conversationIndex: 0,
+        sourcePointer: '/0',
+        sourceByteLength: encoder.encode(middle).length,
+        shardIndex: 1,
+      });
+      expect(result.byteStart).toBe(2);
+      expect(decoder.decode(result.bytes)).toBe(conversation('selected'));
+    });
+
+    it('rejects a malformed later shard and cross-shard target or unrelated duplicates', async () => {
+      await expect(
+        multi([
+          { shardIndex: 0, source: `[${conversation('selected')}]` },
+          { shardIndex: 1, source: `[${conversation('later')}] trailing` },
+        ])
+      ).rejects.toMatchObject({ code: 'invalid-json' });
+      await expect(
+        multi([
+          { shardIndex: 0, source: `[${conversation('selected')}]` },
+          { shardIndex: 1, source: new Uint8Array([0xff]) },
+        ])
+      ).rejects.toMatchObject({ code: 'invalid-utf8' });
+      for (const duplicate of ['selected', 'neighbor']) {
+        await expect(
+          multi([
+            {
+              shardIndex: 0,
+              source: `[${conversation('selected')},${conversation('neighbor')}]`,
+            },
+            {
+              shardIndex: 1,
+              source: `[${JSON.stringify({ conversation_id: duplicate, mapping: { root: {} } })}]`,
+            },
+          ])
+        ).rejects.toMatchObject({ code: 'duplicate-id' });
+      }
+    });
+
+    it('applies source-byte and conversation ceilings across shards', async () => {
+      const left = `[${conversation('selected')}]`;
+      const right = `[${conversation('other')}]`;
+      const total = encoder.encode(left).length + encoder.encode(right).length;
+      expect(
+        (
+          await multi(
+            [
+              { shardIndex: 0, source: left },
+              { shardIndex: 1, source: right },
+            ],
+            { limits: { maxSourceBytes: total, maxConversations: 2 } }
+          )
+        ).shardIndex
+      ).toBe(0);
+      await expect(
+        multi(
+          [
+            { shardIndex: 0, source: left },
+            { shardIndex: 1, source: right },
+          ],
+          { limits: { maxSourceBytes: total - 1 } }
+        )
+      ).rejects.toMatchObject({ code: 'source-limit' });
+      await expect(
+        multi(
+          [
+            { shardIndex: 0, source: left },
+            { shardIndex: 1, source: right },
+          ],
+          { limits: { maxConversations: 1 } }
+        )
+      ).rejects.toMatchObject({ code: 'conversation-count-limit' });
+    });
+
+    it('owns selected bytes while one mutable chunk buffer is reused across shards', async () => {
+      const scratch = new Uint8Array(5);
+      const reused = (text: string) =>
+        (async function* () {
+          const bytes = encoder.encode(text);
+          for (let offset = 0; offset < bytes.length; offset += scratch.length) {
+            const length = Math.min(scratch.length, bytes.length - offset);
+            scratch.fill(0);
+            scratch.set(bytes.subarray(offset, offset + length));
+            yield scratch.subarray(0, length);
+            scratch.fill(0xff);
+          }
+        })();
+      const exact = conversation('selected');
+      const result = await selectChatGptOfficialConversationSources({
+        sources: [
+          { shardIndex: 0, chunks: reused(`[${exact}]`) },
+          { shardIndex: 1, chunks: reused(`[${conversation('other')}]`) },
+        ],
+        conversationId: 'selected',
+      });
+      scratch.fill(0);
+      expect(result.bytes).toEqual(encoder.encode(exact));
+      expect(result.bytes.buffer).not.toBe(scratch.buffer);
+    });
+
+    it('supports empty shards, all-absent refusal, and strict source descriptors', async () => {
+      expect(
+        (
+          await multi([
+            { shardIndex: 0, source: '[]' },
+            { shardIndex: 2, source: `[${conversation('selected')}]` },
+          ])
+        ).shardIndex
+      ).toBe(2);
+      await expect(
+        multi([
+          { shardIndex: 0, source: '[]' },
+          { shardIndex: 1, source: `[${conversation('other')}]` },
+        ])
+      ).rejects.toMatchObject({ code: 'conversation-not-found' });
+      await expect(
+        selectChatGptOfficialConversationSources({ sources: [], conversationId: 'selected' })
+      ).rejects.toMatchObject({ code: 'invalid-input' });
+      await expect(
+        selectChatGptOfficialConversationSources({
+          sources: [
+            { shardIndex: 0, chunks: chunks(encoder.encode('[]')) },
+            { shardIndex: 0, chunks: chunks(encoder.encode('[]')) },
+          ],
+          conversationId: 'selected',
+        })
+      ).rejects.toMatchObject({ code: 'invalid-input' });
+      await expect(
+        selectChatGptOfficialConversationSources({
+          sources: [
+            { shardIndex: 0, chunks: chunks(encoder.encode('[]')) },
+            { shardIndex: 1, chunks: chunks(encoder.encode('[]')) },
+          ],
+          conversationId: 'selected',
+          limits: { maxSources: 1 },
+        })
+      ).rejects.toMatchObject({ code: 'source-count-limit' });
+      await expect(
+        multi([{ shardIndex: 0, source: `[${conversation('selected')}]` }], {
+          limits: { maxSources: CHATGPT_OFFICIAL_MULTI_HARD_LIMITS.maxSources + 1 },
+        })
+      ).rejects.toMatchObject({ code: 'invalid-input' });
+    });
+
+    it('counts exact empty-object padding but still refuses nonempty identity-free records', async () => {
+      const result = await multi([
+        { shardIndex: 0, source: `[${conversation('selected')}]` },
+        { shardIndex: 4, source: `[{}, {}, ${conversation('other')}]` },
+      ]);
+      expect(result).toMatchObject({ shardIndex: 0, ignoredEmptyRecordCount: 2 });
+      await expect(
+        multi([
+          { shardIndex: 0, source: `[${conversation('selected')}]` },
+          { shardIndex: 4, source: '[{"title":"not a conversation"}]' },
+        ])
+      ).rejects.toMatchObject({ code: 'malformed-id' });
+      await expect(
+        multi(
+          [
+            { shardIndex: 0, source: `[${conversation('selected')}]` },
+            { shardIndex: 4, source: '[{},{}]' },
+          ],
+          { limits: { maxConversations: 2 } }
+        )
+      ).rejects.toMatchObject({ code: 'conversation-count-limit' });
+    });
   });
 });

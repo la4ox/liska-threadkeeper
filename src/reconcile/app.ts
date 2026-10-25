@@ -4,7 +4,10 @@ import {
   type ChatGptReconciliationDelivery,
   type PrepareChatGptReconciliationDeliveryInput,
 } from '../archive/reconciliation/chatgpt-delivery';
-import { CHATGPT_OFFICIAL_HARD_LIMITS } from '../archive/importers/chatgpt-official';
+import {
+  CHATGPT_OFFICIAL_MULTI_HARD_LIMITS,
+  type ChatGptOfficialConversationSource,
+} from '../archive/importers/chatgpt-official';
 import { getMessage } from '../lib/i18n';
 import { sha256Hex } from '../lib/sha256';
 import { getSettingsOrThrow } from '../lib/storage';
@@ -13,6 +16,7 @@ import { writeReconciliationToObsidian, type ObsidianReconciliationWriteResult }
 import { createReconciliationZip } from './zip';
 
 const FILE_CHUNK_BYTES = 1024 * 1024;
+const SHARD_NAME = /^conversations-([0-9]{3})\.json$/;
 
 type StatusState = 'idle' | 'working' | 'success' | 'warning' | 'error';
 
@@ -59,6 +63,10 @@ function queryElements() {
 
 type ReconciliationElements = ReturnType<typeof queryElements>;
 
+type OfficialFileSelection =
+  | { mode: 'single'; file: File }
+  | { mode: 'shards'; files: Array<{ shardIndex: number; file: File }> };
+
 interface DestinationResults {
   file?: ReconciliationDownloadResult;
   obsidian?: ObsidianReconciliationWriteResult;
@@ -81,6 +89,37 @@ function initializeI18n(): void {
 
 function selectedFile(input: HTMLInputElement): File | undefined {
   return input.files?.item(0) ?? undefined;
+}
+
+function selectedFiles(input: HTMLInputElement): File[] {
+  const files = input.files;
+  if (!files) return [];
+  return Array.from({ length: files.length }, (_, index) => files.item(index)).filter(
+    (file): file is File => file !== null
+  );
+}
+
+function officialFileSelection(input: HTMLInputElement): OfficialFileSelection {
+  const files = selectedFiles(input);
+  if (files.length === 1 && files[0].name === 'conversations.json')
+    return { mode: 'single', file: files[0] };
+  if (files.length < 1 || files.length > CHATGPT_OFFICIAL_MULTI_HARD_LIMITS.maxSources)
+    throw new Error('official-source-count-invalid');
+  const seen = new Set<number>();
+  let totalBytes = 0;
+  const shards = files.map(file => {
+    const match = SHARD_NAME.exec(file.name);
+    if (!match) throw new Error('official-source-name-invalid');
+    const shardIndex = Number(match[1]);
+    if (seen.has(shardIndex)) throw new Error('official-source-duplicate');
+    seen.add(shardIndex);
+    totalBytes += file.size;
+    if (totalBytes > CHATGPT_OFFICIAL_MULTI_HARD_LIMITS.maxSourceBytes)
+      throw new Error('official-source-size-limit');
+    return { shardIndex, file };
+  });
+  shards.sort((left, right) => left.shardIndex - right.shardIndex);
+  return { mode: 'shards', files: shards };
 }
 
 function setStatus(elements: ReconciliationElements, key: string, state: StatusState): void {
@@ -145,7 +184,8 @@ async function readWebCanonical(file: File): Promise<Uint8Array> {
 }
 
 async function* streamOfficialFile(file: File, signal: AbortSignal): AsyncGenerator<Uint8Array> {
-  if (file.size > CHATGPT_OFFICIAL_HARD_LIMITS.maxSourceBytes) throw new Error('source-limit');
+  if (file.size > CHATGPT_OFFICIAL_MULTI_HARD_LIMITS.maxSourceBytes)
+    throw new Error('source-limit');
   for (let offset = 0; offset < file.size; offset += FILE_CHUNK_BYTES) {
     if (signal.aborted) throw new Error('cancelled');
     const end = Math.min(file.size, offset + FILE_CHUNK_BYTES);
@@ -157,19 +197,25 @@ async function* streamOfficialFile(file: File, signal: AbortSignal): AsyncGenera
 
 function inputFor(
   webBytes: Uint8Array,
-  officialFile: File,
+  official: OfficialFileSelection,
   signal: AbortSignal,
   dependencies: ReconciliationPageDependencies,
   captureId: string,
   importedAt: string
 ): PrepareChatGptReconciliationDeliveryInput {
-  return {
+  const base = {
     webCanonicalBytes: webBytes,
-    officialChunks: streamOfficialFile(officialFile, signal),
     captureId,
     importedAt,
     sha256: dependencies.sha256,
   };
+  if (official.mode === 'single')
+    return { ...base, officialChunks: streamOfficialFile(official.file, signal) };
+  const officialSources: ChatGptOfficialConversationSource[] = official.files.map(source => ({
+    shardIndex: source.shardIndex,
+    chunks: streamOfficialFile(source.file, signal),
+  }));
+  return { ...base, officialSources };
 }
 
 function finishStatus(
@@ -258,11 +304,11 @@ async function runReconciliation(
   controller: AbortController
 ): Promise<void> {
   const webFile = selectedFile(elements.web);
-  const officialFile = selectedFile(elements.official);
-  if (!webFile || !officialFile) {
+  if (!webFile || selectedFiles(elements.official).length === 0) {
     setStatus(elements, 'reconcile_missingFiles', 'error');
     return;
   }
+  const official = officialFileSelection(elements.official);
   const saveFile = elements.outputFile.checked;
   const saveObsidian = elements.outputObsidian.checked;
   if (!saveFile && !saveObsidian) {
@@ -276,7 +322,7 @@ async function runReconciliation(
   const delivery = await dependencies.prepare(
     inputFor(
       webBytes,
-      officialFile,
+      official,
       controller.signal,
       dependencies,
       `official-import-${dependencies.uuid()}`,
