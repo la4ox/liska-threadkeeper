@@ -8,3 +8,4 @@ export * from './traverse';
 export * from './types';
 export * from './validate';
 export * from './presentation';
+export * from './snapshots';

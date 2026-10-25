@@ -40,3 +40,4 @@
 - [ADR-035](adr/035-provider-markdown-rendering-safety.md): structural provider-Markdown policy and receipt-proven local links
 - [ADR-036](adr/036-canonical-html-presentation.md): pure canonical-derived HTML and destination-owned asset bindings
 - [ADR-042](adr/042-final-reading-markdown-boundary.md): final Deep Research and append-context isolation for derived Markdown
+- [ADR-043](adr/043-snapshot-analysis-only.md): exact-byte snapshot analysis with no mutation authority

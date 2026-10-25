@@ -212,6 +212,12 @@ terminal states, and the existing no-credential-export boundary.
 - Design image-aware append behavior for existing Obsidian notes.
 - Add an explicit snapshot deduplicator; never replace immutable captures by
   default.
+- Pure analysis core implemented on `codex/snapshot-dedup-analysis`: explicit
+  selected bytes only, strict bounded JSON, exact raw/manifest/assets/canonical
+  replay, sparse preserve-only classifications, path-free reports and no
+  mutation capability. ADR-043 records the contract. A filesystem/UI adapter,
+  backlink coverage, preview, quarantine/undo and cleanup confirmation remain
+  separate required slices.
 - Consider manual/automatic backup orchestration only after manual capture and
   recovery paths are boringly reliable.
 

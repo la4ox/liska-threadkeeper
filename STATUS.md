@@ -2305,3 +2305,41 @@ suite passes 206 files / 6,927 tests; the focused Gemini/NotebookLM/readiness
 set passes 3 files / 157 tests. A current authenticated provider page was not
 repeated, so live title and selector compatibility remain explicit rollout
 gates rather than inferred success.
+
+## Snapshot analysis-only core checkpoint
+
+Branch `codex/snapshot-dedup-analysis` implements the first explicit snapshot
+deduplication slice without granting any mutation authority. Callers supply two
+to sixteen exact byte inventories; the core synchronously detaches accepted
+views, strictly parses bounded JSON with duplicate-key rejection, recomputes
+every file hash/length, verifies current-writer ChatGPT web raw/manifest/fetched
+assets, replays canonical normalization, and emits a deterministic ordinal-only
+plan. There is no filesystem discovery, browser/UI route, delete, move,
+quarantine, rewrite, or safe-to-delete result.
+
+Every candidate relation carries `preserveBoth: true`. Exact complete inventory
+bytes can be `byte-identical`; equal raw with differing evidence remains
+`same-raw-different-evidence`; equal versioned canonical projections with
+different raw are advisory `semantic-candidate`; partial or unsupported exact
+matches remain `unverifiable`. Raw-only, partial, opaque/presentation-bearing,
+unsupported-version, integrity-failed, first/latest/tied chronology and graph-
+change snapshots receive explicit preservation reasons. Graph transitions are
+set-based inside timestamp ties and bridge raw-only/unverifiable gaps, including
+A→B→A reversions.
+
+Independent review found three material boundaries. The public inventory digest
+initially committed private/title-derived slot names; it now hashes only a
+sorted multiset of byte lengths and content digests while exact path equality
+stays internal. Tied graph changes initially depended on selection order, and
+raw-only snapshots could hide a later verified transition; timestamp graph sets
+and adjacent nonempty observations close both. Replay output now receives the
+same canonical ceilings before certification. The bounded final recheck is
+clean.
+
+Focused verification passes 7 files / 214 tests. The complete local suite
+passes 209 files / 7,028 tests with two workers. TypeScript and the production
+build pass with 268 transformed modules; source/platform lint has zero errors
+and the unchanged three advisory warnings; repository formatting and diff
+checks pass. Coverage before the final four regressions was 95.01% statements,
+92.21% branches, 100% functions and 97.34% lines for the new core. ADR-043
+records the current-writer-only, selected-inputs-only and trusted-hash limits.
