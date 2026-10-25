@@ -58,7 +58,7 @@ describe('downloadReconciliationZip', () => {
     await expect(pending).resolves.toEqual({
       status: 'confirmed',
       downloadId: 7,
-      observedFileName: 'chosen.zip',
+      observedFileName: null,
     });
     expect(h.downloads.download).toHaveBeenCalledWith(
       {
@@ -193,6 +193,46 @@ describe('downloadReconciliationZip', () => {
     });
     expect(h.downloads.search).toHaveBeenCalledTimes(2);
     expect(h.objectUrls.revokeObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it('does not let an older timeout search downgrade a concurrent complete event', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    let resolveTimeoutSearch!: (
+      value: Array<{ id: number; state: string; filename?: string }>
+    ) => void;
+    const timeoutSearch = new Promise<Array<{ id: number; state: string; filename?: string }>>(
+      resolve => {
+        resolveTimeoutSearch = resolve;
+      }
+    );
+    const unexpectedSearch = new Promise<Array<{ id: number; state: string }>>(() => {});
+    vi.mocked(h.downloads.search)
+      .mockResolvedValueOnce([{ id: 13, state: 'in_progress' }])
+      .mockReturnValueOnce(timeoutSearch)
+      .mockReturnValue(unexpectedSearch);
+    const pending = downloadReconciliationZip({
+      bytes: ZIP,
+      bundleId: BUNDLE_ID,
+      downloads: h.downloads,
+      runtime: {},
+      objectUrls: h.objectUrls,
+      terminalTimeoutMs: 10,
+      deferredCleanupMs: 100,
+    });
+    h.callback(13);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(10);
+    h.change(13, 'complete');
+    resolveTimeoutSearch([{ id: 13, state: 'in_progress' }]);
+
+    await expect(pending).resolves.toEqual({
+      status: 'confirmed',
+      downloadId: 13,
+      observedFileName: null,
+    });
+    expect(h.objectUrls.revokeObjectURL).toHaveBeenCalledOnce();
+    expect(h.downloads.search).toHaveBeenCalledTimes(2);
   });
 
   it('rejects malformed bundle IDs, ZIP bytes and raised timeouts before dispatch', async () => {

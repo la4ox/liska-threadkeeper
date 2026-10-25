@@ -2318,7 +2318,7 @@ Markdown, provider-compatibility and snapshot-analysis core/page slices landed.
 The combined popup keeps both Archive Tools entries, Vite emits both private
 reconciliation and snapshot-analysis pages, and the snapshot analyzer remains
 outside provider web-accessible resources. The integrated targeted matrix
-passes 16 files / 366 tests; the complete suite passes 219 files / 7,159 tests
+passes 16 files / 367 tests; the complete suite passes 219 files / 7,160 tests
 with two workers. TypeScript/build pass with 286 transformed modules, source/
 platform lint has zero errors and the same three warnings, formatting/diff and
 the built snapshot-page closure guard pass.
@@ -2335,6 +2335,15 @@ reconciled; the 402,939-byte content-free comparison copied no tested complete
 title/message payload strings and the ZIP retained no neighboring conversation
 entry. The File delivery live gate is closed; merge and stacked PR rebases are
 next.
+
+The final current-head Code Review also found a terminal-ordering P2 in the
+Save As observer: a `complete` event racing an older timeout search could wait
+on a second filename lookup while the stale `in_progress` result settled the
+caller as `unknown`. Event completion now becomes terminal synchronously with a
+nullable filename; search completion still retains the observed name. The
+strengthened regression holds all unexpected later searches pending, fails on
+the old code as `unknown`, and passes on the fix with exactly two searches and
+one cleanup. Independent bounded recheck found no remaining material issue.
 
 ## Final reading-Markdown persistence seam checkpoint
 

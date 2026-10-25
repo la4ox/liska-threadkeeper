@@ -108,6 +108,15 @@ and a timeout/completion race; cheap shape ceilings, bounded validation, awaited
 terminal reconciliation, and exact regressions closed both. The bounded recheck
 reported no remaining material finding.
 
+The final current-head review found one further ordering race: a browser
+`complete` event arriving while the timeout's older `in_progress` search was
+pending could start a second filename lookup and leave terminal state unset long
+enough for `unknown` to win. Event-observed completion now records terminal
+success synchronously with a nullable observed filename; search-observed
+completion still retains its filename. A delayed-search regression leaves every
+unexpected third lookup pending, reproduces `unknown` on the old implementation,
+and confirms exactly two searches plus one cleanup on the fixed path.
+
 After integrating current `main`, the exact 40-file production build was copied
 over the installed unpacked extension only after moving its previous 36-file
 tree into a recoverable rollback. All 40 installed files matched the candidate
