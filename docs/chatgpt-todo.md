@@ -375,11 +375,11 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-Install the fresh exact current-main reconciliation-delivery candidate and
-complete one user-owned Save As canary. Verify every ZIP entry against the root
-manifest and prove that no unrelated official conversation was retained. Then
-merge the File slice and rebase/reverify the already implemented Obsidian and
-multi-shard candidates. Keep archive merge/cleanup, export-ZIP discovery, the
-1 GiB source-work refusal, real staged `>16 MiB` gate, fetched same-title
-destination naming, custom-GPT/project binaries, and the archived Library WebP
-as separate evidence-gated work.
+The fresh exact current-main reconciliation-delivery candidate passed its
+user-owned Save As canary: every ZIP entry reconciled against the root manifest,
+the official artifact matched one exact source slice, and no unrelated
+conversation payload was retained. Merge the File slice, then rebase/reverify
+the already implemented Obsidian and multi-shard candidates. Keep archive
+merge/cleanup, export-ZIP discovery, the 1 GiB source-work refusal, real staged
+`>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
+binaries, and the archived Library WebP as separate evidence-gated work.

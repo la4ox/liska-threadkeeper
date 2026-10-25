@@ -2321,8 +2321,20 @@ outside provider web-accessible resources. The integrated targeted matrix
 passes 16 files / 366 tests; the complete suite passes 219 files / 7,159 tests
 with two workers. TypeScript/build pass with 286 transformed modules, source/
 platform lint has zero errors and the same three warnings, formatting/diff and
-the built snapshot-page closure guard pass. A fresh exact installed build and
-user-owned reconciliation Save As remain required before merge.
+the built snapshot-page closure guard pass.
+
+The fresh production candidate was then installed with a recoverable 36-file
+rollback and verified byte-for-byte across all 40 current files. One user-owned
+run saved a 2,516,895-byte normalized reconciliation ZIP from the existing
+4,401,278-byte web canonical plus 109,346,038-byte official source. Independent
+verification passed signature/central directory, CRC, five ordered STORE
+entries, fixed timestamps, root-last ordering, root-hash filename binding and
+every artifact length/SHA. The 1,051,058-byte official excerpt exactly matched
+its declared source slice; manifest, canonical and comparison identities
+reconciled; the 402,939-byte content-free comparison copied no tested complete
+title/message payload strings and the ZIP retained no neighboring conversation
+entry. The File delivery live gate is closed; merge and stacked PR rebases are
+next.
 
 ## Final reading-Markdown persistence seam checkpoint
 
