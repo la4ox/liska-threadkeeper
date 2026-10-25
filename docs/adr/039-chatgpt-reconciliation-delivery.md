@@ -3,9 +3,11 @@
 ## Status
 
 Candidate. The explicit local File workflow, bounded delivery bundle, and
-content-free real core smoke are implemented. The exact candidate page is loaded
-in the installed extension; completing its user-owned file/Save As dialogs and
-an independent Obsidian bundle destination remain separate gates.
+content-free real core smoke are implemented. An earlier exact candidate was
+loaded in the installed extension, but the branch has since integrated current
+`main`; a fresh byte-matched build plus its user-owned file/Save As dialogs are
+the remaining File gate. The reviewed Obsidian and multi-shard candidates remain
+stacked separately.
 
 ## Context
 
@@ -110,8 +112,8 @@ reported no remaining material finding.
 
 ## Follow-up
 
-Complete one user-owned real Save As canary in the already-loaded exact candidate
-build. Verify ZIP signature, central directory, every manifest entry length/
-SHA-256, the content-free report boundary, and absence of unrelated conversation
-bytes. Only then add an Obsidian bundle writer as a separate reviewed destination
-contract.
+Install the fresh exact integrated candidate and complete one user-owned real
+Save As canary. Verify ZIP signature, central directory, every manifest entry
+length/SHA-256, the content-free report boundary, and absence of unrelated
+conversation bytes. Only then merge this slice and rebase the separately
+reviewed Obsidian and multi-shard candidates onto its merged head.
