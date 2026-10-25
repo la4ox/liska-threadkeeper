@@ -170,6 +170,19 @@ ChatGPT local archive links require exact destinations carried from the already
 verified destination receipt; a provider-authored lookalike is inert. ADR-035
 records this boundary.
 
+The upstream DES-019 audit promoted two later reading-surface seams from
+hypotheses to reproduced local gaps. Complete Deep Research Markdown bypassed
+the active-resource policy after References were appended, while an existing
+open HTML/comment/fence context could reinterpret or hide a separately safe
+append tail. Branch `codex/persistence-seam-evidence` applies the existing
+policy to the complete Deep Research body and adds a separate refusal-only,
+bounded append-context gate. Only the new tail is transformed; the old body is
+never sanitized, and any crossing context, hidden owned marker, cross-seam
+CommonMark reference, parser failure, or budget failure stops without a write
+or overwrite fallback. ADR-042 records the fixed-code and compatibility
+boundary. Obsidian-specific plugin/footnote semantics, a final serialized-file
+cap, and preflight before binary image writes remain explicit later decisions.
+
 Current follow-up validation: 151 test files / 4,082 tests; 95.14% statements,
 90.68% branches, 98.43% functions, and 97.65% lines; production build and ZIP
 reconciliation, formatting, platform-registry lint and source lint pass with

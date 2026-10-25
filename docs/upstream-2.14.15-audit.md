@@ -109,9 +109,33 @@ so a marker-shaped provider string receives no exception. Raw, manifest,
 canonical, canonical-derived HTML, destination receipts, append refusal, and
 physical-byte accounting are unchanged.
 
-This is the confirmed per-path port, not upstream's generic gate. Existing-note
-append-context repair, transformed-size policy, resolve-before-image ordering,
-and upstream diagnostics remain separate evidence-gated candidates.
+This is the confirmed per-path port, not upstream's generic gate.
+
+### Final-context evidence and local adaptation
+
+A second source-exact matrix then exercised the complete Deep Research body and
+the joined append body. On the unchanged runtime, 11 of 18 cases failed: an old
+open `<script>`, `<pre>`, comment, or Markdown fence activated or swallowed an
+independently safe tail, and Deep Research retained an automatic remote image
+plus private body/References links. Closed contexts and parser/forgery controls
+passed. This promoted append context and complete Deep Research composition from
+candidate risks to confirmed local gaps.
+
+The adaptation remains smaller than upstream DES-019:
+
+- the complete Deep Research reading body now uses Liska's existing structural
+  active-Markdown policy after References are composed;
+- a separate bounded, refusal-only mdast gate validates the exact joined append
+  context, owned marker positions, opaque nodes, and cross-seam CommonMark
+  reference bindings;
+- only the new tail is transformed, the existing body is not sanitized, and a
+  refusal is terminal with no write or overwrite fallback;
+- fixed diagnostics contain no titles, paths, URLs, or parser prose.
+
+ADR-042 records the contract. Upstream's generic parser dependency, UTF-16 note
+cap, diagnostics, and whole-writer replacement were not imported. Final
+serialized-size policy and preflight-before-image-write remain separate product
+decisions; the current tests characterize them without claiming atomicity.
 
 The NotebookLM selector removal may be taken later as an isolated maintenance
 commit. It should not displace the reproducer-led security work above.

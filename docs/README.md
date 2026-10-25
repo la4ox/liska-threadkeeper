@@ -39,3 +39,4 @@
 - [ADR-034](adr/034-citation-footnote-provenance.md): capability-bound citations and safe Markdown destinations
 - [ADR-035](adr/035-provider-markdown-rendering-safety.md): structural provider-Markdown policy and receipt-proven local links
 - [ADR-036](adr/036-canonical-html-presentation.md): pure canonical-derived HTML and destination-owned asset bindings
+- [ADR-042](adr/042-final-reading-markdown-boundary.md): final Deep Research and append-context isolation for derived Markdown
