@@ -25,6 +25,17 @@ The upstream manifest change in this range is version-only. There are no new
 permissions, host permissions, CSP entries, provider routes, or persistence
 protocols to port.
 
+## Retained provider compatibility ports
+
+The wider merge-base-to-2.14.15 audit also found one older Gemini behavior that
+was not present locally. Upstream `2c06dbe` records the 2026-09 live contract:
+an open named chat exposes `"<name> - Google Gemini"` in `document.title`.
+Liska now prefers the shared bounded page-title parser and retains the first
+query/default path for empty or product-only titles. No lazy sidebar selector,
+route, permission, identity, append, or archive contract changed. Synthetic
+standard/Gem title cases are covered; a current authenticated live page was not
+repeated for this port.
+
 ## NotebookLM dead citation fallback
 
 Upstream `f11d50d` removes `.xap-inline-dialog.citation-marker`: its October
@@ -32,11 +43,11 @@ Upstream `f11d50d` removes `.xap-inline-dialog.citation-marker`: its October
 `button.citation-marker:not(:has(mat-icon))` matched all current citations,
 including the new `citation-marker chat-bidi-enabled` class.
 
-Liska still carries the dead fallback, but runtime citation transformation uses
-`button.citation-marker` independently and retains stronger capability-bound
-footnote provenance. Liska also removed the authenticated live-E2E selector
-baseline that the upstream change unblocked. Removing the fallback is safe
-housekeeping with a current-class fixture, not a runtime or security fix.
+Liska's runtime citation transformation already used `button.citation-marker`
+independently and retains stronger capability-bound footnote provenance. The
+dead fallback is now removed and the current `citation-marker
+chat-bidi-enabled` shape is covered. This remains selector-baseline housekeeping,
+not a runtime or security fix; no authenticated live baseline was repeated.
 
 ## DES-019 final note-body HTML boundary
 
@@ -137,5 +148,5 @@ cap, diagnostics, and whole-writer replacement were not imported. Final
 serialized-size policy and preflight-before-image-write remain separate product
 decisions; the current tests characterize them without claiming atomicity.
 
-The NotebookLM selector removal may be taken later as an isolated maintenance
-commit. It should not displace the reproducer-led security work above.
+The two provider compatibility ports remain isolated from the reproducer-led
+security work above and introduce no permission or persistence change.

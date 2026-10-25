@@ -2287,3 +2287,21 @@ and the unchanged three advisory warnings; repository formatting and diff
 checks pass. Independent review found one low-reachability zero-count
 compatibility regression; it is fixed, covered in trusted/legacy forms, and the
 bounded recheck is clean. Actual Obsidian rendering was not repeated.
+
+## Upstream provider compatibility checkpoint
+
+Branch `codex/upstream-provider-small-fixes` applies two narrow behavior ports
+from the retained upstream audit without importing divergent extractor modules.
+Gemini now prefers its bounded generated conversation name from
+`document.title` and retains the first-query/default fallback for empty or
+product-only titles. NotebookLM drops the obsolete
+`.xap-inline-dialog.citation-marker` selector; the current numbered
+`button.citation-marker` shape, including `chat-bidi-enabled`, remains covered
+and the `mat-icon` more-citations button stays excluded.
+
+No route, conversation identity, permission, setting, destination, append,
+raw/canonical archive, or citation-provenance contract changed. The complete
+suite passes 206 files / 6,927 tests; the focused Gemini/NotebookLM/readiness
+set passes 3 files / 157 tests. A current authenticated provider page was not
+repeated, so live title and selector compatibility remain explicit rollout
+gates rather than inferred success.
