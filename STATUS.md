@@ -2370,7 +2370,7 @@ The combined popup keeps both Archive Tools entries, Vite emits both private
 reconciliation and snapshot-analysis pages, and the snapshot analyzer remains
 outside provider web-accessible resources. The integrated targeted matrix
 passes 16 files / 367 tests; the complete suite passes 219 files / 7,160 tests
-with two workers. TypeScript/build pass with 286 transformed modules, source/
+with two workers. A fresh exact-head TypeScript/build pass transforms 287 modules; source/
 platform lint has zero errors and the same three warnings, formatting/diff and
 the built snapshot-page closure guard pass.
 
