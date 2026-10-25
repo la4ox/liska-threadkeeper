@@ -58,6 +58,8 @@ function buildDom(): void {
     <span data-i18n="reconcile_heading">Heading</span>
     <input id="webCanonicalFile" type="file" />
     <input id="officialExportFile" type="file" />
+    <input id="reconcileOutputFile" type="checkbox" checked />
+    <input id="reconcileOutputObsidian" type="checkbox" />
     <button id="runBtn"></button>
     <button id="cancelBtn"></button>
     <div id="status" data-state="idle"></div>
@@ -103,6 +105,19 @@ function dependencies(
       downloadId: 7,
       observedFileName: 'chosen.zip',
     })),
+    getSettings: vi.fn(async () => ({
+      obsidianUrl: 'http://127.0.0.1:27123',
+      obsidianApiKey: 'private-key',
+      vaultPath: 'AI/{platform}',
+    })) as never,
+    writeObsidian: vi.fn(async request => ({
+      status: 'confirmed' as const,
+      failureCode: null,
+      attemptId: request.attemptId,
+      bundleId: request.delivery.bundleId,
+      conversationKey: request.delivery.conversationKey,
+      receipts: [],
+    })),
     sha256: vi.fn(async () => HASH),
     uuid: vi.fn(() => '00000000-0000-4000-8000-000000000000'),
     now: vi.fn(() => '2026-10-25T00:00:00.000Z'),
@@ -133,6 +148,10 @@ describe('reconciliation page', () => {
     expect(run.disabled).toBe(true);
     setFile('officialExportFile', syntheticFile(BYTES, 'official.json'));
     expect(run.disabled).toBe(false);
+    const file = document.getElementById('reconcileOutputFile') as HTMLInputElement;
+    file.checked = false;
+    file.dispatchEvent(new Event('change'));
+    expect(run.disabled).toBe(true);
   });
 
   it('streams sources, builds one ZIP and reports browser-confirmed completion', async () => {
@@ -155,6 +174,96 @@ describe('reconciliation page', () => {
     expect(document.getElementById('result')?.textContent).toContain('chosen.zip');
     expect(document.body.textContent).not.toContain('private-web-name');
     expect(document.body.textContent).not.toContain('private-export-name');
+    expect(deps.getSettings).not.toHaveBeenCalled();
+    expect(deps.writeObsidian).not.toHaveBeenCalled();
+  });
+
+  it('writes an Obsidian-only snapshot without creating or downloading a ZIP', async () => {
+    const deps = dependencies();
+    await initReconciliationPage(deps);
+    const file = document.getElementById('reconcileOutputFile') as HTMLInputElement;
+    const obsidian = document.getElementById('reconcileOutputObsidian') as HTMLInputElement;
+    file.checked = false;
+    obsidian.checked = true;
+    file.dispatchEvent(new Event('change'));
+    setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
+    setFile('officialExportFile', syntheticFile(BYTES, 'official.json'));
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(deps.writeObsidian).toHaveBeenCalledOnce());
+    expect(deps.createZip).not.toHaveBeenCalled();
+    expect(deps.download).not.toHaveBeenCalled();
+    expect(deps.writeObsidian).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delivery: expect.any(Object),
+        operationAt: '2026-10-25T00:00:00.000Z',
+        attemptId: 'obsidian-00000000-0000-4000-8000-000000000000',
+        sha256: deps.sha256,
+        signal: expect.any(AbortSignal),
+      })
+    );
+    expect(document.getElementById('status')?.textContent).toBe('reconcile_outputsConfirmed');
+  });
+
+  it('reports the 5.5+ requirement without changing the File result', async () => {
+    const deps = dependencies();
+    vi.mocked(deps.writeObsidian).mockResolvedValue({
+      status: 'refused',
+      failureCode: 'server-unsupported',
+      attemptId: 'attempt',
+      bundleId: HASH,
+      conversationKey: 'b'.repeat(64),
+      receipts: [],
+    });
+    const obsidian = document.getElementById('reconcileOutputObsidian') as HTMLInputElement;
+    obsidian.checked = true;
+    await readyRun(deps);
+    await vi.waitFor(() =>
+      expect(document.getElementById('status')?.textContent).toBe('reconcile_outputsPartial')
+    );
+    expect(deps.download).toHaveBeenCalledOnce();
+    expect(deps.writeObsidian).toHaveBeenCalledOnce();
+    expect(document.getElementById('result')?.textContent).toContain(
+      'reconcile_resultObsidianUpgrade'
+    );
+  });
+
+  it('uses a dedicated upgrade warning when Obsidian is the only destination', async () => {
+    const deps = dependencies();
+    vi.mocked(deps.writeObsidian).mockResolvedValue({
+      status: 'refused',
+      failureCode: 'server-unsupported',
+      attemptId: 'attempt',
+      bundleId: HASH,
+      conversationKey: 'b'.repeat(64),
+      receipts: [],
+    });
+    await initReconciliationPage(deps);
+    const file = document.getElementById('reconcileOutputFile') as HTMLInputElement;
+    const obsidian = document.getElementById('reconcileOutputObsidian') as HTMLInputElement;
+    file.checked = false;
+    obsidian.checked = true;
+    file.dispatchEvent(new Event('change'));
+    setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
+    setFile('officialExportFile', syntheticFile(BYTES, 'official.json'));
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(document.getElementById('status')?.textContent).toBe('reconcile_obsidianUpgrade')
+    );
+    expect(deps.download).not.toHaveBeenCalled();
+  });
+
+  it('keeps a confirmed File result when strict Obsidian settings cannot be read', async () => {
+    const deps = dependencies();
+    vi.mocked(deps.getSettings).mockRejectedValue(new Error('private settings failure'));
+    (document.getElementById('reconcileOutputObsidian') as HTMLInputElement).checked = true;
+    await readyRun(deps);
+    await vi.waitFor(() =>
+      expect(document.getElementById('status')?.textContent).toBe('reconcile_outputsPartial')
+    );
+    expect(deps.download).toHaveBeenCalledOnce();
+    expect(deps.writeObsidian).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain('private settings failure');
   });
 
   it('labels a confirmed raw-only recovery without claiming comparison success', async () => {

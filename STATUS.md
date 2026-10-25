@@ -2313,13 +2313,64 @@ and the production dependency audit reports zero vulnerabilities. Independent
 review and its bounded recheck are clean. The user-owned installed-extension
 file-selection/Save As completion remains before the live gate can be closed.
 
+## ChatGPT reconciliation Obsidian candidate checkpoint
+
+Stacked branch `codex/chatgpt-reconciliation-obsidian` adds a separate explicit
+Obsidian destination to the reconciliation page without changing the reviewed
+File ZIP route. It is off by default and does not contact Obsidian merely because
+files were selected. Preparation remains page-local; artifact bytes never cross
+runtime messaging or extension storage.
+
+The writer reads strict local-only settings once, validates exact loopback host
+`127.0.0.1`, pins one operation date/folder and fresh attempt ID, detaches and
+re-hashes the complete normalized/raw-only delivery before its first network
+write, and routes only fixed artifacts under
+`_liska-reconciliation/{conversationKey}/{bundleId}/{attemptId}/`. No title,
+source filename/path, provider ID,
+vault folder, loopback URL, API key, or exception prose enters receipts.
+
+An authenticated bounded root capability read must identify Obsidian Local REST
+API with a stable numeric self version at least 5.5.0. This is the first version
+whose official contract makes `If-None-Match: *` atomic create-only and returns
+412 without writing. Every target is first checked with a redirect-refusing
+zero-body existence read; each exact-byte conditional PUT is followed by bounded
+binary readback and length/SHA-256 verification. Artifacts remain sequential and
+the unchanged root manifest is last. Collision, timeout, response loss,
+readback mismatch or cancellation stops successors, performs no retry/delete,
+and reports partial/unknown state honestly.
+
+The installed unauthenticated root reports service `Obsidian Local REST API`,
+self `5.1.0`, and Obsidian `1.14.4`. The candidate therefore refuses this live
+installation before artifact-path access; no vault write was attempted. Official
+5.5.0 release documentation confirms conditional create-only semantics. A user
+plugin update and bounded positive/collision canaries remain required before
+this destination can be called live-verified.
+
+The writer/API/delivery set passes 3 files / 160 tests, while the integrated
+writer/page/API set passes 5 files / 178 tests. The memory-bounded complete suite
+passes 209 files / 6,931 tests; TypeScript and the production build pass with 270
+transformed modules. Source/platform lint has zero errors and the same three
+baseline warnings; Prettier, diff checks and the production dependency audit are
+clean. Independent review found no material issue. Positive 5.5+ normalized,
+collision, cancellation and page-lifetime canaries remain before a stacked PR.
+
+After PR 51 merged, this branch integrated the reviewed File slice plus current
+`main`. Conflict resolution retained ADR-040 and every later checkpoint, while
+the combined popup/build keeps both Archive Tools pages private and independent.
+The current-main Obsidian/reconciliation/API/snapshot targeted matrix passes 13
+files / 330 tests; the complete suite passes 220 files / 7,230 tests with two
+workers. TypeScript/build pass with 287 transformed modules; source/platform
+lint has zero errors and the same three warnings; formatting/diff and the built
+snapshot-page closure guard pass. A fresh 5.5+ capability check and the
+positive/collision/cancellation/page-lifetime live canaries remain before merge.
+
 The branch was later merged with current `main` after the final reading-
 Markdown, provider-compatibility and snapshot-analysis core/page slices landed.
 The combined popup keeps both Archive Tools entries, Vite emits both private
 reconciliation and snapshot-analysis pages, and the snapshot analyzer remains
 outside provider web-accessible resources. The integrated targeted matrix
 passes 16 files / 367 tests; the complete suite passes 219 files / 7,160 tests
-with two workers. TypeScript/build pass with 286 transformed modules, source/
+with two workers. A fresh exact-head TypeScript/build pass transforms 287 modules; source/
 platform lint has zero errors and the same three warnings, formatting/diff and
 the built snapshot-page closure guard pass.
 
@@ -2344,6 +2395,32 @@ nullable filename; search completion still retains the observed name. The
 strengthened regression holds all unexpected later searches pending, fails on
 the old code as `unknown`, and passes on the fix with exactly two searches and
 one cleanup. Independent bounded recheck found no remaining material issue.
+
+After Local REST API was updated, both public and authenticated loopback root
+reads identified service `Obsidian Local REST API`, self `5.5.2`, and Obsidian
+`1.14.4`; the authenticated response was admitted without reading a vault path.
+An exact-head local production-core canary then prepared the same measured web/
+official pair and wrote one normalized five-artifact snapshot through the real
+API. The directory contained exactly 2,516,236 bytes: official excerpt,
+official manifest, official canonical, content-free comparison, then the
+2,023-byte root manifest. Independent filesystem verification matched every
+descriptor length/SHA-256, the exact source-file byte slice, canonical and
+comparison schemas, root hash/bundle ID `370691c6...3015`, and a strictly later
+root timestamp.
+
+The same live target then exercised the atomic race boundary: preflight was
+deliberately held at absent while the first create-only PUT targeted the
+existing artifact. Local REST API returned 412, Liska reported fixed code
+`collision`, performed no readback or successor write, and the original bytes
+remained hash-identical. A separate cancellation immediately after authenticated
+server admission stopped before the first artifact-path request and created no
+attempt directory. The writer/API positive, exact-readback, root-last, 412 and
+cancellation gates are therefore live-verified. The installed exact build and
+its reconciliation page were reloaded in Comet, but browser control cannot
+acquire `chrome-extension://`; this run does not claim a repeated native file-
+picker/result-rendering or mid-request page-unload canary. Those page bindings
+remain covered by the integrated offline suite rather than hidden as live
+evidence.
 
 ## Final reading-Markdown persistence seam checkpoint
 

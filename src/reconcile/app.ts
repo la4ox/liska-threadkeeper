@@ -7,7 +7,9 @@ import {
 import { CHATGPT_OFFICIAL_HARD_LIMITS } from '../archive/importers/chatgpt-official';
 import { getMessage } from '../lib/i18n';
 import { sha256Hex } from '../lib/sha256';
+import { getSettingsOrThrow } from '../lib/storage';
 import { downloadReconciliationZip, type ReconciliationDownloadResult } from './download';
+import { writeReconciliationToObsidian, type ObsidianReconciliationWriteResult } from './obsidian';
 import { createReconciliationZip } from './zip';
 
 const FILE_CHUNK_BYTES = 1024 * 1024;
@@ -18,6 +20,8 @@ export interface ReconciliationPageDependencies {
   prepare: typeof prepareChatGptReconciliationDelivery;
   createZip: typeof createReconciliationZip;
   download: typeof downloadReconciliationZip;
+  getSettings: typeof getSettingsOrThrow;
+  writeObsidian: typeof writeReconciliationToObsidian;
   sha256: typeof sha256Hex;
   uuid: () => string;
   now: () => string;
@@ -27,6 +31,8 @@ const DEFAULT_DEPENDENCIES: ReconciliationPageDependencies = {
   prepare: prepareChatGptReconciliationDelivery,
   createZip: createReconciliationZip,
   download: downloadReconciliationZip,
+  getSettings: getSettingsOrThrow,
+  writeObsidian: writeReconciliationToObsidian,
   sha256: sha256Hex,
   uuid: () => crypto.randomUUID(),
   now: () => new Date().toISOString(),
@@ -42,6 +48,8 @@ function queryElements() {
   return {
     web: getElement<HTMLInputElement>('webCanonicalFile'),
     official: getElement<HTMLInputElement>('officialExportFile'),
+    outputFile: getElement<HTMLInputElement>('reconcileOutputFile'),
+    outputObsidian: getElement<HTMLInputElement>('reconcileOutputObsidian'),
     run: getElement<HTMLButtonElement>('runBtn'),
     cancel: getElement<HTMLButtonElement>('cancelBtn'),
     status: getElement<HTMLDivElement>('status'),
@@ -50,6 +58,11 @@ function queryElements() {
 }
 
 type ReconciliationElements = ReturnType<typeof queryElements>;
+
+interface DestinationResults {
+  file?: ReconciliationDownloadResult;
+  obsidian?: ObsidianReconciliationWriteResult;
+}
 
 function initializeI18n(): void {
   document.querySelectorAll<HTMLElement>('[data-i18n]').forEach(element => {
@@ -78,14 +91,18 @@ function setStatus(elements: ReconciliationElements, key: string, state: StatusS
 function setBusy(elements: ReconciliationElements, busy: boolean): void {
   elements.web.disabled = busy;
   elements.official.disabled = busy;
-  elements.run.disabled = busy || !selectedFile(elements.web) || !selectedFile(elements.official);
+  elements.outputFile.disabled = busy;
+  elements.outputObsidian.disabled = busy;
+  const hasDestination = elements.outputFile.checked || elements.outputObsidian.checked;
+  elements.run.disabled =
+    busy || !hasDestination || !selectedFile(elements.web) || !selectedFile(elements.official);
   elements.cancel.disabled = !busy;
 }
 
 function showResult(
   elements: ReconciliationElements,
   delivery: ChatGptReconciliationDelivery,
-  download: ReconciliationDownloadResult
+  outputs: DestinationResults
 ): void {
   const lines = [
     getMessage(
@@ -93,8 +110,30 @@ function showResult(
     ),
     `${getMessage('reconcile_resultBundleId')}: ${delivery.bundleId}`,
   ];
-  if (download.status === 'confirmed' && download.observedFileName)
-    lines.push(`${getMessage('reconcile_resultSavedAs')}: ${download.observedFileName}`);
+  if (outputs.file) {
+    const key =
+      outputs.file.status === 'confirmed'
+        ? 'reconcile_resultFileConfirmed'
+        : outputs.file.status === 'unknown'
+          ? 'reconcile_resultFileUnknown'
+          : 'reconcile_resultFileFailed';
+    const suffix =
+      outputs.file.status === 'confirmed' && outputs.file.observedFileName
+        ? `: ${outputs.file.observedFileName}`
+        : '';
+    lines.push(`${getMessage(key)}${suffix}`);
+  }
+  if (outputs.obsidian) {
+    const key =
+      outputs.obsidian.status === 'confirmed'
+        ? 'reconcile_resultObsidianConfirmed'
+        : outputs.obsidian.failureCode === 'server-unsupported'
+          ? 'reconcile_resultObsidianUpgrade'
+          : outputs.obsidian.status === 'cancelled'
+            ? 'reconcile_resultObsidianCancelled'
+            : 'reconcile_resultObsidianIncomplete';
+    lines.push(getMessage(key));
+  }
   elements.result.textContent = lines.join('\n');
   elements.result.hidden = false;
 }
@@ -120,38 +159,50 @@ function inputFor(
   webBytes: Uint8Array,
   officialFile: File,
   signal: AbortSignal,
-  dependencies: ReconciliationPageDependencies
+  dependencies: ReconciliationPageDependencies,
+  captureId: string,
+  importedAt: string
 ): PrepareChatGptReconciliationDeliveryInput {
   return {
     webCanonicalBytes: webBytes,
     officialChunks: streamOfficialFile(officialFile, signal),
-    captureId: `official-import-${dependencies.uuid()}`,
-    importedAt: dependencies.now(),
+    captureId,
+    importedAt,
     sha256: dependencies.sha256,
   };
 }
 
-function statusForDownload(
+function finishStatus(
   elements: ReconciliationElements,
   delivery: ChatGptReconciliationDelivery,
-  result: ReconciliationDownloadResult
+  outputs: DestinationResults
 ): void {
-  if (result.status === 'confirmed') {
+  const results = [outputs.file, outputs.obsidian].filter(value => value !== undefined);
+  const confirmed = results.filter(result => result?.status === 'confirmed').length;
+  if (confirmed === results.length) {
     setStatus(
       elements,
-      delivery.status === 'normalized' ? 'reconcile_saved' : 'reconcile_savedRawOnly',
+      delivery.status === 'normalized' ? 'reconcile_outputsConfirmed' : 'reconcile_savedRawOnly',
       delivery.status === 'normalized' ? 'success' : 'warning'
     );
-  } else if (result.status === 'unknown') {
+  } else if (confirmed > 0) {
+    setStatus(elements, 'reconcile_outputsPartial', 'warning');
+  } else if (outputs.obsidian?.failureCode === 'server-unsupported') {
+    setStatus(elements, 'reconcile_obsidianUpgrade', 'warning');
+  } else if (outputs.file?.status === 'unknown') {
     setStatus(elements, 'reconcile_downloadUnknown', 'warning');
-  } else {
+  } else if (outputs.obsidian?.status === 'cancelled') {
+    setStatus(elements, 'reconcile_cancelled', 'warning');
+  } else if (outputs.file?.status === 'failed') {
     setStatus(
       elements,
-      result.error === 'start-failed'
+      outputs.file.error === 'start-failed'
         ? 'reconcile_downloadNotStarted'
         : 'reconcile_downloadInterrupted',
       'error'
     );
+  } else {
+    setStatus(elements, 'reconcile_outputsIncomplete', 'warning');
   }
 }
 
@@ -162,6 +213,43 @@ function zipEntries(delivery: ChatGptReconciliationDelivery) {
     path: artifact.relativePath,
     bytes: artifact.bytes,
   }));
+}
+
+function refusedObsidian(): ObsidianReconciliationWriteResult {
+  return {
+    status: 'refused',
+    failureCode: 'invalid-settings',
+    attemptId: null,
+    bundleId: null,
+    conversationKey: null,
+    receipts: [],
+  };
+}
+
+async function writeObsidian(
+  delivery: ChatGptReconciliationDelivery,
+  operationAt: string,
+  signal: AbortSignal,
+  dependencies: ReconciliationPageDependencies
+): Promise<ObsidianReconciliationWriteResult> {
+  let settings;
+  try {
+    settings = await dependencies.getSettings();
+  } catch {
+    return refusedObsidian();
+  }
+  return dependencies.writeObsidian({
+    delivery,
+    settings: {
+      obsidianUrl: settings.obsidianUrl,
+      obsidianApiKey: settings.obsidianApiKey,
+      vaultPath: settings.vaultPath,
+    },
+    operationAt,
+    attemptId: `obsidian-${dependencies.uuid()}`,
+    sha256: dependencies.sha256,
+    signal,
+  });
 }
 
 async function runReconciliation(
@@ -175,20 +263,42 @@ async function runReconciliation(
     setStatus(elements, 'reconcile_missingFiles', 'error');
     return;
   }
+  const saveFile = elements.outputFile.checked;
+  const saveObsidian = elements.outputObsidian.checked;
+  if (!saveFile && !saveObsidian) {
+    setStatus(elements, 'reconcile_missingDestination', 'error');
+    return;
+  }
+  const operationAt = dependencies.now();
   setStatus(elements, 'reconcile_readingWeb', 'working');
   const webBytes = await readWebCanonical(webFile);
   setStatus(elements, 'reconcile_scanningOfficial', 'working');
   const delivery = await dependencies.prepare(
-    inputFor(webBytes, officialFile, controller.signal, dependencies)
+    inputFor(
+      webBytes,
+      officialFile,
+      controller.signal,
+      dependencies,
+      `official-import-${dependencies.uuid()}`,
+      operationAt
+    )
   );
   if (controller.signal.aborted) throw new Error('cancelled');
-  setStatus(elements, 'reconcile_buildingBundle', 'working');
-  const zip = dependencies.createZip(zipEntries(delivery));
-  elements.cancel.disabled = true;
-  setStatus(elements, 'reconcile_waitingSave', 'working');
-  const result = await dependencies.download({ bytes: zip, bundleId: delivery.bundleId });
-  statusForDownload(elements, delivery, result);
-  showResult(elements, delivery, result);
+  const outputs: DestinationResults = {};
+  if (saveFile) {
+    setStatus(elements, 'reconcile_buildingBundle', 'working');
+    const zip = dependencies.createZip(zipEntries(delivery));
+    elements.cancel.disabled = true;
+    setStatus(elements, 'reconcile_waitingSave', 'working');
+    outputs.file = await dependencies.download({ bytes: zip, bundleId: delivery.bundleId });
+  }
+  if (saveObsidian) {
+    elements.cancel.disabled = false;
+    setStatus(elements, 'reconcile_writingObsidian', 'working');
+    outputs.obsidian = await writeObsidian(delivery, operationAt, controller.signal, dependencies);
+  }
+  finishStatus(elements, delivery, outputs);
+  showResult(elements, delivery, outputs);
 }
 
 export async function initReconciliationPage(
@@ -200,6 +310,8 @@ export async function initReconciliationPage(
   const refresh = (): void => setBusy(elements, active !== null);
   elements.web.addEventListener('change', refresh);
   elements.official.addEventListener('change', refresh);
+  elements.outputFile.addEventListener('change', refresh);
+  elements.outputObsidian.addEventListener('change', refresh);
   elements.cancel.addEventListener('click', () => active?.abort());
   elements.run.addEventListener('click', () => {
     if (active) return;

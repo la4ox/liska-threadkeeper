@@ -46,6 +46,36 @@
         </label>
       </section>
 
+      <section class="panel" aria-labelledby="destinationHeading">
+        <h2 id="destinationHeading" data-i18n="reconcile_destinations">
+          Choose explicit local destinations
+        </h2>
+        <div class="destination-list">
+          <label class="destination-card" for="reconcileOutputFile">
+            <input id="reconcileOutputFile" type="checkbox" checked />
+            <span>
+              <strong data-i18n="reconcile_destinationFile">File ZIP</strong>
+              <span data-i18n="reconcile_destinationFileHelp">
+                Open one Save As dialog for the deterministic reconciliation ZIP.
+              </span>
+            </span>
+          </label>
+          <label class="destination-card" for="reconcileOutputObsidian">
+            <input id="reconcileOutputObsidian" type="checkbox" />
+            <span>
+              <strong data-i18n="reconcile_destinationObsidian">Obsidian snapshot</strong>
+              <span data-i18n="reconcile_destinationObsidianHelp">
+                Create a separate verified artifact directory in the configured local vault.
+              </span>
+            </span>
+          </label>
+        </div>
+        <p class="destination-note" data-i18n="reconcile_obsidianRequires">
+          Obsidian delivery requires Local REST API 5.5.0 or later for atomic create-only writes. It
+          is off by default.
+        </p>
+      </section>
+
       <section class="panel boundary" aria-labelledby="boundaryHeading">
         <h2 id="boundaryHeading" data-i18n="reconcile_boundary">What this tool will do</h2>
         <ul>

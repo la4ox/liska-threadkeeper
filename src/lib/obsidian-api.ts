@@ -89,6 +89,43 @@ export class ObsidianApiError extends Error {
   }
 }
 
+export interface ObsidianServerVersions {
+  self: string;
+  obsidian: string;
+}
+
+const SERVER_INFO_MAX_BYTES = 64 * 1024;
+
+function serverVersions(value: unknown): ObsidianServerVersions | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const root = value as Record<string, unknown>;
+  if (
+    !['status', 'service', 'authenticated', 'versions'].every(key =>
+      Object.prototype.hasOwnProperty.call(root, key)
+    ) ||
+    root.status !== 'OK' ||
+    root.service !== 'Obsidian Local REST API' ||
+    root.authenticated !== true ||
+    typeof root.versions !== 'object' ||
+    root.versions === null ||
+    Array.isArray(root.versions)
+  )
+    return undefined;
+  return versionPair(root.versions as Record<string, unknown>);
+}
+
+function versionPair(versions: Record<string, unknown>): ObsidianServerVersions | undefined {
+  if (
+    Object.keys(versions).sort().join(',') !== 'obsidian,self' ||
+    typeof versions.self !== 'string' ||
+    typeof versions.obsidian !== 'string' ||
+    !/^[0-9A-Za-z.+-]{1,64}$/.test(versions.self) ||
+    !/^[0-9A-Za-z.+-]{1,64}$/.test(versions.obsidian)
+  )
+    return undefined;
+  return { self: versions.self, obsidian: versions.obsidian };
+}
+
 export class ObsidianApiClient {
   private baseUrl: string;
   private apiKey: string;
@@ -151,6 +188,148 @@ export class ObsidianApiClient {
     } catch (error) {
       this.rethrowNetworkError(error);
     }
+  }
+
+  /** Strict bounded body read for reconciliation capability checks and readback. */
+  private async readBoundedBytes(response: Response, maximum: number): Promise<Uint8Array> {
+    if (!response.body) throw this.createError(0, 'Obsidian response body is unavailable.');
+    const reader = response.body.getReader();
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const next = await this.readResponseBody(() => reader.read());
+        if (next.done) break;
+        size += next.value.byteLength;
+        if (size > maximum) throw this.createError(0, 'Obsidian response body exceeds its limit.');
+        parts.push(next.value.slice());
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const part of parts) {
+        bytes.set(part, offset);
+        offset += part.byteLength;
+      }
+      return bytes;
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // A failed read or terminal stream still releases its reader below.
+      }
+      reader.releaseLock();
+    }
+  }
+
+  /** Authenticated root capability snapshot; no account/plugin state is returned. */
+  async getServerVersions(timeoutMs = DEFAULT_API_TIMEOUT): Promise<ObsidianServerVersions> {
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/`,
+      {
+        method: 'GET',
+        headers: { ...this.getHeaders(), Accept: 'application/json' },
+        credentials: 'omit',
+        redirect: 'error',
+        cache: 'no-store',
+      },
+      timeoutMs
+    );
+    if (response.status !== 200 || !response.ok || response.redirected)
+      throw this.createError(response.status, 'Obsidian server information is unavailable.');
+    const bytes = await this.readBoundedBytes(response, SERVER_INFO_MAX_BYTES);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    } catch {
+      throw this.createError(0, 'Obsidian server information is invalid.');
+    }
+    const versions = serverVersions(parsed);
+    if (!versions) throw this.createError(0, 'Obsidian server information is invalid.');
+    return versions;
+  }
+
+  /** Credential-bound, redirect-refusing read with an explicit retained-byte cap. */
+  async getBinaryFileBounded(
+    path: string,
+    maxBytes: number,
+    timeoutMs = DEFAULT_API_TIMEOUT
+  ): Promise<Uint8Array | null> {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+      throw this.createError(0, 'Obsidian response byte limit is invalid.');
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/vault/${encodeVaultPath(path)}`,
+      {
+        method: 'GET',
+        headers: this.getHeaders(),
+        credentials: 'omit',
+        redirect: 'error',
+        cache: 'no-store',
+      },
+      timeoutMs
+    );
+    if (response.redirected) throw this.createError(0, 'Obsidian binary response was redirected.');
+    if (response.status === 404) return null;
+    if (response.status !== 200 || !response.ok)
+      throw this.createError(response.status, 'Obsidian binary read failed.');
+    return this.readBoundedBytes(response, maxBytes);
+  }
+
+  /** Binary GET existence check without allocating an already-occupied file body. */
+  async binaryFileExists(path: string, timeoutMs = DEFAULT_API_TIMEOUT): Promise<boolean> {
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/vault/${encodeVaultPath(path)}`,
+      {
+        method: 'GET',
+        headers: { ...this.getHeaders(), Accept: 'application/octet-stream' },
+        credentials: 'omit',
+        redirect: 'error',
+        cache: 'no-store',
+      },
+      timeoutMs
+    );
+    try {
+      if (response.redirected)
+        throw this.createError(0, 'Obsidian binary response was redirected.');
+      if (response.status === 404) return false;
+      if (response.status !== 200 || !response.ok)
+        throw this.createError(response.status, 'Obsidian binary preflight failed.');
+      return true;
+    } finally {
+      try {
+        await response.body?.cancel();
+      } catch {
+        // Headers already establish existence; no existing content is retained.
+      }
+    }
+  }
+
+  /** Create-only exact-byte write. Requires Local REST API 5.5+ capability admission. */
+  async putBinaryFileIfAbsent(
+    path: string,
+    data: Uint8Array,
+    contentType: string,
+    timeoutMs = DEFAULT_API_TIMEOUT
+  ): Promise<void> {
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/vault/${encodeVaultPath(path)}`,
+      {
+        method: 'PUT',
+        headers: {
+          ...this.getHeaders(),
+          'Content-Type': contentType,
+          'If-None-Match': '*',
+        },
+        body: data as BodyInit,
+        credentials: 'omit',
+        redirect: 'error',
+        cache: 'no-store',
+      },
+      timeoutMs
+    );
+    if (response.status === 412)
+      throw this.createError(412, 'Obsidian create-only target already exists.');
+    if (!response.ok || response.redirected)
+      throw this.createError(response.status, 'Obsidian create-only write failed.');
   }
 
   /**
