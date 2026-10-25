@@ -178,14 +178,15 @@ export class GeminiExtractor extends BaseExtractor {
   }
 
   /**
-   * Get conversation title from the first user query.
-   *
-   * Gemini stopped rendering a conversation-title element by 2026-03 (the
-   * old top-bar selector group never matched again), so the first query has
-   * been the de-facto title source ever since; the dead path was removed.
+   * Prefer Gemini's auto-generated chat name from document.title, then fall
+   * back to the first query for a bare/empty product title. The old in-page
+   * conversation-title selector remains intentionally unsupported.
    */
   getTitle(): string {
-    return this.getFirstMessageTitle(SELECTORS.queryTextLine, 'Untitled Gemini Conversation');
+    return (
+      this.getPageTitle() ??
+      this.getFirstMessageTitle(SELECTORS.queryTextLine, 'Untitled Gemini Conversation')
+    );
   }
 
   /**
