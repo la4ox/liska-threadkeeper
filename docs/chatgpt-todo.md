@@ -380,10 +380,10 @@ The ChatGPT block is ready to call broadly complete when:
 ## Exact next step
 
 The reconciliation File slice is merged and its exact Save As ZIP verified.
-Integrate and reverify the stacked Obsidian slice on current `main`; after the
-user updates Local REST API from 5.1.0 to 5.5+, run create-only, collision,
-exact-readback, cancellation and page-lifetime canaries. Then rebase/reverify
-the multi-shard candidate. Keep archive merge/cleanup, export-ZIP discovery,
-the 1 GiB source-work refusal, real staged
+The stacked Obsidian slice is integrated and locally reverified on current
+`main`. Update Local REST API from 5.1.0 to 5.5+, then run create-only,
+collision, exact-readback, cancellation and page-lifetime canaries. After that,
+rebase/reverify the multi-shard candidate. Keep archive merge/cleanup,
+export-ZIP discovery, the 1 GiB source-work refusal, real staged
 `>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
 binaries, and the archived Library WebP as separate evidence-gated work.
