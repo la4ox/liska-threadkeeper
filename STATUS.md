@@ -2759,3 +2759,16 @@ made yet. The next action is one user click on that visible popup link; CUA can
 then handle the private page, explicit folder selections, analysis, Save As and
 independent report-byte reconciliation. Picker cancellation must preserve the
 existing result before this gate is closed.
+
+The same two explicit folders have now passed the production analysis core as
+an independent UI oracle. Both ordinals verify at 7 files / 3,336,176 bytes;
+their inventory SHA-256 values are distinct. The 1,022-byte encoded
+`liska-snapshot-analysis/1` report has SHA-256
+`1dac3ca02d3e099a2e10dd167139be5cac9ac110dadf0942ff4082dc6f709dce`,
+sets `analysisOnly: true` and `mutationAuthorized: false`, and emits no sparse
+relation. It preserves ordinal 0 as first-observed and ordinal 1 as
+latest-observed; both additionally retain unique-evidence, partial-capture and
+external-references-unassessed reasons. The temporary local harness was removed;
+only the content-free expected report remains under the task-specific
+`CodexTools/cua/snapshot-analysis-live` evidence directory for exact comparison
+with the later Save As bytes.
