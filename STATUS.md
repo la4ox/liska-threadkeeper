@@ -2772,3 +2772,107 @@ external-references-unassessed reasons. The temporary local harness was removed;
 only the content-free expected report remains under the task-specific
 `CodexTools/cua/snapshot-analysis-live` evidence directory for exact comparison
 with the later Save As bytes.
+
+## ChatGPT Library CSV candidate checkpoint
+
+Branch `codex/chatgpt-library-csv` adds one evidence-gated passive CSV family
+without broadening the existing resolver route. Two retained CSV records from a
+real standard-owner capture were rechecked against committed raw. Both are
+unambiguous Library-associated metadata attachments with one valid direct file
+ID, no pointer/sandbox or interpreter ownership, no whole-ledger collision, and
+independent admission under every existing Library JPEG invariant when only the
+MIME predicate is substituted. No provider ID, Library ID, filename, URL or
+source content entered the evidence receipt.
+
+The candidate admits exact `text/csv` only and deterministically attempts one
+record before Library JPEG and ordinary images. It consumes one of the existing
+four active file-ID slots and the unchanged shared attempt/128 MiB byte budget.
+Authority begins before dispatch; every helper, binding, HTTP, MIME, URL,
+oversize or persistence failure remains family-owned and cannot fall through to
+passive retry. The second CSV stays `not-attempted`. Exact bytes are neither
+decoded, parsed, formula-sanitized, transcoded nor rendered; existing
+metadata/response MIME agreement, bounded reading, content-addressed staging
+and destination receipts remain the persistence boundary.
+
+Historical image-only audits retain their exact `image-batch-4` shape. A CSV
+run uses closed aggregate `asset-batch-4` evidence with separate 0/1 Library
+CSV and JPEG counts and no representable provider values. Strict replay alone
+wires the new resolver; background endpoint, permissions, message payload,
+signed-URL grammar, binary contract, canonical schema and HTML presentation are
+unchanged.
+
+Focused verification passes 8 files / 475 tests; the complete suite passes 222
+files / 7,405 tests. TypeScript and the guarded production build pass with 288
+transformed modules; source/platform lint has zero errors and the same three
+baseline warnings; formatting and diff checks pass. Independent review and
+deterministic verification are clean. The exact build is not yet installed:
+one live CSV acquisition plus File/Obsidian manifest/canonical/path/length/hash
+reconciliation remains the enablement gate.
+
+The committed 40-file candidate was installed by the verified unpacked-
+extension installer. Its 1,107,773-byte source and installed aggregate SHA-256
+both equal `526d7564...ce34`; the prior `dist` remains under immutable rollback
+`liska-rollback-20261026T140354514Z-c224acc9984d4f87a857455599385f2b`.
+Native CUA then reloaded only Liska on `comet://extensions`; the browser stayed
+open, the reload toast appeared and the worker registered.
+
+A fresh foreground capture of the evidence chat completed in about one minute.
+It retained a complete graph/messages/branches archive with partial assets and
+fetched the deterministic first Library CSV: 14,717 bytes at
+`assets/5435b777...c7ee6f.csv`, with filename, physical hash, manifest and
+canonical path/length/SHA-256 all equal. Its exact raw size fact is also 14,717.
+The second 751-byte CSV remains `not-attempted`. The closed audit records four
+observed dispatches: one Library CSV, one Library JPEG and two ordinary JPEGs.
+
+Downloads and Obsidian contain seven byte-identical shared archive artifacts;
+File adds only the expected canonical HTML and its receipt. Their 325,397-byte
+Markdown notes are SHA-256 identical, carry the same manifest digest and link
+the local CSV. Two exact Library ID values were checked across manifest,
+canonical, both Markdown notes, HTML and receipt with zero matches; transient
+signed transport remains unrepresented. Direct attachment `id` values remain
+only as pre-existing canonical source metadata, not request credentials. This
+closes the one-CSV live gate without claiming general Library text support.
+
+## Verified unpacked-extension installer checkpoint
+
+Branch `codex/extension-installer` adds one explicit PowerShell 7 deployment
+path for an already loaded unpacked Liska copy. It never discovers or loads an
+extension. The caller names absolute source, target and rollback roots; the
+script validates Liska manifest identity and exact worker/popup file entries,
+rejects reparse/case/overlap/volume ambiguity, stages beside the target, verifies
+the complete inventory by relative path/length/SHA-256, moves the old target to
+a unique rollback, promotes the stage and verifies the installed bytes again.
+Existing rollbacks are never removed.
+
+Failures before promotion leave the installed target untouched. An injected
+second-move failure restores and re-verifies the old bytes. Any recursive stage
+cleanup first proves an exact generated child name, parent containment and the
+absence of reparse descendants. One independent review found that the initial
+manifest preflight treated entry-shaped directories as worker/popup files; the
+inventory now maintains a separate file-only set, and executable regressions
+reject both directory cases before target mutation.
+
+`PlanOnly` builds nothing, writes nothing and touches no process. A normal
+successful install reports `reloadRequired: true` so only Liska needs a browser
+extensions-page reload. Full Comet restart is an explicit off-by-default
+fallback: graceful exact-executable close first, optional separately requested
+force only after timeout, same executable relaunched visibly with session
+restore, and a new exact-path main window required. Restart failure retains the
+verified install and rollback.
+
+The executable installer suite passes 21 tests with one Windows-only
+case-sensitive-filesystem skip; the complete suite passes 222 files / 7,340
+tests. TypeScript, the guarded 288-module production build, source/platform
+lint, formatting and diff checks pass. A real no-write PlanOnly against the
+current CSV candidate and installed Liska reports 40 source files / 1,107,773
+bytes, matches an independent aggregate digest, emits no absolute paths and
+leaves source, target and all rollback bytes/timestamps unchanged. Actual live
+installation then deployed that exact CSV build: the receipt reported 40 files /
+1,107,773 bytes, identical source/installed aggregate SHA-256
+`526d7564...ce34`, manifest SHA-256 `283ceffd...5e1d`, one new rollback and
+`reloadRequired: true`. Native CUA reloaded only Liska on
+`comet://extensions`; the `Перезапущено` toast appeared and the service worker
+registered while Comet and its conversation tabs remained open. The ordinary
+install/reload gate is closed. Full `-RestartComet` remains executable-test-
+verified but deliberately unexercised against the user's live session; it is an
+optional fallback, not the normal update path.

@@ -32,6 +32,100 @@ function completeMetric(): ChatGptActiveResolverMetric {
 }
 
 describe('ChatGPT active resolver durable audit', () => {
+  it('counts a Library CSV and JPEG inside the unchanged four-operation budget', () => {
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'asset-batch-4',
+      libraryJpegAttemptCount: 1,
+      libraryCsvAttemptCount: 1,
+      attempts: [
+        chatGptActiveResolverFailureMetric(1, 'resolver-result-timeout'),
+        completeMetric(),
+        completeMetric(),
+        completeMetric(),
+      ],
+    });
+    expect(warning).toContain('selected=4/4; completed=3;');
+    expect(warning).toContain('dispatch-unknown=1;');
+    expect(warning).toContain(
+      'library-jpeg-attempts=1; library-csv-attempts=1; ordinary-image-attempts=2;'
+    );
+    expect(warning).toContain(
+      'four sequential PNG/JPEG/CSV assets, including at most one Library CSV.'
+    );
+    expect(warning).not.toMatch(/private|file_library|https:|Bearer|cookie|sig=/i);
+  });
+
+  it('admits a CSV-only batch without inventing image attempts', () => {
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'asset-batch-4',
+      libraryJpegAttemptCount: 0,
+      libraryCsvAttemptCount: 1,
+      attempts: [completeMetric()],
+    });
+    expect(warning).toContain(
+      'library-jpeg-attempts=0; library-csv-attempts=1; ordinary-image-attempts=0;'
+    );
+  });
+
+  it.each([
+    { libraryJpegAttemptCount: 1, libraryCsvAttemptCount: 1 },
+    { libraryJpegAttemptCount: 0, libraryCsvAttemptCount: 2 },
+    { libraryJpegAttemptCount: 0, libraryCsvAttemptCount: -1 },
+    { libraryJpegAttemptCount: 0, libraryCsvAttemptCount: undefined },
+    { libraryJpegAttemptCount: undefined, libraryCsvAttemptCount: 1 },
+    { libraryJpegAttemptCount: 0, libraryCsvAttemptCount: 'private' },
+  ])('rejects inconsistent or unsafe mixed family counts %#', counts => {
+    expect(() =>
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'asset-batch-4',
+        attempts: [completeMetric()],
+        ...counts,
+      } as never)
+    ).toThrow('invalid active resolver metric');
+  });
+
+  it.each(['missing', 'getter', 'extra', 'symbol', 'image-mode'] as const)(
+    'rejects a non-exact mixed audit (%s) without evaluating caller accessors',
+    mode => {
+      const getter = vi.fn(() => 1);
+      const audit = {
+        acquisitionMode: 'asset-batch-4',
+        attempts: [completeMetric()],
+        libraryJpegAttemptCount: 0,
+        libraryCsvAttemptCount: 1,
+      } as Record<string | symbol, unknown>;
+      if (mode === 'missing') delete audit.libraryCsvAttemptCount;
+      if (mode === 'getter')
+        Object.defineProperty(audit, 'libraryCsvAttemptCount', { get: getter });
+      if (mode === 'extra') audit.providerId = 'private';
+      if (mode === 'symbol') audit[Symbol('private')] = 1;
+      if (mode === 'image-mode') audit.acquisitionMode = 'image-batch-4';
+      expect(() => chatGptActiveResolverAuditWarning(audit as never)).toThrow(
+        'invalid active resolver metric'
+      );
+      expect(getter).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(
+    [
+      [],
+      Array.from({ length: 5 }, completeMetric),
+      new Array(1),
+      [{ ...completeMetric(), requestedCount: 0 }],
+      [{ ...completeMetric(), downloadUrl: 'https://private' }],
+    ].map(attempts => ({ attempts }))
+  )('applies the same closed four-item attempt validation to mixed batches %#', ({ attempts }) => {
+    expect(() =>
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'asset-batch-4',
+        attempts,
+        libraryJpegAttemptCount: 0,
+        libraryCsvAttemptCount: 1,
+      } as never)
+    ).toThrow('invalid active resolver metric');
+  });
+
   it('counts one Library JPEG within the same four-attempt audit without retaining provider values', () => {
     const warning = chatGptActiveResolverAuditWarning({
       acquisitionMode: 'image-batch-4',

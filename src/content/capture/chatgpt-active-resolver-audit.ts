@@ -35,9 +35,18 @@ export interface ChatGptActiveResolverBatchAudit {
   libraryJpegAttemptCount?: 0 | 1;
 }
 
+/** Mixed runs share the historical four-operation cap; CSV has its own family count. */
+export interface ChatGptActiveResolverAssetBatchAudit {
+  acquisitionMode: 'asset-batch-4';
+  attempts: ChatGptActiveResolverMetric[];
+  libraryJpegAttemptCount: 0 | 1;
+  libraryCsvAttemptCount: 0 | 1;
+}
+
 export type ChatGptActiveResolverAudit =
   | ChatGptActiveResolverMetric
-  | ChatGptActiveResolverBatchAudit;
+  | ChatGptActiveResolverBatchAudit
+  | ChatGptActiveResolverAssetBatchAudit;
 
 export function emptyChatGptActiveResolverOutcomeCounts(): ChatGptActiveResolverOutcomeCounts {
   return {
@@ -301,7 +310,37 @@ function validatedBatchSnapshot(
   };
 }
 
-function batchAuditWarning(audit: ChatGptActiveResolverBatchAudit): string {
+function validatedAssetBatchSnapshot(
+  fields: DataFields,
+  snapshots: DataSnapshots
+): ChatGptActiveResolverAssetBatchAudit {
+  if (
+    !hasExactFields(fields, [
+      'acquisitionMode',
+      'attempts',
+      'libraryJpegAttemptCount',
+      'libraryCsvAttemptCount',
+    ]) ||
+    fields.acquisitionMode !== 'asset-batch-4' ||
+    (fields.libraryJpegAttemptCount !== 0 && fields.libraryJpegAttemptCount !== 1) ||
+    (fields.libraryCsvAttemptCount !== 0 && fields.libraryCsvAttemptCount !== 1)
+  )
+    invalidMetric();
+  const attempts = validatedAttemptSnapshots(fields.attempts, snapshots);
+  const libraryJpegAttemptCount = fields.libraryJpegAttemptCount as 0 | 1;
+  const libraryCsvAttemptCount = fields.libraryCsvAttemptCount as 0 | 1;
+  if (libraryJpegAttemptCount + libraryCsvAttemptCount > attempts.length) invalidMetric();
+  return {
+    acquisitionMode: 'asset-batch-4',
+    attempts,
+    libraryJpegAttemptCount,
+    libraryCsvAttemptCount,
+  };
+}
+
+function batchAuditWarning(
+  audit: ChatGptActiveResolverBatchAudit | ChatGptActiveResolverAssetBatchAudit
+): string {
   const counts = emptyChatGptActiveResolverOutcomeCounts();
   const failures = new Map<ChatGptActiveResolverErrorCode, number>();
   let completed = 0;
@@ -323,7 +362,13 @@ function batchAuditWarning(audit: ChatGptActiveResolverBatchAudit): string {
     .map(code => `${code}:${failures.get(code)}`)
     .join(',');
   const libraryCount = audit.libraryJpegAttemptCount ?? 0;
-  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; library-jpeg-attempts=${libraryCount}; ordinary-image-attempts=${audit.attempts.length - libraryCount}; outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; file-ID binary acquisition is limited to four sequential PNG/JPEG images.`;
+  const csvCount = audit.acquisitionMode === 'asset-batch-4' ? audit.libraryCsvAttemptCount : 0;
+  const families = `library-jpeg-attempts=${libraryCount}; ${audit.acquisitionMode === 'asset-batch-4' ? `library-csv-attempts=${csvCount}; ` : ''}ordinary-image-attempts=${audit.attempts.length - libraryCount - csvCount};`;
+  const capability =
+    audit.acquisitionMode === 'asset-batch-4'
+      ? 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV assets, including at most one Library CSV.'
+      : 'file-ID binary acquisition is limited to four sequential PNG/JPEG images.';
+  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; ${families} outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; ${capability}`;
 }
 
 export function chatGptActiveResolverAuditWarning(
@@ -334,6 +379,8 @@ export function chatGptActiveResolverAuditWarning(
   const fields = snapshotOwnDataFields(metric, snapshots);
   if (fields.acquisitionMode === 'image-batch-4')
     return batchAuditWarning(validatedBatchSnapshot(fields, snapshots));
+  if (fields.acquisitionMode === 'asset-batch-4')
+    return batchAuditWarning(validatedAssetBatchSnapshot(fields, snapshots));
   const singular = validatedMetricSnapshot(fields, snapshots);
   const acquisition =
     singular.acquisitionMode === 'one-png'
