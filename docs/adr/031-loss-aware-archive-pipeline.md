@@ -598,7 +598,28 @@ boundary. Downloads and Obsidian retained byte-identical raw, manifest,
 canonical and binary files; the aggregate audit records one Library JPEG and
 three ordinary image attempts without provider values.
 
-This does not establish general Library identity equivalence, Library PNG/WebP,
+The same contract now has one separately gated passive CSV specialization. A
+real standard-conversation capture retained two `text/csv` records. Both were
+unambiguous Library attachments with one direct file ID, no pointer/sandbox or
+interpreter ownership, and independent admission under every existing Library
+identity/collision invariant. CSV is selected before image families, at most
+once, and still consumes one of the same four active operations; no endpoint,
+request, permission or aggregate budget changed.
+
+The exact production canary fetched 14,717 bytes for the deterministic first
+CSV and preserved the second 751-byte record as `not-attempted`. Raw metadata
+size matched the fetched bytes. The audit recorded one Library CSV, one Library
+JPEG and two ordinary JPEG attempts, all observed. File and Obsidian retained
+seven byte-identical raw/manifest/canonical/binary artifacts; File added only
+its expected canonical HTML and receipt. The CSV path, length and SHA-256 agree
+between manifest, canonical archive and physical bytes, and both Markdown
+destinations link the same content-addressed `.csv`. Exact Library IDs remained
+raw-only; the signed URL remained transient.
+
+CSV bytes are passive archive evidence. Liska does not decode, parse, transcode,
+formula-sanitize, render or automatically open them; response/metadata MIME,
+bounded bytes and destination receipts remain the only claims. This does not
+establish general Library identity equivalence, Library PNG/WebP or text/plain,
 custom-GPT/project ownership, WebP structure validation or a new endpoint.
 Those remain separately evidence-gated work.
 
@@ -926,8 +947,8 @@ later staged begin.
 
 Progress as of 2026-10-23: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images,
-interpreter/sandbox documents and one exact Library-associated JPEG with
-explicit completeness diagnostics. Custom-GPT/project raw capture is
+interpreter/sandbox documents, one exact Library-associated JPEG and one exact
+passive Library CSV with explicit completeness diagnostics. Custom-GPT/project raw capture is
 live-verified under an archive-only, zero-binary policy; their binary ownership,
 other Library binary families, Calpico fallback, and general Deep Research
 binary acquisition remain outside the current checkpoint. Step 8 is implemented and live-verified
