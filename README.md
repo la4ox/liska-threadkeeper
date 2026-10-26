@@ -47,6 +47,11 @@ npm run build
 
 Then open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `dist/`. In Comet or another Chromium browser, use its equivalent extensions page.
 
+To update an already loaded unpacked copy with a verified rollback, use the
+[maintainer installer](docs/maintaining.md#refresh-an-unpacked-local-copy). It
+replaces only the explicitly named `dist` and never discovers or loads an
+extension on its own.
+
 ## Use it
 
 1. Open a supported AI conversation.
