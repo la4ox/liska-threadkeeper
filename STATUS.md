@@ -2699,3 +2699,26 @@ self-created timeout and maps it to fixed detail
 19 tests, including both capture paths, exact deadline, early cleanup, spoofed
 timeout-shaped errors, and late resolve/reject. TypeScript, targeted lint,
 formatting and diff checks pass. One installed rerun remains required.
+
+That rerun exposed a more fundamental precondition failure before the new
+content-side deadline could be exercised: Comet reported service-worker
+registration status 15 with `document is not defined`. The emitted worker
+closure had selected the browser conditional export of
+`decode-named-character-reference`, whose module initializer eagerly calls
+`document.createElement`. The candidate now aliases only that exact package to
+its installed DOM-free table decoder; global Vite export conditions and all
+capture routes remain unchanged.
+
+A new post-build AST guard starts from the emitted manifest worker, traverses
+its complete local static/re-export/literal-dynamic-import closure, fails closed
+on missing, escaping, external or uninspectable dependencies, and rejects the
+demonstrated eager DOM initializer while allowing deferred page-injection
+callbacks. The old closure is rejected as `eager-dom-create-element`; the new
+closure passes with 9 files / 297,795 bytes. Decoder parity covers all 2,125
+installed entities plus invalid, prefix, case and multicodepoint cases. The
+focused guard suite passes 30/30 tests and the complete suite passes 221 files /
+7,321 tests. TypeScript and the guarded production build pass with 288
+transformed modules; source/platform lint has zero errors and the same three
+baseline warnings; formatting and diff checks pass. Independent review and
+deterministic closure verification are clean. Exact-build Comet installation,
+worker registration and one foreground replay canary remain the live gate.

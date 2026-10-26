@@ -1,11 +1,20 @@
 import { defineConfig, normalizePath } from 'vite';
 import { crx } from '@crxjs/vite-plugin';
 import { cp, rm } from 'node:fs/promises';
-import { resolve } from 'path';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'path';
 import manifest from './src/manifest.json' with { type: 'json' };
 
 const outDir = 'dist';
 const localesDir = resolve(import.meta.dirname, 'src/_locales');
+// The browser export eagerly touches document, including in CRXJS worker
+// chunks. Pin only this package to its equivalent DOM-free table decoder.
+const pureCharacterReferenceDecoder = normalizePath(
+  resolve(
+    dirname(createRequire(import.meta.url).resolve('decode-named-character-reference')),
+    'index.js'
+  )
+);
 
 export default defineConfig(({ command }) => {
   let localesOutDir: string;
@@ -24,6 +33,14 @@ export default defineConfig(({ command }) => {
   }
 
   return {
+    resolve: {
+      alias: [
+        {
+          find: /^decode-named-character-reference$/,
+          replacement: pureCharacterReferenceDecoder,
+        },
+      ],
+    },
     plugins: [
       crx({ manifest }),
       {

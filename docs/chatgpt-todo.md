@@ -258,6 +258,15 @@ terminal states, and the existing no-credential-export boundary.
   candidate; only its self-created timeout maps to fixed detail
   `opaque-replay-runtime-message-timeout`. It never retries, cancels, writes or
   exposes the late/private runtime outcome.
+- Before that envelope could be exercised, live extension diagnostics exposed
+  service-worker registration status 15: a transitive browser decoder export
+  eagerly evaluated `document.createElement` in the worker. The current
+  candidate aliases only that exact dependency to its equivalent DOM-free
+  table decoder and runs a fail-closed transitive emitted-worker guard after
+  every production build. Old-dist rejection, full decoder parity, 30 focused
+  guard tests, the 7,321-test complete suite and independent review are clean;
+  exact-build Comet registration and one foreground replay remain the live
+  gate.
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Settings-stable durable routing is implemented across first-party archive,
