@@ -265,8 +265,12 @@ terminal states, and the existing no-credential-export boundary.
   table decoder and runs a fail-closed transitive emitted-worker guard after
   every production build. Old-dist rejection, full decoder parity, 30 focused
   guard tests, the 7,321-test complete suite and independent review are clean;
-  exact-build Comet registration and one foreground replay remain the live
-  gate.
+  the exact installed build then registered its worker and completed one fresh
+  foreground historical-chat replay in about 30 seconds. File and Obsidian
+  received identical complete structured Markdown; the immutable archive's raw
+  response and four fetched JPEG/PNG assets reconcile to manifest lengths and
+  SHA-256 values, while two unsupported references remain honestly
+  `not-attempted`. The worker/message/replay live gate is closed.
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Settings-stable durable routing is implemented across first-party archive,

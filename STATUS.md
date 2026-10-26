@@ -2720,5 +2720,17 @@ focused guard suite passes 30/30 tests and the complete suite passes 221 files /
 7,321 tests. TypeScript and the guarded production build pass with 288
 transformed modules; source/platform lint has zero errors and the same three
 baseline warnings; formatting and diff checks pass. Independent review and
-deterministic closure verification are clean. Exact-build Comet installation,
-worker registration and one foreground replay canary remain the live gate.
+deterministic closure verification are clean.
+
+The exact 40-file build was then installed byte-for-byte with a recoverable
+rollback. Reloading only Liska made the worker registration link active, and a
+fresh foreground historical-chat canary left `export in progress` in about 30
+seconds instead of hanging. It produced a `structured-api`, complete graph /
+messages / branches capture in both File and Obsidian: the two 27,573-byte
+Markdown files are SHA-256 identical and name the same capture ID and manifest
+hash. The immutable Obsidian archive contains the same-origin raw response,
+manifest, canonical JSON, two fetched JPEGs and two fetched PNGs. Every fetched
+raw/asset descriptor reconciles exactly by relative path, byte length and
+SHA-256; two further asset references remain honestly `not-attempted`, so asset
+completeness stays partial rather than being overstated. This closes worker
+registration, runtime-message settlement and the foreground replay live gate.
