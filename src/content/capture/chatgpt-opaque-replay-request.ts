@@ -16,13 +16,34 @@ import {
 } from './chatgpt-current-branch';
 import type { ArchiveProjectionResult } from '../archive-projection';
 
+const RUNTIME_MESSAGE_TIMEOUT_MS = 205_000;
+const runtimeMessageTimeouts = new WeakSet<object>();
+
 /** Request only the explicit one-shot A-strict replay route. */
 export async function requestChatGptOpaqueReplayCapture(
   conversationId: string
 ): Promise<ChatGptOpaqueReplayResponse> {
-  const response: unknown = await sendMessage({
-    action: 'captureChatGptConversationViaOpaqueReplay',
-    conversationId,
+  const response: unknown = await new Promise((resolve, reject) => {
+    const message = sendMessage({
+      action: 'captureChatGptConversationViaOpaqueReplay',
+      conversationId,
+    });
+    const timer = setTimeout(() => {
+      const error = new Error('ChatGPT opaque replay runtime message timed out.');
+      runtimeMessageTimeouts.add(error);
+      reject(error);
+    }, RUNTIME_MESSAGE_TIMEOUT_MS);
+    // Observe both late outcomes without retrying or cancelling the background request.
+    void message.then(
+      response => {
+        clearTimeout(timer);
+        resolve(response);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
   });
   return isChatGptOpaqueReplayResponse(response)
     ? response
@@ -39,8 +60,10 @@ async function replayAsCaptureResponse(conversationId: string): Promise<ChatGptC
   let replay: ChatGptOpaqueReplayResponse;
   try {
     replay = await requestChatGptOpaqueReplayCapture(conversationId);
-  } catch {
-    throw replayFailure('runtime-message-failed');
+  } catch (error) {
+    const timedOut =
+      typeof error === 'object' && error !== null && runtimeMessageTimeouts.has(error);
+    throw replayFailure(timedOut ? 'runtime-message-timeout' : 'runtime-message-failed');
   }
   if (!replay.success) throw replayFailure(replay.code);
   const response: ChatGptCaptureResponse = {

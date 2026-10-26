@@ -2642,3 +2642,95 @@ accessibility tree exposed the exact six-file selection and final status.
 Browser-UI cancellation timing and invalid-extra-file refusal remain covered by
 focused tests rather than claimed as installed live observations; the changed
 multi-file preparation/output path itself is live-verified.
+
+## ChatGPT current-runtime diagnostic checkpoint
+
+Branch `codex/chatgpt-current-runtime-drift` begins a diagnostic-only repair of
+the current ChatGPT drift without widening capture authority. A-strict replay
+previously reduced every unclaimed request-family mismatch to
+`target-not-observed`. The candidate adds one fixed terminal code,
+`target-not-observed-singular-path-seen`, after the existing deadline only when
+the observer saw an input naming the exact current singular pathname and never
+claimed an eligible plural source.
+
+The new observation is one closure-private boolean. It reads no query contents,
+headers, body, response, identifier, exception or request record; primitive
+strings and the captured native Request URL getter are the only input forms.
+It never claims, clones, terminates early, dispatches, retries or changes the
+original page fetch. Dispatch/claimed timeout precedence, exact plural query
+grammar, temporary-tab readiness, ordinary capture, probe/resolver routes and
+all timers remain unchanged. Generic unrelated inputs still end as
+`target-not-observed`.
+
+Focused document-start/background/contract/plain-header/request verification
+passes 5 files / 828 tests. TypeScript, targeted source lint, formatting and
+diff checks pass. The regressions cover deadline-only publication, repeated
+singular inputs, native Request and primitive-string privacy, singular followed
+by eligible plural success and every timeout phase, unrelated/coercible/poisoned
+inputs, exact result shapes and serialized-reader propagation.
+
+A separate bounded live DOM inspection on one user-approved historical ChatGPT
+conversation returned only aggregate shapes. It found five current
+`div[data-turn-key]` roots; every root had exactly one user bubble, one assistant
+role marker and one assistant Markdown block. The exact timeline scroller was
+present under `main`, used ordinary `column` flow, had vertical range and held
+all five roots. No text, attribute value, identifier, link, title, HTML, network,
+storage or application global was read or retained. The earlier zero-turn DOM
+symptom was not reproduced, so this candidate does not change selectors. An
+installed exact-build A-strict run remains the next evidence gate; the new code
+can narrow one no-claim case but cannot itself prove today's request family.
+
+The first exact-build A-strict canary loaded the fresh content script and entered
+`Syncing…`, but remained pending for more than five minutes. Replay's background
+deadline is 190 seconds; after it had elapsed there was no open marker tab, Save
+As dialog, G2O warning/error, Download capture, Markdown file, Obsidian capture,
+or terminal UI status. Closing only the agent-created canary tab produced no
+output delta. This is evidence of an unbounded outer runtime-message wait, not a
+provider payload/image timeout or permission to retry capture.
+
+The follow-up candidate wraps only the content-side replay message in a
+205-second envelope, leaving 10 seconds beyond the background maximum. It
+clears its timer on early resolve/reject, observes both late outcomes so neither
+can become unhandled, and never retries, cancels the background request, writes,
+or exposes private runtime diagnostics. A private WeakSet distinguishes only the
+self-created timeout and maps it to fixed detail
+`opaque-replay-runtime-message-timeout`; ordinary rejection retains
+`opaque-replay-runtime-message-failed`. Focused bridge verification passes 19/
+19 tests, including both capture paths, exact deadline, early cleanup, spoofed
+timeout-shaped errors, and late resolve/reject. TypeScript, targeted lint,
+formatting and diff checks pass. One installed rerun remains required.
+
+That rerun exposed a more fundamental precondition failure before the new
+content-side deadline could be exercised: Comet reported service-worker
+registration status 15 with `document is not defined`. The emitted worker
+closure had selected the browser conditional export of
+`decode-named-character-reference`, whose module initializer eagerly calls
+`document.createElement`. The candidate now aliases only that exact package to
+its installed DOM-free table decoder; global Vite export conditions and all
+capture routes remain unchanged.
+
+A new post-build AST guard starts from the emitted manifest worker, traverses
+its complete local static/re-export/literal-dynamic-import closure, fails closed
+on missing, escaping, external or uninspectable dependencies, and rejects the
+demonstrated eager DOM initializer while allowing deferred page-injection
+callbacks. The old closure is rejected as `eager-dom-create-element`; the new
+closure passes with 9 files / 297,795 bytes. Decoder parity covers all 2,125
+installed entities plus invalid, prefix, case and multicodepoint cases. The
+focused guard suite passes 30/30 tests and the complete suite passes 221 files /
+7,321 tests. TypeScript and the guarded production build pass with 288
+transformed modules; source/platform lint has zero errors and the same three
+baseline warnings; formatting and diff checks pass. Independent review and
+deterministic closure verification are clean.
+
+The exact 40-file build was then installed byte-for-byte with a recoverable
+rollback. Reloading only Liska made the worker registration link active, and a
+fresh foreground historical-chat canary left `export in progress` in about 30
+seconds instead of hanging. It produced a `structured-api`, complete graph /
+messages / branches capture in both File and Obsidian: the two 27,573-byte
+Markdown files are SHA-256 identical and name the same capture ID and manifest
+hash. The immutable Obsidian archive contains the same-origin raw response,
+manifest, canonical JSON, two fetched JPEGs and two fetched PNGs. Every fetched
+raw/asset descriptor reconciles exactly by relative path, byte length and
+SHA-256; two further asset references remain honestly `not-attempted`, so asset
+completeness stays partial rather than being overstated. This closes worker
+registration, runtime-message settlement and the foreground replay live gate.

@@ -239,6 +239,38 @@ terminal states, and the existing no-credential-export boundary.
   queryless singular request, not a payload/image timeout. First add value-free
   strict-replay mismatch categories, then inspect current live turn attributes;
   widen neither route equivalence nor DOM selectors without that evidence.
+- Current candidate adds one replay-only fixed diagnostic:
+  `target-not-observed-singular-path-seen`. It records only that the exact
+  current singular pathname was seen before the existing no-claim deadline;
+  it does not claim a GET, response, completeness, eligibility or usable bytes.
+  Candidate/claim/dispatch rules, timers, exact plural query grammar and generic
+  `target-not-observed` remain unchanged.
+- One bounded fresh-tab DOM inspection read only aggregate shapes and found the
+  current selectors intact: five `div[data-turn-key]` roots, each with one user
+  bubble, one assistant marker and one assistant Markdown block, plus the exact
+  timeline scroller. The earlier zero-turn symptom was not reproduced; do not
+  widen selectors without a contrary current shape.
+- The first exact-build A-strict canary exposed a separate orchestration hang:
+  the UI stayed `Syncing…` for more than five minutes although replay's
+  background deadline is 190 seconds. No marker tab, Save As dialog, fixed G2O
+  error, Download/Obsidian artifact or mutable note appeared. The content-side
+  runtime message had no deadline. A bounded 205-second envelope is now a
+  candidate; only its self-created timeout maps to fixed detail
+  `opaque-replay-runtime-message-timeout`. It never retries, cancels, writes or
+  exposes the late/private runtime outcome.
+- Before that envelope could be exercised, live extension diagnostics exposed
+  service-worker registration status 15: a transitive browser decoder export
+  eagerly evaluated `document.createElement` in the worker. The current
+  candidate aliases only that exact dependency to its equivalent DOM-free
+  table decoder and runs a fail-closed transitive emitted-worker guard after
+  every production build. Old-dist rejection, full decoder parity, 30 focused
+  guard tests, the 7,321-test complete suite and independent review are clean;
+  the exact installed build then registered its worker and completed one fresh
+  foreground historical-chat replay in about 30 seconds. File and Obsidian
+  received identical complete structured Markdown; the immutable archive's raw
+  response and four fetched JPEG/PNG assets reconcile to manifest lengths and
+  SHA-256 values, while two unsupported references remain honestly
+  `not-attempted`. The worker/message/replay live gate is closed.
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Settings-stable durable routing is implemented across first-party archive,
@@ -397,13 +429,15 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-The File and Obsidian reconciliation slices are merged; the exact Save As ZIP
-and Local REST API 5.5.2 writer/API gates are verified. The rebased multi-shard
-candidate now has exact integrated tests/build, clean independent review,
-direct shuffled/cancellation/ZIP/omitted-target evidence and one installed
-six-file Obsidian run. Complete its current-head review/merge. Keep actual
-browser Cancel timing, invalid-extra-file refusal and page unload as honest UI
-follow-ups rather than repeating the already verified core/output paths. Keep archive merge/deduplication,
+The File, Obsidian and multi-shard reconciliation slices are merged and their
+declared live gates are closed. Finish the current ChatGPT runtime-drift
+diagnostic candidate: review the fixed singular-path no-claim code, install the
+exact build with the bounded runtime-message envelope, then rerun one A-strict
+canary without changing capture authority. Keep the confirmed current DOM
+selectors unchanged unless new value-free evidence contradicts the fresh five-
+root shape. Keep actual browser
+Cancel timing, invalid-extra-file refusal and page unload as honest UI follow-
+ups rather than repeating verified core/output paths. Keep archive merge/deduplication,
 export-ZIP discovery, the 1 GiB source-work refusal, real staged
 `>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
 binaries, and the archived Library WebP as separate evidence-gated work.

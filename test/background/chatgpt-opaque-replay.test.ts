@@ -106,6 +106,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
 
   it.each([
     ['target-not-observed', 0],
+    ['target-not-observed-singular-path-seen', 0],
     ['source-response-timeout', 0],
     ['replay-response-timeout', 1],
     ['timed-out', 0],
@@ -127,18 +128,21 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
   });
 
-  it.each(['source-response-timeout', 'replay-response-timeout', 'timed-out'])(
-    'rejects suffixes and unbounded counts on %s in the serialized reader',
-    code => {
-      for (const snapshot of [
-        { kind: 'error', code: `${code}:synthetic-secret`, singularDispatchCount: 0 },
-        { kind: 'error', code, singularDispatchCount: 2 },
-      ]) {
-        vi.stubGlobal('window', { [`__liskaChatGptOpaqueReplay_${NONCE}`]: snapshot });
-        expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
-      }
+  it.each([
+    'target-not-observed-singular-path-seen',
+    'source-response-timeout',
+    'replay-response-timeout',
+    'timed-out',
+  ])('rejects suffixes and unbounded counts on %s in the serialized reader', code => {
+    for (const snapshot of [
+      { kind: 'error', code: `${code}:synthetic-secret`, singularDispatchCount: 0 },
+      { kind: 'error', code, singularDispatchCount: 2 },
+      { kind: 'error', code, singularDispatchCount: 0, url: 'synthetic-url-sentinel' },
+    ]) {
+      vi.stubGlobal('window', { [`__liskaChatGptOpaqueReplay_${NONCE}`]: snapshot });
+      expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
     }
-  );
+  });
 
   it('keeps an unobserved background deadline ambiguous and never retries', async () => {
     let now = 0;

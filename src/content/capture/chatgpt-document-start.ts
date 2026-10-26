@@ -3079,6 +3079,7 @@ type OpaqueReplayErrorCode =
   | 'hook-state-failed'
   | 'permission-unavailable'
   | 'target-not-observed'
+  | 'target-not-observed-singular-path-seen'
   | 'source-not-native-request'
   | 'init-security-sensitive'
   | 'init-security-sensitive-headers'
@@ -3145,6 +3146,7 @@ type OpaqueReplayPageState = {
   prebuiltRequest: Request | undefined;
   settled: boolean;
   claimed: boolean;
+  singularPathSeen: boolean;
   singularDispatchCount: 0 | 1;
   result: OpaqueReplayHookResult;
 };
@@ -3311,6 +3313,44 @@ function opaqueReplayRouteFamily(
     : 'custom-gpt';
 }
 
+function opaqueReplaySingularPathSeen(
+  primordials: PagePrimordials,
+  input: RequestInfo | URL,
+  conversationId: string
+): boolean {
+  try {
+    let url: URL | undefined;
+    if (typeof input === 'string') {
+      url = opaqueProbeUrl(primordials, input);
+    } else {
+      // The captured Request URL getter is a brand gate. Do not accept URL
+      // objects, page-owned url/href getters, or string-coercible lookalikes.
+      const rawUrl = applyCaptured<unknown>(
+        primordials,
+        primordials.document.requestUrl,
+        input,
+        []
+      );
+      const URLConstructor = primordials.document.URL;
+      if (typeof rawUrl !== 'string' || URLConstructor === undefined) return false;
+      url = new URLConstructor(rawUrl);
+    }
+    if (url === undefined) return false;
+    // Query contents are deliberately neither read nor classified.
+    return (
+      applyCaptured<string>(primordials, primordials.document.urlOrigin, url, []) ===
+        CHATGPT_ORIGIN &&
+      applyCaptured<string>(primordials, primordials.document.urlUsername, url, []) === '' &&
+      applyCaptured<string>(primordials, primordials.document.urlPassword, url, []) === '' &&
+      applyCaptured<string>(primordials, primordials.document.urlHash, url, []) === '' &&
+      applyCaptured<string>(primordials, primordials.document.urlPathname, url, []) ===
+        `/backend-api/conversation/${conversationId}`
+    );
+  } catch {
+    return false;
+  }
+}
+
 function opaqueReplayTimeout(state: OpaqueReplayPageState): OpaqueReplayHookResult {
   // These are observer phases, not proof about all page network activity.
   // In particular, target-not-observed means no eligible source was claimed.
@@ -3319,7 +3359,9 @@ function opaqueReplayTimeout(state: OpaqueReplayPageState): OpaqueReplayHookResu
       ? 'replay-response-timeout'
       : state.claimed
         ? 'source-response-timeout'
-        : 'target-not-observed';
+        : state.singularPathSeen
+          ? 'target-not-observed-singular-path-seen'
+          : 'target-not-observed';
   return opaqueReplayError(state, code);
 }
 
@@ -3779,6 +3821,7 @@ function armOpaqueReplay(
     prebuiltRequest: undefined,
     settled: false,
     claimed: false,
+    singularPathSeen: false,
     singularDispatchCount: 0,
     result: { kind: 'ready' },
   };
@@ -3814,6 +3857,18 @@ function armOpaqueReplay(
           !state.settled && !state.claimed
             ? opaqueProbeCandidate(state.primordials, args, target.conversationId, true)
             : undefined;
+        if (
+          candidate === undefined &&
+          !state.settled &&
+          !state.claimed &&
+          !state.singularPathSeen
+        ) {
+          state.singularPathSeen = opaqueReplaySingularPathSeen(
+            state.primordials,
+            args[0],
+            target.conversationId
+          );
+        }
         if (candidate !== undefined) {
           state.claimed = true;
           preparation = prepareOpaqueReplayRequest(

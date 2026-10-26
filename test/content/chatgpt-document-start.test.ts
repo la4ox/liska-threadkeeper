@@ -4880,7 +4880,272 @@ describe('startChatGptDocumentStartCapture', () => {
     expect(page.pageWindow.fetch).toBe(page.originalFetch);
   });
 
+  it.each(['absolute string', 'relative string', 'native Request'] as const)(
+    'keeps repeated singular %s observations private and ready until the existing deadline',
+    async inputKind => {
+      vi.useFakeTimers();
+      // JSDOM may expose a wrapper subclass without own native URL getters.
+      const NativeRequest: typeof Request =
+        Object.getOwnPropertyDescriptor(Request.prototype, 'url') === undefined
+          ? Object.getPrototypeOf(Request.prototype).constructor
+          : Request;
+      const query = '?private-query-sentinel=%E0%A4&num_turns=1&num_turns=2';
+      const input =
+        inputKind === 'native Request'
+          ? new NativeRequest(`https://chatgpt.com${ENDPOINT}${query}`)
+          : `${inputKind === 'absolute string' ? 'https://chatgpt.com' : ''}${ENDPOINT}${query}`;
+      const forbiddenRead = vi.fn(() => {
+        throw new Error('synthetic-private-read-sentinel');
+      });
+      if (typeof input !== 'string') {
+        for (const property of ['url', 'method', 'headers', 'body', 'clone']) {
+          Object.defineProperty(input, property, { configurable: true, get: forbiddenRead });
+        }
+      }
+      const init = new Proxy({} as RequestInit, {
+        get: forbiddenRead,
+        ownKeys: forbiddenRead,
+        getOwnPropertyDescriptor: forbiddenRead,
+      });
+      const response = Object.defineProperties(new Response('{}'), {
+        url: { get: forbiddenRead },
+        status: { get: forbiddenRead },
+        headers: { get: forbiddenRead },
+        body: { get: forbiddenRead },
+        clone: { get: forbiddenRead },
+      });
+      const responsePromise = Promise.resolve(response);
+      const page = fakePage(
+        markedOpaqueReplayUrl(),
+        () => responsePromise,
+        NativeRequest as unknown as typeof OpaqueTestRequest
+      );
+      const requestClone = vi.spyOn(NativeRequest.prototype, 'clone');
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+      const wrappedFetch = page.pageWindow.fetch;
+      const receiver = {} as Window;
+
+      for (let index = 0; index < 3; index += 1) {
+        expect(wrappedFetch.call(receiver, input, init)).toBe(responsePromise);
+        expect(page.originalFetch.mock.calls[index]?.[0]).toBe(input);
+        expect(page.originalFetch.mock.calls[index]?.[1]).toBe(init);
+        expect(page.originalFetch.mock.contexts[index]).toBe(receiver);
+        expect(opaqueReplaySnapshotOf(page)).toEqual({ kind: 'ready' });
+        expect(page.timers.size).toBe(1);
+      }
+      await vi.advanceTimersByTimeAsync(179_999);
+      expect(opaqueReplaySnapshotOf(page)).toEqual({ kind: 'ready' });
+      expect(page.pageWindow.fetch).toBe(wrappedFetch);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const terminal = {
+        kind: 'error',
+        code: 'target-not-observed-singular-path-seen',
+        singularDispatchCount: 0,
+      };
+      expect(opaqueReplaySnapshotOf(page)).toEqual(terminal);
+      vi.stubGlobal('window', page.pageWindow);
+      expect(readChatGptOpaqueReplayState(NONCE)).toEqual(terminal);
+      expect(JSON.stringify(terminal)).not.toContain('sentinel');
+      expect(JSON.stringify(terminal)).not.toContain(CONVERSATION_ID);
+      expect(forbiddenRead).not.toHaveBeenCalled();
+      expect(requestClone).not.toHaveBeenCalled();
+      expect(page.originalFetch).toHaveBeenCalledTimes(3);
+      expect(page.pageWindow.fetch).toBe(page.originalFetch);
+      expect(page.timers.size).toBe(0);
+      expect(wrappedFetch.call(receiver, input, init)).toBe(responsePromise);
+      expect(opaqueReplaySnapshotOf(page)).toEqual(terminal);
+      expect(page.originalFetch).toHaveBeenCalledTimes(4);
+    }
+  );
+
+  it.each(['success', 'rejected', 'source timeout', 'replay timeout'] as const)(
+    'keeps singular then valid plural behavior unchanged: %s',
+    async outcome => {
+      vi.useFakeTimers();
+      const response = new Response('{}', { headers: { 'content-type': 'application/json' } });
+      const hanging = new Promise<Response>(() => undefined);
+      const page = fakePage(
+        markedOpaqueReplayUrl(),
+        input => {
+          if (typeof input === 'string') return Promise.resolve(response);
+          if ((input as OpaqueTestRequest).url === SOURCE_RESPONSE_URL) {
+            return outcome === 'source timeout' ? hanging : Promise.resolve(response);
+          }
+          if (outcome === 'replay timeout') return hanging;
+          if (outcome === 'rejected') return Promise.reject(new Error('synthetic-error-sentinel'));
+          return Promise.resolve(response);
+        },
+        OpaqueTestRequest
+      );
+      page.pageWindow.crypto = {
+        subtle: { digest: async () => new Uint8Array(32).buffer },
+      } as unknown as Crypto;
+      startChatGptDocumentStartCapture(page.pageWindow);
+      await page.pageWindow.fetch(`${ENDPOINT}?synthetic-query-sentinel`);
+      expect(opaqueReplaySnapshotOf(page)).toEqual({ kind: 'ready' });
+      const source = new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-authorization-sentinel' },
+      }) as unknown as Request;
+      const sourcePromise = page.pageWindow.fetch(source);
+      if (outcome !== 'source timeout') await sourcePromise;
+      await vi.advanceTimersByTimeAsync(0);
+      if (outcome === 'success') {
+        // Flush the stream/byte capture without advancing the global deadline.
+        await vi.waitFor(() =>
+          expect(opaqueReplaySnapshotOf(page)).toMatchObject({ kind: 'captured' })
+        );
+      } else if (outcome.endsWith('timeout')) {
+        await vi.advanceTimersByTimeAsync(180_000);
+      }
+
+      if (outcome === 'success') {
+        expect(opaqueReplaySnapshotOf(page)).toMatchObject({
+          kind: 'captured',
+          singularDispatchCount: 1,
+        });
+      } else {
+        expect(opaqueReplaySnapshotOf(page)).toEqual({
+          kind: 'error',
+          code:
+            outcome === 'rejected'
+              ? 'replay-rejected'
+              : outcome === 'source timeout'
+                ? 'source-response-timeout'
+                : 'replay-response-timeout',
+          singularDispatchCount: outcome === 'source timeout' ? 0 : 1,
+        });
+      }
+      expect(page.originalFetch).toHaveBeenCalledTimes(outcome === 'source timeout' ? 2 : 3);
+      expect(JSON.stringify(opaqueReplaySnapshotOf(page))).not.toContain('sentinel');
+    }
+  );
+
+  it.each([
+    ['other UUID', `https://chatgpt.com/backend-api/conversation/${OTHER_CONVERSATION_ID}`],
+    ['other origin', `https://example.com${ENDPOINT}`],
+    ['subdomain', `https://sub.chatgpt.com${ENDPOINT}`],
+    ['other protocol', `http://chatgpt.com${ENDPOINT}`],
+    ['other port', `https://chatgpt.com:444${ENDPOINT}`],
+    ['other path', `${ENDPOINT}/extra`],
+    ['username', `https://synthetic-user-sentinel@chatgpt.com${ENDPOINT}`],
+    ['password', `https://:synthetic-password-sentinel@chatgpt.com${ENDPOINT}`],
+    ['hash', `${ENDPOINT}#synthetic-hash-sentinel`],
+    ['malformed URL', 'https://[invalid'],
+  ])('keeps a singular-like %s generic and preserves the original call', async (_label, input) => {
+    vi.useFakeTimers();
+    const responsePromise = Promise.resolve(new Response('{}'));
+    const page = fakePage(markedOpaqueReplayUrl(), () => responsePromise, OpaqueTestRequest);
+    const init = { headers: { authorization: 'synthetic-authorization-sentinel' } };
+    const receiver = {} as Window;
+    startChatGptDocumentStartCapture(page.pageWindow);
+
+    expect(page.pageWindow.fetch.call(receiver, input, init)).toBe(responsePromise);
+    expect(page.originalFetch).toHaveBeenCalledExactlyOnceWith(input, init);
+    expect(page.originalFetch.mock.contexts[0]).toBe(receiver);
+    expect(opaqueReplaySnapshotOf(page)).toEqual({ kind: 'ready' });
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(opaqueReplaySnapshotOf(page)).toEqual({
+      kind: 'error',
+      code: 'target-not-observed',
+      singularDispatchCount: 0,
+    });
+    expect(page.originalFetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(['URL', 'boxed string', 'coercible', 'poisoned', 'proxy'] as const)(
+    'does not accept singular %s objects or alter a synchronous original fetch error',
+    async inputKind => {
+      vi.useFakeTimers();
+      const forbiddenRead = vi.fn(() => {
+        throw new Error('synthetic-poison-sentinel');
+      });
+      const url = `https://chatgpt.com${ENDPOINT}`;
+      const input =
+        inputKind === 'URL'
+          ? new NodeURL(url)
+          : inputKind === 'boxed string'
+            ? new String(url)
+            : inputKind === 'coercible'
+              ? { toString: forbiddenRead, [Symbol.toPrimitive]: forbiddenRead }
+              : inputKind === 'proxy'
+                ? new Proxy({}, { get: forbiddenRead, getPrototypeOf: forbiddenRead })
+                : Object.defineProperties(
+                    {},
+                    { url: { get: forbiddenRead }, href: { get: forbiddenRead } }
+                  );
+      const originalError = new Error('synthetic-original-error-sentinel');
+      const page = fakePage(
+        markedOpaqueReplayUrl(),
+        () => {
+          throw originalError;
+        },
+        OpaqueTestRequest
+      );
+      const receiver = {} as Window;
+      const init = {};
+      startChatGptDocumentStartCapture(page.pageWindow);
+
+      let observedError: unknown;
+      try {
+        page.pageWindow.fetch.call(receiver, input as Request, init);
+      } catch (error) {
+        observedError = error;
+      }
+      expect(observedError).toBe(originalError);
+      expect(page.originalFetch).toHaveBeenCalledOnce();
+      expect(page.originalFetch.mock.calls[0]?.[0]).toBe(input);
+      expect(page.originalFetch.mock.calls[0]?.[1]).toBe(init);
+      expect(page.originalFetch.mock.contexts[0]).toBe(receiver);
+      expect(forbiddenRead).not.toHaveBeenCalled();
+      expect(opaqueReplaySnapshotOf(page)).toEqual({ kind: 'ready' });
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(opaqueReplaySnapshotOf(page)).toEqual({
+        kind: 'error',
+        code: 'target-not-observed',
+        singularDispatchCount: 0,
+      });
+      expect(page.originalFetch).toHaveBeenCalledOnce();
+    }
+  );
+
+  it.each(['nonprimitive', 'throwing'] as const)(
+    'contains a %s captured Request URL result during singular-only observation',
+    async poisonedKind => {
+      vi.useFakeTimers();
+      const forbiddenCoercion = vi.fn(() => {
+        throw new Error('synthetic-coercion-sentinel');
+      });
+      const urlGetter = vi.spyOn(OpaqueTestRequest.prototype, 'url', 'get');
+      // The unchanged candidate declines the first unrelated URL. Only the
+      // diagnostic sees the poisoned second getter result.
+      urlGetter.mockReturnValueOnce('https://chatgpt.com/backend-api/unrelated');
+      urlGetter.mockImplementationOnce(() => {
+        if (poisonedKind === 'throwing') throw new Error('synthetic-getter-sentinel');
+        return { [Symbol.toPrimitive]: forbiddenCoercion } as unknown as string;
+      });
+      const responsePromise = Promise.resolve(new Response('{}'));
+      const page = fakePage(markedOpaqueReplayUrl(), () => responsePromise, OpaqueTestRequest);
+      const input = new OpaqueTestRequest(`https://chatgpt.com${ENDPOINT}`) as unknown as Request;
+      startChatGptDocumentStartCapture(page.pageWindow);
+
+      expect(page.pageWindow.fetch(input)).toBe(responsePromise);
+      expect(urlGetter).toHaveBeenCalledTimes(2);
+      expect(forbiddenCoercion).not.toHaveBeenCalled();
+      expect(opaqueReplaySnapshotOf(page)).toEqual({ kind: 'ready' });
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(opaqueReplaySnapshotOf(page)).toEqual({
+        kind: 'error',
+        code: 'target-not-observed',
+        singularDispatchCount: 0,
+      });
+      expect(page.originalFetch).toHaveBeenCalledOnce();
+    }
+  );
+
   it('keeps replay classification transparent when a captured URL getter throws', async () => {
+    vi.useFakeTimers();
     class ThrowingPathURL extends NodeURL {}
     for (const property of [
       'href',
@@ -4922,6 +5187,12 @@ describe('startChatGptDocumentStartCapture', () => {
 
     expect(opaqueReplaySnapshotOf(page)).toEqual({ kind: 'ready' });
     expect(page.originalFetch).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(opaqueReplaySnapshotOf(page)).toEqual({
+      kind: 'error',
+      code: 'target-not-observed',
+      singularDispatchCount: 0,
+    });
   });
 
   it.each([false, true])(
