@@ -191,22 +191,23 @@ terminal states, and the existing no-credential-export boundary.
   snapshots. A real archived JPEG passed exact byte/path/hash reconciliation,
   rendered through a local content-addressed image reference, and retained an
   honest placeholder for its unbound sibling.
-- The pure all-branches core is implemented: closed ordinal-derived branch/index
-  artifact contracts plus one prepared rendering session validate graph and
-  bindings once, render leaves without repeated whole-graph traversal, and
-  accept only complete same-session facts for a deterministic local index. This
-  is not yet delivery evidence.
-- B2a background persistence is implemented but not yet invoked by the exporter:
-  one closed leaf/index artifact can write HTML and then a locally built receipt
-  with independent confirmed/unknown/not-dispatched outcomes, exact settings and
-  sender admission, one-send transport and no retry/completeness claim.
-- B2b canonical authorization is implemented but not yet invoked by the
-  exporter: a target-free finalized File context authorizes canonical bytes once,
-  prepares one B1 session and builds leaf/index artifacts on demand through the
-  B2a seam without caching HTML or claiming delivery.
-- Next HTML slice (B3): two-pass measurement/recreation, aggregate HTML
-  work/write accounting, cancellation, unknown-write stop and independent
-  Markdown/HTML bundle completion, followed by the explicit bootstrap hookup.
+- The all-branches HTML stack is implemented and live-verified. One prepared
+  ordinal-derived session validates the graph and destination-finalized asset
+  bindings once, dry-measures every leaf/index pair, accounts aggregate work and
+  physical writes, then recreates and sends one pair at a time. Cancellation,
+  unknown-write stop, independent Markdown/HTML completion and deterministic
+  local index behavior are wired through the exporter bootstrap.
+- Canonical authorization and background persistence are active only for an
+  opted-in File all-branches request. Plain captures create presentation
+  evidence only after the exact File archive trio is confirmed; attachment
+  captures accept only matching destination-finalized evidence. HTML and each
+  locally built receipt retain independent confirmed/unknown/not-dispatched
+  outcomes, one-send transport and no retry/completeness invention.
+- The exact installed live canary retained raw/manifest/canonical, two PNGs,
+  two Markdown leaves plus index, two HTML leaves plus index and three receipt
+  files. Every HTML byte length and SHA-256 matched its receipt, relative
+  navigation rendered in Comet, and no provider or transient download route
+  remained in the HTML.
 - Automatic PDF remains a separate transport/rendering decision after HTML
   bundle behavior is stable.
 - Design image-aware append behavior for existing Obsidian notes.
@@ -429,15 +430,22 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-The File, Obsidian and multi-shard reconciliation slices are merged and their
-declared live gates are closed. Finish the current ChatGPT runtime-drift
-diagnostic candidate: review the fixed singular-path no-claim code, install the
-exact build with the bounded runtime-message envelope, then rerun one A-strict
-canary without changing capture authority. Keep the confirmed current DOM
-selectors unchanged unless new value-free evidence contradicts the fresh five-
-root shape. Keep actual browser
-Cancel timing, invalid-extra-file refusal and page unload as honest UI follow-
-ups rather than repeating verified core/output paths. Keep archive merge/deduplication,
-export-ZIP discovery, the 1 GiB source-work refusal, real staged
-`>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
-binaries, and the archived Library WebP as separate evidence-gated work.
+The current ChatGPT runtime-drift repair is merged and live-verified: the exact
+installed worker registers, foreground replay settles, and one complete
+structured capture reconciles File/Obsidian Markdown with raw, manifest,
+canonical JSON and four fetched images.
+
+Next close the installed snapshot-analysis acceptance gate without granting any
+cleanup authority: add two explicit immutable snapshot folders, analyze the
+selected bytes, save one JSON report and independently reconcile its exact
+bytes; then prove that cancelling a later picker preserves the existing result.
+Fix only a defect reproduced by that path. Keep other-browser portability and
+near-limit responsiveness separate.
+
+After that, investigate one ordinary-owner `text/plain` or `text/csv` example
+only if an exact live resolver contract is observed. Keep actual browser Cancel
+timing for reconciliation, invalid-extra-file refusal, page unload, archive
+merge/deduplication, export-ZIP discovery, the 1 GiB source-work refusal, real
+staged `>16 MiB` capture, fetched same-title destination naming,
+custom-GPT/project binaries, Dots, and the archived Library WebP as separate
+evidence-gated work.

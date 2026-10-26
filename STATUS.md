@@ -2734,3 +2734,28 @@ raw/asset descriptor reconciles exactly by relative path, byte length and
 SHA-256; two further asset references remain honestly `not-attempted`, so asset
 completeness stays partial rather than being overstated. This closes worker
 registration, runtime-message settlement and the foreground replay live gate.
+
+## Snapshot analysis installed acceptance checkpoint
+
+Branch `codex/snapshot-analysis-live-acceptance` starts from merged main without
+a production-code delta. Current source inspection confirms that all-branches
+HTML bootstrap/delivery is already implemented and live-verified; the roadmap
+was stale rather than the feature incomplete. The exact next slice is therefore
+the existing private snapshot-analysis page's installed acceptance, not another
+HTML implementation.
+
+Two immutable same-conversation candidates are prepared for that gate. Each
+folder contains 7 files totaling 3,336,176 bytes and reports complete graph,
+messages and branches with partial asset completeness. Their four fetched image
+files are content-identical; raw response, manifest and canonical bytes differ,
+so the pair exercises real snapshot comparison rather than duplicate folder
+selection. No archive is modified.
+
+The installed popup visibly exposes `Compare local snapshots`, but Comet renders
+the popup as a transient window that Windows CUA cannot target. Browser control
+also correctly refuses direct `chrome-extension://` navigation. No hidden
+navigation or input workaround was used, and no installed acceptance claim is
+made yet. The next action is one user click on that visible popup link; CUA can
+then handle the private page, explicit folder selections, analysis, Save As and
+independent report-byte reconciliation. Picker cancellation must preserve the
+existing result before this gate is closed.
