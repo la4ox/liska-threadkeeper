@@ -250,6 +250,14 @@ terminal states, and the existing no-credential-export boundary.
   bubble, one assistant marker and one assistant Markdown block, plus the exact
   timeline scroller. The earlier zero-turn symptom was not reproduced; do not
   widen selectors without a contrary current shape.
+- The first exact-build A-strict canary exposed a separate orchestration hang:
+  the UI stayed `Syncing…` for more than five minutes although replay's
+  background deadline is 190 seconds. No marker tab, Save As dialog, fixed G2O
+  error, Download/Obsidian artifact or mutable note appeared. The content-side
+  runtime message had no deadline. A bounded 205-second envelope is now a
+  candidate; only its self-created timeout maps to fixed detail
+  `opaque-replay-runtime-message-timeout`. It never retries, cancels, writes or
+  exposes the late/private runtime outcome.
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Settings-stable durable routing is implemented across first-party archive,
@@ -411,9 +419,10 @@ The ChatGPT block is ready to call broadly complete when:
 The File, Obsidian and multi-shard reconciliation slices are merged and their
 declared live gates are closed. Finish the current ChatGPT runtime-drift
 diagnostic candidate: review the fixed singular-path no-claim code, install the
-exact build, then run one bounded A-strict canary without changing capture
-authority. Keep the confirmed current DOM selectors unchanged unless new
-value-free evidence contradicts the fresh five-root shape. Keep actual browser
+exact build with the bounded runtime-message envelope, then rerun one A-strict
+canary without changing capture authority. Keep the confirmed current DOM
+selectors unchanged unless new value-free evidence contradicts the fresh five-
+root shape. Keep actual browser
 Cancel timing, invalid-extra-file refusal and page unload as honest UI follow-
 ups rather than repeating verified core/output paths. Keep archive merge/deduplication,
 export-ZIP discovery, the 1 GiB source-work refusal, real staged

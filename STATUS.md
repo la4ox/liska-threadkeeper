@@ -2679,3 +2679,23 @@ storage or application global was read or retained. The earlier zero-turn DOM
 symptom was not reproduced, so this candidate does not change selectors. An
 installed exact-build A-strict run remains the next evidence gate; the new code
 can narrow one no-claim case but cannot itself prove today's request family.
+
+The first exact-build A-strict canary loaded the fresh content script and entered
+`Syncing…`, but remained pending for more than five minutes. Replay's background
+deadline is 190 seconds; after it had elapsed there was no open marker tab, Save
+As dialog, G2O warning/error, Download capture, Markdown file, Obsidian capture,
+or terminal UI status. Closing only the agent-created canary tab produced no
+output delta. This is evidence of an unbounded outer runtime-message wait, not a
+provider payload/image timeout or permission to retry capture.
+
+The follow-up candidate wraps only the content-side replay message in a
+205-second envelope, leaving 10 seconds beyond the background maximum. It
+clears its timer on early resolve/reject, observes both late outcomes so neither
+can become unhandled, and never retries, cancels the background request, writes,
+or exposes private runtime diagnostics. A private WeakSet distinguishes only the
+self-created timeout and maps it to fixed detail
+`opaque-replay-runtime-message-timeout`; ordinary rejection retains
+`opaque-replay-runtime-message-failed`. Focused bridge verification passes 19/
+19 tests, including both capture paths, exact deadline, early cleanup, spoofed
+timeout-shaped errors, and late resolve/reject. TypeScript, targeted lint,
+formatting and diff checks pass. One installed rerun remains required.
