@@ -1,10 +1,13 @@
 import {
   CHATGPT_OFFICIAL_HARD_LIMITS,
+  CHATGPT_OFFICIAL_MULTI_HARD_LIMITS,
   ChatGptOfficialSelectionError,
+  type ChatGptOfficialConversationSource,
   type ChatGptOfficialConversationSelection,
   type ChatGptOfficialSelectionErrorCode,
   type ChatGptOfficialSelectionLimits,
   type SelectChatGptOfficialConversationInput,
+  type SelectChatGptOfficialConversationSourcesInput,
 } from './contracts';
 
 const PORTABLE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -17,8 +20,33 @@ interface ContainerFrame {
   expectKey: boolean;
 }
 
+interface SelectionLedger {
+  ids: Set<string>;
+  conversationCount: number;
+  ignoredEmptyRecordCount: number;
+}
+
+interface AggregateLedger {
+  sourceByteLength: number;
+}
+
+const INTERNAL_SELECTION_ERRORS = new WeakSet<object>();
+
 function fail(code: ChatGptOfficialSelectionErrorCode): never {
-  throw new ChatGptOfficialSelectionError(code);
+  const error = new ChatGptOfficialSelectionError(code);
+  INTERNAL_SELECTION_ERRORS.add(error);
+  throw error;
+}
+
+function internalSelectionError(error: unknown): error is ChatGptOfficialSelectionError {
+  return typeof error === 'object' && error !== null && INTERNAL_SELECTION_ERRORS.has(error);
+}
+
+/** Private-module trust check used by the importer without invoking caller prototypes. */
+export function isOwnedChatGptOfficialSelectionError(
+  error: unknown
+): error is ChatGptOfficialSelectionError {
+  return internalSelectionError(error);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -35,27 +63,89 @@ function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function resolveLimits(
-  input: SelectChatGptOfficialConversationInput
-): ChatGptOfficialSelectionLimits {
-  if (
-    !isPlainObject(input) ||
-    !validId(input.conversationId) ||
-    !input.chunks ||
-    typeof input.chunks[Symbol.asyncIterator] !== 'function'
-  ) {
-    fail('invalid-input');
-  }
-  const overrides = input.limits;
+function numericLimits<T extends Record<string, number>>(overrides: unknown, hard: T): T {
   if (overrides !== undefined && !isPlainObject(overrides)) fail('invalid-input');
-  const limits = { ...CHATGPT_OFFICIAL_HARD_LIMITS };
+  const limits = { ...hard };
   for (const [key, value] of Object.entries(overrides ?? {})) {
     if (!hasOwn(limits, key)) fail('invalid-input');
-    const name = key as keyof ChatGptOfficialSelectionLimits;
-    if (!Number.isSafeInteger(value) || value < 1 || value > limits[name]) fail('invalid-input');
-    limits[name] = value;
+    const name = key as keyof T;
+    if (
+      typeof value !== 'number' ||
+      !Number.isSafeInteger(value) ||
+      value < 1 ||
+      value > limits[name]
+    )
+      fail('invalid-input');
+    limits[name] = value as T[keyof T];
   }
   return limits;
+}
+
+function validChunks(value: unknown): value is AsyncIterable<Uint8Array> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] === 'function'
+  );
+}
+
+function resolveSingleInput(input: SelectChatGptOfficialConversationInput) {
+  if (!isPlainObject(input) || !validId(input.conversationId) || !validChunks(input.chunks))
+    fail('invalid-input');
+  return {
+    conversationId: input.conversationId,
+    chunks: input.chunks,
+    limits: numericLimits(input.limits, { ...CHATGPT_OFFICIAL_HARD_LIMITS }),
+  };
+}
+
+function arrayValues(value: unknown, maximum: number): unknown[] {
+  if (!Array.isArray(value) || value.length < 1) fail('invalid-input');
+  if (value.length > maximum) fail('source-count-limit');
+  const keys = Reflect.ownKeys(value);
+  if (keys.some(key => typeof key !== 'string') || keys.length !== value.length + 1)
+    fail('invalid-input');
+  return Array.from({ length: value.length }, (_, index) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !('value' in descriptor)) fail('invalid-input');
+    return descriptor.value;
+  });
+}
+
+function sourceDescriptor(value: unknown): ChatGptOfficialConversationSource {
+  if (!isPlainObject(value)) fail('invalid-input');
+  const keys = Reflect.ownKeys(value);
+  if (
+    keys.length !== 2 ||
+    keys.some(key => typeof key !== 'string' || !['shardIndex', 'chunks'].includes(key))
+  )
+    fail('invalid-input');
+  const shard = Object.getOwnPropertyDescriptor(value, 'shardIndex');
+  const chunks = Object.getOwnPropertyDescriptor(value, 'chunks');
+  if (!shard || !('value' in shard) || !chunks || !('value' in chunks)) fail('invalid-input');
+  if (!Number.isSafeInteger(shard.value) || shard.value < 0 || shard.value > 999)
+    fail('invalid-input');
+  if (!validChunks(chunks.value)) fail('invalid-input');
+  return { shardIndex: shard.value as number, chunks: chunks.value };
+}
+
+function resolveMultiInput(input: SelectChatGptOfficialConversationSourcesInput) {
+  if (!isPlainObject(input) || !validId(input.conversationId)) fail('invalid-input');
+  const limits = numericLimits(input.limits, { ...CHATGPT_OFFICIAL_MULTI_HARD_LIMITS });
+  const sources = arrayValues(input.sources, limits.maxSources).map(sourceDescriptor);
+  const seen = new Set<number>();
+  for (const source of sources) {
+    if (seen.has(source.shardIndex)) fail('invalid-input');
+    seen.add(source.shardIndex);
+  }
+  sources.sort((left, right) => left.shardIndex - right.shardIndex);
+  const selectionLimits: ChatGptOfficialSelectionLimits = {
+    maxSourceBytes: limits.maxSourceBytes,
+    maxConversationBytes: limits.maxConversationBytes,
+    maxConversations: limits.maxConversations,
+    maxDepth: limits.maxDepth,
+  };
+  return { conversationId: input.conversationId, sources, limits: selectionLimits };
 }
 
 /** One reusable current-object buffer. Clearing erases unrelated bytes before reuse. */
@@ -153,7 +243,6 @@ function requireMapping(value: Record<string, unknown>): void {
 class ConversationScanner {
   private readonly buffer: ConversationBuffer;
   private readonly utf8 = new Utf8Validator();
-  private readonly ids = new Set<string>();
   private readonly decoder = new TextDecoder('utf-8', { fatal: true });
   private root: RootState = 'start';
   private readonly prefix: number[] = [];
@@ -168,7 +257,9 @@ class ConversationScanner {
 
   constructor(
     private readonly expectedId: string,
-    private readonly limits: ChatGptOfficialSelectionLimits
+    private readonly limits: ChatGptOfficialSelectionLimits,
+    private readonly ledger: SelectionLedger,
+    private readonly shardIndex?: number
   ) {
     this.buffer = new ConversationBuffer(limits.maxConversationBytes);
   }
@@ -215,8 +306,10 @@ class ConversationScanner {
   }
 
   private startObject(offset: number): void {
-    if (this.conversationCount === this.limits.maxConversations) fail('conversation-count-limit');
+    if (this.ledger.conversationCount === this.limits.maxConversations)
+      fail('conversation-count-limit');
     if (this.limits.maxDepth < 2) fail('depth-limit');
+    this.ledger.conversationCount++;
     this.conversationCount++;
     this.byteStart = offset;
     this.stack.push({ closer: 0x7d, keys: new Set(), expectKey: true });
@@ -301,9 +394,14 @@ class ConversationScanner {
       } catch {
         fail('invalid-json');
       }
+      if (isPlainObject(parsed) && Object.keys(parsed).length === 0) {
+        this.ledger.ignoredEmptyRecordCount += 1;
+        this.root = 'separator';
+        return;
+      }
       const id = conversationIdentity(parsed);
-      if (this.ids.has(id)) fail('duplicate-id');
-      this.ids.add(id);
+      if (this.ledger.ids.has(id)) fail('duplicate-id');
+      this.ledger.ids.add(id);
       if (id === this.expectedId) {
         const conversationIndex = this.conversationCount - 1;
         this.selected = {
@@ -313,6 +411,7 @@ class ConversationScanner {
           sourcePointer: `/${conversationIndex}`,
           byteStart: this.byteStart,
           byteEndExclusive,
+          ...(this.shardIndex !== undefined && { shardIndex: this.shardIndex }),
         };
       }
       this.root = 'separator';
@@ -321,11 +420,10 @@ class ConversationScanner {
     }
   }
 
-  finish(sourceByteLength: number): ChatGptOfficialConversationSelection {
+  finish(sourceByteLength: number): ChatGptOfficialConversationSelection | null {
     this.utf8.finish();
     if (this.root !== 'end' || this.stack.length !== 0 || this.inString) fail('invalid-json');
-    if (this.selected === null) fail('conversation-not-found');
-    return { ...this.selected, sourceByteLength };
+    return this.selected === null ? null : { ...this.selected, sourceByteLength };
   }
 
   clearFailure(): void {
@@ -344,33 +442,107 @@ class ConversationScanner {
 export async function selectChatGptOfficialConversation(
   input: SelectChatGptOfficialConversationInput
 ): Promise<ChatGptOfficialConversationSelection> {
-  let limits: ChatGptOfficialSelectionLimits;
+  let resolved: ReturnType<typeof resolveSingleInput>;
   try {
-    limits = resolveLimits(input);
+    resolved = resolveSingleInput(input);
   } catch {
     fail('invalid-input');
   }
-  const scanner = new ConversationScanner(input.conversationId, limits);
-  let sourceByteLength = 0;
+  const ledger: SelectionLedger = {
+    ids: new Set(),
+    conversationCount: 0,
+    ignoredEmptyRecordCount: 0,
+  };
+  const selection = await scanSource(
+    resolved.chunks,
+    resolved.conversationId,
+    resolved.limits,
+    ledger,
+    { sourceByteLength: 0 }
+  );
+  if (selection === null) fail('conversation-not-found');
+  return withIgnoredEmptyRecords(selection, ledger);
+}
+
+function withIgnoredEmptyRecords(
+  selection: ChatGptOfficialConversationSelection,
+  ledger: SelectionLedger
+): ChatGptOfficialConversationSelection {
+  return ledger.ignoredEmptyRecordCount === 0
+    ? selection
+    : { ...selection, ignoredEmptyRecordCount: ledger.ignoredEmptyRecordCount };
+}
+
+async function scanSource(
+  chunks: AsyncIterable<Uint8Array>,
+  conversationId: string,
+  limits: ChatGptOfficialSelectionLimits,
+  ledger: SelectionLedger,
+  aggregate: AggregateLedger,
+  shardIndex?: number
+): Promise<ChatGptOfficialConversationSelection | null> {
+  const scanner = new ConversationScanner(conversationId, limits, ledger, shardIndex);
+  let localSourceByteLength = 0;
   try {
-    for await (const chunk of input.chunks) {
+    for await (const chunk of chunks) {
       if (
         !ArrayBuffer.isView(chunk) ||
         Object.prototype.toString.call(chunk) !== '[object Uint8Array]'
       ) {
         fail('invalid-chunk');
       }
-      const start = sourceByteLength;
-      sourceByteLength += chunk.byteLength;
-      if (sourceByteLength > limits.maxSourceBytes) fail('source-limit');
+      if (chunk.byteLength > limits.maxSourceBytes - aggregate.sourceByteLength)
+        fail('source-limit');
+      const start = localSourceByteLength;
+      localSourceByteLength += chunk.byteLength;
+      aggregate.sourceByteLength += chunk.byteLength;
       // append() copies each byte synchronously, before a reused source chunk can be yielded again.
       for (let index = 0; index < chunk.length; index++)
         scanner.accept(chunk[index], start + index);
     }
-    return scanner.finish(sourceByteLength);
+    return scanner.finish(localSourceByteLength);
   } catch (error) {
     scanner.clearFailure();
-    if (error instanceof ChatGptOfficialSelectionError) throw error;
+    if (internalSelectionError(error)) throw error;
+    fail('source-read-failed');
+  }
+}
+
+/** Validate every supplied shard and retain only one exact matching conversation. */
+export async function selectChatGptOfficialConversationSources(
+  input: SelectChatGptOfficialConversationSourcesInput
+): Promise<ChatGptOfficialConversationSelection> {
+  let resolved: ReturnType<typeof resolveMultiInput>;
+  try {
+    resolved = resolveMultiInput(input);
+  } catch (error) {
+    if (internalSelectionError(error)) throw error;
+    fail('invalid-input');
+  }
+  const ledger: SelectionLedger = {
+    ids: new Set(),
+    conversationCount: 0,
+    ignoredEmptyRecordCount: 0,
+  };
+  const aggregate: AggregateLedger = { sourceByteLength: 0 };
+  let selected: ChatGptOfficialConversationSelection | null = null;
+  try {
+    for (const source of resolved.sources) {
+      const candidate = await scanSource(
+        source.chunks,
+        resolved.conversationId,
+        resolved.limits,
+        ledger,
+        aggregate,
+        source.shardIndex
+      );
+      if (candidate !== null) selected = candidate;
+    }
+    if (selected === null) fail('conversation-not-found');
+    return withIgnoredEmptyRecords(selected, ledger);
+  } catch (error) {
+    selected?.bytes.fill(0);
+    if (internalSelectionError(error)) throw error;
     fail('source-read-failed');
   }
 }

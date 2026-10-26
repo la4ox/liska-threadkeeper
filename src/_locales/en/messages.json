@@ -774,10 +774,10 @@
     "message": "Select canonical/liska-thread-1.json from an existing Liska web capture."
   },
   "reconcile_officialExport": {
-    "message": "Official conversations export"
+    "message": "Official conversation export file(s)"
   },
   "reconcile_officialExportHelp": {
-    "message": "Select the uncompressed conversations JSON file. Liska reads the whole stream but retains only the exact matching conversation."
+    "message": "Select conversations.json, or all conversations-NNN.json shards together. Liska validates every selected array but retains only the exact matching conversation."
   },
   "reconcile_boundary": {
     "message": "What this tool will do"
@@ -806,6 +806,9 @@
   "reconcile_boundaryExact": {
     "message": "Match only the exact conversation ID declared by the web canonical snapshot."
   },
+  "reconcile_boundaryShards": {
+    "message": "Validate every selected conversation shard; select the complete shard set because omitted files cannot be inferred without the export manifest."
+  },
   "reconcile_boundaryBundle": {
     "message": "Ask where to save one immutable ZIP. It always preserves official raw and manifest; canonical and comparison are included only when normalization succeeds."
   },
@@ -822,7 +825,7 @@
     "message": "Choose both files to begin."
   },
   "reconcile_missingFiles": {
-    "message": "Choose both JSON files first."
+    "message": "Choose the web canonical file and the official conversation file or shard set first."
   },
   "reconcile_missingDestination": {
     "message": "Choose at least one local destination."
@@ -831,7 +834,7 @@
     "message": "Reading and validating the web canonical snapshot…"
   },
   "reconcile_scanningOfficial": {
-    "message": "Scanning the official export for the exact conversation…"
+    "message": "Scanning and validating the selected official conversation shard set…"
   },
   "reconcile_buildingBundle": {
     "message": "Building the immutable reconciliation ZIP…"

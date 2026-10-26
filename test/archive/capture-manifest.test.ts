@@ -113,6 +113,39 @@ describe('raw capture manifest', () => {
     expect(JSON.stringify(manifest)).not.toMatch(/[A-Z]:\\|file:\/\//i);
   });
 
+  it('adds only bounded shard/padding facts and omits them for legacy sources', () => {
+    const legacy = buildCaptureManifest(officialInput());
+    expect((legacy.artifacts[0] as { source: object }).source).not.toHaveProperty('shardIndex');
+    expect((legacy.artifacts[0] as { source: object }).source).not.toHaveProperty(
+      'ignoredEmptyRecordCount'
+    );
+    const sharded = officialInput();
+    const artifact = sharded.artifacts[0];
+    if ('source' in artifact) {
+      artifact.source.shardIndex = 5;
+      artifact.source.ignoredEmptyRecordCount = 4;
+    }
+    expect(
+      (
+        buildCaptureManifest(sharded).artifacts[0] as {
+          source: { shardIndex?: number; ignoredEmptyRecordCount?: number };
+        }
+      ).source
+    ).toMatchObject({ shardIndex: 5, ignoredEmptyRecordCount: 4 });
+    for (const invalid of [-1, 1_000, 1.5]) {
+      const value = officialInput();
+      const candidate = value.artifacts[0];
+      if ('source' in candidate) candidate.source.shardIndex = invalid;
+      expect(() => buildCaptureManifest(value)).toThrow();
+    }
+    for (const invalid of [0, -1, 100_001, 1.5]) {
+      const value = officialInput();
+      const candidate = value.artifacts[0];
+      if ('source' in candidate) candidate.source.ignoredEmptyRecordCount = invalid;
+      expect(() => buildCaptureManifest(value)).toThrow();
+    }
+  });
+
   it.each([
     [
       'HTTP provenance for an official export',

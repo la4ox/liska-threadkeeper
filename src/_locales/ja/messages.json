@@ -649,10 +649,10 @@
     "message": "既存の Liska Web キャプチャから canonical/liska-thread-1.json を選択してください。"
   },
   "reconcile_officialExport": {
-    "message": "公式 conversations エクスポート"
+    "message": "公式会話エクスポートファイル"
   },
   "reconcile_officialExportHelp": {
-    "message": "展開済みの conversations JSON ファイルを選択してください。Liska はストリーム全体を読みますが、完全に一致する会話だけを保持します。"
+    "message": "conversations.json、または conversations-NNN.json の全 shard をまとめて選択してください。Liska は選択した各配列を検証し、完全に一致する会話だけを保持します。"
   },
   "reconcile_boundary": {
     "message": "このツールが行うこと"
@@ -681,6 +681,9 @@
   "reconcile_boundaryExact": {
     "message": "Web 正規スナップショットが宣言する正確な会話 ID だけを照合します。"
   },
+  "reconcile_boundaryShards": {
+    "message": "選択したすべての会話 shard を検証します。export manifest なしでは欠落 shard を推測できないため、完全な shard セットを選択してください。"
+  },
   "reconcile_boundaryBundle": {
     "message": "変更不能な ZIP の保存先を確認します。公式 raw と manifest は常に保持し、canonical と比較結果は正規化に成功した場合だけ含めます。"
   },
@@ -697,7 +700,7 @@
     "message": "開始するには2つのファイルを選択してください。"
   },
   "reconcile_missingFiles": {
-    "message": "先に2つの JSON ファイルを選択してください。"
+    "message": "先に Web canonical と、公式会話ファイルまたは shard セットを選択してください。"
   },
   "reconcile_missingDestination": {
     "message": "ローカル保存先を少なくとも1つ選択してください。"
@@ -706,7 +709,7 @@
     "message": "Web 正規スナップショットを読み込み、検証しています…"
   },
   "reconcile_scanningOfficial": {
-    "message": "公式エクスポートから正確な会話を検索しています…"
+    "message": "選択した公式会話 shard セットを検索・検証しています…"
   },
   "reconcile_buildingBundle": {
     "message": "変更不能な照合 ZIP を作成しています…"

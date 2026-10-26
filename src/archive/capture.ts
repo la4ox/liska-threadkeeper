@@ -36,6 +36,10 @@ export interface OfficialExportSliceSource {
   byteStart: number;
   /** Total bytes observed while validating the complete source array. */
   sourceByteLength: number;
+  /** Numeric conversation-shard identity; omitted for legacy single-file exports. */
+  shardIndex?: number;
+  /** Empty-object padding records ignored while validating the selected source set. */
+  ignoredEmptyRecordCount?: number;
 }
 
 interface RawCaptureArtifactRecordBase {
@@ -221,13 +225,33 @@ function normalizeOfficialExportSource(
   if (source.byteStart > source.sourceByteLength - artifactByteLength) {
     throw new Error('Official export slice must stay inside its source file.');
   }
+  const shardIndex = normalizeOfficialShardIndex(source.shardIndex);
+  const ignoredEmptyRecordCount = normalizeIgnoredEmptyRecordCount(source.ignoredEmptyRecordCount);
   return {
     kind: 'official-export-slice',
     fileRole: 'conversations',
     conversationIndex: source.conversationIndex,
     byteStart: source.byteStart,
     sourceByteLength: source.sourceByteLength,
+    ...(shardIndex !== undefined && { shardIndex }),
+    ...(ignoredEmptyRecordCount !== undefined && { ignoredEmptyRecordCount }),
   };
+}
+
+function normalizeIgnoredEmptyRecordCount(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 1 || value > 100_000) {
+    throw new Error('Ignored official-export empty-record count must be between 1 and 100000.');
+  }
+  return value;
+}
+
+function normalizeOfficialShardIndex(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 0 || value > 999) {
+    throw new Error('Official export shard index must be between 0 and 999.');
+  }
+  return value;
 }
 
 function normalizeArtifactOrigin(

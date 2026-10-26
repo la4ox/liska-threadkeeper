@@ -2564,3 +2564,81 @@ with no page errors, external requests, horizontal overflow or canary-name
 display. This is layout evidence only. Installed extension folder selection,
 native Save As/Downloads behavior, browser portability and near-limit
 responsiveness were not exercised and remain explicit live gates.
+
+## ChatGPT official-export multi-shard candidate checkpoint
+
+Stacked branch `codex/chatgpt-official-shards` removes the requirement to guess
+which physical conversation array contains the exact web-canonical conversation
+ID. Legacy `conversations.json` stays unchanged; the page can now accept one or
+more exact `conversations-NNN.json` files, snapshots the complete FileList,
+rejects mixed/duplicate/extra names before reading bytes, and sorts numeric shard
+indices independently of picker order. Only fixed numeric shard provenance is
+serialized; source filenames and local paths remain transient.
+
+Core scanning is sequential and bounded across the complete selected set. All
+shards share one 2 GiB observed-byte ceiling, one 100,000-record ceiling, one ID
+ledger and an explicit 1,000-source cap. Current-object size/depth limits remain
+unchanged. A target match never short-circuits later UTF-8/JSON/neighbor/trailing
+validation; duplicate target or unrelated IDs across shards fail, and retained
+selected bytes are erased on any late failure. Import, normalization and bundle
+construction run once only after every shard succeeds.
+
+Conversation index, JSON pointer, byte offsets and source length remain local to
+the selected shard; optional numeric `shardIndex` propagates through exact raw
+source, canonical `openai.officialExport` and delivery receipt, while the legacy
+single-file serialization omits it. Three measured manifest-v1 exports all
+declare logical `conversations.json` as six shards `000…005`.
+
+The live August set contains 561 array records across six files totaling
+477,261,486 bytes (largest 133,894,326). Initial strict validation exposed four
+literal empty objects in shard 004 and no other identity-free record. Exact `{}`
+is now treated as provider padding: it consumes the aggregate record budget,
+increments `ignoredEmptyRecordCount`, and produces explicit manifest/provenance
+evidence. Any nonempty object without a valid ID/mapping still fails closed.
+
+The final content-free six-shard smoke completed normalized in about 11.7 seconds,
+selected shard 0, disclosed four ignored empty records, and produced five
+artifacts totaling 2,516,426 bytes with a 402,944-byte comparison envelope. No
+conversation value/provider ID was printed and no filesystem output was written.
+
+Focused selector/importer/capture/normalizer/delivery/UI verification passes 6
+files / 227 tests; the memory-bounded complete suite passes 209 files / 6,953
+tests. TypeScript and the production build pass with 270 transformed modules;
+source/platform lint has zero errors and the same three baseline warnings;
+Prettier, diff checks and the production dependency audit are clean. Independent
+review is clean after hostile metadata/Proxy hardening. Installed shuffled-
+FileList/cancellation/ZIP canaries remain before a stacked PR can merge.
+
+After the Obsidian reconciliation slice merged, the one shard commit was
+replayed onto current `main`. Conflict resolution retained every later status,
+ADR and exact 5.5.2 live receipt, added ADR-041 in chronological order, and did
+not touch the current terminal-download fix, either private Vite entry or the
+extension manifest. The integrated importer/reconciliation/normalizer/snapshot
+matrix passes 18 files / 464 tests; the complete suite passes 220 files / 7,252
+tests with two workers. TypeScript and the production package build pass with
+287 transformed modules. Source/platform lint has zero errors and the same three
+warnings; formatting, diff, built snapshot-page closure and the production
+dependency audit pass with zero vulnerabilities. Installed multi-file canaries
+remain the next evidence gate.
+
+The exact rebased production build was then installed with a recoverable
+40-file rollback. A direct production-core canary accepted all six real shards
+in shuffled descriptor order, consumed all 477,261,486 bytes numerically, kept
+the target in shard 0, disclosed four empty records, and produced five artifacts
+totaling 2,516,416 bytes plus a deterministic 2,517,100-byte ZIP. The same bytes
+passed the current Obsidian writer/readback. A later-shard cancellation reached
+shard 4 and performed zero hash/output work; an omitted-target set consumed all
+367,915,448 remaining bytes before fixed refusal.
+
+After extension reload, one real installed-page run showed six selected files
+and verified the Obsidian-only destination. It produced one new immutable
+five-artifact attempt totaling 2,516,521 bytes with bundle ID
+`2d79b83d...f0a1c`. Independent filesystem verification matched every
+descriptor length/SHA-256, the exact selected shard-0 source slice,
+`shardIndex: 0`, four ignored empty records, all three expected schemas, the
+root hash/bundle ID and root-last timestamp. The page reported all selected
+destinations verified. Native screenshot capture remained unavailable, but the
+accessibility tree exposed the exact six-file selection and final status.
+Browser-UI cancellation timing and invalid-extra-file refusal remain covered by
+focused tests rather than claimed as installed live observations; the changed
+multi-file preparation/output path itself is live-verified.

@@ -161,16 +161,19 @@
       confirmed output, while interrupted remnants are eligible for bounded cleanup after 24 hours.
     </p>
     <p>
-      The optional ChatGPT reconciliation page reads two files that you explicitly select: one
-      existing Liska web canonical snapshot and one uncompressed official conversations export. Both
-      remain read-only and are processed inside the extension page. Liska selects only the exact
-      conversation ID declared by the web snapshot, retains no source filename or local path in
-      bundle metadata, and can ask where to save one local ZIP. If you separately enable the
-      reconciliation page's Obsidian destination, Liska reads its local-only settings and sends the
-      unchanged artifact bytes only to the validated <code>127.0.0.1</code> Local REST API. Version
-      5.5.0 or later is required so every write is atomic create-only, read back, and hash-verified,
-      with the root manifest last. A normalization failure produces an explicitly marked raw-only
-      recovery bundle instead of a false comparison claim.
+      The optional ChatGPT reconciliation page reads files that you explicitly select: one existing
+      Liska web canonical snapshot and either legacy <code>conversations.json</code> or an explicit
+      <code>conversations-NNN.json</code> shard set from an uncompressed official export. Every
+      selected array is validated sequentially under one aggregate limit, including shards after a
+      match; omitted shards are not inferred. All sources remain read-only and are processed inside
+      the extension page. Liska selects only the exact conversation ID declared by the web snapshot,
+      retains no source filename or local path in bundle metadata, and can ask where to save one
+      local ZIP. If you separately enable the reconciliation page's Obsidian destination, Liska
+      reads its local-only settings and sends the unchanged artifact bytes only to the validated
+      <code>127.0.0.1</code> Local REST API. Version 5.5.0 or later is required so every write is
+      atomic create-only, read back, and hash-verified, with the root manifest last. A normalization
+      failure produces an explicitly marked raw-only recovery bundle instead of a false comparison
+      claim.
     </p>
 
     <h2>Output Options</h2>

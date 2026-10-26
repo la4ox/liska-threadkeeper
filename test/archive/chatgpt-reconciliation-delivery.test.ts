@@ -93,6 +93,19 @@ function input(
   };
 }
 
+function multiInput(
+  sources: Array<{ shardIndex: number; bytes: Uint8Array; size?: number }>
+): PrepareChatGptReconciliationDeliveryInput {
+  const { officialChunks: _officialChunks, ...base } = input();
+  return {
+    ...base,
+    officialSources: sources.map(source => ({
+      shardIndex: source.shardIndex,
+      chunks: chunks(source.bytes, source.size ?? 37),
+    })),
+  };
+}
+
 function parseArtifact(
   result: ChatGptReconciliationDelivery,
   path: string
@@ -429,6 +442,60 @@ describe('prepareChatGptReconciliationDelivery', () => {
       officialChunks: chunks(officialBytes(), 1),
     });
     expect(b).toEqual(a);
+  });
+
+  it('prepares a deterministic bundle from sorted fully validated shards', async () => {
+    const selected = encoder.encode(JSON.stringify([official()]));
+    const unrelated = encoder.encode(JSON.stringify([{}, {}, official('unrelated-shard')]));
+    const a = await prepareChatGptReconciliationDelivery(
+      multiInput([
+        { shardIndex: 5, bytes: unrelated },
+        { shardIndex: 2, bytes: selected },
+        { shardIndex: 0, bytes: encoder.encode('[]') },
+      ])
+    );
+    const b = await prepareChatGptReconciliationDelivery(
+      multiInput([
+        { shardIndex: 0, bytes: encoder.encode('[]'), size: 1 },
+        { shardIndex: 2, bytes: selected, size: 1 },
+        { shardIndex: 5, bytes: unrelated, size: 1 },
+      ])
+    );
+    expect(b).toEqual(a);
+    expect(a.manifest.official.provenance).toMatchObject({
+      shardIndex: 2,
+      conversationIndex: 0,
+      ignoredEmptyRecordCount: 2,
+    });
+    const officialManifest = parseArtifact(a, 'official/manifest.json');
+    expect(officialManifest.artifacts).toMatchObject([
+      { source: { shardIndex: 2, ignoredEmptyRecordCount: 2 } },
+    ]);
+  });
+
+  it('emits no partial bundle after a later shard fails', async () => {
+    const sha = vi.fn(hash);
+    await expectError(
+      {
+        ...multiInput([
+          { shardIndex: 0, bytes: encoder.encode(JSON.stringify([official()])) },
+          { shardIndex: 1, bytes: encoder.encode('[{"broken":}]') },
+        ]),
+        sha256: sha,
+      },
+      'official-import-failed'
+    );
+    expect(sha).not.toHaveBeenCalled();
+  });
+
+  it('rejects both or neither official source mode before work', async () => {
+    const single = input();
+    await expectError(
+      { ...single, officialSources: [{ shardIndex: 0, chunks: chunks(officialBytes()) }] } as never,
+      'invalid-input'
+    );
+    const { officialChunks: _officialChunks, ...missing } = single;
+    await expectError(missing as never, 'invalid-input');
   });
 
   it('detaches web bytes before first await and accepts reused official chunk buffers', async () => {

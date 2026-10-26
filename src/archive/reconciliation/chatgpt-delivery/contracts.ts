@@ -1,4 +1,7 @@
-import type { ChatGptOfficialSelectionLimits } from '../../importers/chatgpt-official';
+import type {
+  ChatGptOfficialConversationSource,
+  ChatGptOfficialMultiSelectionLimits,
+} from '../../importers/chatgpt-official';
 import type { ChatGptArchiveComparison, ChatGptComparisonLimits } from '../chatgpt';
 
 export const CHATGPT_RECONCILIATION_BUNDLE_SCHEMA =
@@ -21,19 +24,24 @@ export type ChatGptReconciliationDeliveryLimits = {
 
 export type ChatGptReconciliationDeliveryLimitOverrides =
   Partial<ChatGptReconciliationDeliveryLimits> & {
-    official?: Partial<ChatGptOfficialSelectionLimits>;
+    official?: Partial<ChatGptOfficialMultiSelectionLimits>;
     comparison?: Partial<ChatGptComparisonLimits>;
   };
 
-export interface PrepareChatGptReconciliationDeliveryInput {
+interface PrepareChatGptReconciliationDeliveryBase {
   webCanonicalBytes: Uint8Array;
-  officialChunks: AsyncIterable<Uint8Array>;
   captureId: string;
   importedAt: string;
   /** Trusted injected SHA-256; receives disposable owned byte copies. */
   sha256: (bytes: Uint8Array) => Promise<string>;
   limits?: ChatGptReconciliationDeliveryLimitOverrides;
 }
+
+export type PrepareChatGptReconciliationDeliveryInput = PrepareChatGptReconciliationDeliveryBase &
+  (
+    | { officialChunks: AsyncIterable<Uint8Array>; officialSources?: never }
+    | { officialChunks?: never; officialSources: ChatGptOfficialConversationSource[] }
+  );
 
 export type ChatGptReconciliationDeliveryErrorCode =
   | 'invalid-input'
@@ -99,6 +107,8 @@ export interface ChatGptOfficialExcerptProvenance {
   byteStart: number;
   byteEndExclusive: number;
   sourceByteLength: number;
+  shardIndex?: number;
+  ignoredEmptyRecordCount?: number;
 }
 
 export interface ChatGptReconciliationOfficialReceipt {

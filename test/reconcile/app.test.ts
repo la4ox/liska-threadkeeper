@@ -68,10 +68,17 @@ function buildDom(): void {
 }
 
 function setFile(id: string, file: File): void {
+  setFiles(id, [file]);
+}
+
+function setFiles(id: string, files: File[]): void {
   const input = document.getElementById(id) as HTMLInputElement;
   Object.defineProperty(input, 'files', {
     configurable: true,
-    value: { 0: file, length: 1, item: () => file },
+    value: {
+      length: files.length,
+      item: (index: number) => files[index] ?? null,
+    },
   });
   input.dispatchEvent(new Event('change'));
 }
@@ -94,8 +101,13 @@ function dependencies(
 ): ReconciliationPageDependencies {
   return {
     prepare: vi.fn(async request => {
-      for await (const _chunk of request.officialChunks) {
-        // Consume the exact File stream like the real importer.
+      const sources = request.officialSources ?? [
+        { shardIndex: -1, chunks: request.officialChunks },
+      ];
+      for (const source of sources) {
+        for await (const _chunk of source.chunks) {
+          // Consume every selected File stream like the real importer.
+        }
       }
       return prepared;
     }),
@@ -127,10 +139,7 @@ function dependencies(
 async function readyRun(deps: ReconciliationPageDependencies): Promise<void> {
   await initReconciliationPage(deps);
   setFile('webCanonicalFile', syntheticFile(BYTES, 'private-web-name.json'));
-  setFile(
-    'officialExportFile',
-    syntheticFile(new Uint8Array([1, 2, 3]), 'private-export-name.json')
-  );
+  setFile('officialExportFile', syntheticFile(new Uint8Array([1, 2, 3]), 'conversations-000.json'));
   (document.getElementById('runBtn') as HTMLButtonElement).click();
 }
 
@@ -146,7 +155,7 @@ describe('reconciliation page', () => {
     expect(run.disabled).toBe(true);
     setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
     expect(run.disabled).toBe(true);
-    setFile('officialExportFile', syntheticFile(BYTES, 'official.json'));
+    setFile('officialExportFile', syntheticFile(BYTES, 'conversations.json'));
     expect(run.disabled).toBe(false);
     const file = document.getElementById('reconcileOutputFile') as HTMLInputElement;
     file.checked = false;
@@ -178,6 +187,46 @@ describe('reconciliation page', () => {
     expect(deps.writeObsidian).not.toHaveBeenCalled();
   });
 
+  it('snapshots, numerically sorts and consumes every selected conversation shard', async () => {
+    const deps = dependencies();
+    await initReconciliationPage(deps);
+    setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
+    setFiles('officialExportFile', [
+      syntheticFile(new Uint8Array([5]), 'conversations-005.json'),
+      syntheticFile(new Uint8Array([0]), 'conversations-000.json'),
+      syntheticFile(new Uint8Array([2]), 'conversations-002.json'),
+    ]);
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(deps.prepare).toHaveBeenCalledOnce());
+    const request = vi.mocked(deps.prepare).mock.calls[0][0];
+    expect(request).not.toHaveProperty('officialChunks');
+    expect(request.officialSources?.map(source => source.shardIndex)).toEqual([0, 2, 5]);
+    await vi.waitFor(() => expect(deps.download).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    ['mixed legacy and shards', ['conversations.json', 'conversations-000.json']],
+    ['an unrelated manifest', ['export_manifest.json']],
+    ['duplicate shard indices', ['conversations-000.json', 'conversations-000.json']],
+    ['a noncanonical shard name', ['conversations-0.json']],
+  ] as const)('rejects %s before preparing or dispatching output', async (_label, names) => {
+    const deps = dependencies();
+    await initReconciliationPage(deps);
+    setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
+    setFiles(
+      'officialExportFile',
+      names.map(name => syntheticFile(BYTES, name))
+    );
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(document.getElementById('status')?.textContent).toBe('reconcile_failed')
+    );
+    expect(deps.prepare).not.toHaveBeenCalled();
+    expect(deps.download).not.toHaveBeenCalled();
+    expect(deps.writeObsidian).not.toHaveBeenCalled();
+  });
+
   it('writes an Obsidian-only snapshot without creating or downloading a ZIP', async () => {
     const deps = dependencies();
     await initReconciliationPage(deps);
@@ -187,7 +236,7 @@ describe('reconciliation page', () => {
     obsidian.checked = true;
     file.dispatchEvent(new Event('change'));
     setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
-    setFile('officialExportFile', syntheticFile(BYTES, 'official.json'));
+    setFile('officialExportFile', syntheticFile(BYTES, 'conversations.json'));
     (document.getElementById('runBtn') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(deps.writeObsidian).toHaveBeenCalledOnce());
@@ -245,7 +294,7 @@ describe('reconciliation page', () => {
     obsidian.checked = true;
     file.dispatchEvent(new Event('change'));
     setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
-    setFile('officialExportFile', syntheticFile(BYTES, 'official.json'));
+    setFile('officialExportFile', syntheticFile(BYTES, 'conversations.json'));
     (document.getElementById('runBtn') as HTMLButtonElement).click();
     await vi.waitFor(() =>
       expect(document.getElementById('status')?.textContent).toBe('reconcile_obsidianUpgrade')
@@ -322,7 +371,7 @@ describe('reconciliation page', () => {
     await initReconciliationPage(deps);
     setFile('webCanonicalFile', syntheticFile(BYTES, 'web.json'));
     const source = new Uint8Array([1, 2, 3]);
-    const official = new File([source], 'official.json');
+    const official = new File([source], 'conversations.json');
     let releaseRead!: () => void;
     let markStarted!: () => void;
     const started = new Promise<void>(resolve => {

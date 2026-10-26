@@ -23,6 +23,24 @@ export interface SelectChatGptOfficialConversationInput {
   limits?: Partial<ChatGptOfficialSelectionLimits>;
 }
 
+export interface ChatGptOfficialConversationSource {
+  shardIndex: number;
+  chunks: AsyncIterable<Uint8Array>;
+}
+
+export interface ChatGptOfficialMultiSelectionLimits extends ChatGptOfficialSelectionLimits {
+  maxSources: number;
+}
+
+export const CHATGPT_OFFICIAL_MULTI_HARD_LIMITS: Readonly<ChatGptOfficialMultiSelectionLimits> =
+  Object.freeze({ ...CHATGPT_OFFICIAL_HARD_LIMITS, maxSources: 1_000 });
+
+export interface SelectChatGptOfficialConversationSourcesInput {
+  sources: ChatGptOfficialConversationSource[];
+  conversationId: string;
+  limits?: Partial<ChatGptOfficialMultiSelectionLimits>;
+}
+
 export interface ChatGptOfficialConversationSelection {
   /** Exact object bytes, in an owned allocation containing no neighboring source bytes. */
   bytes: Uint8Array;
@@ -32,6 +50,10 @@ export interface ChatGptOfficialConversationSelection {
   sourcePointer: string;
   byteStart: number;
   byteEndExclusive: number;
+  /** Numeric shard identity; omitted for the legacy single-source contract. */
+  shardIndex?: number;
+  /** Exact empty-object padding records ignored across the validated source set. */
+  ignoredEmptyRecordCount?: number;
 }
 
 export const CHATGPT_OFFICIAL_SELECTION_ERROR_CODES = [
@@ -43,6 +65,7 @@ export const CHATGPT_OFFICIAL_SELECTION_ERROR_CODES = [
   'invalid-utf8',
   'bom-not-supported',
   'source-limit',
+  'source-count-limit',
   'conversation-limit',
   'conversation-count-limit',
   'depth-limit',

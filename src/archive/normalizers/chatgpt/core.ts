@@ -291,6 +291,10 @@ function archiveInput(
       conversationIndex: officialSource.conversationIndex,
       byteStart: officialSource.byteStart,
       sourceByteLength: officialSource.sourceByteLength,
+      ...(officialSource.shardIndex !== undefined && { shardIndex: officialSource.shardIndex }),
+      ...(officialSource.ignoredEmptyRecordCount !== undefined && {
+        ignoredEmptyRecordCount: officialSource.ignoredEmptyRecordCount,
+      }),
     };
   }
   return {

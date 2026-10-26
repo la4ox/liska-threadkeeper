@@ -13,22 +13,34 @@ import {
 import { inventoryChatGptRawAssets } from '../normalizers/chatgpt/inventory';
 import type { LiskaThreadArchive } from '../types';
 import {
-  ChatGptOfficialSelectionError,
+  type ChatGptOfficialConversationSource,
   type ChatGptOfficialConversationSelection,
+  type ChatGptOfficialMultiSelectionLimits,
   type ChatGptOfficialSelectionLimits,
 } from './chatgpt-official/contracts';
-import { selectChatGptOfficialConversation } from './chatgpt-official/select';
+import {
+  isOwnedChatGptOfficialSelectionError,
+  selectChatGptOfficialConversation,
+  selectChatGptOfficialConversationSources,
+} from './chatgpt-official/select';
 
 export {
   CHATGPT_OFFICIAL_HARD_LIMITS,
+  CHATGPT_OFFICIAL_MULTI_HARD_LIMITS,
   CHATGPT_OFFICIAL_SELECTION_ERROR_CODES,
   ChatGptOfficialSelectionError,
   type ChatGptOfficialConversationSelection,
   type ChatGptOfficialSelectionErrorCode,
   type ChatGptOfficialSelectionLimits,
+  type ChatGptOfficialMultiSelectionLimits,
+  type ChatGptOfficialConversationSource,
   type SelectChatGptOfficialConversationInput,
+  type SelectChatGptOfficialConversationSourcesInput,
 } from './chatgpt-official/contracts';
-export { selectChatGptOfficialConversation } from './chatgpt-official/select';
+export {
+  selectChatGptOfficialConversation,
+  selectChatGptOfficialConversationSources,
+} from './chatgpt-official/select';
 
 const ARTIFACT_ID = 'official-conversation';
 const OFFICIAL_SCOPE_WARNING =
@@ -36,6 +48,15 @@ const OFFICIAL_SCOPE_WARNING =
 const OFFICIAL_NORMALIZATION_FAILED_WARNING =
   'Official export canonical normalization failed; the exact raw excerpt remains authoritative.';
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
+const INTERNAL_IMPORT_ERRORS = new WeakSet<object>();
+
+function ignoredEmptyRecordWarning(selection: ChatGptOfficialConversationSelection): string[] {
+  return selection.ignoredEmptyRecordCount === undefined
+    ? []
+    : [
+        `Official export contained ${selection.ignoredEmptyRecordCount} empty padding record(s); they were counted and ignored during identity validation.`,
+      ];
+}
 
 export interface ImportChatGptOfficialConversationInput {
   chunks: AsyncIterable<Uint8Array>;
@@ -44,6 +65,26 @@ export interface ImportChatGptOfficialConversationInput {
   importedAt: string;
   sha256: (bytes: Uint8Array) => Promise<string>;
   limits?: Partial<ChatGptOfficialSelectionLimits>;
+}
+
+export interface ImportChatGptOfficialConversationSourcesInput {
+  sources: ChatGptOfficialConversationSource[];
+  conversationId: string;
+  captureId: string;
+  importedAt: string;
+  sha256: (bytes: Uint8Array) => Promise<string>;
+  limits?: Partial<ChatGptOfficialMultiSelectionLimits>;
+}
+
+type ImportMetadata = Pick<
+  ImportChatGptOfficialConversationInput,
+  'conversationId' | 'captureId' | 'importedAt' | 'sha256'
+>;
+
+interface PreparedImportInput {
+  metadata: ImportMetadata;
+  source: unknown;
+  limits: unknown;
 }
 
 interface ChatGptOfficialImportBase {
@@ -85,7 +126,13 @@ export class ChatGptOfficialImportError extends Error {
 }
 
 function importFail(code: ChatGptOfficialImportErrorCode): never {
-  throw new ChatGptOfficialImportError(code);
+  const error = new ChatGptOfficialImportError(code);
+  INTERNAL_IMPORT_ERRORS.add(error);
+  throw error;
+}
+
+function internalImportError(error: unknown): error is ChatGptOfficialImportError {
+  return typeof error === 'object' && error !== null && INTERNAL_IMPORT_ERRORS.has(error);
 }
 
 function parseSelected(bytes: Uint8Array): unknown {
@@ -105,7 +152,7 @@ async function safeHash(
     if (!HASH_PATTERN.test(digest)) importFail('hash-failed');
     return digest;
   } catch (error) {
-    if (error instanceof ChatGptOfficialImportError) throw error;
+    if (internalImportError(error)) throw error;
     importFail('hash-failed');
   }
 }
@@ -118,8 +165,22 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
   return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
 }
 
+function officialSource(selection: ChatGptOfficialConversationSelection) {
+  return {
+    kind: 'official-export-slice' as const,
+    fileRole: 'conversations' as const,
+    conversationIndex: selection.conversationIndex,
+    byteStart: selection.byteStart,
+    sourceByteLength: selection.sourceByteLength,
+    ...(selection.shardIndex !== undefined && { shardIndex: selection.shardIndex }),
+    ...(selection.ignoredEmptyRecordCount !== undefined && {
+      ignoredEmptyRecordCount: selection.ignoredEmptyRecordCount,
+    }),
+  };
+}
+
 function buildOfficialManifest(
-  input: ImportChatGptOfficialConversationInput,
+  input: ImportMetadata,
   selection: ChatGptOfficialConversationSelection,
   artifactSha256: string,
   inventory: Awaited<ReturnType<typeof inventoryChatGptRawAssets>>,
@@ -140,13 +201,7 @@ function buildOfficialManifest(
           mediaType: 'application/json',
           byteLength: selection.bytes.byteLength,
           sha256: artifactSha256,
-          source: {
-            kind: 'official-export-slice',
-            fileRole: 'conversations',
-            conversationIndex: selection.conversationIndex,
-            byteStart: selection.byteStart,
-            sourceByteLength: selection.sourceByteLength,
-          },
+          source: officialSource(selection),
         },
       ],
       assets: inventory.assets,
@@ -158,6 +213,7 @@ function buildOfficialManifest(
       },
       warnings: [
         OFFICIAL_SCOPE_WARNING,
+        ...ignoredEmptyRecordWarning(selection),
         ...(normalizationFailed ? [OFFICIAL_NORMALIZATION_FAILED_WARNING] : []),
         ...inventory.warnings,
       ],
@@ -188,7 +244,7 @@ async function verifiedBundle(
 }
 
 async function buildBundle(
-  input: ImportChatGptOfficialConversationInput,
+  input: ImportMetadata,
   selection: ChatGptOfficialConversationSelection,
   raw: unknown,
   observedUnknownContentTypes: string[] = [],
@@ -243,12 +299,12 @@ function rawOnly(
 
 function normalizationFailureCode(error: unknown): string {
   if (error instanceof ChatGptNormalizationError) return error.code;
-  if (error instanceof ChatGptOfficialImportError) return error.code;
+  if (internalImportError(error)) return error.code;
   return 'normalization-failed';
 }
 
 async function finishNormalization(
-  input: ImportChatGptOfficialConversationInput,
+  input: ImportMetadata,
   selection: ChatGptOfficialConversationSelection,
   raw: unknown,
   initial: { bundle: RawCaptureBundle; manifestSha256: string }
@@ -293,21 +349,88 @@ async function finishNormalization(
 export async function importChatGptOfficialConversation(
   input: ImportChatGptOfficialConversationInput
 ): Promise<ChatGptOfficialImportResult> {
-  if (!input || typeof input !== 'object' || typeof input.sha256 !== 'function') {
+  let prepared: PreparedImportInput;
+  try {
+    prepared = snapshotImportInput(input, 'chunks');
+  } catch {
     importFail('invalid-import-input');
   }
   let selection: ChatGptOfficialConversationSelection;
   try {
     selection = await selectChatGptOfficialConversation({
-      chunks: input.chunks,
-      conversationId: input.conversationId,
-      limits: input.limits,
+      chunks: prepared.source as AsyncIterable<Uint8Array>,
+      conversationId: prepared.metadata.conversationId,
+      limits: prepared.limits as Partial<ChatGptOfficialSelectionLimits> | undefined,
     });
   } catch (error) {
-    if (error instanceof ChatGptOfficialSelectionError) throw error;
+    if (isOwnedChatGptOfficialSelectionError(error)) throw error;
     importFail('invalid-import-input');
   }
+  return finishImport(prepared.metadata, selection);
+}
+
+async function finishImport(
+  input: ImportMetadata,
+  selection: ChatGptOfficialConversationSelection
+): Promise<ChatGptOfficialImportResult> {
   const raw = parseSelected(selection.bytes);
   const current = await buildBundle(input, selection, raw, [], true);
   return finishNormalization(input, selection, raw, current);
+}
+
+function snapshotImportInput(input: unknown, sourceKey: 'chunks' | 'sources'): PreparedImportInput {
+  if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype)
+    throw new Error('invalid');
+  const allowed = [sourceKey, 'conversationId', 'captureId', 'importedAt', 'sha256', 'limits'];
+  const keys = Reflect.ownKeys(input);
+  if (keys.some(key => typeof key !== 'string' || !allowed.includes(key)))
+    throw new Error('invalid');
+  const values: Record<string, unknown> = Object.create(null);
+  for (const key of allowed) {
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (key === 'limits' && descriptor === undefined) continue;
+    if (!descriptor || !('value' in descriptor)) throw new Error('invalid');
+    values[key] = descriptor.value;
+  }
+  if (
+    typeof values.conversationId !== 'string' ||
+    typeof values.captureId !== 'string' ||
+    typeof values.importedAt !== 'string' ||
+    typeof values.sha256 !== 'function'
+  )
+    throw new Error('invalid');
+  return {
+    metadata: {
+      conversationId: values.conversationId,
+      captureId: values.captureId,
+      importedAt: values.importedAt,
+      sha256: values.sha256 as ImportMetadata['sha256'],
+    },
+    source: values[sourceKey],
+    limits: values.limits,
+  };
+}
+
+/** Import from a fully validated, aggregate-bounded set of conversation shards. */
+export async function importChatGptOfficialConversationSources(
+  input: ImportChatGptOfficialConversationSourcesInput
+): Promise<ChatGptOfficialImportResult> {
+  let prepared: PreparedImportInput;
+  try {
+    prepared = snapshotImportInput(input, 'sources');
+  } catch {
+    importFail('invalid-import-input');
+  }
+  let selection: ChatGptOfficialConversationSelection;
+  try {
+    selection = await selectChatGptOfficialConversationSources({
+      sources: prepared.source as ChatGptOfficialConversationSource[],
+      conversationId: prepared.metadata.conversationId,
+      limits: prepared.limits as Partial<ChatGptOfficialMultiSelectionLimits> | undefined,
+    });
+  } catch (error) {
+    if (isOwnedChatGptOfficialSelectionError(error)) throw error;
+    importFail('invalid-import-input');
+  }
+  return finishImport(prepared.metadata, selection);
 }
