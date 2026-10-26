@@ -2794,6 +2794,7 @@ canonical, both Markdown notes, HTML and receipt with zero matches; transient
 signed transport remains unrepresented. Direct attachment `id` values remain
 only as pre-existing canonical source metadata, not request credentials. This
 closes the one-CSV live gate without claiming general Library text support.
+
 ## Verified unpacked-extension installer checkpoint
 
 Branch `codex/extension-installer` adds one explicit PowerShell 7 deployment
