@@ -2769,4 +2769,12 @@ lint, formatting and diff checks pass. A real no-write PlanOnly against the
 current CSV candidate and installed Liska reports 40 source files / 1,107,773
 bytes, matches an independent aggregate digest, emits no absolute paths and
 leaves source, target and all rollback bytes/timestamps unchanged. Actual live
-installation and the subsequent one-extension CUA reload remain the final gate.
+installation then deployed that exact CSV build: the receipt reported 40 files /
+1,107,773 bytes, identical source/installed aggregate SHA-256
+`526d7564...ce34`, manifest SHA-256 `283ceffd...5e1d`, one new rollback and
+`reloadRequired: true`. Native CUA reloaded only Liska on
+`comet://extensions`; the `Перезапущено` toast appeared and the service worker
+registered while Comet and its conversation tabs remained open. The ordinary
+install/reload gate is closed. Full `-RestartComet` remains executable-test-
+verified but deliberately unexercised against the user's live session; it is an
+optional fallback, not the normal update path.
