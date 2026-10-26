@@ -53,6 +53,36 @@ messages remain a readable convention, not a local hook or merge gate.
 
 `npm run build:zip` is cross-platform. It uses `tar.exe` on Windows and `zip`
 on macOS/Linux, after staging the same filtered `dist/` tree on every platform.
+
+## Refresh an unpacked local copy
+
+On PowerShell 7, an existing unpacked Liska folder can be refreshed without
+overwriting its previous bytes:
+
+```powershell
+pwsh -File scripts/install-unpacked-extension.ps1 `
+  -TargetDist '<absolute-path-to-the-loaded-dist>'
+```
+
+The default path builds this checkout, copies it through a verified same-parent
+stage, moves the old target into a unique rollback under
+`$env:LOCALAPPDATA\CodexTools\liska-rollbacks`, promotes the stage, and compares
+the complete installed inventory by relative path, length, and SHA-256. The
+script never discovers a target, loads an extension, or deletes older
+rollbacks. Use `-PlanOnly` to validate and print a content-free receipt without
+building, writing files, or touching a browser.
+
+A successful ordinary run returns `reloadRequired: true`. Reload only Liska on
+`chrome://extensions` or the browser's equivalent internal extensions page;
+open conversation tabs do not need to be reloaded. `-RestartComet` is an
+explicit fallback that gracefully closes the exact running Comet executable,
+starts that same binary with `--restore-last-session`, and confirms a new main
+window. It is off by default. A forced close additionally requires the explicit
+`-ForceCloseAfterTimeout` switch.
+
+To install an already built `dist` from another worktree, pass its absolute
+`-SourceDist` together with `-SkipBuild`; omitting `-SkipBuild` intentionally
+refuses to build one checkout while deploying another.
 It fails closed when the package and extension-manifest versions disagree.
 
 ## Documentation hosting

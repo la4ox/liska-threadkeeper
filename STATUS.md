@@ -2734,3 +2734,39 @@ raw/asset descriptor reconciles exactly by relative path, byte length and
 SHA-256; two further asset references remain honestly `not-attempted`, so asset
 completeness stays partial rather than being overstated. This closes worker
 registration, runtime-message settlement and the foreground replay live gate.
+
+## Verified unpacked-extension installer checkpoint
+
+Branch `codex/extension-installer` adds one explicit PowerShell 7 deployment
+path for an already loaded unpacked Liska copy. It never discovers or loads an
+extension. The caller names absolute source, target and rollback roots; the
+script validates Liska manifest identity and exact worker/popup file entries,
+rejects reparse/case/overlap/volume ambiguity, stages beside the target, verifies
+the complete inventory by relative path/length/SHA-256, moves the old target to
+a unique rollback, promotes the stage and verifies the installed bytes again.
+Existing rollbacks are never removed.
+
+Failures before promotion leave the installed target untouched. An injected
+second-move failure restores and re-verifies the old bytes. Any recursive stage
+cleanup first proves an exact generated child name, parent containment and the
+absence of reparse descendants. One independent review found that the initial
+manifest preflight treated entry-shaped directories as worker/popup files; the
+inventory now maintains a separate file-only set, and executable regressions
+reject both directory cases before target mutation.
+
+`PlanOnly` builds nothing, writes nothing and touches no process. A normal
+successful install reports `reloadRequired: true` so only Liska needs a browser
+extensions-page reload. Full Comet restart is an explicit off-by-default
+fallback: graceful exact-executable close first, optional separately requested
+force only after timeout, same executable relaunched visibly with session
+restore, and a new exact-path main window required. Restart failure retains the
+verified install and rollback.
+
+The executable installer suite passes 21 tests with one Windows-only
+case-sensitive-filesystem skip; the complete suite passes 222 files / 7,340
+tests. TypeScript, the guarded 288-module production build, source/platform
+lint, formatting and diff checks pass. A real no-write PlanOnly against the
+current CSV candidate and installed Liska reports 40 source files / 1,107,773
+bytes, matches an independent aggregate digest, emits no absolute paths and
+leaves source, target and all rollback bytes/timestamps unchanged. Actual live
+installation and the subsequent one-extension CUA reload remain the final gate.
