@@ -98,6 +98,7 @@ import {
   observeChatGptAssetResolversViaOpaqueSource,
   resolveChatGptActiveImageAsset,
   resolveChatGptLibraryJpegAsset,
+  resolveChatGptLibraryCsvAsset,
   observeChatGptInterpreterAssetResolvers,
 } from '../../src/content/capture/chatgpt-current-branch';
 
@@ -431,6 +432,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryAsset');
+      expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryCsvAsset');
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('presentationContext');
       expect(mocks.html).not.toHaveBeenCalled();
       expect(mocks.sendMessage).toHaveBeenCalledWith(
@@ -626,7 +628,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     }
   });
 
-  it('injects passive observation and separate ordinary/Library image routes only for strict replay', async () => {
+  it('injects passive observation and separate ordinary/Library image and CSV routes only for strict replay', async () => {
     settings.enableChatGptOpaqueReplay = true;
     mocks.extract.mockResolvedValue(noteResult);
 
@@ -643,6 +645,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
         resolveActiveAsset: resolveChatGptActiveImageAsset,
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
+        resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
       })
     );
   });
@@ -660,6 +663,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
         resolveActiveAsset: resolveChatGptActiveImageAsset,
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
+        resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
       })
     );
   });
@@ -700,6 +704,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveActiveAsset');
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryAsset');
+    expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('resolveLibraryCsvAsset');
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty(
       'archivePresentationContext'
     );
@@ -1108,6 +1113,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
         resolveActiveAsset: resolveChatGptActiveImageAsset,
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
+        resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
       })
     );
     expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledOnce();

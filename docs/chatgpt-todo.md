@@ -175,11 +175,20 @@ terminal states, and the existing no-credential-export boundary.
 - The same live capture kept five PPTX and two text/plain references
   `not-attempted`. ZIP success does not authorize relabeling those records or
   claim Office-package support.
-- A separate fresh ordinary-owner capture retained two `text/csv` references as
-  distinct `not-attempted` assets while the evidence-backed active route fetched
-  only four JPEG images. No CSV bytes, local paths, or SHA-256 claims were
-  created. CSV therefore remains unsupported until an exact live resolver route
-  is observed.
+- A separate fresh standard-owner capture retained two `text/csv` references as
+  distinct `not-attempted` assets while the active route fetched four JPEGs.
+  Follow-up raw-first analysis proved that both CSV records are unambiguous
+  Library attachments with exact direct file-ID evidence, no interpreter
+  ownership, and every existing Library admission invariant satisfied except
+  the former JPEG-only MIME gate.
+- A narrow candidate now attempts at most one exact Library CSV before Library
+  JPEG/ordinary images. It consumes one of the existing four active slots,
+  shares unchanged request/byte budgets, replans from committed raw immediately
+  before dispatch, never falls through to passive retry, and persists exact
+  bytes only as a content-addressed download. The second CSV remains honestly
+  `not-attempted`. Exact-build live acquisition, native/reference-byte parity,
+  destination/hash reconciliation and signed-URL/Library-ID non-leakage remain
+  required before CSV is called supported.
 
 ### 7. User-facing derived outputs
 

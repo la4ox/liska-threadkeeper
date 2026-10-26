@@ -578,7 +578,7 @@ function hasConflictingLibraryPointer(
   return !match?.[1] || !direct.has(match[1]);
 }
 
-function isLibraryJpegAttachment(raw: unknown, pointer: unknown): boolean {
+function isLibraryAttachment(raw: unknown, pointer: unknown): boolean {
   // Interpreter ownership is evidence, not membership in its bounded dispatch
   // plan: an attachment beyond that family's cap must not fall through here.
   return (
@@ -587,7 +587,7 @@ function isLibraryJpegAttachment(raw: unknown, pointer: unknown): boolean {
   );
 }
 
-function libraryJpegProviderFileId(raw: unknown, asset: RawCaptureAssetRecord): string | undefined {
+function libraryProviderFileId(raw: unknown, asset: RawCaptureAssetRecord): string | undefined {
   const direct = new Set<string>();
   let libraryAttachmentCount = 0;
   for (const ref of asset.sourceRefs) {
@@ -603,11 +603,7 @@ function libraryJpegProviderFileId(raw: unknown, asset: RawCaptureAssetRecord): 
     if (!localIds) return undefined;
     for (const id of localIds) direct.add(id);
     if (evidence.present) {
-      if (
-        evidence.ambiguous ||
-        !isLibraryJpegAttachment(raw, ref.rawPointer) ||
-        localIds.size !== 1
-      )
+      if (evidence.ambiguous || !isLibraryAttachment(raw, ref.rawPointer) || localIds.size !== 1)
         return undefined;
       libraryAttachmentCount += 1;
     }
@@ -662,6 +658,24 @@ export function extractChatGptLibraryJpegPlan(
   assets: readonly RawCaptureAssetRecord[],
   eligibleAssetIds: readonly string[]
 ): ChatGptActiveAssetPlanItem | undefined {
+  return extractChatGptLibraryAssetPlan(raw, assets, eligibleAssetIds, 'image/jpeg');
+}
+
+/** Separate one-item CSV admission; no other passive MIME gains Library authority. */
+export function extractChatGptLibraryCsvPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  eligibleAssetIds: readonly string[]
+): ChatGptActiveAssetPlanItem | undefined {
+  return extractChatGptLibraryAssetPlan(raw, assets, eligibleAssetIds, 'text/csv');
+}
+
+function extractChatGptLibraryAssetPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  eligibleAssetIds: readonly string[],
+  mediaType: 'image/jpeg' | 'text/csv'
+): ChatGptActiveAssetPlanItem | undefined {
   if (!allowsChatGptAttachmentAcquisition(raw) || !Array.isArray(assets)) return undefined;
   const classification = classifyChatGptLibraryAssets(raw, assets);
   const associated = new Set(classification.associatedAssetIds);
@@ -669,14 +683,10 @@ export function extractChatGptLibraryJpegPlan(
   const selected: ChatGptActiveAssetPlanItem[] = [];
   for (const asset of assets) {
     if (!asset || !associated.has(asset.id)) continue;
-    const providerFileId = libraryJpegProviderFileId(raw, asset);
+    const providerFileId = libraryProviderFileId(raw, asset);
     if (!providerFileId || libraryProviderIdentityCollides(raw, assets, asset, providerFileId))
       continue;
-    if (
-      !eligible.has(asset.id) ||
-      asset.state !== 'not-attempted' ||
-      asset.mediaType !== 'image/jpeg'
-    )
+    if (!eligible.has(asset.id) || asset.state !== 'not-attempted' || asset.mediaType !== mediaType)
       continue;
     selected.push({ assetId: asset.id, providerFileId });
   }

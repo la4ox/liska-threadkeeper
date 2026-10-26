@@ -67,6 +67,7 @@ import {
   extractChatGptActiveResolverPlan,
   extractChatGptActiveImagePlan,
   extractChatGptLibraryJpegPlan,
+  extractChatGptLibraryCsvPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
@@ -879,6 +880,22 @@ export async function planChatGptLibraryJpegAsset(
   context: ChatGptAssetExportContext,
   eligibleAssetIds: readonly string[]
 ): Promise<ChatGptActiveAssetPlanItem | undefined> {
+  return planChatGptLibraryAsset(context, eligibleAssetIds, extractChatGptLibraryJpegPlan);
+}
+
+/** Separate CSV admission, with the same exact committed-raw ownership checks. */
+export async function planChatGptLibraryCsvAsset(
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds: readonly string[]
+): Promise<ChatGptActiveAssetPlanItem | undefined> {
+  return planChatGptLibraryAsset(context, eligibleAssetIds, extractChatGptLibraryCsvPlan);
+}
+
+async function planChatGptLibraryAsset(
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds: readonly string[],
+  planner: typeof extractChatGptLibraryJpegPlan
+): Promise<ChatGptActiveAssetPlanItem | undefined> {
   const original = await verifiedOriginalRaw(context);
   const raw = parseRawForInventory(original.bytes);
   if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) return undefined;
@@ -886,7 +903,7 @@ export async function planChatGptLibraryJpegAsset(
   const interpreterIds = new Set(
     (await extractChatGptInterpreterAssetPlan(raw, assets)).map(item => item.assetId)
   );
-  return extractChatGptLibraryJpegPlan(
+  return planner(
     raw,
     assets,
     eligibleAssetIds.filter(assetId => !interpreterIds.has(assetId))
@@ -909,7 +926,7 @@ export async function resolveChatGptActiveImageAsset(
   context: ChatGptAssetExportContext,
   item: ChatGptActiveAssetPlanItem
 ): Promise<ChatGptActiveAssetResponse> {
-  return resolvePlannedChatGptImageAsset(context, item, planChatGptActiveImageAsset);
+  return resolvePlannedChatGptAsset(context, item, planChatGptActiveImageAsset);
 }
 
 /** Re-plan Library authority immediately before the unchanged single-item transport. */
@@ -917,10 +934,18 @@ export async function resolveChatGptLibraryJpegAsset(
   context: ChatGptAssetExportContext,
   item: ChatGptActiveAssetPlanItem
 ): Promise<ChatGptActiveAssetResponse> {
-  return resolvePlannedChatGptImageAsset(context, item, planChatGptLibraryJpegAsset);
+  return resolvePlannedChatGptAsset(context, item, planChatGptLibraryJpegAsset);
 }
 
-async function resolvePlannedChatGptImageAsset(
+/** Re-plan CSV authority immediately before the unchanged single-item transport. */
+export async function resolveChatGptLibraryCsvAsset(
+  context: ChatGptAssetExportContext,
+  item: ChatGptActiveAssetPlanItem
+): Promise<ChatGptActiveAssetResponse> {
+  return resolvePlannedChatGptAsset(context, item, planChatGptLibraryCsvAsset);
+}
+
+async function resolvePlannedChatGptAsset(
   context: ChatGptAssetExportContext,
   item: ChatGptActiveAssetPlanItem,
   planner: typeof planChatGptActiveImageAsset
