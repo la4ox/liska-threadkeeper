@@ -186,9 +186,15 @@ terminal states, and the existing no-credential-export boundary.
   shares unchanged request/byte budgets, replans from committed raw immediately
   before dispatch, never falls through to passive retry, and persists exact
   bytes only as a content-addressed download. The second CSV remains honestly
-  `not-attempted`. Exact-build live acquisition, native/reference-byte parity,
-  destination/hash reconciliation and signed-URL/Library-ID non-leakage remain
-  required before CSV is called supported.
+  `not-attempted`.
+- The exact installed canary closed that gate. It fetched 14,717 CSV bytes whose
+  raw size fact, content-addressed filename, manifest and canonical length/hash
+  all agree; the second 751-byte CSV remained `not-attempted`. The four active
+  slots held one Library CSV, one Library JPEG and two ordinary JPEGs. File and
+  Obsidian share seven byte-identical archive artifacts and identical Markdown;
+  File alone adds its expected canonical HTML/receipt. Library IDs remained
+  raw-only and no signed URL entered durable output. This proves one passive
+  Library CSV contract, not Library text/plain or arbitrary CSV syntax.
 
 ### 7. User-facing derived outputs
 

@@ -2770,3 +2770,27 @@ baseline warnings; formatting and diff checks pass. Independent review and
 deterministic verification are clean. The exact build is not yet installed:
 one live CSV acquisition plus File/Obsidian manifest/canonical/path/length/hash
 reconciliation remains the enablement gate.
+
+The committed 40-file candidate was installed by the verified unpacked-
+extension installer. Its 1,107,773-byte source and installed aggregate SHA-256
+both equal `526d7564...ce34`; the prior `dist` remains under immutable rollback
+`liska-rollback-20261026T140354514Z-c224acc9984d4f87a857455599385f2b`.
+Native CUA then reloaded only Liska on `comet://extensions`; the browser stayed
+open, the reload toast appeared and the worker registered.
+
+A fresh foreground capture of the evidence chat completed in about one minute.
+It retained a complete graph/messages/branches archive with partial assets and
+fetched the deterministic first Library CSV: 14,717 bytes at
+`assets/5435b777...c7ee6f.csv`, with filename, physical hash, manifest and
+canonical path/length/SHA-256 all equal. Its exact raw size fact is also 14,717.
+The second 751-byte CSV remains `not-attempted`. The closed audit records four
+observed dispatches: one Library CSV, one Library JPEG and two ordinary JPEGs.
+
+Downloads and Obsidian contain seven byte-identical shared archive artifacts;
+File adds only the expected canonical HTML and its receipt. Their 325,397-byte
+Markdown notes are SHA-256 identical, carry the same manifest digest and link
+the local CSV. Two exact Library ID values were checked across manifest,
+canonical, both Markdown notes, HTML and receipt with zero matches; transient
+signed transport remains unrepresented. Direct attachment `id` values remain
+only as pre-existing canonical source metadata, not request credentials. This
+closes the one-CSV live gate without claiming general Library text support.
