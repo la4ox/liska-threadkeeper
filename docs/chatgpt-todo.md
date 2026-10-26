@@ -239,6 +239,17 @@ terminal states, and the existing no-credential-export boundary.
   queryless singular request, not a payload/image timeout. First add value-free
   strict-replay mismatch categories, then inspect current live turn attributes;
   widen neither route equivalence nor DOM selectors without that evidence.
+- Current candidate adds one replay-only fixed diagnostic:
+  `target-not-observed-singular-path-seen`. It records only that the exact
+  current singular pathname was seen before the existing no-claim deadline;
+  it does not claim a GET, response, completeness, eligibility or usable bytes.
+  Candidate/claim/dispatch rules, timers, exact plural query grammar and generic
+  `target-not-observed` remain unchanged.
+- One bounded fresh-tab DOM inspection read only aggregate shapes and found the
+  current selectors intact: five `div[data-turn-key]` roots, each with one user
+  bubble, one assistant marker and one assistant Markdown block, plus the exact
+  timeline scroller. The earlier zero-turn symptom was not reproduced; do not
+  widen selectors without a contrary current shape.
 - Shared graph membership validation is now linear, ChatGPT sandbox-link parsing
   is bounded, and DeepSeek normalization has an explicit post-raw node ceiling.
 - Settings-stable durable routing is implemented across first-party archive,
@@ -397,13 +408,14 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-The File and Obsidian reconciliation slices are merged; the exact Save As ZIP
-and Local REST API 5.5.2 writer/API gates are verified. The rebased multi-shard
-candidate now has exact integrated tests/build, clean independent review,
-direct shuffled/cancellation/ZIP/omitted-target evidence and one installed
-six-file Obsidian run. Complete its current-head review/merge. Keep actual
-browser Cancel timing, invalid-extra-file refusal and page unload as honest UI
-follow-ups rather than repeating the already verified core/output paths. Keep archive merge/deduplication,
+The File, Obsidian and multi-shard reconciliation slices are merged and their
+declared live gates are closed. Finish the current ChatGPT runtime-drift
+diagnostic candidate: review the fixed singular-path no-claim code, install the
+exact build, then run one bounded A-strict canary without changing capture
+authority. Keep the confirmed current DOM selectors unchanged unless new
+value-free evidence contradicts the fresh five-root shape. Keep actual browser
+Cancel timing, invalid-extra-file refusal and page unload as honest UI follow-
+ups rather than repeating verified core/output paths. Keep archive merge/deduplication,
 export-ZIP discovery, the 1 GiB source-work refusal, real staged
 `>16 MiB` gate, fetched same-title destination naming, custom-GPT/project
 binaries, and the archived Library WebP as separate evidence-gated work.

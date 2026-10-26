@@ -29,6 +29,7 @@ export const CHATGPT_OPAQUE_REPLAY_ERROR_CODES = [
   'hook-state-failed',
   // No eligible source was claimed; this is not proof of no network request.
   'target-not-observed',
+  'target-not-observed-singular-path-seen',
   'source-not-native-request',
   'init-security-sensitive',
   'init-security-sensitive-headers',

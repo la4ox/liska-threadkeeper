@@ -51,44 +51,44 @@ describe('ChatGPT opaque replay contract', () => {
       expect(isChatGptOpaqueReplayArtifact({ ...artifact(), [extra]: '/g/private' })).toBe(false);
     }
   });
-  it.each(['source-response-timeout', 'replay-response-timeout', 'timed-out'] as const)(
-    'accepts only the exact timeout code %s with bounded observed counts',
-    code => {
-      for (const singularDispatchCount of [0, 1] as const) {
-        expect(
-          isChatGptOpaqueReplayHookResult({ kind: 'error', code, singularDispatchCount })
-        ).toBe(true);
-        expect(
-          isChatGptOpaqueReplayResponse(
-            createChatGptOpaqueReplayFailure(code, singularDispatchCount)
-          )
-        ).toBe(true);
-      }
-      for (const singularDispatchCount of [-1, 2, '1', undefined]) {
-        expect(
-          isChatGptOpaqueReplayHookResult({ kind: 'error', code, singularDispatchCount })
-        ).toBe(false);
-        expect(isChatGptOpaqueReplayResponse({ success: false, code, singularDispatchCount })).toBe(
-          false
-        );
-      }
-      const suffixedCode = `${code}:synthetic-secret`;
+  it.each([
+    'target-not-observed-singular-path-seen',
+    'source-response-timeout',
+    'replay-response-timeout',
+    'timed-out',
+  ] as const)('accepts only the exact deadline code %s with bounded observed counts', code => {
+    for (const singularDispatchCount of [0, 1] as const) {
+      expect(isChatGptOpaqueReplayHookResult({ kind: 'error', code, singularDispatchCount })).toBe(
+        true
+      );
       expect(
-        isChatGptOpaqueReplayHookResult({
-          kind: 'error',
-          code: suffixedCode,
-          singularDispatchCount: 0,
-        })
-      ).toBe(false);
-      expect(
-        isChatGptOpaqueReplayResponse({
-          success: false,
-          code: suffixedCode,
-          singularDispatchCount: 0,
-        })
-      ).toBe(false);
+        isChatGptOpaqueReplayResponse(createChatGptOpaqueReplayFailure(code, singularDispatchCount))
+      ).toBe(true);
     }
-  );
+    for (const singularDispatchCount of [-1, 2, '1', undefined]) {
+      expect(isChatGptOpaqueReplayHookResult({ kind: 'error', code, singularDispatchCount })).toBe(
+        false
+      );
+      expect(isChatGptOpaqueReplayResponse({ success: false, code, singularDispatchCount })).toBe(
+        false
+      );
+    }
+    const suffixedCode = `${code}:synthetic-secret`;
+    expect(
+      isChatGptOpaqueReplayHookResult({
+        kind: 'error',
+        code: suffixedCode,
+        singularDispatchCount: 0,
+      })
+    ).toBe(false);
+    expect(
+      isChatGptOpaqueReplayResponse({
+        success: false,
+        code: suffixedCode,
+        singularDispatchCount: 0,
+      })
+    ).toBe(false);
+  });
 
   it.each([
     'shape',
@@ -196,5 +196,21 @@ describe('ChatGPT opaque replay contract', () => {
     });
     expect(isChatGptOpaqueReplayResponse(failure)).toBe(true);
     expect(isChatGptOpaqueReplayResponse({ ...failure, secret: 'synthetic-secret' })).toBe(false);
+  });
+
+  it('keeps the singular-path diagnostic an exact code-only failure', () => {
+    const code = 'target-not-observed-singular-path-seen';
+    const hook = { kind: 'error', code, singularDispatchCount: 0 };
+    const failure = createChatGptOpaqueReplayFailure(code);
+    expect(failure).toEqual({ success: false, code, singularDispatchCount: 0 });
+    expect(isChatGptOpaqueReplayHookResult(hook)).toBe(true);
+    expect(isChatGptOpaqueReplayResponse(failure)).toBe(true);
+    for (const extra of ['url', 'query', 'headers', 'body', 'singularPathSeen']) {
+      expect(isChatGptOpaqueReplayHookResult({ ...hook, [extra]: 'synthetic-secret' })).toBe(false);
+      expect(isChatGptOpaqueReplayResponse({ ...failure, [extra]: 'synthetic-secret' })).toBe(
+        false
+      );
+    }
+    expect(JSON.stringify(failure)).not.toContain('synthetic-secret');
   });
 });

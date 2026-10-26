@@ -458,6 +458,7 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
       'replay-result-timeout',
       'hook-state-failed',
       'target-not-observed',
+      'target-not-observed-singular-path-seen',
       'source-not-native-request',
       'init-security-sensitive',
       'init-security-sensitive-headers',

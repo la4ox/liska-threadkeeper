@@ -2642,3 +2642,40 @@ accessibility tree exposed the exact six-file selection and final status.
 Browser-UI cancellation timing and invalid-extra-file refusal remain covered by
 focused tests rather than claimed as installed live observations; the changed
 multi-file preparation/output path itself is live-verified.
+
+## ChatGPT current-runtime diagnostic checkpoint
+
+Branch `codex/chatgpt-current-runtime-drift` begins a diagnostic-only repair of
+the current ChatGPT drift without widening capture authority. A-strict replay
+previously reduced every unclaimed request-family mismatch to
+`target-not-observed`. The candidate adds one fixed terminal code,
+`target-not-observed-singular-path-seen`, after the existing deadline only when
+the observer saw an input naming the exact current singular pathname and never
+claimed an eligible plural source.
+
+The new observation is one closure-private boolean. It reads no query contents,
+headers, body, response, identifier, exception or request record; primitive
+strings and the captured native Request URL getter are the only input forms.
+It never claims, clones, terminates early, dispatches, retries or changes the
+original page fetch. Dispatch/claimed timeout precedence, exact plural query
+grammar, temporary-tab readiness, ordinary capture, probe/resolver routes and
+all timers remain unchanged. Generic unrelated inputs still end as
+`target-not-observed`.
+
+Focused document-start/background/contract/plain-header/request verification
+passes 5 files / 828 tests. TypeScript, targeted source lint, formatting and
+diff checks pass. The regressions cover deadline-only publication, repeated
+singular inputs, native Request and primitive-string privacy, singular followed
+by eligible plural success and every timeout phase, unrelated/coercible/poisoned
+inputs, exact result shapes and serialized-reader propagation.
+
+A separate bounded live DOM inspection on one user-approved historical ChatGPT
+conversation returned only aggregate shapes. It found five current
+`div[data-turn-key]` roots; every root had exactly one user bubble, one assistant
+role marker and one assistant Markdown block. The exact timeline scroller was
+present under `main`, used ordinary `column` flow, had vertical range and held
+all five roots. No text, attribute value, identifier, link, title, HTML, network,
+storage or application global was read or retained. The earlier zero-turn DOM
+symptom was not reproduced, so this candidate does not change selectors. An
+installed exact-build A-strict run remains the next evidence gate; the new code
+can narrow one no-claim case but cannot itself prove today's request family.
