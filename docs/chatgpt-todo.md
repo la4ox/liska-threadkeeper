@@ -470,11 +470,9 @@ report remains preserve-only: it exposes no path and grants no mutation.
 
 The bounded Library text/plain implementation is installed and live-verified
 for one exact item, with the second eligible asset still `not-attempted`; no
-general Library text capability is claimed. Track the compact launcher
-separately: the observed Comet window/110% geometry exposed visually present
-actions whose accessibility hit targets fell below the window, while the
-re-observed 100% geometry restored an operable trusted click. Window state may
-also contribute.
+general Library text capability is claimed. The first native attempt had missed
+the compact launcher, so its hidden action coordinates are not evidence of a
+layout defect and no geometry fix is planned from that observation.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;

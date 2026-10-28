@@ -2850,10 +2850,10 @@ direct ID nor the Library ID sentinel.
 
 This closes the one-item Library text/plain live gate without claiming general
 Library text, decoding, encoding validation, inline preview or owner-context
-binaries. A separate UI follow-up remains: in the observed Comet window/110%
-geometry the expanded compact actions were visually present but their
-accessibility hit targets were reported below the window; after re-observation
-at 100% the trusted export action was operable. Window state may also contribute.
+binaries. An initially suspected compact-launcher clipping issue was not
+reproduced: the first native coordinate action had missed the launcher, and the
+below-viewport accessibility point belonged to a hidden action. No UI defect is
+claimed from that observation.
 
 ## ChatGPT Library CSV candidate checkpoint
 
