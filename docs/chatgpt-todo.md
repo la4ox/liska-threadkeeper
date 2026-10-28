@@ -237,13 +237,15 @@ terminal states, and the existing no-credential-export boundary.
 - Local analysis/report page implemented on `codex/snapshot-analysis-ui`:
   repeated explicit folder picks, preflight-before-read, sequential cancellable
   reads/hashes, content-free ordinal rendering and one honest Save As JSON
-  report. It has no cleanup controls or mutation capability. Installed
-  picker/Save As/Downloads behavior, browser portability and near-limit
-  responsiveness remain live gates before calling the adapter verified.
+  report. It has no cleanup controls or mutation capability. The installed
+  Comet picker/analyze/Save As path is live-verified on two real snapshots: the
+  physical report is byte-identical to its oracle, late terminal completion is
+  reconciled without retry, and a cancelled later picker preserves the result.
+  Other-browser portability and near-limit responsiveness remain live gates.
 - Consider manual/automatic backup orchestration only after manual capture and
   recovery paths are boringly reliable.
 
-### 8. Remaining hardening
+### Cross-cutting hardening
 
 - Repair current ChatGPT capture compatibility as a separate slice. Fresh live
   historical-image retries confirmed three honest pre-destination stops:
@@ -445,22 +447,22 @@ The ChatGPT block is ready to call broadly complete when:
 
 ## Exact next step
 
-The current ChatGPT runtime-drift repair is merged and live-verified: the exact
-installed worker registers, foreground replay settles, and one complete
-structured capture reconciles File/Obsidian Markdown with raw, manifest,
-canonical JSON and four fetched images.
+The ChatGPT runtime-drift repair, verified installer, one Library CSV and the
+installed snapshot-analysis page are merged or live-verified. The analysis
+report remains preserve-only: it exposes no path and grants no mutation.
 
-Next close the installed snapshot-analysis acceptance gate without granting any
-cleanup authority: add two explicit immutable snapshot folders, analyze the
-selected bytes, save one JSON report and independently reconcile its exact
-bytes; then prove that cancelling a later picker preserves the existing result.
-Fix only a defect reproduced by that path. Keep other-browser portability and
-near-limit responsiveness separate.
+Before any deduplicator write path, make three explicit product/privacy
+decisions: whether File/Obsidian copies of one capture may ever be candidates;
+whether v2 must understand HTML/receipt-bearing snapshots; and whether backlink
+coverage may read user-selected Markdown outside capture directories. Any later
+adapter must reanalyse stable handles, show exact paths and recovered space,
+revalidate a hash-bound plan, quarantine on the same volume with a journal and
+undo, and require a separate cleanup confirmation. Saved reports never become
+write authority.
 
-After that, investigate one ordinary-owner `text/plain` or `text/csv` example
-only if an exact live resolver contract is observed. Keep actual browser Cancel
-timing for reconciliation, invalid-extra-file refusal, page unload, archive
-merge/deduplication, export-ZIP discovery, the 1 GiB source-work refusal, real
-staged `>16 MiB` capture, fetched same-title destination naming,
+Keep other-browser snapshot portability, near-limit responsiveness, actual
+browser Cancel timing for reconciliation, invalid-extra-file refusal, page
+unload, export-ZIP discovery, the 1 GiB source-work refusal, real staged
+`>16 MiB` capture, fetched same-title destination naming, Library text/plain,
 custom-GPT/project binaries, Dots, and the archived Library WebP as separate
 evidence-gated work.

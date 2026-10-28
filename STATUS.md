@@ -2751,15 +2751,6 @@ files are content-identical; raw response, manifest and canonical bytes differ,
 so the pair exercises real snapshot comparison rather than duplicate folder
 selection. No archive is modified.
 
-The installed popup visibly exposes `Compare local snapshots`, but Comet renders
-the popup as a transient window that Windows CUA cannot target. Browser control
-also correctly refuses direct `chrome-extension://` navigation. No hidden
-navigation or input workaround was used, and no installed acceptance claim is
-made yet. The next action is one user click on that visible popup link; CUA can
-then handle the private page, explicit folder selections, analysis, Save As and
-independent report-byte reconciliation. Picker cancellation must preserve the
-existing result before this gate is closed.
-
 The same two explicit folders have now passed the production analysis core as
 an independent UI oracle. Both ordinals verify at 7 files / 3,336,176 bytes;
 their inventory SHA-256 values are distinct. The 1,022-byte encoded
@@ -2772,6 +2763,23 @@ external-references-unassessed reasons. The temporary local harness was removed;
 only the content-free expected report remains under the task-specific
 `CodexTools/cua/snapshot-analysis-live` evidence directory for exact comparison
 with the later Save As bytes.
+
+After the Windows 11 upgrade, native Computer Use opened the Liska popup and
+private analysis page without a fallback, selected both exact folders through
+the system directory picker and completed the installed analysis. The UI
+reported verified byte consistency for both ordinals, no candidate relation and
+the preserve-only result `Keep every snapshot`; source files were unchanged.
+
+Save As initially reached the page's deliberate `unknown` state, so no retry
+was made. The browser later published exact completion. Downloads contained
+exactly one new `liska-snapshot-analysis.json`: 1,022 bytes with SHA-256
+`1dac3ca02d3e099a2e10dd167139be5cac9ac110dadf0942ff4082dc6f709dce`,
+byte-identical to the independent oracle. Schema, fixed booleans, both inventory
+digests, preserve reasons and zero relations all match. Opening a third folder
+picker and cancelling it preserved both selections and the rendered report.
+This closes the installed Comet picker/analyze/Save As/late-terminal/cancel
+gate. Other-browser portability and responsiveness near hard limits remain
+separate evidence gates; no cleanup authority was added.
 
 ## ChatGPT Library CSV candidate checkpoint
 
