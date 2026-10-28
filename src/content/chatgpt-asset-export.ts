@@ -33,6 +33,7 @@ import {
   planChatGptActiveImageAsset,
   planChatGptLibraryJpegAsset,
   planChatGptLibraryCsvAsset,
+  planChatGptLibraryTextPlainAsset,
   planChatGptInterpreterAssetIds,
   verifyChatGptAssetExportContext,
   type ChatGptAssetResolverObservation,
@@ -139,6 +140,11 @@ export interface ChatGptAssetExportDependencies {
   ) => Promise<ChatGptActiveAssetResponse>;
   /** Separate one-CSV Library route; consumes one of the same four active slots. */
   resolveLibraryCsvAsset?: (
+    context: ChatGptAssetExportContext,
+    item: ChatGptActiveAssetPlanItem
+  ) => Promise<ChatGptActiveAssetResponse>;
+  /** Separate one-text/plain Library route; consumes one of the same four active slots. */
+  resolveLibraryTextPlainAsset?: (
     context: ChatGptAssetExportContext,
     item: ChatGptActiveAssetPlanItem
   ) => Promise<ChatGptActiveAssetResponse>;
@@ -406,6 +412,7 @@ const ACTIVE_ASSET_PLANNERS = {
   ordinary: planChatGptActiveImageAsset,
   'library-jpeg': planChatGptLibraryJpegAsset,
   'library-csv': planChatGptLibraryCsvAsset,
+  'library-text-plain': planChatGptLibraryTextPlainAsset,
 };
 
 async function resolveOneUnattemptedAsset(
@@ -422,6 +429,7 @@ async function resolveOneUnattemptedAsset(
     ordinary: dependencies.resolveActiveAsset,
     'library-jpeg': dependencies.resolveLibraryAsset,
     'library-csv': dependencies.resolveLibraryCsvAsset,
+    'library-text-plain': dependencies.resolveLibraryTextPlainAsset,
   }[family];
   if (resolver === undefined) return undefined;
   let item: ChatGptActiveAssetPlanItem | undefined;
@@ -480,17 +488,20 @@ function addActiveBatchAudit(
   resolution: ChatGptAssetCandidateResolution,
   attempts: ChatGptActiveResolverMetric[],
   libraryJpegAttemptCount: 0 | 1,
-  libraryCsvAttemptCount: 0 | 1
+  libraryCsvAttemptCount: 0 | 1,
+  libraryTextPlainAttemptCount: 0 | 1
 ): void {
   if (attempts.length === 0) return;
-  resolution.activeResolverMetric = libraryCsvAttemptCount
-    ? {
-        acquisitionMode: 'asset-batch-4',
-        attempts,
-        libraryJpegAttemptCount,
-        libraryCsvAttemptCount,
-      }
-    : { acquisitionMode: 'image-batch-4', attempts, libraryJpegAttemptCount };
+  resolution.activeResolverMetric =
+    libraryCsvAttemptCount || libraryTextPlainAttemptCount
+      ? {
+          acquisitionMode: 'asset-batch-4',
+          attempts,
+          libraryJpegAttemptCount,
+          libraryCsvAttemptCount,
+          ...(libraryTextPlainAttemptCount && { libraryTextPlainAttemptCount }),
+        }
+      : { acquisitionMode: 'image-batch-4', attempts, libraryJpegAttemptCount };
   addWarning(
     resolution.warnings,
     chatGptActiveResolverAuditWarning(resolution.activeResolverMetric)
@@ -568,8 +579,11 @@ async function resolveAndAcquireAssetCandidates(
       acquired.records = applyChatGptActiveAcquisitionFailure(acquired.records, active.assetId);
     }
   };
-  const applyLibraryFamily = async (family: 'library-csv' | 'library-jpeg'): Promise<0 | 1> => {
-    if (!hasAssetBudget(budget)) return 0;
+  const applyLibraryFamily = async (
+    family: 'library-csv' | 'library-jpeg' | 'library-text-plain'
+  ): Promise<0 | 1> => {
+    if (!hasAssetBudget(budget) || activeMetrics.length >= CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT)
+      return 0;
     const active = await resolveOneUnattemptedAsset(
       context,
       dependencies,
@@ -586,6 +600,8 @@ async function resolveAndAcquireAssetCandidates(
   };
   const libraryCsvAttemptCount = await applyLibraryFamily('library-csv');
   const libraryJpegAttemptCount = await applyLibraryFamily('library-jpeg');
+  // Preserve the established CSV -> JPEG priority; text/plain precedes ordinary images.
+  const libraryTextPlainAttemptCount = await applyLibraryFamily('library-text-plain');
   if (dependencies.resolveActiveAsset !== undefined) {
     while (activeMetrics.length < CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT) {
       if (!hasAssetBudget(budget)) break;
@@ -611,7 +627,13 @@ async function resolveAndAcquireAssetCandidates(
       resolution
     );
   }
-  addActiveBatchAudit(resolution, activeMetrics, libraryJpegAttemptCount, libraryCsvAttemptCount);
+  addActiveBatchAudit(
+    resolution,
+    activeMetrics,
+    libraryJpegAttemptCount,
+    libraryCsvAttemptCount,
+    libraryTextPlainAttemptCount
+  );
 
   const remainingAssetIds = [...allowedAssetIds]
     .filter(

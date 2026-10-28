@@ -35,12 +35,14 @@ export interface ChatGptActiveResolverBatchAudit {
   libraryJpegAttemptCount?: 0 | 1;
 }
 
-/** Mixed runs share the historical four-operation cap; CSV has its own family count. */
+/** Mixed runs share the historical four-operation cap with separate Library family counts. */
 export interface ChatGptActiveResolverAssetBatchAudit {
   acquisitionMode: 'asset-batch-4';
   attempts: ChatGptActiveResolverMetric[];
   libraryJpegAttemptCount: 0 | 1;
   libraryCsvAttemptCount: 0 | 1;
+  /** Absent on historical CSV/JPEG audits; explicit values must remain bounded. */
+  libraryTextPlainAttemptCount?: 0 | 1;
 }
 
 export type ChatGptActiveResolverAudit =
@@ -314,27 +316,43 @@ function validatedAssetBatchSnapshot(
   fields: DataFields,
   snapshots: DataSnapshots
 ): ChatGptActiveResolverAssetBatchAudit {
+  const hasTextPlainCount = Object.prototype.hasOwnProperty.call(
+    fields,
+    'libraryTextPlainAttemptCount'
+  );
   if (
     !hasExactFields(fields, [
       'acquisitionMode',
       'attempts',
       'libraryJpegAttemptCount',
       'libraryCsvAttemptCount',
+      ...(hasTextPlainCount ? ['libraryTextPlainAttemptCount'] : []),
     ]) ||
     fields.acquisitionMode !== 'asset-batch-4' ||
     (fields.libraryJpegAttemptCount !== 0 && fields.libraryJpegAttemptCount !== 1) ||
-    (fields.libraryCsvAttemptCount !== 0 && fields.libraryCsvAttemptCount !== 1)
+    (fields.libraryCsvAttemptCount !== 0 && fields.libraryCsvAttemptCount !== 1) ||
+    (hasTextPlainCount &&
+      fields.libraryTextPlainAttemptCount !== 0 &&
+      fields.libraryTextPlainAttemptCount !== 1)
   )
     invalidMetric();
   const attempts = validatedAttemptSnapshots(fields.attempts, snapshots);
   const libraryJpegAttemptCount = fields.libraryJpegAttemptCount as 0 | 1;
   const libraryCsvAttemptCount = fields.libraryCsvAttemptCount as 0 | 1;
-  if (libraryJpegAttemptCount + libraryCsvAttemptCount > attempts.length) invalidMetric();
+  const libraryTextPlainAttemptCount = hasTextPlainCount
+    ? (fields.libraryTextPlainAttemptCount as 0 | 1)
+    : 0;
+  if (
+    libraryJpegAttemptCount + libraryCsvAttemptCount + libraryTextPlainAttemptCount >
+    attempts.length
+  )
+    invalidMetric();
   return {
     acquisitionMode: 'asset-batch-4',
     attempts,
     libraryJpegAttemptCount,
     libraryCsvAttemptCount,
+    ...(hasTextPlainCount && { libraryTextPlainAttemptCount }),
   };
 }
 
@@ -363,10 +381,18 @@ function batchAuditWarning(
     .join(',');
   const libraryCount = audit.libraryJpegAttemptCount ?? 0;
   const csvCount = audit.acquisitionMode === 'asset-batch-4' ? audit.libraryCsvAttemptCount : 0;
-  const families = `library-jpeg-attempts=${libraryCount}; ${audit.acquisitionMode === 'asset-batch-4' ? `library-csv-attempts=${csvCount}; ` : ''}ordinary-image-attempts=${audit.attempts.length - libraryCount - csvCount};`;
+  const textPlainCount =
+    audit.acquisitionMode === 'asset-batch-4' ? (audit.libraryTextPlainAttemptCount ?? 0) : 0;
+  const textPlainFamily =
+    audit.acquisitionMode === 'asset-batch-4' && audit.libraryTextPlainAttemptCount !== undefined
+      ? `library-text-plain-attempts=${textPlainCount}; `
+      : '';
+  const families = `library-jpeg-attempts=${libraryCount}; ${audit.acquisitionMode === 'asset-batch-4' ? `library-csv-attempts=${csvCount}; ` : ''}${textPlainFamily}ordinary-image-attempts=${audit.attempts.length - libraryCount - csvCount - textPlainCount};`;
   const capability =
     audit.acquisitionMode === 'asset-batch-4'
-      ? 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV assets, including at most one Library CSV.'
+      ? audit.libraryTextPlainAttemptCount !== undefined
+        ? 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV/text/plain assets, including at most one Library CSV and one Library text/plain.'
+        : 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV assets, including at most one Library CSV.'
       : 'file-ID binary acquisition is limited to four sequential PNG/JPEG images.';
   return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; ${families} outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; ${capability}`;
 }

@@ -54,6 +54,7 @@ import {
   resolveChatGptActiveImageAsset,
   resolveChatGptLibraryJpegAsset,
   resolveChatGptLibraryCsvAsset,
+  resolveChatGptLibraryTextPlainAsset,
   observeChatGptInterpreterAssetResolvers,
 } from './capture/chatgpt-current-branch';
 import { conversationToNote } from './markdown';
@@ -1479,6 +1480,7 @@ const chatGptAttachmentDependencies = (
         resolveActiveAsset: resolveChatGptActiveImageAsset,
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
         resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
+        resolveLibraryTextPlainAsset: resolveChatGptLibraryTextPlainAsset,
       }
     : {}),
 });

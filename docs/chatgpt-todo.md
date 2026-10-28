@@ -65,6 +65,12 @@ terminal states, and the existing no-credential-export boundary.
 - Keep file-ID, interpreter/sandbox, Library, and future provider families
   discriminated in plan, audit, and terminal state.
 - Live gate each family independently before enabling it generally.
+- Implemented and live-verified: at most one exact Library `text/plain` attachment,
+  with the same direct-ID/whole-ledger/owner checks and immediate committed-raw
+  replan. Library CSV -> JPEG -> text/plain -> ordinary images preserves the
+  existing CSV/JPEG priority and shares the same four slots, 20 attempts and
+  128 MiB budget. The additive optional audit count keeps old shapes valid and
+  never labels text as an ordinary image.
 
 ### 3. Deep Research binaries and collisions
 
@@ -195,6 +201,17 @@ terminal states, and the existing no-credential-export boundary.
   File alone adds its expected canonical HTML/receipt. Library IDs remained
   raw-only and no signed URL entered durable output. This proves one passive
   Library CSV contract, not Library text/plain or arbitrary CSV syntax.
+- The installed trusted-click text/plain canary closed this narrow gate. The
+  deterministic 4,233-byte candidate became the same content-addressed `.txt`
+  in File and Obsidian; physical bytes, path/length/hash, manifest and canonical
+  agree. The second eligible record remains `not-attempted`; the aggregate
+  audit records one text/plain attempt inside four total active operations.
+  The selected Library ID has zero non-raw matches; no URL-valued field was
+  tied to that record. Its ordinary direct attachment ID remains under the
+  established source-provenance contract, independent of acquisition, and a
+  focused regression excludes it from resolver warnings/receipts. Exact MIME agreement
+  still permits only opaque byte retention: no decoding, newline rewriting,
+  encoding guarantee or inline preview. General Library text remains unsupported.
 
 ### 7. User-facing derived outputs
 
@@ -451,6 +468,14 @@ The ChatGPT runtime-drift repair, verified installer, one Library CSV and the
 installed snapshot-analysis page are merged or live-verified. The analysis
 report remains preserve-only: it exposes no path and grants no mutation.
 
+The bounded Library text/plain implementation is installed and live-verified
+for one exact item, with the second eligible asset still `not-attempted`; no
+general Library text capability is claimed. Track the compact launcher
+separately: the observed Comet window/110% geometry exposed visually present
+actions whose accessibility hit targets fell below the window, while the
+re-observed 100% geometry restored an operable trusted click. Window state may
+also contribute.
+
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;
 whether v2 must understand HTML/receipt-bearing snapshots; and whether backlink
@@ -463,6 +488,6 @@ write authority.
 Keep other-browser snapshot portability, near-limit responsiveness, actual
 browser Cancel timing for reconciliation, invalid-extra-file refusal, page
 unload, export-ZIP discovery, the 1 GiB source-work refusal, real staged
-`>16 MiB` capture, fetched same-title destination naming, Library text/plain,
+`>16 MiB` capture, fetched same-title destination naming,
 custom-GPT/project binaries, Dots, and the archived Library WebP as separate
 evidence-gated work.

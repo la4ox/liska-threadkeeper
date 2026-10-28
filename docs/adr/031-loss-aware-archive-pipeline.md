@@ -623,6 +623,48 @@ establish general Library identity equivalence, Library PNG/WebP or text/plain,
 custom-GPT/project ownership, WebP structure validation or a new endpoint.
 Those remain separately evidence-gated work.
 
+The next implemented and live-verified specialization is one exact Library
+`text/plain` attachment. It reuses every direct-ID, whole-ledger
+collision and owner check above, then replans committed raw immediately before
+the sole ID-bearing command. Selection is lexicographic by opaque asset ID,
+independent of ledger order. The supplied offline evidence has two eligible
+records: that policy selects the 4,233-byte candidate and leaves the
+21,231-byte candidate `not-attempted`; these are provider metadata sizes, not
+newly acquired-byte claims.
+
+Ordering is interpreter acquisition, then Library CSV, JPEG, text/plain, then
+remaining ordinary images. CSV/JPEG retain their relative priority. Each
+Library family can consume at most one of the existing four active operations;
+all families retain the shared 20-attempt/128 MiB acquisition budget. Dispatch
+ownership begins before the request and prohibits retry or passive fallback,
+including helper/binding/MIME/byte/persistence failures. The optional
+`libraryTextPlainAttemptCount` adds a bounded 0/1 count to `asset-batch-4`;
+historical metric/image/CSV audit shapes and their warning text remain valid.
+Text attempts are never counted as ordinary images.
+
+Only exact ledger `text/plain` and matching response MIME essence are admitted
+(response charset parameters do not promise an encoding). The bytes are
+opaque: no text decoding, encoding validation/guarantee, newline normalization,
+transcoding or inline preview. Existing hash/length verification produces a
+content-addressed `.txt`, and finalized HTML exposes only a download link.
+Raw persistence and per-destination receipts still govern all durable claims.
+Library identifiers and signed transport remain raw-only/transient; no new
+resolver identifier enters durable output. Pre-existing ordinary attachment
+IDs in canonical source metadata are unchanged, not a resolver receipt.
+
+General Library text, other text MIME types and owner-context binaries remain
+unsupported. The installed trusted-click canary produced byte-identical shared
+File/Obsidian capture trees, one 4,233-byte content-addressed `.txt` with exact
+manifest/canonical/physical agreement, a second `not-attempted` text record and
+the expected separate family count inside the unchanged four-operation audit.
+The selected Library ID had zero non-raw matches. No URL-valued field was tied
+to the selected record, so the canary does not turn a missing value into an
+absence claim. Existing direct attachment IDs may remain in canonical source
+provenance independently of acquisition; resolver planning introduces no new
+durable identifier field. A focused regression compares source refs before and
+after acquisition and excludes the direct and Library IDs from resolver
+warnings/receipts. This closes only the one-item specialization.
+
 ### Owner routes are capture context, not attachment authority
 
 Custom-GPT and project routes now have a separate content-free runtime contract.
@@ -947,8 +989,9 @@ later staged begin.
 
 Progress as of 2026-10-23: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images,
-interpreter/sandbox documents, one exact Library-associated JPEG and one exact
-passive Library CSV with explicit completeness diagnostics. Custom-GPT/project raw capture is
+interpreter/sandbox documents, one exact Library-associated JPEG, one exact
+passive Library CSV and one exact Library text/plain with explicit completeness
+diagnostics. Custom-GPT/project raw capture is
 live-verified under an archive-only, zero-binary policy; their binary ownership,
 other Library binary families, Calpico fallback, and general Deep Research
 binary acquisition remain outside the current checkpoint. Step 8 is implemented and live-verified
