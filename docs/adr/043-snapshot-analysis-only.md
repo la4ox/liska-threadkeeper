@@ -111,9 +111,14 @@ allocations necessarily occur before the resulting graph/block counts exist.
 This is not a proof of zero transient allocation. Presentations, receipts,
 Markdown, DeepSeek, official exports, old writer versions, and external
 backlinks are intentionally unsupported in version 1 and force preservation.
-Installed directory-picker behavior, native Save As/Downloads callbacks,
-supported-browser portability and responsiveness near the selected-byte ceiling
-remain live verification gates. Synthetic headless rendering cannot prove them.
+The installed Comet page is live-verified on two immutable seven-file snapshots:
+both exact folder picks and byte inventories completed, Save As moved from an
+honest initial `unknown` to exact terminal completion, the physical 1,022-byte
+JSON matched an independently encoded oracle byte-for-byte, and cancelling a
+later picker preserved the existing result. Source files remained unchanged.
+Supported-browser portability and responsiveness near the selected-byte ceiling
+remain separate live gates. Synthetic headless rendering alone cannot prove
+them.
 
 ## Future mutation adapter
 

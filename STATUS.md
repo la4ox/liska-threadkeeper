@@ -2735,6 +2735,52 @@ SHA-256; two further asset references remain honestly `not-attempted`, so asset
 completeness stays partial rather than being overstated. This closes worker
 registration, runtime-message settlement and the foreground replay live gate.
 
+## Snapshot analysis installed acceptance checkpoint
+
+Branch `codex/snapshot-analysis-live-acceptance` starts from merged main without
+a production-code delta. Current source inspection confirms that all-branches
+HTML bootstrap/delivery is already implemented and live-verified; the roadmap
+was stale rather than the feature incomplete. The exact next slice is therefore
+the existing private snapshot-analysis page's installed acceptance, not another
+HTML implementation.
+
+Two immutable same-conversation candidates are prepared for that gate. Each
+folder contains 7 files totaling 3,336,176 bytes and reports complete graph,
+messages and branches with partial asset completeness. Their four fetched image
+files are content-identical; raw response, manifest and canonical bytes differ,
+so the pair exercises real snapshot comparison rather than duplicate folder
+selection. No archive is modified.
+
+The same two explicit folders have now passed the production analysis core as
+an independent UI oracle. Both ordinals verify at 7 files / 3,336,176 bytes;
+their inventory SHA-256 values are distinct. The 1,022-byte encoded
+`liska-snapshot-analysis/1` report has SHA-256
+`1dac3ca02d3e099a2e10dd167139be5cac9ac110dadf0942ff4082dc6f709dce`,
+sets `analysisOnly: true` and `mutationAuthorized: false`, and emits no sparse
+relation. It preserves ordinal 0 as first-observed and ordinal 1 as
+latest-observed; both additionally retain unique-evidence, partial-capture and
+external-references-unassessed reasons. The temporary local harness was removed;
+only the content-free expected report remains under the task-specific
+`CodexTools/cua/snapshot-analysis-live` evidence directory for exact comparison
+with the later Save As bytes.
+
+After the Windows 11 upgrade, native Computer Use opened the Liska popup and
+private analysis page without a fallback, selected both exact folders through
+the system directory picker and completed the installed analysis. The UI
+reported verified byte consistency for both ordinals, no candidate relation and
+the preserve-only result `Keep every snapshot`; source files were unchanged.
+
+Save As initially reached the page's deliberate `unknown` state, so no retry
+was made. The browser later published exact completion. Downloads contained
+exactly one new `liska-snapshot-analysis.json`: 1,022 bytes with SHA-256
+`1dac3ca02d3e099a2e10dd167139be5cac9ac110dadf0942ff4082dc6f709dce`,
+byte-identical to the independent oracle. Schema, fixed booleans, both inventory
+digests, preserve reasons and zero relations all match. Opening a third folder
+picker and cancelling it preserved both selections and the rendered report.
+This closes the installed Comet picker/analyze/Save As/late-terminal/cancel
+gate. Other-browser portability and responsiveness near hard limits remain
+separate evidence gates; no cleanup authority was added.
+
 ## ChatGPT Library CSV candidate checkpoint
 
 Branch `codex/chatgpt-library-csv` adds one evidence-gated passive CSV family
