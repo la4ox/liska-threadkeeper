@@ -380,6 +380,19 @@ deliberately unported.
 - Inspect provider blocks that Liska has changed least: Perplexity,
   Gemini/NotebookLM, Claude, common Markdown conversion, storage/Obsidian, UI,
   and CI.
+- The first installed-build provider pass now verifies distinct open-report and
+  closed-conversation Gemini Research exports plus a six-message Gemini
+  Notebook export with 136 unique resolved per-message citation definitions.
+  The apparent Notebook citation loss was a verifier-pattern error, not a
+  product defect. Perplexity did not receive a Liska isolated-world content
+  script in Comet on exact `www.perplexity.ai`, despite installed host access;
+  source inspection rules out selector drift as a permanent launcher blocker.
+  Reproduce with the current build in another Chromium browser before granting
+  another origin or changing selectors. Do not add bare `perplexity.ai` from an
+  omnibox display that merely hides `www`.
+- Daybreak Blue is available here only through GitHub Codex Security Review.
+  The unavailable advisory-access probe has no separate application path and
+  is not an outstanding repository permission or merge gate.
 - The October Claude DOM/thread slice is merged through PR 43 with
   bounded offline coverage and one current-window live canary. Full-history
   auto-scroll and live October tool-label output remain explicit runtime gaps;
