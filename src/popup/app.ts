@@ -84,6 +84,7 @@ function queryElements() {
     outputFile: getElement<HTMLInputElement>('outputFile'),
     outputClipboard: getElement<HTMLInputElement>('outputClipboard'),
     openReconciliationBtn: getElement<HTMLButtonElement>('openReconciliationBtn'),
+    probeDotsSchemaBtn: getElement<HTMLButtonElement>('probeDotsSchemaBtn'),
     obsidianSettings: getElement<HTMLElement>('obsidianSettings'),
     // Obsidian settings
     apiKey: getElement<HTMLInputElement>('apiKey'),
@@ -126,6 +127,7 @@ type PopupElements = ReturnType<typeof queryElements>;
 let elements: PopupElements;
 let outputSaveChain: Promise<void> = Promise.resolve();
 let settingsActionInFlight = false;
+let dotsSchemaProbeInFlight = false;
 // Only an edited field may replace the credential, including when migration
 // finishes in the background after this popup was populated with a blank key.
 let savedApiKeyValue = '';
@@ -254,6 +256,9 @@ function setupEventListeners(): void {
       showStatus(getMessage('reconcile_openFailed'), 'error');
     });
   });
+  elements.probeDotsSchemaBtn.addEventListener('click', event => {
+    handleTrustedDotsSchemaProbeClick(event, () => void runDotsSchemaProbe());
+  });
 
   // Output destination checkbox listeners
   elements.outputObsidian.addEventListener('change', () => {
@@ -287,6 +292,38 @@ function setupEventListeners(): void {
 
   // Setup API key visibility toggle
   setupApiKeyToggle();
+}
+
+/** A page script cannot turn a synthetic popup click into a provider probe. */
+export function handleTrustedDotsSchemaProbeClick(event: Event, onClick: () => void): void {
+  if (!event.isTrusted) return;
+  onClick();
+}
+
+/** Run one selected-tab, schema-only Dots diagnostic. */
+export async function runDotsSchemaProbe(): Promise<void> {
+  if (dotsSchemaProbeInFlight || settingsActionInFlight) return;
+  dotsSchemaProbeInFlight = true;
+  elements.probeDotsSchemaBtn.disabled = true;
+  elements.saveBtn.disabled = true;
+  elements.testBtn.disabled = true;
+  clearStatus();
+  showStatus(getMessage('status_dotsSchemaProbeRunning'), 'info');
+  try {
+    const response = await sendMessage({ action: 'probeDotsSchema' });
+    if (response.success) {
+      showStatus(getMessage('status_dotsSchemaProbeSaved'), 'success');
+    } else {
+      showStatus(getMessage('toast_error_dotsSchemaProbeFailed', response.code), 'error');
+    }
+  } catch {
+    showStatus(getMessage('toast_error_dotsSchemaProbeFailed', 'unavailable'), 'error');
+  } finally {
+    dotsSchemaProbeInFlight = false;
+    elements.probeDotsSchemaBtn.disabled = false;
+    elements.saveBtn.disabled = false;
+    elements.testBtn.disabled = false;
+  }
 }
 
 /** Persist destination switches immediately and serialize rapid changes. */
@@ -563,10 +600,11 @@ function normalizeObsidianSettings(
 
 /** Save and connection-test flows share credential state and cannot overlap. */
 function beginSettingsAction(): boolean {
-  if (settingsActionInFlight) return false;
+  if (settingsActionInFlight || dotsSchemaProbeInFlight) return false;
   settingsActionInFlight = true;
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
+  elements.probeDotsSchemaBtn.disabled = true;
   return true;
 }
 
@@ -574,6 +612,7 @@ function endSettingsAction(): void {
   settingsActionInFlight = false;
   elements.saveBtn.disabled = false;
   elements.testBtn.disabled = false;
+  elements.probeDotsSchemaBtn.disabled = false;
 }
 
 /**

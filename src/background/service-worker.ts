@@ -75,6 +75,11 @@ import type {
 import { serializeSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 import { snapshotPersistDerivedBranchHtmlMessage } from './derived-branch-html-validation';
 import { buildDerivedBranchHtmlPersistResponse } from '../lib/derived-branch-persistence-contract';
+import {
+  createDotsSchemaProbeFailure,
+  isDotsSchemaProbeResponse,
+} from '../lib/dots-schema-probe-contract';
+import { isAuthorizedDotsSchemaProbeSender, probeDotsSchemaInActiveTab } from './dots-schema-probe';
 
 /** Latest popup destination intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
@@ -183,6 +188,16 @@ function dispatchMessage(
     });
 }
 
+function rejectedMessageResponse(message: unknown, reason: 'sender' | 'message'): unknown {
+  if (hasOwnDataProperty(message, 'action', 'probeDotsSchema')) {
+    return createDotsSchemaProbeFailure(reason === 'sender' ? 'invalid-sender' : 'invalid-message');
+  }
+  return chatGptBridgeFailureOr(message, {
+    success: false,
+    error: reason === 'sender' ? 'Unauthorized' : 'Invalid message content',
+  });
+}
+
 /**
  * Handle incoming messages from content script and popup
  */
@@ -209,7 +224,7 @@ chrome.runtime.onMessage.addListener(
     // Sender validation (M-02)
     if (!validateSender(sender)) {
       console.warn('[G2O Background] Rejected message from unauthorized sender');
-      sendResponse(chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' }));
+      sendResponse(rejectedMessageResponse(message, 'sender'));
       return false;
     }
 
@@ -219,21 +234,22 @@ chrome.runtime.onMessage.addListener(
     try {
       if (!validateMessageContent(message)) {
         console.warn('[G2O Background] Invalid message content');
-        sendResponse(
-          chatGptBridgeFailureOr(message, { success: false, error: 'Invalid message content' })
-        );
+        sendResponse(rejectedMessageResponse(message, 'message'));
         return false;
       }
     } catch (error) {
       console.warn('[G2O Background] Message validation threw:', getErrorMessage(error));
-      sendResponse(
-        chatGptBridgeFailureOr(message, { success: false, error: 'Invalid message content' })
-      );
+      sendResponse(rejectedMessageResponse(message, 'message'));
       return false;
     }
 
     if (!isAuthorizedChatGptCaptureRequest(message, sender)) {
       sendResponse(chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' }));
+      return false;
+    }
+
+    if (!isAuthorizedDotsSchemaProbeRequest(message, sender)) {
+      sendResponse(createDotsSchemaProbeFailure('invalid-sender'));
       return false;
     }
 
@@ -357,6 +373,18 @@ function isAuthorizedOutputOptionsUpdate(
     sender.tab === undefined &&
     sender.id === chrome.runtime.id &&
     sender.url === chrome.runtime.getURL('src/popup/index.html')
+  );
+}
+
+function isAuthorizedDotsSchemaProbeRequest(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (message.action !== 'probeDotsSchema') return true;
+  return isAuthorizedDotsSchemaProbeSender(
+    sender,
+    chrome.runtime.id,
+    chrome.runtime.getURL('src/popup/index.html')
   );
 }
 
@@ -615,6 +643,20 @@ async function handleChatGptInterpreterResolver(
   }
 }
 
+async function handleDotsSchemaProbe() {
+  if (!(await hasScriptingPermission())) {
+    return createDotsSchemaProbeFailure('permission-unavailable');
+  }
+  try {
+    const response = await probeDotsSchemaInActiveTab();
+    return isDotsSchemaProbeResponse(response)
+      ? response
+      : createDotsSchemaProbeFailure('result-invalid');
+  } catch {
+    return createDotsSchemaProbeFailure('result-invalid');
+  }
+}
+
 function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
   ExtensionMessage,
   {
@@ -710,6 +752,7 @@ async function handleMessage(
   if (isChatGptBridgeAction(message)) {
     return handleChatGptBridgeMessage(message, sender);
   }
+  if (message.action === 'probeDotsSchema') return handleDotsSchemaProbe();
 
   if (message.action === 'updateOutputOptions') {
     // A disabled destination must take effect immediately, even if sync storage

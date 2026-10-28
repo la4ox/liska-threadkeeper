@@ -140,7 +140,7 @@ describe('emitted service-worker runtime closure guard', () => {
   it('runs the guard after Vite in the normal build inherited by packaging', () => {
     const { scripts } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     expect(scripts.build).toMatch(
-      /vite build\s*&&\s*node scripts\/check-service-worker-runtime\.mjs$/
+      /vite build\s*&&\s*node scripts\/build-dots-document-start\.mjs\s*&&\s*node scripts\/check-service-worker-runtime\.mjs$/
     );
     expect(scripts['build:zip']).toMatch(/^npm run build\s*&&/);
   });

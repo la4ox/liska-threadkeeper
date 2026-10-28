@@ -450,8 +450,27 @@ terminal states, and the existing no-credential-export boundary.
   before authorizing a raw artifact. Do not add a generic same-origin observer,
   direct replay, realtime stream capture, dynamic allowlist learning,
   memory/persona collection, or unrelated account traffic.
+- Diagnostic candidate implemented on `codex/dots-schema-probe`: popup-only
+  authorization, one selected-tab reload, synchronous MAIN document-start
+  observer, exact same-room pairing, fixed structural vocabulary, independent
+  tab/document/result validation and a fixed local JSON download. It does not
+  persist provider values or call archive, Obsidian, Clipboard or settings
+  sinks. Next gate is one installed live canary; do not widen Fetch/init/route
+  admission merely to turn a fixed refusal into success.
+- Treat the schema button as temporary evidence tooling. Hide or remove it from
+  the ordinary product surface after the real raw transport contract is proven.
 - Preserve one exact conversation-scoped raw artifact before designing the
   provider adapter; retain unknown event types instead of flattening them.
+- For the current intended Dots workflow, use one Dot to one long-lived room as
+  the working identity hypothesis. The first real adapter run should write a
+  complete raw/manifest/canonical/Markdown snapshot; later runs may append only
+  provider-ID-backed tail messages when the same Dot/room identity and exact
+  historical prefix are reverified.
+- Keep every later raw/manifest/canonical capture as a new append-only snapshot
+  even when the readable Markdown tail is appended. A changed room, edited or
+  reordered history, missing pagination evidence, or a non-prefix capture must
+  produce a separate snapshot plus an explicit diagnostic instead of silent
+  merge or overwrite.
 - Map verified Dots raw data into `liska-thread/1`, then reuse existing Markdown,
   branch, Downloads, and Obsidian layers only where their contracts really fit.
 - Keep Dots memory/persona configuration, global activity, and unrelated dot

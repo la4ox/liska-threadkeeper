@@ -2343,6 +2343,45 @@ conversation-scoped raw artifact be considered. No generic same-origin
 observer, dynamic allowlist learning, direct request replay, realtime stream
 capture, memory or persona collection is authorized.
 
+Branch `codex/dots-schema-probe` implements that evidence gate as a diagnostic,
+not an exporter. An exact popup-only action reloads one already-selected Dots
+tab once. A separate MAIN-world document-start observer admits only page-owned
+GETs for one room-metadata endpoint and its same-room `messages?limit` endpoint,
+then retains only a fixed-vocabulary structural schema. Provider values,
+unknown property names, IDs, URLs, hashes, timestamps and response bodies never
+cross the evidence boundary; TBO, live, aeon and voice surfaces remain excluded.
+Background revalidates the detached projection, top frame and exact document,
+removes only its nonce marker, and writes one fixed local diagnostic JSON file.
+No archive, Obsidian, Clipboard or settings sink is reachable from this action.
+
+The production build now post-bundles the import-free observer into one
+synchronous classic `dots-schema-document-start.js`; the built manifest points
+directly to it rather than CRXJS's asynchronous loader. The current artifact is
+22,271 bytes with SHA-256
+`0c3c25b700893122f8a39450d36b4452b98fc7be8d713e0affc61061e645f4fe`.
+Focused route, observer, contract, popup, build and worker checks pass; the full
+suite passes 230 files / 7,759 tests with one existing skip. Production build
+transforms 291 modules, lint has zero errors and the same three pre-existing
+warnings, and independent review is clean after fixing the async-loader gap,
+ordinary failure cleanup and a late `tabs.update` marker race.
+
+Live provider compatibility is still deliberately unclaimed. The installed
+canary must establish whether Dots uses the admitted Fetch form, one unambiguous
+room pair and the current route grammar. A fixed refusal such as
+`target-not-observed` is evidence for the next narrow transport adjustment, not
+permission to widen observation. Once the real raw contract is grounded, this
+schema control should move out of the ordinary product surface or be removed.
+
+The intended archive behavior after this evidence gate is not a permanently
+redacted export. For the current workflow, one Dot to one long-lived room is the
+working identity hypothesis: create one complete local raw/manifest/canonical
+and Markdown snapshot, then append only provider-ID-backed tail messages after
+reverifying the same Dot/room identity and exact historical prefix. Raw,
+manifest and canonical captures remain append-only snapshots. Room changes,
+history edits/reordering, incomplete pagination or any non-prefix result must
+fork a new snapshot with an explicit diagnostic rather than overwrite or merge
+silently.
+
 ## ChatGPT cross-format reconciliation core checkpoint
 
 Branch `codex/chatgpt-cross-format-reconciliation` adds a browser-independent,

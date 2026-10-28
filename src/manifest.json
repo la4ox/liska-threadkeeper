@@ -53,6 +53,12 @@
       "js": ["src/content/capture/chatgpt-document-start.ts"],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["src/content/capture/dots-schema-document-start.ts"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {
