@@ -13,8 +13,10 @@ warning, in both the Obsidian and file-download outputs.
 
 ### What was measured
 
-All figures below come from live probing of a real conversation through the CDP
-daemon on 2026-08-06/07.
+All figures below come from historical live probing of a real conversation
+through the CDP daemon on 2026-08-06/07. They do not validate the October 2026
+authenticated redirect contract amended in ADR-021; the inherited daemon
+harness is no longer part of Liska's verification path.
 
 Detection was never the problem: `generated-image img[src]` and both fallbacks
 matched (1 element), inside the assistant content panel, with `complete: true`
@@ -51,8 +53,9 @@ on a fresh `<img>`. Setting `crossOrigin="anonymous"` does not help because the
 CDN sends no `Access-Control-Allow-Origin` — the image simply fails to load.
 Chrome's own guidance is to route such fetches through the service worker, which
 is what ADR-021 already does, and the same guidance warns that "a malicious web
-page may abuse the message handler", which is why `isAllowedImageSourceUrl()`
-stays exactly as it is.
+page may abuse the message handler", which is why source admission stays
+restricted to the original CDN family. ADR-021 now also rejects userinfo and
+nondefault ports and separately validates the final response URL.
 
 ### Why nobody noticed which step failed
 
@@ -71,7 +74,9 @@ what image export being switched off produces**.
 
 1. `blob:` — try the URL first (a live blob still yields the original encoding),
    then fall back to reading the bytes off the rendered element through a canvas.
-2. anything else — delegate to the service worker, unchanged.
+2. anything else — delegate to the service worker under ADR-021's source and
+   final-response contract. Exact `lh3.google.com` is final-response-only, not a
+   new direct source or canvas fallback.
 3. No cross-fallback. A canvas read of an https source always raises
    SecurityError and the worker's allow-list always rejects `blob:`; trying
    either would only cost time.
@@ -100,6 +105,15 @@ Supporting details:
 - An image that still cannot be captured now says so — in the service-worker-
   independent page console and in the toast — instead of leaving an empty
   assistant message.
+- The October worker amendment starts one authenticated browser-managed fetch
+  without referrers, cache reuse, retries, or anonymous/authenticated fallback.
+  Fetch may send eligible cookies to the permitted CDN/redirect hosts, but Liska
+  never reads/serializes their values or exposes them to the model, content
+  script, or durable output. URL presence is reference evidence, not byte
+  availability; stale or failed links never become fetched claims.
+  Intermediate hops are not observable or
+  validated per-hop; final-host acceptance is not a full egress proof. Offline
+  response tests do not close the fresh installed-extension Gemini image gate.
 - **The core of this change cannot be proven by the unit tests.** jsdom has no
   canvas, so `getContext`/`toDataURL` are stubbed and the tests only pin the
   control flow. The evidence that a canvas read actually recovers a revoked

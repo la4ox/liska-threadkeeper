@@ -117,20 +117,30 @@ manifest.
 <!-- field: host_permissions, limit: 1000 -->
 
 ```text
-Ten host groups are required:
+Eleven host groups are required:
 
 1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com, and legacy notebooklm.google.com - show the export button and read the displayed conversation.
 
-8. files.deepseeksvc.com - fetch attachments only with attachment export and a durable local output enabled, after raw local preservation. Verified in-band history signed paths win; otherwise use exact current-page fetch URLs from the newest bounded passive ResourceTiming entries, uniquely matched to a verified raw file ID. Credentials are omitted; no conversation text is sent.
+8. files.deepseeksvc.com - fetch attachments with attachment export and a durable local output, after raw preservation. Verified history signed paths win; otherwise use exact current-page URLs from newest bounded passive ResourceTiming entries, uniquely matched to a verified raw file ID. No credentials or conversation text.
 
-9. *.googleusercontent.com - download AI-generated conversation images only when image export is enabled. No conversation text is sent.
+9. *.googleusercontent.com - fetch generated conversation images only with image export enabled.
 
-10. 127.0.0.1 (HTTP and HTTPS) - save the requested export through the user's local Obsidian REST API.
+10. lh3.google.com - final image redirect only, not a direct source. Browser-managed cookies may reach both image hosts; never read or exported. No referrer or conversation text.
 
-Conversation content goes only to selected local outputs. No analytics, telemetry, or developer-operated server.
+11. 127.0.0.1 (HTTP and HTTPS) - save through the user's local Obsidian REST API.
+
+No analytics, telemetry, or developer-operated server.
 ```
 
-969 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
+979 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
+The browser follows image redirects; intermediate hops are not observable or validated per-hop.
+Final-host acceptance is not a full egress proof. Packaged permission expansion
+may require re-consent. A fresh installed Gemini canary remains unproven.
+Prior live/retained evidence supports one authenticated browser-managed fetch,
+with no cookie/header value access, serialization, model/content exposure, or
+durable output, and no anonymous/authenticated retry or fallback. URL presence
+is reference evidence, not byte availability; stale/failed links never become
+fetched claims.
 
 ---
 

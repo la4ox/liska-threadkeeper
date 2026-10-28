@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-07-27)
+Accepted (2026-07-27); redirect/privacy boundary amended 2026-10-28.
 
 ## Context
 
@@ -66,20 +66,33 @@ Split the capture path by URL scheme:
   ("communicate with the service worker via message passing to access
   cross-origin resources").
 
-`https://*.googleusercontent.com/*` is added to `host_permissions`. The
-subdomain is wildcarded because the CDN rotates across `lh3`/`lh4`/`lh5`/…, and
-the observed request redirects from `/gg/` to `/rd-gg/` on the same host.
+`https://*.googleusercontent.com/*` remains in `host_permissions` because the
+CDN rotates across `lh3`/`lh4`/`lh5`/…. A later upstream observation records
+`lh3.googleusercontent.com -> lh3.google.com`. Add only exact
+`https://lh3.google.com/*` and CSP connect origin `https://lh3.google.com`, never
+`*.google.com`. The latest local selector/auto-scroll canary found one generated
+image but twice failed capture; File and Obsidian notes remained byte-identical
+without a false image link. This is not evidence that the added permission has
+fixed the installed extension.
 
-The worker fetches with `credentials: 'include'`. The page's `<img>` loads these
-URLs with cookies; an uncredentialed request answers 403, which is the second
-error in the console trace above.
+The worker preserves one browser-managed fetch with `credentials: 'include'`,
+`referrerPolicy: 'no-referrer'`, `redirect: 'follow'`, and `cache: 'no-store'`.
+There is no retry or anonymous/authenticated fallback. Prior live/retained
+evidence records anonymous 403 responses and session-dependent exported links;
+this justifies preserving browser-managed authentication rather than replacing
+it with an anonymous request. Fetch may send browser-managed cookies to the
+permitted CDN/redirect hosts. Liska never reads, serializes, logs, messages, or
+persists cookie/request-header values, and never exposes them to the model or
+content script. URL presence is reference evidence, not byte availability: a
+stale or failed link never becomes a fetched claim. This contract does not prove
+that the exact added redirect permission fixes the current canary.
 
 **The URL is validated against an allow-list, twice.** `isAllowedImageSourceUrl()`
-requires `https:` and a hostname equal to or ending in `.googleusercontent.com`,
-checked on the parsed `URL.hostname` so that credentials (`…@evil.test`), ports,
-and suffix look-alikes (`evilgoogleusercontent.com`) cannot pass. It is enforced
-at the message boundary in `validateMessageContent()` and again inside
-`handleFetchImage()`.
+requires `https:`, no username/password, the default HTTPS port (explicit 443 is
+equivalent), and hostname `googleusercontent.com` or one of its subdomains with
+an exact suffix boundary. `lh3.google.com` is rejected as a caller-supplied
+source. The source check is enforced at the message boundary in
+`validateMessageContent()` and again inside `handleFetchImage()`.
 
 This double check is the point of the design, not ceremony. The whole reason the
 fetch moved is that the worker can reach hosts the page cannot — including
@@ -88,29 +101,42 @@ fetch moved is that the worker can reach hosts the page cannot — including
 post it a message. The handler-side check stands on its own so the guarantee does
 not depend on the router staying wired to the validator.
 
+Before checking status, MIME, or body bytes, `isAllowedImageResponseUrl()`
+requires a nonempty valid final `response.url` with the same transport
+constraints and either the original CDN family or exact `lh3.google.com`.
+Rejection best-effort cancels the available body without reading it. Network
+and final-URL failures use fixed local strings, never raw exception text or URLs.
+
+Intermediate redirect hops are browser-managed, not observable or validated
+per-hop by this implementation. Final-host validation is response acceptance,
+not a full egress proof; it does not undo requests the browser already made.
+
 Size and MIME caps (`MAX_IMAGE_SIZE_BYTES`, `isAllowedImageMime`) are applied on
-the worker path too, so both paths enforce the same limits.
+the worker path too. The actual stream is capped at 10 MiB even if a length
+header is absent or false; a larger declared length rejects early. One existing
+five-second AbortSignal/deadline spans the fetch, redirects, and all body reads.
 
 ## Consequences
 
-- Gemini generated images export again. Both symptoms in #376 — no embed and no
-  warning — resolve, because images now arrive and any that fail arrive as
-  `failedImages` and surface through the warning added in [ADR-020](020-vault-path-segment-encoding.md).
-- **Existing users will have the extension temporarily disabled on update.** Per
+- The original #376 fix restored the then-observed images. The October redirect
+  amendment is implemented/offline-verified only: a fresh installed-extension
+  authenticated image capture and File/Obsidian output comparison remain a
+  live gate. Failed captures must not produce false image links.
+- **Packaged updates may require re-consent for the added host permission.** Per
   Chrome's permission-warnings documentation: "When an extension adds a new
   permission that triggers a warning it may temporarily disable it. The
   extension will be re-enabled only after the user agrees to accept the new
-  permission." Adding a `host_permissions` match pattern triggers exactly this
-  warning. The release notes must say so; this is not a silent update.
+  permission." Release notes must disclose the expansion; do not promise a
+  silent update or infer that every unpacked reload behaves identically.
 - The Chrome Web Store listing needs a justification for the new host
   permission: it is used solely to download images the user asked to export.
 - `ADR-008`'s rationale ("blob URLs that only the page context can read") is now
   only half the story. It stays accurate for the `blob:` branch; this ADR
   supersedes it for remote URLs.
 - The content script no longer touches the network for remote images, so a
-  future platform serving images from another CDN needs only an allow-list entry
-  plus a host permission — not a new capture mechanism.
-- Fetching with credentials means Google cookies are sent to
-  `googleusercontent.com` from the worker. This mirrors exactly what the page
-  already does when it renders the `<img>`, and the allow-list bounds the hosts
-  those cookies can reach.
+  future CDN requires an explicit source/final-host, permission, CSP, and privacy
+  review, not an automatic allow-list expansion.
+- The worker leaves eligible cookies entirely to Fetch, sends no referrer, and
+  does not reuse cached responses. The requested image URL still reaches the
+  provider; no conversation text or extracted credential value is sent. This is
+  not a claim of per-hop redirect control or live success.

@@ -303,8 +303,28 @@ stable local failures without an unbounded `blob()`/`arrayBuffer()` fallback.
 `commit:43efe06fa6b08191b8bfe3ce69fa19be`, and the overlapping timeout occurrence
 `commit:621515f4ee488191a93dd9a3c856df77` are now closed as fixed against that
 reviewed merged head.
-Real Chrome CDN decompression, redirect, and transport-cancellation behavior
-remains a live-runtime proof gap; the code does not claim otherwise.
+The separate `codex/gemini-image-redirect-boundary` candidate adds exact
+`lh3.google.com` permission/CSP as a final-response-only host. Source and final
+URLs reject userinfo, nondefault ports, non-HTTPS schemes, and look-alikes. One
+authenticated/no-referrer/no-store fetch follows browser-managed redirects;
+the final URL is checked and a rejected body cancelled before status/MIME/read.
+Network/final-URL failures are fixed local strings, without raw exception/URL
+leakage, retry, or anonymous/authenticated fallback. The single deadline and
+streamed cap remain. Prior live/retained evidence records anonymous 403 responses
+and session-dependent links. Fetch may send eligible browser-managed cookies to
+the permitted CDN/redirect hosts, but Liska never reads or serializes
+cookie/request-header values or exposes them to the model, content script, or
+durable output. URL presence is reference evidence, not byte availability;
+stale/failed links never become fetched claims.
+
+Intermediate redirect hops are not observable or validated per-hop; final-host
+acceptance is not a full egress proof. Packaged permission expansion may require
+re-consent. The pre-change installed Gemini canary twice failed one detected
+generated image, with byte-identical File/Obsidian notes and no false link.
+This candidate is implemented/offline-verified, not live-proven. A fresh installed
+Gemini capture plus actual image bytes and File/Obsidian output reconciliation,
+as well as real Chrome decompression and cancellation behavior, remain live
+gates. No permission-fix success is claimed.
 
 PR 47 merged the five remaining informational fixes as `47c944b`:
 

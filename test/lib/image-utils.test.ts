@@ -8,6 +8,7 @@ import {
   isAllowedImageMime,
   isLikelyBase64,
   isAllowedImageSourceUrl,
+  isAllowedImageResponseUrl,
 } from '../../src/lib/image-utils';
 
 describe('mimeToExtension', () => {
@@ -150,6 +151,21 @@ describe('isAllowedImageSourceUrl', () => {
     expect(isAllowedImageSourceUrl('https://googleusercontent.com/x')).toBe(true);
   });
 
+  it('allows an explicit default HTTPS port', () => {
+    expect(isAllowedImageSourceUrl('https://LH3.googleusercontent.com:443/x')).toBe(true);
+  });
+
+  it.each([
+    'https://lh3.google.com/x',
+    'https://user@lh3.googleusercontent.com/x',
+    'https://user:secret@lh3.googleusercontent.com/x',
+    'https://:secret@lh3.googleusercontent.com/x',
+    'https://lh3.googleusercontent.com:8443/x',
+    'https://lh3.googleusercontent.com./x',
+  ])('rejects redirect-only hosts, userinfo, and nondefault ports: %s', url => {
+    expect(isAllowedImageSourceUrl(url)).toBe(false);
+  });
+
   it('rejects http (downgrade)', () => {
     expect(isAllowedImageSourceUrl('http://lh3.googleusercontent.com/gg/x')).toBe(false);
   });
@@ -178,5 +194,43 @@ describe('isAllowedImageSourceUrl', () => {
   it('rejects malformed input', () => {
     expect(isAllowedImageSourceUrl('not a url')).toBe(false);
     expect(isAllowedImageSourceUrl('')).toBe(false);
+  });
+});
+
+describe('isAllowedImageResponseUrl', () => {
+  it.each([
+    'https://googleusercontent.com/x',
+    'https://lh3.googleusercontent.com/x',
+    'https://lh6.googleusercontent.com/x',
+    'https://lh3.google.com/x',
+    'https://LH3.google.com:443/x',
+  ])('accepts the original CDN family or exact redirect host: %s', url => {
+    expect(isAllowedImageResponseUrl(url)).toBe(true);
+  });
+
+  it.each([
+    '',
+    'not a url',
+    '/relative',
+    'http://lh3.googleusercontent.com/x',
+    'http://lh3.google.com/x',
+    'https://user@lh3.googleusercontent.com/x',
+    'https://user:secret@lh3.google.com/x',
+    'https://:secret@lh3.google.com/x',
+    'https://lh3.googleusercontent.com:8443/x',
+    'https://lh3.google.com:8443/x',
+    'https://evilgoogleusercontent.com/x',
+    'https://googleusercontent.com.evil.test/x',
+    'https://evillh3.google.com/x',
+    'https://lh3.google.com.evil.test/x',
+    'https://sub.lh3.google.com/x',
+    'https://lh4.google.com/x',
+    'https://google.com/x',
+    'https://gemini.google.com/x',
+    'https://lh3.google.com./x',
+    'https://127.0.0.1/x',
+    'blob:https://lh3.google.com/x',
+  ])('rejects every other final response URL: %s', url => {
+    expect(isAllowedImageResponseUrl(url)).toBe(false);
   });
 });

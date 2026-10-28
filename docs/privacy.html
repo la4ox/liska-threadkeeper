@@ -16,7 +16,7 @@
   </head>
   <body>
     <h1>Privacy Policy</h1>
-    <p class="update-date">Last updated: August 2026</p>
+    <p class="update-date">Last updated: October 2026</p>
 
     <h2>Overview</h2>
     <p>
@@ -72,7 +72,7 @@
     </table>
 
     <h2>Data Transmission</h2>
-    <p>This extension only communicates with:</p>
+    <p>Liska's accepted request origins and final image response hosts are:</p>
     <ul>
       <li>
         <strong>gemini.google.com</strong>: To extract Gemini conversation content (read-only)
@@ -107,11 +107,31 @@
       <li>
         <strong>googleusercontent.com</strong>: To download AI-generated images so they can be saved
         with the conversation (only when image export is enabled, and only for images contained in
-        the conversation you are exporting). This is Google's image CDN — the same host the AI page
-        already loads those images from. The request downloads an image; no conversation content or
-        personal data is sent.
+        the conversation you are exporting), including its subdomains. Only HTTPS sources without
+        userinfo or nondefault ports are accepted. No conversation text is sent; the image URL is
+        necessarily sent to request its bytes.
+      </li>
+      <li>
+        <strong>lh3.google.com</strong>: Accepted only as the exact final response host of a
+        browser-managed image redirect from the CDN above, never as a direct image source. No
+        wildcard permission for other Google hosts is added.
       </li>
     </ul>
+    <p>
+      Gemini remote images use one authenticated fetch with no referrer, no cache reuse, and
+      browser-managed redirects, under one five-second deadline and a streamed 10 MiB limit. Fetch
+      may send browser-managed cookies to the permitted CDN/redirect hosts; Liska never reads or
+      serializes cookie/request-header values or exposes them to the model, content script, or
+      durable output. Prior live and retained evidence of anonymous 403 responses and
+      session-dependent links justifies browser-managed authentication. URL presence is reference
+      evidence, not byte availability; a stale or failed link never becomes a fetched claim.
+    </p>
+    <p>
+      There is no retry or anonymous/authenticated fallback. Intermediate redirect hops are not
+      observable or validated per-hop; final-host acceptance is not a full egress proof. The exact
+      added host permission may require re-consent for packaged updates. A fresh installed-extension
+      Gemini image export remains unproven; offline tests do not establish live CDN behavior.
+    </p>
     <p>
       Your conversation content is never sent to a server operated by Liska. It is processed on the
       AI page that already displays it and goes only to the local output you select. We collect no
@@ -263,7 +283,15 @@
         <td>Host: *.googleusercontent.com</td>
         <td>
           Download AI-generated images for export (image export only). The browser blocks the page
-          itself from fetching these, so the extension downloads them.
+          itself from fetching these, so the extension uses one authenticated browser-managed fetch
+          without reading cookies or request-header values and without sending a referrer.
+        </td>
+      </tr>
+      <tr>
+        <td>Host: lh3.google.com</td>
+        <td>
+          Accept the exact final image redirect host only, not a direct source. This permission does
+          not enable general Google hosts and may require re-consent on update.
         </td>
       </tr>
       <tr>
