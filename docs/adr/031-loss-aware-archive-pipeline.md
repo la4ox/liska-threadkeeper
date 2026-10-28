@@ -564,6 +564,16 @@ The next archive scan found no ordinary GIF and only one WebP record. That WebP
 is pointerless metadata with explicit Library-ID evidence and no captured
 binary, so it cannot justify widening the ordinary image planner.
 
+A later read-only scan of one 191,352,495-byte official-export shard found four
+additional `image/webp` metadata attachments and zero `image/gif`. Each record
+has a direct attachment ID plus declared MIME/size/dimensions/source, without
+Library, artifact, file-service, sediment or interpreter markers. Two ordinary
+conversation URLs are no longer available. The two accessible conversations
+redirect to project-scoped `/g/g-p-.../c/...` routes, so they belong to the
+still-unimplemented owner-context binary-acquisition contract rather than
+proving ordinary active image authority. No original WebP response or bytes
+were observed; planner and validator behavior therefore remain unchanged.
+
 Library evidence is classified in a separate pure pass over exact manifest
 source refs. The result exposes only opaque ledger asset IDs as `associated` or
 `ambiguous`; provider Library values never cross the function boundary.

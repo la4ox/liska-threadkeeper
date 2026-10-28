@@ -35,6 +35,13 @@ terminal states, and the existing no-credential-export boundary.
 - Archive reconnaissance found no ordinary GIF and only one WebP, which carries
   explicit Library-ID metadata and no captured binary. It is not ordinary-route
   evidence; GIF/WebP active widening remains deferred.
+- A later official-export shard adds four `image/webp` metadata records without
+  explicit Library markers and still zero GIF. Two corresponding ordinary URLs
+  are currently unavailable; the two accessible conversations resolve to
+  project routes. Treat them as project-owner evidence, not ordinary active
+  authority. The next live gate is one WebP-bearing project capture proving
+  raw-pointer/owner classification and an honest `not-attempted` result before
+  any WebP resolver or byte validator is designed.
 - Keep derived previews and ordinary images distinct before resolver dispatch.
 - Preserve original bytes; do not introduce compression as an archival default.
 - Live gate: fresh and historical examples, exact PNG/JPEG signatures,
