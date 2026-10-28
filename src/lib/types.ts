@@ -18,6 +18,9 @@ export type AIPlatform = 'gemini' | 'claude' | 'perplexity' | 'chatgpt' | 'noteb
 /** Outcome of the existing DOM history loader only, not provider/archive/branch/attachment completeness. */
 export type DomHistoryLoad = 'complete' | 'partial' | 'unknown';
 
+/** Positively observed historical capture losses, never a current completeness verdict. */
+export type LiskaLossDiagnosticCode = 'history-load-partial' | 'image-capture-failed';
+
 /**
  * An image captured from a conversation (e.g. a Gemini-generated image).
  *
@@ -78,6 +81,8 @@ export interface ConversationData {
   metadata: ConversationMetadata;
   /** Runtime-only outcome of the DOM history loader, separate from archive capture evidence. */
   domHistoryLoad?: DomHistoryLoad;
+  /** Fixed historical capture-loss observations; no provider text or error details. */
+  liskaLossDiagnostics?: LiskaLossDiagnosticCode[];
   /** Presence describes whether this export came from a complete archive capture. */
   capture?: ConversationCaptureMetadata;
   /** Optional derived view identity; the canonical archive remains unchanged. */
@@ -176,6 +181,8 @@ export interface NoteFrontmatter {
   modified: string;
   tags: string[];
   message_count: number;
+  /** Historical capture-loss observations, not the current completeness of this note. */
+  liska_loss_diagnostics?: LiskaLossDiagnosticCode[];
   /** Capture evidence mode for ChatGPT exports only. */
   capture_mode?: ConversationCaptureMetadata['mode'];
   /** Capture evidence completeness for ChatGPT exports only. */

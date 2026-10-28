@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GeminiExtractor } from '../../src/content/extractors/gemini';
+import { conversationToNote } from '../../src/content/markdown';
+import { generateNoteContent } from '../../src/lib/note-generator';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
 import { buildSourceMap } from '../../src/lib/source-map';
 import {
   SCROLL_POLL_INTERVAL,
@@ -307,6 +310,7 @@ describe('GeminiExtractor', () => {
       const assistant = result.data?.messages.find(m => m.role === 'assistant');
       expect(assistant?.content).toContain('data-g2o-image="img-1"');
       expect(assistant?.content).not.toContain('blob:');
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
     });
 
     it('numbers images sequentially across multiple responses', async () => {
@@ -345,6 +349,7 @@ describe('GeminiExtractor', () => {
 
       expect(result.success).toBe(true);
       expect(result.data?.images).toHaveLength(0);
+      expect(result.data?.liskaLossDiagnostics).toEqual(['image-capture-failed']);
       const assistant = result.data?.messages.find(m => m.role === 'assistant');
       expect(assistant?.content).toContain('data-g2o-image="img-1"');
     });
@@ -377,6 +382,7 @@ describe('GeminiExtractor', () => {
 
       expect(result.data?.images).toHaveLength(1);
       expect(result.data?.images?.[0]).toMatchObject({ id: 'img-1', mimeType: 'image/png' });
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
       vi.restoreAllMocks();
     });
 
@@ -385,12 +391,13 @@ describe('GeminiExtractor', () => {
       // at save time and the assistant message came out empty, which looks
       // exactly like image export being switched off.
       setGeminiLocation('imgfail');
+      const privateReason = 'SecurityError https://private.invalid/image?token=secret';
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
         drawImage: vi.fn(),
       } as unknown as CanvasRenderingContext2D);
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => {
-        throw new Error('SecurityError: Tainted canvases may not be exported.');
+        throw new Error(privateReason);
       });
       loadFixture(
         createGeminiConversationDOM([
@@ -407,7 +414,65 @@ describe('GeminiExtractor', () => {
 
       expect(result.data?.images).toHaveLength(0);
       expect(result.warnings?.join(' ')).toMatch(/1 image/i);
+      expect(result.warnings?.join(' ')).toContain(privateReason);
+      expect(result.data?.liskaLossDiagnostics).toEqual(['image-capture-failed']);
+      const note = conversationToNote(result.data!, DEFAULT_SYNC_SETTINGS.templateOptions);
+      const content = generateNoteContent(note, {
+        ...DEFAULT_SYNC_SETTINGS,
+        obsidianApiKey: 'synthetic-test-key',
+      });
+      expect(content).toContain('liska_loss_diagnostics_schema: 1');
+      expect(content).toContain('  - image-capture-failed');
+      expect(content).not.toContain(privateReason);
+      expect(content).not.toContain('private.invalid');
+      expect(content).not.toContain('token=secret');
       vi.restoreAllMocks();
+    });
+
+    it('deduplicates image-capture loss without carrying it into a later successful capture', async () => {
+      setGeminiLocation('imgretry');
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+      loadFixture(
+        createGeminiConversationDOM([
+          { role: 'user', content: 'draw' },
+          {
+            role: 'assistant',
+            content:
+              IMG_HTML('blob:https://gemini.google.com/first') +
+              IMG_HTML('blob:https://gemini.google.com/second'),
+          },
+        ])
+      );
+
+      const failed = await extractor.extract();
+      expect(failed.data?.images).toHaveLength(0);
+      expect(failed.data?.liskaLossDiagnostics).toEqual(['image-capture-failed']);
+      expect(failed.warnings?.join(' ')).toMatch(/2 image/i);
+
+      mockImageFetch(new Uint8Array([0x50, 0x4e, 0x47]));
+      const succeeded = await extractor.extract();
+      expect(succeeded.data?.images).toHaveLength(2);
+      expect(succeeded.data).not.toHaveProperty('liskaLossDiagnostics');
+    });
+
+    it('does not classify intentionally disabled image export as capture failure', async () => {
+      setGeminiLocation('imgdisabled');
+      extractor.enableImageExport = false;
+      const fetchMock = vi.fn().mockRejectedValue(new Error('Must not be called'));
+      vi.stubGlobal('fetch', fetchMock);
+      loadFixture(
+        createGeminiConversationDOM([
+          { role: 'user', content: 'draw' },
+          { role: 'assistant', content: IMG_HTML('blob:https://gemini.google.com/disabled') },
+        ])
+      );
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.images).toHaveLength(0);
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('leaves conversations without images unaffected', async () => {
@@ -421,6 +486,7 @@ describe('GeminiExtractor', () => {
 
       const result = await extractor.extract();
       expect(result.data?.images).toHaveLength(0);
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
     });
   });
 
@@ -1135,6 +1201,7 @@ describe('GeminiExtractor', () => {
       // No timeout warning — scroll was not attempted
       expect(result.warnings).toBeUndefined();
       expect(result.data?.domHistoryLoad).toBe('unknown');
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
     });
 
     it('skips scroll when scrollTop === 0 (short conversation)', async () => {
@@ -1155,6 +1222,7 @@ describe('GeminiExtractor', () => {
       // No timeout warning
       expect(result.warnings).toBeUndefined();
       expect(result.data?.domHistoryLoad).toBe('unknown');
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
     });
 
     it('skips scroll when no scroll container exists', async () => {
@@ -1172,6 +1240,7 @@ describe('GeminiExtractor', () => {
       expect(result.success).toBe(true);
       expect(result.data?.messages.length).toBe(2);
       expect(result.warnings).toBeUndefined();
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
     });
 
     it('stabilizes after loading all messages', async () => {
@@ -1215,6 +1284,7 @@ describe('GeminiExtractor', () => {
       // All turns should be in result
       expect(result.data!.messages.length).toBeGreaterThanOrEqual(4);
       expect(result.data?.domHistoryLoad).toBe('complete');
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
       // No timeout warning
       const timeoutWarning = result.warnings?.find(w => w.includes('Auto-scroll timed out'));
       expect(timeoutWarning).toBeUndefined();
@@ -1255,6 +1325,7 @@ describe('GeminiExtractor', () => {
       expect(timeoutWarning).toBeDefined();
       expect(timeoutWarning).toContain('turns loaded');
       expect(result.data?.domHistoryLoad).toBe('partial');
+      expect(result.data?.liskaLossDiagnostics).toEqual(['history-load-partial']);
     });
 
     it('keeps loading a long conversation past the old 30s wall while turns keep arriving (issue #360)', async () => {

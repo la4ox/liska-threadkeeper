@@ -20,6 +20,7 @@ import {
   getTrustedExistingMessageCount,
 } from '../lib/append-utils';
 import { applyLineEnding } from '../lib/frontmatter-parser';
+import { LiskaLossDiagnosticsBoundaryError } from '../lib/loss-diagnostics';
 import {
   finalizeAppendReadingMarkdown,
   type FinalMarkdownMarkerRange,
@@ -582,6 +583,11 @@ function prepareAppendWrite(
   appendResult: NonNullable<ReturnType<typeof buildAppendContent>>,
   settings: ExtensionSettings
 ) {
+  if (appendResult.diagnosticsOnly) {
+    // No new body bytes enter this operation: do not flatten, reparse, or add
+    // separators to the user's existing document for a metadata-only update.
+    return { ok: true as const, content: appendResult.content };
+  }
   // Transform only the new LF tail: the existing body is user-owned. Check
   // the exact joined context before restoring the original EOL (ADR-026).
   const tail = maybeFlatten(appendResult.newMessages, settings);
@@ -593,6 +599,34 @@ function prepareAppendWrite(
   return finalized.ok
     ? { ok: true as const, content: `${appendResult.updatedFrontmatter}\n${finalized.body}` }
     : finalized;
+}
+
+function appendSuccess(
+  appendResult: NonNullable<ReturnType<typeof buildAppendContent>>
+): SaveResponse {
+  return {
+    success: true,
+    isNewFile: false,
+    messagesAppended: appendResult.messagesAppended,
+    ...(appendResult.diagnosticsOnly && {
+      warning: 'Historical capture-loss diagnostics updated; no messages appended',
+    }),
+  };
+}
+
+function appendFailure(error: unknown): SaveResponse {
+  if (error instanceof AppendBoundaryError || error instanceof LiskaLossDiagnosticsBoundaryError) {
+    console.warn(
+      '[G2O Background] Append refused: message boundaries or diagnostics are untrusted'
+    );
+    return { success: false, error: error.code };
+  }
+  if (isObsidianApiError(error)) {
+    console.warn('[G2O Background] Append refused: Obsidian read failed');
+    return { success: false, error: getErrorMessage(error) };
+  }
+  console.warn('[G2O Background] Append refused: unexpected operation failure');
+  return { success: false, error: 'append-operation-failed' };
 }
 
 /**
@@ -637,21 +671,15 @@ async function tryAppendMode(
     if (appendResult !== null) {
       const finalized = prepareAppendWrite(appendResult, settings);
       if (!finalized.ok) return { success: false, error: finalized.code };
-      await client.putFile(lookup.path, applyLineEnding(finalized.content, appendResult.eol));
-      return { success: true, isNewFile: false, messagesAppended: appendResult.messagesAppended };
+      const content = appendResult.preserveLineEndings
+        ? finalized.content
+        : applyLineEnding(finalized.content, appendResult.eol);
+      await client.putFile(lookup.path, content);
+      return appendSuccess(appendResult);
     }
     return { success: true, isNewFile: false, messagesAppended: 0 };
   } catch (error) {
-    if (error instanceof AppendBoundaryError) {
-      console.warn('[G2O Background] Append refused: message boundaries are untrusted');
-      return { success: false, error: error.code };
-    }
-    if (isObsidianApiError(error)) {
-      console.warn('[G2O Background] Append refused: Obsidian read failed');
-      return { success: false, error: getErrorMessage(error) };
-    }
-    console.warn('[G2O Background] Append refused: unexpected operation failure');
-    return { success: false, error: 'append-operation-failed' };
+    return appendFailure(error);
   }
 }
 

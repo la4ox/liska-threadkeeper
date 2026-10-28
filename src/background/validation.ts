@@ -57,6 +57,7 @@ import { validateSettingsUpdate } from './settings-validation';
 import { deriveChatGptCaptureTarget, isExactChatGptDocumentUrl } from './chatgpt-route-target';
 import { validatePersistDerivedHtmlMessage } from './derived-html-validation';
 import { snapshotPersistDerivedBranchHtmlMessage } from './derived-branch-html-validation';
+import { hasValidLiskaLossDiagnosticsField } from '../lib/loss-diagnostics';
 
 const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
 
@@ -735,6 +736,15 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     return false;
   }
 
+  // Reject diagnostic accessors/hidden data before JSON sizing could evaluate
+  // them. The ordinary note validator also keeps all existing save guards.
+  if (
+    extensionMessage.action === 'saveToOutputs' &&
+    !validateSaveToOutputsMessage(extensionMessage)
+  ) {
+    return false;
+  }
+
   // Chrome serializes extension messages as UTF-8 JSON and rejects messages at
   // 64 MiB. Keep the worker boundary below that even for semi-trusted senders.
   if (jsonUtf8ByteLength(extensionMessage) > MAX_EXTENSION_MESSAGE_SIZE) {
@@ -742,7 +752,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   }
 
   if (extensionMessage.action === 'saveToOutputs') {
-    return validateSaveToOutputsMessage(extensionMessage);
+    return true;
   }
 
   if (extensionMessage.action === 'saveSettings') {
@@ -855,6 +865,7 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
   }
 
   if (!validateDomHistoryLoad(note)) return false;
+  if (!hasValidLiskaLossDiagnosticsField(note.frontmatter)) return false;
 
   // Validate attached images (content scripts are semi-trusted; cap count/size)
   if (note.images !== undefined && !validateImages(note.images)) {

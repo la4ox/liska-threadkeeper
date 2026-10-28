@@ -8,7 +8,13 @@
 import type { ObsidianApiClient } from './obsidian-api';
 import type { ObsidianNote, ExtensionSettings, FilenameScheme } from './types';
 import { SCAN_MAX_REQUESTS } from './constants';
-import { parseFrontmatter, updateFrontmatter, type LineEnding } from './frontmatter-parser';
+import {
+  applyLineEnding,
+  findFrontmatterClosingDelimiter,
+  parseFrontmatter,
+  updateFrontmatter,
+  type LineEnding,
+} from './frontmatter-parser';
 import { classifyNoteProbe, isAppendEligibleConversation, type NoteProbe } from './note-identity';
 import {
   countExistingMessages,
@@ -18,6 +24,7 @@ import {
 } from './message-counter';
 import { formatDateWithTimezone } from './date-utils';
 import { containsPathTraversal, matchesVaultPathTemplate } from './path-utils';
+import { mergeRawLiskaLossDiagnostics } from './loss-diagnostics';
 
 /**
  * Why a lookup failed to find the conversation's existing note (issue #365).
@@ -80,6 +87,10 @@ interface AppendResult {
   newMessages: string;
   /** Number of new messages appended */
   messagesAppended: number;
+  /** Only owned diagnostic fields changed; the existing body must remain untouched. */
+  diagnosticsOnly?: true;
+  /** Content already preserves the source body's exact mixed line endings. */
+  preserveLineEndings?: true;
   /**
    * The line ending the existing file used. The caller must apply this as the
    * LAST step before writing, after any body transform (ADR-026).
@@ -462,9 +473,37 @@ async function recursiveIdScan(
   return { hit: null, entries: seen, candidates };
 }
 
+function originalBodySuffix(existingContent: string): string {
+  const closing = findFrontmatterClosingDelimiter(existingContent);
+  if (!closing) throw new AppendBoundaryError();
+  return existingContent.slice(closing.end);
+}
+
+function diagnosticsOnlyAppend(
+  parsed: NonNullable<ReturnType<typeof parseFrontmatter>>,
+  note: ObsidianNote,
+  updatedRaw: string,
+  existingContent: string
+): AppendResult {
+  // Lookup normally supplies this identity check. Keep the metadata-only path
+  // safe when the pure builder is called independently.
+  if (parsed.fields.id !== note.frontmatter.id) throw new AppendBoundaryError();
+  return {
+    content: applyLineEnding(updatedRaw, parsed.eol) + originalBodySuffix(existingContent),
+    updatedFrontmatter: updatedRaw,
+    existingBody: parsed.body,
+    newMessages: '',
+    messagesAppended: 0,
+    diagnosticsOnly: true,
+    preserveLineEndings: true,
+    eol: parsed.eol,
+  };
+}
+
 /**
  * Build appended file content.
- * Returns null only if there are no new messages. Untrusted input throws.
+ * Returns null when neither new messages nor new historical diagnostics exist.
+ * Untrusted input throws.
  */
 export function buildAppendContent(
   existingContent: string,
@@ -482,12 +521,22 @@ export function buildAppendContent(
 
   // 3. Compare counts
   const newTotal = note.frontmatter.message_count;
-  if (newTotal <= existingCount) return null; // No new messages
+  if (newTotal < existingCount) return null; // Never annotate a shorter/rejected capture.
+
+  const diagnosticUpdate = mergeRawLiskaLossDiagnostics(
+    parsed.raw,
+    note.frontmatter.liska_loss_diagnostics
+  );
+  if (newTotal === existingCount && !diagnosticUpdate.changed) return null;
 
   // 4. The freshly generated body must carry exact extension-owned message
   // sentinels. This makes its tail offset independent of provider Markdown.
   if (!hasTrustedMessageBoundaries(note.body) || countExistingMessages(note.body) !== newTotal) {
     throw new AppendBoundaryError();
+  }
+
+  if (newTotal === existingCount) {
+    return diagnosticsOnlyAppend(parsed, note, diagnosticUpdate.raw, existingContent);
   }
 
   // 5. Extract tail messages from the new formatted body
@@ -509,7 +558,7 @@ export function buildAppendContent(
 
   // 6. Update frontmatter fields
   const timezone = settings.templateOptions.timezone ?? 'UTC';
-  const updatedRaw = updateFrontmatter(parsed.raw, {
+  const updatedRaw = updateFrontmatter(diagnosticUpdate.raw, {
     modified: formatDateWithTimezone(new Date(), timezone),
     message_count: newTotal,
   });

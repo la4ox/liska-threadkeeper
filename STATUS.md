@@ -1,5 +1,52 @@
 # Project status
 
+## Durable capture-loss diagnostics — offline candidate
+
+Branch `codex/durable-loss-diagnostics` adds a privacy-bounded historical loss
+contract for ordinary legacy-provider Markdown. Two always-on frontmatter keys
+carry only sorted, deduplicated schema-1 codes:
+`history-load-partial` and `image-capture-failed`. They mean that Liska
+positively observed those conditions during an attempt associated with the
+document; absence never proves completeness, and a later successful attempt
+does not erase earlier evidence.
+
+Only an explicit partial history-loader outcome qualifies. Disabled loading,
+missing configuration/container, and unknown outcomes remain unclassified. An
+image diagnostic requires an identified image capture attempt that failed;
+intentionally disabled export, Clipboard omission, and destination write
+failures are separate conditions. Existing human-facing warnings remain, but
+their URL, filename, exception, response, and localized prose never enter the
+durable fields.
+
+The background boundary accepts only an own enumerable bounded array of exact
+codes. Unknown schema/codes, duplicate owned keys, malformed lists, accessors,
+hidden or inherited data, symbolic extras, and ambiguous future blocks fail
+closed. Save-note validation now precedes JSON sizing so a hostile diagnostic
+getter cannot execute during size measurement.
+
+Append merges diagnostics as a historical set. A same-message-count run writes
+only when it contributes a new code, preserves the body and line endings
+byte-for-byte, and reports that metadata changed without claiming new messages.
+Repeated evidence is a no-op; shorter captures cannot annotate longer notes.
+Ordinary message-boundary and final-Markdown checks remain authoritative for
+real appended tails.
+
+Independent review found and closed the parser/integrity family before commit:
+a metadata-only update no longer normalizes a mixed-EOL user body; only an
+exact `---` line closes frontmatter; and, after masking the one canonical block,
+any other literal, escaped, quoted, tagged, anchored, explicit, flow, or folded
+mention of the owned key family fails closed. Focused regressions cover those
+forms and the exact mixed-EOL PUT body.
+
+ADR-044 records the semantics and the deliberate boundary: schema 1 does not
+cover post-Markdown File image failures, Obsidian destination image failures,
+intentional Clipboard omission, derived HTML, or current-completeness
+assessment. The authenticated tree passes all 226 test files: 7,665 tests
+passed and one existing test skipped (7,666 total), with one worker. TypeScript,
+the 289-module production build and service-worker runtime check, ESLint with
+the same three pre-existing warnings, platform lint, Prettier, and diff checks
+pass. An installed legacy-provider loss canary remains required before merge.
+
 ## Provider live gates — Gemini Research and Gemini Notebook
 
 A current installed-build canary now distinguishes the two Gemini Research

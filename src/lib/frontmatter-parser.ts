@@ -27,6 +27,15 @@ export function applyLineEnding(content: string, eol: LineEnding): string {
   return eol === '\n' ? content : content.replace(/\n/g, eol);
 }
 
+/** Locate the first exact closing `---` line without normalizing source bytes. */
+export function findFrontmatterClosingDelimiter(content: string): { end: number } | null {
+  if (!content.startsWith('---')) return null;
+  const pattern = /(?:\r\n|\r|\n)---(?=\r\n|\r|\n|$)/g;
+  pattern.lastIndex = 3;
+  const match = pattern.exec(content);
+  return match ? { end: match.index + match[0].length } : null;
+}
+
 /**
  * Parsed frontmatter result
  */
@@ -61,24 +70,18 @@ export function parseFrontmatter(content: string): ParsedFrontmatter | null {
   if (!content.startsWith('---')) return null;
 
   const eol = detectLineEnding(content);
-  content = content.replace(/\r\n|\r/g, '\n');
-
-  // Find closing --- (must be at line start)
-  const closingIndex = content.indexOf('\n---', 3);
-  if (closingIndex === -1) return null;
-
-  // Raw frontmatter includes both --- delimiters
-  const endOfClosing = closingIndex + 4; // length of '\n---'
-  const raw = content.substring(0, endOfClosing);
+  const closing = findFrontmatterClosingDelimiter(content);
+  if (!closing) return null;
+  const rawSource = content.substring(0, closing.end);
+  const raw = rawSource.replace(/\r\n|\r/g, '\n');
 
   // Body is everything after closing --- (skip leading newline)
-  let body = content.substring(endOfClosing);
-  if (body.startsWith('\n')) {
-    body = body.substring(1);
-  }
+  let body = content.substring(closing.end).replace(/^(?:\r\n|\r|\n)/, '');
+  body = body.replace(/\r\n|\r/g, '\n');
 
   // Parse fields from the inner YAML block
-  const yamlBlock = content.substring(4, closingIndex); // skip opening '---\n'
+  const closingIndex = raw.lastIndexOf('\n---');
+  const yamlBlock = raw.substring(4, closingIndex); // skip opening '---\n'
   const fields: Record<string, string | string[]> = {};
   let currentKey = '';
 

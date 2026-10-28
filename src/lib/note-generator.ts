@@ -6,10 +6,17 @@
  */
 
 import { escapeYamlValue } from './yaml-utils';
+import { LISKA_LOSS_DIAGNOSTICS_SCHEMA, normalizeLiskaLossDiagnostics } from './loss-diagnostics';
 import type { ObsidianNote, ExtensionSettings, NoteFrontmatter } from './types';
 
 /** Evidence fields are always emitted, independent from optional note fields. */
 function appendArchiveEvidence(lines: string[], frontmatter: NoteFrontmatter): void {
+  const lossDiagnostics = normalizeLiskaLossDiagnostics(frontmatter.liska_loss_diagnostics);
+  if (lossDiagnostics.length > 0) {
+    lines.push(`liska_loss_diagnostics_schema: ${LISKA_LOSS_DIAGNOSTICS_SCHEMA}`);
+    lines.push('liska_loss_diagnostics:');
+    for (const code of lossDiagnostics) lines.push(`  - ${escapeYamlValue(code)}`);
+  }
   if (frontmatter.capture_mode) {
     lines.push(`capture_mode: ${escapeYamlValue(frontmatter.capture_mode)}`);
   }

@@ -330,9 +330,26 @@ cancellation behavior remain live gates; image decompression and persistence
 are proven for this one sample.
 
 The two honest pre-fix notes nevertheless retained no durable warning about the
-missing image. Legacy-provider warnings are currently transient toast/console
-evidence; preserve a bounded local diagnostic in a later slice without carrying
-provider URLs, header values, or arbitrary exception strings into notes.
+missing image. The separate `codex/durable-loss-diagnostics` candidate now
+persists only versioned allowlisted historical codes for explicit partial
+history loading and failed identified-image capture. It carries no count, URL,
+filename, exception, response, header, provider text, or arbitrary warning
+string. Background validation is accessor-safe; append unions codes without
+rewriting body bytes, permits an idempotent same-count metadata-only update, and
+rejects shorter or malformed evidence. Destination image-write failures,
+intentional Clipboard omission, derived HTML, and current-completeness remain
+outside schema 1. Full offline checks pass; repeat an installed loss canary
+before treating the durable path as live-verified.
+
+The first frozen local diff scan `e30f6c9e-9417-4599-9904-a74d6386d220`
+reported no security findings and preserved two below-bar correctness
+candidates: mixed-EOL body rewriting and escaped owned-key duplication. Both
+were fixed, and a second final-code review found no reportable security
+candidate. Subsequent review generalized the owned-key boundary: exact
+frontmatter delimiters are shared with append, and every noncanonical literal,
+escaped, tagged, anchored, explicit, flow, or folded owned-key mention now fails
+closed. GitHub exact-head Code Review and Security Review remain the merge gates
+because that final parser hardening followed the second local frozen snapshot.
 
 PR 47 merged the five remaining informational fixes as `47c944b`:
 

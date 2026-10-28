@@ -6,6 +6,7 @@
 import { BaseExtractor } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { extractErrorMessage } from '../../lib/error-utils';
+import { mergeLiskaLossDiagnostics } from '../../lib/loss-diagnostics';
 import { ensureAllElementsLoaded, type ScrollResult } from '../../lib/scroll-manager';
 import { captureImage } from '../image-capture';
 import type {
@@ -86,7 +87,15 @@ export class GeminiExtractor extends BaseExtractor {
         title,
         this.platform
       );
-      if (baseResult.success && baseResult.data) baseResult.data.domHistoryLoad = domHistoryLoad;
+      if (baseResult.success && baseResult.data) {
+        baseResult.data.domHistoryLoad = domHistoryLoad;
+        if (domHistoryLoad === 'partial') {
+          baseResult.data.liskaLossDiagnostics = mergeLiskaLossDiagnostics(
+            baseResult.data.liskaLossDiagnostics,
+            ['history-load-partial']
+          );
+        }
+      }
 
       // Fetch captured generated images (blob → base64) and attach to the data.
       const result = await this.attachImages(baseResult);
@@ -365,7 +374,19 @@ export class GeminiExtractor extends BaseExtractor {
             `${this.imageFailures.length} image(s) could not be captured: ${[...new Set(this.imageFailures)].join('; ')}`,
           ]
         : result.warnings;
-    return { ...result, data: { ...result.data, images }, ...(warnings && { warnings }) };
+    return {
+      ...result,
+      data: {
+        ...result.data,
+        images,
+        ...(this.imageFailures.length > 0 && {
+          liskaLossDiagnostics: mergeLiskaLossDiagnostics(result.data.liskaLossDiagnostics, [
+            'image-capture-failed',
+          ]),
+        }),
+      },
+      ...(warnings && { warnings }),
+    };
   }
 
   /**

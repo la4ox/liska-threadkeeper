@@ -6,7 +6,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import { generateNoteContent } from '../../src/lib/note-generator';
-import type { ObsidianNote, ExtensionSettings } from '../../src/lib/types';
+import { conversationToNote } from '../../src/content/markdown';
+import type {
+  ObsidianNote,
+  ExtensionSettings,
+  ConversationData,
+  LiskaLossDiagnosticCode,
+} from '../../src/lib/types';
 
 // Factory: creates a minimal valid ObsidianNote
 function createTestNote(overrides?: Partial<ObsidianNote>): ObsidianNote {
@@ -191,6 +197,121 @@ describe('generateNoteContent', () => {
 
     expect(content).toContain('archive_manifest_sha256: "hash\\ninjected: true"');
     expect(content).not.toMatch(/^injected:/m);
+  });
+
+  describe('historical capture-loss diagnostics', () => {
+    it('writes only sorted fixed codes independently of every optional template field', () => {
+      const settings = createTestSettings({
+        includeId: false,
+        includeTitle: false,
+        includeSource: false,
+        includeDates: false,
+        includeTags: false,
+        includeMessageCount: false,
+      });
+      const diagnosticNote = createTestNote({
+        frontmatter: {
+          ...note.frontmatter,
+          liska_loss_diagnostics: ['image-capture-failed', 'history-load-partial'],
+        },
+      });
+
+      const content = generateNoteContent(diagnosticNote, settings);
+
+      expect(content).toBe(
+        '---\n' +
+          'liska_loss_diagnostics_schema: 1\n' +
+          'liska_loss_diagnostics:\n' +
+          '  - history-load-partial\n' +
+          '  - image-capture-failed\n' +
+          '---\n\n' +
+          diagnosticNote.body
+      );
+      expect(diagnosticNote.contentHash).toBe('abc123');
+      expect(diagnosticNote.frontmatter.liska_loss_diagnostics).toEqual([
+        'image-capture-failed',
+        'history-load-partial',
+      ]);
+    });
+
+    it('deduplicates a repeated diagnostic and omits empty or absent diagnostic fields', () => {
+      const duplicateNote = createTestNote({
+        frontmatter: {
+          ...note.frontmatter,
+          liska_loss_diagnostics: ['image-capture-failed', 'image-capture-failed'],
+        },
+      });
+      const content = generateNoteContent(duplicateNote, createTestSettings());
+      expect(content.match(/^  - image-capture-failed$/gm)).toHaveLength(1);
+
+      for (const diagnostics of [undefined, []]) {
+        const emptyNote = createTestNote({
+          frontmatter: { ...note.frontmatter, liska_loss_diagnostics: diagnostics },
+        });
+        expect(generateNoteContent(emptyNote, createTestSettings())).not.toContain(
+          'liska_loss_diagnostics'
+        );
+      }
+    });
+
+    it('rejects arbitrary runtime diagnostic text rather than serializing it', () => {
+      const invalidNote = createTestNote({
+        frontmatter: {
+          ...note.frontmatter,
+          liska_loss_diagnostics: [
+            'Failed https://private.invalid/image?token=secret\ninjected: true',
+          ] as unknown as LiskaLossDiagnosticCode[],
+        },
+      });
+
+      expect(() => generateNoteContent(invalidNote, createTestSettings())).toThrow(
+        'liska-loss-diagnostics-untrusted'
+      );
+    });
+
+    it('carries normalized codes from conversation data without changing the body or hash', () => {
+      const extractedAt = new Date('2025-01-01T00:00:00.000Z');
+      const data: ConversationData = {
+        id: 'loss-diagnostic-test',
+        title: 'Synthetic conversation',
+        url: 'https://gemini.google.com/app/loss-diagnostic-test',
+        source: 'gemini',
+        messages: [
+          { id: 'user-0', role: 'user', content: 'Question', index: 0 },
+          { id: 'assistant-0', role: 'assistant', content: '<p>Answer</p>', index: 1 },
+        ],
+        extractedAt,
+        metadata: {
+          messageCount: 2,
+          userMessageCount: 1,
+          assistantMessageCount: 1,
+          hasCodeBlocks: false,
+        },
+      };
+      const options = createTestSettings().templateOptions;
+      const ordinary = conversationToNote(data, options, extractedAt);
+      const diagnostic = conversationToNote(
+        { ...data, liskaLossDiagnostics: ['image-capture-failed', 'history-load-partial'] },
+        options,
+        extractedAt
+      );
+
+      expect(diagnostic.frontmatter.liska_loss_diagnostics).toEqual([
+        'history-load-partial',
+        'image-capture-failed',
+      ]);
+      expect(diagnostic.body).toBe(ordinary.body);
+      expect(diagnostic.contentHash).toBe(ordinary.contentHash);
+      expect(diagnostic.fileName).toBe(ordinary.fileName);
+      expect(ordinary.frontmatter).not.toHaveProperty('liska_loss_diagnostics');
+
+      const repeated = conversationToNote(
+        { ...data, liskaLossDiagnostics: ['image-capture-failed', 'image-capture-failed'] },
+        options,
+        extractedAt
+      );
+      expect(repeated.frontmatter.liska_loss_diagnostics).toEqual(['image-capture-failed']);
+    });
   });
 
   it.each([

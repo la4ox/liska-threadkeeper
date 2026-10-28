@@ -11,6 +11,7 @@ import { formatMessage, formatToolContent } from './markdown-formatting';
 import { neutralizeActiveProviderMarkdown, type TrustedHtmlRange } from './markdown-safety';
 import { convertDeepResearchContent } from './markdown-deep-research';
 import { generateHash } from '../lib/hash';
+import { normalizeLiskaLossDiagnostics } from '../lib/loss-diagnostics';
 import { MAX_FILENAME_BASE_LENGTH, FILENAME_ID_SUFFIX_LENGTH } from '../lib/constants';
 import type {
   ConversationData,
@@ -169,6 +170,7 @@ export function conversationToNote(
 ): ObsidianNote {
   const timezone = options.timezone ?? 'UTC';
   const now = formatDateWithTimezone(renderedAt, timezone);
+  const lossDiagnostics = normalizeLiskaLossDiagnostics(data.liskaLossDiagnostics);
 
   // Generate frontmatter
   const frontmatter: NoteFrontmatter = {
@@ -184,6 +186,7 @@ export function conversationToNote(
         ? ['ai-research', 'deep-research', data.source]
         : ['ai-conversation', data.source],
     message_count: data.messages.length,
+    ...(lossDiagnostics.length > 0 && { liska_loss_diagnostics: lossDiagnostics }),
     ...captureEvidenceFrontmatter(data),
     ...presentationFrontmatter(data.presentation),
   };
