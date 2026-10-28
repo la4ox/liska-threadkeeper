@@ -94,7 +94,11 @@ The bearer key is stored in `chrome.storage.local`, is never exposed to supporte
 
 ## Privacy and security
 
-Conversation parsing happens on the page already displaying the conversation. Liska sends no telemetry and has no cloud backend. Network access is limited to supported AI origins, Google's image CDN for images already present in an exported conversation, and the loopback Obsidian API. See the full [privacy policy](https://github.com/la4ox/liska-threadkeeper/blob/main/docs/privacy.html).
+Conversation parsing happens on the page already displaying the conversation. Liska sends no telemetry and has no cloud backend. Provider requests serve the supported AI origins and their attachment services; Obsidian uses only the loopback API. See the full [privacy policy](https://github.com/la4ox/liska-threadkeeper/blob/main/docs/privacy.html).
+
+Gemini remote image requests accept only HTTPS `googleusercontent.com` sources (including its subdomains), without userinfo or nondefault ports. One authenticated, no-referrer, no-store fetch follows browser-managed redirects; the final response must remain on that CDN family or exact `lh3.google.com`, which is not a direct source. Fetch may send browser-managed cookies to the permitted CDN/redirect hosts, but Liska never reads or serializes cookie/request-header values or exposes them to the model, content script, or durable output. Prior live and retained evidence of anonymous 403 responses and session-dependent links justifies this browser-managed authentication. URL presence is reference evidence, not byte availability; a stale or failed link never becomes a fetched claim.
+
+Intermediate redirect hops are not observable or validated per-hop: final-host acceptance is not a full egress proof. There is no retry or anonymous/authenticated fallback. The added exact host permission may require re-consent for packaged updates. One installed authenticated File+Obsidian canary retained the same 236,990-byte JPEG in both destinations with matching local links; packaged-update consent and intermediate-hop behavior remain separate gates.
 
 Treat an unpacked browser extension like any local application: install from a revision you trust, inspect changes before updating, and keep the Obsidian API bound to loopback.
 

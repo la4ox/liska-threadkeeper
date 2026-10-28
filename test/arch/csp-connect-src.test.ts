@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { IMAGE_CDN_DOMAIN } from '../../src/lib/image-utils';
+import { IMAGE_CDN_DOMAIN, IMAGE_CDN_REDIRECT_HOST } from '../../src/lib/image-utils';
 
 const manifest = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '../../src/manifest.json'), 'utf-8')
@@ -66,6 +66,18 @@ describe('manifest CSP connect-src', () => {
     expect(covers(sources, '127.0.0.1')).toBe(true);
   });
 
+  it('permits only the exact Google image redirect host, not a Google wildcard', () => {
+    const sources = directive('connect-src') as string[];
+    expect(manifest.host_permissions).toContain(`https://${IMAGE_CDN_REDIRECT_HOST}/*`);
+    expect(sources).toContain(`https://${IMAGE_CDN_REDIRECT_HOST}`);
+    expect(manifest.host_permissions.filter(source => source.includes('*.google.com'))).toEqual([]);
+    expect(sources.filter(source => source.includes('*.google.com'))).toEqual([]);
+    expect(covers(sources, 'lh4.google.com')).toBe(false);
+    expect(covers(sources, 'sub.lh3.google.com')).toBe(false);
+    expect(covers(sources, 'google.com')).toBe(false);
+    expect(covers(sources, 'lh3.google.com.evil.test')).toBe(false);
+  });
+
   it('permits the credential-free DeepSeek file service', () => {
     const sources = directive('connect-src') as string[];
     expect(manifest.host_permissions).toContain('https://files.deepseeksvc.com/*');
@@ -75,11 +87,12 @@ describe('manifest CSP connect-src', () => {
   it('lists every remote host_permission it needs to connect to', () => {
     // Content scripts are not bound by the extension CSP, so page hosts are
     // exempt; only hosts the extension itself connects to must appear. The
-    // image CDN is the one such host today.
+    // Image hosts and the separate DeepSeek file service need both gates.
     const sources = directive('connect-src') as string[];
     const cdnPermission = manifest.host_permissions.find(p => p.includes(IMAGE_CDN_DOMAIN));
 
     expect(cdnPermission, 'the image CDN must stay in host_permissions').toBeDefined();
     expect(covers(sources, `lh3.${IMAGE_CDN_DOMAIN}`)).toBe(true);
+    expect(covers(sources, IMAGE_CDN_REDIRECT_HOST)).toBe(true);
   });
 });

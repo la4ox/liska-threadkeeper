@@ -156,9 +156,33 @@ Source commits: `c2edc47`, `2c06dbe`.
 
 Source commit: `a049f06`.
 
-Evaluate one exact redirect-only permission/CSP entry for `lh3.google.com`.
-Do not admit it as a caller-supplied image source and do not broaden to
-`*.google.com`. A current live redirect observation is still desirable.
+Implemented locally on `codex/gemini-image-redirect-boundary`: exact
+`https://lh3.google.com/*` permission and exact CSP connect origin only, never
+`*.google.com`. Direct input still admits only the original googleusercontent
+family. Source and final URLs require HTTPS, no userinfo, and the default port;
+the separate final-response validator additionally admits exact `lh3.google.com`.
+
+The browser follows redirects in one authenticated/no-referrer/no-store fetch,
+with no retry or anonymous/authenticated fallback and the existing single five-second deadline
+and streamed 10 MiB cap. Empty, malformed, or unexpected final URLs reject and
+cancel the unread body before status/MIME processing. Intermediate hops are not
+observable or validated per-hop: final-host acceptance is not a full egress
+proof. Packaged permission expansion may require re-consent.
+
+Prior live/retained evidence of anonymous 403 responses and session-dependent
+links supports preserving browser-managed authentication. Fetch may send
+eligible cookies to the permitted CDN/redirect hosts, but Liska never reads or
+serializes cookie/request-header values or exposes them to the model, content
+script, or durable output. URL presence is reference evidence, not byte
+availability; stale/failed links never become fetched claims.
+
+The pre-change installed Liska canary twice found one generated image at
+`lh3.googleusercontent.com` but failed capture; File and Obsidian notes matched
+without false image links. The exact post-change installed build then retained
+one byte-identical 236,990-byte JPEG in both destinations, with matching local
+links, dimensions 1024 by 559 and SHA-256 `55ba81ea...69f81f`. This closes that
+bounded port while leaving packaged re-consent, intermediate redirect hops and
+runtime cancellation unproven. `STATUS.md` records the complete receipt.
 
 ## Already present or superseded
 

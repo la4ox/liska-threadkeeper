@@ -13,16 +13,20 @@ import {
   MAX_IMAGE_SIZE_BYTES,
   bytesToBase64,
   isAllowedImageMime,
+  isAllowedImageResponseUrl,
   isAllowedImageSourceUrl,
 } from '../lib/image-utils';
 import { DEFAULT_API_TIMEOUT } from '../lib/constants';
-import { extractErrorMessage } from '../lib/error-utils';
 import type { ImageFetchResponse } from '../lib/types';
 
 /** Blobs from the CDN often omit a type; `<img>` renders them as PNG. */
 const DEFAULT_IMAGE_MIME = 'image/png';
 const IMAGE_SIZE_LIMIT_ERROR = 'Image exceeds the size limit';
 const IMAGE_BODY_UNAVAILABLE_ERROR = 'Image response body is unavailable';
+const IMAGE_RESPONSE_URL_ERROR = 'Image response URL is not allowed';
+
+/** Only locally generated body failures may cross the message boundary verbatim. */
+class ImageBodyError extends Error {}
 
 function failure(error: string): ImageFetchResponse {
   return { success: false, error };
@@ -74,11 +78,11 @@ async function readBoundedImageBytes(response: Response, signal: AbortSignal): P
   const declaredLength = declaredImageLength(response);
   if (declaredLength !== null && declaredLength > MAX_IMAGE_SIZE_BYTES) {
     if (response.body) cancelImageBody(response.body, IMAGE_SIZE_LIMIT_ERROR);
-    throw new Error(IMAGE_SIZE_LIMIT_ERROR);
+    throw new ImageBodyError(IMAGE_SIZE_LIMIT_ERROR);
   }
 
   const reader = response.body?.getReader();
-  if (!reader) throw new Error(IMAGE_BODY_UNAVAILABLE_ERROR);
+  if (!reader) throw new ImageBodyError(IMAGE_BODY_UNAVAILABLE_ERROR);
 
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
@@ -88,7 +92,7 @@ async function readBoundedImageBytes(response: Response, signal: AbortSignal): P
       if (next.done) break;
       if (next.value.byteLength > MAX_IMAGE_SIZE_BYTES - totalBytes) {
         cancelImageBody(reader, IMAGE_SIZE_LIMIT_ERROR);
-        throw new Error(IMAGE_SIZE_LIMIT_ERROR);
+        throw new ImageBodyError(IMAGE_SIZE_LIMIT_ERROR);
       }
       chunks.push(next.value);
       totalBytes += next.value.byteLength;
@@ -129,9 +133,20 @@ export async function handleFetchImage(url: string): Promise<ImageFetchResponse>
   }, DEFAULT_API_TIMEOUT);
 
   try {
-    // credentials: 'include' — the page's <img> loads these URLs with cookies;
-    // without them the CDN answers 403. Host permissions make this legal.
-    const response = await fetch(url, { credentials: 'include', signal: controller.signal });
+    // The browser follows redirects; only the final URL is exposed for acceptance.
+    // Fetch may send browser-managed cookies, but their values are never read.
+    // No referrer, cache reuse, retry, or anonymous/authenticated fallback.
+    const response = await fetch(url, {
+      credentials: 'include',
+      referrerPolicy: 'no-referrer',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!isAllowedImageResponseUrl(response.url)) {
+      if (response.body) cancelImageBody(response.body, IMAGE_RESPONSE_URL_ERROR);
+      return failure(IMAGE_RESPONSE_URL_ERROR);
+    }
     if (!response.ok) {
       if (response.body) cancelImageBody(response.body, 'Image fetch returned an error status');
       return failure(`Image fetch failed: HTTP ${response.status}`);
@@ -147,7 +162,8 @@ export async function handleFetchImage(url: string): Promise<ImageFetchResponse>
     return { success: true, data: bytesToBase64(bytes), mimeType };
   } catch (error) {
     if (timedOut) return failure('Image fetch timed out');
-    return failure(extractErrorMessage(error));
+    if (error instanceof ImageBodyError) return failure(error.message);
+    return failure('Image fetch failed');
   } finally {
     clearTimeout(timeout);
   }

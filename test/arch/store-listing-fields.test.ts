@@ -136,6 +136,22 @@ describe('architecture: store listing fields are version-controlled', () => {
     );
   });
 
+  it('documents the exact redirect-only image host and the browser-managed privacy limit', () => {
+    const justification = byName.get('host_permissions')!.text;
+    expect(justification).toContain('lh3.google.com');
+    expect(justification).toContain('not a direct source');
+    expect(justification).toContain('Browser-managed cookies');
+    expect(justification).toContain('never read or exported');
+    for (const relative of ['README.md', 'docs/privacy.html']) {
+      const document = read(relative).replace(/\s+/g, ' ');
+      expect(document).toContain('lh3.google.com');
+      expect(document).toContain('Intermediate redirect hops');
+      expect(document).toContain('not a full egress proof');
+      expect(document).toContain('re-consent');
+      expect(document).toContain('URL presence is reference evidence, not byte availability');
+    }
+  });
+
   it.each(ALL_PLATFORMS)('the single purpose description covers %s', platform => {
     const field = byName.get('single_purpose');
     expect(field, 'add a "single_purpose" field to docs/store/listing.md').toBeDefined();

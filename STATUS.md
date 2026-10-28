@@ -1,5 +1,78 @@
 # Project status
 
+## Gemini generated-image redirect boundary — live-verified checkpoint
+
+Branch `codex/gemini-image-redirect-boundary` starts at `d45e450`. The
+pre-change installed Liska canary twice detected one generated image at
+`lh3.googleusercontent.com` but failed capture; File and Obsidian notes were
+byte-identical and contained no false image link. Upstream observed the exact
+redirect `lh3.googleusercontent.com -> lh3.google.com`.
+
+The local implementation adds only exact `https://lh3.google.com/*` permission
+and `https://lh3.google.com` CSP connect origin, never `*.google.com`. Direct
+sources still require the original googleusercontent family. Source/final URLs
+require HTTPS, no username/password, and the default HTTPS port. A separate
+final-response validator admits only that family or exact `lh3.google.com`.
+One authenticated fetch explicitly includes browser-managed credentials, omits
+referrers, disables cache reuse, and lets the browser follow redirects, without
+retry or anonymous/authenticated fallback. Rejected final URLs cancel the
+available body before status, MIME, or body reads;
+network/final-URL errors are fixed strings without raw URL/exception leakage.
+The existing streamed 10 MiB cap and single five-second deadline remain.
+
+Intermediate redirect hops are not observable or validated per-hop; final-host
+acceptance is not a full egress proof. Packaged permission expansion may require
+re-consent. README, privacy policy, Store draft, ADR-021/027, upstream audit and
+security TODO now state that boundary. Prior live/retained evidence of anonymous
+403 responses and session-dependent links justifies preserving browser-managed
+authentication. Fetch may send eligible cookies to the permitted CDN/redirect
+hosts, but Liska never reads or serializes cookie/request-header values or
+exposes them to the model, content script, or durable output. URL presence is
+reference evidence, not byte availability; stale/failed links never become
+fetched claims.
+
+Final authenticated-tree checks: six focused suites / 186 tests, standalone
+`tsc --noEmit`, guarded 288-module production build, repository formatting and
+diff checks pass. Source/platform lint passes with the same three pre-existing
+advisory warnings. Built manifest/worker inspection confirms exact permission/CSP,
+authenticated fetch options, and final-URL validation before status processing.
+The final full suite passes all 224 files: 7,588 tests passed and one existing
+test skipped (7,589 total), with one bounded worker. Only this authenticated-tree
+result is the current full-suite evidence.
+
+The exact committed build `ff4d1fa` was installed by the verified unpacked
+installer: source and installed inventories both contain 40 files / 1,109,241
+bytes, aggregate SHA-256 `31415014...e9d6`, and manifest SHA-256
+`602c8cc3...ec80`. Rollback
+`liska-rollback-20261028T164747986Z-670cd08cf30c46c880af4b4b4016d953`
+retains the previous bytes. Comet reloaded only Liska; an ordinary page refresh
+then removed stale connection state before one trusted export.
+
+With auto-scroll enabled, the same small named Gemini chat mounted one decoded
+`AI generated` image. The post-fix export wrote a 236,990-byte JPEG to File and
+Obsidian; both physical files are byte-identical with SHA-256
+`55ba81ea21fb8fad27475bdef5faf4e351772da83a4278809dc92f861869f81f`,
+valid JPEG SOI/EOI and decoded dimensions 1024 by 559. Visual inspection of the
+local JPEG matches the displayed Gemini image. Each destination note contains
+exactly one local link to `conversation-121244f5-img-1.jpg`, the same identity
+and ten alternating role sections; all ten normalized message bodies match.
+Neither note contains a remote image target or checked `googleusercontent`,
+`lh3`, signed-path, cookie, authorization, or request-header residue.
+
+This closes the one-image installed File/Obsidian acquisition and persistence
+gate. It does not reveal intermediate redirect hops, cookie eligibility, or
+prove packaged-update re-consent/cancellation behavior. The completed static
+Codex Security diff scan `088304af-c28d-4408-85ce-15c1f83f299c` found no
+plausible changed-code vulnerability and intentionally retained those runtime
+questions as partial coverage.
+
+One loss-diagnostics gap remains separate from transport correctness: the two
+pre-fix exports correctly omitted the unavailable image and showed runtime
+failure diagnostics, but their durable Markdown contained neither an image link
+nor a warning. Legacy-provider extraction warnings therefore still disappear
+with the toast/console; a future slice must retain bounded durable loss evidence
+without copying provider URLs or arbitrary exception text.
+
 ## Confirmed working
 
 - Repository: `la4ox/liska-threadkeeper`; upstream remains `sho7650/obsidian-AI-exporter`.

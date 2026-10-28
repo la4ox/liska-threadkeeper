@@ -65,6 +65,31 @@ export function isAllowedImageMime(mimeType: string): boolean {
  */
 export const IMAGE_CDN_DOMAIN = 'googleusercontent.com';
 
+/** Accepted only as a final response host, never as a caller-supplied source. */
+export const IMAGE_CDN_REDIRECT_HOST = 'lh3.google.com';
+
+/** Shared transport constraints for source and final-response image URLs. */
+function parseImageUrl(url: string): URL | null {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== 'https:' ||
+      parsed.username !== '' ||
+      parsed.password !== '' ||
+      parsed.port !== ''
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isImageCdnHost(host: string): boolean {
+  return host === IMAGE_CDN_DOMAIN || host.endsWith(`.${IMAGE_CDN_DOMAIN}`);
+}
+
 /**
  * True when `url` is a remote image source the background worker may fetch.
  *
@@ -77,22 +102,28 @@ export const IMAGE_CDN_DOMAIN = 'googleusercontent.com';
  * That exemption is exactly why this allow-list exists: without it, anything
  * able to post a message to the worker could use it as an SSRF proxy to read
  * arbitrary hosts — including `127.0.0.1`, where the user's vault lives.
- * Matching is done on the parsed `hostname`, so credentials (`…@evil.test`),
- * ports, and look-alike suffixes (`evilgoogleusercontent.com`) cannot slip past.
+ * HTTPS, no userinfo, and the default HTTPS port are required. Host matching
+ * uses exact suffix boundaries; look-alikes (`evilgoogleusercontent.com`) fail.
+ * The redirect-only `lh3.google.com` host is not an accepted source.
  *
  * `blob:` URLs are intentionally rejected: only the page can resolve those, and
  * the content script keeps that path.
  */
 export function isAllowedImageSourceUrl(url: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  const host = parsed.hostname.toLowerCase();
-  return host === IMAGE_CDN_DOMAIN || host.endsWith(`.${IMAGE_CDN_DOMAIN}`);
+  const parsed = parseImageUrl(url);
+  return parsed !== null && isImageCdnHost(parsed.hostname);
+}
+
+/**
+ * Accept a browser-managed fetch's final URL before consuming its response.
+ * Intermediate redirect hops are not exposed or validated by this check.
+ */
+export function isAllowedImageResponseUrl(url: string): boolean {
+  const parsed = parseImageUrl(url);
+  return (
+    parsed !== null &&
+    (isImageCdnHost(parsed.hostname) || parsed.hostname === IMAGE_CDN_REDIRECT_HOST)
+  );
 }
 
 /**

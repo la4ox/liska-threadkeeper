@@ -303,8 +303,36 @@ stable local failures without an unbounded `blob()`/`arrayBuffer()` fallback.
 `commit:43efe06fa6b08191b8bfe3ce69fa19be`, and the overlapping timeout occurrence
 `commit:621515f4ee488191a93dd9a3c856df77` are now closed as fixed against that
 reviewed merged head.
-Real Chrome CDN decompression, redirect, and transport-cancellation behavior
-remains a live-runtime proof gap; the code does not claim otherwise.
+The separate `codex/gemini-image-redirect-boundary` candidate adds exact
+`lh3.google.com` permission/CSP as a final-response-only host. Source and final
+URLs reject userinfo, nondefault ports, non-HTTPS schemes, and look-alikes. One
+authenticated/no-referrer/no-store fetch follows browser-managed redirects;
+the final URL is checked and a rejected body cancelled before status/MIME/read.
+Network/final-URL failures are fixed local strings, without raw exception/URL
+leakage, retry, or anonymous/authenticated fallback. The single deadline and
+streamed cap remain. Prior live/retained evidence records anonymous 403 responses
+and session-dependent links. Fetch may send eligible browser-managed cookies to
+the permitted CDN/redirect hosts, but Liska never reads or serializes
+cookie/request-header values or exposes them to the model, content script, or
+durable output. URL presence is reference evidence, not byte availability;
+stale/failed links never become fetched claims.
+
+Intermediate redirect hops are not observable or validated per-hop; final-host
+acceptance is not a full egress proof. Packaged permission expansion may require
+re-consent. The pre-change installed Gemini canary twice failed one detected
+generated image, with byte-identical File/Obsidian notes and no false link.
+The exact post-change build is now live-verified on that same image: File and
+Obsidian retained byte-identical 236,990-byte JPEGs (1024 by 559), matching
+SHA-256 and one correct local link per note. Checked durable outputs contain no
+remote-host, signed-path, cookie, authorization, or request-header residue.
+Intermediate-hop inspection, packaged permission re-consent and real
+cancellation behavior remain live gates; image decompression and persistence
+are proven for this one sample.
+
+The two honest pre-fix notes nevertheless retained no durable warning about the
+missing image. Legacy-provider warnings are currently transient toast/console
+evidence; preserve a bounded local diagnostic in a later slice without carrying
+provider URLs, header values, or arbitrary exception strings into notes.
 
 PR 47 merged the five remaining informational fixes as `47c944b`:
 

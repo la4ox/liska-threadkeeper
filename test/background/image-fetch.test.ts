@@ -14,13 +14,21 @@ import { handleFetchImage } from '../../src/background/image-fetch';
 import { MAX_IMAGE_SIZE_BYTES } from '../../src/lib/image-utils';
 
 const IMAGE_URL = 'https://lh3.googleusercontent.com/gg/AbC123=s1024-rj';
+const REDIRECT_URL = 'https://lh3.google.com/rd-gg/synthetic-image';
+
+/** Synthetic Response constructors have an empty URL, unlike a real fetch response. */
+function withResponseUrl(response: Response, url: string): Response {
+  Object.defineProperty(response, 'url', { value: url });
+  return response;
+}
 
 function responseFromChunks(
   chunks: Uint8Array[],
   type = 'image/png',
   extraHeaders: Record<string, string> = {},
   onCancel?: (reason: unknown) => void,
-  status = 200
+  status = 200,
+  url = IMAGE_URL
 ): Response {
   let index = 0;
   const body = new ReadableStream<Uint8Array>(
@@ -39,7 +47,7 @@ function responseFromChunks(
   );
   const headers = new Headers(extraHeaders);
   if (type) headers.set('content-type', type);
-  return new Response(body, { status, headers });
+  return withResponseUrl(new Response(body, { status, headers }), url);
 }
 
 function mockFetchResponse(response: Response): ReturnType<typeof vi.fn> {
@@ -63,17 +71,112 @@ describe('handleFetchImage', () => {
     expect(result).toEqual({ success: true, data: 'UE5H', mimeType: 'image/png' });
   });
 
-  it('sends credentials so cookie-gated CDN URLs resolve', async () => {
-    // The <img> on the page loads these URLs with cookies; an extension fetch
-    // without them gets 403. Host permissions let the worker send them.
+  it('makes exactly one authenticated browser-managed request with bounded options', async () => {
     const spy = mockFetchResponse(responseFromChunks([new Uint8Array([1])]));
 
     await handleFetchImage(IMAGE_URL);
 
-    expect(spy).toHaveBeenCalledWith(
-      IMAGE_URL,
-      expect.objectContaining({ credentials: 'include' })
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(IMAGE_URL, {
+      credentials: 'include',
+      referrerPolicy: 'no-referrer',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it('accepts an exact lh3.google.com final response after the browser follows redirects', async () => {
+    const spy = mockFetchResponse(
+      responseFromChunks([new Uint8Array([1])], 'image/png', {}, undefined, 200, REDIRECT_URL)
     );
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: true,
+      data: 'AQ==',
+      mimeType: 'image/png',
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe(IMAGE_URL);
+  });
+
+  it.each([
+    REDIRECT_URL,
+    'https://user@lh3.googleusercontent.com/x',
+    'https://user:secret@lh3.googleusercontent.com/x',
+    'https://lh3.googleusercontent.com:8443/x',
+    'https://evilgoogleusercontent.com/x',
+    'https://googleusercontent.com.evil.test/x',
+    'http://lh3.googleusercontent.com/x',
+  ])('rejects an invalid source before fetch: %s', async url => {
+    const spy = mockFetchResponse(responseFromChunks([new Uint8Array([1])]));
+
+    await expect(handleFetchImage(url)).resolves.toEqual({
+      success: false,
+      error: 'Image URL is not allowed',
+    });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '',
+    'not a url',
+    'https://unexpected.test/private?secret=do-not-leak',
+    'https://user:secret@lh3.googleusercontent.com/x',
+    'https://user:secret@lh3.google.com/x',
+    'https://lh3.googleusercontent.com:8443/x',
+    'https://lh3.google.com:8443/x',
+    'https://evilgoogleusercontent.com/x',
+    'https://googleusercontent.com.evil.test/x',
+    'https://lh3.google.com.evil.test/x',
+    'https://sub.lh3.google.com/x',
+    'https://lh4.google.com/x',
+    'http://lh3.googleusercontent.com/x',
+    'http://lh3.google.com/x',
+  ])('cancels a rejected final URL before status, MIME or body processing: %s', async url => {
+    const cancelled = vi.fn();
+    const response = responseFromChunks(
+      [new Uint8Array([1])],
+      'image/svg+xml',
+      {},
+      cancelled,
+      403,
+      url
+    );
+    const statusRead = vi.spyOn(response, 'ok', 'get');
+    const headersRead = vi.spyOn(response.headers, 'get');
+    const bodyRead = vi.spyOn(response.body!, 'getReader');
+    const spy = mockFetchResponse(response);
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: false,
+      error: 'Image response URL is not allowed',
+    });
+    expect(cancelled).toHaveBeenCalledWith('Image response URL is not allowed');
+    expect(statusRead).not.toHaveBeenCalled();
+    expect(headersRead).not.toHaveBeenCalled();
+    expect(bodyRead).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the final URL failure when cancellation rejects', async () => {
+    mockFetchResponse(
+      responseFromChunks(
+        [new Uint8Array([1])],
+        'image/png',
+        {},
+        () => {
+          throw new Error('https://private.test/cancellation-secret');
+        },
+        200,
+        'https://unexpected.test/x'
+      )
+    );
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: false,
+      error: 'Image response URL is not allowed',
+    });
   });
 
   it('defaults to image/png when the response carries no type', async () => {
@@ -99,13 +202,18 @@ describe('handleFetchImage', () => {
     expect(result.success).toBe(false);
   });
 
-  it('reports a failed response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
+  it('reports an authenticated 403 without anonymous retry or credential fallback', async () => {
+    const spy = mockFetchResponse(withResponseUrl(new Response(null, { status: 403 }), IMAGE_URL));
 
     const result = await handleFetchImage(IMAGE_URL);
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('403');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      IMAGE_URL,
+      expect.objectContaining({ credentials: 'include' })
+    );
   });
 
   it('cancels an unread error response body', async () => {
@@ -119,12 +227,19 @@ describe('handleFetchImage', () => {
     expect(cancelled).toHaveBeenCalled();
   });
 
-  it('reports a network error instead of throwing', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+  it.each([
+    new TypeError('Failed to fetch https://private.test/?token=secret'),
+    new Error('https://lh3.googleusercontent.com/private?signature=secret'),
+    'untrusted raw rejection text',
+  ])('returns a stable network failure without raw exception text or retries', async error => {
+    const spy = vi.fn().mockRejectedValue(error);
+    vi.stubGlobal('fetch', spy);
 
-    const result = await handleFetchImage(IMAGE_URL);
-
-    expect(result.success).toBe(false);
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: false,
+      error: 'Image fetch failed',
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it('aborts a stalled image request after the bounded timeout', async () => {
@@ -228,7 +343,10 @@ describe('handleFetchImage', () => {
 
   it('fails closed when a successful response exposes no readable body', async () => {
     mockFetchResponse(
-      new Response(null, { status: 200, headers: { 'content-type': 'image/png' } })
+      withResponseUrl(
+        new Response(null, { status: 200, headers: { 'content-type': 'image/png' } }),
+        IMAGE_URL
+      )
     );
 
     await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
@@ -248,7 +366,10 @@ describe('handleFetchImage', () => {
         },
       });
       return Promise.resolve(
-        new Response(body, { status: 200, headers: { 'content-type': 'image/png' } })
+        withResponseUrl(
+          new Response(body, { status: 200, headers: { 'content-type': 'image/png' } }),
+          IMAGE_URL
+        )
       );
     });
     vi.stubGlobal('fetch', spy);
@@ -257,6 +378,44 @@ describe('handleFetchImage', () => {
     await vi.advanceTimersByTimeAsync(5000);
 
     await expect(pending).resolves.toEqual({ success: false, error: 'Image fetch timed out' });
+  });
+
+  it('shares one five-second deadline across request and stalled body reads', async () => {
+    vi.useFakeTimers();
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel: cancelled });
+    const response = withResponseUrl(
+      new Response(body, { headers: { 'content-type': 'image/png' } }),
+      REDIRECT_URL
+    );
+    const spy = vi.fn(
+      () => new Promise<Response>(resolve => setTimeout(() => resolve(response), 3000))
+    );
+    vi.stubGlobal('fetch', spy);
+
+    const pending = handleFetchImage(IMAGE_URL);
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await expect(pending).resolves.toEqual({ success: false, error: 'Image fetch timed out' });
+    expect(cancelled).toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not expose a raw body-read exception', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error('https://private.test/body-read-secret'));
+      },
+    });
+    mockFetchResponse(
+      withResponseUrl(new Response(body, { headers: { 'content-type': 'image/png' } }), IMAGE_URL)
+    );
+
+    await expect(handleFetchImage(IMAGE_URL)).resolves.toEqual({
+      success: false,
+      error: 'Image fetch failed',
+    });
   });
 
   it('keeps MIME parameters on a valid image response', async () => {
@@ -281,5 +440,7 @@ describe('manifest', () => {
 
     // Without this, the background fetch is blocked too and the move is pointless.
     expect(manifest.host_permissions).toContain('https://*.googleusercontent.com/*');
+    expect(manifest.host_permissions).toContain('https://lh3.google.com/*');
+    expect(manifest.host_permissions).not.toContain('https://*.google.com/*');
   });
 });
