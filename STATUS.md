@@ -1,6 +1,6 @@
 # Project status
 
-## Gemini generated-image redirect boundary — offline checkpoint
+## Gemini generated-image redirect boundary — live-verified checkpoint
 
 Branch `codex/gemini-image-redirect-boundary` starts at `d45e450`. The
 pre-change installed Liska canary twice detected one generated image at
@@ -40,11 +40,38 @@ The final full suite passes all 224 files: 7,588 tests passed and one existing
 test skipped (7,589 total), with one bounded worker. Only this authenticated-tree
 result is the current full-suite evidence.
 
-Remaining live gate: install/reload the exact reviewed build with any necessary
-host re-consent, repeat one trusted Gemini image export, verify actual image
-bytes and File/Obsidian note reconciliation, and observe CDN redirect/cancellation
-behavior. No browser, network, installation, or user-artifact check was performed
-for this implementation; the permission has not been proven to fix the canary.
+The exact committed build `ff4d1fa` was installed by the verified unpacked
+installer: source and installed inventories both contain 40 files / 1,109,241
+bytes, aggregate SHA-256 `31415014...e9d6`, and manifest SHA-256
+`602c8cc3...ec80`. Rollback
+`liska-rollback-20261028T164747986Z-670cd08cf30c46c880af4b4b4016d953`
+retains the previous bytes. Comet reloaded only Liska; an ordinary page refresh
+then removed stale connection state before one trusted export.
+
+With auto-scroll enabled, the same small named Gemini chat mounted one decoded
+`AI generated` image. The post-fix export wrote a 236,990-byte JPEG to File and
+Obsidian; both physical files are byte-identical with SHA-256
+`55ba81ea21fb8fad27475bdef5faf4e351772da83a4278809dc92f861869f81f`,
+valid JPEG SOI/EOI and decoded dimensions 1024 by 559. Visual inspection of the
+local JPEG matches the displayed Gemini image. Each destination note contains
+exactly one local link to `conversation-121244f5-img-1.jpg`, the same identity
+and ten alternating role sections; all ten normalized message bodies match.
+Neither note contains a remote image target or checked `googleusercontent`,
+`lh3`, signed-path, cookie, authorization, or request-header residue.
+
+This closes the one-image installed File/Obsidian acquisition and persistence
+gate. It does not reveal intermediate redirect hops, cookie eligibility, or
+prove packaged-update re-consent/cancellation behavior. The completed static
+Codex Security diff scan `088304af-c28d-4408-85ce-15c1f83f299c` found no
+plausible changed-code vulnerability and intentionally retained those runtime
+questions as partial coverage.
+
+One loss-diagnostics gap remains separate from transport correctness: the two
+pre-fix exports correctly omitted the unavailable image and showed runtime
+failure diagnostics, but their durable Markdown contained neither an image link
+nor a warning. Legacy-provider extraction warnings therefore still disappear
+with the toast/console; a future slice must retain bounded durable loss evidence
+without copying provider URLs or arbitrary exception text.
 
 ## Confirmed working
 

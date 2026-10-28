@@ -321,10 +321,18 @@ Intermediate redirect hops are not observable or validated per-hop; final-host
 acceptance is not a full egress proof. Packaged permission expansion may require
 re-consent. The pre-change installed Gemini canary twice failed one detected
 generated image, with byte-identical File/Obsidian notes and no false link.
-This candidate is implemented/offline-verified, not live-proven. A fresh installed
-Gemini capture plus actual image bytes and File/Obsidian output reconciliation,
-as well as real Chrome decompression and cancellation behavior, remain live
-gates. No permission-fix success is claimed.
+The exact post-change build is now live-verified on that same image: File and
+Obsidian retained byte-identical 236,990-byte JPEGs (1024 by 559), matching
+SHA-256 and one correct local link per note. Checked durable outputs contain no
+remote-host, signed-path, cookie, authorization, or request-header residue.
+Intermediate-hop inspection, packaged permission re-consent and real
+cancellation behavior remain live gates; image decompression and persistence
+are proven for this one sample.
+
+The two honest pre-fix notes nevertheless retained no durable warning about the
+missing image. Legacy-provider warnings are currently transient toast/console
+evidence; preserve a bounded local diagnostic in a later slice without carrying
+provider URLs, header values, or arbitrary exception strings into notes.
 
 PR 47 merged the five remaining informational fixes as `47c944b`:
 

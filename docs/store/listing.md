@@ -135,7 +135,9 @@ No analytics, telemetry, or developer-operated server.
 979 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 The browser follows image redirects; intermediate hops are not observable or validated per-hop.
 Final-host acceptance is not a full egress proof. Packaged permission expansion
-may require re-consent. A fresh installed Gemini canary remains unproven.
+may require re-consent. One installed authenticated canary saved byte-identical
+JPEGs to File and Obsidian; intermediate hops and packaged re-consent remain
+unproven.
 Prior live/retained evidence supports one authenticated browser-managed fetch,
 with no cookie/header value access, serialization, model/content exposure, or
 durable output, and no anonymous/authenticated retry or fallback. URL presence

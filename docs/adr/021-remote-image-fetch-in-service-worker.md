@@ -70,10 +70,10 @@ Split the capture path by URL scheme:
 CDN rotates across `lh3`/`lh4`/`lh5`/…. A later upstream observation records
 `lh3.googleusercontent.com -> lh3.google.com`. Add only exact
 `https://lh3.google.com/*` and CSP connect origin `https://lh3.google.com`, never
-`*.google.com`. The latest local selector/auto-scroll canary found one generated
+`*.google.com`. The pre-change selector/auto-scroll canary found one generated
 image but twice failed capture; File and Obsidian notes remained byte-identical
-without a false image link. This is not evidence that the added permission has
-fixed the installed extension.
+without a false image link. The installed post-change canary below closes that
+same bounded acquisition path.
 
 The worker preserves one browser-managed fetch with `credentials: 'include'`,
 `referrerPolicy: 'no-referrer'`, `redirect: 'follow'`, and `cache: 'no-store'`.
@@ -119,9 +119,9 @@ five-second AbortSignal/deadline spans the fetch, redirects, and all body reads.
 ## Consequences
 
 - The original #376 fix restored the then-observed images. The October redirect
-  amendment is implemented/offline-verified only: a fresh installed-extension
-  authenticated image capture and File/Obsidian output comparison remain a
-  live gate. Failed captures must not produce false image links.
+  amendment is live-verified for one installed authenticated image: File and
+  Obsidian retained byte-identical 236,990-byte JPEGs (1024 by 559) and one
+  correct local link each. Failed captures still must not produce false links.
 - **Packaged updates may require re-consent for the added host permission.** Per
   Chrome's permission-warnings documentation: "When an extension adds a new
   permission that triggers a warning it may temporarily disable it. The
@@ -139,4 +139,12 @@ five-second AbortSignal/deadline spans the fetch, redirects, and all body reads.
 - The worker leaves eligible cookies entirely to Fetch, sends no referrer, and
   does not reuse cached responses. The requested image URL still reaches the
   provider; no conversation text or extracted credential value is sent. This is
-  not a claim of per-hop redirect control or live success.
+  not a claim of per-hop redirect control, cookie observation, or packaged
+  permission-consent behavior.
+
+The post-change live artifact is SHA-256
+`55ba81ea21fb8fad27475bdef5faf4e351772da83a4278809dc92f861869f81f`.
+The two destination notes retain matching normalized message bodies and contain
+no checked remote-host, signed-path, cookie, authorization, or request-header
+residue. Static diff review found no plausible changed-code vulnerability while
+keeping intermediate-hop and runtime cancellation evidence explicitly open.

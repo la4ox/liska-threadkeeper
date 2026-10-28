@@ -178,9 +178,11 @@ availability; stale/failed links never become fetched claims.
 
 The pre-change installed Liska canary twice found one generated image at
 `lh3.googleusercontent.com` but failed capture; File and Obsidian notes matched
-without false image links. The upstream redirect observation supports this
-bounded port, not a claim of post-change success. Offline verification is
-recorded in `STATUS.md`; a fresh installed Gemini canary remains required.
+without false image links. The exact post-change installed build then retained
+one byte-identical 236,990-byte JPEG in both destinations, with matching local
+links, dimensions 1024 by 559 and SHA-256 `55ba81ea...69f81f`. This closes that
+bounded port while leaving packaged re-consent, intermediate redirect hops and
+runtime cancellation unproven. `STATUS.md` records the complete receipt.
 
 ## Already present or superseded
 

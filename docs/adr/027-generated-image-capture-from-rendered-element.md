@@ -111,9 +111,12 @@ Supporting details:
   never reads/serializes their values or exposes them to the model, content
   script, or durable output. URL presence is reference evidence, not byte
   availability; stale or failed links never become fetched claims.
-  Intermediate hops are not observable or
-  validated per-hop; final-host acceptance is not a full egress proof. Offline
-  response tests do not close the fresh installed-extension Gemini image gate.
+  Intermediate hops are not observable or validated per-hop; final-host
+  acceptance is not a full egress proof. A fresh installed authenticated canary
+  now closes one remote-image File/Obsidian acquisition path: both destinations
+  retained the same 236,990-byte JPEG, SHA-256 `55ba81ea...69f81f`, at 1024 by
+  559 with one correct local link. Packaged permission re-consent,
+  intermediate-hop observation and cancellation behavior remain separate gates.
 - **The core of this change cannot be proven by the unit tests.** jsdom has no
   canvas, so `getContext`/`toDataURL` are stubbed and the tests only pin the
   control flow. The evidence that a canvas read actually recovers a revoked
