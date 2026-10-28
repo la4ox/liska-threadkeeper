@@ -1,5 +1,46 @@
 # Project status
 
+## Provider live gates — Gemini Research and Gemini Notebook
+
+A current installed-build canary now distinguishes the two Gemini Research
+surfaces instead of treating the report card as an ordinary message. With the
+immersive report panel open, File and Obsidian received byte-identical
+78,013-byte Markdown documents with one report message. The rendered final
+paragraph was visible at the bottom of the panel and matched the saved tail.
+With the panel closed, the same page produced a separate byte-identical
+9,269-byte ordinary conversation note with eight role sections. The two routes
+have different IDs and body hashes; the report contains no ordinary role
+sentinels, while the closed view contains four user and four Gemini sections.
+Both pairs have valid frontmatter and no checked credential, header, cookie, or
+unsafe-URL residue. Serialized `type` is absent by the existing note-generator
+contract; `message_count` is present as 1 and 8 respectively. Zero report
+footnotes is valid for this source-free sample and is not by itself evidence of
+loss.
+
+One current Gemini Notebook canary also completed to File and Obsidian. The
+destinations contain six unique message bodies and the same frontmatter
+identity/count. File is 44,231 bytes and Obsidian is 43,815 bytes; removing
+exactly 208 expected File-only blockquote prefixes makes every line identical.
+The citation contract is intact: 362 `m<assistant-index>-<number>` occurrences
+resolve to 226 references and 136 unique definitions, with zero duplicate
+definitions, unresolved references, orphan definitions, out-of-contract labels,
+or checked credential/active-scheme residue. A first verifier incorrectly
+looked only for purely numeric footnote labels; the corrected contract and a
+sanitized live DOM probe both confirm the existing
+`button.citation-marker.chat-bidi-enabled` plus child-label shape.
+
+Perplexity remains a browser-specific live gate, not a demonstrated extractor
+regression. The authenticated Comet document is exact `www.perplexity.ai` even
+though its omnibox hides `www`; adding the apex host is therefore unjustified.
+The installed manifest grants the exact `www` host, but after a hard refresh and
+the readiness fallback deadline the page contained no Liska launcher/styles,
+and DevTools exposed the page and Comet-agent worlds without a Liska content
+script context. Current source would inject after at most ten seconds once the
+content script runs, regardless of selector drift. Test the same current build
+in a non-Comet Chromium session before changing provider selectors, origins, or
+permissions; Comet may suppress third-party content scripts on its own domain.
+No provider code changed at this checkpoint.
+
 ## Gemini generated-image redirect boundary — live-verified checkpoint
 
 Branch `codex/gemini-image-redirect-boundary` starts at `d45e450`. The
