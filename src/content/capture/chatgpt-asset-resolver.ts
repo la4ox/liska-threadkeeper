@@ -670,11 +670,20 @@ export function extractChatGptLibraryCsvPlan(
   return extractChatGptLibraryAssetPlan(raw, assets, eligibleAssetIds, 'text/csv');
 }
 
+/** Separate one-item opaque text/plain admission, never general Library text authority. */
+export function extractChatGptLibraryTextPlainPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  eligibleAssetIds: readonly string[]
+): ChatGptActiveAssetPlanItem | undefined {
+  return extractChatGptLibraryAssetPlan(raw, assets, eligibleAssetIds, 'text/plain');
+}
+
 function extractChatGptLibraryAssetPlan(
   raw: unknown,
   assets: readonly RawCaptureAssetRecord[],
   eligibleAssetIds: readonly string[],
-  mediaType: 'image/jpeg' | 'text/csv'
+  mediaType: 'image/jpeg' | 'text/csv' | 'text/plain'
 ): ChatGptActiveAssetPlanItem | undefined {
   if (!allowsChatGptAttachmentAcquisition(raw) || !Array.isArray(assets)) return undefined;
   const classification = classifyChatGptLibraryAssets(raw, assets);

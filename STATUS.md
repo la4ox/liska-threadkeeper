@@ -37,8 +37,8 @@
 - Legacy Markdown warnings now distinguish retained attachment references/metadata from binary files. They no longer imply that omitted attachment bytes were saved merely because canonical JSON succeeded.
 - Obsidian archive companions are transported to Local REST API as `application/octet-stream` while retaining `.json` filenames and manifest media types. This avoids the plugin's `application/json` parser/re-serializer and preserves exact bytes for binary readback. Obsidian-only and immediate File+Obsidian live smokes produced Markdown plus raw/manifest/canonical companions; each raw matched its manifest byte length and SHA-256, and all three archive files were byte-identical across Downloads and Obsidian. Fixed allowlisted stage codes report preflight/PUT/readback failures without exposing paths, identifiers, API responses, or exception text.
 - `npm run build` and platform lint pass. ESLint has no errors and three pre-existing warnings outside the first-release changes.
-- The DeepSeek archive and synthetic attachment canary are verified in draft PR [#8](https://github.com/la4ox/liska-threadkeeper/pull/8). The Obsidian API-key migration is fail-closed and serialized in the service worker in draft PR [#9](https://github.com/la4ox/liska-threadkeeper/pull/9): runtime reads never fall back to the legacy sync secret, and popup saves use a validated worker route. Their local integration preserves both sender gates; combined validation and live File+Obsidian smoke are pending.
-- ChatGPT checkpoint PR [#7](https://github.com/la4ox/liska-threadkeeper/pull/7) is merged at `588d390`. PR #8 and PR #9 are separate draft review surfaces; neither is merged or released. Release and merge decisions remain explicit.
+- DeepSeek archives/verified attachments and Obsidian API-key hardening were integrated by [PR #10](https://github.com/la4ox/liska-threadkeeper/pull/10), merged at `ef24f3e` in current Git history. The earlier separate draft PR #8/#9 and pending combined-smoke statements are historical: commit `d30d666` records the successful 2026-10-01 File+Obsidian canary with byte-identical raw/manifest/canonical/binary artifacts. Runtime secret reads remain fail-closed; popup saves use the validated, serialized worker route. This is a history reconciliation, not a newly run live check or a release claim.
+- ChatGPT checkpoint [PR #7](https://github.com/la4ox/liska-threadkeeper/pull/7) is merged at `588d390`. The later combined DeepSeek/Obsidian integration is anchored by `ef24f3e`; release/tag decisions remain explicit.
 
 ## Important limits and risks
 
@@ -2780,6 +2780,44 @@ picker and cancelling it preserved both selections and the rendered report.
 This closes the installed Comet picker/analyze/Save As/late-terminal/cancel
 gate. Other-browser portability and responsiveness near hard limits remain
 separate evidence gates; no cleanup authority was added.
+
+## ChatGPT Library text/plain candidate checkpoint
+
+Branch `codex/chatgpt-library-text-plain`, based on main `2de34c0e`, implements
+one separately evidence-gated `text/plain` Library family. The supplied offline
+capture has two structurally eligible assets. Lexicographic opaque-ID policy
+selects the 4,233-byte metadata candidate and leaves the 21,231-byte candidate
+`not-attempted`; neither size is claimed as newly fetched evidence. No live
+archive or conversation text was read during implementation.
+
+The planner retains exact direct attachment identity, whole-ledger collision
+checks and interpreter/owner precedence. Raw must first reach a durable
+destination; committed raw is replanned again immediately before the sole
+ID-bearing command. Order is interpreter acquisition, Library CSV, Library
+JPEG, Library text/plain, then ordinary images. Existing CSV/JPEG priority is
+preserved; TXT consumes at most one of the existing four active slots and
+shares the unchanged 20-attempt/128 MiB budget. A failed/unknown attempt stays
+family-owned with no retry, fallback or second text selection.
+
+Exact ledger `text/plain` must match the response MIME essence. Bytes are
+opaque and retained under `assets/<sha256>.txt`; there is no decoding, encoding
+guarantee, newline normalization, transcoding or inline preview. Existing HTML
+binding renders a download only. File and Obsidian fetched claims remain
+independent. The optional 0/1 `libraryTextPlainAttemptCount` extends only the
+closed `asset-batch-4` aggregate audit; older audit shapes and warning text
+remain unchanged, and TXT never counts as ordinary images. Library IDs and
+signed transport remain raw-only/transient; the unchanged canonical ordinary
+attachment source IDs are not new durable resolver evidence.
+
+Focused verification passes 8 files / 612 tests; TypeScript, source/platform
+lint (zero errors, the same three baseline warnings) and the guarded production
+build (288 modules) pass. The full suite passes 224 files / 7,525 tests, with one
+Windows-only case-sensitivity test skipped. No installation, live resolver
+dispatch or archive write was performed.
+Next: install an explicitly authorized exact candidate build, then run one
+trusted-click text/plain File/Obsidian canary and reconcile physical bytes,
+path/length/SHA-256, destination receipts, second-record state and aggregate
+audit. General Library text remains unsupported; the live gate is open.
 
 ## ChatGPT Library CSV candidate checkpoint
 

@@ -68,6 +68,7 @@ import {
   extractChatGptActiveImagePlan,
   extractChatGptLibraryJpegPlan,
   extractChatGptLibraryCsvPlan,
+  extractChatGptLibraryTextPlainPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
 } from './chatgpt-asset-resolver';
@@ -891,6 +892,14 @@ export async function planChatGptLibraryCsvAsset(
   return planChatGptLibraryAsset(context, eligibleAssetIds, extractChatGptLibraryCsvPlan);
 }
 
+/** Separate opaque text/plain admission with exact committed-raw ownership checks. */
+export async function planChatGptLibraryTextPlainAsset(
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds: readonly string[]
+): Promise<ChatGptActiveAssetPlanItem | undefined> {
+  return planChatGptLibraryAsset(context, eligibleAssetIds, extractChatGptLibraryTextPlainPlan);
+}
+
 async function planChatGptLibraryAsset(
   context: ChatGptAssetExportContext,
   eligibleAssetIds: readonly string[],
@@ -943,6 +952,14 @@ export async function resolveChatGptLibraryCsvAsset(
   item: ChatGptActiveAssetPlanItem
 ): Promise<ChatGptActiveAssetResponse> {
   return resolvePlannedChatGptAsset(context, item, planChatGptLibraryCsvAsset);
+}
+
+/** Re-plan text/plain authority immediately before the sole ID-bearing command. */
+export async function resolveChatGptLibraryTextPlainAsset(
+  context: ChatGptAssetExportContext,
+  item: ChatGptActiveAssetPlanItem
+): Promise<ChatGptActiveAssetResponse> {
+  return resolvePlannedChatGptAsset(context, item, planChatGptLibraryTextPlainAsset);
 }
 
 async function resolvePlannedChatGptAsset(

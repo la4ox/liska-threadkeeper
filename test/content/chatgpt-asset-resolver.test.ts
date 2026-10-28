@@ -15,6 +15,7 @@ import {
   extractChatGptActiveImagePlan,
   extractChatGptLibraryJpegPlan,
   extractChatGptLibraryCsvPlan,
+  extractChatGptLibraryTextPlainPlan,
   extractChatGptInterpreterAssetPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptTransientResolverRecord,
@@ -66,6 +67,7 @@ describe('ChatGPT page-owned asset resolver matching', () => {
   describe.each([
     ['JPEG', 'image/jpeg', extractChatGptLibraryJpegPlan],
     ['CSV', 'text/csv', extractChatGptLibraryCsvPlan],
+    ['text/plain', 'text/plain', extractChatGptLibraryTextPlainPlan],
   ] as const)('separate Library %s admission', (_family, admittedMediaType, planLibraryAsset) => {
     function libraryFixture(extra: Record<string, unknown> = {}) {
       const raw = {
@@ -187,18 +189,26 @@ describe('ChatGPT page-owned asset resolver matching', () => {
       }
     });
 
-    it.each([
-      'image/png',
-      'image/webp',
-      'image/jpg',
-      'IMAGE/JPEG',
-      'image/jpeg; charset=utf-8',
-      'text/plain',
-      'text/CSV',
-      'text/csv; charset=utf-8',
-      admittedMediaType === 'text/csv' ? 'image/jpeg' : 'text/csv',
-      null,
-    ])('does not admit MIME %s', mediaType => {
+    it.each(
+      [
+        'image/png',
+        'image/webp',
+        'image/jpg',
+        'IMAGE/JPEG',
+        'image/jpeg; charset=utf-8',
+        'text/plain',
+        'text/CSV',
+        'text/csv; charset=utf-8',
+        'text/PLAIN',
+        'text/plain; charset=utf-8',
+        'text/markdown',
+        'application/octet-stream',
+        'text/html',
+        'image/jpeg',
+        'text/csv',
+        null,
+      ].filter(mediaType => mediaType !== admittedMediaType)
+    )('does not admit MIME %s', mediaType => {
       const { raw, record } = libraryFixture();
       expect(planLibraryAsset(raw, [{ ...record, mediaType }], [record.id])).toBeUndefined();
     });

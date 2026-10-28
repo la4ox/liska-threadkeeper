@@ -623,6 +623,40 @@ establish general Library identity equivalence, Library PNG/WebP or text/plain,
 custom-GPT/project ownership, WebP structure validation or a new endpoint.
 Those remain separately evidence-gated work.
 
+The next implemented, not yet live-verified specialization is one exact
+Library `text/plain` attachment. It reuses every direct-ID, whole-ledger
+collision and owner check above, then replans committed raw immediately before
+the sole ID-bearing command. Selection is lexicographic by opaque asset ID,
+independent of ledger order. The supplied offline evidence has two eligible
+records: that policy selects the 4,233-byte candidate and leaves the
+21,231-byte candidate `not-attempted`; these are provider metadata sizes, not
+newly acquired-byte claims.
+
+Ordering is interpreter acquisition, then Library CSV, JPEG, text/plain, then
+remaining ordinary images. CSV/JPEG retain their relative priority. Each
+Library family can consume at most one of the existing four active operations;
+all families retain the shared 20-attempt/128 MiB acquisition budget. Dispatch
+ownership begins before the request and prohibits retry or passive fallback,
+including helper/binding/MIME/byte/persistence failures. The optional
+`libraryTextPlainAttemptCount` adds a bounded 0/1 count to `asset-batch-4`;
+historical metric/image/CSV audit shapes and their warning text remain valid.
+Text attempts are never counted as ordinary images.
+
+Only exact ledger `text/plain` and matching response MIME essence are admitted
+(response charset parameters do not promise an encoding). The bytes are
+opaque: no text decoding, encoding validation/guarantee, newline normalization,
+transcoding or inline preview. Existing hash/length verification produces a
+content-addressed `.txt`, and finalized HTML exposes only a download link.
+Raw persistence and per-destination receipts still govern all durable claims.
+Library identifiers and signed transport remain raw-only/transient; no new
+resolver identifier enters durable output. Pre-existing ordinary attachment
+IDs in canonical source metadata are unchanged, not a resolver receipt.
+
+General Library text, other text MIME types and owner-context binaries remain
+unsupported. An installed trusted-click text/plain canary with exact
+File/Obsidian bytes, path/length/SHA-256, second-record state and aggregate
+audit reconciliation is still required; the implementation is not live success.
+
 ### Owner routes are capture context, not attachment authority
 
 Custom-GPT and project routes now have a separate content-free runtime contract.
@@ -948,7 +982,9 @@ later staged begin.
 Progress as of 2026-10-23: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images,
 interpreter/sandbox documents, one exact Library-associated JPEG and one exact
-passive Library CSV with explicit completeness diagnostics. Custom-GPT/project raw capture is
+passive Library CSV with explicit completeness diagnostics. A separate one-item
+Library text/plain specialization is implemented but retains its installed live
+gate. Custom-GPT/project raw capture is
 live-verified under an archive-only, zero-binary policy; their binary ownership,
 other Library binary families, Calpico fallback, and general Deep Research
 binary acquisition remain outside the current checkpoint. Step 8 is implemented and live-verified
