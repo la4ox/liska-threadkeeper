@@ -478,6 +478,18 @@ Library-ID evidence; no `.webp` binary was present in its capture. It therefore
 does not justify widening the ordinary active image allowlist and instead
 becomes evidence for the separate Library contract.
 
+A separate bounded scan of one 191,352,495-byte official-export shard found
+four exact `image/webp` attachment records across four conversations and no
+`image/gif`. All four sit at `message.metadata.attachments[]` with a direct ID,
+declared size/dimensions/source and MIME; none carries `library_file_id`,
+artifact, file-service, sediment or interpreter markers. Live navigation
+classified the available surfaces more narrowly: two ordinary `/c/...` IDs are
+currently unavailable, while the other two resolve to accessible project
+routes under `/g/g-p-.../c/...`. Those project records are useful evidence for
+the separate owner-context binary-acquisition contract, but still do not
+authorize ordinary WebP acquisition. No resolver response or original WebP
+bytes were observed.
+
 The first offline Library checkpoint classifies only ledger records reached by
 their exact committed-raw source references. Its exported result contains only
 opaque asset IDs split into `associated` and `ambiguous` sets; Library ID values
