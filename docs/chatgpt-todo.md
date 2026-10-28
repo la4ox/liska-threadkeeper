@@ -431,13 +431,25 @@ terminal states, and the existing no-credential-export boundary.
 - First identify the authenticated page-owned conversation transport, raw graph
   or event model, current-thread identity, pagination, branches, tool content,
   media, and attachment families without reading unrelated Dots/account state.
-- Probe design gate: do not add a generic same-origin request observer. Unknown
-  path segments and query-key names can themselves disclose memory/persona or
-  account data. Require one independently grounded conversation-history route
-  grammar first; observe only that exact candidate in the selected top-frame
-  document under one trusted, short-lived capability. No reload/disposable tab,
-  request generation, header values/content-type, body, cookies/storage, or
-  dynamic allowlist learning.
+- Route grammar is now grounded by one authorized selected-tab observation:
+  exact JSON GETs used `tbo/by-thread/{thread}`, `tbo/{dot~user}`,
+  `tbo/{dot~user}/threads` with only `include_hidden,limit`, room metadata, and
+  `messaging/rooms/{room}/messages` with only `limit`. Separate room-live,
+  aeon/prepare and voice routes are realtime/write surfaces, not history input.
+  The observation retained only method, redacted path shape, query-key names,
+  status and MIME; it read no headers, cookies, storage or bodies and generated
+  no API request/message. One selected-tab reload was used; a route-string scan
+  of official exports yielded no matching Dots/TBO/room evidence, while any
+  alternate Dots representation in those exports remains unverified.
+- Probe design gate: a first implementation may observe only one exact
+  room-metadata GET and its same-room messages GET, accept exactly one room
+  identity during a short-lived user-initiated selected-tab operation, and emit
+  only a bounded schema projection. The TBO route bodies remain out of scope
+  until separately justified; route presence alone does not prove that they omit
+  memory, persona or account state. Capture the schema-only room/messages shape
+  before authorizing a raw artifact. Do not add a generic same-origin observer,
+  direct replay, realtime stream capture, dynamic allowlist learning,
+  memory/persona collection, or unrelated account traffic.
 - Preserve one exact conversation-scoped raw artifact before designing the
   provider adapter; retain unknown event types instead of flattening them.
 - Map verified Dots raw data into `liska-thread/1`, then reuse existing Markdown,

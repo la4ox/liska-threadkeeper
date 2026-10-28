@@ -2313,20 +2313,35 @@ memory/persona state, attachments, canonical adapter, or durable output is
 claimed. History-only URL changes without a DOM mutation and live SPA behavior
 remain explicit proof gaps; trusted sync still rechecks admission before output.
 
-The next Dots transport-discovery pass is deliberately stopped before code.
-Authenticated browser DOM/network access is denied by host policy, and the
-public page exposes only an anti-bot challenge. More importantly, an
-unknown-endpoint observer cannot both discover arbitrary same-origin routes and
-truthfully promise never to inspect unrelated Dot memory, persona, activity, or
-other ChatGPT requests. Path segments and query-key names may themselves contain
-personal data, so heuristic redaction is not sufficient.
+The next Dots transport-discovery pass remains stopped before code, but an
+explicitly authorized selected-tab observation now grounds the route family.
+One current Dots page used exact same-origin JSON GETs for
+`/backend-api/tbo/by-thread/{thread}`, `/backend-api/tbo/{dot~user}`,
+`/backend-api/tbo/{dot~user}/threads?include_hidden&limit`,
+`/backend-api/messaging/rooms/{room}`, and
+`/backend-api/messaging/rooms/{room}/messages?limit`. The same page separately
+used a room `live` event stream plus aeon/voice routes; those realtime/write
+surfaces are not conversation-history authority. All identifiers and query
+values were redacted before retention.
 
-No broad fetch observer, reload probe, disposable Dots tab, request clone,
-header/content-type read, body capture, or synthetic message was added. The next
-evidence gate is one independently grounded conversation-history route contract
-(exact static prefix/segment count/identifier position/query-key allowlist), or
-an explicitly authorized current-tab observation of that one known candidate.
-Until then the merged route guard remains the correct product behavior.
+The observation recorded only method, normalized path shape, query-key names,
+status and response MIME. It read no header, cookie, storage value, request or
+response body, and issued no direct API request or synthetic message. One
+selected-tab reload reproduced the routes; Chrome did not make the already
+received bodies available through the bounded CDP surface. A content-free scan
+of existing official ChatGPT exports yielded no matching Dots/TBO/room
+route-based evidence; whether those exports contain a usable Dots conversation
+representation remains unverified.
+
+This route grammar is sufficient to design a narrow user-initiated selected-tab
+probe, not to implement a provider adapter. The next evidence gate is a
+schema-only shape from one exact room-metadata GET and its same-room messages
+GET, accepting exactly one room identity during a finite observation. The TBO
+route bodies remain out of scope: their presence does not prove that they omit
+memory, persona or account state. Only after the schema gate may one
+conversation-scoped raw artifact be considered. No generic same-origin
+observer, dynamic allowlist learning, direct request replay, realtime stream
+capture, memory or persona collection is authorized.
 
 ## ChatGPT cross-format reconciliation core checkpoint
 
