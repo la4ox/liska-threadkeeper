@@ -2812,12 +2812,48 @@ attachment source IDs are not new durable resolver evidence.
 Focused verification passes 8 files / 612 tests; TypeScript, source/platform
 lint (zero errors, the same three baseline warnings) and the guarded production
 build (288 modules) pass. The full suite passes 224 files / 7,525 tests, with one
-Windows-only case-sensitivity test skipped. No installation, live resolver
-dispatch or archive write was performed.
-Next: install an explicitly authorized exact candidate build, then run one
-trusted-click text/plain File/Obsidian canary and reconcile physical bytes,
-path/length/SHA-256, destination receipts, second-record state and aggregate
-audit. General Library text remains unsupported; the live gate is open.
+Windows-only case-sensitivity test skipped. Independent code review and a
+separate 392-test verification pass found no material issue.
+
+The exact committed candidate `631c031` was installed by the verified unpacked
+installer: source and installed inventories both contain 40 files / 1,108,764
+bytes with aggregate SHA-256 `2ff981c3...20b5`; rollback
+`liska-rollback-20261028T142008932Z-daa0b347fc63496c816f09a99e1494c8`
+retains the previous bytes. Comet reloaded only Liska, and the Local REST API
+connection check succeeded before the canary.
+
+One trusted click then created capture
+`capture-chatgpt-cd922308-c0e2-4b23-a092-b68e44e8bf49` in File and Obsidian.
+The 12 shared capture paths are byte-identical. File additionally has only the
+expected 1,937,991-byte canonical HTML and its hash-bound receipt. Both
+destinations contain the same fetched 4,233-byte text/plain asset at
+`assets/1a1fcf5d...76.txt`; its physical bytes, filename digest, manifest and
+canonical path/length/SHA-256 agree. The second text/plain record remains
+`not-attempted` with no local evidence. Raw is 9,825,646 bytes and matches its
+manifest SHA-256; both byte-identical manifests have SHA-256
+`8144e7df...5513`, which canonical also binds.
+
+The closed audit records `selected=4/4`, `completed=4`, `observed=4`, one
+Library text/plain, one Library JPEG, zero Library CSV and two ordinary-image
+attempts. File and Obsidian notes both report 875 messages, complete structured
+capture, the same manifest digest and the same local TXT link. Their byte sizes
+differ because of destination formatting; both have 34,610 lines and become
+line-for-line equal after removing Markdown structural prefixes. The selected
+Library ID has zero exact matches in the inspected non-raw artifacts. No
+URL-valued field was structurally tied to that record, so this canary makes no
+exact-value URL-absence claim. The selected ordinary direct attachment `id`
+has 10 matches across two non-raw artifact classes; current normalizer code
+intentionally retains such IDs as pre-existing source provenance, not as a new
+resolver field. A focused regression now proves acquisition leaves those
+source refs unchanged while resolver warnings/receipts contain neither that
+direct ID nor the Library ID sentinel.
+
+This closes the one-item Library text/plain live gate without claiming general
+Library text, decoding, encoding validation, inline preview or owner-context
+binaries. A separate UI follow-up remains: in the observed Comet window/110%
+geometry the expanded compact actions were visually present but their
+accessibility hit targets were reported below the window; after re-observation
+at 100% the trusted export action was operable. Window state may also contribute.
 
 ## ChatGPT Library CSV candidate checkpoint
 

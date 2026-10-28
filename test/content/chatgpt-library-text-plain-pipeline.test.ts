@@ -154,6 +154,9 @@ async function runPipeline(
     asset => asset.mediaType === 'text/csv'
   )!.id;
   const selectedTextPlainId = [...textPlainIds].sort()[0];
+  const sourceRefsBeforeAcquisition = structuredClone(
+    captured.archive.assets[selectedTextPlainId].sourceRefs
+  );
   const order: string[] = [];
   const dispatched: ChatGptActiveAssetPlanItem[] = [];
   const family = (id: string) =>
@@ -349,6 +352,7 @@ async function runPipeline(
     context,
     textPlainIds,
     selectedTextPlainId,
+    sourceRefsBeforeAcquisition,
     resolveLibraryCsvAsset,
     jpegId,
     order,
@@ -396,6 +400,11 @@ describe('evidence-gated Library text/plain runtime', () => {
     expect(run.bytesRemaining[0]).toBe(128 * 1024 * 1024);
     expect(run.dispatched.find(item => run.textPlainIds.includes(item.assetId))!.assetId).toBe(
       run.selectedTextPlainId
+    );
+    const selectedDispatch = run.dispatched.find(item => run.textPlainIds.includes(item.assetId))!;
+    const selectedDirectAttachmentId = selectedDispatch.providerFileId;
+    expect(run.sourceRefsBeforeAcquisition.some(ref => ref.id === selectedDirectAttachmentId)).toBe(
+      true
     );
     for (const manifest of run.manifests.values()) {
       expect(manifest.assets.find(asset => asset.id === run.selectedTextPlainId)).toMatchObject({
@@ -446,7 +455,16 @@ describe('evidence-gated Library text/plain runtime', () => {
         localArtifactRef: `assets/${activeDigest(TEXT_PLAIN_BYTES)}.txt`,
         acquisition: { state: 'fetched' },
       });
+      expect(canonical.assets[run.selectedTextPlainId].sourceRefs).toEqual(
+        run.sourceRefsBeforeAcquisition
+      );
     }
+    const resolverEvidence = JSON.stringify({
+      warnings: run.result.warnings,
+      receipts: run.result.destinationReceipts,
+    });
+    expect(resolverEvidence).not.toContain(selectedDirectAttachmentId);
+    expect(resolverEvidence).not.toContain('private-library-text-plain');
   });
 
   it('retains exact passive bytes without decoding, encoding guarantees or newline normalization', async () => {

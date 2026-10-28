@@ -623,8 +623,8 @@ establish general Library identity equivalence, Library PNG/WebP or text/plain,
 custom-GPT/project ownership, WebP structure validation or a new endpoint.
 Those remain separately evidence-gated work.
 
-The next implemented, not yet live-verified specialization is one exact
-Library `text/plain` attachment. It reuses every direct-ID, whole-ledger
+The next implemented and live-verified specialization is one exact Library
+`text/plain` attachment. It reuses every direct-ID, whole-ledger
 collision and owner check above, then replans committed raw immediately before
 the sole ID-bearing command. Selection is lexicographic by opaque asset ID,
 independent of ledger order. The supplied offline evidence has two eligible
@@ -653,9 +653,17 @@ resolver identifier enters durable output. Pre-existing ordinary attachment
 IDs in canonical source metadata are unchanged, not a resolver receipt.
 
 General Library text, other text MIME types and owner-context binaries remain
-unsupported. An installed trusted-click text/plain canary with exact
-File/Obsidian bytes, path/length/SHA-256, second-record state and aggregate
-audit reconciliation is still required; the implementation is not live success.
+unsupported. The installed trusted-click canary produced byte-identical shared
+File/Obsidian capture trees, one 4,233-byte content-addressed `.txt` with exact
+manifest/canonical/physical agreement, a second `not-attempted` text record and
+the expected separate family count inside the unchanged four-operation audit.
+The selected Library ID had zero non-raw matches. No URL-valued field was tied
+to the selected record, so the canary does not turn a missing value into an
+absence claim. Existing direct attachment IDs may remain in canonical source
+provenance independently of acquisition; resolver planning introduces no new
+durable identifier field. A focused regression compares source refs before and
+after acquisition and excludes the direct and Library IDs from resolver
+warnings/receipts. This closes only the one-item specialization.
 
 ### Owner routes are capture context, not attachment authority
 
@@ -981,10 +989,9 @@ later staged begin.
 
 Progress as of 2026-10-23: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images,
-interpreter/sandbox documents, one exact Library-associated JPEG and one exact
-passive Library CSV with explicit completeness diagnostics. A separate one-item
-Library text/plain specialization is implemented but retains its installed live
-gate. Custom-GPT/project raw capture is
+interpreter/sandbox documents, one exact Library-associated JPEG, one exact
+passive Library CSV and one exact Library text/plain with explicit completeness
+diagnostics. Custom-GPT/project raw capture is
 live-verified under an archive-only, zero-binary policy; their binary ownership,
 other Library binary families, Calpico fallback, and general Deep Research
 binary acquisition remain outside the current checkpoint. Step 8 is implemented and live-verified
