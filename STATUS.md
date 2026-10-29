@@ -1,6 +1,6 @@
 # Project status
 
-## Durable capture-loss diagnostics — offline candidate
+## Durable capture-loss diagnostics — installed candidate
 
 Branch `codex/durable-loss-diagnostics` adds a privacy-bounded historical loss
 contract for ordinary legacy-provider Markdown. Two always-on frontmatter keys
@@ -38,14 +38,44 @@ any other literal, escaped, quoted, tagged, anchored, explicit, flow, or folded
 mention of the owned key family fails closed. Focused regressions cover those
 forms and the exact mixed-EOL PUT body.
 
+Markdown safety may neutralize an unsuccessful private image placeholder before
+destination resolution. File, Obsidian and stripping paths now remove the
+expected line-isolated neutralized grammar and never convert it back into an
+active embed, even if an image with the same ID is supplied. An anomalous
+inline, code or HTML-shaped marker stays inert instead of being deleted and
+joining surrounding tokens. This closes the private `g2o-image://` residue
+exposed by the first exact producer canary without weakening remote-image,
+fenced-code or message-boundary protections.
+
 ADR-044 records the semantics and the deliberate boundary: schema 1 does not
 cover post-Markdown File image failures, Obsidian destination image failures,
 intentional Clipboard omission, derived HTML, or current-completeness
-assessment. The authenticated tree passes all 226 test files: 7,665 tests
-passed and one existing test skipped (7,666 total), with one worker. TypeScript,
-the 289-module production build and service-worker runtime check, ESLint with
-the same three pre-existing warnings, platform lint, Prettier, and diff checks
-pass. An installed legacy-provider loss canary remains required before merge.
+assessment. The current integrated tree passes all 234 test files: 8,002 tests
+passed and one existing test skipped (8,003 total), with one worker. Coverage
+remains above the repository threshold at 95.06% statements, 91.76% branches,
+98.60% functions and 97.56% lines. TypeScript, the 294-module production build
+and service-worker runtime check pass. Full source/platform lint has zero errors
+and the same three pre-existing warnings; exact Prettier 3.7.4 and diff checks
+also pass.
+
+The exact installed candidate contains 41 files / 1,154,236 bytes. Source and
+installed aggregate SHA-256 both equal `8313d728...c0b7`; manifest SHA-256 is
+`a79b440e...e8db`, and rollback
+`liska-rollback-20261029T024810957Z-71b407980e004e6ea7cb57d759f66cdd`
+retains the previous bytes. Native CUA reloaded only Liska and the Gemini page
+was then reloaded for the current content script.
+
+One File-only ordinary Gemini canary placed a revoked, undecoded same-origin
+Blob image inside the extractor's exact first-priority
+`.markdown.markdown-main-panel`; the live clone contained that identified image
+with `naturalWidth=0`. One trusted click emitted the fixed one-image failure
+warning, retained the real 236,990-byte JPEG with SHA-256
+`55ba81ea...f81f`, and wrote a 14,107-byte Markdown note (SHA-256
+`a5d81e31...2557`) with exactly `image-capture-failed`. The note contains no
+`g2o-image://`, `blob:`, canary ID, neutralized image opener or false local
+link. A page reload removed the synthetic node and observer. Obsidian and File
+output, auto-scroll and image export were restored; Clipboard and append remain
+disabled. Exact-head CI and GitHub reviews remain the merge gate.
 
 ## Provider live gates — Gemini Research and Gemini Notebook
 

@@ -48,6 +48,21 @@ The serializer emits the fields independently of optional template toggles and
 does not change the Markdown body or its content hash. The background boundary
 accepts only an own enumerable bounded array of exact schema-1 codes.
 
+An unsuccessful private image placeholder is not durable presentation content.
+Markdown safety may neutralize its `![` opener before a destination sees it, so
+File, Obsidian and stripping paths recognize both the literal and neutralized
+`g2o-image://` placeholder grammar. The expected line-isolated form is removed.
+An anomalous inline, code or HTML-shaped form remains literal so deletion cannot
+expose a fence or compose new Markdown/HTML syntax. Neither form is reactivated
+as an embed, even if a matching image ID is present.
+
+Destination cleanup reparses only the already size-bounded note body. It
+protects every intersecting code, HTML, link, definition and image range, caps
+tree traversal at 200,000 scheduled nodes, and preserves unresolved markers on
+parse/traversal failure. The traversal cap does not bound the parser's initial
+allocation; that remains within the existing note-size boundary rather than a
+new streaming guarantee.
+
 Append treats the list as monotonic historical evidence:
 
 - existing and incoming codes merge by set union;
