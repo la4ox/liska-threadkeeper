@@ -1,7 +1,8 @@
 # ADR-045: Obsidian append images belong only to the verified new tail
 
-- Status: Candidate; offline implementation verified, installed acceptance pending
+- Status: Accepted; offline and installed acceptance verified
 - Date: 2026-10-29
+- Accepted: 2026-10-30
 - Related: ADR-008, ADR-021, ADR-027, ADR-033
 
 ## Context
@@ -113,6 +114,23 @@ refusal paths write neither binaries nor notes, while the intentional second-
 asset failure may retain the first verified binary but still performs zero note
 writes.
 
-Installed Obsidian acceptance remains required: one real append with a new image,
-an exact retry/reuse, a changed-base refusal after asset verification, and
-filesystem readback of both the content-addressed asset and appended note.
+Installed Obsidian acceptance is closed. An extension-owned synthetic tab used
+the production `saveToOutputs` boundary with Obsidian as the only destination.
+One new image tail created a content-addressed PNG; a later different image ID
+with identical bytes reused the same physical file without an mtime transition;
+an exact replay appended zero messages. Independent filesystem checks matched
+the final note markers/tokens/embeds and both note and asset SHA-256 values.
+
+The changed-base case used a second unique PNG plus a temporary exact-ID
+scheduling gate after `persistAppendImagePlan` and before the unchanged
+`commitVerifiedAppendNote` call. After the gate proved asset verification, an
+external marker changed only the synthetic base note. The production reread
+returned `append-note-changed-before-write`, preserved those exact external
+bytes, wrote no proposed tail and retained the verified unreferenced asset. The
+gate therefore supplies scheduling-only integration evidence; it does not turn
+the existing GET-to-PUT sequence into CAS.
+
+All temporary gate/page code was removed from active source and the installed
+package. The clean 41-file production build was
+rebuilt, reinstalled byte-for-byte and loaded after a Comet restart; source and
+installed trees match on every relative path, length and SHA-256.
