@@ -2359,13 +2359,17 @@ synchronous classic `dots-schema-document-start.js`. The built manifest keeps
 ordinary ChatGPT first and Dots second inside one ordered MAIN document-start
 entry; this avoids a live Comet compatibility failure where the second of two
 otherwise identical entries was never parsed. The current Dots artifact is
-22,909 bytes with SHA-256
-`5152c27a91a0e34146bd30803f0720e1b88e0325a61cb5ff5fca81d0ef15a68a`.
+22,517 bytes with SHA-256
+`2712899de29de7caee8ac738654db62f129b51b2e5cc0bc1056f81df22a5167d`.
 Focused route, observer, contract, popup, build and worker checks pass; the full
-suite passes 230 files / 7,796 tests with one existing skip. Production build
-transforms 291 modules, lint has zero errors and the same three pre-existing
-warnings, and independent review is clean after fixing the async-loader gap,
-ordinary failure cleanup and a late `tabs.update` marker race.
+coverage suite passes 231 files / 7,849 tests with one existing skip. Production
+build transforms 292 modules, lint has zero errors and the same three
+pre-existing warnings, and statement coverage is 95.04% against the unchanged
+95% floor. CI's layering rule also remains unchanged: the self-contained
+`chrome.scripting` page-state reader lives in `lib`, so background no longer
+imports the import-free MAIN observer from `content`. Independent review is
+clean after fixing the async-loader gap, ordinary failure cleanup, a late
+`tabs.update` marker race and same-document host fragment removal.
 
 Live provider compatibility is still deliberately unclaimed. An installed
 stable-page canary proved that the synchronous hook arms, returns the fixed

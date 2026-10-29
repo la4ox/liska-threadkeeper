@@ -467,6 +467,9 @@ terminal states, and the existing no-credential-export boundary.
   field. Re-run this classifier only on a stable Dots page. Later attempts were
   invalid because the page failed during reload, so Fetch-init versus URL-object
   versus XHR remains unproven.
+- Keep the MAIN observer import-free and the serialized page-state reader in
+  `lib`; background-to-content imports violate the repository layering gate.
+  Current full coverage is 95.04% with the unchanged 95% statement threshold.
 - Treat the schema button as temporary evidence tooling. Hide or remove it from
   the ordinary product surface after the real raw transport contract is proven.
 - Preserve one exact conversation-scoped raw artifact before designing the

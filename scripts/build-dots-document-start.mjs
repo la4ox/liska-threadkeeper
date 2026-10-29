@@ -25,7 +25,6 @@ const CHATGPT_LOADER = /^assets\/chatgpt-document-start\.ts-loader-[A-Za-z0-9_-]
 const EXPECTED_EXPORTS = new Set([
   'DotsSchemaDocumentStartResult',
   'startDotsSchemaDocumentStartProbe',
-  'readDotsSchemaProbeState',
 ]);
 
 class DotsBuildError extends Error {

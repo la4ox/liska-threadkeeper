@@ -1,11 +1,9 @@
 import { URL as NodeURL } from 'node:url';
 import { TextDecoder, TextEncoder } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  readDotsSchemaProbeState,
-  startDotsSchemaDocumentStartProbe,
-} from '../../src/content/capture/dots-schema-document-start';
+import { startDotsSchemaDocumentStartProbe } from '../../src/content/capture/dots-schema-document-start';
 import { isDotsSchemaProbeEvidence } from '../../src/lib/dots-schema-probe-contract';
+import { readDotsSchemaProbeState } from '../../src/lib/dots-schema-probe-page-state';
 
 const NONCE = '01234567-89ab-4cde-8f01-23456789abcd';
 const STATE = `__liskaDotsSchemaProbe_${NONCE}`;
@@ -969,4 +967,162 @@ describe('Dots schema privacy, work limits and cleanup', () => {
     ) => unknown;
     expect(serializedReader(NONCE)).toEqual(snapshot(page));
   });
+});
+
+describe('Dots observer native-boundary failures', () => {
+  it('stays inert for an unparsable marker URL', () => {
+    const page = fakePage('not a URL');
+    expect(startDotsSchemaDocumentStartProbe(page.window)).toEqual({ kind: 'inert' });
+    expect(page.window.fetch).toBe(page.fetch);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('refuses a missing prototype method before installing a fetch wrapper', () => {
+    const page = fakePage();
+    Object.assign(page.window, { Response: class MissingResponseMethods {} });
+    expect(startDotsSchemaDocumentStartProbe(page.window)).toEqual({
+      kind: 'error',
+      code: 'hook-state-failed',
+    });
+    expect(page.window.fetch).toBe(page.fetch);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('refuses a noncallable captured primitive before reading any request', () => {
+    const page = fakePage();
+    Object.assign(page.window, {
+      Reflect: { ...Reflect, apply: undefined, ownKeys: Reflect.ownKeys },
+    });
+    expect(startDotsSchemaDocumentStartProbe(page.window)).toEqual({
+      kind: 'error',
+      code: 'hook-state-failed',
+    });
+    expect(page.window.fetch).toBe(page.fetch);
+    expect(page.fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not classify a Request whose native method getter fails', async () => {
+    class UnreadableMethodRequest {
+      get url() {
+        return `https://chatgpt.com${ROOM}`;
+      }
+      get method(): never {
+        throw new Error('private method error');
+      }
+    }
+    const page = fakePage();
+    Object.assign(page.window, { Request: UnreadableMethodRequest });
+    startDotsSchemaDocumentStartProbe(page.window);
+    const input = new UnreadableMethodRequest() as unknown as Request;
+    await page.window.fetch(input);
+    await tick(15_000);
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'target-not-observed' });
+    expect(page.responses[0].cloneCount).toBe(0);
+    expect(page.fetch.mock.calls[0][0]).toBe(input);
+  });
+
+  it('refuses a throwing location read without leaking its exception', async () => {
+    const page = fakePage();
+    startDotsSchemaDocumentStartProbe(page.window);
+    Object.defineProperty(page.window.location, 'href', {
+      get() {
+        throw new Error('private location detail');
+      },
+    });
+    await tick(15_000);
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'navigation-changed' });
+    expect(page.window.fetch).toBe(page.fetch);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('preserves a synchronous native Fetch exception while settling the observed request', () => {
+    const failure = new Error('private synchronous fetch detail');
+    const page = fakePage();
+    page.fetch.mockImplementation(() => {
+      throw failure;
+    });
+    startDotsSchemaDocumentStartProbe(page.window);
+    expect(() => page.window.fetch(ROOM)).toThrow(failure);
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'request-failed' });
+    expect(page.window.fetch).toBe(page.fetch);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(JSON.stringify(snapshot(page))).not.toContain('private');
+  });
+
+  it('preserves the original response promise when attaching observation fails', async () => {
+    const page = fakePage();
+    const response = new TestResponse(`https://chatgpt.com${ROOM}`);
+    const original = Promise.resolve(response as unknown as Response);
+    page.fetch.mockImplementation(() => original);
+    Object.assign(page.window, {
+      Promise: {
+        prototype: {
+          then() {
+            throw new Error('private Promise hook detail');
+          },
+        },
+      },
+    });
+    startDotsSchemaDocumentStartProbe(page.window);
+    expect(page.window.fetch(ROOM)).toBe(original);
+    await expect(original).resolves.toBe(response);
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'response-processing-failed' });
+    expect(response.cloneCount).toBe(0);
+    expect(page.window.fetch).toBe(page.fetch);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('handles rejection of the observation chain without changing native Fetch', async () => {
+    const page = fakePage();
+    const response = new TestResponse(`https://chatgpt.com${ROOM}`);
+    const original = Promise.resolve(response as unknown as Response);
+    page.fetch.mockImplementation(() => original);
+    const nativeThen = Promise.prototype.then;
+    Object.assign(page.window, {
+      Promise: {
+        prototype: {
+          then(this: Promise<unknown>, ...args: Parameters<typeof nativeThen>) {
+            if (this === original) return Promise.reject(new Error('private observation failure'));
+            return Reflect.apply(nativeThen, this, args);
+          },
+        },
+      },
+    });
+    startDotsSchemaDocumentStartProbe(page.window);
+    expect(page.window.fetch(ROOM)).toBe(original);
+    await tick();
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'response-processing-failed' });
+    expect(response.cloneCount).toBe(0);
+    expect(page.window.fetch).toBe(page.fetch);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['custom prototype', 'known-field accessor'] as const)(
+    'rejects a non-JSON parsed object with %s without invoking user content',
+    async kind => {
+      const getter = vi.fn(() => 'private');
+      const invalid =
+        kind === 'custom prototype'
+          ? Object.assign(Object.create({ private: true }), { text: 'private' })
+          : Object.defineProperty({}, 'text', { enumerable: true, get: getter });
+      const text = '{"text":"private"}';
+      const page = fakePage(
+        MARKED,
+        async input => new TestResponse(`https://chatgpt.com${input}`, text)
+      );
+      Object.assign(page.window, {
+        JSON: {
+          parse: (source: string) => (source === text ? invalid : JSON.parse(source)),
+          stringify: JSON.stringify,
+        },
+      });
+      startDotsSchemaDocumentStartProbe(page.window);
+      await page.window.fetch(ROOM);
+      await tick();
+      expect(snapshot(page)).toEqual({ kind: 'error', code: 'response-processing-failed' });
+      expect(getter).not.toHaveBeenCalled();
+      expect(page.window.fetch).toBe(page.fetch);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
 });

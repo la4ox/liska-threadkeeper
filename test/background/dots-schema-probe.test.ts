@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as outputHandlers from '../../src/background/output-handlers';
 import {
   DOTS_SCHEMA_PROBE_ENDPOINTS,
   DOTS_SCHEMA_PROBE_FILE_NAME,
@@ -8,9 +9,12 @@ import {
 import {
   dotsSchemaProbeTargetUrl,
   isAuthorizedDotsSchemaProbeSender,
+  isDotsSchemaProbeFailureCode,
   probeDotsSchemaInActiveTab,
   removeDotsSchemaProbeMarker,
 } from '../../src/background/dots-schema-probe';
+
+const initialChrome = chrome;
 
 const TAB_ID = 41;
 const DOCUMENT_ID = 'document_123456';
@@ -871,5 +875,338 @@ describe('Dots selected-tab schema probe', () => {
     expect(h.currentUrl()).toBe(`${DOTS_URL}#liska-dots-schema=${NONCE}`);
     expect(h.downloadEvidence).not.toHaveBeenCalled();
     expect(h.operations.size).toBe(0);
+  });
+});
+
+describe('Dots probe browser failures and default local delivery', () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.stubGlobal('chrome', initialChrome);
+  });
+
+  it('uses native nonce, clock, sleep and Chrome defaults before terminal local delivery', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const h = harness();
+    const api = h.chromeApi as unknown as { tabs: unknown; scripting: unknown };
+    vi.stubGlobal('chrome', { ...initialChrome, ...api });
+    const nonce = vi.spyOn(crypto, 'randomUUID').mockReturnValue(NONCE);
+    const download = vi
+      .spyOn(outputHandlers, 'downloadArchiveBlob')
+      .mockImplementation(async (_url, _fileName, onLateTerminal) => {
+        await onLateTerminal();
+        return { terminal: true, error: null, downloadId: 51 };
+      });
+
+    const result = probeDotsSchemaInActiveTab({ operations: new Set() });
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(result).resolves.toEqual({ success: true, fileName: DOTS_SCHEMA_PROBE_FILE_NAME });
+    expect(nonce).toHaveBeenCalledOnce();
+    expect(h.query).toHaveBeenCalledExactlyOnceWith({ active: true, currentWindow: true });
+    expect(h.reload).toHaveBeenCalledOnce();
+    expect(download).toHaveBeenCalledOnce();
+    const [url, fileName] = download.mock.calls[0];
+    expect(fileName).toBe(DOTS_SCHEMA_PROBE_FILE_NAME);
+    expect(url).toMatch(/^data:application\/json;base64,/);
+    expect(atob(url.slice(url.indexOf(',') + 1))).toBe(JSON.stringify(evidence()));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    { terminal: false, error: null },
+    { terminal: true, error: 'private browser failure' },
+  ])('does not report a non-successful default Downloads outcome as saved: %j', async outcome => {
+    const h = harness();
+    const download = vi.spyOn(outputHandlers, 'downloadArchiveBlob').mockResolvedValue(outcome);
+    await expect(
+      probeDotsSchemaInActiveTab({ ...h, downloadEvidence: undefined })
+    ).resolves.toEqual({
+      success: false,
+      code: 'download-failed',
+    });
+    expect(download).toHaveBeenCalledOnce();
+    expect(h.currentUrl()).toBe(DOTS_URL);
+  });
+
+  it('maps a rejected default Downloads operation to a fixed failure without browser details', async () => {
+    const h = harness();
+    vi.spyOn(outputHandlers, 'downloadArchiveBlob').mockRejectedValue(
+      new Error('private sink error')
+    );
+    const response = await probeDotsSchemaInActiveTab({ ...h, downloadEvidence: undefined });
+    expect(response).toEqual({ success: false, code: 'download-failed' });
+    expect(JSON.stringify(response)).not.toContain('private');
+  });
+
+  it('refuses local encoding failure before issuing a download', async () => {
+    const h = harness();
+    const download = vi.spyOn(outputHandlers, 'downloadArchiveBlob');
+    vi.spyOn(globalThis, 'btoa').mockImplementation(() => {
+      throw new Error('encoding unavailable');
+    });
+    await expect(
+      probeDotsSchemaInActiveTab({ ...h, downloadEvidence: undefined })
+    ).resolves.toEqual({
+      success: false,
+      code: 'download-failed',
+    });
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it('fails before navigation when the default secure nonce source is unavailable', async () => {
+    const h = harness();
+    vi.stubGlobal('crypto', {});
+    try {
+      await expect(probeDotsSchemaInActiveTab({ ...h, createNonce: undefined })).resolves.toEqual({
+        success: false,
+        code: 'nonce-invalid',
+      });
+      expect(h.update).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('maps clock, selection and nonce exceptions before any mutation', async () => {
+    const h = harness();
+    const privateFailure = () => {
+      throw new Error('private dependency error');
+    };
+    await expect(probeDotsSchemaInActiveTab({ ...h, now: privateFailure })).resolves.toEqual({
+      success: false,
+      code: 'result-invalid',
+    });
+    h.query.mockRejectedValueOnce(new Error('private selection error'));
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'active-tab-required',
+    });
+    await expect(
+      probeDotsSchemaInActiveTab({ ...h, createNonce: privateFailure })
+    ).resolves.toEqual({
+      success: false,
+      code: 'nonce-invalid',
+    });
+    expect(h.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed URLs and wrong tab identities without starting a reload', async () => {
+    expect(dotsSchemaProbeTargetUrl('not a URL', NONCE)).toBeUndefined();
+    const h = harness();
+    h.query.mockResolvedValueOnce([{ id: TAB_ID, url: 'not a URL', active: true }]);
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'dots-route-required',
+    });
+    h.update.mockImplementationOnce(async (_tabId, properties) => {
+      h.setCurrentUrl(properties.url);
+      return { id: TAB_ID + 1, url: properties.url };
+    });
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'tab-update-failed',
+    });
+    expect(h.reload).not.toHaveBeenCalled();
+    expect(h.currentUrl()).toBe(DOTS_URL);
+  });
+
+  it('refuses an unavailable selected document and still cleans its marker', async () => {
+    const h = harness();
+    h.get.mockRejectedValueOnce(new Error('tab closed'));
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'document-unavailable',
+    });
+    expect(h.downloadEvidence).not.toHaveBeenCalled();
+    expect(h.currentUrl()).toBe(DOTS_URL);
+  });
+
+  it('treats an unavailable pinned scripting context as a replaced document', async () => {
+    const h = harness();
+    const execute = h.executeScript.getMockImplementation()!;
+    let reads = 0;
+    h.executeScript.mockImplementation(async injection => {
+      if (injection.func !== removeDotsSchemaProbeMarker && ++reads === 2)
+        throw new Error('old context detached');
+      return execute(injection);
+    });
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'document-replaced',
+    });
+    expect(h.currentUrl()).toBe(DOTS_URL);
+    expect(h.downloadEvidence).not.toHaveBeenCalled();
+  });
+
+  it('ignores missing and hostile hook records without running caller accessors', async () => {
+    const getter = vi.fn(() => 'private');
+    const accessor = Object.defineProperty({}, 'kind', { get: getter, enumerable: true });
+    const reflected = new Proxy(
+      { kind: 'ready' },
+      {
+        getPrototypeOf() {
+          throw new Error('private reflection');
+        },
+      }
+    );
+    const h = harness([
+      { result: accessor, documentId: DOCUMENT_ID, frameId: 0 },
+      { result: reflected, documentId: DOCUMENT_ID, frameId: 0 },
+      { result: null, documentId: DOCUMENT_ID, frameId: 0 },
+      {
+        result: { kind: 'completed', projection: evidence() },
+        documentId: DOCUMENT_ID,
+        frameId: 0,
+      },
+    ]);
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: true,
+      fileName: DOTS_SCHEMA_PROBE_FILE_NAME,
+    });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed hook descriptors and record shapes before accepting a later exact result', async () => {
+    const getter = vi.fn(() => 'private');
+    const codeAccessor = Object.defineProperty({ kind: 'error' }, 'code', {
+      enumerable: true,
+      get: getter,
+    });
+    const symbolProjection = { kind: 'completed', [Symbol('private')]: evidence() };
+    const customPrototype = Object.assign(Object.create({ private: true }), { kind: 'ready' });
+    const arrayRecord = Object.assign([], { kind: 'ready' });
+    const h = harness([
+      ...[
+        codeAccessor,
+        symbolProjection,
+        customPrototype,
+        arrayRecord,
+        { kind: 'ready', extra: true },
+      ].map(result => ({ result, documentId: DOCUMENT_ID, frameId: 0 })),
+      {
+        result: { kind: 'completed', projection: evidence() },
+        documentId: DOCUMENT_ID,
+        frameId: 0,
+      },
+    ]);
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: true,
+      fileName: DOTS_SCHEMA_PROBE_FILE_NAME,
+    });
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it('waits through an empty scripting result but refuses evidence without a document identity', async () => {
+    const h = harness();
+    h.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { result: { kind: 'completed', projection: evidence() }, frameId: 0 },
+      ]);
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'document-unavailable',
+    });
+    expect(h.downloadEvidence).not.toHaveBeenCalled();
+    expect(h.currentUrl()).toBe(DOTS_URL);
+  });
+
+  it('stops after a rejected polling delay but preserves the bounded cleanup', async () => {
+    const h = harness([]);
+    h.sleep = async () => {
+      throw new Error('private scheduler detail');
+    };
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'timed-out',
+    });
+    expect(h.currentUrl()).toBe(DOTS_URL);
+    expect(h.operations.size).toBe(0);
+  });
+
+  it('does not download if the independent cleanup lookup fails', async () => {
+    const h = harness();
+    const get = h.get.getMockImplementation()!;
+    let calls = 0;
+    h.get.mockImplementation(async () => {
+      if (++calls === 3) throw new Error('cleanup tab unavailable');
+      return get();
+    });
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'cleanup-failed',
+    });
+    expect(h.downloadEvidence).not.toHaveBeenCalled();
+    expect(h.operations.size).toBe(0);
+  });
+
+  it('maps a rejected injected local sink only after marker cleanup', async () => {
+    const h = harness();
+    h.downloadEvidence.mockRejectedValueOnce(new Error('private sink error'));
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'download-failed',
+    });
+    expect(h.currentUrl()).toBe(DOTS_URL);
+  });
+
+  it('refuses a final serializer failure after validation without issuing a local write', async () => {
+    const h = harness();
+    const nativeStringify = JSON.stringify;
+    let evidenceSerializations = 0;
+    vi.spyOn(JSON, 'stringify').mockImplementation((value, ...args) => {
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        Object.getOwnPropertyDescriptor(value, 'schema')?.value === DOTS_SCHEMA_PROBE_SCHEMA &&
+        ++evidenceSerializations === 2
+      ) {
+        throw new Error('private final serializer detail');
+      }
+      return Reflect.apply(nativeStringify, JSON, [value, ...args]);
+    });
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'result-invalid',
+    });
+    expect(evidenceSerializations).toBe(2);
+    expect(h.currentUrl()).toBe(DOTS_URL);
+    expect(h.downloadEvidence).not.toHaveBeenCalled();
+    expect(h.operations.size).toBe(0);
+  });
+
+  it('does not expose an exception thrown while cleaning page history', () => {
+    const markerUrl = `${DOTS_URL}#liska-dots-schema=${NONCE}`;
+    vi.stubGlobal('window', {
+      location: { href: markerUrl, hash: `#liska-dots-schema=${NONCE}` },
+      history: {
+        state: null,
+        replaceState: () => {
+          throw new Error('private history detail');
+        },
+      },
+    });
+    try {
+      expect(removeDotsSchemaProbeMarker(NONCE, markerUrl)).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('recognizes only fixed public failure codes', () => {
+    expect(isDotsSchemaProbeFailureCode('download-failed')).toBe(true);
+    expect(isDotsSchemaProbeFailureCode('request-init-present')).toBe(true);
+    for (const value of [null, 1, {}, 'private browser detail', 'download-failed: private'])
+      expect(isDotsSchemaProbeFailureCode(value)).toBe(false);
+  });
+
+  it('rejects invalid cleanup capabilities before touching the page', () => {
+    const markerUrl = `${DOTS_URL}#liska-dots-schema=${NONCE}`;
+    expect(removeDotsSchemaProbeMarker('short', markerUrl)).toBe(false);
+    expect(removeDotsSchemaProbeMarker(NONCE, undefined as unknown as string)).toBe(false);
+    expect(dotsSchemaProbeTargetUrl(undefined, NONCE)).toBeUndefined();
+    expect(dotsSchemaProbeTargetUrl(DOTS_URL, 'short')).toBeUndefined();
   });
 });

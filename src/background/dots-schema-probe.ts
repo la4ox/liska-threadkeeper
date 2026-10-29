@@ -18,7 +18,7 @@ import {
   type DotsSchemaProbeEvidence,
   type DotsSchemaProbeResponse,
 } from '../lib/dots-schema-probe-contract';
-import { readDotsSchemaProbeState } from '../content/capture/dots-schema-document-start';
+import { readDotsSchemaProbeState } from '../lib/dots-schema-probe-page-state';
 import { downloadArchiveBlob } from './output-handlers';
 
 const DOTS_ORIGIN = 'https://chatgpt.com';

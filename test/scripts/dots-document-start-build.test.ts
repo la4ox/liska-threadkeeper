@@ -27,7 +27,6 @@ export function startDotsSchemaDocumentStartProbe(page = window): DotsSchemaDocu
   page.fetch = () => Promise.resolve('observed');
   return { kind: 'ready' };
 }
-export function readDotsSchemaProbeState(_nonce: string): unknown { return { kind: 'ready' }; }
 if (typeof window !== 'undefined') startDotsSchemaDocumentStartProbe();
 `;
 

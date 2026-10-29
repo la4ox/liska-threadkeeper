@@ -795,18 +795,4 @@ export function startDotsSchemaDocumentStartProbe(
   }
 }
 
-/** Serialized by chrome.scripting; background independently validates every returned field. */
-export function readDotsSchemaProbeState(nonce: string): unknown {
-  try {
-    if (typeof nonce !== 'string' || !/^[a-z0-9-]{16,128}$/i.test(nonce))
-      return { kind: 'missing' };
-    const result = (window as unknown as Record<string, unknown>)[
-      `__liskaDotsSchemaProbe_${nonce}`
-    ];
-    return typeof result === 'object' && result !== null ? result : { kind: 'missing' };
-  } catch {
-    return { kind: 'missing' };
-  }
-}
-
 if (typeof window !== 'undefined') startDotsSchemaDocumentStartProbe();
