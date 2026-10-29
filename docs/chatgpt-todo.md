@@ -271,8 +271,14 @@ terminal states, and the existing no-credential-export boundary.
   one uninstrumented Analyze, and accepted a native Cancel while the page showed
   its in-progress analysis status, with no late report or download. All 36
   source hashes remained unchanged. This closes near-limit read/copy/hash
-  responsiveness in installed Comet; parser-heavy near-limit replay and other-
-  browser portability remain live gates.
+  responsiveness in installed Comet; parser-heavy near-limit replay remains a
+  separate live gate.
+- Ordinary Google Chrome portability is live-verified on two synthetic raw-only
+  folders: both exact 2-file / 1,081-byte cards rendered, Analyze reached the
+  unchanged-source terminal state, both snapshots remained `Unverifiable`, no
+  candidate relationship was invented, and Save was not invoked. Post-run
+  hashes/sizes/timestamps matched; no new report or partial appeared. This does
+  not claim every browser family or provider content-script route.
 - Consider manual/automatic backup orchestration only after manual capture and
   recovery paths are boringly reliable.
 
@@ -553,10 +559,17 @@ one native Cancel without source mutation, late report or output. This does not
 claim a parser-heavy near-limit replay or a peak-memory bound, and it does not
 raise the existing 16-snapshot / 64-MiB-file / 256-MiB-total ceilings.
 
-Next, exercise the existing private snapshot-analysis page in a supported
-non-Comet Chromium with a small synthetic pair. Keep the local-only CSP,
-preserve-only report and zero mutation authority unchanged; do not repeat the
-255 MiB workload merely to prove browser injection/portability.
+The private snapshot-analysis page now also passes a small synthetic pair in
+ordinary Google Chrome with the local-only CSP, preserve-only report and zero
+mutation authority unchanged. Parser-heavy near-limit replay remains separate
+and must not be inferred from the raw-only 255 MiB workload.
+
+The next bounded provider-independent code slice is explicit manifest-guided
+official-export shard admission: read only a separately selected known-schema
+manifest, compare its conversation-shard declaration with separately selected
+shards, and reject missing, duplicate or unexpected conversation shards before
+scanning. Do not retain unrelated manifest names in reports or broaden this into
+directory/ZIP discovery or external binary association.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;

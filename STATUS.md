@@ -3111,6 +3111,30 @@ native Cancel for a near-aggregate-limit read/copy/hash workload. Parser-heavy
 near-limit replay and supported-browser portability remain separate gates; no
 limit or mutation authority changed.
 
+## Snapshot analysis Chrome portability checkpoint
+
+Branch `codex/snapshot-analysis-chrome-portability` starts from merged main
+`f0df962` without a production-code delta. A user-operated ordinary Google
+Chrome session opened the installed private `Compare local snapshots` page and
+selected synthetic `snapshot-04` and `snapshot-05`. Both cards reported exactly
+2 files / 1,081 bytes, and Analyze reached the exact terminal status `Analysis
+complete. No source files were changed.`
+
+The rendered report contained two ordinal-only `Unverifiable` cards with fixed
+`writer-encoding-invalid`, unique-evidence, integrity-not-verified and external-
+links-unassessed reasons. It reported no comparable candidate relationship and
+the preserve-only conclusion `Keep every snapshot`. Save was not invoked.
+
+Independent post-run verification matched all four selected file lengths,
+SHA-256 values and timestamps at inventory precision, with no missing or
+unexpected file. The shared fixture inventory still hashes to
+`8beba3889132f8fe8e50d2a0b6e4214d042dfefb42aecf10916eef433df31b48`.
+Neither checked top-level Downloads root contains a newer snapshot-analysis
+report or partial; the only report predates this fixture. This closes the
+private analysis page's installed portability gate in ordinary Google Chrome.
+It does not generalize to other browser families or unrelated provider content-
+script injection, and it adds no output or mutation authority.
+
 ## ChatGPT Library text/plain candidate checkpoint
 
 Branch `codex/chatgpt-library-text-plain`, based on main `2de34c0e`, implements
