@@ -3175,8 +3175,41 @@ the 295-module production build pass, including the worker-runtime guards. Full
 source/platform lint has zero errors and the same three baseline warnings;
 Prettier and diff checks pass. Independent review found no material correctness,
 security, privacy, or regression issue; its manifest-clear usability note is
-resolved. Installed positive/refusal/cancellation acceptance remains before
-rollout.
+resolved.
+
+The reviewed build was then installed through the verified unpacked-extension
+installer. Source and installed trees each contain 41 files / 1,159,305 bytes
+with aggregate SHA-256
+`5553912f93c9fc4ee6efe262f21f024a622ab7a9018518e302c9796f08a5c8a1`;
+manifest SHA-256 is
+`f8d2ccc7f3deb607819b58db920ac51c827f99c3564da035760810d847091c55`.
+Rollback `liska-rollback-20261029T085930909Z-36500516b82046a89b2bcf624226171a`
+retains the previous installed bytes. After one Liska reload and later Comet
+restart, the private page exposed the manifest picker and disabled Clear control.
+
+One user-operated installed positive canary selected the existing 11,651-byte
+synthetic web canonical, six synthetic shards totaling 1,408 bytes, and a
+600,402-byte byte-identical copy of the measured October provider manifest. The
+page admitted all six declared names, completed normalization/preparation,
+opened Save As, and produced bundle ID
+`5c01de36cac432ac7413ab00898b2c8b567338455fec045688d445f060083b60`.
+Save As was deliberately cancelled; the page honestly reported interrupted
+download and `File ZIP not saved`. Obsidian remained disabled.
+
+The same web/manifest pair with shard `005` omitted refused before Save As with
+the fixed public status `Reconciliation failed. The selected source files were
+not changed.` Clear manifest then emptied only that picker and disabled itself
+without reload, while the web canonical, five-shard selection, File destination,
+and disabled Obsidian destination remained intact.
+
+Independent post-run verification found zero byte-length or SHA-256 mismatch
+across all selected fixtures and manifest bytes; the six shards still total
+1,408 bytes. Neither checked top-level Downloads root contains a new
+reconciliation ZIP or partial, and the installed/source inventories remain
+identical. Full timestamp preservation is not claimed because the copied
+manifest lacked a separately recorded pre-run timestamp baseline. This closes
+installed positive, missing-shard refusal and clear-control acceptance without
+saving provider-manifest bytes or destination output.
 
 ## ChatGPT Library text/plain candidate checkpoint
 
