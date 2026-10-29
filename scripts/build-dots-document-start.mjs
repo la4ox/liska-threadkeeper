@@ -20,6 +20,8 @@ const DEFAULT_DIST = resolve(ROOT, 'dist');
 const DEFAULT_SOURCE = resolve(ROOT, 'src/content/capture/dots-schema-document-start.ts');
 export const DOTS_CLASSIC_ENTRY = 'dots-schema-document-start.js';
 const DOTS_ASSET = /^assets\/dots-schema-document-start(?:\.ts)?(?:-loader)?-[A-Za-z0-9_-]+\.js$/;
+const DOTS_LOADER = /^assets\/dots-schema-document-start\.ts-loader-[A-Za-z0-9_-]+\.js$/;
+const CHATGPT_LOADER = /^assets\/chatgpt-document-start\.ts-loader-[A-Za-z0-9_-]+\.js$/;
 const EXPECTED_EXPORTS = new Set([
   'DotsSchemaDocumentStartResult',
   'startDotsSchemaDocumentStartProbe',
@@ -237,14 +239,25 @@ function dotsEntry(manifest) {
   if (!manifest || !Array.isArray(manifest.content_scripts)) fail('invalid-manifest');
   const entries = manifest.content_scripts.filter(
     entry =>
-      Array.isArray(entry?.js) &&
-      entry.js.some(file => typeof file === 'string' && file.includes('dots-schema-document-start'))
+      (Array.isArray(entry?.js) &&
+        entry.js.some(
+          file =>
+            typeof file === 'string' &&
+            (file.includes('chatgpt-document-start') || file.includes('dots-schema-document-start'))
+        )) ||
+      (entry?.run_at === 'document_start' &&
+        entry.world === 'MAIN' &&
+        Array.isArray(entry.matches) &&
+        entry.matches.includes('https://chatgpt.com/*'))
   );
   if (entries.length !== 1) fail('dots-entry-count');
   const entry = entries[0];
   if (
-    entry.js.length !== 1 ||
-    (entry.js[0] !== DOTS_CLASSIC_ENTRY && !DOTS_ASSET.test(entry.js[0])) ||
+    entry.js.length !== 2 ||
+    typeof entry.js[0] !== 'string' ||
+    !CHATGPT_LOADER.test(entry.js[0]) ||
+    typeof entry.js[1] !== 'string' ||
+    (entry.js[1] !== DOTS_CLASSIC_ENTRY && !DOTS_LOADER.test(entry.js[1])) ||
     entry.run_at !== 'document_start' ||
     entry.world !== 'MAIN' ||
     JSON.stringify(entry.matches) !== JSON.stringify(['https://chatgpt.com/*']) ||
@@ -276,7 +289,7 @@ function planPruning(root, manifest, entry, files) {
     ...manifest,
     web_accessible_resources: undefined,
     content_scripts: manifest.content_scripts.map(script =>
-      script === entry ? { ...script, js: [DOTS_CLASSIC_ENTRY] } : script
+      script === entry ? { ...script, js: [script.js[0], DOTS_CLASSIC_ENTRY] } : script
     ),
   });
   for (const candidate of candidates) {
@@ -300,7 +313,7 @@ function planPruning(root, manifest, entry, files) {
   };
 }
 
-/** Replaces only the generated Dots entry; unrelated entry points stay byte-for-byte referenced. */
+/** Replaces only Dots within the ordered MAIN entry; ordinary ChatGPT remains first. */
 export function buildDotsDocumentStart(distDirectory = DEFAULT_DIST, sourcePath = DEFAULT_SOURCE) {
   const code = compileDotsDocumentStart(readFileSync(sourcePath, 'utf8'));
   let root;
@@ -315,10 +328,10 @@ export function buildDotsDocumentStart(distDirectory = DEFAULT_DIST, sourcePath 
   }
   const entry = dotsEntry(manifest);
   const files = filesWithin(root);
-  if (!files.includes(entry.js[0])) fail('missing-dots-entry-file');
+  if (!entry.js.every(file => files.includes(file))) fail('missing-document-start-entry-file');
   const pruning = planPruning(root, manifest, entry, files);
   const removed = new Set(pruning.removed);
-  entry.js = [DOTS_CLASSIC_ENTRY];
+  entry.js = [entry.js[0], DOTS_CLASSIC_ENTRY];
   if (manifest.web_accessible_resources !== undefined) {
     if (!Array.isArray(manifest.web_accessible_resources)) fail('invalid-manifest');
     manifest.web_accessible_resources = manifest.web_accessible_resources

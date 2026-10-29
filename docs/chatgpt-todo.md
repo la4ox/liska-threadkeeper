@@ -457,6 +457,16 @@ terminal states, and the existing no-credential-export boundary.
   persist provider values or call archive, Obsidian, Clipboard or settings
   sinks. Next gate is one installed live canary; do not widen Fetch/init/route
   admission merely to turn a fixed refusal into success.
+- Installed evidence: one stable-page run armed correctly and returned
+  `target-not-observed`, with the nonce removed and no file written. Comet also
+  required ordinary ChatGPT and Dots to share one ordered MAIN document-start
+  entry, and Dots may remove the nonce fragment itself in the same document.
+  Both compatibility seams now have focused build/runtime coverage.
+- The observer can now report fixed `request-init-present` for an exact room
+  Fetch solely from second-argument presence; it never reads or reflects an init
+  field. Re-run this classifier only on a stable Dots page. Later attempts were
+  invalid because the page failed during reload, so Fetch-init versus URL-object
+  versus XHR remains unproven.
 - Treat the schema button as temporary evidence tooling. Hide or remove it from
   the ordinary product surface after the real raw transport contract is proven.
 - Preserve one exact conversation-scoped raw artifact before designing the

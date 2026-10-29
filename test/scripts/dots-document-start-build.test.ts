@@ -36,12 +36,11 @@ function manifest() {
     background: { service_worker: 'worker.js', type: 'module' },
     content_scripts: [
       {
-        js: [CHATGPT],
+        js: [CHATGPT, LOADER],
         matches: ['https://chatgpt.com/*'],
         run_at: 'document_start',
         world: 'MAIN',
       },
-      { js: [LOADER], matches: ['https://chatgpt.com/*'], run_at: 'document_start', world: 'MAIN' },
       { js: ['assets/idle.js'], matches: ['https://chatgpt.com/*'], run_at: 'document_idle' },
     ],
     web_accessible_resources: [
@@ -93,13 +92,21 @@ describe('synchronous Dots document-start build', () => {
     expect(code.trimStart()).toMatch(/^\(function \(\) \{/);
   });
 
-  it('replaces only the Dots manifest entry and prunes only unreferenced Dots assets', () => {
+  it('replaces only Dots in the combined ordered entry and prunes only unreferenced Dots assets', () => {
     const f = fixture();
     const result = buildDotsDocumentStart(f.dist, f.source);
     const built = JSON.parse(readFileSync(join(f.dist, 'manifest.json'), 'utf8'));
-    expect(built.content_scripts[1].js).toEqual([DOTS_CLASSIC_ENTRY]);
-    expect(built.content_scripts[0]).toEqual(manifest().content_scripts[0]);
-    expect(built.content_scripts[2]).toEqual(manifest().content_scripts[2]);
+    expect(built.content_scripts[0]).toEqual({
+      ...manifest().content_scripts[0],
+      js: [CHATGPT, DOTS_CLASSIC_ENTRY],
+    });
+    expect(built.content_scripts[1]).toEqual(manifest().content_scripts[1]);
+    expect(
+      built.content_scripts.filter(
+        (entry: { run_at?: string; world?: string }) =>
+          entry.run_at === 'document_start' && entry.world === 'MAIN'
+      )
+    ).toHaveLength(1);
     expect(result.removedArtifacts).toEqual([MODULE, LOADER].sort());
     expect(result.retainedArtifacts).toEqual([SHARED]);
     expect(existsSync(join(f.dist, LOADER))).toBe(false);
@@ -185,21 +192,42 @@ describe('synchronous Dots document-start build', () => {
     ).toThrow('missing-synchronous-startup');
   });
 
-  it.each(['missing', 'duplicate', 'wrong-world', 'extra-script', 'wrong-host', 'missing-file'])(
-    'rejects malformed built entry: %s',
-    scenario => {
-      const value = manifest();
-      if (scenario === 'missing') value.content_scripts.splice(1, 1);
-      if (scenario === 'duplicate') value.content_scripts.push({ ...value.content_scripts[1] });
-      if (scenario === 'wrong-world') value.content_scripts[1].world = 'ISOLATED';
-      if (scenario === 'extra-script') value.content_scripts[1].js.push('assets/idle.js');
-      if (scenario === 'wrong-host') value.content_scripts[1].matches = ['https://example.test/*'];
-      const f = fixture({ value });
-      if (scenario === 'missing-file') rmSync(join(f.dist, LOADER));
-      expect(() => buildDotsDocumentStart(f.dist, f.source)).toThrow();
-      expect(existsSync(join(f.dist, DOTS_CLASSIC_ENTRY))).toBe(false);
+  it.each([
+    'missing',
+    'duplicate',
+    'split',
+    'reordered',
+    'extra-main-entry',
+    'wrong-chatgpt-loader',
+    'wrong-dots-loader',
+    'wrong-world',
+    'extra-script',
+    'wrong-host',
+    'missing-file',
+    'missing-chatgpt-file',
+  ])('rejects malformed built entry: %s', scenario => {
+    const value = manifest();
+    if (scenario === 'missing') value.content_scripts.splice(0, 1);
+    if (scenario === 'duplicate') value.content_scripts.push({ ...value.content_scripts[0] });
+    if (scenario === 'split') {
+      value.content_scripts[0].js = [CHATGPT];
+      value.content_scripts.push({ ...value.content_scripts[0], js: [LOADER] });
     }
-  );
+    if (scenario === 'reordered') value.content_scripts[0].js.reverse();
+    if (scenario === 'extra-main-entry')
+      value.content_scripts.push({ ...value.content_scripts[0], js: ['assets/extra.js'] });
+    if (scenario === 'wrong-chatgpt-loader')
+      value.content_scripts[0].js[0] = 'assets/chatgpt-document-start.ts-Other123.js';
+    if (scenario === 'wrong-dots-loader') value.content_scripts[0].js[1] = SHARED;
+    if (scenario === 'wrong-world') value.content_scripts[0].world = 'ISOLATED';
+    if (scenario === 'extra-script') value.content_scripts[0].js.push('assets/idle.js');
+    if (scenario === 'wrong-host') value.content_scripts[0].matches = ['https://example.test/*'];
+    const f = fixture({ value });
+    if (scenario === 'missing-file') rmSync(join(f.dist, LOADER));
+    if (scenario === 'missing-chatgpt-file') rmSync(join(f.dist, CHATGPT));
+    expect(() => buildDotsDocumentStart(f.dist, f.source)).toThrow();
+    expect(existsSync(join(f.dist, DOTS_CLASSIC_ENTRY))).toBe(false);
+  });
 
   it('runs the actual CLI and reports only compact build receipts', () => {
     const f = fixture();

@@ -11,7 +11,8 @@ const NONCE = '01234567-89ab-4cde-8f01-23456789abcd';
 const STATE = `__liskaDotsSchemaProbe_${NONCE}`;
 const ROOM = '/backend-api/messaging/rooms/room-abc_123';
 const MESSAGES = `${ROOM}/messages?limit=100`;
-const MARKED = `https://chatgpt.com/dots/home#liska-dots-schema=${NONCE}`;
+const BASE = 'https://chatgpt.com/dots/home';
+const MARKED = `${BASE}#liska-dots-schema=${NONCE}`;
 const ENCODER = new TextEncoder();
 
 class TestRequest {
@@ -304,21 +305,123 @@ describe('Dots exact route and pair observation', () => {
     completed(page);
   });
 
-  it('never reflects or reads any supplied RequestInit object', async () => {
-    const traps = vi.fn(() => {
-      throw new Error('RequestInit stays untouched');
+  it.each(['string', 'native Request'] as const)(
+    'classifies present init on an exact %s route without inspecting the object',
+    async kind => {
+      const traps = vi.fn(() => {
+        throw new Error('RequestInit stays untouched');
+      });
+      const init = new Proxy(
+        {},
+        {
+          get: traps,
+          ownKeys: traps,
+          getOwnPropertyDescriptor: traps,
+          getPrototypeOf: traps,
+          has: traps,
+        }
+      );
+      const page = fakePage();
+      startDotsSchemaDocumentStartProbe(page.window);
+      const input =
+        kind === 'string'
+          ? MESSAGES
+          : (new TestRequest(`https://chatgpt.com${ROOM}`) as unknown as Request);
+      await page.window.fetch(input, init);
+      expect(snapshot(page)).toEqual({ kind: 'ready' });
+      await tick(15_000);
+      expect(traps).not.toHaveBeenCalled();
+      // Deep mock-argument matchers may reflect a Proxy themselves; compare
+      // only identity so the assertion cannot manufacture an init read.
+      expect(page.fetch.mock.calls.length).toBe(1);
+      expect(page.fetch.mock.calls[0][0] === input).toBe(true);
+      expect(page.fetch.mock.calls[0][1] === init).toBe(true);
+      expect(snapshot(page)).toEqual({ kind: 'error', code: 'request-init-present' });
+      expect(page.responses[0].cloneCount).toBe(0);
+      expect(page.window.fetch).toBe(page.fetch);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(traps).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not read hostile RequestInit getters while classifying its presence', async () => {
+    const getter = vi.fn(() => {
+      throw new Error('RequestInit getter must not run');
     });
-    const init = new Proxy(
-      {},
-      { get: traps, ownKeys: traps, getOwnPropertyDescriptor: traps, getPrototypeOf: traps }
-    );
+    const init: RequestInit = {};
+    for (const field of ['method', 'headers', 'body', 'credentials', 'signal'])
+      Object.defineProperty(init, field, { get: getter, enumerable: true });
     const page = fakePage();
     startDotsSchemaDocumentStartProbe(page.window);
     await page.window.fetch(ROOM, init);
     await tick(15_000);
+    expect(getter).not.toHaveBeenCalled();
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'request-init-present' });
+    expect(page.responses[0].cloneCount).toBe(0);
+  });
+
+  it.each([undefined, null])('keeps the exact pair admitted with init=%s', async init => {
+    const page = fakePage();
+    startDotsSchemaDocumentStartProbe(page.window);
+    await page.window.fetch(ROOM, init as RequestInit | undefined);
+    await page.window.fetch(MESSAGES, init as RequestInit | undefined);
+    await tick(15_000);
+    completed(page);
+    expect(page.responses.map(response => response.cloneCount)).toEqual([1, 1]);
+  });
+
+  it('does not classify an unrelated route or native POST as refused solely for init', async () => {
+    const traps = vi.fn(() => {
+      throw new Error('RequestInit stays untouched');
+    });
+    const init = new Proxy({}, { get: traps, ownKeys: traps, getPrototypeOf: traps });
+    const page = fakePage();
+    startDotsSchemaDocumentStartProbe(page.window);
+    await page.window.fetch('/backend-api/tbo/by-thread/private', init);
+    await page.window.fetch(
+      new TestRequest(`https://chatgpt.com${ROOM}`, 'POST') as unknown as Request,
+      init
+    );
+    await tick(15_000);
     expect(traps).not.toHaveBeenCalled();
     expect(snapshot(page)).toEqual({ kind: 'error', code: 'target-not-observed' });
-    expect(page.responses[0].cloneCount).toBe(0);
+    expect(page.responses.map(response => response.cloneCount)).toEqual([0, 0]);
+  });
+
+  it('forwards a refused-init candidate receiver, arguments, promise and rejection unchanged', async () => {
+    const page = fakePage();
+    const response = new TestResponse(`https://chatgpt.com${ROOM}`);
+    const promise = Promise.resolve(response as unknown as Response);
+    const init = {};
+    const receiver = {};
+    page.fetch.mockImplementation(() => promise);
+    startDotsSchemaDocumentStartProbe(page.window);
+    expect(Reflect.apply(page.window.fetch, receiver, [ROOM, init])).toBe(promise);
+    expect(page.fetch).toHaveBeenCalledExactlyOnceWith(ROOM, init);
+    expect(page.fetch.mock.contexts[0]).toBe(receiver);
+    await promise;
+    expect(response.cloneCount).toBe(0);
+
+    const rejected = Promise.reject(new Error('original init failure'));
+    page.fetch.mockImplementation(() => rejected);
+    const result = page.window.fetch(MESSAGES, init);
+    expect(result).toBe(rejected);
+    await expect(result).rejects.toThrow('original init failure');
+    expect(page.fetch).toHaveBeenCalledTimes(2);
+    expect(snapshot(page)).toEqual({ kind: 'ready' });
+    await tick(15_000);
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'request-init-present' });
+  });
+
+  it('does not claim or bind init-present candidates when a strict pair later succeeds', async () => {
+    const page = fakePage();
+    startDotsSchemaDocumentStartProbe(page.window);
+    await page.window.fetch('/backend-api/messaging/rooms/other-room', {});
+    await page.window.fetch(ROOM, {});
+    await pair(page);
+    await tick(15_000);
+    completed(page);
+    expect(page.responses.map(response => response.cloneCount)).toEqual([0, 0, 1, 1]);
   });
 
   it.each([
@@ -396,6 +499,52 @@ describe('Dots exact route and pair observation', () => {
     startDotsSchemaDocumentStartProbe(page.window);
     await pair(page);
     Object.assign(page.window.location, { href: 'https://chatgpt.com/dots/another' });
+    await tick(15_000);
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'navigation-changed' });
+  });
+
+  it('completes the same-room pair after the host removes only the probe fragment', async () => {
+    const page = fakePage();
+    startDotsSchemaDocumentStartProbe(page.window);
+    expect(snapshot(page)).toEqual({ kind: 'ready' });
+    Object.assign(page.window.location, { href: BASE });
+    await pair(page);
+    await tick(15_000);
+    expect(isDotsSchemaProbeEvidence(completed(page))).toBe(true);
+    expect(page.responses.map(response => response.cloneCount)).toEqual([1, 1]);
+    expect(page.window.fetch).toBe(page.fetch);
+  });
+
+  it.each([false, true])(
+    'keeps the fixed refusal after host fragment removal with init present=%s',
+    async initPresent => {
+      const page = fakePage();
+      startDotsSchemaDocumentStartProbe(page.window);
+      Object.assign(page.window.location, { href: BASE });
+      if (initPresent) await page.window.fetch(ROOM, {});
+      await tick(15_000);
+      expect(snapshot(page)).toEqual({
+        kind: 'error',
+        code: initPresent ? 'request-init-present' : 'target-not-observed',
+      });
+      expect(page.responses.every(response => response.cloneCount === 0)).toBe(true);
+      expect(page.window.fetch).toBe(page.fetch);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
+
+  it.each([
+    `${BASE}#other`,
+    `${BASE}#liska-dots-schema=other-operation-12345678`,
+    `${BASE}?x=1`,
+    `${BASE}/`,
+    'https://chatgpt.com/dots/another',
+    'https://other.test/dots/home',
+  ])('does not treat another URL as host fragment cleanup: %s', async href => {
+    const page = fakePage();
+    startDotsSchemaDocumentStartProbe(page.window);
+    await pair(page);
+    Object.assign(page.window.location, { href });
     await tick(15_000);
     expect(snapshot(page)).toEqual({ kind: 'error', code: 'navigation-changed' });
   });

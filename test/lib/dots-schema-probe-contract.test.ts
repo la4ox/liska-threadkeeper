@@ -365,4 +365,21 @@ describe('Dots schema-only evidence contract', () => {
     ).toBe(false);
     expect(getter).not.toHaveBeenCalled();
   });
+
+  it('admits only the exact fixed RequestInit-presence failure response', () => {
+    expect(DOTS_SCHEMA_PROBE_ERROR_CODES).toContain('request-init-present');
+    expect(isDotsSchemaProbeResponse(createDotsSchemaProbeFailure('request-init-present'))).toBe(
+      true
+    );
+    expect(
+      isDotsSchemaProbeResponse({
+        success: false,
+        code: 'request-init-present',
+        init: { headers: 'private' },
+      })
+    ).toBe(false);
+    expect(
+      isDotsSchemaProbeResponse({ success: false, code: 'request-init-present: private' })
+    ).toBe(false);
+  });
 });

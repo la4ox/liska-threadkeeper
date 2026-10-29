@@ -106,6 +106,7 @@ const hookErrorCodes = new Set<string>([
   'ambiguous-room',
   'duplicate-endpoint',
   'target-not-observed',
+  'request-init-present',
   'timed-out',
   'navigation-changed',
 ]);
@@ -284,12 +285,12 @@ export function dotsSchemaProbeTargetUrl(rawUrl: unknown, nonce: string): string
 }
 
 function exactMarkerUrl(rawUrl: unknown, expectedUrl: string): boolean {
-  if (typeof rawUrl !== 'string') return false;
-  try {
-    return new URL(rawUrl).href === expectedUrl;
-  } catch {
-    return false;
-  }
+  return rawUrl === expectedUrl;
+}
+
+/** After arming, the host may remove only our fragment in the same document. */
+function probeDocumentUrl(rawUrl: unknown, markerUrl: string): boolean {
+  return exactMarkerUrl(rawUrl, markerUrl) || rawUrl === markerUrl.slice(0, markerUrl.indexOf('#'));
 }
 
 async function readState(
@@ -343,7 +344,7 @@ async function observeProjection(
     } catch {
       return { success: false, code: 'document-unavailable', documentId };
     }
-    if (!exactMarkerUrl(tab.url, markerUrl)) {
+    if (!probeDocumentUrl(tab.url, markerUrl)) {
       return { success: false, code: 'navigation-changed', documentId };
     }
     const target: ProbeTarget = documentId
@@ -388,16 +389,16 @@ export function removeDotsSchemaProbeMarker(nonce: string, markerUrl: string): b
   try {
     if (typeof nonce !== 'string' || !/^[A-Za-z0-9-]{16,128}$/.test(nonce)) return false;
     const expected = `#liska-dots-schema=${nonce}`;
-    if (
-      typeof markerUrl !== 'string' ||
-      window.location.href !== markerUrl ||
-      window.location.hash !== expected
-    )
-      return false;
-    const url = new URL(window.location.href);
+    if (typeof markerUrl !== 'string') return false;
+    const url = new URL(markerUrl);
+    if (url.href !== markerUrl || url.hash !== expected) return false;
     url.hash = '';
+    const baseUrl = url.href;
+    // A same-document host cleanup is already complete; never touch history.
+    if (window.location.href === baseUrl && window.location.hash === '') return true;
+    if (window.location.href !== markerUrl || window.location.hash !== expected) return false;
     window.history.replaceState(window.history.state, '', url.href);
-    return window.location.hash === '';
+    return window.location.href === baseUrl && window.location.hash === '';
   } catch {
     return false;
   }
@@ -422,7 +423,7 @@ async function cleanupMarker(
     for (const target of targets) {
       if (now() >= deadline) return false;
       const tab = await withinDeadline(chromeApi.tabs.get(tabId), remaining(deadline, now));
-      if (!exactMarkerUrl(tab.url, markerUrl)) return false;
+      if (!probeDocumentUrl(tab.url, markerUrl)) return false;
       let execution: Array<{ result?: unknown; documentId?: string; frameId?: number }>;
       try {
         execution = await withinDeadline(
@@ -491,8 +492,10 @@ async function reconcileLateMarkerCommit(
         await cleanupMarker(chromeApi, tabId, undefined, nonce, markerUrl, now, false);
         return;
       }
-      // Chrome can settle update before the fragment commit becomes visible.
-      // Wait only on our original hashless target, never on later navigation.
+      // Chrome can settle update before the fragment commit becomes visible,
+      // or the host may already have removed it. A stable exact base URL needs
+      // no mutation; wait only through this bounded reconciliation window.
+      // Never wait on or alter any later path, query or fragment.
       if (tab.url !== originalUrl) return;
       const wait = deadline - now();
       if (wait <= 0) return;

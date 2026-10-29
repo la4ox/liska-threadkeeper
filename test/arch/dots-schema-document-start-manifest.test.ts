@@ -10,7 +10,7 @@ type ContentScript = {
 };
 
 describe('Dots schema document-start manifest entry', () => {
-  it('is a separate MAIN-world document-start entry on ChatGPT only', () => {
+  it('shares one ordered MAIN-world document-start entry on ChatGPT only', () => {
     const contentScripts = manifest.content_scripts as ContentScript[];
     const entry = contentScripts.find(
       script =>
@@ -20,14 +20,17 @@ describe('Dots schema document-start manifest entry', () => {
 
     expect(entry).toEqual({
       matches: ['https://chatgpt.com/*'],
-      js: ['src/content/capture/dots-schema-document-start.ts'],
+      js: [
+        'src/content/capture/chatgpt-document-start.ts',
+        'src/content/capture/dots-schema-document-start.ts',
+      ],
       run_at: 'document_start',
       world: 'MAIN',
     });
     expect(entry).not.toHaveProperty('all_frames');
   });
 
-  it('does not widen or replace the ordinary ChatGPT capture entry', () => {
+  it('keeps ordinary ChatGPT first without a duplicate MAIN entry', () => {
     const contentScripts = manifest.content_scripts as ContentScript[];
     const ordinary = contentScripts.find(
       script =>
@@ -37,9 +40,15 @@ describe('Dots schema document-start manifest entry', () => {
 
     expect(ordinary).toEqual({
       matches: ['https://chatgpt.com/*'],
-      js: ['src/content/capture/chatgpt-document-start.ts'],
+      js: [
+        'src/content/capture/chatgpt-document-start.ts',
+        'src/content/capture/dots-schema-document-start.ts',
+      ],
       run_at: 'document_start',
       world: 'MAIN',
     });
+    expect(
+      contentScripts.filter(script => script.run_at === 'document_start' && script.world === 'MAIN')
+    ).toHaveLength(1);
   });
 });

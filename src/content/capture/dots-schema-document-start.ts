@@ -103,6 +103,7 @@ type HookCode =
   | 'ambiguous-room'
   | 'duplicate-endpoint'
   | 'target-not-observed'
+  | 'request-init-present'
   | 'timed-out'
   | 'navigation-changed';
 type HookResult =
@@ -161,6 +162,7 @@ type ProbeState = {
   page: PageWindow;
   p: Primordials;
   href: string;
+  baseHref: string;
   originalFetch: typeof window.fetch;
   fetchEnumerable: boolean;
   wrapper: typeof window.fetch | undefined;
@@ -168,6 +170,7 @@ type ProbeState = {
   hardTimer: number | undefined;
   settled: boolean;
   observationClosed: boolean;
+  requestInitPresent: boolean;
   room: string | undefined;
   claimed: Record<Endpoint, boolean>;
   shapes: Partial<Record<Endpoint, Shape>>;
@@ -262,7 +265,7 @@ function snapshotPrimordials(page: PageWindow): Primordials {
   return p;
 }
 
-function markerFromHref(href: string): { nonce: string } | undefined {
+function markerFromHref(href: string): { nonce: string; baseHref: string } | undefined {
   try {
     const url = new URL(href);
     const marker = DOTS_MARKER.exec(url.hash);
@@ -276,34 +279,29 @@ function markerFromHref(href: string): { nonce: string } | undefined {
       marker === null
     )
       return undefined;
-    return { nonce: marker[1] };
+    return { nonce: marker[1], baseHref: `${DOTS_ORIGIN}${url.pathname}` };
   } catch {
     return undefined;
   }
 }
 
-function exactRequestMethod(p: Primordials, input: unknown, init: unknown): string | undefined {
-  // This initial evidence slice does not inspect any RequestInit object.
-  // Its conversion can run accessors that retarget an apparently benign GET.
-  if (init !== undefined && init !== null) return undefined;
-  let method: unknown = 'GET';
-  if (typeof input !== 'string') {
-    method = captured(p, p.requestMethod, input, []);
+function exactRequestMethod(p: Primordials, input: unknown): string | undefined {
+  try {
+    const method: unknown =
+      typeof input === 'string' ? 'GET' : captured(p, p.requestMethod, input, []);
+    // Native fetch normalizes method casing; no request values leave this closure.
+    return typeof method === 'string' && captured(p, p.exec, /^get$/i, [method]) !== null
+      ? 'GET'
+      : undefined;
+  } catch {
+    return undefined;
   }
-  // Native fetch normalizes method casing; no request values leave this closure.
-  return typeof method === 'string' && captured(p, p.exec, /^get$/i, [method]) !== null
-    ? 'GET'
-    : undefined;
 }
 
-function requestTarget(
-  state: ProbeState,
-  input: unknown,
-  init: unknown
-): RequestTarget | undefined {
+/** Recognize only the exact input route, independently of RequestInit admission. */
+function requestTarget(state: ProbeState, input: unknown): RequestTarget | undefined {
   const p = state.p;
   try {
-    if (exactRequestMethod(p, input, init) !== 'GET') return undefined;
     // URL objects are intentionally not coerced: page-owned toString could retarget them.
     const raw = typeof input === 'string' ? input : captured<string>(p, p.requestUrl, input, []);
     const base = captured<string>(p, p.documentBase, state.page.document, []);
@@ -393,7 +391,9 @@ function finish(state: ProbeState, result: HookResult): void {
   }
   state.targets.length = 0;
   state.room = undefined;
+  state.requestInitPresent = false;
   state.href = '';
+  state.baseHref = '';
   state.shapes = {};
 }
 
@@ -403,7 +403,10 @@ function fail(state: ProbeState, code: HookCode): void {
 
 function stillSameDocument(state: ProbeState): boolean {
   try {
-    return state.page.location.href === state.href;
+    // The host may remove an unknown fragment after this document is armed.
+    // No other path, query or hash is equivalent to the selected document URL.
+    const href = state.page.location.href;
+    return href === state.href || href === state.baseHref;
   } catch {
     return false;
   }
@@ -643,12 +646,29 @@ function claimRequest(state: ProbeState, target: RequestTarget | undefined): boo
   return true;
 }
 
+function admittedRequestTarget(
+  state: ProbeState,
+  input: unknown,
+  init: unknown
+): RequestTarget | undefined {
+  if (state.settled || state.observationClosed) return undefined;
+  const target = requestTarget(state, input);
+  if (target === undefined || exactRequestMethod(state.p, input) !== 'GET') return undefined;
+  // Presence is the sole RequestInit observation. Never read, enumerate or
+  // reflect its fields: native conversion could run getters or retarget fetch.
+  if (init !== undefined && init !== null) {
+    if (stillSameDocument(state)) state.requestInitPresent = true;
+    return undefined;
+  }
+  return target;
+}
+
 function wrapFetch(state: ProbeState): typeof window.fetch {
   return function (
     this: unknown,
     ...args: Parameters<typeof window.fetch>
   ): ReturnType<typeof window.fetch> {
-    const target = requestTarget(state, args[0], args[1]);
+    const target = admittedRequestTarget(state, args[0], args[1]);
     const observe = claimRequest(state, target);
     let original: ReturnType<typeof window.fetch>;
     try {
@@ -683,7 +703,10 @@ function armTimers(state: ProbeState): void {
       state.observationClosed = true;
       restoreFetch(state);
       if (!state.claimed.roomMetadata || !state.claimed.roomMessages)
-        return fail(state, 'target-not-observed');
+        return fail(
+          state,
+          state.requestInitPresent ? 'request-init-present' : 'target-not-observed'
+        );
       completeIfReady(state);
     },
     OBSERVATION_MS,
@@ -733,6 +756,7 @@ export function startDotsSchemaDocumentStartProbe(
       page,
       p,
       href: page.location.href,
+      baseHref: marker.baseHref,
       originalFetch: descriptor.value as typeof window.fetch,
       fetchEnumerable: descriptor.enumerable === true,
       wrapper: undefined,
@@ -740,6 +764,7 @@ export function startDotsSchemaDocumentStartProbe(
       hardTimer: undefined,
       settled: false,
       observationClosed: false,
+      requestInitPresent: false,
       room: undefined,
       claimed: { roomMetadata: false, roomMessages: false },
       shapes: {},

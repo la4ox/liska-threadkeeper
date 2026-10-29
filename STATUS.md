@@ -2355,22 +2355,31 @@ removes only its nonce marker, and writes one fixed local diagnostic JSON file.
 No archive, Obsidian, Clipboard or settings sink is reachable from this action.
 
 The production build now post-bundles the import-free observer into one
-synchronous classic `dots-schema-document-start.js`; the built manifest points
-directly to it rather than CRXJS's asynchronous loader. The current artifact is
-22,271 bytes with SHA-256
-`0c3c25b700893122f8a39450d36b4452b98fc7be8d713e0affc61061e645f4fe`.
+synchronous classic `dots-schema-document-start.js`. The built manifest keeps
+ordinary ChatGPT first and Dots second inside one ordered MAIN document-start
+entry; this avoids a live Comet compatibility failure where the second of two
+otherwise identical entries was never parsed. The current Dots artifact is
+22,909 bytes with SHA-256
+`5152c27a91a0e34146bd30803f0720e1b88e0325a61cb5ff5fca81d0ef15a68a`.
 Focused route, observer, contract, popup, build and worker checks pass; the full
-suite passes 230 files / 7,759 tests with one existing skip. Production build
+suite passes 230 files / 7,796 tests with one existing skip. Production build
 transforms 291 modules, lint has zero errors and the same three pre-existing
 warnings, and independent review is clean after fixing the async-loader gap,
 ordinary failure cleanup and a late `tabs.update` marker race.
 
-Live provider compatibility is still deliberately unclaimed. The installed
-canary must establish whether Dots uses the admitted Fetch form, one unambiguous
-room pair and the current route grammar. A fixed refusal such as
-`target-not-observed` is evidence for the next narrow transport adjustment, not
-permission to widen observation. Once the real raw contract is grounded, this
-schema control should move out of the ordinary product surface or be removed.
+Live provider compatibility is still deliberately unclaimed. An installed
+stable-page canary proved that the synchronous hook arms, returns the fixed
+`target-not-observed` refusal, removes its nonce fragment and writes no file.
+The host can also remove that fragment itself in the same document, so the hook
+now accepts only the exact marked URL or its exact hashless base while background
+still pins the document ID. A metadata-only refinement can distinguish an exact
+room Fetch refused solely because `RequestInit` is present without reading any
+init field. Its live classification remains pending: later attempts were
+invalidated by the Dots page itself failing during reload. A future stable-page
+canary may establish `request-init-present` or retain `target-not-observed`; only
+that result may justify the next narrow Fetch/XHR adjustment. Once the real raw
+contract is grounded, this schema control should move out of the ordinary
+product surface or be removed.
 
 The intended archive behavior after this evidence gate is not a permanently
 redacted export. For the current workflow, one Dot to one long-lived room is the

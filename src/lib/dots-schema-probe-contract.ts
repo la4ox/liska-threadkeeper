@@ -106,6 +106,7 @@ export const DOTS_SCHEMA_PROBE_ERROR_CODES = Object.freeze([
   'navigation-changed',
   'timed-out',
   'target-not-observed',
+  'request-init-present',
   'ambiguous-room',
   'duplicate-endpoint',
   'request-failed',

@@ -176,6 +176,68 @@ describe('Dots selected-tab schema probe', () => {
     expect(h.operations.size).toBe(0);
   });
 
+  it('accepts host fragment removal only while preserving the pinned document', async () => {
+    const h = harness();
+    const execute = h.executeScript.getMockImplementation()!;
+    let reads = 0;
+    h.executeScript.mockImplementation(async injection => {
+      const result = await execute(injection);
+      if (injection.func !== removeDotsSchemaProbeMarker && ++reads === 1) {
+        h.setCurrentUrl(DOTS_URL);
+      }
+      return result;
+    });
+
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: true,
+      fileName: DOTS_SCHEMA_PROBE_FILE_NAME,
+    });
+    expect(h.executeScript.mock.calls.map(([injection]) => injection.target)).toEqual([
+      { tabId: TAB_ID, frameIds: [0] },
+      { tabId: TAB_ID, documentIds: [DOCUMENT_ID] },
+      { tabId: TAB_ID, documentIds: [DOCUMENT_ID] },
+    ]);
+    expect(h.downloadEvidence).toHaveBeenCalledOnce();
+    expect(h.currentUrl()).toBe(DOTS_URL);
+  });
+
+  it('waits on an unmarked missing state without pinning the pre-reload document', async () => {
+    const h = harness([
+      { result: { kind: 'missing' }, documentId: 'old_document_123', frameId: 0 },
+      { result: { kind: 'ready' }, documentId: DOCUMENT_ID, frameId: 0 },
+      {
+        result: { kind: 'completed', projection: evidence() },
+        documentId: DOCUMENT_ID,
+        frameId: 0,
+      },
+    ]);
+    h.reload.mockImplementationOnce(async () => h.setCurrentUrl(DOTS_URL));
+
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: true,
+      fileName: DOTS_SCHEMA_PROBE_FILE_NAME,
+    });
+    expect(h.executeScript.mock.calls.map(([injection]) => injection.target)).toEqual([
+      { tabId: TAB_ID, frameIds: [0] },
+      { tabId: TAB_ID, frameIds: [0] },
+      { tabId: TAB_ID, documentIds: [DOCUMENT_ID] },
+      { tabId: TAB_ID, documentIds: [DOCUMENT_ID] },
+    ]);
+    expect(h.downloadEvidence).toHaveBeenCalledOnce();
+  });
+
+  it('does not mistake an unmarked missing hook for successful evidence', async () => {
+    const h = harness([]);
+    h.reload.mockImplementationOnce(async () => h.setCurrentUrl(DOTS_URL));
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'timed-out',
+    });
+    expect(h.downloadEvidence).not.toHaveBeenCalled();
+    expect(h.currentUrl()).toBe(DOTS_URL);
+    expect(h.operations.size).toBe(0);
+  });
+
   it.each([
     [[], 'active-tab-required'],
     [
@@ -188,6 +250,7 @@ describe('Dots selected-tab schema probe', () => {
     [[{ id: TAB_ID, url: 'https://chatgpt.com/c/abc' }], 'dots-route-required'],
     [[{ id: TAB_ID, url: `${DOTS_URL}?x=1` }], 'dots-route-required'],
     [[{ id: TAB_ID, url: `${DOTS_URL}#existing` }], 'conflicting-fragment'],
+    [[{ id: TAB_ID, url: `${DOTS_URL}#liska-dots-schema=${NONCE}` }], 'conflicting-fragment'],
   ])('refuses invalid active-tab selection %#', async (tabs, code) => {
     const h = harness();
     h.query.mockResolvedValueOnce(tabs as never);
@@ -357,6 +420,38 @@ describe('Dots selected-tab schema probe', () => {
     }
   });
 
+  it('releases late-update ownership after the exact base URL remains already clean', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      let resolveUpdate!: (tab: chrome.tabs.Tab) => void;
+      h.update.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            resolveUpdate = resolve;
+          })
+      );
+      const pending = probeDotsSchemaInActiveTab(h);
+      await vi.advanceTimersByTimeAsync(h.timeoutMs + 1);
+      await expect(pending).resolves.toEqual({ success: false, code: 'tab-update-failed' });
+      expect(h.operations.has(TAB_ID)).toBe(true);
+
+      resolveUpdate({ id: TAB_ID, url: DOTS_URL } as chrome.tabs.Tab);
+      await vi.runAllTimersAsync();
+      expect(h.currentUrl()).toBe(DOTS_URL);
+      expect(h.operations.size).toBe(0);
+      expect(h.executeScript).not.toHaveBeenCalled();
+      expect(h.reload).not.toHaveBeenCalled();
+      expect(h.downloadEvidence).not.toHaveBeenCalled();
+      await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+        success: true,
+        fileName: DOTS_SCHEMA_PROBE_FILE_NAME,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     'https://chatgpt.com/dots/other',
     `${DOTS_URL}#liska-dots-schema=other-operation-12345678`,
@@ -391,21 +486,24 @@ describe('Dots selected-tab schema probe', () => {
     }
   });
 
-  it('propagates only fixed observer codes and never downloads an error', async () => {
-    const h = harness([
-      { result: { kind: 'ready' }, documentId: DOCUMENT_ID, frameId: 0 },
-      {
-        result: { kind: 'error', code: 'ambiguous-room' },
-        documentId: DOCUMENT_ID,
-        frameId: 0,
-      },
-    ]);
-    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
-      success: false,
-      code: 'ambiguous-room',
-    });
-    expect(h.downloadEvidence).not.toHaveBeenCalled();
-  });
+  it.each(['ambiguous-room', 'request-init-present'] as const)(
+    'propagates fixed observer code %s and never downloads an error',
+    async code => {
+      const h = harness([
+        { result: { kind: 'ready' }, documentId: DOCUMENT_ID, frameId: 0 },
+        {
+          result: { kind: 'error', code },
+          documentId: DOCUMENT_ID,
+          frameId: 0,
+        },
+      ]);
+      await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+        success: false,
+        code,
+      });
+      expect(h.downloadEvidence).not.toHaveBeenCalled();
+    }
+  );
 
   it('rejects a replaced document after pinning', async () => {
     const h = harness([
@@ -423,6 +521,32 @@ describe('Dots selected-tab schema probe', () => {
     expect(h.downloadEvidence).not.toHaveBeenCalled();
   });
 
+  it('rejects a replacement document at the exact unmarked base URL', async () => {
+    const h = harness([
+      { result: { kind: 'ready' }, documentId: DOCUMENT_ID, frameId: 0 },
+      {
+        result: { kind: 'completed', projection: evidence() },
+        documentId: 'different_document',
+        frameId: 0,
+      },
+    ]);
+    const execute = h.executeScript.getMockImplementation()!;
+    h.executeScript.mockImplementation(async injection => {
+      const result = await execute(injection);
+      if (injection.func !== removeDotsSchemaProbeMarker) h.setCurrentUrl(DOTS_URL);
+      return result;
+    });
+    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+      success: false,
+      code: 'document-replaced',
+    });
+    expect(h.downloadEvidence).not.toHaveBeenCalled();
+    expect(h.executeScript.mock.calls[1][0].target).toEqual({
+      tabId: TAB_ID,
+      documentIds: [DOCUMENT_ID],
+    });
+  });
+
   it('never accepts a result without an explicit top-frame identity', async () => {
     const h = harness([
       {
@@ -437,9 +561,15 @@ describe('Dots selected-tab schema probe', () => {
     expect(h.downloadEvidence).not.toHaveBeenCalled();
   });
 
-  it('rejects navigation away and never navigates back', async () => {
+  it.each([
+    'https://chatgpt.com/',
+    `${DOTS_URL}?x=1`,
+    `${DOTS_URL}#other`,
+    `${DOTS_URL}#liska-dots-schema=other-operation-12345678`,
+    `${DOTS_URL}/`,
+    'https://other.test/dots/home',
+  ])('rejects navigation away without navigating back: %s', async changedUrl => {
     const h = harness([{ result: { kind: 'ready' }, documentId: DOCUMENT_ID, frameId: 0 }]);
-    const changedUrl = 'https://chatgpt.com/';
     h.get
       .mockResolvedValueOnce({ id: TAB_ID, url: `${DOTS_URL}#liska-dots-schema=${NONCE}` })
       .mockImplementationOnce(async () => {
@@ -505,35 +635,41 @@ describe('Dots selected-tab schema probe', () => {
     expect(h.downloadEvidence).not.toHaveBeenCalled();
   });
 
-  it('never accepts successful evidence through an unpinned cleanup fallback', async () => {
-    const h = harness([
-      {
-        result: { kind: 'completed', projection: evidence() },
-        documentId: DOCUMENT_ID,
-        frameId: 0,
-      },
-    ]);
-    const execute = h.executeScript.getMockImplementation()!;
-    h.executeScript.mockImplementation(async injection => {
-      if (injection.func === removeDotsSchemaProbeMarker && injection.target.documentIds) {
-        throw new Error('pinned document is unavailable');
-      }
-      return execute(injection);
-    });
-    await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
-      success: false,
-      code: 'cleanup-failed',
-    });
-    const cleanup = h.executeScript.mock.calls.filter(
-      ([injection]) => injection.func === removeDotsSchemaProbeMarker
-    );
-    expect(cleanup.map(([injection]) => injection.target)).toEqual([
-      { tabId: TAB_ID, documentIds: [DOCUMENT_ID] },
-      { tabId: TAB_ID, frameIds: [0] },
-    ]);
-    expect(h.currentUrl()).toBe(DOTS_URL);
-    expect(h.downloadEvidence).not.toHaveBeenCalled();
-  });
+  it.each([false, true])(
+    'never accepts evidence through an unpinned cleanup fallback with clean URL=%s',
+    async alreadyClean => {
+      const h = harness([
+        {
+          result: { kind: 'completed', projection: evidence() },
+          documentId: DOCUMENT_ID,
+          frameId: 0,
+        },
+      ]);
+      const execute = h.executeScript.getMockImplementation()!;
+      h.executeScript.mockImplementation(async injection => {
+        if (injection.func === removeDotsSchemaProbeMarker && injection.target.documentIds) {
+          throw new Error('pinned document is unavailable');
+        }
+        const result = await execute(injection);
+        if (alreadyClean && injection.func !== removeDotsSchemaProbeMarker)
+          h.setCurrentUrl(DOTS_URL);
+        return result;
+      });
+      await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
+        success: false,
+        code: 'cleanup-failed',
+      });
+      const cleanup = h.executeScript.mock.calls.filter(
+        ([injection]) => injection.func === removeDotsSchemaProbeMarker
+      );
+      expect(cleanup.map(([injection]) => injection.target)).toEqual([
+        { tabId: TAB_ID, documentIds: [DOCUMENT_ID] },
+        { tabId: TAB_ID, frameIds: [0] },
+      ]);
+      expect(h.currentUrl()).toBe(DOTS_URL);
+      expect(h.downloadEvidence).not.toHaveBeenCalled();
+    }
+  );
 
   it('reports terminal download failure only after successful cleanup', async () => {
     const h = harness([
@@ -687,6 +823,38 @@ describe('Dots selected-tab schema probe', () => {
       expect(removeDotsSchemaProbeMarker(NONCE, markerUrl)).toBe(true);
       expect(currentUrl).toBe(DOTS_URL);
       expect(replaceState).toHaveBeenCalledExactlyOnceWith(null, '', DOTS_URL);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('treats the exact already-clean base URL as a no-op without replacing history', () => {
+    const replaceState = vi.fn();
+    const historyState = vi.fn(() => {
+      throw new Error('history state stays untouched');
+    });
+    vi.stubGlobal('window', {
+      location: { href: DOTS_URL, hash: '' },
+      history: {
+        get state() {
+          return historyState();
+        },
+        replaceState,
+      },
+    });
+    try {
+      expect(removeDotsSchemaProbeMarker(NONCE, `${DOTS_URL}#liska-dots-schema=${NONCE}`)).toBe(
+        true
+      );
+      expect(replaceState).not.toHaveBeenCalled();
+      expect(historyState).not.toHaveBeenCalled();
+      for (const markerUrl of [
+        DOTS_URL,
+        `${DOTS_URL}#other`,
+        `${DOTS_URL}#liska-dots-schema=other-operation-12345678`,
+      ]) {
+        expect(removeDotsSchemaProbeMarker(NONCE, markerUrl)).toBe(false);
+      }
     } finally {
       vi.unstubAllGlobals();
     }
