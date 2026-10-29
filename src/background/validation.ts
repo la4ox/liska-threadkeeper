@@ -762,6 +762,10 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     );
   }
 
+  if (extensionMessage.action === 'probeDotsSchema') {
+    return hasExactOwnKeys(extensionMessage, ['action']);
+  }
+
   if (extensionMessage.action === 'persistArchiveCompanion') {
     return validatePersistArchiveCompanionMessage(extensionMessage);
   }

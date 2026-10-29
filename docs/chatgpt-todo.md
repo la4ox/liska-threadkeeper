@@ -35,6 +35,13 @@ terminal states, and the existing no-credential-export boundary.
 - Archive reconnaissance found no ordinary GIF and only one WebP, which carries
   explicit Library-ID metadata and no captured binary. It is not ordinary-route
   evidence; GIF/WebP active widening remains deferred.
+- A later official-export shard adds four `image/webp` metadata records without
+  explicit Library markers and still zero GIF. Two corresponding ordinary URLs
+  are currently unavailable; the two accessible conversations resolve to
+  project routes. Treat them as project-owner evidence, not ordinary active
+  authority. The next live gate is one WebP-bearing project capture proving
+  raw-pointer/owner classification and an honest `not-attempted` result before
+  any WebP resolver or byte validator is designed.
 - Keep derived previews and ordinary images distinct before resolver dispatch.
 - Preserve original bytes; do not introduce compression as an archival default.
 - Live gate: fresh and historical examples, exact PNG/JPEG signatures,
@@ -424,15 +431,59 @@ terminal states, and the existing no-credential-export boundary.
 - First identify the authenticated page-owned conversation transport, raw graph
   or event model, current-thread identity, pagination, branches, tool content,
   media, and attachment families without reading unrelated Dots/account state.
-- Probe design gate: do not add a generic same-origin request observer. Unknown
-  path segments and query-key names can themselves disclose memory/persona or
-  account data. Require one independently grounded conversation-history route
-  grammar first; observe only that exact candidate in the selected top-frame
-  document under one trusted, short-lived capability. No reload/disposable tab,
-  request generation, header values/content-type, body, cookies/storage, or
-  dynamic allowlist learning.
+- Route grammar is now grounded by one authorized selected-tab observation:
+  exact JSON GETs used `tbo/by-thread/{thread}`, `tbo/{dot~user}`,
+  `tbo/{dot~user}/threads` with only `include_hidden,limit`, room metadata, and
+  `messaging/rooms/{room}/messages` with only `limit`. Separate room-live,
+  aeon/prepare and voice routes are realtime/write surfaces, not history input.
+  The observation retained only method, redacted path shape, query-key names,
+  status and MIME; it read no headers, cookies, storage or bodies and generated
+  no API request/message. One selected-tab reload was used; a route-string scan
+  of official exports yielded no matching Dots/TBO/room evidence, while any
+  alternate Dots representation in those exports remains unverified.
+- Probe design gate: a first implementation may observe only one exact
+  room-metadata GET and its same-room messages GET, accept exactly one room
+  identity during a short-lived user-initiated selected-tab operation, and emit
+  only a bounded schema projection. The TBO route bodies remain out of scope
+  until separately justified; route presence alone does not prove that they omit
+  memory, persona or account state. Capture the schema-only room/messages shape
+  before authorizing a raw artifact. Do not add a generic same-origin observer,
+  direct replay, realtime stream capture, dynamic allowlist learning,
+  memory/persona collection, or unrelated account traffic.
+- Diagnostic candidate implemented on `codex/dots-schema-probe`: popup-only
+  authorization, one selected-tab reload, synchronous MAIN document-start
+  observer, exact same-room pairing, fixed structural vocabulary, independent
+  tab/document/result validation and a fixed local JSON download. It does not
+  persist provider values or call archive, Obsidian, Clipboard or settings
+  sinks. Next gate is one installed live canary; do not widen Fetch/init/route
+  admission merely to turn a fixed refusal into success.
+- Installed evidence: one stable-page run armed correctly and returned
+  `target-not-observed`, with the nonce removed and no file written. Comet also
+  required ordinary ChatGPT and Dots to share one ordered MAIN document-start
+  entry, and Dots may remove the nonce fragment itself in the same document.
+  Both compatibility seams now have focused build/runtime coverage.
+- The observer can now report fixed `request-init-present` for an exact room
+  Fetch solely from second-argument presence; it never reads or reflects an init
+  field. Re-run this classifier only on a stable Dots page. Later attempts were
+  invalid because the page failed during reload, so Fetch-init versus URL-object
+  versus XHR remains unproven.
+- Keep the MAIN observer import-free and the serialized page-state reader in
+  `lib`; background-to-content imports violate the repository layering gate.
+  Current full coverage is 95.04% with the unchanged 95% statement threshold.
+- Treat the schema button as temporary evidence tooling. Hide or remove it from
+  the ordinary product surface after the real raw transport contract is proven.
 - Preserve one exact conversation-scoped raw artifact before designing the
   provider adapter; retain unknown event types instead of flattening them.
+- For the current intended Dots workflow, use one Dot to one long-lived room as
+  the working identity hypothesis. The first real adapter run should write a
+  complete raw/manifest/canonical/Markdown snapshot; later runs may append only
+  provider-ID-backed tail messages when the same Dot/room identity and exact
+  historical prefix are reverified.
+- Keep every later raw/manifest/canonical capture as a new append-only snapshot
+  even when the readable Markdown tail is appended. A changed room, edited or
+  reordered history, missing pagination evidence, or a non-prefix capture must
+  produce a separate snapshot plus an explicit diagnostic instead of silent
+  merge or overwrite.
 - Map verified Dots raw data into `liska-thread/1`, then reuse existing Markdown,
   branch, Downloads, and Obsidian layers only where their contracts really fit.
 - Keep Dots memory/persona configuration, global activity, and unrelated dot

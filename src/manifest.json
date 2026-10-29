@@ -50,7 +50,10 @@
     },
     {
       "matches": ["https://chatgpt.com/*"],
-      "js": ["src/content/capture/chatgpt-document-start.ts"],
+      "js": [
+        "src/content/capture/chatgpt-document-start.ts",
+        "src/content/capture/dots-schema-document-start.ts"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     }

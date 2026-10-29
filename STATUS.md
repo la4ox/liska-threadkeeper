@@ -525,6 +525,18 @@ Library-ID evidence; no `.webp` binary was present in its capture. It therefore
 does not justify widening the ordinary active image allowlist and instead
 becomes evidence for the separate Library contract.
 
+A separate bounded scan of one 191,352,495-byte official-export shard found
+four exact `image/webp` attachment records across four conversations and no
+`image/gif`. All four sit at `message.metadata.attachments[]` with a direct ID,
+declared size/dimensions/source and MIME; none carries `library_file_id`,
+artifact, file-service, sediment or interpreter markers. Live navigation
+classified the available surfaces more narrowly: two ordinary `/c/...` IDs are
+currently unavailable, while the other two resolve to accessible project
+routes under `/g/g-p-.../c/...`. Those project records are useful evidence for
+the separate owner-context binary-acquisition contract, but still do not
+authorize ordinary WebP acquisition. No resolver response or original WebP
+bytes were observed.
+
 The first offline Library checkpoint classifies only ledger records reached by
 their exact committed-raw source references. Its exported result contains only
 opaque asset IDs split into `associated` and `ambiguous` sets; Library ID values
@@ -2348,20 +2360,87 @@ memory/persona state, attachments, canonical adapter, or durable output is
 claimed. History-only URL changes without a DOM mutation and live SPA behavior
 remain explicit proof gaps; trusted sync still rechecks admission before output.
 
-The next Dots transport-discovery pass is deliberately stopped before code.
-Authenticated browser DOM/network access is denied by host policy, and the
-public page exposes only an anti-bot challenge. More importantly, an
-unknown-endpoint observer cannot both discover arbitrary same-origin routes and
-truthfully promise never to inspect unrelated Dot memory, persona, activity, or
-other ChatGPT requests. Path segments and query-key names may themselves contain
-personal data, so heuristic redaction is not sufficient.
+The next Dots transport-discovery pass remains stopped before code, but an
+explicitly authorized selected-tab observation now grounds the route family.
+One current Dots page used exact same-origin JSON GETs for
+`/backend-api/tbo/by-thread/{thread}`, `/backend-api/tbo/{dot~user}`,
+`/backend-api/tbo/{dot~user}/threads?include_hidden&limit`,
+`/backend-api/messaging/rooms/{room}`, and
+`/backend-api/messaging/rooms/{room}/messages?limit`. The same page separately
+used a room `live` event stream plus aeon/voice routes; those realtime/write
+surfaces are not conversation-history authority. All identifiers and query
+values were redacted before retention.
 
-No broad fetch observer, reload probe, disposable Dots tab, request clone,
-header/content-type read, body capture, or synthetic message was added. The next
-evidence gate is one independently grounded conversation-history route contract
-(exact static prefix/segment count/identifier position/query-key allowlist), or
-an explicitly authorized current-tab observation of that one known candidate.
-Until then the merged route guard remains the correct product behavior.
+The observation recorded only method, normalized path shape, query-key names,
+status and response MIME. It read no header, cookie, storage value, request or
+response body, and issued no direct API request or synthetic message. One
+selected-tab reload reproduced the routes; Chrome did not make the already
+received bodies available through the bounded CDP surface. A content-free scan
+of existing official ChatGPT exports yielded no matching Dots/TBO/room
+route-based evidence; whether those exports contain a usable Dots conversation
+representation remains unverified.
+
+This route grammar is sufficient to design a narrow user-initiated selected-tab
+probe, not to implement a provider adapter. The next evidence gate is a
+schema-only shape from one exact room-metadata GET and its same-room messages
+GET, accepting exactly one room identity during a finite observation. The TBO
+route bodies remain out of scope: their presence does not prove that they omit
+memory, persona or account state. Only after the schema gate may one
+conversation-scoped raw artifact be considered. No generic same-origin
+observer, dynamic allowlist learning, direct request replay, realtime stream
+capture, memory or persona collection is authorized.
+
+Branch `codex/dots-schema-probe` implements that evidence gate as a diagnostic,
+not an exporter. An exact popup-only action reloads one already-selected Dots
+tab once. A separate MAIN-world document-start observer admits only page-owned
+GETs for one room-metadata endpoint and its same-room `messages?limit` endpoint,
+then retains only a fixed-vocabulary structural schema. Provider values,
+unknown property names, IDs, URLs, hashes, timestamps and response bodies never
+cross the evidence boundary; TBO, live, aeon and voice surfaces remain excluded.
+Background revalidates the detached projection, top frame and exact document,
+removes only its nonce marker, and writes one fixed local diagnostic JSON file.
+No archive, Obsidian, Clipboard or settings sink is reachable from this action.
+
+The production build now post-bundles the import-free observer into one
+synchronous classic `dots-schema-document-start.js`. The built manifest keeps
+ordinary ChatGPT first and Dots second inside one ordered MAIN document-start
+entry; this avoids a live Comet compatibility failure where the second of two
+otherwise identical entries was never parsed. The current Dots artifact is
+22,517 bytes with SHA-256
+`2712899de29de7caee8ac738654db62f129b51b2e5cc0bc1056f81df22a5167d`.
+Focused route, observer, contract, popup, build and worker checks pass; the full
+coverage suite passes 231 files / 7,849 tests with one existing skip. Production
+build transforms 292 modules, lint has zero errors and the same three
+pre-existing warnings, and statement coverage is 95.04% against the unchanged
+95% floor. CI's layering rule also remains unchanged: the self-contained
+`chrome.scripting` page-state reader lives in `lib`, so background no longer
+imports the import-free MAIN observer from `content`. Independent review is
+clean after fixing the async-loader gap, ordinary failure cleanup, a late
+`tabs.update` marker race and same-document host fragment removal.
+
+Live provider compatibility is still deliberately unclaimed. An installed
+stable-page canary proved that the synchronous hook arms, returns the fixed
+`target-not-observed` refusal, removes its nonce fragment and writes no file.
+The host can also remove that fragment itself in the same document, so the hook
+now accepts only the exact marked URL or its exact hashless base while background
+still pins the document ID. A metadata-only refinement can distinguish an exact
+room Fetch refused solely because `RequestInit` is present without reading any
+init field. Its live classification remains pending: later attempts were
+invalidated by the Dots page itself failing during reload. A future stable-page
+canary may establish `request-init-present` or retain `target-not-observed`; only
+that result may justify the next narrow Fetch/XHR adjustment. Once the real raw
+contract is grounded, this schema control should move out of the ordinary
+product surface or be removed.
+
+The intended archive behavior after this evidence gate is not a permanently
+redacted export. For the current workflow, one Dot to one long-lived room is the
+working identity hypothesis: create one complete local raw/manifest/canonical
+and Markdown snapshot, then append only provider-ID-backed tail messages after
+reverifying the same Dot/room identity and exact historical prefix. Raw,
+manifest and canonical captures remain append-only snapshots. Room changes,
+history edits/reordering, incomplete pagination or any non-prefix result must
+fork a new snapshot with an explicit diagnostic rather than overwrite or merge
+silently.
 
 ## ChatGPT cross-format reconciliation core checkpoint
 

@@ -752,6 +752,26 @@
   "settings_compareChatGptArchivesHelp": {
     "message": "Compare one web canonical snapshot with an official export locally"
   },
+  "settings_probeDotsSchema": {
+    "message": "Inspect Dots transport schema"
+  },
+  "settings_probeDotsSchemaHelp": {
+    "message": "Reload the active Dots tab once and save a content-free schema for one observed room pair, not a chat export"
+  },
+  "status_dotsSchemaProbeRunning": {
+    "message": "Reloading the active Dots tab for one bounded schema observation…"
+  },
+  "status_dotsSchemaProbeSaved": {
+    "message": "Content-free Dots schema saved locally."
+  },
+  "toast_error_dotsSchemaProbeFailed": {
+    "message": "Dots schema probe did not complete ($ERROR$).",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      }
+    }
+  },
   "reconcile_openFailed": {
     "message": "Could not open the archive comparison tool"
   },
