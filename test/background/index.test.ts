@@ -25,8 +25,11 @@ function v1MessageBody(messages: readonly string[]): string {
 const mockClient = {
   testConnection: vi.fn(),
   getFile: vi.fn(),
+  getServerVersions: vi.fn(),
+  getBinaryFileBounded: vi.fn(),
   putFile: vi.fn(),
   putBinaryFile: vi.fn(),
+  putBinaryFileIfAbsent: vi.fn(),
   listFiles: vi.fn(),
 };
 const mockClientConstructor = vi.fn();
@@ -55,7 +58,10 @@ const defaultSettings = {
 };
 
 let mockGetSettings = vi.fn(() => Promise.resolve(defaultSettings));
-let mockSaveSettings = vi.fn((_settings: Partial<ExtensionSettings>) => Promise.resolve());
+let mockSaveSettings = vi.fn((settings: Partial<ExtensionSettings>) => {
+  void settings;
+  return Promise.resolve();
+});
 
 // Capture the message listener
 let capturedListener: (
@@ -72,8 +78,11 @@ vi.mock('../../src/lib/obsidian-api', () => ({
     }
     testConnection = mockClient.testConnection;
     getFile = mockClient.getFile;
+    getServerVersions = mockClient.getServerVersions;
+    getBinaryFileBounded = mockClient.getBinaryFileBounded;
     putFile = mockClient.putFile;
     putBinaryFile = mockClient.putBinaryFile;
+    putBinaryFileIfAbsent = mockClient.putBinaryFileIfAbsent;
     listFiles = mockClient.listFiles;
   },
   isObsidianApiError: (error: unknown) => {
@@ -94,12 +103,18 @@ describe('background/index', () => {
     // Reset mock implementations
     mockClient.testConnection.mockReset();
     mockClient.getFile.mockReset();
+    mockClient.getServerVersions.mockReset();
+    mockClient.getBinaryFileBounded.mockReset();
     mockClient.putFile.mockReset();
     mockClient.putBinaryFile.mockReset();
+    mockClient.putBinaryFileIfAbsent.mockReset();
     mockClient.listFiles.mockReset();
     mockClientConstructor.mockReset();
     mockGetSettings = vi.fn(() => Promise.resolve(defaultSettings));
-    mockSaveSettings = vi.fn((_settings: Partial<ExtensionSettings>) => Promise.resolve());
+    mockSaveSettings = vi.fn((settings: Partial<ExtensionSettings>) => {
+      void settings;
+      return Promise.resolve();
+    });
 
     // Capture message listener when addListener is called
     vi.mocked(chrome.runtime.onMessage.addListener).mockImplementation(listener => {
@@ -117,8 +132,11 @@ describe('background/index', () => {
         }
         testConnection = mockClient.testConnection;
         getFile = mockClient.getFile;
+        getServerVersions = mockClient.getServerVersions;
+        getBinaryFileBounded = mockClient.getBinaryFileBounded;
         putFile = mockClient.putFile;
         putBinaryFile = mockClient.putBinaryFile;
+        putBinaryFileIfAbsent = mockClient.putBinaryFileIfAbsent;
         listFiles = mockClient.listFiles;
       },
       isObsidianApiError: (error: unknown) => {
@@ -2836,7 +2854,7 @@ describe('background/index', () => {
       expect(mockClient.putFile).not.toHaveBeenCalledWith(originalPath, expect.anything());
     });
 
-    it('warns when images in newly appended messages are skipped', async () => {
+    it('writes and verifies images referenced by newly appended messages', async () => {
       const noteWithNewImage: ObsidianNote = {
         ...appendNote,
         body: appendNote.body.replace(
@@ -2846,7 +2864,16 @@ describe('background/index', () => {
         images: [{ id: 'new-image', mimeType: 'image/png', data: 'UE5H', alt: 'result' }],
       };
       mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
-      mockClient.getFile.mockResolvedValueOnce(existingContent);
+      let noteReads = 0;
+      mockClient.getFile.mockImplementation(async () => {
+        noteReads += 1;
+        return noteReads <= 2 ? existingContent : (mockClient.putFile.mock.calls[0]?.[1] as string);
+      });
+      mockClient.getServerVersions.mockResolvedValue({ self: '5.5.2', obsidian: '1.14.5' });
+      mockClient.getBinaryFileBounded
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(new Uint8Array([0x50, 0x4e, 0x47]));
+      mockClient.putBinaryFileIfAbsent.mockResolvedValue(undefined);
       mockClient.putFile.mockResolvedValue(undefined);
 
       const sendResponse = vi.fn();
@@ -2862,10 +2889,155 @@ describe('background/index', () => {
       expect(obsidian).toMatchObject({
         success: true,
         messagesAppended: 2,
-        warning: expect.stringContaining('Images in newly appended messages'),
       });
+      expect(obsidian?.warning).toBeUndefined();
       expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFileIfAbsent).toHaveBeenCalledWith(
+        expect.stringMatching(/^AI\/claude\/images\/liska-v1\/sha256-[a-f0-9]{64}\.png$/),
+        new Uint8Array([0x50, 0x4e, 0x47]),
+        'image/png'
+      );
+      expect(mockClient.putFile.mock.calls[0][1]).toContain('![[sha256-');
       expect(mockClient.putFile.mock.calls[0][1]).not.toContain('g2o-image://');
+    });
+
+    it('leaves the note untouched when its verified base changes after asset creation', async () => {
+      const noteWithNewImage: ObsidianNote = {
+        ...appendNote,
+        body: appendNote.body.replace(
+          '> New answer',
+          '> New answer\n> ![result](g2o-image://new-image)'
+        ),
+        images: [{ id: 'new-image', mimeType: 'image/png', data: 'UE5H', alt: 'result' }],
+      };
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      mockClient.getFile
+        .mockResolvedValueOnce(existingContent)
+        .mockResolvedValueOnce(`${existingContent}\nuser edit`);
+      mockClient.getServerVersions.mockResolvedValue({ self: '5.5.2', obsidian: '1.14.5' });
+      mockClient.getBinaryFileBounded
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(new Uint8Array([0x50, 0x4e, 0x47]));
+      mockClient.putBinaryFileIfAbsent.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: noteWithNewImage },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({
+        success: false,
+        error: 'append-note-changed-before-write',
+      });
+      expect(mockClient.putBinaryFileIfAbsent).toHaveBeenCalledOnce();
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+    });
+
+    it('leaves the note untouched when a later tail asset cannot be reconciled', async () => {
+      const noteWithTwoImages: ObsidianNote = {
+        ...appendNote,
+        body: appendNote.body.replace(
+          '> New answer',
+          [
+            '> New answer',
+            '> ![first](g2o-image://first-image)',
+            '> ![second](g2o-image://second-image)',
+          ].join('\n')
+        ),
+        images: [
+          { id: 'first-image', mimeType: 'image/png', data: 'UE5H', alt: 'first' },
+          { id: 'second-image', mimeType: 'image/png', data: 'SlBH', alt: 'second' },
+        ],
+      };
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      mockClient.getFile.mockResolvedValueOnce(existingContent);
+      mockClient.getServerVersions.mockResolvedValue({ self: '5.5.2', obsidian: '1.14.5' });
+      mockClient.getBinaryFileBounded
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(new Uint8Array([0x50, 0x4e, 0x47]))
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+      mockClient.putBinaryFileIfAbsent
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('private'));
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: noteWithTwoImages },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({
+        success: false,
+        error: 'append-image-write-unknown',
+      });
+      expect(mockClient.putBinaryFileIfAbsent).toHaveBeenCalledTimes(2);
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+    });
+
+    it('keeps image-export-disabled append text-only and binary-free', async () => {
+      const noteWithNewImage: ObsidianNote = {
+        ...appendNote,
+        body: appendNote.body.replace(
+          '> New answer',
+          '> New answer\n> ![result](g2o-image://new-image)'
+        ),
+        images: [{ id: 'new-image', mimeType: 'image/png', data: 'UE5H', alt: 'result' }],
+      };
+      mockGetSettings = vi.fn(() =>
+        Promise.resolve({ ...appendSettings, enableImageExport: false })
+      );
+      mockClient.getFile.mockResolvedValueOnce(existingContent);
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: noteWithNewImage },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results[0]).toMatchObject({ success: true, messagesAppended: 2 });
+      expect(mockClient.getServerVersions).not.toHaveBeenCalled();
+      expect(mockClient.getBinaryFileBounded).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFileIfAbsent).not.toHaveBeenCalled();
+      expect(mockClient.putFile.mock.calls[0][1]).not.toContain('g2o-image://');
+    });
+
+    it('never backfills an image referenced only by the historical prefix', async () => {
+      const historicalOnly: ObsidianNote = {
+        ...appendNote,
+        body: appendNote.body.replace(
+          '> Hi there!',
+          '> Hi there!\n> ![old](g2o-image://old-image)'
+        ),
+        images: [{ id: 'old-image', mimeType: 'image/png', data: 'UE5H', alt: 'old' }],
+      };
+      mockGetSettings = vi.fn(() => Promise.resolve(appendSettings));
+      mockClient.getFile.mockResolvedValueOnce(existingContent);
+      mockClient.putFile.mockResolvedValue(undefined);
+
+      const sendResponse = vi.fn();
+      capturedListener(
+        { action: 'saveToOutputs', outputs: ['obsidian'], data: historicalOnly },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      expect(mockClient.getServerVersions).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFileIfAbsent).not.toHaveBeenCalled();
+      expect(mockClient.putFile).toHaveBeenCalledOnce();
+      expect(mockClient.putFile.mock.calls[0][1]).not.toContain('old-image');
     });
 
     it('reports why append mode found no existing note (issue #365)', async () => {
@@ -2912,6 +3084,9 @@ describe('background/index', () => {
       const response = sendResponse.mock.calls[0][0];
       expect(response.allSuccessful).toBe(true);
       expect(response.messagesAppended).toBe(0);
+      expect(mockClient.getServerVersions).not.toHaveBeenCalled();
+      expect(mockClient.getBinaryFileBounded).not.toHaveBeenCalled();
+      expect(mockClient.putBinaryFileIfAbsent).not.toHaveBeenCalled();
     });
 
     it('does not re-append the tail of a note whose callouts were flattened (issue #406)', async () => {

@@ -42,8 +42,8 @@ export interface ImageResolution {
  * match from spanning adjacent `$…$` / `$$…$$` math nodes and deleting their
  * delimiters as though they belonged to an image ID.
  */
-const PLACEHOLDER_PATTERN = /(!\[|&#33;&#91;)([^\]$\r\n]*)\]\(g2o-image:\/\/([^)$\r\n]+)\)/g;
-const EXACT_LITERAL_PLACEHOLDER_PATTERN = /^!\[[^\]$\r\n]*\]\(g2o-image:\/\/[^)$\r\n]+\)$/u;
+const PLACEHOLDER_PATTERN = /(!\[|&#33;&#91;)([^\]$\r\n]*)\]\(g2o-image:\/\/([^)$\r\n]*)\)/g;
+const EXACT_LITERAL_PLACEHOLDER_PATTERN = /^!\[[^\]$\r\n]*\]\(g2o-image:\/\/[^)$\r\n]*\)$/u;
 const NEUTRALIZED_PLACEHOLDER_OPEN = '&#33;&#91;';
 const LINE_PLACEHOLDER_PREFIX = /^(?:[ \t]*(?:\\?>[ \t]?|(?:[-+*]|\d{1,9}[.)])[ \t]+))*[ \t]*$/u;
 const LINE_PLACEHOLDER_SUFFIX = /^[ \t]*$/u;
@@ -74,6 +74,11 @@ interface MarkdownRange {
   readonly end: number;
 }
 
+interface ProtectedPlaceholderContext {
+  readonly ranges: readonly MarkdownRange[];
+  readonly parserFailed: boolean;
+}
+
 function markdownRange(node: MarkdownNode, bodyLength: number): MarkdownRange | null {
   const start = node.position?.start?.offset;
   const end = node.position?.end?.offset;
@@ -93,7 +98,7 @@ function protectedNodeRange(node: MarkdownNode, body: string): MarkdownRange | n
   const ownPlaceholderImage =
     node.type === 'image' &&
     typeof node.url === 'string' &&
-    /^g2o-image:\/\/[^)$\r\n]+$/u.test(node.url) &&
+    /^g2o-image:\/\/[^)$\r\n]*$/u.test(node.url) &&
     EXACT_LITERAL_PLACEHOLDER_PATTERN.test(body.slice(range.start, range.end));
   return ownPlaceholderImage ? null : range;
 }
@@ -110,7 +115,7 @@ function scheduleChildren(
   return scheduled + children.length;
 }
 
-function protectedPlaceholderRanges(body: string): readonly MarkdownRange[] {
+function protectedPlaceholderContext(body: string): ProtectedPlaceholderContext {
   try {
     const pending: MarkdownNode[] = [fromMarkdown(body) as MarkdownNode];
     const ranges: MarkdownRange[] = [];
@@ -120,13 +125,19 @@ function protectedPlaceholderRanges(body: string): readonly MarkdownRange[] {
       const range = protectedNodeRange(node, body);
       if (range) ranges.push(range);
       const nextScheduled = scheduleChildren(pending, node, scheduled);
-      if (nextScheduled === null) return [{ start: 0, end: body.length }];
+      if (nextScheduled === null) {
+        return { ranges: [{ start: 0, end: body.length }], parserFailed: true };
+      }
       scheduled = nextScheduled;
     }
-    return ranges;
+    return { ranges, parserFailed: false };
   } catch {
-    return [{ start: 0, end: body.length }];
+    return { ranges: [{ start: 0, end: body.length }], parserFailed: true };
   }
+}
+
+function protectedPlaceholderRanges(body: string): readonly MarkdownRange[] {
+  return protectedPlaceholderContext(body).ranges;
 }
 
 function overlapsProtectedRange(
@@ -178,9 +189,10 @@ function collapseBlankLines(body: string): string {
  */
 function rewriteImageLines(
   body: string,
-  rewrite: (line: string, lineStart: number, protectedRanges: readonly MarkdownRange[]) => string
+  rewrite: (line: string, lineStart: number, protectedRanges: readonly MarkdownRange[]) => string,
+  preserveTailMarkers = false
 ): string {
-  const preserveTrustedMarkers = hasTrustedMessageBoundaries(body);
+  const preserveTrustedMarkers = preserveTailMarkers || hasTrustedMessageBoundaries(body);
   const protectedRanges = protectedPlaceholderRanges(body);
   const rewritten: string[] = [];
   let lineStart = 0;
@@ -194,6 +206,62 @@ function rewriteImageLines(
     lineStart += line.length + 1;
   }
   return collapseBlankLines(rewritten.join('\n'));
+}
+
+function trustedTailOccurrence(
+  match: string,
+  opener: string,
+  offset: number,
+  source: string,
+  globalOffset: number,
+  protectedRanges: readonly MarkdownRange[]
+): boolean {
+  if (opener !== '![' || overlapsProtectedRange(globalOffset, match.length, protectedRanges)) {
+    return false;
+  }
+  return (
+    LINE_PLACEHOLDER_PREFIX.test(source.slice(0, offset)) &&
+    LINE_PLACEHOLDER_SUFFIX.test(source.slice(offset + match.length))
+  );
+}
+
+/** Exact active image ids authored as standalone placeholders in one trusted append tail. */
+export function trustedTailImageIds(body: string): readonly string[] {
+  return inspectTrustedTailImages(body).ids;
+}
+
+export interface TrustedTailImageInspection {
+  readonly ids: readonly string[];
+  readonly parserFailed: boolean;
+}
+
+/** Fail-closed parser evidence plus exact active ids for one trusted append tail. */
+export function inspectTrustedTailImages(body: string): TrustedTailImageInspection {
+  const context = protectedPlaceholderContext(body);
+  const protectedRanges = context.ranges;
+  const ids: string[] = [];
+  let lineStart = 0;
+  for (const line of body.split('\n')) {
+    const pattern = new RegExp(PLACEHOLDER_PATTERN.source, PLACEHOLDER_PATTERN.flags);
+    for (const match of line.matchAll(pattern)) {
+      const offset = match.index ?? -1;
+      if (
+        offset >= 0 &&
+        trustedTailOccurrence(
+          match[0],
+          match[1] ?? '',
+          offset,
+          line,
+          lineStart + offset,
+          protectedRanges
+        )
+      ) {
+        ids.push(match[3] ?? '');
+      }
+    }
+    lineStart += line.length + 1;
+  }
+  return { ids, parserFailed: context.parserFailed };
 }
 
 /**
@@ -216,56 +284,111 @@ export function stripImagePlaceholders(body: string): string {
   );
 }
 
+/** Remove placeholders from one trusted append tail while preserving its real message markers. */
+export function stripTailImagePlaceholders(body: string): string {
+  return rewriteImageLines(
+    body,
+    (line, lineStart, protectedRanges) =>
+      line.replace(
+        PLACEHOLDER_PATTERN,
+        (match, opener: string, _alt, _id, offset: number, source: string) =>
+          unresolvedPlaceholder(match, opener, offset, source, lineStart + offset, protectedRanges)
+      ),
+    true
+  );
+}
+
 /**
  * Shared resolver: replace each placeholder using `render`, collecting the
  * file for every matched image. Missing and neutralized placeholders are
  * removed only in their extension-authored line-isolated shape; anomalous
  * inline forms stay literal instead of changing Markdown parser context.
  */
+interface ImageResolveOptions {
+  readonly trustedTail?: boolean;
+  readonly fileNamesById?: ReadonlyMap<string, string>;
+}
+
+interface ImageResolveEntry {
+  readonly image: ExtractedImage;
+  readonly index: number;
+}
+
+interface ImageResolveContext {
+  readonly byId: ReadonlyMap<string, ImageResolveEntry>;
+  readonly files: ResolvedImageFile[];
+  readonly emitted: Set<string>;
+  readonly noteBaseName: string;
+  readonly render: (fileName: string, alt: string) => string;
+  readonly options: ImageResolveOptions;
+}
+
+function resolvePlaceholder(
+  context: ImageResolveContext,
+  protectedRanges: readonly MarkdownRange[],
+  lineStart: number,
+  match: string,
+  opener: string,
+  alt: string,
+  id: string,
+  offset: number,
+  source: string
+): string {
+  const globalOffset = lineStart + offset;
+  const fallback = () =>
+    unresolvedPlaceholder(match, opener, offset, source, globalOffset, protectedRanges);
+  if (
+    opener !== '![' ||
+    overlapsProtectedRange(globalOffset, match.length, protectedRanges) ||
+    (context.options.trustedTail &&
+      !trustedTailOccurrence(match, opener, offset, source, globalOffset, protectedRanges))
+  ) {
+    return fallback();
+  }
+  const entry = context.byId.get(id);
+  if (!entry) return fallback();
+  const fileName = context.options.fileNamesById
+    ? context.options.fileNamesById.get(id)
+    : imageFileName(context.noteBaseName, entry.image, entry.index);
+  if (!fileName) return fallback();
+  if (!context.emitted.has(id)) {
+    context.emitted.add(id);
+    context.files.push({ fileName, mimeType: entry.image.mimeType, data: entry.image.data });
+  }
+  return context.render(fileName, alt);
+}
+
 function resolve(
   body: string,
   images: readonly ExtractedImage[],
   noteBaseName: string,
-  render: (fileName: string, alt: string) => string
+  render: (fileName: string, alt: string) => string,
+  options: ImageResolveOptions = {}
 ): ImageResolution {
   const byId = new Map(images.map((image, index) => [image.id, { image, index }]));
   const files: ResolvedImageFile[] = [];
   const emitted = new Set<string>();
+  const context = { byId, files, emitted, noteBaseName, render, options };
 
-  const resolvedBody = rewriteImageLines(body, (line, lineStart, protectedRanges) =>
-    line.replace(
-      PLACEHOLDER_PATTERN,
-      (match, opener: string, alt: string, id: string, offset: number, source: string) => {
-        if (opener !== '![') {
-          return unresolvedPlaceholder(
+  const resolvedBody = rewriteImageLines(
+    body,
+    (line, lineStart, protectedRanges) =>
+      line.replace(
+        PLACEHOLDER_PATTERN,
+        (match, opener: string, alt: string, id: string, offset: number, source: string) =>
+          resolvePlaceholder(
+            context,
+            protectedRanges,
+            lineStart,
             match,
             opener,
+            alt,
+            id,
             offset,
-            source,
-            lineStart + offset,
-            protectedRanges
-          );
-        }
-        const entry = byId.get(id);
-        if (!entry) {
-          return unresolvedPlaceholder(
-            match,
-            opener,
-            offset,
-            source,
-            lineStart + offset,
-            protectedRanges
-          );
-        }
-
-        const fileName = imageFileName(noteBaseName, entry.image, entry.index);
-        if (!emitted.has(id)) {
-          emitted.add(id);
-          files.push({ fileName, mimeType: entry.image.mimeType, data: entry.image.data });
-        }
-        return render(fileName, alt);
-      }
-    )
+            source
+          )
+      ),
+    options.trustedTail
   );
 
   return { body: resolvedBody, files };
@@ -281,6 +404,18 @@ export function resolveImagesForObsidian(
   noteBaseName: string
 ): ImageResolution {
   return resolve(body, images, noteBaseName, fileName => `![[${fileName}]]`);
+}
+
+/** Resolve only standalone active placeholders from one already-verified append tail. */
+export function resolveImagesForObsidianTail(
+  body: string,
+  images: readonly ExtractedImage[],
+  fileNamesById: ReadonlyMap<string, string>
+): ImageResolution {
+  return resolve(body, images, '', fileName => `![[${fileName}]]`, {
+    trustedTail: true,
+    fileNamesById,
+  });
 }
 
 /**

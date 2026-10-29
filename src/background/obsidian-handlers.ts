@@ -22,10 +22,6 @@ import {
 import { applyLineEnding } from '../lib/frontmatter-parser';
 import { LiskaLossDiagnosticsBoundaryError } from '../lib/loss-diagnostics';
 import {
-  finalizeAppendReadingMarkdown,
-  type FinalMarkdownMarkerRange,
-} from '../lib/final-markdown-gate';
-import {
   classifyNoteProbe,
   hasImmutableArchivePresentationFields,
   isAppendEligibleConversation,
@@ -36,11 +32,6 @@ import { flattenLargeCallouts } from '../lib/callout-flatten';
 import { base64ToBytes } from '../lib/image-utils';
 import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
-import {
-  extractTailMessages,
-  MESSAGE_BOUNDARY_FORMAT_MARKER,
-  MESSAGE_BOUNDARY_MARKER,
-} from '../lib/message-counter';
 import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../lib/constants';
 import { isStagedBinaryAssetDescriptor } from '../lib/binary-asset-contract';
 import {
@@ -57,6 +48,13 @@ import type {
   StagedBinaryAssetDescriptor,
   StructuredArchiveSource,
 } from '../lib/types';
+import {
+  AppendImageError,
+  commitVerifiedAppendNote,
+  persistAppendImagePlan,
+  prepareAppendTail,
+  prepareAppendTailWrite,
+} from './obsidian-append-images';
 
 /**
  * Create an ObsidianApiClient if API key is configured.
@@ -546,61 +544,6 @@ function isAppendModeEligible(settings: ExtensionSettings, note: ObsidianNote): 
   );
 }
 
-/**
- * Derive marker authority only after the owned new tail has finished transforming.
- * The composer reserves provider copies; every real new message must retain one
- * exact full-line sentinel, and the final parser must still see it structurally.
- */
-function appendedMarkerRanges(
-  tail: string,
-  appendFrom: number,
-  expectedCount: number
-): FinalMarkdownMarkerRange[] {
-  const ranges: FinalMarkdownMarkerRange[] = [];
-  let messageCount = 0;
-  let formatCount = 0;
-  let start = 0;
-  while (start < tail.length) {
-    const nextBreak = tail.indexOf('\n', start);
-    const end = nextBreak < 0 ? tail.length : nextBreak;
-    const line = tail.slice(start, end);
-    if (line === MESSAGE_BOUNDARY_MARKER) {
-      messageCount += 1;
-      ranges.push({ start: appendFrom + start, end: appendFrom + end });
-      if (messageCount > expectedCount) throw new AppendBoundaryError();
-    } else if (line === MESSAGE_BOUNDARY_FORMAT_MARKER) {
-      formatCount += 1;
-      if (start !== 0 || formatCount > 1) throw new AppendBoundaryError();
-      ranges.push({ start: appendFrom + start, end: appendFrom + end });
-    }
-    start = end + 1;
-  }
-  if (messageCount !== expectedCount) throw new AppendBoundaryError();
-  return ranges;
-}
-
-function prepareAppendWrite(
-  appendResult: NonNullable<ReturnType<typeof buildAppendContent>>,
-  settings: ExtensionSettings
-) {
-  if (appendResult.diagnosticsOnly) {
-    // No new body bytes enter this operation: do not flatten, reparse, or add
-    // separators to the user's existing document for a metadata-only update.
-    return { ok: true as const, content: appendResult.content };
-  }
-  // Transform only the new LF tail: the existing body is user-owned. Check
-  // the exact joined context before restoring the original EOL (ADR-026).
-  const tail = maybeFlatten(appendResult.newMessages, settings);
-  const prefix = `${appendResult.existingBody}\n\n`;
-  const finalized = finalizeAppendReadingMarkdown(prefix + tail, {
-    appendFrom: prefix.length,
-    requiredMarkerRanges: appendedMarkerRanges(tail, prefix.length, appendResult.messagesAppended),
-  });
-  return finalized.ok
-    ? { ok: true as const, content: `${appendResult.updatedFrontmatter}\n${finalized.body}` }
-    : finalized;
-}
-
 function appendSuccess(
   appendResult: NonNullable<ReturnType<typeof buildAppendContent>>
 ): SaveResponse {
@@ -615,6 +558,10 @@ function appendSuccess(
 }
 
 function appendFailure(error: unknown): SaveResponse {
+  if (error instanceof AppendImageError) {
+    console.warn('[G2O Background] Append refused: tail image persistence is unverified');
+    return { success: false, error: error.code };
+  }
   if (error instanceof AppendBoundaryError || error instanceof LiskaLossDiagnosticsBoundaryError) {
     console.warn(
       '[G2O Background] Append refused: message boundaries or diagnostics are untrusted'
@@ -627,6 +574,33 @@ function appendFailure(error: unknown): SaveResponse {
   }
   console.warn('[G2O Background] Append refused: unexpected operation failure');
   return { success: false, error: 'append-operation-failed' };
+}
+
+async function findAppendTarget(
+  client: ObsidianApiClient,
+  settings: ExtensionSettings,
+  note: ObsidianNote,
+  fullPath: string,
+  resolvedPath: string,
+  searchBasePath: string,
+  templateVariables: Record<string, string>
+) {
+  const memoKey = appendMemoKey(settings, note, searchBasePath);
+  const lookup = await lookupExistingFile(client, fullPath, resolvedPath, note, {
+    searchBasePath,
+    hintPath: appendPathMemo.get(memoKey),
+    hintScope: { folderTemplate: settings.vaultPath, variables: templateVariables },
+    filenameScheme: settings.templateOptions.filenameScheme,
+  });
+  if (!lookup.found) {
+    console.info('[G2O Background] Append lookup found no existing note', {
+      missReason: lookup.missReason,
+      directProbeState: lookup.directProbe?.state ?? 'unknown',
+    });
+    return null;
+  }
+  rememberAppendPath(memoKey, lookup.path);
+  return lookup;
 }
 
 /**
@@ -646,65 +620,43 @@ async function tryAppendMode(
   if (!isAppendModeEligible(settings, note)) return null;
 
   try {
-    const memoKey = appendMemoKey(settings, note, searchBasePath);
-    const lookup = await lookupExistingFile(client, fullPath, resolvedPath, note, {
+    const lookup = await findAppendTarget(
+      client,
+      settings,
+      note,
+      fullPath,
+      resolvedPath,
       searchBasePath,
-      hintPath: appendPathMemo.get(memoKey),
-      hintScope: {
-        folderTemplate: settings.vaultPath,
-        variables: templateVariables,
-      },
-      filenameScheme: settings.templateOptions.filenameScheme,
-    });
-    if (!lookup.found) {
-      // A miss is what sends the save down the fork path, so name the negative
-      // rather than letting it vanish (issue #365).
-      console.info('[G2O Background] Append lookup found no existing note', {
-        missReason: lookup.missReason,
-        directProbeState: lookup.directProbe?.state ?? 'unknown',
-      });
-      return null;
-    }
-    rememberAppendPath(memoKey, lookup.path);
+      templateVariables
+    );
+    if (!lookup) return null;
 
     const appendResult = buildAppendContent(lookup.content, note, settings);
     if (appendResult !== null) {
-      const finalized = prepareAppendWrite(appendResult, settings);
+      const tail = appendResult.diagnosticsOnly
+        ? { body: appendResult.newMessages }
+        : await prepareAppendTail(
+            appendResult.newMessages,
+            note.images ?? [],
+            settings.enableImageExport
+          );
+      const finalized = prepareAppendTailWrite(appendResult, settings, tail.body);
       if (!finalized.ok) return { success: false, error: finalized.code };
       const content = appendResult.preserveLineEndings
         ? finalized.content
         : applyLineEnding(finalized.content, appendResult.eol);
-      await client.putFile(lookup.path, content);
+      if (tail.imagePlan && tail.imagePlan.assets.length > 0) {
+        await persistAppendImagePlan(client, settings, templateVariables, tail.imagePlan);
+        await commitVerifiedAppendNote(client, lookup.path, lookup.content, content);
+      } else {
+        await client.putFile(lookup.path, content);
+      }
       return appendSuccess(appendResult);
     }
     return { success: true, isNewFile: false, messagesAppended: 0 };
   } catch (error) {
     return appendFailure(error);
   }
-}
-
-function withAppendImageWarning(
-  settings: ExtensionSettings,
-  note: ObsidianNote,
-  appendResult: SaveResponse
-): SaveResponse {
-  if (
-    !settings.enableImageExport ||
-    appendResult.messagesAppended === undefined ||
-    appendResult.messagesAppended === 0
-  ) {
-    return appendResult;
-  }
-
-  const existingCount = Math.max(0, note.frontmatter.message_count - appendResult.messagesAppended);
-  const appendedTail = extractTailMessages(note.body, existingCount);
-  if (!appendedTail.includes('g2o-image://')) return appendResult;
-
-  return {
-    ...appendResult,
-    warning:
-      'Images in newly appended messages were skipped because append mode does not export images yet',
-  };
 }
 
 /**
@@ -745,21 +697,16 @@ export async function handleSave(
       return { success: false, error: 'Invalid file path' };
     }
 
-    // Append mode does not handle images yet (v1): strip any image placeholders
-    // from the appended content so no dangling `g2o-image://` tokens are written.
-    const appendNote = note.body.includes('g2o-image://')
-      ? { ...note, body: stripImagePlaceholders(note.body) }
-      : note;
     const appendResult = await tryAppendMode(
       client,
       settings,
-      appendNote,
+      note,
       fullPath,
       resolvedPath,
       searchBasePath,
       templateVariables
     );
-    if (appendResult) return withAppendImageWarning(settings, note, appendResult);
+    if (appendResult) return appendResult;
 
     return await saveFreshNote(client, settings, note, resolvedPath, templateVariables);
   } catch (error) {

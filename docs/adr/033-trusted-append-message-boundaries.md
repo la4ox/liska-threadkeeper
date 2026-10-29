@@ -61,6 +61,13 @@ line by line, preserve only pre-existing service marker lines in an already
 declared v1 body, and neutralize marker substrings in every other transformed
 segment before blank-line collapse or callout flattening.
 
+ADR-045 extends this rule to one already verified append tail. The tail inherits
+marker authority only after `buildAppendContent` has selected exact new message
+groups; its standalone active image placeholders may then resolve without a
+second document-level format declaration. Placeholders inside code, HTML, links,
+definitions, images, inline text, or parser-uncertain Markdown remain inert.
+Final joined-context marker validation completes before any binary side effect.
+
 ### 3. Legacy recovery uses structured evidence
 
 For a v1 body, the exact marker count is authoritative. If a visible
@@ -101,3 +108,6 @@ ADR-026.
 - External tooling that removes both comments and `message_count` makes append
   unavailable rather than silently unsafe.
 - Existing corrupted duplicate text is not automatically deleted or deduped.
+- Tail-image persistence cannot authorize a boundary: it runs only after tail
+  selection and still must pass the same final marker/context gate before any
+  asset write or note append.

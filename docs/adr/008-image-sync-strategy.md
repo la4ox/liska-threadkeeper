@@ -2,10 +2,11 @@
 
 ## Status
 
-Accepted (v2.0.0), amended by [ADR-021](021-remote-image-fetch-in-service-worker.md)
-and [ADR-027](027-generated-image-capture-from-rendered-element.md). The
-implementation is for Gemini generated images; the notes below record where the
-shipped behaviour differs from the original proposal.
+Accepted (v2.0.0), amended by [ADR-021](021-remote-image-fetch-in-service-worker.md),
+[ADR-027](027-generated-image-capture-from-rendered-element.md), and
+[ADR-045](045-tail-only-obsidian-append-images.md). The implementation is for
+Gemini generated images; the notes below record where the shipped behaviour
+differs from the original proposal.
 
 ## Context
 
@@ -86,18 +87,25 @@ therefore deviates from this ADR's original proposal as follows:
    `![alt](g2o-image://{id})` placeholder; the background resolves it per
    destination.
 3. **Three output destinations** (not Obsidian-only):
-   - **Obsidian** — image written to the vault via `putBinaryFile`; body uses
-     an Obsidian **wikilink embed `![[filename]]`** (chosen over `![](path)`
-     because Obsidian resolves attachments by name, independent of the folder).
+   - **Obsidian fresh save** — image written to the vault via `putBinaryFile`;
+     body uses an Obsidian **wikilink embed `![[filename]]`** (chosen over
+     `![](path)` because Obsidian resolves attachments by name, independent of
+     the folder).
+   - **Obsidian append** — only images referenced by the verified new tail use
+     full-SHA names under a dedicated `liska-v1` namespace, create-only writes,
+     and exact readback before the note append. Historical images are not
+     backfilled. See ADR-045.
    - **File download** — markdown plus each image as **separate files**; body
      references the image filename only.
    - **Clipboard** — image placeholders are stripped; no image is copied.
 4. **Opt-in default** — `enableImageExport` defaults to **true** (the feature
    was explicitly requested); a per-image 10MB cap and a ≤20 images/note bound
    guard against abuse.
-5. **Scope** — Gemini generated images only in v1. Append mode strips
-   placeholders (image handling deferred); other platforms and ZIP packaging
-   are future work.
+5. **Scope** — Gemini generated images only in v1. Image-export-disabled append
+   strips new-tail placeholders as before. Image-export-enabled append is strict:
+   an unresolved required tail image blocks the note instead of silently
+   degrading to text-only. Other platforms and ZIP packaging remain separate
+   evidence-gated work.
 
 The `putBinaryFile` Content-Type is the image's own MIME type (e.g. `image/png`)
 rather than `application/octet-stream`.

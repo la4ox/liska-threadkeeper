@@ -251,7 +251,8 @@ terminal states, and the existing no-credential-export boundary.
   remained in the HTML.
 - Automatic PDF remains a separate transport/rendering decision after HTML
   bundle behavior is stable.
-- Design image-aware append behavior for existing Obsidian notes.
+- Tail-only image-aware Obsidian append is implemented under ADR-045; installed
+  create/reuse/refusal and filesystem readback remain the rollout gate.
 - Add an explicit snapshot deduplicator; never replace immutable captures by
   default.
 - Pure analysis core implemented on `codex/snapshot-dedup-analysis`: explicit
@@ -610,11 +611,24 @@ limits. Installed positive preparation, missing-shard refusal and Clear manifest
 are closed without persisting the provider manifest or any destination output.
 Do not broaden this into directory/ZIP discovery or external binary association.
 
-The next bounded implementation slice is trusted-tail image-aware Obsidian
-append: acquire/write only images referenced by the newly verified message tail,
-never backfill earlier messages implicitly, keep diagnostics/no-op paths free of
-binary writes, and define stable collision-safe asset identity plus explicit
-failure behavior before reusing fresh-save image delivery.
+Trusted-tail image-aware Obsidian append is implemented offline. Only active
+standalone placeholders in the newly verified message tail can authorize full-
+SHA content-addressed assets; historical images are never backfilled.
+Diagnostics/no-op/image-free paths perform zero binary writes. Image-bearing
+append requires Local REST API 5.5+, create-only asset writes, exact readback,
+base-note reread and final note readback. Missing, ambiguous, colliding or
+unknown assets block the note. Verified assets may remain reusable and are never
+auto-deleted: before note PUT they are unreferenced, while an uncertain PUT can
+leave them already referenced with the note outcome unknown. The existing note
+GET-to-PUT race is not external CAS.
+
+The next gate is installed Obsidian acceptance: append one real new tail image,
+verify its content-addressed file and final note bytes on disk, then append a
+later new message referencing identical image bytes to prove exact asset reuse
+without duplicate text or binary creation. Separately prove a changed-base
+refusal after asset verification. Repeating an already confirmed capture proves
+only the existing no-op path, not asset reuse. Do not claim rollout from offline
+mocks.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;
