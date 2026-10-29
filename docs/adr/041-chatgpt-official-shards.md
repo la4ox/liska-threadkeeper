@@ -115,8 +115,21 @@ screenshot capture was unavailable.
 
 The installed positive FileList/output path, direct shuffled ordering,
 later-shard cancellation, ZIP parity and omitted-target refusal are closed.
-Actual browser Cancel timing and invalid-extra-file refusal remain useful UI
-follow-ups but are not claimed by the live run; focused page tests cover both.
+Installed negative-input acceptance also closes an invalid selected extra file
+and a trusted native Cancel against a transient instrumented pending-read
+boundary. The invalid extra failed before output with the fixed public status,
+hidden result and zero Local REST requests. On a freshly reloaded page, a
+synthetic 512 MiB later shard was paused only at its selected `File` read; the
+native Cancel event was trusted, released the hold after the click and produced
+the exact no-output warning. File was selected and Obsidian disabled; both
+baseline and terminal Local REST request counts were zero. Source hashes,
+lengths and modification stamps remained unchanged and no new ZIP or partial
+was written. Reload removed the instrumentation.
+
+An earlier uninstrumented attempt reached Save As before Cancel and completed
+one synthetic Obsidian snapshot before the File dialog was dismissed, so it is
+not cancellation evidence and the immutable snapshot is not deleted. General
+uninstrumented scheduling timing and actual page unload remain follow-ups.
 Omitting a non-target shard cannot be detected without the manifest and must
 reduce the completeness claim rather than invent a refusal. Manifest-guided ZIP/
 directory discovery and external binary association remain separate evidence-

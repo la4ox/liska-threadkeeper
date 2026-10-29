@@ -413,8 +413,13 @@ terminal states, and the existing no-credential-export boundary.
   fail closed. An exact installed-page run accepted six files and verified an
   Obsidian-only snapshot; direct exact-head canaries separately close shuffled
   ordering, later-shard cancellation with zero output, ZIP parity and omitted-
-  target refusal. Actual browser Cancel timing and invalid-extra-file refusal
-  remain focused-test-backed UI follow-ups, not live claims.
+  target refusal. Installed negative-input acceptance now also closes invalid-
+  extra-file refusal and a trusted native Cancel against a transient held read
+  of a synthetic 512 MiB later shard. The clean receipt marked the native click
+  trusted (`isTrusted: true`) and recorded the exact no-output warning, hidden
+  results, restored controls, zero baseline/terminal Local REST requests,
+  unchanged sources and no new ZIP. Arbitrary uninstrumented timing and actual
+  page unload remain unclaimed.
 - Browser export-ZIP discovery, external binary import, archive merge, and
   snapshot deduplication remain later explicit slices.
 
@@ -530,13 +535,14 @@ the compact launcher, so its hidden action coordinates are not evidence of a
 layout defect. PR 63 records that corrected interpretation; it did not add a
 geometry fix or a new live smoke.
 
-The next bounded provider-independent slice is native negative-input acceptance
-for official reconciliation: exercise actual browser Cancel during preparation
-and one invalid extra filename, then prove fixed refusal/cancellation and zero
-output. Page-unload survival, export-ZIP discovery and background architecture
-remain separate.
+The official-reconciliation native negative-input slice is complete. One
+invalid extra filename failed closed with zero output, and one clean trusted
+native Cancel ended at a transiently instrumented pending-read boundary with
+zero output. The earlier uninstrumented timing race is retained as non-evidence,
+not silently promoted into a pass. Page-unload survival, export-ZIP discovery
+and background architecture remain separate.
 
-After that, measure preserve-only snapshot-analysis responsiveness and cancel
+Next, measure preserve-only snapshot-analysis responsiveness and cancel
 latency near the existing 16-snapshot / 64-MiB-file / 256-MiB-total ceilings.
 Do not raise those limits or add mutation authority from performance evidence.
 
