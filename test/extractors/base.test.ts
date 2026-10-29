@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BaseExtractor } from '../../src/content/extractors/base';
+import { BaseExtractor, type ScrollConfig } from '../../src/content/extractors/base';
 import type {
   ExtractionResult,
   ExtensionSettings,
   ConversationMessage,
   ConversationData,
+  DomHistoryLoad,
 } from '../../src/lib/types';
 
 // Concrete implementation for testing abstract BaseExtractor
@@ -431,6 +432,64 @@ describe('BaseExtractor', () => {
   });
 
   describe('extract (template method)', () => {
+    const messages: ConversationMessage[] = [
+      { id: 'u0', role: 'user', content: 'Question', index: 0 },
+      { id: 'a0', role: 'assistant', content: 'Answer', index: 1 },
+    ];
+
+    class HistoryOutcomeExtractor extends TestExtractor {
+      constructor(private readonly outcome: DomHistoryLoad) {
+        super();
+      }
+
+      protected async collectMessages() {
+        return {
+          messages,
+          domHistoryLoad: this.outcome,
+          // Diagnostic production must use the typed outcome, not warning text.
+          warning: 'Some earlier messages may be missing: private diagnostic details',
+        };
+      }
+    }
+
+    it.each(['complete', 'partial', 'unknown'] as const)(
+      'records historical history loss only for the explicit partial outcome (%s)',
+      async outcome => {
+        const result = await new HistoryOutcomeExtractor(outcome).extract();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.domHistoryLoad).toBe(outcome);
+        expect(result.data?.liskaLossDiagnostics).toEqual(
+          outcome === 'partial' ? ['history-load-partial'] : undefined
+        );
+        expect(result.warnings).toEqual([
+          'Some earlier messages may be missing: private diagnostic details',
+        ]);
+      }
+    );
+
+    it.each(['disabled', 'unconfigured', 'missing-container'] as const)(
+      'does not infer a historical loss when scrolling is %s',
+      async mode => {
+        class ConfiguredExtractor extends TestExtractor {
+          protected getScrollConfig(): ScrollConfig | null {
+            return mode === 'unconfigured'
+              ? null
+              : { container: ['.missing-scroll-container'], harvest: () => [] };
+          }
+        }
+        const configured = new ConfiguredExtractor();
+        configured.enableAutoScroll = mode !== 'disabled';
+        configured.extractMessages = () => messages;
+
+        const result = await configured.extract();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.domHistoryLoad).toBe('unknown');
+        expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      }
+    );
+
     it('returns error when canExtract is false', async () => {
       extractor.canExtractValue = false;
       const result = await extractor.extract();

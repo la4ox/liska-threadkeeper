@@ -15,6 +15,7 @@ import type {
   DomHistoryLoad,
 } from '../../lib/types';
 import { extractErrorMessage } from '../../lib/error-utils';
+import { mergeLiskaLossDiagnostics } from '../../lib/loss-diagnostics';
 import { sha256Hex } from '../../lib/sha256';
 import { sanitizeHtml } from '../../lib/sanitize';
 import {
@@ -111,7 +112,15 @@ export abstract class BaseExtractor implements IConversationExtractor {
       const conversationId = this.getConversationId() || `${this.platform}-${Date.now()}`;
       const title = this.getTitle();
       const result = this.buildConversationResult(messages, conversationId, title, this.platform);
-      if (result.success && result.data) result.data.domHistoryLoad = domHistoryLoad;
+      if (result.success && result.data) {
+        result.data.domHistoryLoad = domHistoryLoad;
+        if (domHistoryLoad === 'partial') {
+          result.data.liskaLossDiagnostics = mergeLiskaLossDiagnostics(
+            result.data.liskaLossDiagnostics,
+            ['history-load-partial']
+          );
+        }
+      }
       if (warning && result.success) {
         return { ...result, warnings: [...(result.warnings ?? []), warning] };
       }

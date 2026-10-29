@@ -8,6 +8,7 @@
  * - Clipboard: placeholders stripped entirely
  */
 
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { mimeToExtension } from './image-utils';
 import type { ExtractedImage } from './types';
 import {
@@ -32,7 +33,8 @@ export interface ImageResolution {
 }
 
 /**
- * Matches one complete extension-authored placeholder.
+ * Matches one complete placeholder, including its Markdown-safety-neutralized
+ * opener. Neutralized placeholders are removal-only, never trusted embeds.
  *
  * `$` and physical line separators cannot occur in either field. The content
  * writer entity-encodes punctuation in alt text, while generated IDs are
@@ -40,7 +42,129 @@ export interface ImageResolution {
  * match from spanning adjacent `$…$` / `$$…$$` math nodes and deleting their
  * delimiters as though they belonged to an image ID.
  */
-const PLACEHOLDER_PATTERN = /!\[([^\]$\r\n]*)\]\(g2o-image:\/\/([^)$\r\n]+)\)/g;
+const PLACEHOLDER_PATTERN = /(!\[|&#33;&#91;)([^\]$\r\n]*)\]\(g2o-image:\/\/([^)$\r\n]+)\)/g;
+const EXACT_LITERAL_PLACEHOLDER_PATTERN = /^!\[[^\]$\r\n]*\]\(g2o-image:\/\/[^)$\r\n]+\)$/u;
+const NEUTRALIZED_PLACEHOLDER_OPEN = '&#33;&#91;';
+const LINE_PLACEHOLDER_PREFIX = /^(?:[ \t]*(?:\\?>[ \t]?|(?:[-+*]|\d{1,9}[.)])[ \t]+))*[ \t]*$/u;
+const LINE_PLACEHOLDER_SUFFIX = /^[ \t]*$/u;
+const PROTECTED_PLACEHOLDER_NODE_TYPES = new Set([
+  'code',
+  'definition',
+  'html',
+  'image',
+  'imageReference',
+  'inlineCode',
+  'link',
+  'linkReference',
+]);
+const MAX_PLACEHOLDER_PARSE_NODES = 200_000;
+
+interface MarkdownNode {
+  readonly type: string;
+  readonly url?: string;
+  readonly position?: {
+    readonly start?: { readonly offset?: number };
+    readonly end?: { readonly offset?: number };
+  };
+  readonly children?: readonly MarkdownNode[];
+}
+
+interface MarkdownRange {
+  readonly start: number;
+  readonly end: number;
+}
+
+function markdownRange(node: MarkdownNode, bodyLength: number): MarkdownRange | null {
+  const start = node.position?.start?.offset;
+  const end = node.position?.end?.offset;
+  return typeof start === 'number' &&
+    typeof end === 'number' &&
+    start >= 0 &&
+    end > start &&
+    end <= bodyLength
+    ? { start, end }
+    : null;
+}
+
+function protectedNodeRange(node: MarkdownNode, body: string): MarkdownRange | null {
+  if (!PROTECTED_PLACEHOLDER_NODE_TYPES.has(node.type)) return null;
+  const range = markdownRange(node, body.length);
+  if (!range) return null;
+  const ownPlaceholderImage =
+    node.type === 'image' &&
+    typeof node.url === 'string' &&
+    /^g2o-image:\/\/[^)$\r\n]+$/u.test(node.url) &&
+    EXACT_LITERAL_PLACEHOLDER_PATTERN.test(body.slice(range.start, range.end));
+  return ownPlaceholderImage ? null : range;
+}
+
+function scheduleChildren(
+  pending: MarkdownNode[],
+  node: MarkdownNode,
+  scheduled: number
+): number | null {
+  const children = node.children;
+  if (!children) return scheduled;
+  if (children.length > MAX_PLACEHOLDER_PARSE_NODES - scheduled) return null;
+  for (const child of children) pending.push(child);
+  return scheduled + children.length;
+}
+
+function protectedPlaceholderRanges(body: string): readonly MarkdownRange[] {
+  try {
+    const pending: MarkdownNode[] = [fromMarkdown(body) as MarkdownNode];
+    const ranges: MarkdownRange[] = [];
+    let scheduled = 1;
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      const range = protectedNodeRange(node, body);
+      if (range) ranges.push(range);
+      const nextScheduled = scheduleChildren(pending, node, scheduled);
+      if (nextScheduled === null) return [{ start: 0, end: body.length }];
+      scheduled = nextScheduled;
+    }
+    return ranges;
+  } catch {
+    return [{ start: 0, end: body.length }];
+  }
+}
+
+function overlapsProtectedRange(
+  offset: number,
+  length: number,
+  ranges: readonly MarkdownRange[]
+): boolean {
+  const end = offset + length;
+  return ranges.some(range => offset < range.end && end > range.start);
+}
+
+/**
+ * Extension-authored image markers are emitted as their own Markdown line
+ * (optionally under one or more blockquotes). Only that exact shape may be
+ * removed. An anomalous inline marker stays literal so deletion cannot expose
+ * a fence, join tokens into a new image/HTML tag, or otherwise change parser
+ * context after the safety pass.
+ */
+function unresolvedPlaceholder(
+  match: string,
+  opener: string,
+  offset: number,
+  source: string,
+  globalOffset: number,
+  protectedRanges: readonly MarkdownRange[]
+): string {
+  const removed = source.slice(0, offset) + source.slice(offset + match.length);
+  if (neutralizeMessageBoundaryMarkers(removed) !== removed) return '';
+
+  if (overlapsProtectedRange(globalOffset, match.length, protectedRanges)) {
+    return opener === '![' ? `${NEUTRALIZED_PLACEHOLDER_OPEN}${match.slice(2)}` : match;
+  }
+
+  const prefix = source.slice(0, offset);
+  const suffix = source.slice(offset + match.length);
+  if (LINE_PLACEHOLDER_PREFIX.test(prefix) && LINE_PLACEHOLDER_SUFFIX.test(suffix)) return '';
+  return opener === '![' ? `${NEUTRALIZED_PLACEHOLDER_OPEN}${match.slice(2)}` : match;
+}
 
 /** Collapse 3+ consecutive newlines left behind by removed placeholders. */
 function collapseBlankLines(body: string): string {
@@ -52,21 +176,24 @@ function collapseBlankLines(body: string): string {
  * placeholders compose into trusted append sentinels. Existing exact
  * extension-owned marker lines are preserved only for a declared v1 body.
  */
-function rewriteImageLines(body: string, rewrite: (line: string) => string): string {
+function rewriteImageLines(
+  body: string,
+  rewrite: (line: string, lineStart: number, protectedRanges: readonly MarkdownRange[]) => string
+): string {
   const preserveTrustedMarkers = hasTrustedMessageBoundaries(body);
-  const rewritten = body
-    .split('\n')
-    .map(line => {
-      if (
-        preserveTrustedMarkers &&
-        (line === MESSAGE_BOUNDARY_FORMAT_MARKER || line === MESSAGE_BOUNDARY_MARKER)
-      ) {
-        return line;
-      }
-      return neutralizeMessageBoundaryMarkers(rewrite(line));
-    })
-    .join('\n');
-  return collapseBlankLines(rewritten);
+  const protectedRanges = protectedPlaceholderRanges(body);
+  const rewritten: string[] = [];
+  let lineStart = 0;
+  for (const line of body.split('\n')) {
+    const output =
+      preserveTrustedMarkers &&
+      (line === MESSAGE_BOUNDARY_FORMAT_MARKER || line === MESSAGE_BOUNDARY_MARKER)
+        ? line
+        : neutralizeMessageBoundaryMarkers(rewrite(line, lineStart, protectedRanges));
+    rewritten.push(output);
+    lineStart += line.length + 1;
+  }
+  return collapseBlankLines(rewritten.join('\n'));
 }
 
 /**
@@ -78,15 +205,22 @@ export function imageFileName(noteBaseName: string, image: ExtractedImage, index
   return `${noteBaseName}-img-${index + 1}.${ext}`;
 }
 
-/** Remove all image placeholders (used for clipboard and unsupported paths). */
+/** Remove expected line-isolated placeholders; keep anomalous inline forms inert. */
 export function stripImagePlaceholders(body: string): string {
-  return rewriteImageLines(body, line => line.replace(PLACEHOLDER_PATTERN, ''));
+  return rewriteImageLines(body, (line, lineStart, protectedRanges) =>
+    line.replace(
+      PLACEHOLDER_PATTERN,
+      (match, opener: string, _alt, _id, offset: number, source: string) =>
+        unresolvedPlaceholder(match, opener, offset, source, lineStart + offset, protectedRanges)
+    )
+  );
 }
 
 /**
  * Shared resolver: replace each placeholder using `render`, collecting the
- * file for every matched image. Placeholders with no matching image (failed
- * capture) are stripped.
+ * file for every matched image. Missing and neutralized placeholders are
+ * removed only in their extension-authored line-isolated shape; anomalous
+ * inline forms stay literal instead of changing Markdown parser context.
  */
 function resolve(
   body: string,
@@ -98,18 +232,40 @@ function resolve(
   const files: ResolvedImageFile[] = [];
   const emitted = new Set<string>();
 
-  const resolvedBody = rewriteImageLines(body, line =>
-    line.replace(PLACEHOLDER_PATTERN, (_match, alt: string, id: string) => {
-      const entry = byId.get(id);
-      if (!entry) return '';
+  const resolvedBody = rewriteImageLines(body, (line, lineStart, protectedRanges) =>
+    line.replace(
+      PLACEHOLDER_PATTERN,
+      (match, opener: string, alt: string, id: string, offset: number, source: string) => {
+        if (opener !== '![') {
+          return unresolvedPlaceholder(
+            match,
+            opener,
+            offset,
+            source,
+            lineStart + offset,
+            protectedRanges
+          );
+        }
+        const entry = byId.get(id);
+        if (!entry) {
+          return unresolvedPlaceholder(
+            match,
+            opener,
+            offset,
+            source,
+            lineStart + offset,
+            protectedRanges
+          );
+        }
 
-      const fileName = imageFileName(noteBaseName, entry.image, entry.index);
-      if (!emitted.has(id)) {
-        emitted.add(id);
-        files.push({ fileName, mimeType: entry.image.mimeType, data: entry.image.data });
+        const fileName = imageFileName(noteBaseName, entry.image, entry.index);
+        if (!emitted.has(id)) {
+          emitted.add(id);
+          files.push({ fileName, mimeType: entry.image.mimeType, data: entry.image.data });
+        }
+        return render(fileName, alt);
       }
-      return render(fileName, alt);
-    })
+    )
   );
 
   return { body: resolvedBody, files };

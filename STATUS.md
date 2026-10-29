@@ -1,5 +1,82 @@
 # Project status
 
+## Durable capture-loss diagnostics — installed candidate
+
+Branch `codex/durable-loss-diagnostics` adds a privacy-bounded historical loss
+contract for ordinary legacy-provider Markdown. Two always-on frontmatter keys
+carry only sorted, deduplicated schema-1 codes:
+`history-load-partial` and `image-capture-failed`. They mean that Liska
+positively observed those conditions during an attempt associated with the
+document; absence never proves completeness, and a later successful attempt
+does not erase earlier evidence.
+
+Only an explicit partial history-loader outcome qualifies. Disabled loading,
+missing configuration/container, and unknown outcomes remain unclassified. An
+image diagnostic requires an identified image capture attempt that failed;
+intentionally disabled export, Clipboard omission, and destination write
+failures are separate conditions. Existing human-facing warnings remain, but
+their URL, filename, exception, response, and localized prose never enter the
+durable fields.
+
+The background boundary accepts only an own enumerable bounded array of exact
+codes. Unknown schema/codes, duplicate owned keys, malformed lists, accessors,
+hidden or inherited data, symbolic extras, and ambiguous future blocks fail
+closed. Save-note validation now precedes JSON sizing so a hostile diagnostic
+getter cannot execute during size measurement.
+
+Append merges diagnostics as a historical set. A same-message-count run writes
+only when it contributes a new code, preserves the body and line endings
+byte-for-byte, and reports that metadata changed without claiming new messages.
+Repeated evidence is a no-op; shorter captures cannot annotate longer notes.
+Ordinary message-boundary and final-Markdown checks remain authoritative for
+real appended tails.
+
+Independent review found and closed the parser/integrity family before commit:
+a metadata-only update no longer normalizes a mixed-EOL user body; only an
+exact `---` line closes frontmatter; and, after masking the one canonical block,
+any other literal, escaped, quoted, tagged, anchored, explicit, flow, or folded
+mention of the owned key family fails closed. Focused regressions cover those
+forms and the exact mixed-EOL PUT body.
+
+Markdown safety may neutralize an unsuccessful private image placeholder before
+destination resolution. File, Obsidian and stripping paths now remove the
+expected line-isolated neutralized grammar and never convert it back into an
+active embed, even if an image with the same ID is supplied. An anomalous
+inline, code or HTML-shaped marker stays inert instead of being deleted and
+joining surrounding tokens. This closes the private `g2o-image://` residue
+exposed by the first exact producer canary without weakening remote-image,
+fenced-code or message-boundary protections.
+
+ADR-044 records the semantics and the deliberate boundary: schema 1 does not
+cover post-Markdown File image failures, Obsidian destination image failures,
+intentional Clipboard omission, derived HTML, or current-completeness
+assessment. The current integrated tree passes all 234 test files: 8,002 tests
+passed and one existing test skipped (8,003 total), with one worker. Coverage
+remains above the repository threshold at 95.06% statements, 91.76% branches,
+98.60% functions and 97.56% lines. TypeScript, the 294-module production build
+and service-worker runtime check pass. Full source/platform lint has zero errors
+and the same three pre-existing warnings; exact Prettier 3.7.4 and diff checks
+also pass.
+
+The exact installed candidate contains 41 files / 1,154,236 bytes. Source and
+installed aggregate SHA-256 both equal `8313d728...c0b7`; manifest SHA-256 is
+`a79b440e...e8db`, and rollback
+`liska-rollback-20261029T024810957Z-71b407980e004e6ea7cb57d759f66cdd`
+retains the previous bytes. Native CUA reloaded only Liska and the Gemini page
+was then reloaded for the current content script.
+
+One File-only ordinary Gemini canary placed a revoked, undecoded same-origin
+Blob image inside the extractor's exact first-priority
+`.markdown.markdown-main-panel`; the live clone contained that identified image
+with `naturalWidth=0`. One trusted click emitted the fixed one-image failure
+warning, retained the real 236,990-byte JPEG with SHA-256
+`55ba81ea...f81f`, and wrote a 14,107-byte Markdown note (SHA-256
+`a5d81e31...2557`) with exactly `image-capture-failed`. The note contains no
+`g2o-image://`, `blob:`, canary ID, neutralized image opener or false local
+link. A page reload removed the synthetic node and observer. Obsidian and File
+output, auto-scroll and image export were restored; Clipboard and append remain
+disabled. Exact-head CI and GitHub reviews remain the merge gate.
+
 ## Provider live gates — Gemini Research and Gemini Notebook
 
 A current installed-build canary now distinguishes the two Gemini Research
