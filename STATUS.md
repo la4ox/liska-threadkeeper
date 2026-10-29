@@ -2912,9 +2912,29 @@ descriptor length/SHA-256, the exact selected shard-0 source slice,
 root hash/bundle ID and root-last timestamp. The page reported all selected
 destinations verified. Native screenshot capture remained unavailable, but the
 accessibility tree exposed the exact six-file selection and final status.
-Browser-UI cancellation timing and invalid-extra-file refusal remain covered by
-focused tests rather than claimed as installed live observations; the changed
-multi-file preparation/output path itself is live-verified.
+Installed native negative-input acceptance now closes two bounded UI paths.
+Selecting synthetic `conversations-000.json` together with an invalid
+`export_manifest.json` produced the exact fixed failure status, kept the result
+panel hidden, restored every control and made zero Local REST requests. The
+synthetic source hashes, lengths and modification times remained unchanged, and
+no new reconciliation ZIP or partial appeared in either Downloads root.
+
+The first uninstrumented 512 MiB cancellation attempt lost the timing race:
+Save As opened before the click, the File dialog was cancelled, and an already
+completed synthetic Obsidian snapshot remained append-only. It is therefore not
+accepted as cancellation evidence. A clean fresh-page repeat used only a
+transient page-local hold around the selected later shard's pending file read.
+The actual native Cancel click reported `isTrusted: true`, released that hold
+after the click, and ended with the exact warning `Reconciliation cancelled. No
+output was dispatched.` The result stayed hidden, controls were restored, and
+File remained selected while Obsidian was disabled. Both baseline and terminal
+Local REST resource counts were zero. Source hashes, lengths and creation-time
+modification stamps remained unchanged; no File ZIP or Obsidian output was
+dispatched. Reloading the page removed the transient hold.
+
+This closes trusted native Cancel against an instrumented read boundary and the
+invalid-extra-file refusal. Arbitrary uninstrumented timing and actual page
+unload remain explicitly unclaimed.
 
 ## ChatGPT current-runtime diagnostic checkpoint
 
