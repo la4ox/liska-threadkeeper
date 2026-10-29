@@ -2,18 +2,22 @@
 
 ## Status
 
-Candidate. Multi-shard selection, import, delivery provenance, and explicit
-multi-file UI are implemented and verified against one real six-shard export.
-The exact installed extension has now completed a real six-file FileList to
-verified Obsidian snapshot run. Direct production-core evidence separately
-covers shuffled ordering, later-shard cancellation and ZIP parity.
+Candidate. Multi-shard selection, import, delivery provenance, explicit
+multi-file UI, and separately selected manifest admission are implemented. The
+array path is verified against one real six-shard export; the exact installed
+extension completed a real six-file FileList to verified Obsidian snapshot run.
+Direct production-core evidence separately covers shuffled ordering,
+later-shard cancellation and ZIP parity. Manifest admission has complete offline
+verification; installed manifest-picker acceptance remains a rollout gate.
 
 ## Context
 
 Recent official ChatGPT exports no longer necessarily contain one
-`conversations.json`. Three measured `export_manifest.json` v1 files each define
-logical `conversations.json` as `sharded: true` with six physical files named
-`conversations-000.json` through `conversations-005.json`.
+`conversations.json`. Four measured `export_manifest.json` v1 files from April
+through October 2026 each define logical `conversations.json` as `sharded: true`
+with six physical files named `conversations-000.json` through
+`conversations-005.json`. Their sizes range from 438,865 to 600,402 bytes; the
+largest contains 16,385 JSON value nodes at container depth 4.
 
 The measured August export contains 561 array records across six shards totaling
 477,261,486 bytes; the largest shard is 133,894,326 bytes. Selecting only a known
@@ -21,49 +25,72 @@ shard works for a known conversation but is not a generally usable importer: the
 user should not have to guess which physical array contains an exact provider ID,
 and later shards can still invalidate the supplied source set.
 
-Reading `export_manifest.json` or the full export directory would expose names
-for 1,933 logical / 1,938 physical files unrelated to the selected conversation.
-This slice instead accepts only explicitly selected conversation-array files.
+Reading `export_manifest.json` or the full export directory exposes names for
+thousands of logical and physical files unrelated to the selected conversation.
+Automatic discovery remains unjustified. This slice permits one separately and
+explicitly selected manifest only as a transient bounded name-set admission
+check; unrelated inventory and raw manifest bytes are never retained or saved.
 
 ## Decision
 
 1. Legacy `conversations.json` remains a single-source contract. A sharded run
    accepts only exact plain descriptors `{shardIndex, chunks}` with unique integer
    indices 0–999. The page admits one legacy file or one or more exact basenames
-   `conversations-NNN.json`; mixed modes, duplicate indices, manifests, archives,
-   assets, and noncanonical names fail before any file bytes are read.
-2. The page snapshots the complete FileList at the trusted click, sorts shards
+   `conversations-NNN.json`; mixed modes, duplicate indices, a manifest placed in
+   the shard picker, archives, assets, and noncanonical names fail before any
+   file bytes are read.
+2. A sharded run may additionally use one separately selected file named exactly
+   `export_manifest.json`. It is optional, invalid with legacy mode, capped at
+   2 MiB by both declared and observed bytes, and can be explicitly cleared
+   without reloading the page. Fatal UTF-8, BOM, duplicate decoded-key, JSON,
+   depth-32, and 100,000-value checks run before either source is read.
+3. Only provider manifest version 1 is admitted: `manifest_file` must be exact,
+   `logical_files` must own one `conversations.json` entry, `sharded` must be
+   `true`, and `shard_count` must equal 1–1,000 unique case-sensitive canonical
+   basenames. No path stripping, case folding, URL decoding, or Unicode
+   normalization converts an invalid declaration into an accepted name.
+4. Declared and selected shard-name multisets must match exactly before web or
+   shard reads, preparation, settings access, hashing, or output. Missing,
+   duplicate, or unexpected shards fail with fixed errors. The frozen helper
+   result contains numeric counts only and is discarded before the unchanged
+   importer/delivery path. Raw manifest bytes, unrelated inventory names/paths,
+   native exceptions, and a manifest hash never enter UI errors or durable
+   output. Admission proves declaration equality, not content authenticity or
+   provider-export completeness.
+5. The page snapshots the complete FileList at the trusted click, sorts shards
    numerically independent of picker order, and reads them sequentially in 1 MiB
    chunks. Filenames are used only for local admission and are never serialized.
-   The UI says “all selected shards”: without the export manifest it does not
+   The UI says “all selected shards”: without a selected export manifest it does not
    claim that a missing physical shard was inferred or validated.
-3. All shards share the existing hard ceilings as aggregate budgets: at most
+6. All shards share the existing hard ceilings as aggregate budgets: at most
    1,000 sources, 2 GiB observed bytes including trailing whitespace, and 100,000
    array records. The 64 MiB current-object and depth-512 ceilings remain per
    object/parser stack. Budgets are not reset for each shard.
-4. One shared conversation-ID ledger spans the complete selected set. Duplicate
+7. One shared conversation-ID ledger spans the complete selected set. Duplicate
    target IDs, unrelated IDs, or `id`/`conversation_id` aliases across shards
    fail closed. A match never short-circuits later shards; every independent root
    array, UTF-8 stream, neighbor, and trailing byte must validate before import.
-5. At most one selected exact object survives. It is copied into an owned byte
+8. At most one selected exact object survives. It is copied into an owned byte
    allocation, and any later malformed shard, duplicate, read failure, or limit
    erases that retained match before returning a fixed error. Import/bundle/
    normalization run once only after every supplied shard validates.
-6. Conversation index, JSON pointer, byte offsets, and source byte length remain
+9. Conversation index, JSON pointer, byte offsets, and source byte length remain
    shard-local; they are never virtual concatenation coordinates. Optional
    numeric `shardIndex` is added to raw source provenance, canonical
    `openai.officialExport`, and reconciliation receipt. It is omitted from the
    legacy single-file path so existing serialized bytes/hashes stay unchanged.
-7. The measured shard set also contains four literal empty objects in shard 004.
-   Exact `{}` is treated as provider padding: it still consumes the aggregate
-   record budget, is ignored only for identity/mapping validation, and increments
-   `ignoredEmptyRecordCount` in source/canonical/delivery provenance plus an
-   explicit official-manifest warning. Any nonempty object without a valid
-   identity and nonempty mapping remains malformed.
-8. Core cancellation remains source-driven: the page checks its AbortSignal
-   before and after every File slice and between shards. A thrown iterable is
-   sanitized as source-read failure; the page maps an already-aborted operation
-   to cancelled and dispatches no File or Obsidian output.
+10. The measured shard set also contains four literal empty objects in shard 004.
+    Exact `{}` is treated as provider padding: it still consumes the aggregate
+    record budget, is ignored only for identity/mapping validation, and increments
+    `ignoredEmptyRecordCount` in source/canonical/delivery provenance plus an
+    explicit official-manifest warning. Any nonempty object without a valid
+    identity and nonempty mapping remains malformed.
+11. Core cancellation remains source-driven: the page checks its AbortSignal
+    before and after the manifest read, every File slice, and between shards. A
+    source change aborts a pending manifest read; late bytes cannot authorize the
+    new selection. A thrown iterable is sanitized as source-read failure; the
+    page maps an already-aborted operation to cancelled and dispatches no File or
+    Obsidian output.
 
 ## Compatibility
 
@@ -72,12 +99,21 @@ points and provenance fields are additive. Existing browser captures, official
 single-file manifests, normalizer IDs, artifact paths, comparison schema, File
 ZIP, and Obsidian root-last protocol retain their current contracts.
 
-No manifest/directory/ZIP discovery, asset-file association, whole-shard hash,
-parallel read, or arbitrary filename persistence is added.
+No automatic manifest/directory/ZIP discovery, asset-file association,
+whole-shard hash, parallel read, provider-manifest persistence, or arbitrary
+filename persistence is added. Legacy and no-manifest serialized outputs remain
+unchanged.
 
 ## Verification evidence
 
-Synthetic tests cover target in first/middle/last shard, numeric ordering,
+Manifest tests cover exact shuffled equality, every required v1 field, malformed
+and path-like declarations, duplicate/missing/unexpected shards, wrong version,
+fatal UTF-8/BOM/JSON/decoded-key/depth/value/byte boundaries, private unrelated
+inventory sentinels, pre-source refusal, cancellation/source-change races, and
+returning to legacy mode with the explicit clear control. The measured four-file
+schema set has no drift and stays below the chosen bounds.
+
+Existing synthetic tests cover target in first/middle/last shard, numeric ordering,
 complete later-shard consumption, all absent, invalid UTF-8/JSON/trailing data
 after an earlier match, cross-shard duplicate target/unrelated/alias IDs, reused
 buffers, exact shard-local offsets, aggregate exact/excess byte and record limits,
@@ -130,7 +166,8 @@ An earlier uninstrumented attempt reached Save As before Cancel and completed
 one synthetic Obsidian snapshot before the File dialog was dismissed, so it is
 not cancellation evidence and the immutable snapshot is not deleted. General
 uninstrumented scheduling timing and actual page unload remain follow-ups.
-Omitting a non-target shard cannot be detected without the manifest and must
-reduce the completeness claim rather than invent a refusal. Manifest-guided ZIP/
-directory discovery and external binary association remain separate evidence-
-gated work.
+Without a selected manifest, omitting a non-target shard still cannot be
+detected and must reduce the completeness claim rather than invent a refusal.
+Installed positive/refusal/cancellation acceptance for the new manifest picker
+remains before rollout. Automatic manifest/directory/ZIP discovery and external
+binary association remain separate evidence-gated work.

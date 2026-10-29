@@ -674,6 +674,15 @@
   "reconcile_officialExportHelp": {
     "message": "conversations.json、または conversations-NNN.json の全 shard をまとめて選択してください。Liska は選択した各配列を検証し、完全に一致する会話だけを保持します。"
   },
+  "reconcile_officialManifest": {
+    "message": "エクスポート manifest（任意）"
+  },
+  "reconcile_officialManifestHelp": {
+    "message": "shard の場合のみ、export_manifest.json（最大 2 MiB）を別に選択すると、宣言された shard 名と選択した名前の一致を確認します。shard の内容やエクスポートの完全性を検証するものではありません。この export manifest は保存されません。"
+  },
+  "reconcile_clearManifest": {
+    "message": "manifest を解除"
+  },
   "reconcile_boundary": {
     "message": "このツールが行うこと"
   },
@@ -696,13 +705,13 @@
     "message": "Obsidian 出力には atomic create-only 書き込み対応の Local REST API 5.5.0 以降が必要です。既定では無効です。"
   },
   "reconcile_boundaryLocal": {
-    "message": "選択した2つのファイルを変更せず、ローカルで処理します。"
+    "message": "選択したすべてのソースファイルを変更せず、ローカルで処理します。"
   },
   "reconcile_boundaryExact": {
     "message": "Web 正規スナップショットが宣言する正確な会話 ID だけを照合します。"
   },
   "reconcile_boundaryShards": {
-    "message": "選択したすべての会話 shard を検証します。export manifest なしでは欠落 shard を推測できないため、完全な shard セットを選択してください。"
+    "message": "選択したすべての会話 shard を検証します。任意で別に選択した export manifest は宣言された shard 名のみを照合します。manifest なしでは欠落 shard を推測できません。"
   },
   "reconcile_boundaryBundle": {
     "message": "変更不能な ZIP の保存先を確認します。公式 raw と manifest は常に保持し、canonical と比較結果は正規化に成功した場合だけ含めます。"
@@ -727,6 +736,9 @@
   },
   "reconcile_readingWeb": {
     "message": "Web 正規スナップショットを読み込み、検証しています…"
+  },
+  "reconcile_readingManifest": {
+    "message": "選択した export manifest の shard 宣言を確認しています…"
   },
   "reconcile_scanningOfficial": {
     "message": "選択した公式会話 shard セットを検索・検証しています…"

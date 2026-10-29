@@ -799,6 +799,15 @@
   "reconcile_officialExportHelp": {
     "message": "Select conversations.json, or all conversations-NNN.json shards together. Liska validates every selected array but retains only the exact matching conversation."
   },
+  "reconcile_officialManifest": {
+    "message": "Optional export manifest"
+  },
+  "reconcile_officialManifestHelp": {
+    "message": "For shards only, separately select export_manifest.json (up to 2 MiB) to check that its declared shard names match your selection. This does not verify shard contents or export completeness. The export manifest is not saved."
+  },
+  "reconcile_clearManifest": {
+    "message": "Clear manifest"
+  },
   "reconcile_boundary": {
     "message": "What this tool will do"
   },
@@ -821,13 +830,13 @@
     "message": "Obsidian delivery requires Local REST API 5.5.0 or later for atomic create-only writes. It is off by default."
   },
   "reconcile_boundaryLocal": {
-    "message": "Keep both selected files unchanged and process them locally."
+    "message": "Keep all selected source files unchanged and process them locally."
   },
   "reconcile_boundaryExact": {
     "message": "Match only the exact conversation ID declared by the web canonical snapshot."
   },
   "reconcile_boundaryShards": {
-    "message": "Validate every selected conversation shard; select the complete shard set because omitted files cannot be inferred without the export manifest."
+    "message": "Validate every selected conversation shard. An optional separately selected export manifest checks declared shard names only; without it, missing shards cannot be inferred."
   },
   "reconcile_boundaryBundle": {
     "message": "Ask where to save one immutable ZIP. It always preserves official raw and manifest; canonical and comparison are included only when normalization succeeds."
@@ -852,6 +861,9 @@
   },
   "reconcile_readingWeb": {
     "message": "Reading and validating the web canonical snapshot…"
+  },
+  "reconcile_readingManifest": {
+    "message": "Checking the selected export manifest's shard declaration…"
   },
   "reconcile_scanningOfficial": {
     "message": "Scanning and validating the selected official conversation shard set…"
