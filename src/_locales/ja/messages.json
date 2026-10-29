@@ -627,6 +627,26 @@
   "settings_compareChatGptArchivesHelp": {
     "message": "Web の正規スナップショットと公式エクスポートをローカルで比較します"
   },
+  "settings_probeDotsSchema": {
+    "message": "Dots の転送スキーマを確認"
+  },
+  "settings_probeDotsSchemaHelp": {
+    "message": "アクティブな Dots タブを一度再読み込みし、チャットの書き出しではなく、観測した1組のルームについて内容を含まないスキーマだけを保存します"
+  },
+  "status_dotsSchemaProbeRunning": {
+    "message": "限定的なスキーマ確認のため、アクティブな Dots タブを再読み込みしています…"
+  },
+  "status_dotsSchemaProbeSaved": {
+    "message": "内容を含まない Dots スキーマをローカルに保存しました。"
+  },
+  "toast_error_dotsSchemaProbeFailed": {
+    "message": "Dots スキーマ確認を完了できませんでした（$ERROR$）。",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      }
+    }
+  },
   "reconcile_openFailed": {
     "message": "アーカイブ比較ツールを開けませんでした"
   },

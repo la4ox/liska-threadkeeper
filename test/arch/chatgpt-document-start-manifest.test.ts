@@ -10,7 +10,7 @@ type ContentScript = {
 };
 
 describe('ChatGPT document-start manifest entry', () => {
-  it('declares a MAIN-world document-start script and requires Chrome 111+', () => {
+  it('declares one ordered MAIN-world document-start entry and requires Chrome 111+', () => {
     const contentScripts = manifest.content_scripts as ContentScript[];
     const entry = contentScripts.find(
       script =>
@@ -21,11 +21,17 @@ describe('ChatGPT document-start manifest entry', () => {
     expect(manifest.minimum_chrome_version).toBe('111');
     expect(entry).toEqual({
       matches: ['https://chatgpt.com/*'],
-      js: ['src/content/capture/chatgpt-document-start.ts'],
+      js: [
+        'src/content/capture/chatgpt-document-start.ts',
+        'src/content/capture/dots-schema-document-start.ts',
+      ],
       run_at: 'document_start',
       world: 'MAIN',
     });
     expect(entry).not.toHaveProperty('all_frames');
+    expect(
+      contentScripts.filter(script => script.run_at === 'document_start' && script.world === 'MAIN')
+    ).toHaveLength(1);
   });
 
   it('retains the established normal content-script entry separately', () => {

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build && node scripts/check-service-worker-runtime.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/build-dots-document-start.mjs && node scripts/check-service-worker-runtime.mjs",
     "build:zip": "npm run build && node scripts/package-extension.mjs",
     "lint": "eslint src/ && node scripts/lint-platforms.mjs",
     "lint:platforms": "node scripts/lint-platforms.mjs",

@@ -2343,6 +2343,58 @@ conversation-scoped raw artifact be considered. No generic same-origin
 observer, dynamic allowlist learning, direct request replay, realtime stream
 capture, memory or persona collection is authorized.
 
+Branch `codex/dots-schema-probe` implements that evidence gate as a diagnostic,
+not an exporter. An exact popup-only action reloads one already-selected Dots
+tab once. A separate MAIN-world document-start observer admits only page-owned
+GETs for one room-metadata endpoint and its same-room `messages?limit` endpoint,
+then retains only a fixed-vocabulary structural schema. Provider values,
+unknown property names, IDs, URLs, hashes, timestamps and response bodies never
+cross the evidence boundary; TBO, live, aeon and voice surfaces remain excluded.
+Background revalidates the detached projection, top frame and exact document,
+removes only its nonce marker, and writes one fixed local diagnostic JSON file.
+No archive, Obsidian, Clipboard or settings sink is reachable from this action.
+
+The production build now post-bundles the import-free observer into one
+synchronous classic `dots-schema-document-start.js`. The built manifest keeps
+ordinary ChatGPT first and Dots second inside one ordered MAIN document-start
+entry; this avoids a live Comet compatibility failure where the second of two
+otherwise identical entries was never parsed. The current Dots artifact is
+22,517 bytes with SHA-256
+`2712899de29de7caee8ac738654db62f129b51b2e5cc0bc1056f81df22a5167d`.
+Focused route, observer, contract, popup, build and worker checks pass; the full
+coverage suite passes 231 files / 7,849 tests with one existing skip. Production
+build transforms 292 modules, lint has zero errors and the same three
+pre-existing warnings, and statement coverage is 95.04% against the unchanged
+95% floor. CI's layering rule also remains unchanged: the self-contained
+`chrome.scripting` page-state reader lives in `lib`, so background no longer
+imports the import-free MAIN observer from `content`. Independent review is
+clean after fixing the async-loader gap, ordinary failure cleanup, a late
+`tabs.update` marker race and same-document host fragment removal.
+
+Live provider compatibility is still deliberately unclaimed. An installed
+stable-page canary proved that the synchronous hook arms, returns the fixed
+`target-not-observed` refusal, removes its nonce fragment and writes no file.
+The host can also remove that fragment itself in the same document, so the hook
+now accepts only the exact marked URL or its exact hashless base while background
+still pins the document ID. A metadata-only refinement can distinguish an exact
+room Fetch refused solely because `RequestInit` is present without reading any
+init field. Its live classification remains pending: later attempts were
+invalidated by the Dots page itself failing during reload. A future stable-page
+canary may establish `request-init-present` or retain `target-not-observed`; only
+that result may justify the next narrow Fetch/XHR adjustment. Once the real raw
+contract is grounded, this schema control should move out of the ordinary
+product surface or be removed.
+
+The intended archive behavior after this evidence gate is not a permanently
+redacted export. For the current workflow, one Dot to one long-lived room is the
+working identity hypothesis: create one complete local raw/manifest/canonical
+and Markdown snapshot, then append only provider-ID-backed tail messages after
+reverifying the same Dot/room identity and exact historical prefix. Raw,
+manifest and canonical captures remain append-only snapshots. Room changes,
+history edits/reordering, incomplete pagination or any non-prefix result must
+fork a new snapshot with an explicit diagnostic rather than overwrite or merge
+silently.
+
 ## ChatGPT cross-format reconciliation core checkpoint
 
 Branch `codex/chatgpt-cross-format-reconciliation` adds a browser-independent,

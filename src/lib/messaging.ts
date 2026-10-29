@@ -10,6 +10,7 @@ import type { ChatGptOpaqueResolverResponse } from './chatgpt-opaque-resolver-co
 import type { ChatGptActiveResolverResponse } from './chatgpt-active-resolver-contract';
 import type { ChatGptActiveAssetResponse } from './chatgpt-active-asset-contract';
 import type { ChatGptInterpreterResolverResponse } from './chatgpt-interpreter-resolver-contract';
+import type { DotsSchemaProbeResponse } from './dots-schema-probe-contract';
 import type {
   ExtensionMessage,
   ContentScriptSettings,
@@ -31,6 +32,7 @@ interface MessageResponseMap {
   getSettings: ContentScriptSettings;
   saveSettings: SettingsSaveResponse;
   testConnection: { success: boolean; error?: string };
+  probeDotsSchema: DotsSchemaProbeResponse;
   saveToOutputs: MultiOutputResponse;
   persistArchiveCompanion: MultiOutputResponse;
   persistDerivedHtmlPresentation: MultiOutputResponse;

@@ -19,7 +19,11 @@ vi.mock('../../src/lib/messaging', () => ({
 
 import { getSettingsOrThrow } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
-import { initPopup } from '../../src/popup/app';
+import {
+  handleTrustedDotsSchemaProbeClick,
+  initPopup,
+  runDotsSchemaProbe,
+} from '../../src/popup/app';
 import { validateMessageContent } from '../../src/background/validation';
 
 const VALID_API_KEY = 'a'.repeat(32);
@@ -121,6 +125,7 @@ function buildPopupDom(): void {
     <button id="testBtn"></button>
     <button id="saveBtn"></button>
     <button id="openReconciliationBtn"></button>
+    <button id="probeDotsSchemaBtn"></button>
     <div id="status" class="status"></div>
   `;
 }
@@ -214,6 +219,34 @@ describe('popup/app', () => {
         url: 'chrome-extension://test-extension-id/src/reconcile/index.html',
       });
       expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('ignores a programmatic Dots probe click', async () => {
+      await initWithDefaults();
+
+      el<HTMLButtonElement>('probeDotsSchemaBtn').click();
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(statusEl().textContent).toBe('');
+    });
+
+    it('runs one trusted Dots probe and reports the fixed local-save result', async () => {
+      await initWithDefaults();
+      vi.mocked(sendMessage).mockResolvedValueOnce({
+        success: true,
+        fileName: 'liska-dots-schema-probe.json',
+      } as never);
+
+      handleTrustedDotsSchemaProbeClick({ isTrusted: true } as Event, () => {
+        void runDotsSchemaProbe();
+      });
+
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({ action: 'probeDotsSchema' })
+      );
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_dotsSchemaProbeSaved'));
+      expect(statusEl().className).toBe('status success');
+      expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(false);
     });
 
     it('keeps settings actions disabled until the strict read succeeds', async () => {

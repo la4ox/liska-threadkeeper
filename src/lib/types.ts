@@ -680,6 +680,7 @@ export type ExtensionMessage =
   | { action: 'abortStagedBinaryAsset'; source: AIPlatform; stageId: string }
   | { action: 'getSettings' }
   | { action: 'testConnection' }
+  | { action: 'probeDotsSchema' }
   | { action: 'fetchImage'; url: string }
   | {
       action: 'captureChatGptConversation';
