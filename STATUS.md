@@ -3259,6 +3259,57 @@ integration test where the first asset verifies, the second remains unknown,
 and the note receives zero writes. Installed Obsidian creation/reuse/refusal and
 filesystem readback remain before rollout.
 
+## Tail-only Obsidian append images installed acceptance checkpoint
+
+Branch `codex/obsidian-append-images-live-acceptance` starts from merged main
+`0203aab`. The reviewed production build was installed through the verified
+unpacked-extension installer: source and target each contain 41 files /
+1,164,282 bytes with aggregate SHA-256
+`1fb73d4a827bd7e6cfc3cd35a6f7809277e11a507f2d3f765ea104c646b5fb26`;
+manifest SHA-256 is
+`ab6f01a12cc90f5d8257b879f0454705bb4cb39ed4244674067b4e04a51db8ef`.
+The live canaries used only an extension-owned synthetic tab and the production
+`saveToOutputs` message boundary with Obsidian as the sole destination. The
+synthetic pages received no provider conversation, API key or unrelated note
+body. Production append lookup retained its configured scoped
+filename-listing and candidate-read behavior; no zero-vault-read claim is made.
+
+The production creation/reuse canary seeded one synthetic note, appended image
+tail A, appended a later tail B with a different image ID but byte-identical
+PNG data, and replayed B exactly. The terminal append counts were respectively
+absent, `1`, `1`, and `0`. The final 718-byte note has SHA-256
+`a73be3b0...ae4fb`, one boundary declaration, three message markers, one copy
+of each synthetic token, two embeds of the same full-SHA asset name, zero
+unresolved `g2o-image://` placeholders and `message_count: 3`. Only one physical
+67-byte PNG exists; its SHA-256 is `eaa4a94e...80865`. Its first and final mtime
+are both `2026-10-29T23:06:37.3893359Z`, with zero observed transitions during
+the later-ID reuse and exact replay. Append mode began false, was changed only
+for the bounded canary, and was verified false again with all other safe routing
+fields unchanged.
+
+The changed-base case used a separately hashed 68-byte PNG
+(`0b1e9872...ca726`) and a transient exact-ID scheduling gate placed only after
+asset persistence returned and before the unchanged production base-note reread.
+The gate reached only after the asset was exactly readable. During its 15-second
+window, one external marker was added to the synthetic base note; the note hash
+became `79b720e5...bf767`. On release, the existing production path returned the
+fixed `append-note-changed-before-write` code with one request and zero retries.
+The note retained that exact external hash and marker, one historical message,
+and zero proposed-tail tokens; the verified content-addressed PNG remains as the
+expected unreferenced reusable asset. This is scheduling-only instrumented
+evidence for the real refusal logic, not a new CAS or atomicity claim.
+
+The temporary gate and live-page code were removed from active source and the
+installed package. A clean production rebuild
+again produced the exact 41-file / 1,164,282-byte aggregate above and was
+reinstalled byte-for-byte; rollback
+`liska-rollback-20261029T232209274Z-f3eafe7974e142219b4bfc0f1ab95d90`
+retains the instrumented target. Comet was restarted and restored its session.
+The installed target now matches source on every relative path, length and
+SHA-256 with zero temporary canary/reload files. This closes installed
+creation, same-byte reuse, exact replay, changed-base refusal, setting restore
+and filesystem readback for ADR-045.
+
 ## ChatGPT Library text/plain candidate checkpoint
 
 Branch `codex/chatgpt-library-text-plain`, based on main `2de34c0e`, implements

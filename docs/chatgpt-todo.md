@@ -251,8 +251,13 @@ terminal states, and the existing no-credential-export boundary.
   remained in the HTML.
 - Automatic PDF remains a separate transport/rendering decision after HTML
   bundle behavior is stable.
-- Tail-only image-aware Obsidian append is implemented under ADR-045; installed
-  create/reuse/refusal and filesystem readback remain the rollout gate.
+- Tail-only image-aware Obsidian append is implemented and installed-live-
+  verified under ADR-045. A synthetic production-message canary closed new-tail
+  creation, different-ID/same-byte reuse, exact replay, filesystem readback and
+  setting restoration. A separate scheduling-only instrumented canary proved
+  the unchanged production base reread refuses an externally changed note after
+  asset verification, while retaining the verified asset as honest reusable
+  evidence. Exact production bytes were rebuilt and reinstalled afterward.
 - Add an explicit snapshot deduplicator; never replace immutable captures by
   default.
 - Pure analysis core implemented on `codex/snapshot-dedup-analysis`: explicit
@@ -611,7 +616,8 @@ limits. Installed positive preparation, missing-shard refusal and Clear manifest
 are closed without persisting the provider manifest or any destination output.
 Do not broaden this into directory/ZIP discovery or external binary association.
 
-Trusted-tail image-aware Obsidian append is implemented offline. Only active
+Trusted-tail image-aware Obsidian append is implemented and installed-live-
+verified. Only active
 standalone placeholders in the newly verified message tail can authorize full-
 SHA content-addressed assets; historical images are never backfilled.
 Diagnostics/no-op/image-free paths perform zero binary writes. Image-bearing
@@ -620,15 +626,20 @@ base-note reread and final note readback. Missing, ambiguous, colliding or
 unknown assets block the note. Verified assets may remain reusable and are never
 auto-deleted: before note PUT they are unreferenced, while an uncertain PUT can
 leave them already referenced with the note outcome unknown. The existing note
-GET-to-PUT race is not external CAS.
+GET-to-PUT race is not external CAS. Installed acceptance now closes the prior
+rollout gate: one new image tail created a full-SHA asset; a later different ID
+with identical bytes reused it without changing asset mtime; exact replay added
+zero messages; note markers, tokens, embeds, hashes and physical bytes matched.
+A separately hashed image then reached the post-persistence gate before an
+external synthetic-note mutation; the unchanged production reread returned
+`append-note-changed-before-write`, preserved the external note bytes and left
+the verified asset unreferenced. The scheduling gate was temporary and removed;
+the exact clean production package was rebuilt, reinstalled and restarted.
 
-The next gate is installed Obsidian acceptance: append one real new tail image,
-verify its content-addressed file and final note bytes on disk, then append a
-later new message referencing identical image bytes to prove exact asset reuse
-without duplicate text or binary creation. Separately prove a changed-base
-refusal after asset verification. Repeating an already confirmed capture proves
-only the existing no-op path, not asset reuse. Do not claim rollout from offline
-mocks.
+The next ChatGPT phase-exit gate is a real provider raw response above the
+16 MiB inline threshold through staged OPFS transport, with exact File/Obsidian
+hashes, UTF-8 chunk boundaries, cleanup and worker-restart evidence. Keep the
+existing 64 MiB raw boundary.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;
