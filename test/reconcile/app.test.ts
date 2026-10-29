@@ -4,6 +4,7 @@ import {
   initReconciliationPage,
   type ReconciliationPageDependencies,
 } from '../../src/reconcile/app';
+import { OFFICIAL_MANIFEST_LIMITS } from '../../src/reconcile/official-manifest';
 
 const BYTES = new TextEncoder().encode('{}');
 const HASH = 'a'.repeat(64);
@@ -58,6 +59,8 @@ function buildDom(): void {
     <span data-i18n="reconcile_heading">Heading</span>
     <input id="webCanonicalFile" type="file" />
     <input id="officialExportFile" type="file" />
+    <input id="officialManifestFile" type="file" />
+    <button id="clearOfficialManifestBtn" disabled></button>
     <input id="reconcileOutputFile" type="checkbox" checked />
     <input id="reconcileOutputObsidian" type="checkbox" />
     <button id="runBtn"></button>
@@ -73,11 +76,19 @@ function setFile(id: string, file: File): void {
 
 function setFiles(id: string, files: File[]): void {
   const input = document.getElementById(id) as HTMLInputElement;
+  let selected = [...files];
   Object.defineProperty(input, 'files', {
     configurable: true,
-    value: {
-      length: files.length,
-      item: (index: number) => files[index] ?? null,
+    get: () => ({
+      length: selected.length,
+      item: (index: number) => selected[index] ?? null,
+    }),
+  });
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get: () => (selected.length ? `C:\\fakepath\\${selected[0]!.name}` : ''),
+    set: value => {
+      if (value === '') selected = [];
     },
   });
   input.dispatchEvent(new Event('change'));
@@ -96,6 +107,37 @@ function syntheticFile(bytes: Uint8Array, name: string): File {
   return file;
 }
 
+function manifestBytes(files = ['conversations-000.json']): Uint8Array {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      version: 1,
+      manifest_file: 'export_manifest.json',
+      logical_files: { 'conversations.json': { files, shard_count: files.length, sharded: true } },
+      export_files: ['PRIVATE_UNRELATED_MANIFEST_CANARY'],
+    })
+  );
+}
+
+function trackedFile(name: string, source = BYTES) {
+  const file = new File([source], name);
+  const read = vi.fn(async () => source.slice().buffer);
+  const slice = vi.fn(() => ({ arrayBuffer: read }));
+  Object.defineProperties(file, { arrayBuffer: { value: read }, slice: { value: slice } });
+  return { file, read, slice };
+}
+
+function expectNoWork(deps: ReconciliationPageDependencies): void {
+  for (const key of [
+    'prepare',
+    'createZip',
+    'download',
+    'getSettings',
+    'writeObsidian',
+    'sha256',
+  ] as const)
+    expect(deps[key]).not.toHaveBeenCalled();
+}
+
 function dependencies(
   prepared: ChatGptReconciliationDelivery = delivery()
 ): ReconciliationPageDependencies {
@@ -105,8 +147,9 @@ function dependencies(
         { shardIndex: -1, chunks: request.officialChunks },
       ];
       for (const source of sources) {
-        for await (const _chunk of source.chunks) {
+        for await (const chunk of source.chunks) {
           // Consume every selected File stream like the real importer.
+          void chunk;
         }
       }
       return prepared;
@@ -204,6 +247,204 @@ describe('reconciliation page', () => {
     expect(request.officialSources?.map(source => source.shardIndex)).toEqual([0, 2, 5]);
     await vi.waitFor(() => expect(deps.download).toHaveBeenCalledOnce());
   });
+
+  it('admits a separately selected manifest before reading either source and strips its data', async () => {
+    const deps = dependencies();
+    await initReconciliationPage(deps);
+    const web = trackedFile('web.json');
+    const shard = trackedFile('conversations-000.json');
+    const laterShard = trackedFile('conversations-002.json');
+    const manifest = trackedFile(
+      'export_manifest.json',
+      manifestBytes(['conversations-000.json', 'conversations-002.json'])
+    );
+    setFile('webCanonicalFile', web.file);
+    setFiles('officialExportFile', [laterShard.file, shard.file]);
+    setFile('officialManifestFile', manifest.file);
+    (document.getElementById('reconcileOutputObsidian') as HTMLInputElement).checked = true;
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(deps.download).toHaveBeenCalledOnce());
+    expect(manifest.read).toHaveBeenCalledOnce();
+    expect(manifest.read.mock.invocationCallOrder[0]).toBeLessThan(
+      web.read.mock.invocationCallOrder[0]
+    );
+    expect(manifest.read.mock.invocationCallOrder[0]).toBeLessThan(
+      shard.slice.mock.invocationCallOrder[0]
+    );
+    expect(laterShard.slice).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(deps.prepare).mock.calls[0][0].officialSources?.map(source => source.shardIndex)
+    ).toEqual([0, 2]);
+    expect(JSON.stringify(vi.mocked(deps.prepare).mock.calls)).not.toMatch(
+      /manifest|PRIVATE_UNRELATED/
+    );
+    expect(JSON.stringify(vi.mocked(deps.createZip).mock.calls)).not.toContain('PRIVATE_UNRELATED');
+    expect(document.body.textContent).not.toContain('PRIVATE_UNRELATED');
+    await vi.waitFor(() => expect(deps.writeObsidian).toHaveBeenCalledOnce());
+  });
+
+  it('clears the optional manifest and returns to the legacy flow without a reload', async () => {
+    const deps = dependencies();
+    await initReconciliationPage(deps);
+    const web = trackedFile('web.json');
+    const legacy = trackedFile('conversations.json');
+    const manifest = trackedFile('export_manifest.json', manifestBytes());
+    setFile('webCanonicalFile', web.file);
+    setFile('officialExportFile', syntheticFile(BYTES, 'conversations-000.json'));
+    setFile('officialManifestFile', manifest.file);
+    const clear = document.getElementById('clearOfficialManifestBtn') as HTMLButtonElement;
+    expect(clear.disabled).toBe(false);
+    clear.click();
+    expect(
+      (document.getElementById('officialManifestFile') as HTMLInputElement).files
+    ).toHaveLength(0);
+    expect(clear.disabled).toBe(true);
+    setFile('officialExportFile', legacy.file);
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(deps.download).toHaveBeenCalledOnce());
+    expect(manifest.read).not.toHaveBeenCalled();
+    expect(legacy.slice).toHaveBeenCalled();
+    expect(vi.mocked(deps.prepare).mock.calls[0][0].officialSources).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'missing non-target shard',
+      () =>
+        trackedFile(
+          'export_manifest.json',
+          manifestBytes(['conversations-000.json', 'conversations-001.json'])
+        ),
+    ],
+    [
+      'unexpected selected shard',
+      () => trackedFile('export_manifest.json', manifestBytes(['conversations-001.json'])),
+    ],
+    [
+      'invalid JSON',
+      () =>
+        trackedFile(
+          'export_manifest.json',
+          new TextEncoder().encode('PRIVATE_UNRELATED_MANIFEST_CANARY')
+        ),
+    ],
+    ['wrong filename', () => trackedFile('private-export_manifest.json', manifestBytes())],
+    [
+      'oversized metadata',
+      () => {
+        const result = trackedFile('export_manifest.json', manifestBytes());
+        Object.defineProperty(result.file, 'size', {
+          value: OFFICIAL_MANIFEST_LIMITS.maxBytes + 1,
+        });
+        return result;
+      },
+    ],
+    [
+      'oversized read',
+      () => {
+        const result = trackedFile(
+          'export_manifest.json',
+          new Uint8Array(OFFICIAL_MANIFEST_LIMITS.maxBytes + 1)
+        );
+        Object.defineProperty(result.file, 'size', { value: 2 });
+        return result;
+      },
+    ],
+    [
+      'unreadable file',
+      () => {
+        const result = trackedFile('export_manifest.json', manifestBytes());
+        result.read.mockRejectedValue(new Error('PRIVATE_UNRELATED_MANIFEST_CANARY'));
+        return result;
+      },
+    ],
+  ] as const)('rejects %s before any source read or output', async (_label, createManifest) => {
+    const deps = dependencies();
+    await initReconciliationPage(deps);
+    const web = trackedFile('web.json');
+    const shard = trackedFile('conversations-000.json');
+    const manifest = createManifest();
+    setFile('webCanonicalFile', web.file);
+    setFile('officialExportFile', shard.file);
+    setFile('officialManifestFile', manifest.file);
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(document.getElementById('status')?.textContent).toBe('reconcile_failed')
+    );
+    expect(web.read).not.toHaveBeenCalled();
+    expect(shard.slice).not.toHaveBeenCalled();
+    expectNoWork(deps);
+    expect(document.body.textContent).not.toContain('PRIVATE_UNRELATED');
+    expect((document.getElementById('officialManifestFile') as HTMLInputElement).disabled).toBe(
+      false
+    );
+    expect((document.getElementById('result') as HTMLDivElement).hidden).toBe(true);
+  });
+
+  it('rejects a manifest with legacy input or multiple manifest files before reading', async () => {
+    const deps = dependencies();
+    await initReconciliationPage(deps);
+    const web = trackedFile('web.json');
+    const manifest = trackedFile('export_manifest.json', manifestBytes());
+    setFile('webCanonicalFile', web.file);
+    setFile('officialExportFile', syntheticFile(BYTES, 'conversations.json'));
+    setFile('officialManifestFile', manifest.file);
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(document.getElementById('status')?.textContent).toBe('reconcile_failed')
+    );
+    setFile('officialExportFile', syntheticFile(BYTES, 'conversations-000.json'));
+    setFiles('officialManifestFile', [manifest.file, manifest.file]);
+    (document.getElementById('runBtn') as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect((document.getElementById('runBtn') as HTMLButtonElement).disabled).toBe(false)
+    );
+    expect(manifest.read).not.toHaveBeenCalled();
+    expect(web.read).not.toHaveBeenCalled();
+    expectNoWork(deps);
+  });
+
+  it.each(['cancel', 'web-change', 'shard-change', 'manifest-change'] as const)(
+    'stops a pending manifest read after %s with no later work',
+    async action => {
+      const deps = dependencies();
+      await initReconciliationPage(deps);
+      const web = trackedFile('web.json');
+      const shard = trackedFile('conversations-000.json');
+      const manifest = trackedFile('export_manifest.json', manifestBytes());
+      let release!: (buffer: ArrayBuffer) => void;
+      manifest.read.mockImplementation(
+        () =>
+          new Promise<ArrayBuffer>(resolve => {
+            release = resolve;
+          })
+      );
+      setFile('webCanonicalFile', web.file);
+      setFile('officialExportFile', shard.file);
+      setFile('officialManifestFile', manifest.file);
+      (document.getElementById('runBtn') as HTMLButtonElement).click();
+      await vi.waitFor(() => expect(manifest.read).toHaveBeenCalledOnce());
+      expect((document.getElementById('officialManifestFile') as HTMLInputElement).disabled).toBe(
+        true
+      );
+      if (action === 'cancel') (document.getElementById('cancelBtn') as HTMLButtonElement).click();
+      else if (action === 'web-change')
+        setFile('webCanonicalFile', syntheticFile(BYTES, 'new-web.json'));
+      else if (action === 'manifest-change')
+        setFile('officialManifestFile', syntheticFile(manifestBytes(), 'export_manifest.json'));
+      else setFile('officialExportFile', syntheticFile(BYTES, 'conversations-001.json'));
+      release(manifestBytes().buffer as ArrayBuffer);
+      await vi.waitFor(() =>
+        expect(document.getElementById('status')?.textContent).toBe('reconcile_cancelled')
+      );
+      expect((document.getElementById('officialManifestFile') as HTMLInputElement).disabled).toBe(
+        false
+      );
+      expect(web.read).not.toHaveBeenCalled();
+      expect(shard.slice).not.toHaveBeenCalled();
+      expectNoWork(deps);
+    }
+  );
 
   it.each([
     ['mixed legacy and shards', ['conversations.json', 'conversations-000.json']],

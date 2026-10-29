@@ -14,6 +14,7 @@ import { getSettingsOrThrow } from '../lib/storage';
 import { downloadReconciliationZip, type ReconciliationDownloadResult } from './download';
 import { writeReconciliationToObsidian, type ObsidianReconciliationWriteResult } from './obsidian';
 import { createReconciliationZip } from './zip';
+import { admitOfficialManifest, OFFICIAL_MANIFEST_LIMITS } from './official-manifest';
 
 const FILE_CHUNK_BYTES = 1024 * 1024;
 const SHARD_NAME = /^conversations-([0-9]{3})\.json$/;
@@ -52,6 +53,8 @@ function queryElements() {
   return {
     web: getElement<HTMLInputElement>('webCanonicalFile'),
     official: getElement<HTMLInputElement>('officialExportFile'),
+    manifest: getElement<HTMLInputElement>('officialManifestFile'),
+    clearManifest: getElement<HTMLButtonElement>('clearOfficialManifestBtn'),
     outputFile: getElement<HTMLInputElement>('reconcileOutputFile'),
     outputObsidian: getElement<HTMLInputElement>('reconcileOutputObsidian'),
     run: getElement<HTMLButtonElement>('runBtn'),
@@ -122,6 +125,40 @@ function officialFileSelection(input: HTMLInputElement): OfficialFileSelection {
   return { mode: 'shards', files: shards };
 }
 
+function manifestFileSelection(
+  input: HTMLInputElement,
+  official: OfficialFileSelection
+): File | null {
+  const files = selectedFiles(input);
+  if (files.length === 0) return null;
+  const file = files[0];
+  if (files.length !== 1 || file.name !== 'export_manifest.json' || official.mode !== 'shards')
+    throw new Error('manifest-selection-invalid');
+  if (
+    !Number.isSafeInteger(file.size) ||
+    file.size < 0 ||
+    file.size > OFFICIAL_MANIFEST_LIMITS.maxBytes
+  )
+    throw new Error('manifest-size-limit');
+  return file;
+}
+
+async function validateManifest(
+  file: File,
+  official: OfficialFileSelection,
+  signal: AbortSignal
+): Promise<void> {
+  if (signal.aborted) throw new Error('cancelled');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (signal.aborted) throw new Error('cancelled');
+  if (bytes.byteLength !== file.size) throw new Error('manifest-size-mismatch');
+  if (official.mode !== 'shards') throw new Error('manifest-selection-invalid');
+  admitOfficialManifest(
+    bytes,
+    official.files.map(source => source.file.name)
+  );
+}
+
 function setStatus(elements: ReconciliationElements, key: string, state: StatusState): void {
   elements.status.textContent = getMessage(key);
   elements.status.dataset.state = state;
@@ -130,6 +167,8 @@ function setStatus(elements: ReconciliationElements, key: string, state: StatusS
 function setBusy(elements: ReconciliationElements, busy: boolean): void {
   elements.web.disabled = busy;
   elements.official.disabled = busy;
+  elements.manifest.disabled = busy;
+  elements.clearManifest.disabled = busy || selectedFiles(elements.manifest).length === 0;
   elements.outputFile.disabled = busy;
   elements.outputObsidian.disabled = busy;
   const hasDestination = elements.outputFile.checked || elements.outputObsidian.checked;
@@ -261,6 +300,18 @@ function zipEntries(delivery: ChatGptReconciliationDelivery) {
   }));
 }
 
+async function downloadBundle(
+  elements: ReconciliationElements,
+  delivery: ChatGptReconciliationDelivery,
+  dependencies: ReconciliationPageDependencies
+): Promise<ReconciliationDownloadResult> {
+  setStatus(elements, 'reconcile_buildingBundle', 'working');
+  const zip = dependencies.createZip(zipEntries(delivery));
+  elements.cancel.disabled = true;
+  setStatus(elements, 'reconcile_waitingSave', 'working');
+  return dependencies.download({ bytes: zip, bundleId: delivery.bundleId });
+}
+
 function refusedObsidian(): ObsidianReconciliationWriteResult {
   return {
     status: 'refused',
@@ -309,6 +360,7 @@ async function runReconciliation(
     return;
   }
   const official = officialFileSelection(elements.official);
+  const manifest = manifestFileSelection(elements.manifest, official);
   const saveFile = elements.outputFile.checked;
   const saveObsidian = elements.outputObsidian.checked;
   if (!saveFile && !saveObsidian) {
@@ -316,8 +368,13 @@ async function runReconciliation(
     return;
   }
   const operationAt = dependencies.now();
+  if (manifest) {
+    setStatus(elements, 'reconcile_readingManifest', 'working');
+    await validateManifest(manifest, official, controller.signal);
+  }
   setStatus(elements, 'reconcile_readingWeb', 'working');
   const webBytes = await readWebCanonical(webFile);
+  if (controller.signal.aborted) throw new Error('cancelled');
   setStatus(elements, 'reconcile_scanningOfficial', 'working');
   const delivery = await dependencies.prepare(
     inputFor(
@@ -331,13 +388,7 @@ async function runReconciliation(
   );
   if (controller.signal.aborted) throw new Error('cancelled');
   const outputs: DestinationResults = {};
-  if (saveFile) {
-    setStatus(elements, 'reconcile_buildingBundle', 'working');
-    const zip = dependencies.createZip(zipEntries(delivery));
-    elements.cancel.disabled = true;
-    setStatus(elements, 'reconcile_waitingSave', 'working');
-    outputs.file = await dependencies.download({ bytes: zip, bundleId: delivery.bundleId });
-  }
+  if (saveFile) outputs.file = await downloadBundle(elements, delivery, dependencies);
   if (saveObsidian) {
     elements.cancel.disabled = false;
     setStatus(elements, 'reconcile_writingObsidian', 'working');
@@ -354,8 +405,18 @@ export async function initReconciliationPage(
   initializeI18n();
   let active: AbortController | null = null;
   const refresh = (): void => setBusy(elements, active !== null);
-  elements.web.addEventListener('change', refresh);
-  elements.official.addEventListener('change', refresh);
+  const sourcesChanged = (): void => {
+    active?.abort();
+    refresh();
+  };
+  elements.web.addEventListener('change', sourcesChanged);
+  elements.official.addEventListener('change', sourcesChanged);
+  elements.manifest.addEventListener('change', sourcesChanged);
+  elements.clearManifest.addEventListener('click', () => {
+    if (active !== null) return;
+    elements.manifest.value = '';
+    sourcesChanged();
+  });
   elements.outputFile.addEventListener('change', refresh);
   elements.outputObsidian.addEventListener('change', refresh);
   elements.cancel.addEventListener('click', () => active?.abort());

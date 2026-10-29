@@ -3135,6 +3135,49 @@ private analysis page's installed portability gate in ordinary Google Chrome.
 It does not generalize to other browser families or unrelated provider content-
 script injection, and it adds no output or mutation authority.
 
+## ChatGPT official-export manifest admission candidate checkpoint
+
+Branch `codex/reconciliation-manifest-admission` starts from merged main
+`d041b4c`. Four saved official `export_manifest.json` samples from April through
+October 2026 independently confirm one stable provider v1 shape: root
+`export_files`, `logical_files`, `manifest_file`, and `version`; exact
+`manifest_file: export_manifest.json`; and logical `conversations.json` with
+`files`, `shard_count`, and `sharded: true`. Every sample declares six unique
+contiguous canonical shards `000…005`. Sizes range from 438,865 to 600,402
+bytes; measured maxima are container depth 4, 16,385 JSON value nodes, 11,700
+object keys, and 28,085 combined values plus keys.
+
+The private reconciliation page now has one separate optional manifest picker
+for sharded mode. Admission snapshots the selected File objects, checks exact
+name/count and declared/observed 2 MiB bounds, then strictly rejects BOM,
+malformed UTF-8/JSON, duplicate decoded keys, depth above 32, or more than
+100,000 value nodes. Only provider version 1 and the exact logical conversation
+entry are accepted. Declared and separately selected canonical shard basenames
+must match as exact duplicate-free multisets before any web/shard read,
+preparation, settings access, hashing, download, or Obsidian call.
+
+The helper returns only a frozen numeric count receipt, which the page discards
+before the unchanged importer/delivery path. Raw provider-manifest bytes,
+unrelated inventory names/paths/values, filenames, hashes, native exceptions,
+and manifest data never enter UI errors or durable output. Without a manifest,
+the existing legacy and explicit-shard paths remain unchanged. A manifest is
+invalid with legacy mode or inside the shard picker. Cancel or any source change
+during its read prevents late bytes from authorizing newer selections. An
+explicit Clear manifest control restores no-manifest/legacy mode without page
+reload.
+
+Focused helper/page/locale tests pass 3 files / 97 tests; importer and delivery
+regressions pass 2 files / 128 tests. The complete suite passes 235 files: 8,079
+tests passed and one existing test skipped (8,080 total). Coverage is 95.16%
+statements, 91.76% branches, 98.60% functions and 97.59% lines; the new helper
+has 98.11% statements, 95.74% branches and 100% functions/lines. TypeScript and
+the 295-module production build pass, including the worker-runtime guards. Full
+source/platform lint has zero errors and the same three baseline warnings;
+Prettier and diff checks pass. Independent review found no material correctness,
+security, privacy, or regression issue; its manifest-clear usability note is
+resolved. Installed positive/refusal/cancellation acceptance remains before
+rollout.
+
 ## ChatGPT Library text/plain candidate checkpoint
 
 Branch `codex/chatgpt-library-text-plain`, based on main `2de34c0e`, implements

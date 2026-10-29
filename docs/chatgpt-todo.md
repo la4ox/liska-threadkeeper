@@ -279,8 +279,34 @@ terminal states, and the existing no-credential-export boundary.
   candidate relationship was invented, and Save was not invoked. Post-run
   hashes/sizes/timestamps matched; no new report or partial appeared. This does
   not claim every browser family or provider content-script route.
-- Consider manual/automatic backup orchestration only after manual capture and
-  recovery paths are boringly reliable.
+- After manual capture and recovery paths are boringly reliable, add a separate
+  user-controlled daily backup service above the provider adapters. Begin with
+  a rate-limited, resumable baseline inventory/export of every accessible chat;
+  it may intentionally take several days. Thereafter, poll only bounded
+  provider-specific chat-index/history metadata and export the provider IDs with
+  a proven revision, update timestamp, cursor, or equivalent change marker.
+  Never reopen every chat daily merely to discover whether it changed, and do
+  not guess change from title, order, page presence, or local elapsed time when a
+  provider has no reliable signal.
+- Give each provider a separately reviewed discovery contract, cooldown,
+  exponential backoff, daily request/page budget, resumable cursor and durable
+  per-chat ledger. The ledger must expose baseline/export/check timestamps,
+  observed change evidence, deferred/rate-limited/missed/error states, pause,
+  manual retry and catch-up after downtime. Every successful update remains a
+  new append-only raw/manifest/canonical snapshot; readable incremental output
+  requires the same provider identity and a reverified historical prefix. The
+  scheduler must not silently overwrite snapshots, invent completeness after a
+  missed run, or acquire account-wide/provider network authority except through
+  that explicit opt-in discovery contract.
+- Preserve four independent layers instead of collapsing them into one mutable
+  system: (1) periodic official exports as cold external evidence, roughly every
+  one or two months; (2) daily update-driven Liska append-only raw/manifest/
+  canonical snapshots; (3) the existing readable Markdown/HTML branch-aware
+  presentation layer; and only then (4) a future living-memory layer for themes,
+  links, unfinished threads and semantic recall. Later layers may index and
+  reference earlier evidence but must never silently rewrite, deduplicate, or
+  delete its archive truth. Design the living-memory system only after the first
+  three layers have boring recovery and reconciliation paths.
 
 ### Cross-cutting hardening
 
@@ -417,7 +443,7 @@ terminal states, and the existing no-credential-export boundary.
   and fully validated sequentially under shared 2 GiB / 100,000-record / 1,000-
   source ceilings. Exact IDs are unique across the whole set; later shards cannot
   be skipped after a match. Shard-local provenance retains only numeric index.
-- Three measured manifest-v1 exports consistently declare six shards `000…005`.
+- Four measured manifest-v1 exports consistently declare six shards `000…005`.
   A real 477,261,486-byte six-shard smoke completed normalized in about 11.7 s.
   Four literal `{}` padding records in shard 004 are counted, disclosed and
   ignored only for identity validation; nonempty identity-free records still
@@ -431,8 +457,18 @@ terminal states, and the existing no-credential-export boundary.
   results, restored controls, zero baseline/terminal Local REST requests,
   unchanged sources and no new ZIP. Arbitrary uninstrumented timing and actual
   page unload remain unclaimed.
-- Browser export-ZIP discovery, external binary import, archive merge, and
-  snapshot deduplication remain later explicit slices.
+- Optional manifest-guided admission candidate implemented: a separately
+  selected exact `export_manifest.json` is capped at 2 MiB, strictly parses only
+  provider schema v1, projects the logical `conversations.json` declaration and
+  requires exact equality with separately selected canonical shard basenames
+  before either source scan. Missing, duplicate, unexpected, path-like, stale,
+  cancelled or malformed selections fail with zero later work. Raw manifest
+  bytes and unrelated inventory never enter the UI result or durable output;
+  the explicit clear control returns to no-manifest/legacy mode without reload.
+  This validates declared names only, not shard content authenticity or export
+  completeness. Installed positive/refusal/cancellation acceptance remains.
+- Automatic manifest/directory/export-ZIP discovery, external binary import,
+  archive merge, and snapshot deduplication remain later explicit slices.
 
 ### 9. Adjacent provider: Dots chat export
 
@@ -564,12 +600,14 @@ ordinary Google Chrome with the local-only CSP, preserve-only report and zero
 mutation authority unchanged. Parser-heavy near-limit replay remains separate
 and must not be inferred from the raw-only 255 MiB workload.
 
-The next bounded provider-independent code slice is explicit manifest-guided
-official-export shard admission: read only a separately selected known-schema
-manifest, compare its conversation-shard declaration with separately selected
-shards, and reject missing, duplicate or unexpected conversation shards before
-scanning. Do not retain unrelated manifest names in reports or broaden this into
-directory/ZIP discovery or external binary association.
+The bounded manifest-guided official-export admission candidate is implemented
+without changing importer or output schemas. Four measured provider manifests
+fit the fixed v1 contract and remain far below its explicit byte/depth/value
+limits. The next gate is installed-page acceptance with one real manifest plus
+its six explicitly selected shards: one positive preparation and one missing-
+shard refusal, proving the manifest is not saved, refusal performs zero source/
+destination work, and Clear manifest restores no-manifest mode. Do not broaden
+this into directory/ZIP discovery or external binary association.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;
@@ -580,7 +618,7 @@ revalidate a hash-bound plan, quarantine on the same volume with a journal and
 undo, and require a separate cleanup confirmation. Saved reports never become
 write authority.
 
-Keep other-browser snapshot portability, page unload, export-ZIP discovery, the
-1 GiB source-work refusal, real staged `>16 MiB` capture, fetched same-title
-destination naming, custom-GPT/project binaries, Dots, and the archived Library
-WebP as separate evidence-gated work.
+Keep other browser-family snapshot portability, page unload, export-ZIP
+discovery, the 1 GiB source-work refusal, real staged `>16 MiB` capture, fetched
+same-title destination naming, custom-GPT/project binaries, Dots, and the
+archived Library WebP as separate evidence-gated work.
