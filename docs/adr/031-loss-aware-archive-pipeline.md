@@ -997,7 +997,7 @@ later staged begin.
 
 ## ChatGPT-first implementation plan
 
-Progress as of 2026-10-23: steps 1–6 are implemented and live-verified for
+Progress through 2026-10-29: steps 1–6 are implemented and live-verified for
 ChatGPT. Step 7 is partially implemented for ordinary-chat file-ID images,
 interpreter/sandbox documents, one exact Library-associated JPEG, one exact
 passive Library CSV and one exact Library text/plain with explicit completeness
@@ -1006,8 +1006,10 @@ live-verified under an archive-only, zero-binary policy; their binary ownership,
 other Library binary families, Calpico fallback, and general Deep Research
 binary acquisition remain outside the current checkpoint. Step 8 is implemented and live-verified
 for DeepSeek exact history bytes, complete graph normalization, current-branch
-projection, and raw/manifest/canonical persistence. Step 9 remains a separate
-future phase.
+projection, and raw/manifest/canonical persistence. Step 9 is implemented
+through exact official import, compare-only reconciliation, deterministic File
+ZIP delivery, create-only/root-last Obsidian delivery, and bounded six-shard
+admission; its remaining gates stay explicit below.
 
 1. Define TypeScript types, JSON Schema, graph validators, and small synthetic
    fixtures for old/new ChatGPT graph variants.
@@ -1052,8 +1054,12 @@ future phase.
    core is implemented in ADR-037: it streams the batch, retains one exact
    conversation excerpt, records honest file-slice provenance, derives official
    parent-only child links explicitly, and preserves canonical refusal as
-   `raw-only`. Browser orchestration, durable writes, binary-directory import,
-   and compare-only reconciliation remain later slices.
+   `raw-only`. Browser orchestration, compare-only reconciliation,
+   deterministic File ZIP delivery, create-only/root-last Obsidian delivery,
+   and bounded six-shard admission are now implemented and installed or
+   directly canary-verified. Export-ZIP/manifest discovery, external binary
+   association, archive merge, actual page-unload behavior, browser Cancel
+   timing, and invalid-extra-file refusal remain later slices.
 
 PDF, automatic scheduling, a local daemon, archive merging, Bridge/Ariadne
 integration, and other providers are intentionally deferred until the first six
@@ -1095,9 +1101,10 @@ separate fixtures because one conversation may not contain every format.
 
 ## Deferred TODO: explicit snapshot deduplication
 
-- [ ] Add a separate, user-invoked archive analysis/deduplication action. The
-      default capture path remains append-only: it never overwrites or silently
-      deletes an earlier raw, manifest, canonical, or partial snapshot.
+- [x] Add a separate, user-invoked preserve-only snapshot analysis action. The
+      installed page reads only explicitly selected folders, reports locally,
+      and grants no path, deletion, overwrite, or cleanup authority. The default
+      capture path remains append-only.
 - [ ] Show an exact preview before cleanup: snapshots considered equivalent,
       evidence that would remain, estimated space recovered, and every path selected
       for removal. Any deletion requires a distinct confirmation.

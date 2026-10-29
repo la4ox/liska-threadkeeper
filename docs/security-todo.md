@@ -330,16 +330,16 @@ cancellation behavior remain live gates; image decompression and persistence
 are proven for this one sample.
 
 The two honest pre-fix notes nevertheless retained no durable warning about the
-missing image. The separate `codex/durable-loss-diagnostics` candidate now
-persists only versioned allowlisted historical codes for explicit partial
-history loading and failed identified-image capture. It carries no count, URL,
-filename, exception, response, header, provider text, or arbitrary warning
-string. Background validation is accessor-safe; append unions codes without
-rewriting body bytes, permits an idempotent same-count metadata-only update, and
-rejects shorter or malformed evidence. Destination image-write failures,
-intentional Clipboard omission, derived HTML, and current-completeness remain
-outside schema 1. Full offline checks pass; repeat an installed loss canary
-before treating the durable path as live-verified.
+missing image. PR 66 closes that gap with versioned allowlisted historical codes
+for explicit partial history loading and failed identified-image capture. It
+carries no count, URL, filename, exception, response, header, provider text, or
+arbitrary warning string. Background validation is accessor-safe; append unions
+codes without rewriting body bytes, permits an idempotent same-count
+metadata-only update, and rejects shorter or malformed evidence. Destination
+image-write failures, intentional Clipboard omission, derived HTML, and
+current-completeness remain outside schema 1. The exact installed Gemini canary
+persisted `image-capture-failed`, retained the real JPEG, and contained no
+`g2o-image://`, `blob:`, canary ID, neutralized opener, or false local link.
 
 The first frozen local diff scan `e30f6c9e-9417-4599-9904-a74d6386d220`
 reported no security findings and preserved two below-bar correctness

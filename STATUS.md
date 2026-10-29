@@ -184,12 +184,13 @@ Codex Security diff scan `088304af-c28d-4408-85ce-15c1f83f299c` found no
 plausible changed-code vulnerability and intentionally retained those runtime
 questions as partial coverage.
 
-One loss-diagnostics gap remains separate from transport correctness: the two
-pre-fix exports correctly omitted the unavailable image and showed runtime
-failure diagnostics, but their durable Markdown contained neither an image link
-nor a warning. Legacy-provider extraction warnings therefore still disappear
-with the toast/console; a future slice must retain bounded durable loss evidence
-without copying provider URLs or arbitrary exception text.
+The separate loss-diagnostics gap from those two pre-fix exports is now closed
+by PR 66. Schema 1 retains only sorted `history-load-partial` and
+`image-capture-failed` codes, never provider URLs or arbitrary exception text;
+append merges that historical evidence without rewriting body bytes. An exact
+installed Gemini canary preserved the real JPEG and durable failure code while
+leaving no private placeholder, `blob:`, canary ID, or false local link. This
+still does not claim destination image-write failures or current completeness.
 
 ## Confirmed working
 
@@ -264,7 +265,7 @@ without copying provider URLs or arbitrary exception text.
 - Structured graph transport now has an explicit `inline | staged` boundary. ChatGPT responses up to 16 MiB keep the live-verified inline route; larger ChatGPT raw responses up to 64 MiB and DeepSeek raw responses above 16 MiB use independently canonical 512 KiB chunks. Background creates a random 192-bit `archive-stage-*` capability in the separate `liska-archive-stages` OPFS namespace, accepts only sequential offsets (or an exact byte-identical acknowledged retry), and seals only after final length/SHA-256 verification. Content reassembles and rehashes raw solely for the existing non-streaming normalizer. Raw remains staged until its selected durable outputs finish; canonical JSON above the 32 MiB inline limit uses the same staged route, while manifest remains inline and never records the stage ID. File/Obsidian paths remain append-only; Obsidian retains binary readback/hash verification. File ownership survives MV3 suspension in a bounded local registry containing only download ID, random stage ID, extension Blob URL, and timestamp. Null callback IDs are never guessed and quarantine exact cleanup for at most 24 hours. Archive-stage messages require the exact top-frame conversation document for their declared ChatGPT or DeepSeek source, while offscreen accepts only the same-extension worker without tab/document metadata. Fresh independent review found no residual P0-P2 issue after source binding, cleanup propagation, and privacy hardening.
 - Synthetic staged-graph evidence covers the exact 16 MiB boundary, a complete 20 MiB raw capture, canonical JSON above 32 MiB, UTF-8 split boundaries, duplicate/gap/overlap/conflict handling, OPEN/SEALED retries, exact sender/offscreen gates, cancellation, File/Obsidian release, and fresh-worker terminal recovery without a whole-payload runtime message. A real-provider response above 16 MiB remains unverified. Explicit opaque replay deliberately remains on its existing 16 MiB inline cap rather than becoming an oversized fallback.
 - The staged path is now live-verified in Comet after correcting an offscreen-only API mismatch. A zero-byte diagnostic returned `offscreen-worker-entry-unavailable`: Chromium does not expose `runtime.getManifest` to offscreen pages. The exact worker URL is now read once from the installed package's own manifest with a three-second, no-credentials/no-redirect fetch; content tabs and extension documents remain rejected, and no storage operation begins before sender verification. Live zero-byte begin/abort passes. A 16,777,264-byte synthetic stage crossed 33 bounded chunks in 3.792 seconds with an exact SHA-256 readback and acknowledged abort. Two 131-byte synthetic JSON File outputs matched filesystem length/hash; the refined control also proved readable bytes before commit and an unavailable stage after output. No chat data entered those synthetic probes. New live offscreen entrypoint: `offscreen-DFZtwxPD.js`; worker entrypoint: `service-worker.ts-DkgHGaUn.js`.
-- Two scan-derived hardening items remain outside this checkpoint: shared structural work budgets for recursive ChatGPT/DeepSeek normalization, and aggregate work/write ceilings for all-branches export. The last item is also practically relevant to unusually wide personal chat graphs even though its security impact is low.
+- The two scan-derived hardening items that remained outside this checkpoint are now closed by later merged work: shared structural budgets bound recursive ChatGPT/DeepSeek normalization, and the all-branches stack bounds source work, planned writes, per-note bytes, per-destination logical/physical bytes, and aggregate physical work. The separate 1 GiB source-work refusal for the known real graph remains an intentional live product limit, not a missing ceiling.
 - One earlier settings run attempted an Obsidian archive write after the user had visually disabled that output without a confirmed persisted update. Destination toggles now send an acknowledged popup-only background update, apply an in-memory override before `chrome.storage.sync` completes, and serialize rapid changes. Live Obsidian-only followed immediately by File+Obsidian smokes confirmed the toggle/readback path.
 - Automatic scheduled backups are not implemented; every export starts from a real user click.
 - Provider-controlled frontmatter strings now quote leading `?`/`,` indicators
@@ -908,9 +909,11 @@ the 2 GiB aggregate physical budget. A representable initial seed above that cap
 rejects before any Markdown fingerprint or write, while logical Markdown remains
 a separate per-destination counter. Stop after archive finalization retains the
 already confirmed physical seed in its summary. This is exact accounting for
-successful finalized destinations, not a whole-operation pre-write disk gate:
-raw/binary residue from a destination that fails later finalization still needs
-a broader per-write ledger before it can be budgeted or summarized exactly.
+successful finalized destinations, not a whole-operation pre-write disk gate.
+At this checkpoint, raw/binary residue from a destination that failed later
+finalization was still unaccounted. The later operation-local per-write ledger
+closes that historical gap with confirmed/unknown/not-dispatched sink evidence;
+it still does not claim net disk usage or restart-persistent ownership.
 GitHub review then exposed the remaining adversarial case where two individually
 representable destination totals overflow the aggregate safe-integer range. The
 budget now short-circuits that aggregate to a bounded over-cap sentinel and
