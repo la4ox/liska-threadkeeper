@@ -280,14 +280,24 @@ terminal states, and the existing no-credential-export boundary.
   hashes/sizes/timestamps matched; no new report or partial appeared. This does
   not claim every browser family or provider content-script route.
 - After manual capture and recovery paths are boringly reliable, add a separate
-  user-controlled daily backup orchestrator above the provider adapters. It
-  should revisit only explicitly selected chats, detect provider-ID-backed
-  updates, retain every raw/manifest/canonical capture as an append-only
-  snapshot, derive readable incremental output only from a reverified prefix,
-  and expose last-run/per-chat receipts, skipped or missed runs, errors, pause
-  and manual retry. It must not become a hidden account-wide crawler, silently
-  overwrite snapshots, invent completeness after a missed run, or inherit new
-  provider/network authority from the scheduler itself.
+  user-controlled daily backup service above the provider adapters. Begin with
+  a rate-limited, resumable baseline inventory/export of every accessible chat;
+  it may intentionally take several days. Thereafter, poll only bounded
+  provider-specific chat-index/history metadata and export the provider IDs with
+  a proven revision, update timestamp, cursor, or equivalent change marker.
+  Never reopen every chat daily merely to discover whether it changed, and do
+  not guess change from title, order, page presence, or local elapsed time when a
+  provider has no reliable signal.
+- Give each provider a separately reviewed discovery contract, cooldown,
+  exponential backoff, daily request/page budget, resumable cursor and durable
+  per-chat ledger. The ledger must expose baseline/export/check timestamps,
+  observed change evidence, deferred/rate-limited/missed/error states, pause,
+  manual retry and catch-up after downtime. Every successful update remains a
+  new append-only raw/manifest/canonical snapshot; readable incremental output
+  requires the same provider identity and a reverified historical prefix. The
+  scheduler must not silently overwrite snapshots, invent completeness after a
+  missed run, or acquire account-wide/provider network authority except through
+  that explicit opt-in discovery contract.
 
 ### Cross-cutting hardening
 
