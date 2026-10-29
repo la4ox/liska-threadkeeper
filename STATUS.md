@@ -3074,6 +3074,43 @@ This closes the installed Comet picker/analyze/Save As/late-terminal/cancel
 gate. Other-browser portability and responsiveness near hard limits remain
 separate evidence gates; no cleanup authority was added.
 
+## Snapshot analysis near-limit acceptance checkpoint
+
+Branch `codex/snapshot-analysis-near-limit` starts from merged main `ced61dc`
+without a production-code delta. A deterministic local fixture contains sixteen
+separately selected synthetic raw-only snapshot folders, 36 files and exactly
+267,386,880 selected bytes (255 MiB). Three opaque pads are exactly 64 MiB and a
+fourth is 66,042,992 bytes; every file stays within the unchanged 64 MiB limit.
+The metadata-only inventory SHA-256 is
+`8beba3889132f8fe8e50d2a0b6e4214d042dfefb42aecf10916eef433df31b48`.
+
+The installed Comet picker accepted all sixteen folders in order. Its cards
+matched every expected file count and byte total, disabled Add at the limit and
+enabled Analyze. One uninstrumented Analyze showed the first completed file
+within the initial roughly 245 ms refresh and reached the exact terminal status
+`Analysis complete. No source files were changed.` by the next captured state
+20.1 seconds after the click. It rendered all sixteen ordinal cards, each
+honestly `Unverifiable` for this raw-only/opaque workload. Save was never
+invoked.
+
+A separate delayed Cancel attempt arrived after completion and is retained as
+non-evidence. The accepted uninstrumented run was still in `Checking bytes,
+provenance, and canonical replay…` when an actual native accessibility click was
+accepted by the trusted-only Cancel handler. The refreshed page showed
+`Analysis cancelled. No report was saved.` within 284 ms. After another 38.8
+seconds the same cancelled status remained, the report was absent, Save stayed
+disabled, Analyze was reenabled and Cancel was disabled; no stale completion
+rendered.
+
+Independent post-run verification found zero SHA-256 or byte-length mismatches
+across all 36 selected files, no unexpected file and no source timestamp change
+at inventory precision. No new snapshot-analysis JSON or partial appeared in
+either top-level Downloads directory. The focused snapshot-analysis matrix
+passes 8 files / 177 tests. This closes installed Comet responsiveness and
+native Cancel for a near-aggregate-limit read/copy/hash workload. Parser-heavy
+near-limit replay and supported-browser portability remain separate gates; no
+limit or mutation authority changed.
+
 ## ChatGPT Library text/plain candidate checkpoint
 
 Branch `codex/chatgpt-library-text-plain`, based on main `2de34c0e`, implements

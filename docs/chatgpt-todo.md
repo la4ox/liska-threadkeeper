@@ -267,7 +267,12 @@ terminal states, and the existing no-credential-export boundary.
   Comet picker/analyze/Save As path is live-verified on two real snapshots: the
   physical report is byte-identical to its oracle, late terminal completion is
   reconciled without retry, and a cancelled later picker preserves the result.
-  Other-browser portability and near-limit responsiveness remain live gates.
+  A separate 16-folder synthetic acceptance selected exactly 255 MiB, completed
+  one uninstrumented Analyze, and accepted a native Cancel while the page showed
+  its in-progress analysis status, with no late report or download. All 36
+  source hashes remained unchanged. This closes near-limit read/copy/hash
+  responsiveness in installed Comet; parser-heavy near-limit replay and other-
+  browser portability remain live gates.
 - Consider manual/automatic backup orchestration only after manual capture and
   recovery paths are boringly reliable.
 
@@ -542,9 +547,16 @@ zero output. The earlier uninstrumented timing race is retained as non-evidence,
 not silently promoted into a pass. Page-unload survival, export-ZIP discovery
 and background architecture remain separate.
 
-Next, measure preserve-only snapshot-analysis responsiveness and cancel
-latency near the existing 16-snapshot / 64-MiB-file / 256-MiB-total ceilings.
-Do not raise those limits or add mutation authority from performance evidence.
+The preserve-only snapshot-analysis near-limit read/copy/hash gate is complete:
+sixteen synthetic folders totaling exactly 255 MiB completed one Analyze and
+one native Cancel without source mutation, late report or output. This does not
+claim a parser-heavy near-limit replay or a peak-memory bound, and it does not
+raise the existing 16-snapshot / 64-MiB-file / 256-MiB-total ceilings.
+
+Next, exercise the existing private snapshot-analysis page in a supported
+non-Comet Chromium with a small synthetic pair. Keep the local-only CSP,
+preserve-only report and zero mutation authority unchanged; do not repeat the
+255 MiB workload merely to prove browser injection/portability.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;
