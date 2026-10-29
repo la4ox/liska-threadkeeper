@@ -57,7 +57,7 @@ import { validateSettingsUpdate } from './settings-validation';
 import { deriveChatGptCaptureTarget, isExactChatGptDocumentUrl } from './chatgpt-route-target';
 import { validatePersistDerivedHtmlMessage } from './derived-html-validation';
 import { snapshotPersistDerivedBranchHtmlMessage } from './derived-branch-html-validation';
-import { hasValidLiskaLossDiagnosticsField } from '../lib/loss-diagnostics';
+import { validateNoteCaptureMetadata } from './note-capture-validation';
 
 const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
 
@@ -815,25 +815,6 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   return true;
 }
 
-const VALID_DOM_HISTORY_LOADS = ['complete', 'partial', 'unknown'] as const;
-
-function validateDomHistoryLoad(note: ObsidianNote): boolean {
-  const descriptor = Object.getOwnPropertyDescriptor(note, 'domHistoryLoad');
-  if (!descriptor) return !('domHistoryLoad' in note);
-  if (!('value' in descriptor) || !descriptor.enumerable) return false;
-  const value = descriptor.value;
-  if (
-    typeof value !== 'string' ||
-    !VALID_DOM_HISTORY_LOADS.includes(value as (typeof VALID_DOM_HISTORY_LOADS)[number])
-  ) {
-    return false;
-  }
-  return (
-    value !== 'partial' ||
-    (Number.isSafeInteger(note.frontmatter.message_count) && note.frontmatter.message_count >= 0)
-  );
-}
-
 /**
  * Validate note data structure
  */
@@ -868,8 +849,7 @@ function validateNoteData(note: ObsidianNote | undefined): boolean {
     return false;
   }
 
-  if (!validateDomHistoryLoad(note)) return false;
-  if (!hasValidLiskaLossDiagnosticsField(note.frontmatter)) return false;
+  if (!validateNoteCaptureMetadata(note)) return false;
 
   // Validate attached images (content scripts are semi-trusted; cap count/size)
   if (note.images !== undefined && !validateImages(note.images)) {
