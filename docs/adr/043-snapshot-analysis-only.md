@@ -116,9 +116,20 @@ both exact folder picks and byte inventories completed, Save As moved from an
 honest initial `unknown` to exact terminal completion, the physical 1,022-byte
 JSON matched an independently encoded oracle byte-for-byte, and cancelling a
 later picker preserved the existing result. Source files remained unchanged.
-Supported-browser portability and responsiveness near the selected-byte ceiling
-remain separate live gates. Synthetic headless rendering alone cannot prove
-them.
+
+A second installed Comet acceptance used sixteen separately selected synthetic
+raw-only folders with 36 files and exactly 255 MiB of selected bytes, one MiB
+below the unchanged aggregate ceiling. One uninstrumented Analyze completed and
+rendered all sixteen fixed ordinal cards without saving a report. A separate
+native Cancel was accepted while the page displayed `Checking bytes,
+provenance, and canonical replay…`, reached the exact no-report terminal status
+within the next 284 ms refresh, and remained stable without a late report after
+another 38.8 seconds. Independent post-run verification matched every selected
+source hash and size, found timestamps unchanged at inventory precision, and
+found no new snapshot-analysis report or partial in either checked Downloads
+root. This proves the near-limit read/copy/hash path, not parser-heavy near-limit
+replay or peak-memory bounds. Supported-browser portability remains a separate
+live gate. Synthetic headless rendering alone cannot prove it.
 
 ## Future mutation adapter
 
