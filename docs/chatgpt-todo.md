@@ -133,8 +133,9 @@ terminal states, and the existing no-credential-export boundary.
 - Measure picker responsiveness, sequential write volume, index correctness, and
   cancellation behavior.
 - Add picker virtualization only if live evidence shows it is necessary.
-- Introduce an aggregate all-branches work/write ceiling before exporting an
-  unusually wide graph automatically.
+- Aggregate all-branches work/write ceilings are implemented before any
+  unusually wide graph can export automatically; keep those fixed limits unless
+  a separate evidence-backed maintainer decision changes them.
 - Implemented: one prepared validation/catalog session, O(1) ordinal lookup,
   parent-only path reconstruction, exact two-pass File/Obsidian byte accounting,
   terminal exact-name File receipts, per-destination failure isolation, and a
@@ -160,9 +161,10 @@ terminal states, and the existing no-credential-export boundary.
 - Exact retained-byte accounting is implemented for each successfully finalized
   destination: its final raw/manifest/canonical trio plus every confirmed binary
   once, never once per branch. Initial representable seeds above 2 GiB reject
-  before Markdown measurement. The remaining broader problem is a per-write
-  ledger for raw/binary residue when a destination fails later finalization;
-  this checkpoint is not a whole-operation pre-write disk cap.
+  before Markdown measurement. The later operation-local ledger now charges
+  confirmed and unknown raw/binary attempts exactly once across all-branches
+  writes; not-dispatched attempts charge zero. It is bounded attempt evidence,
+  not a whole-operation pre-write or net-disk claim.
 
 ### 5. Real staged capture above 16 MiB
 
@@ -344,7 +346,9 @@ terminal states, and the existing no-credential-export boundary.
   Markdown writes. New partial notes, File/Clipboard, valid complete/unknown traffic,
   and immutable snapshots retain their earlier behavior. This is a count-based
   shrink guard, not proof of prefix alignment.
-- Finish aggregate limits for branch materialization and destination writes.
+- Keep the completed aggregate branch/write ceilings fixed. The remaining live
+  choice is whether to retain the honest 1 GiB source-work refusal or explicitly
+  review a 1.25 GiB bound before a complete wide-graph File/Obsidian run.
 - Re-run focused security/diff review at meaningful boundaries, not after every
   cosmetic change.
 - Continue repository-wide triage and the untouched-provider upstream audit in
@@ -523,7 +527,18 @@ The bounded Library text/plain implementation is installed and live-verified
 for one exact item, with the second eligible asset still `not-attempted`; no
 general Library text capability is claimed. The first native attempt had missed
 the compact launcher, so its hidden action coordinates are not evidence of a
-layout defect and no geometry fix is planned from that observation.
+layout defect. PR 63 records that corrected interpretation; it did not add a
+geometry fix or a new live smoke.
+
+The next bounded provider-independent slice is native negative-input acceptance
+for official reconciliation: exercise actual browser Cancel during preparation
+and one invalid extra filename, then prove fixed refusal/cancellation and zero
+output. Page-unload survival, export-ZIP discovery and background architecture
+remain separate.
+
+After that, measure preserve-only snapshot-analysis responsiveness and cancel
+latency near the existing 16-snapshot / 64-MiB-file / 256-MiB-total ceilings.
+Do not raise those limits or add mutation authority from performance evidence.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;
@@ -534,9 +549,7 @@ revalidate a hash-bound plan, quarantine on the same volume with a journal and
 undo, and require a separate cleanup confirmation. Saved reports never become
 write authority.
 
-Keep other-browser snapshot portability, near-limit responsiveness, actual
-browser Cancel timing for reconciliation, invalid-extra-file refusal, page
-unload, export-ZIP discovery, the 1 GiB source-work refusal, real staged
-`>16 MiB` capture, fetched same-title destination naming,
-custom-GPT/project binaries, Dots, and the archived Library WebP as separate
-evidence-gated work.
+Keep other-browser snapshot portability, page unload, export-ZIP discovery, the
+1 GiB source-work refusal, real staged `>16 MiB` capture, fetched same-title
+destination naming, custom-GPT/project binaries, Dots, and the archived Library
+WebP as separate evidence-gated work.
