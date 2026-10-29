@@ -298,6 +298,15 @@ terminal states, and the existing no-credential-export boundary.
   scheduler must not silently overwrite snapshots, invent completeness after a
   missed run, or acquire account-wide/provider network authority except through
   that explicit opt-in discovery contract.
+- Preserve four independent layers instead of collapsing them into one mutable
+  system: (1) periodic official exports as cold external evidence, roughly every
+  one or two months; (2) daily update-driven Liska append-only raw/manifest/
+  canonical snapshots; (3) the existing readable Markdown/HTML branch-aware
+  presentation layer; and only then (4) a future living-memory layer for themes,
+  links, unfinished threads and semantic recall. Later layers may index and
+  reference earlier evidence but must never silently rewrite, deduplicate, or
+  delete its archive truth. Design the living-memory system only after the first
+  three layers have boring recovery and reconciliation paths.
 
 ### Cross-cutting hardening
 
