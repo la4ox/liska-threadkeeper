@@ -176,6 +176,22 @@
       <code>not-attempted</code>.
     </p>
     <p>
+      When Obsidian append mode and image export are both enabled, Liska considers only active,
+      standalone image placeholders inside the already verified new message tail. It never scans or
+      backfills images from the saved historical prefix. Exact image bytes are decoded and hashed
+      locally; Local REST API 5.5.0 or later is required to create full-SHA content-addressed files
+      with no-overwrite semantics and exact binary readback. Only after every required tail asset is
+      verified does Liska reread the existing note, require the same base content, write the
+      appended note, and read it back exactly. Missing, ambiguous, colliding, unsupported, or
+      uncertain assets leave the note unchanged. If a later note check or write fails, already
+      verified content-addressed assets may remain available for retry. A failure before note PUT
+      leaves them unreferenced and the note unchanged. After note PUT begins, failed or nonmatching
+      readback leaves the note outcome unknown: the assets may already be referenced. Liska does not
+      automatically delete retained assets or claim they are safe to delete. The final note update
+      is not an external compare-and-swap and does not claim safety against an unrelated concurrent
+      writer.
+    </p>
+    <p>
       When a ChatGPT raw or canonical JSON artifact is too large for the bounded inline extension
       message, Liska temporarily stages it in the browser's extension-private local storage in
       independently verified chunks. This staging area is not an additional export destination:

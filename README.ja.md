@@ -72,7 +72,7 @@ API キーは `chrome.storage.local` にのみ保存され、対応 AI ページ
 - ChatGPT の構造化アーカイブは、添付ファイルの参照とメタデータを常に保持します。**画像と添付ファイルをエクスポート**を有効にすると、raw アーカイブの保存後に、通常チャットの image/file-ID asset と interpreter/sandbox document のうち対応するものを上限付きで取得できます。各 asset は `fetched`、`not-attempted`、または失敗として正確に記録されます。custom-GPT、Library-ID、Calpico fallback はまだ対応していません。
 - 16 MiB 以下の ChatGPT graph response は検証済みの inline path を使用します。16 MiB を超え 64 MiB 以下の response は extension-owned staging を使って分割転送されます。この staged path は synthetic live test 済みですが、16 MiB を超える実際の provider response はまだ明示的な検証課題です。
 - 画像の書き出しは 20 枚まで、1 枚あたり 10 MiB、1 ノートあたり base64 データ合計 48 MiB に制限されます。
-- 追記モードでは新しいテキストを追加できますが、新しいメッセージ内の画像は警告を表示してスキップします。
+- 追記モードは、boundary 検証済みの新しい message tail だけを追加します。画像エクスポートが有効で Local REST API 5.5.0 以降の場合、その新しい tail にある standalone の active placeholder だけを、full SHA の content-addressed／create-only asset として Obsidian に保存し、note を変更する前に exact readback で検証します。過去メッセージの画像は backfill しません。必要な画像が欠落、曖昧、衝突、または未検証なら、壊れた link を書かず note append 全体を拒否します。画像エクスポート無効時は従来どおり text-only で placeholder を除去します。note PUT 前の失敗では再試行用の content-addressed asset が未参照のまま残る場合があります。不確実な PUT の後は既に参照済みの可能性があり、exact readback が最終 body を証明しない限り note は outcome-unknown のままです。Liska は retained asset を自動削除せず、外部 writer に対する compare-and-swap 安全性も主張しません。
 - DOM ベースの自動スクロールは最大 5 分です。
 
 ## プライバシー

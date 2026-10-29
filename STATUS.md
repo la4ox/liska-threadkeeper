@@ -206,7 +206,7 @@ still does not claim destination image-write failures or current completeness.
 - A fresh synthetic 93-byte text attachment supplied `signed_path` in a verified history `FILE` fragment record (`chat_messages[].fragments[].files[]`); the live message-level `files` field was absent. Clicking its card issued no `fetch_files` request; the page performed one direct `GET https://files.deepseeksvc.com/api${signed_path}&ty=r` and received `200 application/octet-stream`, content length 93, and exact source bytes. A later reloaded canary exposed the complementary legacy shape: `message.files` had SUCCESS/id/size but no `signed_path`; after a page-native card click, current-document ResourceTiming contained the exact file-service URL with `initiatorType=fetch` and exact `file_id,state,ty` keys. Liska now inventories both raw locations and, only after raw persistence, merges valid in-band candidates with the newest 512 already-observed timing entries. Every passive URL must pass the full fixed-host grammar, bind its `file_id` uniquely to current verified raw sourceRefs and a recomputed asset ID, and remain runtime-only; in-band wins. The fallback never clicks a card, clears performance entries, or installs an observer, so an attachment not already previewed remains unresolved. Credential-free GETs remain sequential and bounded to 20 attempts, 64 MiB per asset, and 128 MiB total; exact nonempty response URL, passive MIME, declared size, and locally computed SHA-256 are required. Destination results independently govern regenerated manifest/canonical `fetched` claims. Relative `signed_path`, observed URLs, state tokens, and provider file IDs are removed even from degraded canonical blocks and privacy diagnostics.
 - Exports require a trusted user click. Programmatic page clicks cannot trigger file, clipboard, or authenticated Obsidian operations.
 - Remote image fetch and offscreen clipboard response waits are bounded to five seconds.
-- Append mode visibly warns when images in newly appended messages are skipped instead of silently reporting a complete save.
+- Image-export-enabled append can now persist only images referenced by the verified new tail through strict content-addressed create-only/readback semantics; image-export-disabled append retains text-only placeholder stripping.
 - The experimental `liska-capture/1` and `liska-thread/1` archive layers now preserve exact raw artifact bytes separately from a credential-free manifest, verify artifact and manifest SHA-256 provenance, validate/traverse complete branch graphs, and project either `currentNodeId` or an explicit leaf into the existing flat Markdown contract while reporting legacy omissions.
 - ChatGPT's live web-history route was confirmed as `GET /backend-api/conversation/{conversationId}`. A local structural probe observed a direct `mapping` graph with a structural root, a current node, and sibling branches; no personal response body, title, conversation ID, cookie, header, or credential remains in the worktree or was committed. The pure normalizer consumes only hash-verified exact bytes, retains all graph nodes and ordered typed blocks, scrubs signed URLs and account/correlation identifiers from the canonical layer with diagnostics, and uses synthetic fixtures only.
 - ChatGPT no-scroll capture is enabled for Chromium 111+ behind a trusted click and the narrow `scripting` permission. A marker-gated MAIN-world script runs at document start only in an inactive disposable conversation tab, observes the page-native exact GET response, and never reads or serializes request headers, cookies, account data, or unrelated traffic. Responses up to 16 MiB use the inline verified path; larger responses up to 64 MiB use the staged transport described below. Control state remains closure-private, background re-verifies bytes and SHA-256 in extension context, and only the created tab is closed.
@@ -274,7 +274,7 @@ still does not claim destination image-write failures or current completeness.
   focused coverage includes provider titles, block-sequence tags, append
   parsing and the common note generator used by File, Clipboard and Obsidian.
 - DeepSeek images are not captured. The existing attachment pipeline is mainly Gemini-specific and bounded to 20 images, 10 MiB each, and 48 MiB combined base64 data per note.
-- Append mode does not upload images into an existing note yet; it appends text and reports the skipped new images.
+- Tail-only append-image persistence is offline-verified but still awaits installed Obsidian creation/reuse/refusal and filesystem readback acceptance. It never backfills historical images and does not provide external note CAS.
 - DOM-only auto-scroll is intentionally bounded to five minutes. Provider markup changes can still require extractor maintenance.
 - The inherited live-E2E authentication/daemon harness was removed. It stored reusable AI sessions and exposed authenticated Chrome through a loopback DevTools port, while providing no CI-backed guarantee for Liska on Windows. Offline extractor fixtures and snapshot tests remain.
 - The current visual icon is the inherited purple crystal. A dedicated Liska icon is a separate design task.
@@ -3210,6 +3210,54 @@ identical. Full timestamp preservation is not claimed because the copied
 manifest lacked a separately recorded pre-run timestamp baseline. This closes
 installed positive, missing-shard refusal and clear-control acceptance without
 saving provider-manifest bytes or destination output.
+
+## Tail-only Obsidian append images candidate checkpoint
+
+Branch `codex/obsidian-append-images` starts from merged main `a5eb7b0`. Image
+processing now begins only after ordinary append lookup and
+`buildAppendContent` prove a real new message tail. Diagnostics-only,
+equal-count, shorter-capture, no-op, historical-only, image-free, and image-
+export-disabled paths preserve their existing behavior and perform zero binary
+writes. Image-free tails return byte-for-byte before any placeholder rewrite.
+
+Only exact active standalone placeholders outside code, HTML, links,
+definitions and other protected Markdown can bind tail images. Missing,
+duplicate, malformed or ambiguous referenced IDs, unsupported MIME,
+noncanonical base64, and parser uncertainty fail with fixed content-free codes.
+Unreferenced images and historical-prefix placeholders are ignored. The shared
+resolver also stops a matching private placeholder inside protected Markdown
+from becoming an active fresh File/Obsidian embed.
+
+Exact decoded bytes receive full-SHA filenames under the resolved image root's
+`liska-v1` namespace. Different IDs with identical bytes share one asset path;
+note title, array index, provider ID/URL, message ordinal and capture order never
+enter that identity. Image-bearing append alone requires stable Local REST API
+5.5.0 or later. Existing identical bytes are reused; missing assets use
+`If-None-Match: *`; create races and failed/unknown writes are accepted only
+after exact bounded readback. Different bytes at an occupied path block the
+note, with no numbered fallback or unconditional append-image PUT.
+
+All tail transforms and final marker/context validation finish before binary
+side effects. After every required asset is verified, Liska rereads the exact
+base note, requires byte equality, writes the finalized full note, and reads it
+back exactly. A failed note PUT reconciles only to the exact expected body.
+This narrows but does not remove the existing external GET-to-PUT race; no CAS or
+exactly-once claim is made. A later asset or pre-PUT note-check failure leaves
+the note unchanged while verified content-addressed files may remain reusable
+but unreferenced. After note PUT begins, failed or nonmatching readback leaves
+the note outcome unknown and those assets may already be referenced. Retained
+assets are not automatically deleted or claimed safe to delete.
+
+The broad append/image/API matrix passes 9 files / 441 tests. The complete suite
+passes 236 files: 8,123 tests passed and one existing test skipped (8,124 total).
+Coverage is 95.16% statements, 91.75% branches, 98.61% functions and 97.58%
+lines. TypeScript and the 296-module production build pass with worker-runtime
+guards; full source/platform lint has zero errors and the same three baseline
+warnings. Independent review found and closed one P2 image-free whitespace
+regression; its remaining multi-asset evidence suggestion is covered by an
+integration test where the first asset verifies, the second remains unknown,
+and the note receives zero writes. Installed Obsidian creation/reuse/refusal and
+filesystem readback remain before rollout.
 
 ## ChatGPT Library text/plain candidate checkpoint
 

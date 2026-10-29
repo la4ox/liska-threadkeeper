@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { fromMarkdown } from 'mdast-util-from-markdown';
+vi.mock(import('mdast-util-from-markdown'), { spy: true });
 import { neutralizeActiveProviderMarkdown } from '../../src/content/markdown-safety';
 import { htmlToMarkdown } from '../../src/content/markdown-rules';
 import {
@@ -7,6 +8,9 @@ import {
   stripImagePlaceholders,
   resolveImagesForFile,
   resolveImagesForObsidian,
+  resolveImagesForObsidianTail,
+  inspectTrustedTailImages,
+  trustedTailImageIds,
 } from '../../src/lib/image-output';
 import type { ExtractedImage } from '../../src/lib/types';
 import {
@@ -328,6 +332,66 @@ describe('resolveImagesForObsidian', () => {
     const { body: out } = resolveImagesForObsidian(body, [], 'base');
     expect(out).toContain('<!-- liska-message&#58;v1 -->');
     expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(1);
+  });
+
+  it.each([
+    ['inline code', `\`${placeholder('img-1')}\``],
+    ['fenced code', `\`\`\`\n${placeholder('img-1')}\n\`\`\``],
+    ['raw HTML', `<span title="${placeholder('img-1')}">literal</span>`],
+    ['link title', `[safe](https://example.com "${placeholder('img-1')}")`],
+  ])('never activates a matching placeholder inside %s', (_label, body) => {
+    const resolved = resolveImagesForObsidian(body, [img('img-1')], 'base');
+    expect(resolved.files).toEqual([]);
+    expect(resolved.body).not.toContain('![[base-img-1.png]]');
+  });
+});
+
+describe('trusted append-tail image resolution', () => {
+  const names = new Map([['img-1', `sha256-${'a'.repeat(64)}.png`]]);
+
+  it('preserves real tail markers and deduplicates repeated active occurrences', () => {
+    const body = [
+      MESSAGE_BOUNDARY_MARKER,
+      placeholder('img-1', 'first'),
+      '',
+      MESSAGE_BOUNDARY_MARKER,
+      placeholder('img-1', 'second'),
+    ].join('\n');
+
+    expect(trustedTailImageIds(body)).toEqual(['img-1', 'img-1']);
+    const resolved = resolveImagesForObsidianTail(body, [img('img-1')], names);
+    expect(resolved.body.split(MESSAGE_BOUNDARY_MARKER)).toHaveLength(3);
+    expect(resolved.body.match(/!\[\[sha256-/g)).toHaveLength(2);
+    expect(resolved.files).toEqual([
+      { fileName: `sha256-${'a'.repeat(64)}.png`, mimeType: 'image/png', data: 'UE5H' },
+    ]);
+  });
+
+  it('ignores protected, inline, and neutralized lookalikes', () => {
+    const body = [
+      MESSAGE_BOUNDARY_MARKER,
+      `\`${placeholder('img-1')}\``,
+      `prefix ${placeholder('img-1')} suffix`,
+      neutralizedPlaceholder('img-1'),
+    ].join('\n');
+
+    expect(trustedTailImageIds(body)).toEqual([]);
+    const resolved = resolveImagesForObsidianTail(body, [img('img-1')], names);
+    expect(resolved.files).toEqual([]);
+    expect(resolved.body).not.toContain('![[sha256-');
+    expect(resolved.body.split(MESSAGE_BOUNDARY_MARKER)).toHaveLength(2);
+  });
+
+  it('reports parser uncertainty instead of authorizing a tail image', () => {
+    vi.mocked(fromMarkdown).mockImplementationOnce(() => {
+      throw new Error('private-parser-detail');
+    });
+    expect(inspectTrustedTailImages(`${MESSAGE_BOUNDARY_MARKER}\n${placeholder('img-1')}`)).toEqual(
+      {
+        ids: [],
+        parserFailed: true,
+      }
+    );
   });
 });
 
