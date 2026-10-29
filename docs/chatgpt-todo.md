@@ -466,7 +466,10 @@ terminal states, and the existing no-credential-export boundary.
   bytes and unrelated inventory never enter the UI result or durable output;
   the explicit clear control returns to no-manifest/legacy mode without reload.
   This validates declared names only, not shard content authenticity or export
-  completeness. Installed positive/refusal/cancellation acceptance remains.
+  completeness. Installed acceptance now also passes: one measured provider
+  manifest plus six synthetic shards reached Save As and deliberate no-save;
+  omitting one declared shard refused before Save As; Clear manifest preserved
+  all other selections. Post-run hashes/sizes matched and no output appeared.
 - Automatic manifest/directory/export-ZIP discovery, external binary import,
   archive merge, and snapshot deduplication remain later explicit slices.
 
@@ -603,11 +606,15 @@ and must not be inferred from the raw-only 255 MiB workload.
 The bounded manifest-guided official-export admission candidate is implemented
 without changing importer or output schemas. Four measured provider manifests
 fit the fixed v1 contract and remain far below its explicit byte/depth/value
-limits. The next gate is installed-page acceptance with one real manifest plus
-its six explicitly selected shards: one positive preparation and one missing-
-shard refusal, proving the manifest is not saved, refusal performs zero source/
-destination work, and Clear manifest restores no-manifest mode. Do not broaden
-this into directory/ZIP discovery or external binary association.
+limits. Installed positive preparation, missing-shard refusal and Clear manifest
+are closed without persisting the provider manifest or any destination output.
+Do not broaden this into directory/ZIP discovery or external binary association.
+
+The next bounded implementation slice is trusted-tail image-aware Obsidian
+append: acquire/write only images referenced by the newly verified message tail,
+never backfill earlier messages implicitly, keep diagnostics/no-op paths free of
+binary writes, and define stable collision-safe asset identity plus explicit
+failure behavior before reusing fresh-save image delivery.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;

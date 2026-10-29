@@ -8,7 +8,8 @@ array path is verified against one real six-shard export; the exact installed
 extension completed a real six-file FileList to verified Obsidian snapshot run.
 Direct production-core evidence separately covers shuffled ordering,
 later-shard cancellation and ZIP parity. Manifest admission has complete offline
-verification; installed manifest-picker acceptance remains a rollout gate.
+verification plus installed positive, missing-shard refusal and clear-control
+acceptance.
 
 ## Context
 
@@ -168,6 +169,11 @@ not cancellation evidence and the immutable snapshot is not deleted. General
 uninstrumented scheduling timing and actual page unload remain follow-ups.
 Without a selected manifest, omitting a non-target shard still cannot be
 detected and must reduce the completeness claim rather than invent a refusal.
-Installed positive/refusal/cancellation acceptance for the new manifest picker
-remains before rollout. Automatic manifest/directory/ZIP discovery and external
-binary association remain separate evidence-gated work.
+The installed manifest picker admitted one measured provider manifest with six
+explicitly selected synthetic shards through bundle preparation; deliberate
+Save As cancellation wrote no ZIP. Omitting one declared shard produced the
+fixed refusal before Save As, and Clear manifest preserved every other source
+and destination selection. Post-run hashes/sizes matched and no new ZIP or
+partial appeared; timestamp preservation is not broadly claimed. Automatic
+manifest/directory/ZIP discovery and external binary association remain separate
+evidence-gated work.
