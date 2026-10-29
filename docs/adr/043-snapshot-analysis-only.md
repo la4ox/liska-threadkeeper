@@ -128,8 +128,17 @@ another 38.8 seconds. Independent post-run verification matched every selected
 source hash and size, found timestamps unchanged at inventory precision, and
 found no new snapshot-analysis report or partial in either checked Downloads
 root. This proves the near-limit read/copy/hash path, not parser-heavy near-limit
-replay or peak-memory bounds. Supported-browser portability remains a separate
-live gate. Synthetic headless rendering alone cannot prove it.
+replay or peak-memory bounds.
+
+A separate user-operated Google Chrome acceptance selected two 1,081-byte
+synthetic raw-only folders on the installed private page. Analyze reached the
+exact unchanged-source terminal status, rendered two ordinal-only
+`Unverifiable` cards and preserved both with no candidate relation. Save was not
+invoked. Independent post-run hashing, sizing and timestamp comparison matched
+the selected inventory, and no newer report or partial appeared in the checked
+Downloads roots. This closes ordinary Chrome portability for this private page,
+not every browser family or provider content-script route. Synthetic headless
+rendering alone could not establish this result.
 
 ## Future mutation adapter
 
