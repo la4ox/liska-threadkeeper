@@ -301,8 +301,15 @@ terminal states, and the existing no-credential-export boundary.
   one uninstrumented Analyze, and accepted a native Cancel while the page showed
   its in-progress analysis status, with no late report or download. All 36
   source hashes remained unchanged. This closes near-limit read/copy/hash
-  responsiveness in installed Comet; parser-heavy near-limit replay remains a
-  separate live gate.
+  responsiveness in installed Comet.
+- A separate opt-in Node acceptance now replays real synthetic raw, manifest and
+  canonical archives through the production normalizer/analyzer at 94.04% of
+  the unchanged shared JSON-string ceiling. Both snapshots verify with one
+  preserve-only `same-raw-different-evidence` relation; a three-snapshot
+  selection reaches 141.06% and fails once with fixed `limit-exceeded` and no
+  partial report. This closes actual-scale parser accounting and aggregate-limit
+  evidence in the core, not installed-browser responsiveness, peak-memory
+  safety or synchronous-parser cancellation.
 - Ordinary Google Chrome portability is live-verified on two synthetic raw-only
   folders: both exact 2-file / 1,081-byte cards rendered, Analyze reached the
   unchanged-source terminal state, both snapshots remained `Unverifiable`, no
@@ -630,8 +637,10 @@ raise the existing 16-snapshot / 64-MiB-file / 256-MiB-total ceilings.
 
 The private snapshot-analysis page now also passes a small synthetic pair in
 ordinary Google Chrome with the local-only CSP, preserve-only report and zero
-mutation authority unchanged. Parser-heavy near-limit replay remains separate
-and must not be inferred from the raw-only 255 MiB workload.
+mutation authority unchanged. Parser-heavy near-limit replay must not be
+inferred from the raw-only 255 MiB workload. The production-core parser-heavy
+acceptance is now separately complete in Node; an installed Comet parser-heavy
+run remains the live gate.
 
 The bounded manifest-guided official-export admission candidate is implemented
 without changing importer or output schemas. Four measured provider manifests

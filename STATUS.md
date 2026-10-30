@@ -3622,3 +3622,44 @@ classification and honest project-WebP omission. It does not authorize project
 binary acquisition, prove an ordinary-chat WebP resolver, provide original
 WebP bytes, or justify a WebP byte validator. GIF/WebP active widening remains
 evidence-gated.
+
+## Snapshot parser-heavy acceptance checkpoint
+
+Branch `codex/snapshot-parser-heavy-acceptance` adds only an opt-in synthetic
+acceptance suite, its deterministic fixture builder and a reproducible evidence
+note. Production source, dependencies, browser permissions and every analysis
+limit remain unchanged. The default focused invocation constructs no heavy
+fixture and reports two skipped tests.
+
+The accepted operation uses two complete replayable ChatGPT snapshot inventories.
+Each has a two-node graph, 240 ordinary text blocks and exactly three JSON files:
+825-byte manifest, 7,865,403-byte raw and 7,989,984-byte canonical archive. The
+production strict parser measures 31,553,758 of 33,554,432 allowed string code
+units across the pair, or 94.04%. Both snapshots verify through the current
+normalizer and yield exactly one `same-raw-different-evidence` relation with
+`preserveBoth: true`. The deterministic report is 1,102 bytes; repeated analysis
+is byte-identical, and reversed selection retains equivalent facts after
+normalizing its intentional ordinals.
+
+A separate three-snapshot operation keeps every unrelated pre-report enforced
+ceiling at or below 50% but reaches 47,330,637 string code units, or 141.06% of
+the one shared default. Each heavy inventory verifies when paired with a tiny
+valid control. Together they fail with the fixed sanitized `limit-exceeded`
+error and return no partial plan. This proves the production budget accumulates
+across the complete selection instead of resetting per snapshot; no relation or
+report metric is claimed for the refused operation.
+
+Lengths and SHA-256 values for every supplied file match after success, repeat,
+reversal and refusal. Reports contain no synthetic payload, source identity,
+input path or working-directory value and retain `analysisOnly: true`,
+`mutationAuthorized: false` and preserve-only relations. Repeated opt-in runs
+complete in about 6.9-7.1 seconds on the recorded local environment. The
+existing snapshot core/strict-JSON/page matrix passes 174 tests; repository and
+new-test TypeScript checks, scoped formatting and diff checks pass.
+
+This closes actual-scale parser replay and aggregate-ceiling evidence in the
+Node core. It does not establish installed-Comet responsiveness, peak-memory
+bounds, immediate cancellation of synchronous parsing, or any deduplication,
+merge, deletion or mutation authority. The exact workload, commands and
+content-free metrics are recorded in
+`docs/snapshot-parser-heavy-acceptance.md`.
