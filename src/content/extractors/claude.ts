@@ -10,12 +10,14 @@ import { BaseExtractor, type ScrollConfig } from './base';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { htmlToMarkdownRaw } from '../markdown-rules';
 import {
+  CLAUDE_TOOL_LIMITS,
   ClaudeToolConversionBudget,
   appendClaudeToolPart,
   claudeToolHtmlToMarkdown,
 } from './claude-tool-markdown';
 import { generateHash } from '../../lib/hash';
 import { mergeLiskaLossDiagnostics } from '../../lib/loss-diagnostics';
+import { requestClaudeScrollPrime } from '../capture/claude-scroll-prime';
 import type { HarvestEntry } from '../../lib/scroll-manager';
 import type {
   ConversationMessage,
@@ -36,6 +38,139 @@ const STEP_ROW_SELECTOR = '[data-cds="TurnStatus"]';
 const ANSWER_CHROME_SELECTOR = `h2.sr-only, [data-testid="message-actions"], ${STEP_ROW_SELECTOR}`;
 const ARTIFACT_CONTENT_OMITTED_WARNING =
   'Visible Claude Artifact content was not included because the isolated frame layout is unsupported.';
+const STABLE_EMPTY_ASSISTANT_ROOT =
+  'div[data-testid="assistant-message"][data-cds="AssistantMessage"][data-is-streaming="false"]';
+const STABLE_EMPTY_BUSY_SELECTOR =
+  '[aria-busy="true"], [data-is-streaming="true"], [data-loading="true"], [data-state="loading"], [role="progressbar"]';
+const OBSERVED_ATTACHMENT_SELECTOR =
+  '[data-testid="file-thumbnail"], [data-testid="delivered-image-tile"], [class*="MessageAttachments"]';
+const STABLE_EMPTY_FORBIDDEN_SELECTOR = `${STABLE_EMPTY_BUSY_SELECTOR}, ${STEP_ROW_SELECTOR}, ${OBSERVED_ATTACHMENT_SELECTOR}`;
+const STABLE_EMPTY_HEADING_ATTRIBUTES = new Set(['data-find-omitted', 'class', 'aria-hidden']);
+type HistoryRenderability = 'nonempty' | 'stable-empty' | 'unsupported';
+
+const CANONICAL_UUID_SOURCE = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const CANONICAL_UUID_GLOBAL = new RegExp(CANONICAL_UUID_SOURCE, 'gi');
+const ASSISTANT_TURN_KEY = new RegExp(`^(${CANONICAL_UUID_SOURCE})-hub-reply$`, 'i');
+const STABLE_HISTORY_KEY = new RegExp(`^(user|assistant):(${CANONICAL_UUID_SOURCE})$`, 'i');
+
+interface ClaudeHistoryProof {
+  tailKey?: string;
+  catalogMax?: number;
+  readonly keyToRelativeOrder: Map<string, number>;
+  readonly relativeOrderToKey: Map<number, string>;
+  readonly rolesByKey: Map<string, ConversationMessage['role']>;
+  readonly renderabilityByKey: Map<string, HistoryRenderability>;
+}
+
+/** Only Claude's canonical, bounded virtual-row integer identity is evidence. */
+function parseRowIndex(value: string | null | undefined): number | undefined {
+  if (!value || value.length > 16 || !/^(?:0|[1-9]\d*)$/.test(value)) return undefined;
+  const index = Number(value);
+  return Number.isSafeInteger(index) && index < Number.MAX_SAFE_INTEGER ? index : undefined;
+}
+
+const CLAUDE_TOOL_CACHE_MAX_BYTES = CLAUDE_TOOL_LIMITS.rawHtmlBytes;
+const PENDING_HISTORY_ABSENCE_GRACE_MS = 5000;
+const toolCacheEncoder = new TextEncoder();
+
+interface ToolContentCacheEntry {
+  readonly input: string;
+  readonly output: string | null;
+  readonly byteLength: number;
+}
+
+/** Exact-input retention is bounded independently of guarded conversion work. */
+interface ToolContentCache {
+  readonly entries: Map<string, ToolContentCacheEntry>;
+  totalBytes: number;
+}
+
+/**
+ * Claude reuses the same content-free button shape for both directions of a
+ * virtualized gap. Only a marker before the first mounted row proves that
+ * older history is still available. A marker between/after rows represents a
+ * later-history gap and must not keep an already complete archive partial.
+ */
+function hasPendingOlderHistory(container: HTMLElement): boolean {
+  const markers = Array.from(container.querySelectorAll(SELECTORS.pendingHistory[0]));
+  if (markers.length === 0) return false;
+  const firstRow = container.querySelector(SELECTORS.conversationRow[0]);
+  if (!firstRow) return true;
+  return markers.some(marker =>
+    Boolean(marker.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING)
+  );
+}
+
+function createPendingHistoryGate(
+  getCatalogMax: () => number | undefined,
+  isConsistent: () => boolean
+) {
+  let awaitingProgress = false;
+  let markerPresent = false;
+  let baselineMax: number | undefined;
+  let markerAbsentSince: number | undefined;
+  const observe = (container: HTMLElement): boolean => {
+    const present = hasPendingOlderHistory(container);
+    if (present && !markerPresent) {
+      awaitingProgress = true;
+      baselineMax = getCatalogMax();
+      markerAbsentSince = undefined;
+    } else if (!present && markerPresent && awaitingProgress) {
+      markerAbsentSince = Date.now();
+    }
+    markerPresent = present;
+    return present;
+  };
+  return {
+    observe,
+    isAwaiting: () => awaitingProgress || markerPresent,
+    canComplete(container: HTMLElement): boolean {
+      // The final proof is already irreversibly partial; do not spend the idle
+      // deadline waiting for provider pagination that cannot repair it.
+      if (!isConsistent()) return true;
+      if (observe(container)) return false;
+      if (!awaitingProgress) return true;
+      const currentMax = getCatalogMax();
+      const grew =
+        baselineMax !== undefined && currentMax !== undefined && currentMax > baselineMax;
+      const absenceSettled =
+        markerAbsentSince !== undefined &&
+        Date.now() - markerAbsentSince >= PENDING_HISTORY_ABSENCE_GRACE_MS;
+      if (!grew && !absenceSettled) return false;
+      awaitingProgress = false;
+      markerAbsentSince = undefined;
+      return true;
+    },
+  };
+}
+
+/** Exact provider evidence only; mutable virtual-row indices are never identities. */
+function stableHistoryKey(item: {
+  element: Element;
+  type: 'user' | 'assistant';
+}): string | undefined {
+  if (item.type === 'user') {
+    if (!item.element.matches('[data-testid="user-message"]')) return undefined;
+    const id = item.element.getAttribute('id');
+    if (!id) return undefined;
+    const matches = id.match(CANONICAL_UUID_GLOBAL);
+    if (matches?.length !== 1 || !id.toLowerCase().endsWith(matches[0].toLowerCase())) {
+      return undefined;
+    }
+    return `user:${matches[0].toLowerCase()}`;
+  }
+
+  if (!item.element.matches('[data-testid="assistant-message"][data-cds="AssistantMessage"]')) {
+    return undefined;
+  }
+  const match = item.element.getAttribute('data-turn-key')?.match(ASSISTANT_TURN_KEY);
+  return match ? `assistant:${match[1].toLowerCase()}` : undefined;
+}
+
+function stableHistoryRole(key: string): ConversationMessage['role'] | undefined {
+  const match = key.match(STABLE_HISTORY_KEY);
+  return match?.[1].toLowerCase() as ConversationMessage['role'] | undefined;
+}
 
 /**
  * Claude conversation and Deep Research extractor
@@ -45,6 +180,7 @@ const ARTIFACT_CONTENT_OMITTED_WARNING =
  */
 export class ClaudeExtractor extends BaseExtractor {
   readonly platform = 'claude';
+  protected override readonly titleUsesFirstUserFallback = true;
   /** Include tool-use / intermediate content (web search, code interpreter, etc.) */
   enableToolContent = false;
 
@@ -266,10 +402,12 @@ export class ClaudeExtractor extends BaseExtractor {
    * Shared by extractMessages() (single pass) and harvestWindow() (per-scroll-
    * window pass for virtualized conversations).
    */
-  private collectSortedElements(): Array<{ element: Element; type: 'user' | 'assistant' }> {
+  private collectSortedElements(
+    root: Element | Document = document
+  ): Array<{ element: Element; type: 'user' | 'assistant' }> {
     const allElements: Array<{ element: Element; type: 'user' | 'assistant' }> = [];
-    const userMessages = this.collectUserElements();
-    const assistantResponses = this.collectAssistantElements(userMessages);
+    const userMessages = this.collectUserElements(root);
+    const assistantResponses = this.collectAssistantElements(userMessages, root);
 
     userMessages.forEach(el => {
       if (!assistantResponses.some(assistant => assistant.contains(el))) {
@@ -285,19 +423,19 @@ export class ClaudeExtractor extends BaseExtractor {
   }
 
   /** Keep disjoint primary/legacy users, collapsing only overlapping wrappers. */
-  private collectUserElements(): Element[] {
+  private collectUserElements(root: Element | Document): Element[] {
     const candidates = SELECTORS.userMessage
-      .flatMap(selector => Array.from(document.querySelectorAll(selector)))
+      .flatMap(selector => Array.from(root.querySelectorAll(selector)))
       .filter(element => !this.isInDismissedConversationPanel(element));
     return this.distinctElements(candidates);
   }
 
   /** Prefer strong identities without discarding separate lower-priority turns. */
-  private collectAssistantElements(userCandidates: Element[]): Element[] {
+  private collectAssistantElements(userCandidates: Element[], root: Element | Document): Element[] {
     const strong = this.distinctElements(
       SELECTORS.assistantResponse
         .slice(0, -1)
-        .flatMap(selector => Array.from(document.querySelectorAll(selector)))
+        .flatMap(selector => Array.from(root.querySelectorAll(selector)))
         .filter(element => !this.isInDismissedConversationPanel(element))
     );
     const users = userCandidates.filter(
@@ -307,7 +445,7 @@ export class ClaudeExtractor extends BaseExtractor {
     // carry it too. A genuine user root wins either direction of overlap.
     const weak = SELECTORS.assistantResponse
       .slice(-1)
-      .flatMap(selector => Array.from(document.querySelectorAll(selector)))
+      .flatMap(selector => Array.from(root.querySelectorAll(selector)))
       .filter(
         element =>
           !this.isInDismissedConversationPanel(element) &&
@@ -347,40 +485,347 @@ export class ClaudeExtractor extends BaseExtractor {
   /**
    * Auto-scroll config: Claude virtualizes the conversation (ADR-017).
    */
+  // eslint-disable-next-line max-lines-per-function -- Per-export proof, cache, pagination and identity state must share one closure.
   protected getScrollConfig(): ScrollConfig {
+    const initialIdentity = this.captureConversationIdentity();
     const toolBudget = new ClaudeToolConversionBudget();
+    const toolCache: ToolContentCache = { entries: new Map(), totalBytes: 0 };
+    const mountedRows = new Map<Element, number>();
+    const proof: ClaudeHistoryProof = {
+      keyToRelativeOrder: new Map(),
+      relativeOrderToKey: new Map(),
+      rolesByKey: new Map(),
+      renderabilityByKey: new Map(),
+    };
+    const stableEmptyKeys = new Set<string>();
+    let consistentIdentities = true;
+    let numericOrderTrusted = true;
+    const pendingHistory = createPendingHistoryGate(
+      () => proof.catalogMax,
+      () => consistentIdentities
+    );
     return {
       container: SELECTORS.scrollContainer,
-      harvest: () => this.harvestWindow(toolBudget),
+      // Short rows can mount/evict entirely between the shared 60%/400px steps.
+      stepFactor: 0.2,
+      minStep: 64,
+      pollIntervalMs: 100,
+      topSettleMs: 5000,
+      resolveContainer: () =>
+        this.isConversationIdentityCurrent(initialIdentity)
+          ? this.queryWithFallback<HTMLElement>(SELECTORS.scrollContainer)
+          : null,
+      maxContainerRebinds: 4,
+      primeWithRelativeTopNudge: requestClaudeScrollPrime,
+      maxRelativeTopNudgesPerRoot: 2,
+      canCompleteAtTop: pendingHistory.canComplete,
+      harvest: container => {
+        // Observe rows before filtering so empty/unclassified rows remain evidence.
+        const rowObservation = this.observeHistoryRows(container, mountedRows);
+        const catalogMax =
+          rowObservation.indices.length > 0
+            ? rowObservation.indices[rowObservation.indices.length - 1]
+            : undefined;
+        stableEmptyKeys.clear();
+        const entries = this.harvestWindow(
+          toolBudget,
+          toolCache,
+          container,
+          stableEmptyKeys,
+          catalogMax
+        );
+        numericOrderTrusted =
+          rowObservation.consistent &&
+          this.isHarvestOrderTrusted(entries, catalogMax, proof) &&
+          numericOrderTrusted;
+        consistentIdentities =
+          this.observeHarvestedIdentities(
+            entries,
+            rowObservation.indices,
+            catalogMax,
+            stableEmptyKeys,
+            proof
+          ) &&
+          rowObservation.consistent &&
+          consistentIdentities;
+        pendingHistory.observe(container);
+        return numericOrderTrusted
+          ? entries
+          : entries.map(entry => ({
+              key: entry.key,
+              value: entry.value,
+              invalidateOrder: true as const,
+            }));
+      },
+      isHistoryComplete: messages =>
+        consistentIdentities &&
+        !pendingHistory.isAwaiting() &&
+        proof.tailKey !== undefined &&
+        proof.catalogMax !== undefined &&
+        messages.length === proof.catalogMax + 1 &&
+        proof.keyToRelativeOrder.size === proof.catalogMax + 1 &&
+        proof.relativeOrderToKey.size === proof.catalogMax + 1 &&
+        messages.every((message, index) => {
+          const order = index - (proof.catalogMax as number);
+          const key = proof.relativeOrderToKey.get(order);
+          return (
+            key !== undefined && message.id === key && proof.keyToRelativeOrder.get(key) === order
+          );
+        }),
     };
+  }
+
+  /** Numeric order survives content loss, but not a changed catalog coordinate system. */
+  private isHarvestOrderTrusted(
+    entries: readonly HarvestEntry<ConversationMessage>[],
+    catalogMax: number | undefined,
+    proof: ClaudeHistoryProof
+  ): boolean {
+    if (catalogMax === undefined) return entries.length === 0;
+    const previousMax = proof.catalogMax;
+    const tailKey = entries.find(entry => entry.order === 0)?.key;
+    if (previousMax !== undefined && catalogMax < previousMax) return false;
+    if (
+      previousMax !== undefined &&
+      catalogMax > previousMax &&
+      (proof.tailKey === undefined || tailKey === undefined || tailKey !== proof.tailKey)
+    ) {
+      return false;
+    }
+    if (proof.tailKey !== undefined && tailKey !== undefined && tailKey !== proof.tailKey) {
+      return false;
+    }
+
+    const currentKeys = new Set<string>();
+    const currentOrders = new Set<number>();
+    return entries.every(entry => {
+      const order = entry.order;
+      if (order === undefined || currentKeys.has(entry.key) || currentOrders.has(order))
+        return false;
+      currentKeys.add(entry.key);
+      currentOrders.add(order);
+      return (
+        (!proof.keyToRelativeOrder.has(entry.key) ||
+          proof.keyToRelativeOrder.get(entry.key) === order) &&
+        (!proof.relativeOrderToKey.has(order) || proof.relativeOrderToKey.get(order) === entry.key)
+      );
+    });
+  }
+
+  /** Every indexed row in the chosen thread is evidence, even without a message. */
+  private observeHistoryRows(
+    container: HTMLElement,
+    mountedRows: Map<Element, number>
+  ): { readonly indices: number[]; readonly consistent: boolean } {
+    let consistent = true;
+    let previousIndex = -1;
+    const indices: number[] = [];
+    for (const row of mountedRows.keys()) {
+      // Detachment is ordinary virtualization. A row still in this container
+      // must not become invisible to both checks merely by losing its index.
+      if (container.contains(row) && !row.hasAttribute('data-index')) consistent = false;
+    }
+    mountedRows.clear();
+    for (const row of container.querySelectorAll(SELECTORS.conversationRow[0])) {
+      const index = parseRowIndex(row.getAttribute('data-index'));
+      if (index === undefined || index <= previousIndex) consistent = false;
+      if (index !== undefined) {
+        mountedRows.set(row, index);
+        indices.push(index);
+        previousIndex = index;
+      }
+    }
+    return { indices, consistent };
+  }
+
+  /** Retain identity/order conflicts before accumulation can deduplicate them. */
+  private observeHarvestedIdentities(
+    entries: HarvestEntry<ConversationMessage>[],
+    currentIndices: readonly number[],
+    catalogMax: number | undefined,
+    stableEmptyKeys: ReadonlySet<string>,
+    proof: ClaudeHistoryProof
+  ): boolean {
+    let consistent = catalogMax !== undefined && entries.length === currentIndices.length;
+    const currentKeys = new Set<string>();
+    for (const [position, entry] of entries.entries()) {
+      const index = currentIndices[position];
+      const expectedRelativeOrder =
+        index !== undefined && catalogMax !== undefined ? index - catalogMax : undefined;
+      const entryOrder = entry.order;
+      const role = stableHistoryRole(entry.key);
+      if (
+        index === undefined ||
+        expectedRelativeOrder === undefined ||
+        entryOrder === undefined ||
+        role === undefined ||
+        role !== entry.value.role ||
+        entry.value.id !== entry.key ||
+        !this.observeHistoryRenderability(
+          entry.value,
+          entry.key,
+          stableEmptyKeys,
+          proof.renderabilityByKey
+        ) ||
+        entryOrder !== expectedRelativeOrder ||
+        currentKeys.has(entry.key) ||
+        (proof.rolesByKey.has(entry.key) && proof.rolesByKey.get(entry.key) !== role) ||
+        (proof.keyToRelativeOrder.has(entry.key) &&
+          proof.keyToRelativeOrder.get(entry.key) !== entryOrder) ||
+        (proof.relativeOrderToKey.has(entryOrder) &&
+          proof.relativeOrderToKey.get(entryOrder) !== entry.key)
+      ) {
+        consistent = false;
+      }
+      if (role !== undefined && entryOrder !== undefined) {
+        currentKeys.add(entry.key);
+        proof.rolesByKey.set(entry.key, role);
+        proof.keyToRelativeOrder.set(entry.key, entryOrder);
+        proof.relativeOrderToKey.set(entryOrder, entry.key);
+      }
+    }
+
+    if (catalogMax !== undefined) {
+      if (proof.catalogMax !== undefined && catalogMax < proof.catalogMax) consistent = false;
+      const tailKey = entries.find(entry => entry.order === 0)?.key;
+      if (tailKey === undefined || stableHistoryRole(tailKey) === undefined) {
+        consistent = false;
+      } else if (proof.tailKey === undefined) {
+        proof.tailKey = tailKey;
+      } else if (proof.tailKey !== tailKey) {
+        consistent = false;
+      }
+      if (proof.catalogMax === undefined || catalogMax > proof.catalogMax) {
+        proof.catalogMax = catalogMax;
+      }
+    }
+    return consistent;
+  }
+
+  private observeHistoryRenderability(
+    message: ConversationMessage,
+    key: string,
+    stableEmptyKeys: ReadonlySet<string>,
+    observed: Map<string, HistoryRenderability>
+  ): boolean {
+    const current: HistoryRenderability = stableEmptyKeys.has(key)
+      ? 'stable-empty'
+      : this.hasRenderableHistoryContent(message)
+        ? 'nonempty'
+        : 'unsupported';
+    const previous = observed.get(key);
+    observed.set(key, current);
+    return current !== 'unsupported' && (previous === undefined || previous === current);
+  }
+
+  /** Accept only the observed inert empty boundary, never a generic empty root. */
+  private isStableEmptyAssistant(element: Element): boolean {
+    if (!element.matches(STABLE_EMPTY_ASSISTANT_ROOT) || element.childNodes.length !== 1)
+      return false;
+    if (!this.isExactEmptyHeading(element.firstElementChild)) return false;
+    const row = element.closest(SELECTORS.conversationRow[0]) ?? element;
+    return (
+      !row.matches(STABLE_EMPTY_FORBIDDEN_SELECTOR) &&
+      !row.querySelector(STABLE_EMPTY_FORBIDDEN_SELECTOR) &&
+      !this.isLegacyStatusHeader(row) &&
+      this.collectStatusHeaders(row).length === 0
+    );
+  }
+
+  private isExactEmptyHeading(heading: Element | null): boolean {
+    if (!heading || heading.tagName !== 'H3') return false;
+    const attributes = heading.getAttributeNames();
+    return (
+      attributes.length === 3 &&
+      attributes.every(name => STABLE_EMPTY_HEADING_ATTRIBUTES.has(name)) &&
+      heading.getAttribute('data-find-omitted') === '' &&
+      heading.getAttribute('aria-hidden') === 'true' &&
+      heading.classList.length === 2 &&
+      heading.classList.contains('sr-only') &&
+      heading.classList.contains('select-none') &&
+      heading.childNodes.length === 0 &&
+      heading.childElementCount === 0 &&
+      heading.textContent === ''
+    );
+  }
+
+  private markStableEmptyAssistant(
+    item: { element: Element; type: 'user' | 'assistant' },
+    content: string,
+    key: string | undefined,
+    keys: Set<string> | undefined
+  ): boolean {
+    if (
+      item.type !== 'assistant' ||
+      content !== '' ||
+      key === undefined ||
+      !keys ||
+      !this.isStableEmptyAssistant(item.element)
+    )
+      return false;
+    keys.add(key);
+    return true;
+  }
+
+  /** Proof only: empty HTML wrappers are not an extracted assistant answer. */
+  private hasRenderableHistoryContent(message: ConversationMessage): boolean {
+    if (message.role === 'user') return message.content.trim().length > 0;
+    // Harvested assistant HTML is already sanitized. Bound this proof before
+    // parsing; do not repeat sanitization or heavy Markdown conversion here.
+    const html = message.content;
+    if (html.length > CLAUDE_TOOL_LIMITS.sectionHtmlBytes) return false;
+    let delimiters = 0;
+    for (let index = 0; index < html.length; index++) {
+      if (
+        html.charCodeAt(index) === 60 &&
+        ++delimiters > CLAUDE_TOOL_LIMITS.sectionMarkupDelimiters
+      ) {
+        return false;
+      }
+    }
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    if (template.content.textContent?.replace(/\u00a0/g, ' ').trim()) return true;
+    // Keep the existing image-only path, including an img inside picture.
+    // Empty wrappers, breaks and source-less image placeholders prove nothing.
+    return Array.from(template.content.querySelectorAll('img[src], img[srcset]')).some(image =>
+      Boolean(image.getAttribute('src')?.trim() || image.getAttribute('srcset')?.trim())
+    );
   }
 
   /**
    * Harvest the currently-mounted window as keyed messages.
    *
-   * The key is the virtual-row `data-index` (stable per turn across windows),
-   * falling back to a content hash when the wrapper is absent, so turns are
-   * de-duplicated correctly as windows overlap during scrolling.
+   * Claude renumbers `data-index` whenever an older catalog page is prepended.
+   * De-duplication therefore uses exact provider message identities. The
+   * numeric row contributes only `index - currentCatalogMax`, an invariant
+   * conversation order while the pinned newest tail remains unchanged.
    */
   private harvestWindow(
-    toolBudget: ClaudeToolConversionBudget
+    toolBudget: ClaudeToolConversionBudget,
+    toolCache?: ToolContentCache,
+    root: Element | Document = document,
+    stableEmptyKeys?: Set<string>,
+    catalogMax?: number
   ): HarvestEntry<ConversationMessage>[] {
     const entries: HarvestEntry<ConversationMessage>[] = [];
-    this.collectSortedElements().forEach(item => {
+    this.collectSortedElements(root).forEach(item => {
       const content =
         item.type === 'user'
           ? this.extractUserContent(item.element)
           : this.extractAssistantContent(item.element);
-      if (!content) return;
 
-      // `data-index` is monotonic in conversation order; use it both as the
-      // stable de-dup key and as the ordering signal so accumulation can sort by
-      // it (robust against mergeWindow scramble — issue #352).
       const row = item.element.closest(SELECTORS.conversationRow[0]);
-      const dataIndex = row?.getAttribute('data-index');
-      const parsed = dataIndex !== undefined && dataIndex !== null ? Number(dataIndex) : NaN;
-      const key = dataIndex ? `idx-${dataIndex}` : `${item.type}-${generateHash(content)}`;
-      const order = Number.isFinite(parsed) ? parsed : undefined;
+      const dataIndex =
+        row && row !== root && root.contains(row) ? row.getAttribute('data-index') : null;
+      const rowIndex = parseRowIndex(dataIndex);
+      const stableKey = stableHistoryKey(item);
+      const key =
+        stableKey ?? `fallback:${item.type}:${generateHash(`${content}\u0000${dataIndex ?? ''}`)}`;
+      const order =
+        rowIndex !== undefined && catalogMax !== undefined ? rowIndex - catalogMax : undefined;
+      const stableEmpty = this.markStableEmptyAssistant(item, content, key, stableEmptyKeys);
+      if (!content && !stableEmpty) return;
       const message: ConversationMessage = {
         id: key,
         role: item.type,
@@ -389,14 +834,12 @@ export class ClaudeExtractor extends BaseExtractor {
         index: 0, // re-indexed after accumulation
       };
 
-      if (this.enableToolContent && item.type === 'assistant') {
-        const tc = this.extractToolContentFromElement(item.element, toolBudget);
-        if (tc) {
-          entries.push({ key, value: { ...message, toolContent: tc }, order });
-          return;
-        }
-      }
-      entries.push({ key, value: message, order });
+      const cache = stableKey && toolCache ? { key: stableKey, values: toolCache } : undefined;
+      const tc =
+        this.enableToolContent && item.type === 'assistant'
+          ? this.extractToolContentFromElement(item.element, toolBudget, cache)
+          : null;
+      entries.push({ key, value: tc ? { ...message, toolContent: tc } : message, order });
     });
     return entries;
   }
@@ -524,15 +967,82 @@ export class ClaudeExtractor extends BaseExtractor {
    */
   private extractToolContentFromElement(
     element: Element,
-    budget: ClaudeToolConversionBudget
+    budget: ClaudeToolConversionBudget,
+    cache?: { readonly key: string; readonly values: ToolContentCache }
   ): string | null {
+    const toolCandidates = this.collectToolCandidates(element);
+    // Compare exact ordered input, not a collision-prone digest. Answer text
+    // and action chrome are not tool input and do not invalidate this cache.
+    const input = cache ? this.toolCacheInput(toolCandidates) : undefined;
+    const cached = cache?.values.entries.get(cache.key);
+    if (input !== undefined && cached?.input === input) return cached.output;
+    if (cache && cached) {
+      // Invalidate before conversion, including failed or non-cacheable changes.
+      cache.values.entries.delete(cache.key);
+      cache.values.totalBytes -= cached.byteLength;
+    }
+    const output = this.convertToolCandidates(toolCandidates, budget);
+    if (cache && input !== undefined) {
+      const byteLength = toolCacheEncoder.encode(input).byteLength;
+      if (byteLength <= CLAUDE_TOOL_CACHE_MAX_BYTES - cache.values.totalBytes) {
+        cache.values.entries.set(cache.key, { input, output, byteLength });
+        cache.values.totalBytes += byteLength;
+      }
+    }
+    return output;
+  }
+
+  /** Bound snapshot size before serialization; ordinary conversion owns rejection. */
+  private toolCacheInput(candidates: Element[]): string | undefined {
+    if (candidates.length > CLAUDE_TOOL_LIMITS.sections) return undefined;
+    const inputs: Array<readonly [string, string, number]> = [];
+    const ancestors: Array<{ element: Element; index: number }> = [];
+    let totalLength = 0;
+    for (const { element } of this.sortByDomPosition(candidates.map(element => ({ element })))) {
+      while (ancestors.length > 0 && !ancestors[ancestors.length - 1].element.contains(element)) {
+        ancestors.pop();
+      }
+      const parent = ancestors[ancestors.length - 1]?.index ?? -1;
+      ancestors.push({ element, index: inputs.length });
+      const october = element.matches(SELECTORS.toolStatus[0]);
+      // Thinking is deliberately not converted; its changing details are not
+      // relevant input. Keep its position without retaining unbounded markup.
+      if (!october && element.querySelector('[class*="group/thinking"]')) {
+        inputs.push(['thinking', '', parent]);
+        continue;
+      }
+      const html = element.innerHTML;
+      totalLength += html.length;
+      if (
+        html.length > CLAUDE_TOOL_LIMITS.sectionHtmlBytes ||
+        totalLength > CLAUDE_TOOL_LIMITS.rawHtmlBytes
+      ) {
+        return undefined;
+      }
+      // Kind is the only root-attribute distinction used by conversion; all
+      // consumed label/metadata/Markdown input is inside this exact HTML.
+      // Candidate ancestry controls overlap de-duplication, even when an
+      // ignored thinking wrapper's own markup is not conversion input.
+      inputs.push([october ? 'october' : 'legacy', html, parent]);
+    }
+    return JSON.stringify(inputs);
+  }
+
+  /** Include candidate filtering and DOM order in the exact conversion input. */
+  private collectToolCandidates(element: Element): Element[] {
     const octoberRows = Array.from(element.querySelectorAll(SELECTORS.toolStatus[0])).filter(
       row => !this.isInDismissedConversationPanel(row)
     );
     const legacyHeaders = this.collectStatusHeaders(element).filter(
       header => !header.closest(STEP_ROW_SELECTOR)
     );
-    const toolCandidates = [...octoberRows, ...legacyHeaders];
+    return [...octoberRows, ...legacyHeaders];
+  }
+
+  private convertToolCandidates(
+    toolCandidates: Element[],
+    budget: ClaudeToolConversionBudget
+  ): string | null {
     budget.assertSectionCapacity(toolCandidates.length);
     const candidates = this.distinctElements(toolCandidates, budget);
     const ordered = this.sortByDomPosition(candidates.map(element => ({ element })));

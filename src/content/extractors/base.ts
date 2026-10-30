@@ -24,7 +24,11 @@ import {
   MAX_DEEP_RESEARCH_TITLE_LENGTH,
   PLATFORM_LABELS,
 } from '../../lib/constants';
-import { accumulateWhileScrolling, type HarvestEntry } from '../../lib/scroll-manager';
+import {
+  accumulateWhileScrolling,
+  type AccumulateOptions,
+  type HarvestEntry,
+} from '../../lib/scroll-manager';
 import { platformForHost } from '../../lib/platform-registry';
 
 /**
@@ -33,14 +37,29 @@ import { platformForHost } from '../../lib/platform-registry';
  * getScrollConfig() so the base extract() flow scrolls up and harvests each
  * window instead of reading the DOM once.
  */
-export interface ScrollConfig {
+export interface ScrollConfig extends AccumulateOptions {
   /** Scroll container selectors, priority order (HIGH → LOW). */
   readonly container: readonly string[];
-  /** Harvest the currently-mounted window as keyed messages, in DOM order. */
-  harvest(): HarvestEntry<ConversationMessage>[];
-  /** Visible rest required at the oldest edge before completion. */
-  readonly topSettleMs?: number;
+  /** Harvest the mounted window in DOM order, scoped to the chosen container. */
+  harvest(container: HTMLElement): HarvestEntry<ConversationMessage>[];
+  /** Additional provider proof required after local top/stability succeeds. */
+  isHistoryComplete?(messages: readonly ConversationMessage[]): boolean;
 }
+
+interface ConversationIdentitySnapshot {
+  readonly stableId: string | null;
+  readonly route: string;
+}
+
+interface ConversationExtractionSnapshot {
+  readonly identity: ConversationIdentitySnapshot;
+  readonly conversationId: string;
+  readonly title: string;
+  readonly authoritativeTitle: string | null;
+  readonly url: string;
+}
+
+const CONVERSATION_CHANGED_ERROR = 'Conversation changed during extraction. No output was created.';
 
 /**
  * Abstract base class for conversation extractors
@@ -51,6 +70,9 @@ export abstract class BaseExtractor implements IConversationExtractor {
 
   /** Whether to auto-scroll to load lazily-rendered history (set from settings). */
   enableAutoScroll = false;
+
+  /** Opt in when getTitle() falls back to the first rendered user message. */
+  protected readonly titleUsesFirstUserFallback: boolean = false;
 
   abstract getConversationId(): string | null;
   abstract getTitle(): string;
@@ -107,20 +129,21 @@ export abstract class BaseExtractor implements IConversationExtractor {
         return deepResearchResult;
       }
 
+      const snapshot = this.captureConversationSnapshot();
       console.info(`[G2O] Extracting ${this.platformLabel} conversation`);
       const { messages, warning, domHistoryLoad } = await this.collectMessages();
-      const conversationId = this.getConversationId() || `${this.platform}-${Date.now()}`;
-      const title = this.getTitle();
-      const result = this.buildConversationResult(messages, conversationId, title, this.platform);
-      if (result.success && result.data) {
-        result.data.domHistoryLoad = domHistoryLoad;
-        if (domHistoryLoad === 'partial') {
-          result.data.liskaLossDiagnostics = mergeLiskaLossDiagnostics(
-            result.data.liskaLossDiagnostics,
-            ['history-load-partial']
-          );
-        }
+      if (!this.isConversationIdentityCurrent(snapshot.identity)) {
+        return { success: false, error: CONVERSATION_CHANGED_ERROR };
       }
+      const title =
+        snapshot.authoritativeTitle ??
+        (this.titleUsesFirstUserFallback ? this.getCollectedFirstUserTitle(messages) : null) ??
+        snapshot.title;
+      const result = this.withHistoryOutcome(
+        this.buildConversationResult(messages, snapshot.conversationId, title, this.platform),
+        snapshot.url,
+        domHistoryLoad
+      );
       if (warning && result.success) {
         return { ...result, warnings: [...(result.warnings ?? []), warning] };
       }
@@ -165,6 +188,71 @@ export abstract class BaseExtractor implements IConversationExtractor {
     return null;
   }
 
+  /** Stable provider ID wins; ID-less providers fail closed on any route drift. */
+  protected captureConversationIdentity(): ConversationIdentitySnapshot {
+    return {
+      stableId: this.getConversationId(),
+      route: this.getConversationRouteIdentity(),
+    };
+  }
+
+  private captureConversationSnapshot(): ConversationExtractionSnapshot {
+    const identity = this.captureConversationIdentity();
+    const authoritativeTitle = this.titleUsesFirstUserFallback ? this.getPageTitle() : null;
+    return {
+      identity,
+      conversationId: identity.stableId ?? `${this.platform}-${Date.now()}`,
+      title: authoritativeTitle ?? this.getTitle(),
+      authoritativeTitle,
+      url: window.location.href,
+    };
+  }
+
+  /** Resolve a message-based title from the completed accumulation, not its seed window. */
+  private getCollectedFirstUserTitle(messages: readonly ConversationMessage[]): string | null {
+    const content = messages.find(
+      message => message.role === 'user' && message.content.trim()
+    )?.content;
+    if (!content) return null;
+    const title = this.sanitizeText(content);
+    return title ? title.substring(0, MAX_CONVERSATION_TITLE_LENGTH) : null;
+  }
+
+  private withHistoryOutcome(
+    result: ExtractionResult,
+    url: string,
+    domHistoryLoad: DomHistoryLoad
+  ): ExtractionResult {
+    if (!result.success || !result.data) return result;
+    return {
+      ...result,
+      data: {
+        ...result.data,
+        url,
+        domHistoryLoad,
+        ...(domHistoryLoad === 'partial'
+          ? {
+              liskaLossDiagnostics: mergeLiskaLossDiagnostics(result.data.liskaLossDiagnostics, [
+                'history-load-partial',
+              ]),
+            }
+          : {}),
+      },
+    };
+  }
+
+  /** Overridable only for providers with an equivalent content-free route key. */
+  protected getConversationRouteIdentity(): string {
+    return window.location.href;
+  }
+
+  protected isConversationIdentityCurrent(snapshot: ConversationIdentitySnapshot): boolean {
+    const current = this.captureConversationIdentity();
+    return snapshot.stableId !== null
+      ? current.stableId === snapshot.stableId
+      : current.stableId === null && current.route === snapshot.route;
+  }
+
   /**
    * Collect conversation messages, auto-scrolling first when the platform is
    * virtualized and the user enabled auto-scroll. Falls back to a single-pass
@@ -186,13 +274,30 @@ export abstract class BaseExtractor implements IConversationExtractor {
       return { messages: this.extractMessages(), domHistoryLoad: 'unknown' };
     }
 
-    const result = await accumulateWhileScrolling(container, () => config.harvest(), {
+    const result = await accumulateWhileScrolling(container, active => config.harvest(active), {
       topSettleMs: config.topSettleMs,
+      stepFactor: config.stepFactor,
+      minStep: config.minStep,
+      pollIntervalMs: config.pollIntervalMs,
+      resolveContainer: config.resolveContainer,
+      maxContainerRebinds: config.maxContainerRebinds,
+      primeWithRelativeTopNudge: config.primeWithRelativeTopNudge,
+      maxRelativeTopNudgesPerRoot: config.maxRelativeTopNudgesPerRoot,
+      canCompleteAtTop: config.canCompleteAtTop,
     });
     // Re-index into contiguous conversation order after de-duplication.
     const messages = result.items.map((message, index) => ({ ...message, index }));
 
     if (result.fullyLoaded || result.skipped) {
+      if (config.isHistoryComplete && !config.isHistoryComplete(messages)) {
+        return {
+          messages,
+          domHistoryLoad: 'partial',
+          warning:
+            'Auto-scroll reached the top, but message history completeness could not be verified. ' +
+            'Some messages may be missing.',
+        };
+      }
       return { messages, domHistoryLoad: result.skipped ? 'unknown' : 'complete' };
     }
     return {

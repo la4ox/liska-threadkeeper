@@ -244,7 +244,7 @@ describe('synchronous Dots document-start build', () => {
   it('wires the synchronous rewrite between Vite and the worker closure check', () => {
     const { scripts } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     expect(scripts.build).toMatch(
-      /vite build\s*&&\s*node scripts\/build-dots-document-start\.mjs\s*&&\s*node scripts\/check-service-worker-runtime\.mjs$/
+      /vite build\s*&&\s*node scripts\/build-dots-document-start\.mjs\s*&&\s*node scripts\/build-claude-scroll-prime-main\.mjs\s*&&\s*node scripts\/check-service-worker-runtime\.mjs$/
     );
   });
 });

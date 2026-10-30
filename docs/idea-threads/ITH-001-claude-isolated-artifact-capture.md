@@ -41,6 +41,15 @@ Artifact body is a separate omitted source.
 This does not prove every history shape, Artifact type, attachment, tool block,
 or destination.
 
+A later 154-message canary confirmed that this qualification matters: the
+Artifact-bearing 22-message transcript remains valid evidence for its own shape,
+but long virtualized-history completeness required stable role+UUID identity,
+tail-relative ordering, a bounded MAIN-world scroll prime, root-remount guards
+and directional history-marker handling. The installed final pass retained all
+154 messages without `history-load-partial`, and Download/Obsidian were
+byte-identical. This proves the transcript traversal only; it does not turn the
+still-omitted isolated Artifact body into captured content.
+
 ### E2 — The new boundary is structural, not a missing upstream selector
 
 The current top document contains a visible `iframe` whose source path contains
@@ -132,7 +141,7 @@ Obsidian with honest partial-destination receipts.
 ## Observations
 
 - [hypothesis] H1: one explicit, bounded document companion may be recoverable from the isolated frame
-- [evidence] E1: ordinary and Artifact-bearing transcripts saved identically to both destinations while document-only content remained absent #live
+- [evidence] E1: ordinary, Artifact-bearing and long virtualized transcripts saved identically to both destinations while document-only Artifact content remained absent #live
 - [evidence] E2: the current Artifact is a nested cross-origin frame and the legacy top-document selector has zero matches #live
 - [evidence] E3: upstream 2.14.15 has no frame bridge or permission solution to port
 - [evidence] E4: the installed candidate persisted the content-free omission code to byte-identical Download and Obsidian notes #live

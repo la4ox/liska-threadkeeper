@@ -101,6 +101,7 @@ describe('ChatGPTExtractor auto-scroll (virtualization)', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    document.title = 'ChatGPT';
     extractor = new ChatGPTExtractor();
     setChatGPTLocation('6789abcd-ef01-2345-6789-abcdef012345');
   });
@@ -138,6 +139,7 @@ describe('ChatGPTExtractor auto-scroll (virtualization)', () => {
       'A4',
     ]);
     expect(result.data?.messages.map(m => m.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(result.data?.title).toBe('Q1');
     expect(result.warnings).toEqual([
       'ChatGPT complete graph capture failed (permission-unavailable); partial rendered current branch exported; raw/canonical archive was not saved.',
     ]);

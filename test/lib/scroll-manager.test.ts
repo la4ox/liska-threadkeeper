@@ -8,7 +8,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mergeWindow, accumulateWhileScrolling } from '../../src/lib/scroll-manager';
+import {
+  mergeWindow,
+  accumulateWhileScrolling,
+  type AccumulateOptions,
+} from '../../src/lib/scroll-manager';
+import { SCROLL_IDLE_TIMEOUT, SCROLL_MAX_TIMEOUT } from '../../src/lib/constants';
 
 describe('mergeWindow', () => {
   it('returns the window verbatim when nothing is accumulated yet', () => {
@@ -50,6 +55,655 @@ describe('mergeWindow', () => {
   it('appends a trailing run of new keys after its preceding anchor', () => {
     // New keys sitting *below* an already-seen key must not be prepended.
     expect(mergeWindow(['a', 'b'], ['a', 'c'])).toEqual(['a', 'c', 'b']);
+  });
+});
+
+/** Connected test root; ordinary callers above deliberately also cover detached roots. */
+function connectedScroller({
+  maxScroll = 1000,
+  stuck = false,
+  reversed = false,
+  height = () => maxScroll + 500,
+  viewport = () => 500,
+  position,
+}: {
+  maxScroll?: number;
+  stuck?: boolean;
+  reversed?: boolean;
+  height?: () => number;
+  viewport?: () => number;
+  position?: () => number;
+} = {}) {
+  const container = document.createElement('div');
+  if (reversed) container.style.flexDirection = 'column-reverse';
+  let scrollTop = reversed ? 0 : maxScroll;
+  const writes: number[] = [];
+  Object.defineProperty(container, 'scrollTop', {
+    get: () => position?.() ?? scrollTop,
+    set: (value: number) => {
+      writes.push(value);
+      if (!stuck) {
+        scrollTop = reversed
+          ? Math.max(-maxScroll, Math.min(0, value))
+          : Math.max(0, Math.min(maxScroll, value));
+      }
+    },
+    configurable: true,
+  });
+  Object.defineProperty(container, 'scrollHeight', { get: height, configurable: true });
+  Object.defineProperty(container, 'clientHeight', { get: viewport, configurable: true });
+  const nudges = vi.fn((options: ScrollToOptions) => {
+    container.scrollTop += options.top ?? 0;
+  });
+  Object.defineProperty(container, 'scrollBy', { value: nudges, configurable: true });
+  document.body.append(container);
+  return { container, writes, nudges };
+}
+
+describe('accumulation active-root lifecycle', () => {
+  const tuning = { stepFactor: 0.2, minStep: 64, pollIntervalMs: 100 };
+  const window = [{ key: 'same', value: 'same' }];
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  it.each([undefined, 0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects an unsafe resolver rebind budget before any writes (%s)',
+    async limit => {
+      const { container, writes } = connectedScroller();
+      const resolver = vi.fn(() => container);
+      await expect(
+        accumulateWhileScrolling(container, () => window, {
+          resolveContainer: resolver,
+          maxContainerRebinds: limit,
+        })
+      ).rejects.toThrow('Invalid internal container rebind limit.');
+      expect(writes).toEqual([]);
+      expect(resolver).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([undefined, 0, 3, 1.5, NaN, Infinity])(
+    'rejects an invalid prime-attempt bound before any writes (%s)',
+    async attempts => {
+      const { container, writes } = connectedScroller();
+      await expect(
+        accumulateWhileScrolling(container, () => window, {
+          ...tuning,
+          primeWithRelativeTopNudge: () => {},
+          maxRelativeTopNudgesPerRoot: attempts,
+        })
+      ).rejects.toThrow('Invalid internal relative top-nudge limit.');
+      expect(writes).toHaveLength(0);
+    }
+  );
+
+  it('rejects a prime-attempt bound without a provider callback', async () => {
+    const { container, writes } = connectedScroller();
+    await expect(
+      accumulateWhileScrolling(container, () => window, {
+        ...tuning,
+        maxRelativeTopNudgesPerRoot: 1,
+      })
+    ).rejects.toThrow('Invalid internal relative top-nudge limit.');
+    expect(writes).toHaveLength(0);
+  });
+
+  it('re-pins a replacement once before the first harvest and never reads the detached seed', async () => {
+    const old = connectedScroller();
+    const next = createVirtualList({
+      total: 12,
+      windowSize: 3,
+      clientHeight: 500,
+      maxScroll: 1000,
+    });
+    let current = old.container;
+    const harvested: HTMLElement[] = [];
+    setTimeout(() => {
+      old.container.replaceWith(next.container);
+      current = next.container;
+    }, 50);
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(
+      old.container,
+      active => {
+        harvested.push(active);
+        expect(active.isConnected).toBe(true);
+        return active === next.container ? next.harvest() : [{ key: 'stale', value: 'stale' }];
+      },
+      { ...tuning, resolveContainer: () => current, maxContainerRebinds: 4 }
+    );
+    await vi.advanceTimersByTimeAsync(199);
+    expect(harvested).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(harvested).toEqual([next.container]);
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    expect(result.fullyLoaded).toBe(true);
+    expect(result.items).toEqual(Array.from({ length: 12 }, (_, index) => `v${index}`));
+    expect(old.writes).toEqual([1500]);
+    expect(Date.now() - started).toBeGreaterThan(200);
+  });
+
+  it('keeps order across a mid-walk replacement without re-pinning or harvesting detached rows', async () => {
+    const old = createVirtualList({ total: 12, windowSize: 3, clientHeight: 500, maxScroll: 1000 });
+    const next = createVirtualList({
+      total: 12,
+      windowSize: 3,
+      clientHeight: 500,
+      maxScroll: 1000,
+      startFraction: 0.6,
+    });
+    document.body.append(old.container);
+    let current = old.container;
+    const nextWrites: number[] = [];
+    const descriptor = Object.getOwnPropertyDescriptor(next.container, 'scrollTop')!;
+    Object.defineProperty(next.container, 'scrollTop', {
+      ...descriptor,
+      set: (value: number) => {
+        nextWrites.push(value);
+        descriptor.set!.call(next.container, value);
+      },
+    });
+    setTimeout(() => {
+      old.container.replaceWith(next.container);
+      current = next.container;
+    }, 450);
+    const promise = accumulateWhileScrolling(
+      old.container,
+      active => {
+        expect(active.isConnected).toBe(true);
+        return active === old.container ? old.harvest() : next.harvest();
+      },
+      { ...tuning, resolveContainer: () => current, maxContainerRebinds: 4 }
+    );
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    expect(result.fullyLoaded).toBe(true);
+    expect(result.items).toEqual(Array.from({ length: 12 }, (_, index) => `v${index}`));
+    expect(nextWrites).not.toContain(1500);
+  });
+
+  it('finishes partial on the fifth replacement instead of looping', async () => {
+    let current = connectedScroller({ stuck: true }).container;
+    const first = current;
+    const harvested = new Set<HTMLElement>();
+    for (let replacement = 1; replacement <= 5; replacement++) {
+      setTimeout(() => {
+        const next = connectedScroller({ stuck: true }).container;
+        current.replaceWith(next);
+        current = next;
+      }, replacement * 500);
+    }
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(
+      first,
+      active => {
+        harvested.add(active);
+        return window;
+      },
+      { ...tuning, resolveContainer: () => current, maxContainerRebinds: 4 }
+    );
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    expect(result.fullyLoaded).toBe(false);
+    expect(result.items).toEqual(['same']);
+    expect(harvested.size).toBe(5);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it.each(['null', 'disconnected'] as const)('finishes partial for a %s exact root', async mode => {
+    const { container } = connectedScroller({ stuck: true });
+    let current: HTMLElement | null = container;
+    setTimeout(() => {
+      container.remove();
+      if (mode === 'null') current = null;
+    }, 500);
+    const harvest = vi.fn((active: HTMLElement) => {
+      expect(active.isConnected).toBe(true);
+      return window;
+    });
+    const promise = accumulateWhileScrolling(container, harvest, {
+      ...tuning,
+      resolveContainer: () => current,
+      maxContainerRebinds: 4,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(harvest).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not renew the idle deadline for rebinds without new keys or movement', async () => {
+    let current = connectedScroller({ stuck: true }).container;
+    const first = current;
+    for (const at of [2000, 5000, 8000, 11000]) {
+      setTimeout(() => {
+        const next = connectedScroller({ stuck: true }).container;
+        current.replaceWith(next);
+        current = next;
+      }, at);
+    }
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(first, () => window, {
+      ...tuning,
+      resolveContainer: () => current,
+      maxContainerRebinds: 4,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(Date.now() - started).toBeLessThanOrEqual(SCROLL_IDLE_TIMEOUT + 200);
+  });
+
+  it('leaves relative scrolling disabled for default callers', async () => {
+    const { container, nudges } = connectedScroller();
+    const promise = accumulateWhileScrolling(container, () => window);
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(nudges).not.toHaveBeenCalled();
+  });
+
+  it('stops after the first prime when measured movement is positive', async () => {
+    const { container } = connectedScroller();
+    const prime = vi.fn((active: HTMLElement, step: number) => {
+      active.scrollTop -= step;
+    });
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      primeWithRelativeTopNudge: prime,
+      maxRelativeTopNudgesPerRoot: 2,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(prime).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the second prime on the next poll after a zero-movement first attempt', async () => {
+    const { container } = connectedScroller();
+    const prime = vi.fn((active: HTMLElement, step: number) => {
+      if (prime.mock.calls.length === 2) active.scrollTop -= step;
+    });
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      primeWithRelativeTopNudge: prime,
+      maxRelativeTopNudgesPerRoot: 2,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(prime).toHaveBeenCalledTimes(2);
+  });
+
+  it('primes each active replacement revision exactly once', async () => {
+    const first = connectedScroller();
+    const next = connectedScroller();
+    let current = first.container;
+    setTimeout(() => {
+      first.container.replaceWith(next.container);
+      current = next.container;
+    }, 450);
+    const promise = accumulateWhileScrolling(first.container, () => window, {
+      ...tuning,
+      resolveContainer: () => current,
+      maxContainerRebinds: 4,
+      primeWithRelativeTopNudge: (active, step) => {
+        active.scrollBy({ top: -step, left: 0, behavior: 'instant' });
+      },
+      maxRelativeTopNudgesPerRoot: 1,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(first.nudges).toHaveBeenCalledExactlyOnceWith({
+      top: -100,
+      left: 0,
+      behavior: 'instant',
+    });
+    expect(next.nudges).toHaveBeenCalledExactlyOnceWith({
+      top: -100,
+      left: 0,
+      behavior: 'instant',
+    });
+    expect(next.writes).not.toContain(1500);
+  });
+
+  it('does not grant progress after both bounded relative primes fail', async () => {
+    const { container, nudges } = connectedScroller({ stuck: true });
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      primeWithRelativeTopNudge: (active, step) => {
+        active.scrollBy({ top: -step, left: 0, behavior: 'instant' });
+      },
+      maxRelativeTopNudgesPerRoot: 2,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(nudges).toHaveBeenCalledTimes(2);
+    expect(Date.now() - started).toBeLessThanOrEqual(SCROLL_IDLE_TIMEOUT + 200);
+  });
+
+  it('bounds two primes on each of five active root revisions', async () => {
+    let current = connectedScroller({ stuck: true }).container;
+    const first = current;
+    const prime = vi.fn();
+    for (const at of [350, 700, 1050, 1400]) {
+      setTimeout(() => {
+        const next = connectedScroller({ stuck: true }).container;
+        current.replaceWith(next);
+        current = next;
+      }, at);
+    }
+    const promise = accumulateWhileScrolling(first, () => window, {
+      ...tuning,
+      resolveContainer: () => current,
+      maxContainerRebinds: 4,
+      primeWithRelativeTopNudge: prime,
+      maxRelativeTopNudgesPerRoot: 2,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(prime).toHaveBeenCalledTimes(10);
+  });
+
+  it('does not spend prime attempts while hidden or already at the top', async () => {
+    const hidden = connectedScroller();
+    const hiddenPrime = vi.fn();
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    });
+    const hiddenPromise = accumulateWhileScrolling(hidden.container, () => window, {
+      ...tuning,
+      primeWithRelativeTopNudge: hiddenPrime,
+      maxRelativeTopNudgesPerRoot: 2,
+    });
+    await vi.runAllTimersAsync();
+    expect((await hiddenPromise).fullyLoaded).toBe(false);
+    expect(hiddenPrime).not.toHaveBeenCalled();
+
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible',
+      configurable: true,
+    });
+    const top = connectedScroller({ maxScroll: 0 });
+    const topPrime = vi.fn();
+    const topPromise = accumulateWhileScrolling(top.container, () => window, {
+      ...tuning,
+      primeWithRelativeTopNudge: topPrime,
+      maxRelativeTopNudgesPerRoot: 2,
+    });
+    await vi.runAllTimersAsync();
+    const topResult = await topPromise;
+    expect(topResult.skipped).toBe(true);
+    expect(topPrime).not.toHaveBeenCalled();
+  });
+
+  it('preserves the absolute deadline while real movement continues across rebinds', async () => {
+    let current = connectedScroller({ maxScroll: 1_000_000_000 }).container;
+    const first = current;
+    for (const at of [60_000, 120_000, 180_000, 240_000]) {
+      setTimeout(() => {
+        const next = connectedScroller({ maxScroll: 1_000_000_000 }).container;
+        current.replaceWith(next);
+        current = next;
+      }, at);
+    }
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(first, () => window, {
+      ...tuning,
+      resolveContainer: () => current,
+      maxContainerRebinds: 4,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(SCROLL_MAX_TIMEOUT);
+    expect(Date.now() - started).toBeLessThanOrEqual(SCROLL_MAX_TIMEOUT + 100);
+  });
+
+  it('restarts full top settle after each geometry growth', async () => {
+    let geometry = 1000;
+    const { container } = connectedScroller({
+      maxScroll: 0,
+      height: () => geometry,
+      viewport: () => geometry,
+    });
+    setTimeout(() => {
+      geometry = 1200;
+    }, 800);
+    setTimeout(() => {
+      geometry = 1400;
+    }, 1500);
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 2000,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(3500);
+    expect(Date.now() - started).toBeLessThanOrEqual(3700);
+  });
+
+  it('restarts the full visible top settle when the active root changes with identical geometry', async () => {
+    let current = connectedScroller({ maxScroll: 0 }).container;
+    const first = current;
+    setTimeout(() => {
+      const next = connectedScroller({ maxScroll: 0 }).container;
+      current.replaceWith(next);
+      current = next;
+    }, 1000);
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(first, () => window, {
+      ...tuning,
+      topSettleMs: 2000,
+      resolveContainer: () => current,
+      maxContainerRebinds: 4,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(3000);
+    expect(Date.now() - started).toBeLessThanOrEqual(3200);
+  });
+
+  it('waits a full settle after a pending-history marker disappears', async () => {
+    const { container } = connectedScroller({ maxScroll: 0 });
+    let pending = true;
+    setTimeout(() => {
+      pending = false;
+    }, 2300);
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 5000,
+      canCompleteAtTop: () => !pending,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(7300);
+    expect(Date.now() - started).toBeLessThanOrEqual(7600);
+  });
+
+  it('restarts settle when pending history disappears and reappears', async () => {
+    const { container } = connectedScroller({ maxScroll: 0 });
+    let pending = true;
+    for (const [at, value] of [
+      [2300, false],
+      [4000, true],
+      [6000, false],
+    ] as const) {
+      setTimeout(() => {
+        pending = value;
+      }, at);
+    }
+    const started = Date.now();
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 5000,
+      canCompleteAtTop: () => !pending,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(11_000);
+    expect(Date.now() - started).toBeLessThanOrEqual(11_300);
+  });
+
+  it.each(['pending', 'throwing'] as const)(
+    'keeps a %s completion proof bounded by the idle deadline',
+    async mode => {
+      const { container } = connectedScroller({ maxScroll: 0 });
+      const started = Date.now();
+      const promise = accumulateWhileScrolling(container, () => window, {
+        ...tuning,
+        topSettleMs: 5000,
+        canCompleteAtTop: () => {
+          if (mode === 'throwing') throw new Error('provider proof failure');
+          return false;
+        },
+      });
+      await vi.runAllTimersAsync();
+      expect((await promise).fullyLoaded).toBe(false);
+      expect(Date.now() - started).toBeLessThanOrEqual(SCROLL_IDLE_TIMEOUT + 200);
+    }
+  );
+
+  it('consults provider completion after polling without changing default skip behavior', async () => {
+    const provider = connectedScroller({ maxScroll: 0 });
+    const proof = vi.fn(() => true);
+    const providerPromise = accumulateWhileScrolling(provider.container, () => window, {
+      ...tuning,
+      canCompleteAtTop: proof,
+    });
+    await vi.runAllTimersAsync();
+    const providerResult = await providerPromise;
+    expect(providerResult.fullyLoaded).toBe(true);
+    expect(providerResult.skipped).toBe(false);
+    expect(proof).toHaveBeenCalledTimes(3);
+
+    const ordinary = connectedScroller({ maxScroll: 0 });
+    const ordinaryPromise = accumulateWhileScrolling(ordinary.container, () => window, tuning);
+    await vi.runAllTimersAsync();
+    expect((await ordinaryPromise).skipped).toBe(true);
+  });
+
+  it('does not consult provider completion while the document is hidden', async () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    const { container } = connectedScroller({ maxScroll: 0 });
+    const proof = vi.fn(() => true);
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 5000,
+      canCompleteAtTop: proof,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(proof).not.toHaveBeenCalled();
+  });
+
+  it('does not renew idle time for geometry-only growth at the top', async () => {
+    const started = Date.now();
+    const geometry = () => 1000 + Math.floor((Date.now() - started) / 500);
+    const { container } = connectedScroller({ maxScroll: 0, height: geometry, viewport: geometry });
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 2000,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(Date.now() - started).toBeLessThanOrEqual(SCROLL_IDLE_TIMEOUT + 200);
+  });
+
+  it('does not mistake a changing reversed range for real upward movement', async () => {
+    const started = Date.now();
+    const { container } = connectedScroller({
+      reversed: true,
+      stuck: true,
+      position: () => -1000,
+      height: () => 10_000 - Math.floor((Date.now() - started) / 100),
+    });
+    const promise = accumulateWhileScrolling(container, () => window, tuning);
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(Date.now() - started).toBeLessThanOrEqual(SCROLL_IDLE_TIMEOUT + 200);
+  });
+
+  it('does not renew idle time for a geometry-only scrollTop clamp', async () => {
+    const started = Date.now();
+    const reduction = () => Math.floor((Date.now() - started) / 100);
+    const { container } = connectedScroller({
+      stuck: true,
+      position: () => 1000 - reduction(),
+      height: () => 1500 - reduction(),
+    });
+    const promise = accumulateWhileScrolling(container, () => window, tuning);
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(false);
+    expect(Date.now() - started).toBeLessThanOrEqual(SCROLL_IDLE_TIMEOUT + 200);
+  });
+
+  it('restarts top stability after a hidden interval', async () => {
+    const { container } = connectedScroller({ maxScroll: 0 });
+    const started = Date.now();
+    setTimeout(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    }, 300);
+    setTimeout(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    }, 500);
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 1,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(700);
+  });
+
+  it('resets continuous visible rest even when a hidden interval falls between polls', async () => {
+    const { container } = connectedScroller({ maxScroll: 0 });
+    const started = Date.now();
+    for (const [at, visibility] of [
+      [250, 'hidden'],
+      [275, 'visible'],
+    ] as const) {
+      setTimeout(() => {
+        Object.defineProperty(document, 'visibilityState', {
+          value: visibility,
+          configurable: true,
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, at);
+    }
+    const added = vi.spyOn(document, 'addEventListener');
+    const removed = vi.spyOn(document, 'removeEventListener');
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 2000,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(2275);
+    const listener = added.mock.calls.find(([type]) => type === 'visibilitychange')?.[1];
+    expect(listener).toBeTypeOf('function');
+    expect(removed).toHaveBeenCalledWith('visibilitychange', listener);
+    added.mockRestore();
+    removed.mockRestore();
+  });
+
+  it('restarts the full settle after leaving the top', async () => {
+    const started = Date.now();
+    const { container } = connectedScroller({
+      maxScroll: 0,
+      stuck: true,
+      position: () => (Date.now() - started >= 700 && Date.now() - started < 1000 ? 1 : 0),
+    });
+    const promise = accumulateWhileScrolling(container, () => window, {
+      ...tuning,
+      topSettleMs: 2000,
+    });
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(3000);
   });
 });
 
@@ -293,6 +947,94 @@ describe('accumulateWhileScrolling', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it.each([
+    { clientHeight: 900, step: 540 },
+    { clientHeight: 100, step: 400 },
+  ])('preserves default step and 400ms polling ($clientHeight px viewport)', async opts => {
+    const { container, harvest } = createVirtualList({ total: 12, windowSize: 4, ...opts });
+    const writes: number[] = [];
+    const descriptor = Object.getOwnPropertyDescriptor(container, 'scrollTop')!;
+    Object.defineProperty(container, 'scrollTop', {
+      ...descriptor,
+      set: (value: number) => {
+        writes.push(value);
+        descriptor.set!.call(container, value);
+      },
+    });
+    const observe = vi.fn(harvest);
+    const promise = accumulateWhileScrolling(container, observe);
+
+    expect(writes).toEqual([container.scrollHeight]);
+    await vi.advanceTimersByTimeAsync(399);
+    expect(observe).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(writes[1]).toBe(10_000 - opts.step);
+    await vi.advanceTimersByTimeAsync(399);
+    expect(observe).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(observe).toHaveBeenCalledTimes(2);
+    await vi.runAllTimersAsync();
+    expect((await promise).fullyLoaded).toBe(true);
+  });
+
+  it('uses per-pass small steps, minimum and polling without changing the defaults', async () => {
+    for (const clientHeight of [900, 100]) {
+      const { container, harvest } = createVirtualList({
+        total: 154,
+        windowSize: 3,
+        clientHeight,
+      });
+      const observe = vi.fn(harvest);
+      const promise = accumulateWhileScrolling(container, observe, {
+        stepFactor: 0.2,
+        minStep: 64,
+        pollIntervalMs: 100,
+      });
+      await vi.advanceTimersByTimeAsync(99);
+      expect(observe).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(container.scrollTop).toBe(10_000 - Math.max(64, clientHeight * 0.2));
+      await vi.runAllTimersAsync();
+      const result = await promise;
+      expect(result.fullyLoaded).toBe(true);
+      expect(result.items).toEqual(Array.from({ length: 154 }, (_, i) => `v${i}`));
+    }
+  });
+
+  it.each([
+    { stepFactor: NaN },
+    { stepFactor: Infinity },
+    { stepFactor: 0 },
+    { stepFactor: -0.2 },
+    { stepFactor: 1.1 },
+    { minStep: NaN },
+    { minStep: Infinity },
+    { minStep: 0 },
+    { minStep: -1 },
+    { minStep: 1.5 },
+    { pollIntervalMs: NaN },
+    { pollIntervalMs: Infinity },
+    { pollIntervalMs: 0 },
+    { pollIntervalMs: -1 },
+    { pollIntervalMs: 0.5 },
+    { pollIntervalMs: 15_000 },
+  ] satisfies AccumulateOptions[])(
+    'rejects unsafe internal tuning before scrolling: %j',
+    async options => {
+      const container = document.createElement('div');
+      const write = vi.fn();
+      Object.defineProperty(container, 'scrollTop', { set: write, configurable: true });
+      const harvest = vi.fn(() => []);
+
+      await expect(accumulateWhileScrolling(container, harvest, options)).rejects.toThrow(
+        'Invalid internal accumulation tuning.'
+      );
+      expect(write).not.toHaveBeenCalled();
+      expect(harvest).not.toHaveBeenCalled();
+    }
+  );
+
   it('reconstructs the true order from the live ChatGPT window trace, without any order index (issue #353)', async () => {
     // ChatGPT turns are keyed by uuid, so the `order` fallback that fixed Claude
     // (#352) is unavailable — the merge itself has to get this right.
@@ -317,6 +1059,52 @@ describe('accumulateWhileScrolling', () => {
 
     expect(result.itemCount).toBe(21);
     expect(result.items).toEqual(Array.from({ length: 21 }, (_, i) => `v${i + 1}`));
+  });
+
+  it('permanently falls back to anchor order after numeric order is invalidated', async () => {
+    const { container, harvest: nextWindow } = createRecordedWindowList([
+      [4, 5],
+      [2, 3, 5],
+      [0, 1],
+    ]);
+    let harvestCount = 0;
+    const harvest = () => {
+      const currentHarvest = harvestCount++;
+      return nextWindow().map(entry => ({
+        ...entry,
+        order: Number(entry.key.slice(1)),
+        ...(currentHarvest === 2 ? { invalidateOrder: true as const } : {}),
+      }));
+    };
+
+    const promise = accumulateWhileScrolling(container, harvest);
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.items).toEqual(['v0', 'v1', 'v2', 'v3', 'v4', 'v5']);
+  });
+
+  it('clears prior indices even when the invalidating window adds no keys', async () => {
+    const { container, harvest: nextWindow } = createRecordedWindowList([
+      [0, 1, 2],
+      [1, 2],
+      [0, 1, 2],
+    ]);
+    let harvestCount = 0;
+    const harvest = () => {
+      const currentHarvest = harvestCount++;
+      return nextWindow().map((entry, index, window) => ({
+        ...entry,
+        order: currentHarvest < 2 ? Number(entry.key.slice(1)) : window.length - index,
+        ...(currentHarvest === 1 ? { invalidateOrder: true as const } : {}),
+      }));
+    };
+
+    const promise = accumulateWhileScrolling(container, harvest);
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.items).toEqual(['v0', 'v1', 'v2']);
   });
 
   it('orders turns by their monotonic index when the tail never evicts (issue #352)', async () => {

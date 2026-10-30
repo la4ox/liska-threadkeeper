@@ -40,8 +40,13 @@ Schema 1 has a closed allowlist:
   dismissed, unrecognized, or absent frame does not qualify and never proves
   that the conversation has no Artifacts;
 - `history-load-partial` — the configured history loader explicitly reached a
-  partial outcome. Disabled loading, a missing loader configuration, a missing
-  container, or an unknown outcome does not qualify.
+  partial outcome. For Claude this includes an observed indexed-row gap,
+  duplicate/conflicting/noncanonical stable UUID, tail or relative-order
+  conflict, unsupported row, unresolved older-history marker, container
+  replacement failure or bounded traversal timeout. Claude's identical marker
+  shape does not qualify when it sits between or after indexed rows and denotes
+  only a later-history virtualization gap. Disabled loading, a missing loader
+  configuration, a missing container, or an unknown outcome does not qualify.
 - `image-capture-failed` — at least one identified image capture was attempted
   and failed. Intentionally disabled image export, Clipboard image omission,
   and a later destination write failure are different conditions.
@@ -92,7 +97,8 @@ It does not claim comprehensive export-loss reporting. In particular:
 - current Claude document-Artifact acquisition would require a separately
   reviewed optional frame permission, freshness proof, bounded parser and
   destination-honest companion contract;
-- a current-completeness assessment would require a separate contract.
+- providers without Claude's exact stable-identity/tail proof still require a
+  separate current-completeness contract.
 
 Those cases must not be inferred from schema-1 codes.
 

@@ -177,10 +177,32 @@ export interface HarvestEntry<T> {
    * merge (issues #352, #353).
    */
   order?: number;
+  /**
+   * Permanently discard numeric-order evidence for this accumulation pass.
+   * Providers set this when an invariant that made earlier indices comparable
+   * fails; the DOM-anchor merge remains the safe ordering fallback.
+   */
+  invalidateOrder?: true;
 }
 
 /** Platform-specific tuning for one virtualized accumulation pass. */
 export interface AccumulateOptions {
+  /** Re-resolve the same exact provider scroll-root policy during a pass. */
+  readonly resolveContainer?: () => HTMLElement | null;
+  /** Positive, finite rebind budget; required when resolveContainer is supplied. */
+  readonly maxContainerRebinds?: number;
+  /** Provider-owned synchronous first-step prime with an explicit per-root bound. */
+  readonly primeWithRelativeTopNudge?: (container: HTMLElement, step: number) => void;
+  /** Exact per-root prime attempt bound; 1..2 when a callback is supplied. */
+  readonly maxRelativeTopNudgesPerRoot?: number;
+  /** Provider proof that no older-history marker remains at the visible top. */
+  readonly canCompleteAtTop?: (container: HTMLElement) => boolean;
+  /** Fraction of the viewport per upward step (default 0.6). */
+  readonly stepFactor?: number;
+  /** Minimum upward step in pixels (default 400). */
+  readonly minStep?: number;
+  /** Rest after each scroll, including the initial bottom pin (default 400ms). */
+  readonly pollIntervalMs?: number;
   /**
    * Required visible rest at the oldest/top edge before completion. Platforms
    * that load another page only after reaching the top use this to avoid a
@@ -308,72 +330,236 @@ function dedupeKeys(keys: readonly string[]): string[] {
  */
 export async function accumulateWhileScrolling<T>(
   container: HTMLElement,
-  harvest: () => HarvestEntry<T>[],
+  harvest: (container: HTMLElement) => HarvestEntry<T>[],
   options: AccumulateOptions = {}
 ): Promise<AccumulateResult<T>> {
+  const tuning = accumulationTuning(options);
+  const accumulation = createAccumulation(harvest);
+  const active = createAccumulationContainer(container, options, tuning);
+  const deadline = options.resolveContainer ? newAccumulationDeadline() : undefined;
+
+  // Pin once per initial root, waiting again if the provider replaces it before
+  // the first harvest. No detached seed window may enter the accumulated maps.
+  if (!(await seedAccumulation(active, tuning.pollIntervalMs, deadline))) {
+    return accumulationResult(accumulation, { fullyLoaded: false, iterations: 0 });
+  }
+  if (accumulation.ingest(active.container) && deadline) deadline.lastProgressTime = Date.now();
+
+  const topSettleMs = options.topSettleMs ?? 0;
+  if (
+    active.axis.distanceFromTop() <= 0 &&
+    topSettleMs <= 0 &&
+    active.canCompleteAtTop === undefined
+  ) {
+    console.info('[G2O] No scroll range on open, conversation fits without scrolling');
+    return accumulationResult(accumulation, { fullyLoaded: true, iterations: 0 }, true);
+  }
+
+  console.info(
+    `[G2O] Virtualized conversation — scrollTop=${active.container.scrollTop}, ` +
+      `${accumulation.count()} turns mounted, accumulating by scrolling up`
+  );
+  active.step = accumulationStep(active.container, tuning);
+  const outcome = await scrollUpUntilStable(
+    active,
+    topSettleMs,
+    tuning.pollIntervalMs,
+    accumulation.ingest,
+    deadline
+  );
+  logAccumulation(outcome.fullyLoaded, accumulation.count(), outcome.iterations);
+  return accumulationResult(accumulation, outcome);
+}
+
+interface Accumulation<T> {
+  ingest(container: HTMLElement): boolean;
+  items(): T[];
+  count(): number;
+}
+
+/** One pass owns these maps, independently of provider root replacements. */
+function createAccumulation<T>(
+  harvest: (container: HTMLElement) => HarvestEntry<T>[]
+): Accumulation<T> {
   const content = new Map<string, T>();
   const orderIndex = new Map<string, number>();
+  let numericOrderTrusted = true;
   let order: string[] = [];
 
-  const ingest = (): void => {
-    const window = harvest();
+  const ingest = (container: HTMLElement): boolean => {
+    const before = content.size;
+    const window = harvest(container);
+    if (numericOrderTrusted && window.some(entry => entry.invalidateOrder)) {
+      // Anchor stitching can hold a temporary tail-overlap order while numeric
+      // evidence is still the authoritative final view. Freeze that trusted
+      // view before discarding the indices for the rest of the pass.
+      order = resolveOrder(order, orderIndex);
+      numericOrderTrusted = false;
+      orderIndex.clear();
+    }
     for (const entry of window) {
       content.set(entry.key, entry.value); // last write wins → freshest content
-      if (entry.order !== undefined) orderIndex.set(entry.key, entry.order);
+      if (numericOrderTrusted && entry.order !== undefined) {
+        orderIndex.set(entry.key, entry.order);
+      }
     }
     order = mergeWindow(
       order,
       window.map(e => e.key)
     );
+    return content.size > before;
   };
 
-  const toItems = (): T[] => resolveOrder(order, orderIndex).map(key => content.get(key) as T);
-  const axis = createScrollAxis(container);
-
-  // Seed at the true bottom so the newest turns are mounted before harvesting.
-  // Sync may start with the view scrolled up (issue #348): the last turn is then
-  // below the fold and unmounted, and because we only ever scroll *up* from the
-  // seed, an unmounted tail would be lost forever. Jumping to scrollHeight first
-  // pins the newest window; a conversation that fits has no scroll range and
-  // stays at the top, so the skip path below still applies.
-  axis.pinBottom();
-  await delay(SCROLL_ACCUMULATE_POLL_INTERVAL);
-  ingest();
-
-  const topSettleMs = options.topSettleMs ?? 0;
-  if (axis.distanceFromTop() <= 0 && topSettleMs <= 0) {
-    console.info('[G2O] No scroll range on open, conversation fits without scrolling');
-    return {
-      items: toItems(),
-      fullyLoaded: true,
-      itemCount: content.size,
-      iterations: 0,
-      skipped: true,
-    };
-  }
-
-  console.info(
-    `[G2O] Virtualized conversation — scrollTop=${container.scrollTop}, ` +
-      `${content.size} turns mounted, accumulating by scrolling up`
-  );
-
-  const step = accumulationStep(container);
-
-  const { iterations, fullyLoaded } = await scrollUpUntilStable(axis, step, topSettleMs, () => {
-    const before = content.size;
-    ingest();
-    return content.size > before;
-  });
-
-  logAccumulation(fullyLoaded, content.size, iterations);
-  return { items: toItems(), fullyLoaded, itemCount: content.size, iterations, skipped: false };
+  return {
+    ingest,
+    items: () => resolveOrder(order, orderIndex).map(key => content.get(key) as T),
+    count: () => content.size,
+  };
 }
 
-function accumulationStep(container: HTMLElement): number {
-  return Math.max(
-    SCROLL_ACCUMULATE_MIN_STEP,
-    Math.floor(container.clientHeight * SCROLL_ACCUMULATE_STEP_FACTOR)
-  );
+function accumulationResult<T>(
+  accumulation: Accumulation<T>,
+  outcome: { fullyLoaded: boolean; iterations: number },
+  skipped = false
+): AccumulateResult<T> {
+  return {
+    items: accumulation.items(),
+    fullyLoaded: outcome.fullyLoaded,
+    itemCount: accumulation.count(),
+    iterations: outcome.iterations,
+    skipped,
+  };
+}
+
+interface AccumulationTuning {
+  readonly stepFactor: number;
+  readonly minStep: number;
+  readonly pollIntervalMs: number;
+  readonly relativeTopNudgeAttempts: number;
+}
+
+/** Internal provider tuning only; reject unsafe values before touching the DOM. */
+function accumulationTuning(options: AccumulateOptions): AccumulationTuning {
+  const stepFactor = options.stepFactor ?? SCROLL_ACCUMULATE_STEP_FACTOR;
+  const minStep = options.minStep ?? SCROLL_ACCUMULATE_MIN_STEP;
+  const pollIntervalMs = options.pollIntervalMs ?? SCROLL_ACCUMULATE_POLL_INTERVAL;
+  if (
+    !Number.isFinite(stepFactor) ||
+    stepFactor <= 0 ||
+    stepFactor > 1 ||
+    !Number.isSafeInteger(minStep) ||
+    minStep <= 0 ||
+    !Number.isSafeInteger(pollIntervalMs) ||
+    pollIntervalMs <= 0 ||
+    pollIntervalMs >= SCROLL_IDLE_TIMEOUT
+  ) {
+    throw new RangeError('Invalid internal accumulation tuning.');
+  }
+  validateContainerRebindLimit(options);
+  return {
+    stepFactor,
+    minStep,
+    pollIntervalMs,
+    relativeTopNudgeAttempts: validateRelativeTopNudgeLimit(options),
+  };
+}
+
+function validateContainerRebindLimit(options: AccumulateOptions): void {
+  if (!options.resolveContainer) return;
+  if (
+    !Number.isSafeInteger(options.maxContainerRebinds) ||
+    (options.maxContainerRebinds ?? 0) <= 0
+  ) {
+    throw new RangeError('Invalid internal container rebind limit.');
+  }
+}
+
+function validateRelativeTopNudgeLimit(options: AccumulateOptions): number {
+  const hasCallback = typeof options.primeWithRelativeTopNudge === 'function';
+  const attempts = options.maxRelativeTopNudgesPerRoot ?? 0;
+  if (
+    !Number.isSafeInteger(attempts) ||
+    attempts < 0 ||
+    attempts > 2 ||
+    (hasCallback ? attempts === 0 : attempts !== 0)
+  ) {
+    throw new RangeError('Invalid internal relative top-nudge limit.');
+  }
+  return attempts;
+}
+
+function accumulationStep(container: HTMLElement, tuning: AccumulationTuning): number {
+  return Math.max(tuning.minStep, Math.floor(container.clientHeight * tuning.stepFactor));
+}
+
+interface AccumulationContainer {
+  container: HTMLElement;
+  axis: ScrollAxis;
+  step: number;
+  revision: number;
+  relativeTopNudgesRemaining: number;
+  relativeTopNudgeLimit: number;
+  relativeTopNudge?: (container: HTMLElement, step: number) => void;
+  canCompleteAtTop?: (container: HTMLElement) => boolean;
+  refresh(): boolean;
+}
+
+function createAccumulationContainer(
+  container: HTMLElement,
+  options: AccumulateOptions,
+  tuning: AccumulationTuning
+): AccumulationContainer {
+  const active: AccumulationContainer = {
+    container,
+    axis: createScrollAxis(container),
+    step: 0,
+    revision: 0,
+    relativeTopNudgesRemaining: tuning.relativeTopNudgeAttempts,
+    relativeTopNudgeLimit: tuning.relativeTopNudgeAttempts,
+    relativeTopNudge: options.primeWithRelativeTopNudge,
+    canCompleteAtTop: options.canCompleteAtTop,
+    refresh: () => {
+      if (!options.resolveContainer) return true;
+      const candidate = options.resolveContainer();
+      if (!candidate?.isConnected) return false;
+      if (candidate !== active.container) {
+        if (active.revision >= (options.maxContainerRebinds as number)) return false;
+        active.container = candidate;
+        active.axis = createScrollAxis(candidate);
+        active.step = accumulationStep(candidate, tuning);
+        active.revision++;
+        active.relativeTopNudgesRemaining = active.relativeTopNudgeLimit;
+      }
+      return true;
+    },
+  };
+  return active;
+}
+
+interface AccumulationDeadline {
+  startTime: number;
+  lastProgressTime: number;
+}
+
+function newAccumulationDeadline(): AccumulationDeadline {
+  const startTime = Date.now();
+  return { startTime, lastProgressTime: startTime };
+}
+
+async function seedAccumulation(
+  active: AccumulationContainer,
+  pollIntervalMs: number,
+  deadline?: AccumulationDeadline
+): Promise<boolean> {
+  while (!deadline || withinDeadline(deadline.startTime, deadline.lastProgressTime)) {
+    if (!active.refresh()) return false;
+    const revision = active.revision;
+    active.axis.pinBottom();
+    await delay(pollIntervalMs);
+    if (!active.refresh()) return false;
+    if (active.revision === revision) return true;
+  }
+  return false;
 }
 
 /** Log the outcome of an upward accumulation pass (stabilized vs timed out). */
@@ -417,47 +603,158 @@ function logAccumulation(fullyLoaded: boolean, turns: number, iterations: number
  *   accumulated set. Invoked once per iteration after each scroll settles.
  */
 async function scrollUpUntilStable(
-  axis: ScrollAxis,
-  step: number,
+  active: AccumulationContainer,
   topSettleMs: number,
-  onWindow: () => boolean
+  pollIntervalMs: number,
+  onWindow: (container: HTMLElement) => boolean,
+  deadline = newAccumulationDeadline()
 ): Promise<{ iterations: number; fullyLoaded: boolean }> {
-  let stable = 0;
   let iterations = 0;
-  const startTime = Date.now();
-  let lastProgressTime = startTime;
-  let atTopSince: number | null = null;
+  const stability: TopStability = {
+    stable: 0,
+    since: null,
+    scrollHeight: active.container.scrollHeight,
+    clientHeight: active.container.clientHeight,
+  };
+  const resetVisibility = (): void => {
+    stability.stable = 0;
+    stability.since = null;
+  };
+  // Visibility may change twice between polls (or while background timers are
+  // throttled). Such an interval must break continuous visible rest as well.
+  document.addEventListener('visibilitychange', resetVisibility);
+  try {
+    while (withinDeadline(deadline.startTime, deadline.lastProgressTime)) {
+      const sample = await pollAccumulationWindow(active, pollIntervalMs, onWindow);
+      iterations++;
+      if (!sample) return { iterations, fullyLoaded: false };
 
-  while (withinDeadline(startTime, lastProgressTime)) {
-    const before = axis.distanceFromTop();
-    const wasAtTop = before <= 0;
-    axis.scrollToDistance(Math.max(0, before - step));
-    await delay(SCROLL_ACCUMULATE_POLL_INTERVAL);
-
-    const grew = onWindow();
-    const after = axis.distanceFromTop();
-    const moved = before - after;
-    iterations++;
-
-    console.debug(
-      `[G2O] Accumulate iteration ${iterations}: distanceFromTop=${after}, ` +
-        `moved=${moved}, newTurns=${grew}`
-    );
-
-    if (grew || moved > 0) {
-      lastProgressTime = Date.now(); // progress → reset the idle deadline
+      console.debug(
+        `[G2O] Accumulate iteration ${iterations}: distanceFromTop=${sample.after}, ` +
+          `moved=${sample.moved}, newTurns=${sample.grew}`
+      );
+      if (sample.grew || sample.moved > 0) deadline.lastProgressTime = Date.now();
+      if (updateTopStability(stability, sample, topSettleMs)) {
+        return { iterations, fullyLoaded: true };
+      }
     }
-
-    const visible = document.visibilityState !== 'hidden';
-    atTopSince = after <= 0 && visible ? (atTopSince ?? Date.now()) : null;
-    const settled = atTopSince !== null && Date.now() - atTopSince >= topSettleMs;
-
-    if (grew) {
-      stable = 0;
-      atTopSince = null;
-    } else if (wasAtTop && visible && ++stable >= SCROLL_STABILITY_THRESHOLD && settled) {
-      return { iterations, fullyLoaded: true };
-    }
+    return { iterations, fullyLoaded: false };
+  } finally {
+    document.removeEventListener('visibilitychange', resetVisibility);
   }
-  return { iterations, fullyLoaded: false };
+}
+
+interface AccumulationSample {
+  wasAtTop: boolean;
+  after: number;
+  moved: number;
+  grew: boolean;
+  rebound: boolean;
+  scrollHeight: number;
+  clientHeight: number;
+  completionBlocked: boolean;
+}
+
+function completionBlockedAtTop(active: AccumulationContainer, after: number): boolean {
+  if (after > 0 || document.visibilityState === 'hidden' || active.canCompleteAtTop === undefined) {
+    return false;
+  }
+  try {
+    return !active.canCompleteAtTop(active.container);
+  } catch {
+    return true;
+  }
+}
+
+function primeOrScrollAbsolute(active: AccumulationContainer, before: number): boolean {
+  const primed =
+    active.relativeTopNudgesRemaining > 0 && before > 0 && document.visibilityState !== 'hidden';
+  if (!primed) {
+    active.axis.scrollToDistance(Math.max(0, before - active.step));
+    return false;
+  }
+  active.relativeTopNudgesRemaining--;
+  try {
+    active.relativeTopNudge?.(active.container, active.step);
+  } catch {
+    // One attempt is consumed; measured movement remains the only progress.
+  }
+  return true;
+}
+
+async function pollAccumulationWindow(
+  active: AccumulationContainer,
+  pollIntervalMs: number,
+  onWindow: (container: HTMLElement) => boolean
+): Promise<AccumulationSample | null> {
+  const previousRevision = active.revision;
+  if (!active.refresh()) return null;
+  const revision = active.revision;
+  const before = active.axis.distanceFromTop();
+  const beforeScrollTop = active.container.scrollTop;
+  const beforeHeight = active.container.scrollHeight;
+  const beforeViewport = active.container.clientHeight;
+  const primed = primeOrScrollAbsolute(active, before);
+  const commandedMovement = beforeScrollTop - active.container.scrollTop;
+  await delay(pollIntervalMs);
+  if (!active.refresh()) return null;
+  const grew = onWindow(active.container);
+  const scrollHeight = active.container.scrollHeight;
+  const clientHeight = active.container.clientHeight;
+  const geometryChanged = scrollHeight !== beforeHeight || clientHeight !== beforeViewport;
+  const netMovement = beforeScrollTop - active.container.scrollTop;
+  const after = active.axis.distanceFromTop();
+  const moved =
+    active.revision !== revision
+      ? 0
+      : geometryChanged
+        ? Math.min(netMovement, Math.max(0, commandedMovement))
+        : netMovement;
+  if (primed && active.revision === revision && (moved > 0 || after <= 0)) {
+    active.relativeTopNudgesRemaining = 0;
+  }
+  return {
+    wasAtTop: before <= 0,
+    after,
+    // A geometry-induced clamp/anchor shift alone is not commanded travel.
+    moved,
+    grew,
+    rebound: active.revision !== previousRevision,
+    scrollHeight,
+    clientHeight,
+    completionBlocked: completionBlockedAtTop(active, after),
+  };
+}
+
+interface TopStability {
+  stable: number;
+  since: number | null;
+  scrollHeight: number;
+  clientHeight: number;
+}
+
+function updateTopStability(
+  state: TopStability,
+  sample: AccumulationSample,
+  topSettleMs: number
+): boolean {
+  const geometryChanged =
+    sample.scrollHeight !== state.scrollHeight || sample.clientHeight !== state.clientHeight;
+  state.scrollHeight = sample.scrollHeight;
+  state.clientHeight = sample.clientHeight;
+  if (
+    sample.grew ||
+    sample.rebound ||
+    sample.completionBlocked ||
+    sample.after > 0 ||
+    document.visibilityState === 'hidden' ||
+    geometryChanged
+  ) {
+    state.stable = 0;
+    state.since = null;
+    return false;
+  }
+  state.since ??= Date.now();
+  if (sample.wasAtTop) state.stable++;
+  return state.stable >= SCROLL_STABILITY_THRESHOLD && Date.now() - state.since >= topSettleMs;
 }

@@ -3811,3 +3811,76 @@ is retained separately in repository-safe idea thread ITH-001: it requires
 synthetic edit/version freshness proof, packaged-browser permission and replay
 tests, bounded inert parsing, and honest per-destination receipts before
 enablement.
+
+## Claude virtual-history completeness and root-remount checkpoint
+
+The earlier two- and 22-message canaries did not cover Claude's long-history
+loader. A local official export establishes one repository-private canary with
+154 messages: 77 user and 77 assistant. The previously installed Liska build
+saved only 52 messages yet classified that DOM pass as complete. Earlier repair
+attempts retained 51, 6, 55 and 56 messages as honest `partial` snapshots; they
+remain append-only diagnostic evidence rather than failed files to overwrite.
+
+Content-free live observations established the missing identity model. Claude
+loads catalog maxima 31, 63, 95, 127 and 153. Every prepend renumbers the same
+message rows, while the exact user-root UUID suffix, assistant
+`UUID-hub-reply` key and newest assistant tail remain stable. Mutable
+`data-index` is therefore order evidence only. The candidate keys by exact
+role-namespaced UUID, orders by `index - currentCatalogMax`, pins the newest
+tail, and retains bidirectional key/order proof across remounts. Completion
+requires exactly `M + 1` keys occupying every relative order from `-M` through
+zero. Missing, ambiguous, duplicate or conflicting identities, tail change,
+catalog shrink, skipped windows, unsupported renderability or a fallback key
+remain sticky `partial` evidence.
+
+Claude keeps its provider-specific 20%-viewport / 64px / 100ms traversal and a
+five-second visible, geometry-stable top settle. A small static
+`document_start` MAIN-world listener performs only one page-owned relative
+`scrollBy` request on the already selected semantic root; it has no extension,
+storage, extraction or network authority. The isolated-world caller allows at
+most two attempts per root because the first live request disabled Claude's
+sticky behavior without moving. Four bounded root replacements therefore cap
+the operation at ten requests. Same-chat remounts preserve accumulated
+messages, exact-empty evidence and the bounded 16 MiB exact-input tool cache;
+cross-chat navigation fails the whole export before any destination write.
+
+The content-free pending-history button also proved directional. On a cold page
+it precedes the first mounted row and means older history may remain. After the
+full catalog is known, the same shape can sit between rows and represent only a
+later-history virtualization gap. Only the former blocks completion. If the
+older marker disappears without immediate catalog growth, Liska requires five
+seconds of continuous absence before the ordinary five-second top settle may
+complete; reappearance resets that grace. This covers Claude's measured
+roughly-three-second hide/prepend/show transitions without treating the final
+page as a permanently unresolved generation.
+
+The exact final 43-file / 1,191,747-byte build was installed through the
+verified rollback installer with identical source and installed aggregate
+SHA-256 `800ec3e06ffe3813807e5dc17c9d20d3b37597a77c07c7068bc1428bbeedf5a5`.
+From a fresh 26-of-32 mounted page, one ordinary **Bring thread home** gesture,
+with no manual loader click or CDP scroll prime, traversed the full catalog and
+wrote one 134,052-byte Markdown note. It contains 154 boundary markers, exactly
+77 `User` and 77 `Claude` role records, the inert empty assistant boundary at
+ordinal 152, `message_count: 154`, and no `history-load-partial`. The one
+configured Obsidian
+vault contains exactly one same-length candidate with the identical SHA-256
+`8448c94b2dbd39866794dde3b3dcd88a297cd17e66964fe1eb67eabebd51d783`.
+No Claude message was sent and neither the chat nor its attachments were edited.
+
+Focused checks cover the exact 31→63→95→127→153 prepend sequence, stable UUID
+and tail proof, skipped windows, append/shrink conflicts, remounts, exact empty
+assistant state, cache invalidation, marker direction, 4,999ms grace rejection,
+grace reset and full grace-plus-top-settle extraction. TypeScript, formatting,
+diff checks and the guarded production build pass. The exact final Claude
+matrix passes 168/168 tests in 842.38 seconds. The last repository-wide run on
+the same shared manager passed all 239 unchanged files and isolated one Claude
+ordering regression; after that exact correction, the full Claude file passes.
+Combined current-input evidence covers 240 passing files / 8,651 passing tests
+with one file / three tests skipped; current-head CI remains the independent
+single-run gate.
+
+Rendered Claude attachment previews and isolated Artifact companions remain
+separate later slices. This checkpoint proves the bounded transcript traversal
+and destination equality only; it does not claim Artifact-body capture,
+attachment-binary completeness, atomicity against a concurrently edited chat,
+or official-export reconciliation as an automatic product feature.

@@ -468,6 +468,241 @@ describe('BaseExtractor', () => {
       }
     );
 
+    it('retains the initial ID, title and URL across harmless same-ID route decoration', async () => {
+      const originalRoute = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      try {
+        window.history.replaceState({}, '', '/identity-start?view=one#old');
+        class SnapshotExtractor extends HistoryOutcomeExtractor {
+          title = 'Initial title';
+
+          getConversationId(): string | null {
+            return 'stable-id';
+          }
+
+          getTitle(): string {
+            return this.title;
+          }
+
+          protected async collectMessages() {
+            await Promise.resolve();
+            this.title = 'Changed title';
+            window.history.replaceState({}, '', '/other-route?view=two#new');
+            return { messages, domHistoryLoad: 'complete' as const };
+          }
+        }
+        const initialUrl = window.location.href;
+        const result = await new SnapshotExtractor('complete').extract();
+
+        expect(result.success).toBe(true);
+        expect(result.data).toMatchObject({
+          id: 'stable-id',
+          title: 'Initial title',
+          url: initialUrl,
+        });
+      } finally {
+        window.history.replaceState({}, '', originalRoute);
+      }
+    });
+
+    it('derives an opted-in fallback title from the accumulated first user message', async () => {
+      document.title = 'ChatGPT';
+      class AccumulatedTitleExtractor extends HistoryOutcomeExtractor {
+        protected override readonly titleUsesFirstUserFallback = true;
+
+        getTitle(): string {
+          return 'Recent mounted question';
+        }
+
+        protected async collectMessages() {
+          return {
+            messages: [
+              { id: 'oldest', role: 'user' as const, content: 'Actual first question', index: 0 },
+              { id: 'answer', role: 'assistant' as const, content: 'Answer', index: 1 },
+            ],
+            domHistoryLoad: 'complete' as const,
+          };
+        }
+      }
+
+      const result = await new AccumulatedTitleExtractor('complete').extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.title).toBe('Actual first question');
+    });
+
+    it('keeps an opted-in authoritative page title across collection', async () => {
+      document.title = 'Pinned page title - ChatGPT';
+      class AuthoritativeTitleExtractor extends HistoryOutcomeExtractor {
+        protected override readonly titleUsesFirstUserFallback = true;
+
+        getTitle(): string {
+          return this.testGetPageTitle() ?? 'Recent mounted question';
+        }
+
+        protected async collectMessages() {
+          document.title = 'Changed page title - ChatGPT';
+          return { messages, domHistoryLoad: 'complete' as const };
+        }
+      }
+
+      const result = await new AuthoritativeTitleExtractor('complete').extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.title).toBe('Pinned page title');
+    });
+
+    it('fails without data when the stable conversation ID changes after collection', async () => {
+      class NavigatingExtractor extends HistoryOutcomeExtractor {
+        id = 'conversation-a';
+
+        getConversationId(): string | null {
+          return this.id;
+        }
+
+        protected async collectMessages() {
+          await Promise.resolve();
+          this.id = 'conversation-b';
+          return {
+            messages,
+            domHistoryLoad: 'partial' as const,
+            warning: 'private warning must not escape',
+          };
+        }
+      }
+      const result = await new NavigatingExtractor('complete').extract();
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Conversation changed during extraction. No output was created.',
+      });
+      expect(result).not.toHaveProperty('data');
+      expect(result).not.toHaveProperty('warnings');
+    });
+
+    it('fails closed on route drift when no stable provider ID exists', async () => {
+      const originalRoute = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      try {
+        window.history.replaceState({}, '', '/route-a?view=one#old');
+        class IdlessExtractor extends HistoryOutcomeExtractor {
+          getConversationId(): string | null {
+            return null;
+          }
+
+          protected async collectMessages() {
+            await Promise.resolve();
+            window.history.replaceState({}, '', '/route-b?view=one#old');
+            return { messages, domHistoryLoad: 'complete' as const };
+          }
+        }
+        const result = await new IdlessExtractor('complete').extract();
+
+        expect(result).toEqual({
+          success: false,
+          error: 'Conversation changed during extraction. No output was created.',
+        });
+      } finally {
+        window.history.replaceState({}, '', originalRoute);
+      }
+    });
+
+    it('copies a shared builder result and preserves existing warnings and durable diagnostics', async () => {
+      extractor.extractMessages = () => messages;
+      const shared = await extractor.extract();
+      shared.data!.liskaLossDiagnostics = ['claude-artifact-content-omitted'];
+      shared.warnings = ['Existing warning'];
+      Object.freeze(shared.data!.liskaLossDiagnostics);
+      Object.freeze(shared.data);
+      Object.freeze(shared.warnings);
+      Object.freeze(shared);
+
+      class SharedResultExtractor extends HistoryOutcomeExtractor {
+        protected buildConversationResult(): ExtractionResult {
+          return shared;
+        }
+      }
+      const result = await new SharedResultExtractor('partial').extract();
+
+      expect(result.success).toBe(true);
+      expect(result).not.toBe(shared);
+      expect(result.data).not.toBe(shared.data);
+      expect(result.data?.domHistoryLoad).toBe('partial');
+      expect(result.data?.liskaLossDiagnostics).toEqual([
+        'claude-artifact-content-omitted',
+        'history-load-partial',
+      ]);
+      expect(result.warnings).toEqual([
+        'Existing warning',
+        'Some earlier messages may be missing: private diagnostic details',
+      ]);
+      expect(shared.data?.domHistoryLoad).toBe('unknown');
+      expect(shared.data?.liskaLossDiagnostics).toEqual(['claude-artifact-content-omitted']);
+      expect(shared.warnings).toEqual(['Existing warning']);
+    });
+
+    it('forwards the exact-root resolver and harvests its active replacement', async () => {
+      vi.useFakeTimers();
+      try {
+        document.body.innerHTML = '<div id="first-scroll-root" class="current-scroll-root"></div>';
+        const first = document.getElementById('first-scroll-root')!;
+        const replacement = document.createElement('div');
+        replacement.className = 'current-scroll-root';
+        let replacementScrollTop = 300;
+        Object.defineProperties(replacement, {
+          clientHeight: { value: 100, configurable: true },
+          scrollHeight: { value: 400, configurable: true },
+          scrollTop: {
+            configurable: true,
+            get: () => replacementScrollTop,
+            set: (value: number) => {
+              replacementScrollTop = Math.max(0, Math.min(300, value));
+            },
+          },
+        });
+        const nudge = vi.fn();
+        Object.defineProperty(replacement, 'scrollBy', { value: nudge, configurable: true });
+        const harvested: HTMLElement[] = [];
+        class RebindingExtractor extends TestExtractor {
+          protected getScrollConfig(): ScrollConfig {
+            return {
+              container: ['#first-scroll-root'],
+              resolveContainer: () => document.querySelector<HTMLElement>('.current-scroll-root'),
+              maxContainerRebinds: 4,
+              pollIntervalMs: 100,
+              topSettleMs: 100,
+              primeWithRelativeTopNudge: (active, step) => {
+                nudge(active, step);
+              },
+              maxRelativeTopNudgesPerRoot: 1,
+              harvest: active => {
+                harvested.push(active);
+                return messages.map((message, order) => ({
+                  key: message.id,
+                  value: message,
+                  order,
+                }));
+              },
+            };
+          }
+        }
+        setTimeout(() => first.replaceWith(replacement), 50);
+        const target = new RebindingExtractor();
+        target.enableAutoScroll = true;
+        const promise = target.extract();
+        await vi.runAllTimersAsync();
+        const result = await promise;
+
+        expect(result.success).toBe(true);
+        expect(result.data?.domHistoryLoad).toBe('complete');
+        expect(result.data?.messages).toEqual(messages);
+        expect(harvested.length).toBeGreaterThan(1);
+        expect(harvested.every(active => active === replacement)).toBe(true);
+        expect(nudge).toHaveBeenCalledTimes(1);
+        expect(result.warnings).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it.each(['disabled', 'unconfigured', 'missing-container'] as const)(
       'does not infer a historical loss when scrolling is %s',
       async mode => {
