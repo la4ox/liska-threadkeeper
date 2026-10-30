@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   activeAsset: vi.fn(),
   interpreterResolver: vi.fn(),
   binaryStage: vi.fn(),
+  archiveStage: vi.fn(),
   fetchImage: vi.fn(),
   getSettings: vi.fn(),
   migrateSettings: vi.fn(),
@@ -86,11 +87,21 @@ vi.mock('../../src/background/binary-asset-handlers', () => ({
   handleStagedBinaryAssetMessage: (...args: unknown[]) => mocks.binaryStage(...args),
 }));
 
+vi.mock('../../src/background/archive-stage-handlers', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/background/archive-stage-handlers')>();
+  return {
+    ...actual,
+    handleArchiveStageMessage: (...args: unknown[]) => mocks.archiveStage(...args),
+  };
+});
+
 vi.mock('../../src/background/image-fetch', () => ({
   handleFetchImage: (...args: unknown[]) => mocks.fetchImage(...args),
 }));
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
+const STAGE_ID = `archive-stage-${'A'.repeat(32)}`;
 const TARGET = {
   conversationId: CONVERSATION_ID,
   pathname: `/c/${CONVERSATION_ID}`,
@@ -119,6 +130,21 @@ function captureArtifact() {
 function opaqueReplayArtifact() {
   const { transport: _transport, ...artifact } = captureArtifact();
   return artifact;
+}
+
+function stagedOpaqueReplayArtifact() {
+  return {
+    transport: 'staged',
+    stageId: STAGE_ID,
+    kind: 'raw',
+    relativePath: 'responses/conversation.json',
+    byteLength: 16 * 1024 * 1024 + 1,
+    sha256: 'a'.repeat(64),
+    mediaType: 'application/json',
+    endpoint: CHATGPT_CAPTURE_ENDPOINT,
+    routeFamily: 'standard',
+    transientAssetResolvers: [],
+  };
 }
 
 function invokeCapture(sendResponse = vi.fn()): ReturnType<typeof vi.fn> {
@@ -253,6 +279,7 @@ describe('ChatGPT capture service-worker route', () => {
       },
     });
     mocks.binaryStage.mockResolvedValue({ success: true });
+    mocks.archiveStage.mockReset().mockResolvedValue({ success: true });
     mocks.fetchImage.mockResolvedValue({ success: true, data: 'AA==', mimeType: 'image/png' });
     setScriptingPermission(true);
     vi.mocked(chrome.runtime.onMessage.addListener).mockImplementation(listener => {
@@ -329,7 +356,7 @@ describe('ChatGPT capture service-worker route', () => {
         )
       ).toBe(true);
       await vi.waitFor(() => expect(replayed).toHaveBeenCalledOnce());
-      expect(mocks.replay).toHaveBeenLastCalledWith(target);
+      expect(mocks.replay).toHaveBeenLastCalledWith(target, { transportMode: 'staged-v2' });
       for (const response of [captured, replayed]) {
         expect(response.mock.calls[0][0]).toMatchObject({ success: true, data: { routeFamily } });
         expect(JSON.stringify(response.mock.calls)).not.toContain(slug);
@@ -459,6 +486,7 @@ describe('ChatGPT capture service-worker route', () => {
   afterEach(() => {
     delete (chrome as unknown as { permissions?: unknown }).permissions;
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('captures without reading settings and serializes only the allowlisted artifact', async () => {
@@ -547,11 +575,165 @@ describe('ChatGPT capture service-worker route', () => {
     const sendResponse = invokeOpaqueReplay();
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
-    expect(mocks.replay).toHaveBeenCalledWith(TARGET);
+    expect(mocks.replay).toHaveBeenCalledWith(TARGET, { transportMode: 'staged-v2' });
     expect(mocks.capture).not.toHaveBeenCalled();
     expect(mocks.probe).not.toHaveBeenCalled();
     expect(mocks.getSettings).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith({ success: true, data: opaqueReplayArtifact() });
+    expect(mocks.archiveStage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['standard', `/c/${CONVERSATION_ID}`],
+    ['custom-gpt', `/g/private-owner/c/${CONVERSATION_ID}`],
+    ['project', `/g/g-p-private-project/c/${CONVERSATION_ID}`],
+  ] as const)(
+    'accepts a sealed staged %s replay without cleanup or other routes',
+    async (routeFamily, pathname) => {
+      const response = { success: true, data: { ...stagedOpaqueReplayArtifact(), routeFamily } };
+      mocks.replay.mockResolvedValueOnce(response);
+      const sendResponse = vi.fn();
+      expect(
+        capturedListener(
+          { action: 'captureChatGptConversationViaOpaqueReplay', conversationId: CONVERSATION_ID },
+          { tab: { url: `https://chatgpt.com${pathname}` } } as chrome.runtime.MessageSender,
+          sendResponse
+        )
+      ).toBe(true);
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledExactlyOnceWith(response));
+      expect(mocks.replay).toHaveBeenCalledExactlyOnceWith(
+        { ...TARGET, pathname, routeFamily },
+        { transportMode: 'staged-v2' }
+      );
+      expect(mocks.archiveStage).not.toHaveBeenCalled();
+      expect(mocks.capture).not.toHaveBeenCalled();
+      expect(mocks.probe).not.toHaveBeenCalled();
+      expect(mocks.getSettings).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['family', 'outer envelope', 'validator exception'] as const)(
+    'exact-aborts a validated staged artifact rejected for %s',
+    async rejection => {
+      const response = { success: true, data: stagedOpaqueReplayArtifact() };
+      if (rejection === 'family') response.data.routeFamily = 'project';
+      const rejected =
+        rejection === 'outer envelope'
+          ? { ...response, extra: 'private-diagnostic' }
+          : rejection === 'validator exception'
+            ? new Proxy(response, {
+                ownKeys() {
+                  throw new Error('private validator diagnostic');
+                },
+              })
+            : response;
+      mocks.replay.mockResolvedValueOnce(rejected);
+      const sendResponse = invokeOpaqueReplay();
+
+      await vi.waitFor(() =>
+        expect(sendResponse).toHaveBeenCalledExactlyOnceWith(
+          createChatGptOpaqueReplayFailure('replay-result-invalid')
+        )
+      );
+      expect(mocks.archiveStage).toHaveBeenCalledExactlyOnceWith({
+        action: 'abortStagedArchiveArtifact',
+        source: 'chatgpt',
+        stageId: STAGE_ID,
+      });
+      expect(mocks.replay).toHaveBeenCalledOnce();
+      expect(mocks.capture).not.toHaveBeenCalled();
+      expect(mocks.probe).not.toHaveBeenCalled();
+      expect(mocks.getSettings).not.toHaveBeenCalled();
+      expect(JSON.stringify(sendResponse.mock.calls)).not.toContain('private');
+    }
+  );
+
+  it.each(['throw', 'reject', 'failure'] as const)(
+    'contains rejected-stage cleanup %s without fallback',
+    async cleanup => {
+      mocks.replay.mockResolvedValueOnce({
+        success: true,
+        data: {
+          ...stagedOpaqueReplayArtifact(),
+          routeFamily: 'project',
+        },
+      });
+      mocks.archiveStage.mockImplementationOnce(() => {
+        if (cleanup === 'throw') throw new Error('private cleanup diagnostic');
+        if (cleanup === 'reject') return Promise.reject(new Error('private cleanup diagnostic'));
+        return { success: false, error: 'private cleanup diagnostic' };
+      });
+      const sendResponse = invokeOpaqueReplay();
+
+      await vi.waitFor(() =>
+        expect(sendResponse).toHaveBeenCalledExactlyOnceWith(
+          createChatGptOpaqueReplayFailure('replay-result-invalid')
+        )
+      );
+      expect(mocks.archiveStage).toHaveBeenCalledOnce();
+      expect(mocks.replay).toHaveBeenCalledOnce();
+      expect(mocks.capture).not.toHaveBeenCalled();
+      expect(mocks.probe).not.toHaveBeenCalled();
+      expect(mocks.getSettings).not.toHaveBeenCalled();
+    }
+  );
+
+  it('bounds pending rejected-stage cleanup and contains its late rejection', async () => {
+    vi.useFakeTimers();
+    mocks.replay.mockResolvedValueOnce({
+      success: true,
+      data: {
+        ...stagedOpaqueReplayArtifact(),
+        routeFamily: 'project',
+      },
+    });
+    let rejectCleanup!: (reason: unknown) => void;
+    mocks.archiveStage.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectCleanup = reject;
+      })
+    );
+    const sendResponse = invokeOpaqueReplay();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.archiveStage).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(499);
+    expect(sendResponse).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sendResponse).toHaveBeenCalledExactlyOnceWith(
+      createChatGptOpaqueReplayFailure('replay-result-invalid')
+    );
+
+    rejectCleanup(new Error('private late cleanup diagnostic'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    { success: true, data: { transport: 'staged', stageId: STAGE_ID } },
+    {
+      success: true,
+      data: { ...stagedOpaqueReplayArtifact(), relativePath: 'page-selected.json' },
+    },
+    {
+      success: true,
+      data: { ...stagedOpaqueReplayArtifact(), transportVersion: 1, chunkCount: 33 },
+    },
+    {
+      success: true,
+      data: { ...stagedOpaqueReplayArtifact(), transientAssetResolvers: [{ secret: 'private' }] },
+    },
+    { success: false, code: 'replay-result-invalid', singularDispatchCount: 0, stageId: STAGE_ID },
+  ])('never aborts a naked or unvalidated staged identifier %#', async response => {
+    mocks.replay.mockResolvedValueOnce(response);
+    const sendResponse = invokeOpaqueReplay();
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledExactlyOnceWith(
+        createChatGptOpaqueReplayFailure('replay-result-invalid')
+      )
+    );
+    expect(mocks.archiveStage).not.toHaveBeenCalled();
   });
 
   it('fails opaque replay before dispatch when scripting is unavailable', async () => {

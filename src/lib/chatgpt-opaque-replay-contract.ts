@@ -288,7 +288,7 @@ function isExactEmptyResolverList(value: unknown): value is [] {
   }
 }
 
-/** Validate the replay core result before it can be adapted by any future route. */
+/** Validate the replay core result before the explicit runtime route can adapt it. */
 export function isChatGptOpaqueReplayArtifact(
   value: unknown
 ): value is ChatGptOpaqueReplayArtifact {
@@ -367,7 +367,7 @@ export function createChatGptOpaqueReplayFailure(
   return { success: false, code, singularDispatchCount };
 }
 
-/** Exact response validation for future callers; no message/UI integration exists yet. */
+/** Exact response validation shared by the core's runtime and content boundaries. */
 export function isChatGptOpaqueReplayResponse(
   value: unknown
 ): value is ChatGptOpaqueReplayResponse {
