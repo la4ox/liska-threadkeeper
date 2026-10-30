@@ -3536,3 +3536,60 @@ statements, 91.63% branches, 98.47% functions and 97.45% lines. The real unpadde
 provider gate remains open: the largest retained real raw inspected locally is
 13,117,554 bytes, while larger retained files are canonical derivatives rather
 than raw ingress evidence.
+
+## ChatGPT staged opaque-replay integration candidate checkpoint
+
+Branch `codex/chatgpt-staged-opaque-replay-integration` starts from merged main
+`37d23d3`. The existing `captureChatGptConversationViaOpaqueReplay` action and
+sender-derived target remain unchanged, but its service-worker handler now
+selects the reviewed `staged-v2` core. The core default remains legacy inline for
+every caller that omits the internal selector. MAIN still emits the established
+inline capture shape at and below 16 MiB; only a larger replay response may cross
+as the versioned staged metadata and extension-owned raw descriptor.
+
+Content no longer spreads replay artifacts into the ordinary capture contract.
+It allowlists the exact inline or staged fields and strips replay-only `kind`,
+`relativePath`, transport-version/chunk metadata and staged `bodyBase64` before
+the existing capture validator. Ownership transfers only when the existing
+pipeline actually invokes its injected `requestCapture` callback. Adaptation or
+pre-transfer failure exact-aborts a validated staged result, while downstream
+normalization/projection errors retain any loss-aware raw companion and are not
+blanket-cleaned by the wrapper.
+
+The runtime-message timeout now claims terminal state before rejection. A late
+strict staged success is never delivered to either pipeline or retried; it gets
+one bounded exact-stage cleanup whose throw, rejection or non-settlement cannot
+replace the fixed timeout outcome. The service worker similarly keeps ownership
+until both the replay envelope and route family are accepted. Wrong-family or
+malformed outer results clean only a fully validated staged artifact; an
+untrusted naked stage ID never grants cleanup authority. Both content and worker
+cleanup waits are capped at 500 ms, with bounded stale pruning remaining the
+fallback if a context disappears.
+
+A fresh installed forced-replay smoke on an ordinary real ChatGPT conversation
+closed the sub-16 MiB compatibility gate. File and Obsidian each retained the
+same three companions: 2,684,770-byte raw SHA-256 `5e8a8244...638812`,
+1,884-byte manifest SHA-256 `4d8ce024...1629ed`, and 4,435,132-byte canonical
+SHA-256 `17a0a108...558aa`. The manifest raw record matches the physical raw
+length/hash exactly; graph, messages and branches are complete; two assets remain
+honestly `not-attempted`, with zero manifest warnings or unknown content types. All three
+files are byte-identical across destinations and no temporary marker tab remained.
+The bounded smoke disabled images, tools, HTML, append and auto-scroll, then
+restored every original non-secret setting exactly.
+
+The verified installer deployed 41 files / 1,176,303 bytes with identical source
+and installed aggregate SHA-256
+`01f9d448c1f554f87982c6c07c526c70ac30a119fe1fdcb20a2ac5dc7ea6c5d1`;
+manifest SHA-256 is
+`e36d99f6c75ba1a5fa37da7c22f210764750ad0c375cfd76d8fb5a86d9de08f2`.
+Comet restarted on that package and the installed tree now matches source on
+every relative path, length and SHA-256 with no smoke helper residue.
+
+Focused/adjacent verification passes 6 files / 555 tests; the complete coverage
+suite passes 236 files with 8,204 tests passed and one existing skip (8,205
+total). Coverage is 95.03% statements, 91.65% branches, 98.48% functions and
+97.47% lines. TypeScript, the 296-module guarded production build, full lint,
+platform checks, formatting and diff checks pass; independent review found no
+material defect. This proves activated replay preserves a real sub-16 MiB inline
+capture and both destinations. It does not prove an unpadded real response above
+16 MiB, live staged worker recovery, or browser fitness near the 64 MiB bound.

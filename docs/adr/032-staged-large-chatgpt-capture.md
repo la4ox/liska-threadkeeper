@@ -64,14 +64,20 @@ Use a versioned `inline | staged` transport and a separate
   are pruned opportunistically after 24 hours, at most 20 stages per later
   begin. There is no recursive or root-level deletion.
 
-Production opaque replay remains on its existing 16 MiB inline contract in this
-checkpoint. A later enabling slice adds an internal/test-selectable staged-v2
-core without changing the ordinary caller: marker v1 remains the default, while
-v2 can retain responses above 16 MiB through the same 64 MiB ceiling, expose a
-nonce-scoped 512 KiB reader and let background create/seal the random raw stage.
-Content adaptation, late runtime-result ownership and ordinary activation remain
-a separate reviewed slice. Therefore the current production replay route is not
-yet an oversized fallback.
+The explicit opaque replay route now selects the reviewed staged-v2 core inside
+the service worker without changing its external request action. Responses at or
+below 16 MiB retain the established inline capture shape; a larger response can
+retain bytes behind the nonce-scoped 512 KiB reader and let background create
+and seal the random raw stage through the same 64 MiB ceiling. Core callers that
+omit the selector remain legacy-v1 for compatibility and isolated tests.
+
+Content projects either replay variant through an explicit allowlist into the
+ordinary capture union. It transfers stage ownership only when the existing
+pipeline requests the response. Pre-transfer/adaptation failures and late staged
+success after content timeout get one bounded exact abort; downstream errors
+that retain a raw archive companion remain owned by that companion. The service
+worker likewise cleans a strictly validated staged artifact rejected by final
+envelope or route-family checks, never an arbitrary supplied stage ID.
 
 ## Trust and failure boundaries
 
@@ -131,12 +137,15 @@ Synthetic checks cover:
   and cancellation of uncommitted stages;
 - unchanged inline and opaque-replay behavior.
 
-The later staged replay core additionally covers strict versioned metadata,
+The staged replay core additionally covers strict versioned metadata,
 16 MiB + 1 staged selection, the 64 MiB contract boundary, exact page-reader
 chunks, document and conversation pinning, same-route reload during seal,
 append/seal/hash/route failures, and late fulfilled or rejected offscreen
-acknowledgements. Existing production callers remain v1, so these core checks do
-not constitute route activation or real-provider evidence.
+acknowledgements. The core initially remained internal/test-selectable, so these
+checks did not by themselves constitute route activation or real-provider
+evidence. The later integration slice adds exact inline/staged adaptation, ownership
+transfer, service-worker rejection cleanup, content-timeout late cleanup and
+direct v1/v2 equivalence at small and exact-16-MiB boundaries.
 
 Live Comet checks on 2026-08-31 confirm zero-byte begin/abort and a 16,777,264-byte
 synthetic stage written/read in 33 independently encoded chunks. The latter
@@ -146,10 +155,14 @@ filesystem length/hash check; the control read before commit succeeded and the
 read after terminal output was rejected. No personal content entered these
 synthetic checks.
 
-A real provider response above 16 MiB remains unverified. Before that canary,
-the staged-v2 result still requires ordinary content integration and activation.
-The canary must then
+A real installed forced-replay smoke below 16 MiB passed both File and Obsidian
+with byte-identical raw/manifest/canonical companions, exact manifest provenance,
+complete graph/messages/branches and no leftover marker tab. This proves the
+activated v2 route preserves the old inline behavior; it is not oversized staged
+evidence.
+
+A real provider response above 16 MiB remains unverified. Its canary must
 prove the complete native capture-to-normalization path, exact raw/manifest/
 canonical destination bytes, no whole-base64 runtime payload, no leftover marker
-tab, and no orphaned stage after terminal output. The production replay cap is
-unchanged until that integration slice lands.
+tab, and no orphaned stage after terminal output. The 64 MiB production cap
+remains unchanged.
