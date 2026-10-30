@@ -3,6 +3,7 @@ import type { LiskaLossDiagnosticCode } from './types';
 
 export const LISKA_LOSS_DIAGNOSTICS_SCHEMA = 1;
 export const LISKA_LOSS_DIAGNOSTIC_CODES = [
+  'claude-artifact-content-omitted',
   'history-load-partial',
   'image-capture-failed',
 ] as const satisfies readonly LiskaLossDiagnosticCode[];

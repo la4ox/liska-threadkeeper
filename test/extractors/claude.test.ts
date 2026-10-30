@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ClaudeExtractor } from '../../src/content/extractors/claude';
+import { BaseExtractor } from '../../src/content/extractors/base';
 import {
   loadFixture,
   clearFixture,
@@ -483,6 +484,207 @@ describe('ClaudeExtractor', () => {
       expect(result.success).toBe(true);
       const assistantMsg = result.data?.messages.find(m => m.role === 'assistant');
       expect(assistantMsg?.content).toContain('Simple answer');
+    });
+  });
+
+  describe('isolated Artifact loss awareness', () => {
+    const code = 'claude-artifact-content-omitted';
+    const warning =
+      'Visible Claude Artifact content was not included because the isolated frame layout is unsupported.';
+    const frame =
+      '<iframe title="Synthetic frame" src="https://artifact.example.invalid/code/artifact/synthetic"></iframe>';
+    const conversation = createClaudeConversationDOM([
+      { role: 'user', content: 'First synthetic question' },
+      { role: 'assistant', content: '<p>First synthetic answer</p>' },
+      { role: 'user', content: 'Second synthetic question' },
+      { role: 'assistant', content: '<p>Second synthetic answer</p>' },
+    ]);
+
+    beforeEach(() => {
+      setClaudeLocation('00000000-0000-4000-8000-000000000000');
+      loadFixture(`${conversation}<div role="region">${frame}</div>`);
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('preserves every transcript message and reports one content-free loss without reading frames', async () => {
+      const expectedMessages = extractor.extractMessages();
+      const iframe = document.querySelector('iframe')!;
+      const frameGetter = vi.fn(() => {
+        throw new Error('Isolated frame access is not permitted');
+      });
+      Object.defineProperty(iframe, 'contentDocument', { get: frameGetter });
+      Object.defineProperty(iframe, 'contentWindow', { get: frameGetter });
+      const info = vi.spyOn(console, 'info');
+      const warn = vi.spyOn(console, 'warn');
+      const error = vi.spyOn(console, 'error');
+
+      const result = await extractor.extract();
+
+      expect(result.success).toBe(true);
+      expect(extractor.isDeepResearchVisible()).toBe(false);
+      expect(result.data?.messages).toEqual(expectedMessages);
+      expect(result.data?.metadata.messageCount).toBe(4);
+      expect(result.data?.liskaLossDiagnostics).toEqual([code]);
+      expect(result.warnings).toEqual([warning]);
+      expect(frameGetter).not.toHaveBeenCalled();
+      const diagnostics = JSON.stringify([
+        result.warnings,
+        info.mock.calls,
+        warn.mock.calls,
+        error.mock.calls,
+      ]);
+      expect(diagnostics).not.toContain('Synthetic frame');
+      expect(diagnostics).not.toContain('artifact.example.invalid');
+      expect(diagnostics).not.toContain('/code/artifact/');
+    });
+
+    it('emits the same single diagnostic and warning for multiple visible frames', async () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `<div inert aria-hidden="true">${frame}</div><div role="region">${frame}${frame}</div>`
+      );
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data?.liskaLossDiagnostics).toEqual([code]);
+      expect(result.warnings).toEqual([warning]);
+      expect(result.data?.messages).toHaveLength(4);
+    });
+
+    it('retains a visible start-of-export observation after async provider eviction', async () => {
+      const visibleFrame = document.querySelector('iframe')!;
+      visibleFrame.remove();
+      const baseResult = await extractor.extract();
+      expect(baseResult.success).toBe(true);
+      expect(baseResult.data).not.toHaveProperty('liskaLossDiagnostics');
+
+      loadFixture(`${conversation}<div role="region">${frame}</div>`);
+      let finishBaseExtraction!: (result: typeof baseResult) => void;
+      const pendingBaseExtraction = new Promise<typeof baseResult>(resolve => {
+        finishBaseExtraction = resolve;
+      });
+      vi.spyOn(BaseExtractor.prototype, 'extract').mockReturnValueOnce(pendingBaseExtraction);
+
+      const pendingResult = extractor.extract();
+      document.querySelector('iframe')!.closest('[role="region"]')!.setAttribute('inert', '');
+      finishBaseExtraction(baseResult);
+      const result = await pendingResult;
+
+      expect(result.success).toBe(true);
+      expect(result.data?.messages).toEqual(baseResult.data?.messages);
+      expect(result.data?.liskaLossDiagnostics).toEqual([code]);
+      expect(result.warnings).toEqual([warning]);
+    });
+
+    it.each([
+      'inert',
+      'aria-hidden="true"',
+      'hidden',
+      'style="display: none"',
+      'style="visibility: hidden"',
+      'style="visibility: collapse"',
+      'style="content-visibility: hidden"',
+      'style="opacity: 0"',
+    ])('does not warn for a frame enclosed by a %s subtree', async attributes => {
+      loadFixture(`${conversation}<div ${attributes}><div role="region">${frame}</div></div>`);
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data?.messages).toHaveLength(4);
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(result.warnings ?? []).toEqual([]);
+    });
+
+    it('does not warn for a frame hidden by a closed details body', async () => {
+      loadFixture(`${conversation}<details><summary>Synthetic summary</summary>${frame}</details>`);
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(result.warnings ?? []).toEqual([]);
+    });
+
+    it('respects a visible frame that overrides an ancestor visibility value', async () => {
+      loadFixture(
+        `${conversation}<div style="visibility: hidden"><div role="region">${frame}</div></div>`
+      );
+      document.querySelector('iframe')!.style.visibility = 'visible';
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data?.liskaLossDiagnostics).toEqual([code]);
+      expect(result.warnings).toEqual([warning]);
+    });
+
+    it('warns while a visible Artifact panel keeps its loading frame transparent', async () => {
+      document.querySelector('iframe')!.style.opacity = '0';
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data?.liskaLossDiagnostics).toEqual([code]);
+      expect(result.warnings).toEqual([warning]);
+    });
+
+    it('does not warn when the matching frame itself has display none', async () => {
+      document.querySelector('iframe')!.style.display = 'none';
+      const result = await extractor.extract();
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(result.warnings ?? []).toEqual([]);
+    });
+
+    it('does not warn when the matching frame itself is hidden', async () => {
+      document.querySelector('iframe')!.hidden = true;
+      const result = await extractor.extract();
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(result.warnings ?? []).toEqual([]);
+    });
+
+    it.each([
+      '',
+      '<iframe src="https://artifact.example.invalid/other/synthetic"></iframe>',
+      '<div src="https://artifact.example.invalid/code/artifact/synthetic"></div>',
+    ])('makes no artifact-completeness claim without a recognized frame (%s)', async markup => {
+      loadFixture(`${conversation}${markup}`);
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(result.warnings ?? []).toEqual([]);
+    });
+
+    it('preserves existing diagnostics and warnings while normalizing and deduplicating the code', async () => {
+      const original = await extractor.extract();
+      if (!original.data) throw new Error('Synthetic transcript extraction failed');
+      original.data.liskaLossDiagnostics = ['image-capture-failed', code, 'history-load-partial'];
+      original.warnings = ['Existing synthetic warning', warning];
+      const before = JSON.stringify(original);
+      vi.spyOn(BaseExtractor.prototype, 'extract').mockResolvedValueOnce(original);
+
+      const result = await extractor.extract();
+
+      expect(result.data?.liskaLossDiagnostics).toEqual([
+        code,
+        'history-load-partial',
+        'image-capture-failed',
+      ]);
+      expect(result.warnings).toEqual(['Existing synthetic warning', warning]);
+      expect(JSON.stringify(original)).toBe(before);
+    });
+
+    it('leaves a legacy report unchanged but still warns about a simultaneous isolated frame', async () => {
+      const legacy = createClaudeDeepResearchDOM(
+        'Synthetic report',
+        '<p>Synthetic legacy body</p>'
+      );
+      loadFixture(legacy);
+      const legacyResult = await extractor.extract();
+      expect(legacyResult.success).toBe(true);
+      expect(legacyResult.data?.type).toBe('deep-research');
+      expect(legacyResult.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(legacyResult.warnings ?? []).toEqual([]);
+
+      loadFixture(`${legacy}<div role="region">${frame}</div>`);
+      const result = await extractor.extract();
+      expect(result.success).toBe(true);
+      expect(result.data?.messages).toEqual(legacyResult.data?.messages);
+      expect(result.data?.type).toBe('deep-research');
+      expect(result.data?.liskaLossDiagnostics).toEqual([code]);
+      expect(result.warnings).toEqual([warning]);
     });
   });
 

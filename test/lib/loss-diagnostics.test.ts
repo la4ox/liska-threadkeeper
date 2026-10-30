@@ -13,6 +13,7 @@ import type { LiskaLossDiagnosticCode, ObsidianNote } from '../../src/lib/types'
 
 const first = 'history-load-partial';
 const second = 'image-capture-failed';
+const artifactOmitted = 'claude-artifact-content-omitted';
 
 function raw(extra = ''): string {
   return `---\nid: example\n# User formatting stays\ntitle: "A : title"\n${extra}tags:\n  - mine\n---`;
@@ -44,20 +45,25 @@ function accepts(value: ObsidianNote): boolean {
 describe('closed historical capture-loss code contract', () => {
   it('normalizes only the bounded allowlist and does not mutate inputs', () => {
     expect(LISKA_LOSS_DIAGNOSTICS_SCHEMA).toBe(1);
-    const values: LiskaLossDiagnosticCode[] = [second, first];
-    expect(normalizeLiskaLossDiagnostics(values)).toEqual([first, second]);
-    expect(values).toEqual([second, first]);
+    const values: LiskaLossDiagnosticCode[] = [second, first, artifactOmitted];
+    expect(normalizeLiskaLossDiagnostics(values)).toEqual([artifactOmitted, first, second]);
+    expect(values).toEqual([second, first, artifactOmitted]);
     expect(normalizeLiskaLossDiagnostics([first, first])).toEqual([first]);
     expect(normalizeLiskaLossDiagnostics(undefined)).toEqual([]);
-    expect(mergeLiskaLossDiagnostics([second], undefined, [first, second])).toEqual([
-      first,
-      second,
-    ]);
+    expect(
+      mergeLiskaLossDiagnostics(
+        [second],
+        undefined,
+        [first, second],
+        [artifactOmitted, artifactOmitted]
+      )
+    ).toEqual([artifactOmitted, first, second]);
     expect(isLiskaLossDiagnosticCode(first)).toBe(true);
+    expect(isLiskaLossDiagnosticCode(artifactOmitted)).toBe(true);
     expect(isLiskaLossDiagnosticCode('https://private.invalid/error')).toBe(false);
   });
 
-  it.each([null, {}, '', [first, second, first], ['unknown'], [1], [undefined]])(
+  it.each([null, {}, '', [first, second, first, second], ['unknown'], [1], [undefined]])(
     'rejects invalid runtime values without serializing them (%j)',
     value => {
       expect(isLiskaLossDiagnostics(value)).toBe(false);
@@ -99,6 +105,24 @@ describe('narrow owned frontmatter merge', () => {
     expect(mergeRawLiskaLossDiagnostics(merged.raw, [first])).toEqual({
       changed: false,
       raw: merged.raw,
+    });
+  });
+
+  it('merges the Claude omission code without clearing earlier capture losses', () => {
+    const initial = raw(
+      `liska_loss_diagnostics_schema: 1\nliska_loss_diagnostics:\n  - ${first}\n  - ${second}\n`
+    );
+    const merged = mergeRawLiskaLossDiagnostics(initial, [artifactOmitted, artifactOmitted]);
+    expect(merged.raw).toBe(
+      initial.replace(
+        `liska_loss_diagnostics:\n  - ${first}`,
+        `liska_loss_diagnostics:\n  - ${artifactOmitted}\n  - ${first}`
+      )
+    );
+    expect(merged.changed).toBe(true);
+    expect(mergeRawLiskaLossDiagnostics(merged.raw, undefined)).toEqual({
+      raw: merged.raw,
+      changed: false,
     });
   });
 
@@ -174,9 +198,10 @@ describe('background diagnostic boundary', () => {
     expect(accepts(note())).toBe(true);
     expect(accepts(note({ liska_loss_diagnostics: [] }))).toBe(true);
     expect(accepts(note({ liska_loss_diagnostics: [second, first] }))).toBe(true);
+    expect(accepts(note({ liska_loss_diagnostics: [second, artifactOmitted, first] }))).toBe(true);
   });
 
-  it.each([null, undefined, 'image-capture-failed', ['unknown'], [first, second, first]])(
+  it.each([null, undefined, 'image-capture-failed', ['unknown'], [first, second, first, second]])(
     'rejects present invalid diagnostic data (%j)',
     value => {
       expect(accepts(note({ liska_loss_diagnostics: value }))).toBe(false);

@@ -84,6 +84,23 @@ beforeEach(() => {
 });
 
 describe('historical loss evidence during append', () => {
+  it('durably adds the Claude omission code once while retaining every older diagnostic', () => {
+    const onDisk = existing(
+      'liska_loss_diagnostics_schema: 1\nliska_loss_diagnostics:\n  - history-load-partial\n  - image-capture-failed'
+    );
+    const note = incoming(['claude-artifact-content-omitted']);
+    note.frontmatter.source = 'claude';
+    note.frontmatter.url = 'https://claude.ai/chat/synthetic';
+    const result = buildAppendContent(onDisk, note, settings);
+
+    expect(result).toMatchObject({ messagesAppended: 0, diagnosticsOnly: true });
+    expect(result?.updatedFrontmatter).toContain(
+      'liska_loss_diagnostics:\n  - claude-artifact-content-omitted\n  - history-load-partial\n  - image-capture-failed'
+    );
+    expect(parseFrontmatter(result!.content)?.body).toBe(parseFrontmatter(onDisk)?.body);
+    expect(buildAppendContent(result!.content, note, settings)).toBeNull();
+  });
+
   it('adds only owned frontmatter fields on an equal-count update', () => {
     const onDisk = existing('', body() + '\n\nUser-owned footer <custom> stays.\n');
     const result = buildAppendContent(onDisk, incoming(['image-capture-failed']), settings);

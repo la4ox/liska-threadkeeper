@@ -95,6 +95,11 @@ export const SELECTORS = {
   ],
 } as const satisfies SelectorGroup;
 
+/** Isolated Artifact frames are detectable, but their contents are not captured. */
+export const CURRENT_ARTIFACT_SELECTORS = {
+  frame: ['iframe[src*="/code/artifact/"]'],
+} as const satisfies SelectorGroup;
+
 /**
  * CSS Selectors for Deep Research extraction
  *

@@ -3755,3 +3755,59 @@ This does not yet enable a ZIP picker or claim installed-browser compatibility,
 File immutability, whole-browser memory bounds or real conversation import from
 a private ZIP. Those are separate UI and live-acceptance gates recorded in
 ADR-046.
+
+## Claude current transcript and isolated Artifact checkpoint
+
+Branch `codex/claude-current-compat` starts from merged main `36a03ab` and
+separates a destination-startup symptom from a provider loss. After the machine
+restart, the first ordinary Claude attempt stopped because the configured
+Obsidian destination was not running. Starting the existing local app and
+repeating the same trusted export produced a 2,769-byte two-message Markdown
+file in both Downloads and the configured vault; the copies have identical
+SHA-256 and contain exactly one user and one assistant record.
+
+A second authenticated canary used a 22-message chat with one visible document
+Artifact. The installed extractor recognized the current user/assistant roles,
+selected the semantic transcript scroller, and logged 22 accumulated turns
+after 36 upward-scroll iterations. Downloads and Obsidian each received the
+same 32,712-byte Markdown note with 11 user and 11 assistant records. No Claude
+message was sent and neither the chat nor document was edited.
+
+The transcript success also exposed a real omission. Current Claude renders the
+open document panel as one visible top-document `/code/artifact/` iframe whose
+same-origin wrapper contains an isolated provider frame and nested document.
+The historical `#markdown-artifact` selectors matched zero nodes. Several
+document-only headings had zero matches in the saved transcript, so the 22
+message note does not preserve the visible Artifact body.
+
+The candidate fixes the misleading silence without expanding authority. It
+detects only the recognized visible top-document frame, leaves ordinary and
+legacy-report extraction unchanged, and merges the stable
+`claude-artifact-content-omitted` code into the existing durable loss-diagnostic
+frontmatter while showing one fixed content-free warning. Inert, hidden,
+dismissed, non-frame, or differently shaped candidates do not warn and never
+become a no-Artifact claim. No frame document is read; there is no new host
+permission, fetch, click, output destination, raw archive, or companion file.
+
+The exact 41-file / 1,177,399-byte candidate was installed through the verified
+rollback installer after the extension details page identified the actual loaded
+unpacked directory. Comet then loaded content bundle `index.ts-dWYE_ODt.js`.
+One trusted live export retained all 22 messages, showed the fixed content-free
+warning, and wrote schema 1 plus `claude-artifact-content-omitted` to both
+destinations. The 32,805-byte Download and Obsidian notes are SHA-256 identical;
+the diagnostic contains no Artifact title or provider origin. One earlier
+post-reload click reached only an invalidated old extension context and wrote
+nothing; two subsequent trial exports used the still-loaded old bundle before
+the extension details page corrected the target directory. They remain ordinary
+append-only snapshots and do not support candidate claims.
+
+The exact final suite passes 237 files / 8,391 tests with one file / three tests
+skipped. The guarded production build transforms 296 modules. Repository lint
+passes with zero errors and 16 pre-existing warnings outside this Claude slice;
+formatting, diff checks and the idea-thread validator pass. Independent review
+found and closed start-of-export timing and bounded CSS-visibility edge cases,
+then reported no remaining material issue. The permission-gated companion design
+is retained separately in repository-safe idea thread ITH-001: it requires
+synthetic edit/version freshness proof, packaged-browser permission and replay
+tests, bounded inert parsing, and honest per-destination receipts before
+enablement.
