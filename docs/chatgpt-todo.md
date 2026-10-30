@@ -551,7 +551,7 @@ terminal states, and the existing no-credential-export boundary.
   observer, exact same-room pairing, fixed structural vocabulary, independent
   tab/document/result validation and a fixed local JSON download. It does not
   persist provider values or call archive, Obsidian, Clipboard or settings
-  sinks. Next gate is one installed live canary; do not widen Fetch/init/route
+  sinks. Installed canaries remain evidence-only; do not widen Fetch/init/route
   admission merely to turn a fixed refusal into success.
 - Installed evidence: one stable-page run armed correctly and returned
   `target-not-observed`, with the nonce removed and no file written. Comet also
@@ -560,9 +560,15 @@ terminal states, and the existing no-credential-export boundary.
   Both compatibility seams now have focused build/runtime coverage.
 - The observer can now report fixed `request-init-present` for an exact room
   Fetch solely from second-argument presence; it never reads or reflects an init
-  field. Re-run this classifier only on a stable Dots page. Later attempts were
-  invalid because the page failed during reload, so Fetch-init versus URL-object
-  versus XHR remains unproven.
+  field. The first later attempts were invalid because the page failed during
+  reload, so Fetch-init versus URL-object versus XHR remains unproven.
+- One later stable-page trusted canary returned `timed-out`, with no remaining
+  nonce fragment and no diagnostic download; no retry was made. MAIN versus
+  background timeout origin is unresolved, so this does not classify
+  RequestInit, URL-object or XHR and does not authorize widening admission or
+  repeating the current probe merely to force a terminal classification. Any
+  further live run requires a separate explicit decision and a diagnostic that
+  first distinguishes the two deadline sources.
 - Keep the MAIN observer import-free and the serialized page-state reader in
   `lib`; background-to-content imports violate the repository layering gate.
   Current full coverage is 95.04% with the unchanged 95% statement threshold.
