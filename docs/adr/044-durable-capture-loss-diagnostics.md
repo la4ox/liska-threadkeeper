@@ -27,12 +27,18 @@ two owned frontmatter fields:
 ```yaml
 liska_loss_diagnostics_schema: 1
 liska_loss_diagnostics:
+  - claude-artifact-content-omitted
   - history-load-partial
   - image-capture-failed
 ```
 
 Schema 1 has a closed allowlist:
 
+- `claude-artifact-content-omitted` — a recognized visible current Claude
+  Artifact frame was present, while its isolated document body was outside the
+  authorized extractor boundary and was not included. A hidden, inert,
+  dismissed, unrecognized, or absent frame does not qualify and never proves
+  that the conversation has no Artifacts;
 - `history-load-partial` — the configured history loader explicitly reached a
   partial outcome. Disabled loading, a missing loader configuration, a missing
   container, or an unknown outcome does not qualify.
@@ -83,6 +89,9 @@ It does not claim comprehensive export-loss reporting. In particular:
 - Obsidian destination image failures have a different ordering seam;
 - Clipboard deliberately strips images;
 - canonical-derived HTML has its own structured diagnostics;
+- current Claude document-Artifact acquisition would require a separately
+  reviewed optional frame permission, freshness proof, bounded parser and
+  destination-honest companion contract;
 - a current-completeness assessment would require a separate contract.
 
 Those cases must not be inferred from schema-1 codes.

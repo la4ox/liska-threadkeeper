@@ -5,6 +5,7 @@ import type { ObsidianNote } from '../../src/lib/types';
 
 const HISTORY_PARTIAL = 'history-load-partial';
 const IMAGE_FAILED = 'image-capture-failed';
+const ARTIFACT_OMITTED = 'claude-artifact-content-omitted';
 
 function note(frontmatter: object = {}): ObsidianNote {
   return {
@@ -109,15 +110,17 @@ describe('note capture metadata validation', () => {
   );
 
   it.each(
-    [[], [HISTORY_PARTIAL], [IMAGE_FAILED, HISTORY_PARTIAL], [IMAGE_FAILED, IMAGE_FAILED]].map(
-      liska_loss_diagnostics => ({ liska_loss_diagnostics })
-    )
-  )(
-    'accepts only the existing bounded runtime diagnostic arrays: %j',
-    ({ liska_loss_diagnostics }) => {
-      expectAccepted(note({ liska_loss_diagnostics }), true);
-    }
-  );
+    [
+      [],
+      [HISTORY_PARTIAL],
+      [IMAGE_FAILED, HISTORY_PARTIAL],
+      [IMAGE_FAILED, IMAGE_FAILED],
+      [ARTIFACT_OMITTED],
+      [IMAGE_FAILED, ARTIFACT_OMITTED, HISTORY_PARTIAL],
+    ].map(liska_loss_diagnostics => ({ liska_loss_diagnostics }))
+  )('accepts only the bounded runtime diagnostic arrays: %j', ({ liska_loss_diagnostics }) => {
+    expectAccepted(note({ liska_loss_diagnostics }), true);
+  });
 
   it.each(
     [
@@ -126,7 +129,7 @@ describe('note capture metadata validation', () => {
       false,
       HISTORY_PARTIAL,
       ['unknown'],
-      [HISTORY_PARTIAL, IMAGE_FAILED, HISTORY_PARTIAL],
+      [HISTORY_PARTIAL, IMAGE_FAILED, HISTORY_PARTIAL, IMAGE_FAILED],
     ].map(liska_loss_diagnostics => ({ liska_loss_diagnostics }))
   )('rejects a present invalid loss diagnostic field: %j', ({ liska_loss_diagnostics }) => {
     expectAccepted(note({ liska_loss_diagnostics }), false);

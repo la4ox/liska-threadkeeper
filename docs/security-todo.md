@@ -410,10 +410,18 @@ deliberately unported.
 - Daybreak Blue is available here only through GitHub Codex Security Review.
   The unavailable advisory-access probe has no separate application path and
   is not an outstanding repository permission or merge gate.
-- The October Claude DOM/thread slice is merged through PR 43 with
-  bounded offline coverage and one current-window live canary. Full-history
-  auto-scroll and live October tool-label output remain explicit runtime gaps;
-  do not reuse the stale compatibility branch's truncation implementation.
+- The October Claude DOM/thread slice is merged through PR 43. A fresh installed
+  canary now confirms one complete two-message transcript and one 22-message
+  transcript accumulated across 36 scroll iterations, with byte-identical
+  Download and Obsidian copies. Live October tool-label output remains separate.
+  The same canary exposes a new isolated document-Artifact frame that neither
+  upstream 2.14.15 nor the legacy top-document selector can read. The current
+  candidate preserves the transcript and durably records the omission without
+  adding frame permission. The installed 41-file candidate now proves that exact
+  code and fixed warning in both Download and Obsidian with byte-identical notes;
+  a full companion remains gated by the freshness and security triggers in
+  ITH-001. Do not reuse the stale compatibility branch's truncation
+  implementation.
 - Selector-derived provider readiness now has a current-main candidate with an
   exhaustive provider/host map and cross-provider negative matrix. It remains a
   UI-injection hint; no live-provider timing claim or capture authority follows.

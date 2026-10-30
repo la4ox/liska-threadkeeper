@@ -15,14 +15,27 @@ import {
   claudeToolHtmlToMarkdown,
 } from './claude-tool-markdown';
 import { generateHash } from '../../lib/hash';
+import { mergeLiskaLossDiagnostics } from '../../lib/loss-diagnostics';
 import type { HarvestEntry } from '../../lib/scroll-manager';
-import type { ConversationMessage, DeepResearchSource, SyncSettings } from '../../lib/types';
-import { SELECTORS, DEEP_RESEARCH_SELECTORS, JOINED_SELECTORS } from './selectors/claude';
+import type {
+  ConversationMessage,
+  DeepResearchSource,
+  ExtractionResult,
+  SyncSettings,
+} from '../../lib/types';
+import {
+  SELECTORS,
+  DEEP_RESEARCH_SELECTORS,
+  CURRENT_ARTIFACT_SELECTORS,
+  JOINED_SELECTORS,
+} from './selectors/claude';
 
 // October assistant roots wrap answer text, accessibility/action chrome and
 // step rows. Strip these only on a detached clone, before every content path.
 const STEP_ROW_SELECTOR = '[data-cds="TurnStatus"]';
 const ANSWER_CHROME_SELECTOR = `h2.sr-only, [data-testid="message-actions"], ${STEP_ROW_SELECTOR}`;
+const ARTIFACT_CONTENT_OMITTED_WARNING =
+  'Visible Claude Artifact content was not included because the isolated frame layout is unsupported.';
 
 /**
  * Claude conversation and Deep Research extractor
@@ -41,6 +54,74 @@ export class ClaudeExtractor extends BaseExtractor {
   applySettings(settings: SyncSettings): void {
     this.enableToolContent = settings.enableToolContent ?? false;
     this.enableAutoScroll = settings.enableAutoScroll ?? false;
+  }
+
+  /** Preserve the existing transcript/report path and record only observed loss. */
+  async extract(): Promise<ExtractionResult> {
+    // A user can start export while the Artifact is visible and Claude can then
+    // rerender or dismiss that pane during asynchronous history scrolling. Keep
+    // the initial positive observation; a later observation may add evidence,
+    // but provider churn must not erase an already observed omission.
+    const artifactFrameObserved = this.hasUnsupportedArtifactFrame();
+    const result = await super.extract();
+    if (
+      !result.success ||
+      !result.data ||
+      (!artifactFrameObserved && !this.hasUnsupportedArtifactFrame())
+    ) {
+      return result;
+    }
+
+    return {
+      ...result,
+      data: {
+        ...result.data,
+        liskaLossDiagnostics: mergeLiskaLossDiagnostics(result.data.liskaLossDiagnostics, [
+          'claude-artifact-content-omitted',
+        ]),
+      },
+      warnings: result.warnings?.includes(ARTIFACT_CONTENT_OMITTED_WARNING)
+        ? result.warnings
+        : [...(result.warnings ?? []), ARTIFACT_CONTENT_OMITTED_WARNING],
+    };
+  }
+
+  /** Inspect top-document frame presence only; never access the isolated document. */
+  private hasUnsupportedArtifactFrame(): boolean {
+    return Array.from(document.querySelectorAll(CURRENT_ARTIFACT_SELECTORS.frame[0])).some(
+      frame => {
+        if (this.isInDismissedPanel(frame) || frame.closest('[hidden]')) return false;
+        const frameStyle = window.getComputedStyle(frame);
+        if (
+          frameStyle.display === 'none' ||
+          frameStyle.visibility === 'hidden' ||
+          frameStyle.visibility === 'collapse'
+        ) {
+          return false;
+        }
+
+        // Claude keeps the panel visibly selected (with a loading surface) while
+        // the inner document iframe can be transiently transparent. Evaluate
+        // rendering suppression from the panel boundary outward, not from that
+        // implementation-detail frame, so loading still records the omission.
+        const panel = frame.closest('[role="region"]') ?? frame;
+        for (let ancestor: Element | null = panel; ancestor; ancestor = ancestor.parentElement) {
+          if (ancestor.matches('details:not([open])')) {
+            const summary = ancestor.querySelector(':scope > summary');
+            if (!summary?.contains(frame)) return false;
+          }
+          const style = window.getComputedStyle(ancestor);
+          if (
+            style.display === 'none' ||
+            style.contentVisibility === 'hidden' ||
+            Number.parseFloat(style.opacity) === 0
+          ) {
+            return false;
+          }
+        }
+        return true;
+      }
+    );
   }
 
   // ========== Platform Detection ==========

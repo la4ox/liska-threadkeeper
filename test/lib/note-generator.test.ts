@@ -212,7 +212,11 @@ describe('generateNoteContent', () => {
       const diagnosticNote = createTestNote({
         frontmatter: {
           ...note.frontmatter,
-          liska_loss_diagnostics: ['image-capture-failed', 'history-load-partial'],
+          liska_loss_diagnostics: [
+            'image-capture-failed',
+            'claude-artifact-content-omitted',
+            'history-load-partial',
+          ],
         },
       });
 
@@ -222,6 +226,7 @@ describe('generateNoteContent', () => {
         '---\n' +
           'liska_loss_diagnostics_schema: 1\n' +
           'liska_loss_diagnostics:\n' +
+          '  - claude-artifact-content-omitted\n' +
           '  - history-load-partial\n' +
           '  - image-capture-failed\n' +
           '---\n\n' +
@@ -230,6 +235,7 @@ describe('generateNoteContent', () => {
       expect(diagnosticNote.contentHash).toBe('abc123');
       expect(diagnosticNote.frontmatter.liska_loss_diagnostics).toEqual([
         'image-capture-failed',
+        'claude-artifact-content-omitted',
         'history-load-partial',
       ]);
     });
@@ -274,8 +280,8 @@ describe('generateNoteContent', () => {
       const data: ConversationData = {
         id: 'loss-diagnostic-test',
         title: 'Synthetic conversation',
-        url: 'https://gemini.google.com/app/loss-diagnostic-test',
-        source: 'gemini',
+        url: 'https://claude.ai/chat/loss-diagnostic-test',
+        source: 'claude',
         messages: [
           { id: 'user-0', role: 'user', content: 'Question', index: 0 },
           { id: 'assistant-0', role: 'assistant', content: '<p>Answer</p>', index: 1 },
@@ -291,12 +297,20 @@ describe('generateNoteContent', () => {
       const options = createTestSettings().templateOptions;
       const ordinary = conversationToNote(data, options, extractedAt);
       const diagnostic = conversationToNote(
-        { ...data, liskaLossDiagnostics: ['image-capture-failed', 'history-load-partial'] },
+        {
+          ...data,
+          liskaLossDiagnostics: [
+            'image-capture-failed',
+            'claude-artifact-content-omitted',
+            'history-load-partial',
+          ],
+        },
         options,
         extractedAt
       );
 
       expect(diagnostic.frontmatter.liska_loss_diagnostics).toEqual([
+        'claude-artifact-content-omitted',
         'history-load-partial',
         'image-capture-failed',
       ]);

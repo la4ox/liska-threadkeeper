@@ -19,7 +19,10 @@ export type AIPlatform = 'gemini' | 'claude' | 'perplexity' | 'chatgpt' | 'noteb
 export type DomHistoryLoad = 'complete' | 'partial' | 'unknown';
 
 /** Positively observed historical capture losses, never a current completeness verdict. */
-export type LiskaLossDiagnosticCode = 'history-load-partial' | 'image-capture-failed';
+export type LiskaLossDiagnosticCode =
+  | 'claude-artifact-content-omitted'
+  | 'history-load-partial'
+  | 'image-capture-failed';
 
 /**
  * An image captured from a conversation (e.g. a Gemini-generated image).

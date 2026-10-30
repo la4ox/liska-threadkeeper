@@ -150,3 +150,36 @@ decisions; the current tests characterize them without claiming atomicity.
 
 The two provider compatibility ports remain isolated from the reproducer-led
 security work above and introduce no permission or persistence change.
+
+## Claude isolated Artifact boundary
+
+A fresh Claude-only comparison found no missing upstream port for the current
+Artifact incident. Upstream `v2.14.15` and Liska both still detect reports only
+through top-document `#markdown-artifact` selectors. Neither implementation
+has frame messaging, frame-wide Artifact injection, or host access for the
+current isolated Artifact origin. Wholesale Claude replacement would therefore
+discard stronger local transcript, scroll, mixed-role and tool-budget contracts
+without making the Artifact readable.
+
+Two authenticated Comet canaries separate the healthy path from the gap. A
+two-message ordinary chat and a 22-message Artifact-bearing chat each produced
+byte-identical Download and Obsidian Markdown copies. The latter accumulated all
+22 turns across 36 scroll iterations. The visible document panel, however, used
+one same-origin `/code/artifact/` wrapper around an isolated provider frame; the
+legacy selectors had zero matches, and distinctive document-only headings were
+absent from the saved 22-message transcript.
+
+The local adaptation is deliberately smaller than acquisition. It recognizes
+only that top-document frame shape, preserves the transcript, and adds the
+content-free durable diagnostic `claude-artifact-content-omitted` plus a fixed
+completion warning. It does not read the frame, add a host permission, fetch a
+provider endpoint, create a companion, or claim that an unrecognized/hidden
+frame means no Artifact exists. The permission-gated companion hypothesis and
+its freshness/security triggers are retained in
+[`ITH-001`](idea-threads/ITH-001-claude-isolated-artifact-capture.md).
+
+The exact installed candidate closes this diagnostic-only gate: its loaded
+content bundle retained all 22 transcript records, displayed the fixed warning,
+and wrote byte-identical Download/Obsidian notes containing the schema-1 code.
+The note contains neither the Artifact title nor its provider origin. This is
+evidence for honest omission reporting, not Artifact acquisition.
