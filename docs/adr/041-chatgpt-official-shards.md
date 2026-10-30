@@ -174,6 +174,14 @@ explicitly selected synthetic shards through bundle preparation; deliberate
 Save As cancellation wrote no ZIP. Omitting one declared shard produced the
 fixed refusal before Save As, and Clear manifest preserved every other source
 and destination selection. Post-run hashes/sizes matched and no new ZIP or
-partial appeared; timestamp preservation is not broadly claimed. Automatic
-manifest/directory/ZIP discovery and external binary association remain separate
-evidence-gated work.
+partial appeared; timestamp preservation is not broadly claimed.
+
+A later core-only slice adds an anonymous bounded adapter for one explicitly
+selected official export ZIP. It does not replace this extracted-file contract:
+the adapter returns the same `officialChunks` or numeric `officialSources`
+inputs, while the existing selector/importer/reader remains unchanged. Exact
+root legacy and sharded layouts are admitted; a present manifest must pass the
+same name-set check, while older manifest-absent shards retain an explicit
+unverified declaration status. ZIP UI/File wiring and installed-browser
+acceptance remain future gates. Automatic directory discovery and external
+binary association remain out of scope.

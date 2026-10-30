@@ -517,8 +517,24 @@ terminal states, and the existing no-credential-export boundary.
   manifest plus six synthetic shards reached Save As and deliberate no-save;
   omitting one declared shard refused before Save As; Clear manifest preserved
   all other selections. Post-run hashes/sizes matched and no output appeared.
-- Automatic manifest/directory/export-ZIP discovery, external binary import,
-  archive merge, and snapshot deduplication remain later explicit slices.
+- A core-only adapter for one explicitly selected official export ZIP is now
+  implemented without changing the existing importer, reader or UI. It accepts
+  the exact root layouts already supported as files: legacy
+  `conversations.json`, shards with a verified manifest, and older shards with
+  explicit `absent-unverified` declaration status. ZIP32 metadata is bounded and
+  fully reconciled; only selected STORE/DEFLATE JSON payloads are streamed, and
+  unrelated payloads are never read or inflated.
+- Content-free evidence covers five real official ZIP central directories:
+  DEFLATE-only, 1,048–2,343 entries, no encryption/descriptors/ZIP64/comments,
+  four six-shard+manifest layouts and one five-shard manifest-absent layout. A
+  separate inventory of nine unpacked ChatGPT export sets found four legacy,
+  one manifest-absent sharded and four manifest-backed sharded sets, all with
+  their conversation JSON at the export root. The unpacked JSON/shard picker
+  remains the primary archive path; ZIP is additive pre-extraction convenience,
+  not a second reader or source of truth.
+- ZIP UI/File range-source wiring, installed-browser DEFLATE acceptance,
+  automatic directory discovery, external binary association, archive merge
+  and snapshot deduplication remain separate explicit slices.
 
 ### 9. Adjacent provider: Dots chat export
 

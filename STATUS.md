@@ -3694,3 +3694,64 @@ at 94.04% of the shared JSON-string ceiling. The elapsed observation includes UI
 scheduling and is not a performance guarantee. It does not establish peak
 memory, immediate cancellation of synchronous parsing, browser behavior for the
 refusing triple, other browser families or any mutation authority.
+
+## Official export ZIP source-core checkpoint
+
+Branch `codex/reconciliation-export-zip-core` adds a core-only adapter for one
+explicitly selected official ChatGPT export ZIP. It accepts an anonymous
+immutable range source and returns the same `officialChunks` or sorted numeric
+`officialSources` interface already consumed by the existing official importer.
+There is no filesystem extraction, directory search, network request, settings
+read, destination writer, archive-schema change or new dependency. The current
+unpacked JSON/shard UI and reader are unchanged.
+
+The ZIP profile is deliberately narrow and evidence-backed: single-volume
+ZIP32 from byte zero, zero archive comment, exact central/local partition,
+STORE or raw DEFLATE, safe root names, bounded metadata, optional exact ZIP32
+descriptors, no encryption, ZIP64, prefix/trailing bytes, symlinks or special
+files. A present root manifest must pass the existing bounded v1 parser and
+exact shard-name-set comparison. Older sharded exports without a manifest are
+accepted only as `absent-unverified`; manifest absence never becomes a
+completeness claim.
+
+Five real official ZIP central directories were inspected without reading
+conversation bodies. They span 1.05–1.81 GB (0.98–1.69 GiB) and 1,048–2,343
+entries, use DEFLATE only, and contain no descriptors, encryption, directories,
+duplicate or unsafe names, symlinks, comments or ZIP64. Four contain six root
+shards plus a manifest; the oldest contains five root shards without one.
+Selected JSON plus manifest totals expand to 477.7–605.7 MB (455.6–577.6 MiB),
+with a largest selected entry of 202.1 MB (192.8 MiB), inside the unchanged 2 GiB
+importer boundary.
+
+The maintained unpacked archive was also inventoried without reading message
+content. Its nine ChatGPT sets comprise four legacy single-file exports, one
+five-shard manifest-absent export and four six-shard manifest-backed exports;
+all conversation sources are at the set root. This keeps unpacked archives as
+the primary operational path. ZIP support is only an additive way to feed the
+same reader before extraction.
+
+Every central entry and local header is reconciled before any source is
+returned. Unrelated payloads are not read, decompressed or hashed. Selected
+streams are single-use and ordinal: each prior conversation source must reach
+verified compressed EOF, expanded length and CRC before the next can start.
+Early return, out-of-order or concurrent consumption poisons the selection;
+later corruption/cancellation prevents delivery and hashing even after an
+earlier target match. Output chunks are owned copies, including for typed-array
+subclasses with aliasing `slice` implementations.
+
+Independent fixtures cover legacy, modern manifest-backed and older
+manifest-absent layouts; STORE/DEFLATE; both descriptors; malformed structure,
+paths, extras, flags, methods and limits; trailing/truncated streams; ratio,
+CRC, cancellation, producer cleanup, privacy and full normalized/raw-only
+delivery parity. The final focused/adjacent matrix passes 9 files / 453 tests.
+TypeScript, zero-warning scoped ESLint, formatting, diff checks and the guarded
+296-module production build pass. Independent review found and closed two P2
+contract defects (pre-start source skipping and Buffer-slice aliasing), then
+reported no remaining material issue. A completed security diff scan covering
+metadata, decompression, cancellation/privacy and delivery composition found no
+plausible security candidate.
+
+This does not yet enable a ZIP picker or claim installed-browser compatibility,
+File immutability, whole-browser memory bounds or real conversation import from
+a private ZIP. Those are separate UI and live-acceptance gates recorded in
+ADR-046.
