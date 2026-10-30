@@ -310,6 +310,16 @@ terminal states, and the existing no-credential-export boundary.
   partial report. This closes actual-scale parser accounting and aggregate-limit
   evidence in the core, not installed-browser responsiveness, peak-memory
   safety or synchronous-parser cancellation.
+- Installed Comet now passes that exact accepted pair. The page admitted two
+  3-file / 15,856,212-byte folders and completed one uninstrumented Analyze.
+  The terminal state was first observed about 11.9 seconds after the click; both
+  snapshots showed `Verified byte consistency`, and the relationship said to
+  keep both because the raw bytes match but evidence differs. Save was not
+  invoked; no report with mtime at or after the pre-run receipt appeared in
+  either checked top-level Downloads root, and one older report predates this
+  run. All six source lengths, hashes and exact mtimes remained unchanged. This
+  closes installed-Comet parser-heavy responsiveness for the measured pair, not
+  peak-memory bounds, synchronous cancellation or other browser families.
 - Ordinary Google Chrome portability is live-verified on two synthetic raw-only
   folders: both exact 2-file / 1,081-byte cards rendered, Analyze reached the
   unchanged-source terminal state, both snapshots remained `Unverifiable`, no
@@ -645,8 +655,9 @@ The private snapshot-analysis page now also passes a small synthetic pair in
 ordinary Google Chrome with the local-only CSP, preserve-only report and zero
 mutation authority unchanged. Parser-heavy near-limit replay must not be
 inferred from the raw-only 255 MiB workload. The production-core parser-heavy
-acceptance is now separately complete in Node; an installed Comet parser-heavy
-run remains the live gate.
+acceptance is separately complete in Node, and the same accepted pair now also
+passes one installed Comet Analyze with unchanged sources and no saved report.
+Peak memory and immediate synchronous-parser cancellation remain unproven.
 
 The bounded manifest-guided official-export admission candidate is implemented
 without changing importer or output schemas. Four measured provider manifests
