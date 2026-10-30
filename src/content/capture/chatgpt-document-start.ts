@@ -11,7 +11,7 @@ const CAPTURE_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})(?:&liska-observe-asset-resolvers=(1))?$/i;
 const OPAQUE_PROBE_FRAGMENT_PATTERN = /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-probe=1$/i;
 const OPAQUE_REPLAY_FRAGMENT_PATTERN =
-  /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-replay=1$/i;
+  /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-replay=([12])$/i;
 const OPAQUE_RESOLVER_FRAGMENT_PATTERN =
   /^#liska-capture=([a-z0-9-]{16,128})&liska-opaque-resolver-observer=1$/i;
 const ACTIVE_RESOLVER_FRAGMENT_PATTERN =
@@ -233,6 +233,7 @@ type MarkerTarget = {
   nonce: string;
   observeAssetResolvers: boolean;
   routeFamily: 'standard' | 'custom-gpt' | 'project';
+  replayTransportVersion: 0 | 1;
   mode:
     | 'capture'
     | 'opaque-probe'
@@ -433,6 +434,7 @@ function markerTargetFromHref(href: string): MarkerTarget | undefined {
               : ownerSlug?.toLowerCase().startsWith('g-p-')
                 ? 'project'
                 : 'custom-gpt',
+          replayTransportVersion: replayMarker?.[2] === '2' ? 1 : 0,
           mode:
             interpreterResolverMarker !== null
               ? 'interpreter-resolver'
@@ -3118,12 +3120,21 @@ type OpaqueReplayErrorCode =
   | 'response-processing-failed'
   | 'payload-too-large';
 
-type OpaqueReplayCapture = {
-  bodyBase64: string;
-  byteLength: number;
-  sha256: string;
-  mediaType: string;
-};
+type OpaqueReplayCapture =
+  | {
+      bodyBase64: string;
+      byteLength: number;
+      sha256: string;
+      mediaType: string;
+    }
+  | {
+      transportVersion: 1;
+      transport: 'staged';
+      byteLength: number;
+      sha256: string;
+      mediaType: string;
+      chunkCount: number;
+    };
 
 type OpaqueReplayHookResult =
   | { kind: 'ready' }
@@ -3144,6 +3155,9 @@ type OpaqueReplayPageState = {
   timeoutId: ReturnType<typeof window.setTimeout> | undefined;
   abortController: AbortController | undefined;
   prebuiltRequest: Request | undefined;
+  stagedBytes: Uint8Array | undefined;
+  stagedCaptureReader: CaptureChunkReader | undefined;
+  stagedReaderExpiryTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
   settled: boolean;
   claimed: boolean;
   singularPathSeen: boolean;
@@ -3162,6 +3176,14 @@ function opaqueReplayStateKeyFor(nonce: string): string {
   return `__liskaChatGptOpaqueReplay_${nonce}`;
 }
 
+function opaqueReplayChunkReaderKeyFor(nonce: string): string {
+  return `__liskaChatGptOpaqueReplayChunkReader_${nonce}`;
+}
+
+function opaqueReplayChunkReleaseKeyFor(nonce: string): string {
+  return `__liskaChatGptOpaqueReplayChunkRelease_${nonce}`;
+}
+
 function snapshotOpaqueReplayResult(result: OpaqueReplayHookResult): OpaqueReplayHookResult {
   if (result.kind === 'ready') return { kind: 'ready' };
   if (result.kind === 'error') {
@@ -3171,15 +3193,26 @@ function snapshotOpaqueReplayResult(result: OpaqueReplayHookResult): OpaqueRepla
       singularDispatchCount: result.singularDispatchCount,
     };
   }
+  const capture = result.capture;
   return {
     kind: 'captured',
     conversationId: result.conversationId,
-    capture: {
-      bodyBase64: result.capture.bodyBase64,
-      byteLength: result.capture.byteLength,
-      sha256: result.capture.sha256,
-      mediaType: result.capture.mediaType,
-    },
+    capture:
+      'transport' in capture
+        ? {
+            transportVersion: 1,
+            transport: 'staged',
+            byteLength: capture.byteLength,
+            sha256: capture.sha256,
+            mediaType: capture.mediaType,
+            chunkCount: capture.chunkCount,
+          }
+        : {
+            bodyBase64: capture.bodyBase64,
+            byteLength: capture.byteLength,
+            sha256: capture.sha256,
+            mediaType: capture.mediaType,
+          },
     singularDispatchCount: 1,
   };
 }
@@ -3380,6 +3413,74 @@ function abortOpaqueReplay(state: OpaqueReplayPageState): void {
   state.abortController = undefined;
 }
 
+function clearOpaqueReplayChunkReader(pageWindow: PageWindow, state: OpaqueReplayPageState): void {
+  state.stagedBytes = undefined;
+  state.stagedCaptureReader = undefined;
+  if (state.stagedReaderExpiryTimeoutId === undefined) return;
+  try {
+    applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
+      state.stagedReaderExpiryTimeoutId,
+    ]);
+  } catch {
+    // Byte ownership is already released even if timer cleanup is poisoned.
+  }
+  state.stagedReaderExpiryTimeoutId = undefined;
+}
+
+function installOpaqueReplayChunkReader(
+  pageWindow: PageWindow,
+  state: OpaqueReplayPageState,
+  bytes: Uint8Array,
+  byteLength: number,
+  chunkCount: number
+): void {
+  const NativeUint8Array = state.primordials.document.uint8Array;
+  if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
+  const buffer = applyCaptured<ArrayBuffer>(
+    state.primordials,
+    state.primordials.document.typedArrayBuffer,
+    bytes,
+    []
+  );
+  state.stagedBytes = bytes;
+  state.stagedCaptureReader = (index: number): CaptureChunk | { kind: 'missing' } => {
+    try {
+      if (
+        state.stagedBytes !== bytes ||
+        !state.settled ||
+        typeof index !== 'number' ||
+        index !== index ||
+        index % 1 !== 0 ||
+        index < 0 ||
+        index >= chunkCount
+      ) {
+        return { kind: 'missing' };
+      }
+      const offset = index * STAGED_CAPTURE_CHUNK_BYTES;
+      const remaining = byteLength - offset;
+      const chunkLength =
+        remaining < STAGED_CAPTURE_CHUNK_BYTES ? remaining : STAGED_CAPTURE_CHUNK_BYTES;
+      const chunkBytes = new NativeUint8Array(buffer, offset, chunkLength);
+      return {
+        kind: 'chunk',
+        index,
+        offset,
+        byteLength: chunkLength,
+        chunkBase64: base64FromBytes(state.primordials, chunkBytes),
+      };
+    } catch {
+      clearOpaqueReplayChunkReader(pageWindow, state);
+      return { kind: 'missing' };
+    }
+  };
+  state.stagedReaderExpiryTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
+    state.primordials,
+    state.primordials.setTimeout,
+    pageWindow,
+    [() => clearOpaqueReplayChunkReader(pageWindow, state), DEFAULT_TIMEOUT_MS]
+  );
+}
+
 function finishOpaqueReplay(
   pageWindow: PageWindow,
   state: OpaqueReplayPageState,
@@ -3389,6 +3490,9 @@ function finishOpaqueReplay(
   state.settled = true;
   state.result = result;
   state.prebuiltRequest = undefined;
+  if (result.kind !== 'captured' || !('transport' in result.capture)) {
+    clearOpaqueReplayChunkReader(pageWindow, state);
+  }
   if (state.timeoutId !== undefined) {
     try {
       applyCaptured<void>(state.primordials, state.primordials.clearTimeout, pageWindow, [
@@ -3627,10 +3731,47 @@ async function captureOpaqueReplayResponse(
       []
     );
     discardOpaqueReplayOriginalBody(state.primordials, response);
-    const { bytes } = await readBoundedClone(state.primordials, clone, INLINE_CAPTURE_MAX_BYTES);
+    const { bytes } = await readBoundedClone(
+      state.primordials,
+      clone,
+      state.target.replayTransportVersion === 1
+        ? STAGED_CAPTURE_MAX_BYTES
+        : INLINE_CAPTURE_MAX_BYTES
+    );
+    if (state.target.replayTransportVersion === 1) {
+      // The response body has reached network completion. V2 retains only
+      // bytes while hashing and serving nonce-scoped chunks.
+      state.abortController = undefined;
+    }
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
     const sha256 = await sha256FromBytes(state.primordials, bytes);
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
+    const byteLength = uint8ArrayByteLength(state.primordials, bytes);
+    if (state.target.replayTransportVersion === 1 && byteLength > INLINE_CAPTURE_MAX_BYTES) {
+      let chunkCount = 0;
+      for (let offset = 0; offset < byteLength; offset += STAGED_CAPTURE_CHUNK_BYTES) {
+        chunkCount += 1;
+      }
+      installOpaqueReplayChunkReader(pageWindow, state, bytes, byteLength, chunkCount);
+      if (!opaqueReplayTargetStillExact(pageWindow, state)) {
+        clearOpaqueReplayChunkReader(pageWindow, state);
+        return;
+      }
+      finishOpaqueReplay(pageWindow, state, {
+        kind: 'captured',
+        conversationId,
+        capture: {
+          transportVersion: 1,
+          transport: 'staged',
+          byteLength,
+          sha256,
+          mediaType,
+          chunkCount,
+        },
+        singularDispatchCount: 1,
+      });
+      return;
+    }
     const bodyBase64 = base64FromBytes(state.primordials, bytes);
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
     finishOpaqueReplay(pageWindow, state, {
@@ -3638,7 +3779,7 @@ async function captureOpaqueReplayResponse(
       conversationId,
       capture: {
         bodyBase64,
-        byteLength: uint8ArrayByteLength(state.primordials, bytes),
+        byteLength,
         sha256,
         mediaType,
       },
@@ -3819,6 +3960,9 @@ function armOpaqueReplay(
     timeoutId: undefined,
     abortController: undefined,
     prebuiltRequest: undefined,
+    stagedBytes: undefined,
+    stagedCaptureReader: undefined,
+    stagedReaderExpiryTimeoutId: undefined,
     settled: false,
     claimed: false,
     singularPathSeen: false,
@@ -3826,13 +3970,17 @@ function armOpaqueReplay(
     result: { kind: 'ready' },
   };
   const stateKey = opaqueReplayStateKeyFor(target.nonce);
+  const chunkReaderKey = opaqueReplayChunkReaderKeyFor(target.nonce);
+  const chunkReleaseKey = opaqueReplayChunkReleaseKeyFor(target.nonce);
   try {
     const getOwnPropertyDescriptor = primordials.document.objectGetOwnPropertyDescriptor;
     const defineProperty = primordials.document.objectDefineProperty;
     if (
       getOwnPropertyDescriptor === undefined ||
       defineProperty === undefined ||
-      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined
+      getOwnPropertyDescriptor(windowRecord, stateKey) !== undefined ||
+      getOwnPropertyDescriptor(windowRecord, chunkReaderKey) !== undefined ||
+      getOwnPropertyDescriptor(windowRecord, chunkReleaseKey) !== undefined
     ) {
       return { kind: 'error', code: 'hook-state-failed' };
     }
@@ -3840,6 +3988,22 @@ function armOpaqueReplay(
       configurable: false,
       enumerable: false,
       get: () => snapshotOpaqueReplayResult(state.result),
+    });
+    defineProperty(windowRecord, chunkReaderKey, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: (index: number) => state.stagedCaptureReader?.(index) ?? { kind: 'missing' },
+    });
+    defineProperty(windowRecord, chunkReleaseKey, {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: (): boolean => {
+        const owned = state.stagedBytes !== undefined || state.stagedCaptureReader !== undefined;
+        clearOpaqueReplayChunkReader(pageWindow, state);
+        return owned;
+      },
     });
     let preparing = false;
     const wrappedFetch = function (

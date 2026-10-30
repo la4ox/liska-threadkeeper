@@ -3,7 +3,11 @@ import { URL as NodeURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readChatGptTemporaryCaptureState } from '../../src/background/chatgpt-capture';
 import { readChatGptOpaqueProbeState } from '../../src/background/chatgpt-opaque-probe';
-import { readChatGptOpaqueReplayState } from '../../src/background/chatgpt-opaque-replay';
+import {
+  readChatGptOpaqueReplayChunkState,
+  readChatGptOpaqueReplayState,
+  releaseChatGptOpaqueReplayChunkState,
+} from '../../src/background/chatgpt-opaque-replay';
 import { readChatGptActiveResolverState } from '../../src/background/chatgpt-active-resolver';
 import { readChatGptInterpreterResolverState } from '../../src/background/chatgpt-interpreter-resolver';
 import {
@@ -18,6 +22,8 @@ const STATE_KEY = `__liskaChatGptCapture_${NONCE}`;
 const CHUNK_READER_KEY = `__liskaChatGptCaptureChunkReader_${NONCE}`;
 const OPAQUE_STATE_KEY = `__liskaChatGptOpaqueProbe_${NONCE}`;
 const OPAQUE_REPLAY_STATE_KEY = `__liskaChatGptOpaqueReplay_${NONCE}`;
+const OPAQUE_REPLAY_CHUNK_READER_KEY = `__liskaChatGptOpaqueReplayChunkReader_${NONCE}`;
+const OPAQUE_REPLAY_CHUNK_RELEASE_KEY = `__liskaChatGptOpaqueReplayChunkRelease_${NONCE}`;
 const OPAQUE_RESOLVER_STATE_KEY = `__liskaChatGptOpaqueResolver_${NONCE}`;
 const ACTIVE_RESOLVER_STATE_KEY = `__liskaChatGptActiveResolver_${NONCE}`;
 const ACTIVE_RESOLVER_COMMAND_KEY = `__liskaChatGptActiveResolverCommand_${NONCE}`;
@@ -161,6 +167,10 @@ function markedOpaqueProbeUrl(path = `/c/${CONVERSATION_ID}`): string {
 
 function markedOpaqueReplayUrl(path = `/c/${CONVERSATION_ID}`): string {
   return `https://chatgpt.com${path}#liska-capture=${NONCE}&liska-opaque-replay=1`;
+}
+
+function markedStagedOpaqueReplayUrl(path = `/c/${CONVERSATION_ID}`): string {
+  return `https://chatgpt.com${path}#liska-capture=${NONCE}&liska-opaque-replay=2`;
 }
 
 function markedOpaqueResolverUrl(path = `/c/${CONVERSATION_ID}`): string {
@@ -4406,6 +4416,79 @@ describe('startChatGptDocumentStartCapture', () => {
       })
     );
     expect(page.originalFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps v1 inline at 16 MiB and exposes 16 MiB plus one only as exact v2 chunks', async () => {
+    const sourceUrl =
+      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
+      '?include_has_versions=true&num_turns=10';
+    const run = async (byteLength: number, staged: boolean) => {
+      const bytes = new Uint8Array(byteLength);
+      bytes[0] = 1;
+      bytes[byteLength - 1] = 255;
+      const replayResponse = new Response(bytes, {
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
+      const page = fakePage(
+        staged ? markedStagedOpaqueReplayUrl() : markedOpaqueReplayUrl(),
+        async input =>
+          (input as OpaqueTestRequest).url === sourceUrl
+            ? new Response('{}', { headers: { 'content-type': 'application/json' } })
+            : replayResponse,
+        OpaqueTestRequest
+      );
+      const request = new OpaqueTestRequest(sourceUrl, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-credential-sentinel' },
+      }) as unknown as Request;
+      startChatGptDocumentStartCapture(page.pageWindow);
+      await page.pageWindow.fetch(request);
+      await vi.waitFor(
+        () => expect(opaqueReplaySnapshotOf(page)).toMatchObject({ kind: 'captured' }),
+        { timeout: 10_000 }
+      );
+      return { bytes, page, snapshot: opaqueReplaySnapshotOf(page) as Record<string, unknown> };
+    };
+
+    const inline = await run(16 * 1024 * 1024, false);
+    expect(inline.snapshot).toMatchObject({
+      capture: { bodyBase64: expect.any(String), byteLength: 16 * 1024 * 1024 },
+      singularDispatchCount: 1,
+    });
+
+    const staged = await run(16 * 1024 * 1024 + 1, true);
+    expect(staged.snapshot).toEqual({
+      kind: 'captured',
+      conversationId: CONVERSATION_ID,
+      capture: {
+        transportVersion: 1,
+        transport: 'staged',
+        byteLength: 16 * 1024 * 1024 + 1,
+        sha256: expect.any(String),
+        mediaType: 'application/json; charset=utf-8',
+        chunkCount: 33,
+      },
+      singularDispatchCount: 1,
+    });
+    expect(JSON.stringify(staged.snapshot)).not.toMatch(
+      /bodyBase64|stageId|relativePath|authorization|credential-sentinel/i
+    );
+    expect(
+      Object.getOwnPropertyDescriptor(staged.page.pageWindow, OPAQUE_REPLAY_CHUNK_READER_KEY)
+    ).toMatchObject({ configurable: false, enumerable: false, writable: false });
+    expect(
+      Object.getOwnPropertyDescriptor(staged.page.pageWindow, OPAQUE_REPLAY_CHUNK_RELEASE_KEY)
+    ).toMatchObject({ configurable: false, enumerable: false, writable: false });
+
+    vi.stubGlobal('window', staged.page.pageWindow);
+    const first = readChatGptOpaqueReplayChunkState(NONCE, 0);
+    expect(first.kind).toBe('chunk');
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual(first);
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 33)).toEqual({ kind: 'missing' });
+    expect(releaseChatGptOpaqueReplayChunkState(NONCE)).toBe(true);
+    expect(releaseChatGptOpaqueReplayChunkState(NONCE)).toBe(false);
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
+    expect(staged.page.originalFetch).toHaveBeenCalledTimes(2);
   });
 
   it.each([

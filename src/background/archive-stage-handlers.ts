@@ -121,13 +121,23 @@ function isStageUrlResponse(value: unknown): value is ArchiveStageUrlResponse {
 async function sendOffscreen<T>(
   message: object,
   validate: (value: unknown) => value is T,
-  onFailure?: (reason: OffscreenTransportFailure) => void
+  onFailure?: (reason: OffscreenTransportFailure) => void,
+  onLateResponse?: (value: unknown) => void
 ): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
   try {
+    const operation = Promise.resolve(chrome.runtime.sendMessage(message));
+    void operation.then(
+      value => {
+        if (timedOut) onLateResponse?.(value);
+      },
+      () => {
+        if (timedOut) onLateResponse?.(undefined);
+      }
+    );
     const response: unknown = await Promise.race([
-      chrome.runtime.sendMessage(message),
+      operation,
       new Promise<undefined>(resolve => {
         timer = setTimeout(() => {
           timedOut = true;
@@ -156,19 +166,26 @@ async function withShortLease<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function beginArchiveStage(
-  descriptor: ArchiveStageDescriptor
+  descriptor: ArchiveStageDescriptor,
+  onAllocated?: (stageId: string) => void
 ): Promise<string | undefined> {
-  const response = await beginArchiveStageWithResponse(descriptor);
+  const response = await beginArchiveStageWithResponse(descriptor, onAllocated);
   return response.success ? response.stageId : undefined;
 }
 
 async function beginArchiveStageWithResponse(
-  descriptor: ArchiveStageDescriptor
+  descriptor: ArchiveStageDescriptor,
+  onAllocated?: (stageId: string) => void
 ): Promise<ArchiveStageResponse> {
   if (!isArchiveStageDescriptor(descriptor)) {
     return { success: false, error: 'archive-stage-begin-failed:invalid-descriptor' };
   }
   const stageId = safeStageId();
+  try {
+    onAllocated?.(stageId);
+  } catch {
+    // Allocation notification is advisory; ownership remains extension-local.
+  }
   const message: OffscreenArchiveStageBeginMessage = {
     action: 'archiveStageBegin',
     target: 'offscreen',
@@ -178,9 +195,18 @@ async function beginArchiveStageWithResponse(
   let failure = 'offscreen-invalid-response';
   try {
     const response = await withShortLease(() =>
-      sendOffscreen(message, isStageResponse, reason => {
-        failure = reason;
-      })
+      sendOffscreen(
+        message,
+        isStageResponse,
+        reason => {
+          failure = reason;
+        },
+        () => {
+          // A timed-out acknowledgement must not strand a stage that the
+          // offscreen document created after background relinquished it.
+          void abortArchiveStage(stageId).catch(() => false);
+        }
+      )
     );
     if (response?.success) return { success: true, stageId };
     if (response && !response.success) {
@@ -204,7 +230,13 @@ export async function appendArchiveStage(
     offset,
     chunkBase64,
   };
-  const response = await withShortLease(() => sendOffscreen(message, isStageResponse));
+  const response = await withShortLease(() =>
+    sendOffscreen(message, isStageResponse, undefined, () => {
+      if (isSafeArchiveStageId(stageId)) {
+        void abortArchiveStage(stageId).catch(() => false);
+      }
+    })
+  );
   return response?.success === true;
 }
 
@@ -218,7 +250,13 @@ export async function sealArchiveStage(
     stageId,
     descriptor,
   };
-  const response = await withShortLease(() => sendOffscreen(message, isStageResponse));
+  const response = await withShortLease(() =>
+    sendOffscreen(message, isStageResponse, undefined, () => {
+      if (isSafeArchiveStageId(stageId)) {
+        void abortArchiveStage(stageId).catch(() => false);
+      }
+    })
+  );
   return response?.success === true;
 }
 

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   captureChatGptConversationViaOpaqueReplay,
+  readChatGptOpaqueReplayChunkState,
   readChatGptOpaqueReplayState,
+  releaseChatGptOpaqueReplayChunkState,
 } from '../../src/background/chatgpt-opaque-replay';
 import { CHATGPT_OPAQUE_REPLAY_ERROR_CODES } from '../../src/lib/chatgpt-opaque-replay-contract';
 
@@ -15,6 +17,24 @@ const OTHER_CONVERSATION_ID = '11111111-2222-3333-4444-555555555555';
 const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
 const MARKER = `#liska-capture=${NONCE}&liska-opaque-replay=1`;
 const SHA256 = '0'.repeat(64);
+const STAGE_ID = `archive-stage-${'A'.repeat(32)}`;
+const STAGED_MARKER = `#liska-capture=${NONCE}&liska-opaque-replay=2`;
+
+function stagedState(byteLength = 16 * 1024 * 1024 + 1) {
+  return {
+    kind: 'captured' as const,
+    conversationId: CONVERSATION_ID,
+    capture: {
+      transportVersion: 1 as const,
+      transport: 'staged' as const,
+      byteLength,
+      sha256: SHA256,
+      mediaType: 'application/json; charset=utf-8',
+      chunkCount: Math.ceil(byteLength / (512 * 1024)),
+    },
+    singularDispatchCount: 1 as const,
+  };
+}
 
 function capturedState(conversationId = CONVERSATION_ID) {
   return {
@@ -260,6 +280,376 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     expect(chrome.remove).toHaveBeenCalledWith(123);
     expect(JSON.stringify(response)).not.toContain('synthetic-authorization-sentinel');
   });
+
+  it('pins one top-frame document and stages exact sequential v2 chunks without whole base64', async () => {
+    const fullChunkBase64 = Buffer.alloc(512 * 1024, 1).toString('base64');
+    const lastChunkBase64 = Buffer.from([2]).toString('base64');
+    const executeScript = vi.fn(async (injection: { func: Function; args: unknown[] }) => {
+      if (injection.func === releaseChatGptOpaqueReplayChunkState) {
+        return [{ frameId: 0, documentId: 'document-1', result: true }];
+      }
+      if (injection.func === readChatGptOpaqueReplayChunkState) {
+        const index = injection.args[1] as number;
+        const last = index === 32;
+        return [
+          {
+            frameId: 0,
+            documentId: 'document-1',
+            result: {
+              kind: 'chunk',
+              index,
+              offset: index * 512 * 1024,
+              byteLength: last ? 1 : 512 * 1024,
+              chunkBase64: last ? lastChunkBase64 : fullChunkBase64,
+            },
+          },
+        ];
+      }
+      return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
+    });
+    const create = vi.fn().mockResolvedValue({ id: 123 });
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const begin = vi.fn(async (_descriptor, onAllocated?: (stageId: string) => void) => {
+      onAllocated?.(STAGE_ID);
+      return STAGE_ID;
+    });
+    const append = vi.fn().mockResolvedValue(true);
+    const seal = vi.fn().mockResolvedValue(true);
+    const abort = vi.fn().mockResolvedValue(true);
+
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
+      chromeApi: {
+        tabs: {
+          create,
+          get: vi.fn().mockResolvedValue({
+            status: 'complete',
+            url: `https://chatgpt.com/c/${CONVERSATION_ID}${STAGED_MARKER}`,
+          }),
+          remove,
+        },
+        scripting: { executeScript },
+      },
+      createNonce: () => NONCE,
+      transportMode: 'staged-v2',
+      archiveStage: { begin, append, seal, abort },
+    });
+
+    expect(response).toEqual({
+      success: true,
+      data: {
+        transport: 'staged',
+        routeFamily: 'standard',
+        stageId: STAGE_ID,
+        kind: 'raw',
+        relativePath: 'responses/conversation.json',
+        byteLength: 16 * 1024 * 1024 + 1,
+        sha256: SHA256,
+        mediaType: 'application/json',
+        endpoint: { method: 'GET', pathPattern: '/backend-api/conversation/{conversationId}' },
+        transientAssetResolvers: [],
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain('bodyBase64');
+    expect(create).toHaveBeenCalledWith({
+      url: `https://chatgpt.com/c/${CONVERSATION_ID}${STAGED_MARKER}`,
+      active: false,
+    });
+    expect(append).toHaveBeenCalledTimes(33);
+    for (let index = 0; index < 33; index += 1) {
+      expect(append.mock.calls[index]?.slice(0, 2)).toEqual([STAGE_ID, index * 512 * 1024]);
+    }
+    expect(seal).toHaveBeenCalledOnce();
+    expect(abort).not.toHaveBeenCalled();
+    expect(
+      executeScript.mock.calls
+        .filter(([injection]) => injection.func === readChatGptOpaqueReplayChunkState)
+        .every(([injection]) =>
+          (injection as { target: { documentIds?: string[] } }).target.documentIds?.includes(
+            'document-1'
+          )
+        )
+    ).toBe(true);
+    expect(remove).toHaveBeenCalledWith(123);
+  });
+
+  it('rejects a mismatched staged conversation before allocating or reading a stage', async () => {
+    const begin = vi.fn();
+    const executeScript = vi.fn().mockResolvedValue([
+      {
+        frameId: 0,
+        documentId: 'document-1',
+        result: stagedState(16 * 1024 * 1024 + 1),
+      },
+    ]);
+    const mismatched = stagedState();
+    mismatched.conversationId = OTHER_CONVERSATION_ID;
+    executeScript.mockResolvedValueOnce([
+      { frameId: 0, documentId: 'document-1', result: mismatched },
+    ]);
+
+    const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
+      chromeApi: {
+        tabs: {
+          create: vi.fn().mockResolvedValue({ id: 123 }),
+          get: vi.fn().mockResolvedValue({
+            status: 'complete',
+            url: `https://chatgpt.com/c/${CONVERSATION_ID}${STAGED_MARKER}`,
+          }),
+          remove: vi.fn().mockResolvedValue(undefined),
+        },
+        scripting: { executeScript },
+      },
+      createNonce: () => NONCE,
+      transportMode: 'staged-v2',
+      archiveStage: {
+        begin,
+        append: vi.fn(),
+        seal: vi.fn(),
+        abort: vi.fn(),
+      },
+    });
+
+    expect(response).toEqual({
+      success: false,
+      code: 'replay-result-invalid',
+      singularDispatchCount: 1,
+    });
+    expect(begin).not.toHaveBeenCalled();
+    expect(executeScript).toHaveBeenCalledTimes(2);
+    expect(executeScript.mock.calls[1]?.[0]).toMatchObject({
+      target: { tabId: 123, documentIds: ['document-1'] },
+      func: releaseChatGptOpaqueReplayChunkState,
+      args: [NONCE],
+    });
+  });
+
+  it.each([
+    'chunk-offset',
+    'base64',
+    'throwing-reader',
+    'document',
+    'route',
+    'append',
+    'seal',
+    'reload-after-seal',
+  ] as const)(
+    'aborts its extension-owned stage on %s failure without inline fallback',
+    async fault => {
+      const fullChunkBase64 = Buffer.alloc(512 * 1024, 3).toString('base64');
+      const lastChunkBase64 = Buffer.from([4]).toString('base64');
+      let reloaded = false;
+      const executeScript = vi.fn(async (injection: { func: Function; args: unknown[] }) => {
+        if (injection.func === releaseChatGptOpaqueReplayChunkState) {
+          if (reloaded) throw new Error('old document reader disappeared');
+          return [{ frameId: 0, documentId: 'document-1', result: true }];
+        }
+        if (injection.func === readChatGptOpaqueReplayChunkState) {
+          if (fault === 'throwing-reader') throw new Error('synthetic reader failure');
+          const index = injection.args[1] as number;
+          const last = index === 32;
+          return [
+            {
+              frameId: 0,
+              documentId: fault === 'document' ? 'document-2' : 'document-1',
+              result: {
+                kind: 'chunk',
+                index,
+                offset: fault === 'chunk-offset' ? 1 : index * 512 * 1024,
+                byteLength: last ? 1 : 512 * 1024,
+                chunkBase64:
+                  fault === 'base64'
+                    ? `${'A'.repeat(fullChunkBase64.length - 2)}B=`
+                    : last
+                      ? lastChunkBase64
+                      : fullChunkBase64,
+              },
+            },
+          ];
+        }
+        if (reloaded) return [];
+        return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
+      });
+      let routeReads = 0;
+      const begin = vi.fn(async (_descriptor, onAllocated?: (stageId: string) => void) => {
+        onAllocated?.(STAGE_ID);
+        return STAGE_ID;
+      });
+      const append = vi.fn().mockResolvedValue(fault !== 'append');
+      const seal = vi.fn(async () => {
+        if (fault === 'reload-after-seal') reloaded = true;
+        return fault !== 'seal';
+      });
+      const abort = vi.fn().mockResolvedValue(true);
+      const response = await captureChatGptConversationViaOpaqueReplay(TARGET, {
+        chromeApi: {
+          tabs: {
+            create: vi.fn().mockResolvedValue({ id: 123 }),
+            get: vi.fn(async () => {
+              routeReads += 1;
+              return {
+                status: 'complete',
+                url:
+                  fault === 'route' && routeReads > 2
+                    ? `https://chatgpt.com/c/${OTHER_CONVERSATION_ID}${STAGED_MARKER}`
+                    : `https://chatgpt.com/c/${CONVERSATION_ID}${STAGED_MARKER}`,
+              };
+            }),
+            remove: vi.fn().mockResolvedValue(undefined),
+          },
+          scripting: { executeScript },
+        },
+        createNonce: () => NONCE,
+        transportMode: 'staged-v2',
+        archiveStage: { begin, append, seal, abort },
+      });
+
+      expect(response).toEqual({
+        success: false,
+        code: fault === 'route' ? 'unexpected-path' : 'replay-result-invalid',
+        singularDispatchCount: 1,
+      });
+      expect(abort).toHaveBeenCalledWith(STAGE_ID);
+      expect(JSON.stringify(response)).not.toContain('bodyBase64');
+      if (fault === 'reload-after-seal') {
+        expect(
+          executeScript.mock.calls.some(
+            ([injection]) => injection.func === releaseChatGptOpaqueReplayChunkState
+          )
+        ).toBe(true);
+      }
+    }
+  );
+
+  it('reclaims both timed-out and late begin ownership by its allocated extension ID', async () => {
+    vi.useFakeTimers();
+    let resolveBegin: ((stageId: string) => void) | undefined;
+    const begin = vi.fn((_descriptor, onAllocated?: (stageId: string) => void) => {
+      onAllocated?.(STAGE_ID);
+      return new Promise<string>(resolve => {
+        resolveBegin = resolve;
+      });
+    });
+    const abort = vi.fn().mockResolvedValue(true);
+    const pending = captureChatGptConversationViaOpaqueReplay(TARGET, {
+      chromeApi: {
+        tabs: {
+          create: vi.fn().mockResolvedValue({ id: 123 }),
+          get: vi.fn().mockResolvedValue({
+            status: 'complete',
+            url: `https://chatgpt.com/c/${CONVERSATION_ID}${STAGED_MARKER}`,
+          }),
+          remove: vi.fn().mockResolvedValue(undefined),
+        },
+        scripting: {
+          executeScript: vi.fn(async (injection: { func: Function }) => [
+            {
+              frameId: 0,
+              documentId: 'document-1',
+              result:
+                injection.func === releaseChatGptOpaqueReplayChunkState ? true : stagedState(),
+            },
+          ]),
+        },
+      },
+      createNonce: () => NONCE,
+      timeoutMs: 1_000,
+      transportMode: 'staged-v2',
+      archiveStage: {
+        begin,
+        append: vi.fn(),
+        seal: vi.fn(),
+        abort,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    await expect(pending).resolves.toEqual({
+      success: false,
+      code: 'replay-result-timeout',
+      singularDispatchCount: 1,
+    });
+    expect(abort).toHaveBeenCalledWith(STAGE_ID);
+    resolveBegin?.(STAGE_ID);
+    await vi.runAllTimersAsync();
+    expect(abort.mock.calls.filter(([id]) => id === STAGE_ID).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each(['resolve', 'reject'] as const)(
+    're-aborts after an append settles with %s beyond the outer replay deadline',
+    async settlement => {
+      vi.useFakeTimers();
+      let resolveAppend: ((value: boolean) => void) | undefined;
+      let rejectAppend: ((reason: unknown) => void) | undefined;
+      const append = vi.fn(
+        () =>
+          new Promise<boolean>((resolve, reject) => {
+            resolveAppend = resolve;
+            rejectAppend = reject;
+          })
+      );
+      const abort = vi.fn().mockResolvedValue(true);
+      const fullChunkBase64 = Buffer.alloc(512 * 1024, 5).toString('base64');
+      const executeScript = vi.fn(async (injection: { func: Function; args: unknown[] }) => {
+        if (injection.func === releaseChatGptOpaqueReplayChunkState) {
+          return [{ frameId: 0, documentId: 'document-1', result: true }];
+        }
+        if (injection.func === readChatGptOpaqueReplayChunkState) {
+          return [
+            {
+              frameId: 0,
+              documentId: 'document-1',
+              result: {
+                kind: 'chunk',
+                index: 0,
+                offset: 0,
+                byteLength: 512 * 1024,
+                chunkBase64: fullChunkBase64,
+              },
+            },
+          ];
+        }
+        return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
+      });
+      const pending = captureChatGptConversationViaOpaqueReplay(TARGET, {
+        chromeApi: {
+          tabs: {
+            create: vi.fn().mockResolvedValue({ id: 123 }),
+            get: vi.fn().mockResolvedValue({
+              status: 'complete',
+              url: `https://chatgpt.com/c/${CONVERSATION_ID}${STAGED_MARKER}`,
+            }),
+            remove: vi.fn().mockResolvedValue(undefined),
+          },
+          scripting: { executeScript },
+        },
+        createNonce: () => NONCE,
+        timeoutMs: 1_000,
+        transportMode: 'staged-v2',
+        archiveStage: {
+          begin: vi.fn(async (_descriptor, onAllocated?: (stageId: string) => void) => {
+            onAllocated?.(STAGE_ID);
+            return STAGE_ID;
+          }),
+          append,
+          seal: vi.fn(),
+          abort,
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(1_001);
+      await expect(pending).resolves.toEqual({
+        success: false,
+        code: 'replay-result-timeout',
+        singularDispatchCount: 1,
+      });
+      expect(abort.mock.calls.filter(([id]) => id === STAGE_ID)).toHaveLength(1);
+
+      if (settlement === 'resolve') resolveAppend?.(true);
+      else rejectAppend?.(new Error('late append rejection'));
+      await vi.runAllTimersAsync();
+      expect(abort.mock.calls.filter(([id]) => id === STAGE_ID).length).toBeGreaterThanOrEqual(2);
+    }
+  );
 
   it('clamps explicit timeout and polling bounds without changing a valid result', async () => {
     const chrome = chromeApi(capturedState());
@@ -666,6 +1056,52 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
       },
     });
     expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
+  });
+
+  it.each([
+    ['infinite byte length', Number.POSITIVE_INFINITY, 33],
+    ['NaN byte length', Number.NaN, 33],
+    ['infinite chunk count', 16 * 1024 * 1024 + 1, Number.POSITIVE_INFINITY],
+  ])(
+    'rejects %s before staged count iteration or reader invocation',
+    (_label, byteLength, chunkCount) => {
+      const reader = vi.fn(() => {
+        throw new Error('reader must not run');
+      });
+      const state = {
+        ...stagedState(),
+        capture: { ...stagedState().capture, byteLength, chunkCount },
+      };
+      vi.stubGlobal('window', {
+        [`__liskaChatGptOpaqueReplay_${NONCE}`]: state,
+        [`__liskaChatGptOpaqueReplayChunkReader_${NONCE}`]: reader,
+      });
+
+      expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
+      expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
+      expect(reader).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects staged accessors before invoking a stateful byte-length getter', () => {
+    const byteLength = vi
+      .fn()
+      .mockReturnValueOnce(16 * 1024 * 1024 + 1)
+      .mockReturnValue(Number.POSITIVE_INFINITY);
+    const capture = { ...stagedState().capture } as Record<string, unknown>;
+    Object.defineProperty(capture, 'byteLength', {
+      configurable: true,
+      enumerable: true,
+      get: byteLength,
+    });
+    vi.stubGlobal('window', {
+      [`__liskaChatGptOpaqueReplay_${NONCE}`]: { ...stagedState(), capture },
+      [`__liskaChatGptOpaqueReplayChunkReader_${NONCE}`]: vi.fn(),
+    });
+
+    expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
+    expect(byteLength).not.toHaveBeenCalled();
   });
 
   it('reads exact ready, error, and captured MAIN-world states and rejects malformed capture values', () => {
