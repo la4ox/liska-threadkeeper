@@ -3487,3 +3487,52 @@ registered while Comet and its conversation tabs remained open. The ordinary
 install/reload gate is closed. Full `-RestartComet` remains executable-test-
 verified but deliberately unexercised against the user's live session; it is an
 optional fallback, not the normal update path.
+
+## ChatGPT staged opaque-replay core candidate checkpoint
+
+Branch `codex/chatgpt-staged-opaque-replay-core` starts from merged main
+`6932ee3`. Existing production callers still omit the new internal transport
+selector and therefore retain the exact legacy opaque-replay marker, whole-
+base64 inline response and 16 MiB limit. Ordinary export, the service-worker
+message action, content adaptation and extractor routing are unchanged in this
+slice. A real provider response above 16 MiB is still not claimed.
+
+The internal/test-selectable `staged-v2` mode adds an exact versioned replay
+capture shape for responses above 16 MiB through the existing 64 MiB ceiling.
+MAIN retains completed response bytes behind one nonce-scoped reader and exposes
+only transport version, byte length, SHA-256, JSON media type and the exact
+512 KiB chunk count. It releases Request/credential state at network completion;
+page metadata contains no stage ID, OPFS/archive path, request/header value,
+credential or whole `bodyBase64`. Exact 16 MiB remains valid v1 inline traffic.
+
+Background remains the sole stage authority. It pins the temporary tab's exact
+top-frame document and route, pulls one independently canonical chunk at a time,
+creates the random raw stage, appends/seals it through the existing offscreen
+store, revalidates conversation identity, dispatch count, staged metadata,
+document identity and final route, then returns only the sealed extension-owned
+descriptor. Same-URL document replacement during seal fails closed. Chunk,
+document, route, append, seal and timeout failures release the page reader and
+abort only extension-allocated IDs; staging never falls back to a larger inline
+message.
+
+The archive-stage wrapper now reports allocation before offscreen acknowledgement
+and performs an additional exact-ID abort after late fulfilled or rejected
+begin/append/seal settlements. This closes the case where an offscreen write or
+metadata seal finishes after the caller's timeout and after its first abort.
+Unknown, mixed, accessor-backed, non-finite, prototype-polluted and out-of-range
+transport shapes are rejected before iteration or storage work. Staged replay
+artifacts are accepted only for `16 MiB < byteLength <= 64 MiB`.
+
+Independent review found and closed four material lifecycle gaps: missing staged
+conversation binding, an accessor/`Infinity` count-loop hang, same-route document
+replacement after seal, and late rejected offscreen settlements without a second
+cleanup. Focused verification passes 4 files / 424 tests; the main agent's wider
+10-file replay/stage matrix passes 568 tests. TypeScript, the guarded production
+build, formatting and diff checks pass; full lint has zero errors and 16 warnings,
+13 of them from the deliberately linear new trust-boundary validators/lifecycles.
+The complete coverage suite passes 236 files: 8,150 tests passed and one existing
+test skipped (8,151 total). Coverage remains at the repository gates: 95.00%
+statements, 91.63% branches, 98.38% functions and 97.46% lines. The real unpadded
+provider gate remains open: the largest retained real raw inspected locally is
+13,117,554 bytes, while larger retained files are canonical derivatives rather
+than raw ingress evidence.

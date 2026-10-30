@@ -173,6 +173,16 @@ terminal states, and the existing no-credential-export boundary.
 - Reconcile raw/manifest/canonical hashes, UTF-8 chunk boundaries, cleanup,
   File/Obsidian release, and worker restart behavior.
 - Keep the existing 64 MiB raw boundary until evidence justifies changing it.
+- The modern opaque-replay route previously rejected above 16 MiB before
+  downstream staging. A versioned staged-v2 core is now implemented but remains
+  internal/test-selectable: v1 inline is still the only production default.
+  MAIN exposes credential-free chunk metadata/readers; background owns random
+  stage allocation, pinned-document transfer, seal and exact late-settlement
+  cleanup. A separate PR must adapt content results, own late runtime responses
+  and activate v2 without changing sub-16 MiB behavior.
+- Local archive measurement found no natural retained raw above 16 MiB; the
+  largest current positive is 13,117,554 bytes. Canonical derivatives above
+  16 MiB are not raw-ingress evidence and must not close this gate.
 
 ### 6. Additional binary types
 
@@ -636,10 +646,12 @@ external synthetic-note mutation; the unchanged production reread returned
 the verified asset unreferenced. The scheduling gate was temporary and removed;
 the exact clean production package was rebuilt, reinstalled and restarted.
 
-The next ChatGPT phase-exit gate is a real provider raw response above the
-16 MiB inline threshold through staged OPFS transport, with exact File/Obsidian
-hashes, UTF-8 chunk boundaries, cleanup and worker-restart evidence. Keep the
-existing 64 MiB raw boundary.
+The next implementation slice is staged-v2 opaque-replay content integration
+and production activation, preserving exact sub-16 MiB v1 behavior and adding
+explicit cleanup for a staged result that arrives after the content caller has
+timed out. After that, the ChatGPT phase-exit gate remains a real unpadded raw
+response above 16 MiB through File and Obsidian, with exact hashes, UTF-8 chunk
+facts, terminal cleanup and worker-restart evidence. Keep the 64 MiB raw bound.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;

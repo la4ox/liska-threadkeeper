@@ -64,8 +64,14 @@ Use a versioned `inline | staged` transport and a separate
   are pruned opportunistically after 24 hours, at most 20 stages per later
   begin. There is no recursive or root-level deletion.
 
-The explicit opaque replay experiment remains on its existing 16 MiB inline
-contract in this checkpoint. It is not an oversized fallback.
+Production opaque replay remains on its existing 16 MiB inline contract in this
+checkpoint. A later enabling slice adds an internal/test-selectable staged-v2
+core without changing the ordinary caller: marker v1 remains the default, while
+v2 can retain responses above 16 MiB through the same 64 MiB ceiling, expose a
+nonce-scoped 512 KiB reader and let background create/seal the random raw stage.
+Content adaptation, late runtime-result ownership and ordinary activation remain
+a separate reviewed slice. Therefore the current production replay route is not
+yet an oversized fallback.
 
 ## Trust and failure boundaries
 
@@ -125,6 +131,13 @@ Synthetic checks cover:
   and cancellation of uncommitted stages;
 - unchanged inline and opaque-replay behavior.
 
+The later staged replay core additionally covers strict versioned metadata,
+16 MiB + 1 staged selection, the 64 MiB contract boundary, exact page-reader
+chunks, document and conversation pinning, same-route reload during seal,
+append/seal/hash/route failures, and late fulfilled or rejected offscreen
+acknowledgements. Existing production callers remain v1, so these core checks do
+not constitute route activation or real-provider evidence.
+
 Live Comet checks on 2026-08-31 confirm zero-byte begin/abort and a 16,777,264-byte
 synthetic stage written/read in 33 independently encoded chunks. The latter
 completed in 3.792 seconds with an exact SHA-256 round trip and acknowledged
@@ -133,8 +146,10 @@ filesystem length/hash check; the control read before commit succeeded and the
 read after terminal output was rejected. No personal content entered these
 synthetic checks.
 
-A real provider response above 16 MiB remains unverified. That canary must still
+A real provider response above 16 MiB remains unverified. Before that canary,
+the staged-v2 result still requires ordinary content integration and activation.
+The canary must then
 prove the complete native capture-to-normalization path, exact raw/manifest/
 canonical destination bytes, no whole-base64 runtime payload, no leftover marker
-tab, and no orphaned stage after terminal output. The explicit replay cap is
-unchanged.
+tab, and no orphaned stage after terminal output. The production replay cap is
+unchanged until that integration slice lands.
