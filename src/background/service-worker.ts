@@ -37,6 +37,7 @@ import {
 } from '../lib/chatgpt-opaque-probe-contract';
 import {
   createChatGptOpaqueReplayFailure,
+  isChatGptOpaqueReplayArtifact,
   isChatGptOpaqueReplayResponse,
 } from '../lib/chatgpt-opaque-replay-contract';
 import {
@@ -84,6 +85,7 @@ import { isAuthorizedDotsSchemaProbeSender, probeDotsSchemaInActiveTab } from '.
 /** Latest popup destination intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
 let outputOptionsUpdateSequence = 0;
+const REPLAY_STAGE_CLEANUP_TIMEOUT_MS = 500;
 
 type DurableOutputMessage = Extract<
   ExtensionMessage,
@@ -571,19 +573,63 @@ async function handleChatGptOpaqueProbe(conversationId: string) {
   }
 }
 
+/** Only an exact replay artifact can grant ownership of an extension stage. */
+function rejectedReplayStageId(response: unknown): string | undefined {
+  try {
+    if (typeof response !== 'object' || response === null) return undefined;
+    const artifact: unknown = Object.getOwnPropertyDescriptor(response, 'data')?.value;
+    if (isChatGptOpaqueReplayArtifact(artifact) && 'transport' in artifact) return artifact.stageId;
+  } catch {
+    // Never clean up an unvalidated/page-selected stage identifier.
+  }
+  return undefined;
+}
+
+async function abortRejectedReplayStage(stageId: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.resolve().then(() =>
+        handleArchiveStageMessage({
+          action: 'abortStagedArchiveArtifact',
+          source: 'chatgpt',
+          stageId,
+        })
+      ),
+      new Promise<void>(resolve => {
+        timer = setTimeout(resolve, REPLAY_STAGE_CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    // Cleanup failure cannot change the fixed replay failure response.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function handleChatGptOpaqueReplay(target: ChatGptCaptureTarget) {
   if (!(await hasScriptingPermission())) {
     return createChatGptOpaqueReplayFailure('permission-unavailable');
   }
+  let ownedStageId: string | undefined;
   try {
-    const response = await captureChatGptConversationViaOpaqueReplay(target);
-    return isChatGptOpaqueReplayResponse(response) &&
+    const response = await captureChatGptConversationViaOpaqueReplay(target, {
+      transportMode: 'staged-v2',
+    });
+    ownedStageId = rejectedReplayStageId(response);
+    if (
+      isChatGptOpaqueReplayResponse(response) &&
       (!response.success || response.data.routeFamily === target.routeFamily)
-      ? response
-      : createChatGptOpaqueReplayFailure('replay-result-invalid');
+    ) {
+      ownedStageId = undefined;
+      return response;
+    }
   } catch {
-    return createChatGptOpaqueReplayFailure('replay-result-invalid');
+    // Includes validator exceptions; any previously validated stage stays owned.
+  } finally {
+    if (ownedStageId !== undefined) await abortRejectedReplayStage(ownedStageId);
   }
+  return createChatGptOpaqueReplayFailure('replay-result-invalid');
 }
 
 async function handleChatGptOpaqueResolver(conversationId: string) {

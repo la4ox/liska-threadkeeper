@@ -70,7 +70,7 @@ export interface ChatGptOpaqueReplayDependencies {
   pollIntervalMs?: number;
   createNonce?: () => string;
   digestSha256?: (bytes: Uint8Array) => Promise<string>;
-  /** Internal/test-only selector. Production callers omit it and stay byte-for-byte v1. */
+  /** Explicit route selector; callers that omit it retain the byte-for-byte legacy v1 path. */
   transportMode?: ChatGptOpaqueReplayTransportMode;
   archiveStage?: {
     begin: typeof beginArchiveStage;
@@ -725,8 +725,8 @@ async function waitForReplayResult(
 }
 
 /**
- * Run the isolated opaque replay core. It is intentionally not connected to
- * extension messages, UI, or normal capture; callers must opt in explicitly.
+ * Run the isolated opaque replay core. The explicit runtime route opts in to
+ * staged-v2; other callers retain the legacy-inline default.
  */
 // eslint-disable-next-line max-lines-per-function -- Lifecycle cleanup stays linear so each deadline exit has one bounded, auditable path.
 export async function captureChatGptConversationViaOpaqueReplay(

@@ -174,12 +174,16 @@ terminal states, and the existing no-credential-export boundary.
   File/Obsidian release, and worker restart behavior.
 - Keep the existing 64 MiB raw boundary until evidence justifies changing it.
 - The modern opaque-replay route previously rejected above 16 MiB before
-  downstream staging. A versioned staged-v2 core is now implemented but remains
-  internal/test-selectable: v1 inline is still the only production default.
+  downstream staging. The versioned staged-v2 core is now integrated and selected
+  by the explicit replay service-worker route without changing its request action.
   MAIN exposes credential-free chunk metadata/readers; background owns random
   stage allocation, pinned-document transfer, seal and exact late-settlement
-  cleanup. A separate PR must adapt content results, own late runtime responses
-  and activate v2 without changing sub-16 MiB behavior.
+  cleanup. Content uses an allowlisted adapter, transfers ownership only on the
+  existing request callback, and cleans a late staged success after timeout.
+- Installed forced replay on a real sub-16 MiB conversation retained complete,
+  byte-identical raw/manifest/canonical companions in File and Obsidian and left
+  zero marker tabs. This closes the compatibility gate only: the 2,684,770-byte
+  raw remained inline and therefore does not prove staged provider ingress.
 - Local archive measurement found no natural retained raw above 16 MiB; the
   largest current positive is 13,117,554 bytes. Canonical derivatives above
   16 MiB are not raw-ingress evidence and must not close this gate.
@@ -646,12 +650,11 @@ external synthetic-note mutation; the unchanged production reread returned
 the verified asset unreferenced. The scheduling gate was temporary and removed;
 the exact clean production package was rebuilt, reinstalled and restarted.
 
-The next implementation slice is staged-v2 opaque-replay content integration
-and production activation, preserving exact sub-16 MiB v1 behavior and adding
-explicit cleanup for a staged result that arrives after the content caller has
-timed out. After that, the ChatGPT phase-exit gate remains a real unpadded raw
-response above 16 MiB through File and Obsidian, with exact hashes, UTF-8 chunk
-facts, terminal cleanup and worker-restart evidence. Keep the 64 MiB raw bound.
+The next ChatGPT phase-exit gate is now a real unpadded raw response above 16 MiB
+through the activated replay path and both File and Obsidian, with exact hashes,
+UTF-8 chunk facts, terminal cleanup and worker-restart evidence. No retained
+local candidate currently crosses that threshold; do not substitute canonical
+size or synthetic padding. Keep the 64 MiB raw bound.
 
 Before any deduplicator write path, make three explicit product/privacy
 decisions: whether File/Obsidian copies of one capture may ever be candidates;

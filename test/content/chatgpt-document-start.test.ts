@@ -4418,12 +4418,11 @@ describe('startChatGptDocumentStartCapture', () => {
     expect(page.originalFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps v1 inline at 16 MiB and exposes 16 MiB plus one only as exact v2 chunks', async () => {
+  it('keeps v1/v2 exactly inline for small and 16 MiB bodies and exposes larger v2 chunks', async () => {
     const sourceUrl =
       `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
       '?include_has_versions=true&num_turns=10';
-    const run = async (byteLength: number, staged: boolean) => {
-      const bytes = new Uint8Array(byteLength);
+    const run = async (byteLength: number, staged: boolean, bytes = new Uint8Array(byteLength)) => {
       bytes[0] = 1;
       bytes[byteLength - 1] = 255;
       const replayResponse = new Response(bytes, {
@@ -4450,7 +4449,30 @@ describe('startChatGptDocumentStartCapture', () => {
       return { bytes, page, snapshot: opaqueReplaySnapshotOf(page) as Record<string, unknown> };
     };
 
+    const small = await run(3, false);
+    const smallV2 = await run(small.bytes.byteLength, true, small.bytes);
+    expect(smallV2.snapshot).toEqual(small.snapshot);
+    expect(Object.keys(smallV2.snapshot.capture as object).sort()).toEqual([
+      'bodyBase64',
+      'byteLength',
+      'mediaType',
+      'sha256',
+    ]);
+    expect(small.page.originalFetch).toHaveBeenCalledTimes(2);
+    expect(smallV2.page.originalFetch).toHaveBeenCalledTimes(2);
+
+    // Reuse one exact-boundary byte fixture rather than allocate a second 16 MiB input.
     const inline = await run(16 * 1024 * 1024, false);
+    const inlineV2 = await run(inline.bytes.byteLength, true, inline.bytes);
+    expect(inlineV2.snapshot).toEqual(inline.snapshot);
+    expect(Object.keys(inlineV2.snapshot.capture as object).sort()).toEqual([
+      'bodyBase64',
+      'byteLength',
+      'mediaType',
+      'sha256',
+    ]);
+    expect(inline.page.originalFetch).toHaveBeenCalledTimes(2);
+    expect(inlineV2.page.originalFetch).toHaveBeenCalledTimes(2);
     expect(inline.snapshot).toMatchObject({
       capture: { bodyBase64: expect.any(String), byteLength: 16 * 1024 * 1024 },
       singularDispatchCount: 1,
