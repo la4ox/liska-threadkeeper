@@ -193,6 +193,7 @@ type TaggedElement =
  */
 export class PerplexityExtractor extends BaseExtractor {
   readonly platform = 'perplexity';
+  protected override readonly titleUsesFirstUserFallback = true;
 
   // ========== ID & Title Extraction ==========
 

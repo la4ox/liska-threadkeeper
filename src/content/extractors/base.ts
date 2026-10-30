@@ -55,6 +55,7 @@ interface ConversationExtractionSnapshot {
   readonly identity: ConversationIdentitySnapshot;
   readonly conversationId: string;
   readonly title: string;
+  readonly authoritativeTitle: string | null;
   readonly url: string;
 }
 
@@ -69,6 +70,9 @@ export abstract class BaseExtractor implements IConversationExtractor {
 
   /** Whether to auto-scroll to load lazily-rendered history (set from settings). */
   enableAutoScroll = false;
+
+  /** Opt in when getTitle() falls back to the first rendered user message. */
+  protected readonly titleUsesFirstUserFallback: boolean = false;
 
   abstract getConversationId(): string | null;
   abstract getTitle(): string;
@@ -131,13 +135,12 @@ export abstract class BaseExtractor implements IConversationExtractor {
       if (!this.isConversationIdentityCurrent(snapshot.identity)) {
         return { success: false, error: CONVERSATION_CHANGED_ERROR };
       }
+      const title =
+        snapshot.authoritativeTitle ??
+        (this.titleUsesFirstUserFallback ? this.getCollectedFirstUserTitle(messages) : null) ??
+        snapshot.title;
       const result = this.withHistoryOutcome(
-        this.buildConversationResult(
-          messages,
-          snapshot.conversationId,
-          snapshot.title,
-          this.platform
-        ),
+        this.buildConversationResult(messages, snapshot.conversationId, title, this.platform),
         snapshot.url,
         domHistoryLoad
       );
@@ -195,12 +198,24 @@ export abstract class BaseExtractor implements IConversationExtractor {
 
   private captureConversationSnapshot(): ConversationExtractionSnapshot {
     const identity = this.captureConversationIdentity();
+    const authoritativeTitle = this.titleUsesFirstUserFallback ? this.getPageTitle() : null;
     return {
       identity,
       conversationId: identity.stableId ?? `${this.platform}-${Date.now()}`,
-      title: this.getTitle(),
+      title: authoritativeTitle ?? this.getTitle(),
+      authoritativeTitle,
       url: window.location.href,
     };
+  }
+
+  /** Resolve a message-based title from the completed accumulation, not its seed window. */
+  private getCollectedFirstUserTitle(messages: readonly ConversationMessage[]): string | null {
+    const content = messages.find(
+      message => message.role === 'user' && message.content.trim()
+    )?.content;
+    if (!content) return null;
+    const title = this.sanitizeText(content);
+    return title ? title.substring(0, MAX_CONVERSATION_TITLE_LENGTH) : null;
   }
 
   private withHistoryOutcome(

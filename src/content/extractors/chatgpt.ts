@@ -195,6 +195,7 @@ type ChatGptStructuredRoute =
  */
 export class ChatGPTExtractor extends BaseExtractor {
   readonly platform = 'chatgpt';
+  protected override readonly titleUsesFirstUserFallback = true;
 
   override canExtract(): boolean {
     return (

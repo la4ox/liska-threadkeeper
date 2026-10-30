@@ -36,6 +36,7 @@ type MessageRole = 'user' | 'assistant';
  */
 export class DeepSeekExtractor extends BaseExtractor {
   readonly platform = 'deepseek';
+  protected override readonly titleUsesFirstUserFallback = true;
 
   /** Include DeepSeek's expanded reasoning text as a collapsed tool callout. */
   enableToolContent = false;

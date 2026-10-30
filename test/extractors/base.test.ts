@@ -504,6 +504,53 @@ describe('BaseExtractor', () => {
       }
     });
 
+    it('derives an opted-in fallback title from the accumulated first user message', async () => {
+      document.title = 'ChatGPT';
+      class AccumulatedTitleExtractor extends HistoryOutcomeExtractor {
+        protected override readonly titleUsesFirstUserFallback = true;
+
+        getTitle(): string {
+          return 'Recent mounted question';
+        }
+
+        protected async collectMessages() {
+          return {
+            messages: [
+              { id: 'oldest', role: 'user' as const, content: 'Actual first question', index: 0 },
+              { id: 'answer', role: 'assistant' as const, content: 'Answer', index: 1 },
+            ],
+            domHistoryLoad: 'complete' as const,
+          };
+        }
+      }
+
+      const result = await new AccumulatedTitleExtractor('complete').extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.title).toBe('Actual first question');
+    });
+
+    it('keeps an opted-in authoritative page title across collection', async () => {
+      document.title = 'Pinned page title - ChatGPT';
+      class AuthoritativeTitleExtractor extends HistoryOutcomeExtractor {
+        protected override readonly titleUsesFirstUserFallback = true;
+
+        getTitle(): string {
+          return this.testGetPageTitle() ?? 'Recent mounted question';
+        }
+
+        protected async collectMessages() {
+          document.title = 'Changed page title - ChatGPT';
+          return { messages, domHistoryLoad: 'complete' as const };
+        }
+      }
+
+      const result = await new AuthoritativeTitleExtractor('complete').extract();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.title).toBe('Pinned page title');
+    });
+
     it('fails without data when the stable conversation ID changes after collection', async () => {
       class NavigatingExtractor extends HistoryOutcomeExtractor {
         id = 'conversation-a';

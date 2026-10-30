@@ -3873,7 +3873,7 @@ assistant state, cache invalidation, marker direction, 4,999ms grace rejection,
 grace reset and full grace-plus-top-settle extraction. TypeScript, formatting,
 diff checks and the guarded production build pass. The exact final Claude
 matrix passes 167/167 tests in 1,060.94 seconds. The complete final suite passes
-240 files / 8,646 tests with one file / three tests skipped in 939.04 seconds.
+240 files / 8,648 tests with one file / three tests skipped in 908.65 seconds.
 
 Rendered Claude attachment previews and isolated Artifact companions remain
 separate later slices. This checkpoint proves the bounded transcript traversal

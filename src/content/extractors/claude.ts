@@ -180,6 +180,7 @@ function stableHistoryRole(key: string): ConversationMessage['role'] | undefined
  */
 export class ClaudeExtractor extends BaseExtractor {
   readonly platform = 'claude';
+  protected override readonly titleUsesFirstUserFallback = true;
   /** Include tool-use / intermediate content (web search, code interpreter, etc.) */
   enableToolContent = false;
 

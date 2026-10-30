@@ -369,6 +369,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    document.title = 'Claude';
     removePrimeBridge = installClaudeScrollPrimeMain({ document });
     extractor = new ClaudeExtractor();
     setClaudeLocation('1fbb8252-2bec-4ef2-bf1f-88393dd9bb5f');
@@ -574,6 +575,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     expect(result.data?.messages.map(message => message.index)).toEqual(
       longConversation.map((_, index) => index)
     );
+    expect(result.data?.title).toBe('Synthetic turn 0');
     expect(result.data?.metadata).toMatchObject({
       messageCount: 154,
       userMessageCount: 77,
