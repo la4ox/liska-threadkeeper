@@ -3593,3 +3593,32 @@ platform checks, formatting and diff checks pass; independent review found no
 material defect. This proves activated replay preserves a real sub-16 MiB inline
 capture and both destinations. It does not prove an unpadded real response above
 16 MiB, live staged worker recovery, or browser fitness near the 64 MiB bound.
+
+## ChatGPT project WebP archive-only checkpoint
+
+One accessible project-scoped conversation from the official-export WebP
+reconnaissance was captured through the installed trusted-click path.
+Downloads and Obsidian retained byte-identical 900,531-byte raw, 81,866-byte
+manifest and 1,916,044-byte canonical companions. The raw record matches its
+physical length/SHA-256, canonical binds the exact manifest hash, and File adds
+only its expected canonical HTML view and receipt.
+
+The capture contains 159 asset records. Exactly one is `image/webp`; its sole
+manifest source pointer resolves to the exact raw metadata object with a direct
+ID and declared MIME, size, dimensions and source. It has no Library, artifact,
+file-service, sediment or interpreter marker. Manifest and canonical reconcile
+the same opaque ledger identity. The canonical declared byte length remains raw
+provider metadata, not an acquired-byte claim.
+
+The content-free route classified as `project`, and the production owner policy
+denied optional acquisition with `nonstandard-route`. All 159 assets therefore
+remain `not-attempted`; the WebP has no attempt timestamp, local path, acquired
+hash or binary file. The fixed owner-context warning appears exactly once,
+asset completeness is `not-attempted`, and durable manifest/canonical data
+contains no project route or owner alias. No temporary marker tab remained.
+
+This closes the planned live gate for exact raw-pointer resolution, owner
+classification and honest project-WebP omission. It does not authorize project
+binary acquisition, prove an ordinary-chat WebP resolver, provide original
+WebP bytes, or justify a WebP byte validator. GIF/WebP active widening remains
+evidence-gated.

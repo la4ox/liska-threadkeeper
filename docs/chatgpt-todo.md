@@ -39,9 +39,19 @@ terminal states, and the existing no-credential-export boundary.
   explicit Library markers and still zero GIF. Two corresponding ordinary URLs
   are currently unavailable; the two accessible conversations resolve to
   project routes. Treat them as project-owner evidence, not ordinary active
-  authority. The next live gate is one WebP-bearing project capture proving
-  raw-pointer/owner classification and an honest `not-attempted` result before
-  any WebP resolver or byte validator is designed.
+  authority.
+- That project-owner live gate is now closed. One accessible project capture
+  retained a single WebP record whose exact source pointer resolves to the
+  declared direct-ID metadata object. The content-free route classified as
+  `project`, attachment policy denied it as `nonstandard-route`, and both
+  destinations kept the record `not-attempted` with no attempt timestamp,
+  local path, hash, or binary file. The fixed owner-context warning appears
+  exactly once; Downloads and Obsidian companions are byte-identical, and no
+  temporary marker tab remained.
+- This evidence does not supply original WebP bytes, ordinary-chat helper
+  behavior, or byte-validation evidence. GIF/WebP active widening therefore
+  remains deferred; any project binary work belongs to the separate explicit
+  owner-context contract below.
 - Keep derived previews and ordinary images distinct before resolver dispatch.
 - Preserve original bytes; do not introduce compression as an archival default.
 - Live gate: fresh and historical examples, exact PNG/JPEG signatures,
