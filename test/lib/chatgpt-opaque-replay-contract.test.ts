@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHATGPT_CAPTURE_ENDPOINT } from '../../src/lib/chatgpt-capture-contract';
+import { ARCHIVE_STAGE_RELATIVE_PATHS } from '../../src/lib/archive-stage-contract';
 import {
   CHATGPT_OPAQUE_REPLAY_ERROR_CODES,
   createChatGptOpaqueReplayFailure,
@@ -10,6 +11,7 @@ import {
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const SHA256 = '0'.repeat(64);
+const STAGE_ID = `archive-stage-${'A'.repeat(32)}`;
 
 function capturedHook() {
   return {
@@ -33,6 +35,37 @@ function artifact() {
     mediaType: 'application/json',
     endpoint: { ...CHATGPT_CAPTURE_ENDPOINT },
     routeFamily: 'standard' as const,
+    transientAssetResolvers: [] as [],
+  };
+}
+
+function stagedHook(byteLength = 16 * 1024 * 1024 + 1) {
+  return {
+    kind: 'captured' as const,
+    conversationId: CONVERSATION_ID,
+    capture: {
+      transportVersion: 1 as const,
+      transport: 'staged' as const,
+      byteLength,
+      sha256: SHA256,
+      mediaType: 'application/json',
+      chunkCount: Math.ceil(byteLength / (512 * 1024)),
+    },
+    singularDispatchCount: 1 as const,
+  };
+}
+
+function stagedArtifact() {
+  return {
+    transport: 'staged' as const,
+    routeFamily: 'standard' as const,
+    stageId: STAGE_ID,
+    kind: 'raw' as const,
+    relativePath: ARCHIVE_STAGE_RELATIVE_PATHS.raw,
+    byteLength: 16 * 1024 * 1024 + 1,
+    sha256: SHA256,
+    mediaType: 'application/json' as const,
+    endpoint: { ...CHATGPT_CAPTURE_ENDPOINT },
     transientAssetResolvers: [] as [],
   };
 }
@@ -152,6 +185,48 @@ describe('ChatGPT opaque replay contract', () => {
     ).toBe(false);
   });
 
+  it('accepts only exact version-1 staged metadata above 16 MiB through 64 MiB', () => {
+    expect(isChatGptOpaqueReplayHookResult(stagedHook())).toBe(true);
+    expect(isChatGptOpaqueReplayHookResult(stagedHook(64 * 1024 * 1024))).toBe(true);
+    for (const capture of [
+      { ...stagedHook().capture, transportVersion: 2 },
+      { ...stagedHook().capture, byteLength: 16 * 1024 * 1024 },
+      { ...stagedHook().capture, byteLength: 64 * 1024 * 1024 + 1, chunkCount: 129 },
+      { ...stagedHook().capture, chunkCount: 32 },
+      { ...stagedHook().capture, bodyBase64: 'AA==' },
+      { ...capturedHook().capture, transport: 'staged', transportVersion: 1 },
+    ]) {
+      expect(isChatGptOpaqueReplayHookResult({ ...stagedHook(), capture })).toBe(false);
+    }
+  });
+
+  it('rejects staged accessors, prototype tricks, and hidden or symbol members', () => {
+    const accessor = stagedHook().capture as Record<string, unknown>;
+    Object.defineProperty(accessor, 'chunkCount', {
+      enumerable: true,
+      get: () => 33,
+    });
+    expect(isChatGptOpaqueReplayHookResult({ ...stagedHook(), capture: accessor })).toBe(false);
+
+    const malformedPrototype = Object.assign(
+      Object.create({ inherited: true }),
+      stagedHook().capture
+    );
+    expect(isChatGptOpaqueReplayHookResult({ ...stagedHook(), capture: malformedPrototype })).toBe(
+      false
+    );
+
+    const hidden = stagedHook().capture;
+    Object.defineProperty(hidden, 'hidden', { value: true });
+    expect(isChatGptOpaqueReplayHookResult({ ...stagedHook(), capture: hidden })).toBe(false);
+    expect(
+      isChatGptOpaqueReplayHookResult({
+        ...stagedHook(),
+        capture: { ...stagedHook().capture, [Symbol('extra')]: true },
+      })
+    ).toBe(false);
+  });
+
   it('rejects enumerable, non-enumerable, and symbol extras at the page boundary', () => {
     expect(isChatGptOpaqueReplayHookResult({ ...capturedHook(), secret: 'synthetic-secret' })).toBe(
       false
@@ -185,6 +260,20 @@ describe('ChatGPT opaque replay contract', () => {
         transientAssetResolvers: [{ resolverKey: 'not-allowed' }],
       })
     ).toBe(false);
+  });
+
+  it('accepts only the exact sealed extension-owned staged artifact', () => {
+    expect(isChatGptOpaqueReplayArtifact(stagedArtifact())).toBe(true);
+    for (const value of [
+      { ...stagedArtifact(), bodyBase64: 'AA==' },
+      { ...stagedArtifact(), stageId: 'page-stage' },
+      { ...stagedArtifact(), byteLength: 16 * 1024 * 1024 },
+      { ...stagedArtifact(), relativePath: 'page/selected.json' },
+      { ...stagedArtifact(), kind: 'canonical' },
+      { ...stagedArtifact(), transientAssetResolvers: [{}] },
+    ]) {
+      expect(isChatGptOpaqueReplayArtifact(value)).toBe(false);
+    }
   });
 
   it('emits failures as an exact stable code plus a bounded dispatch count', () => {

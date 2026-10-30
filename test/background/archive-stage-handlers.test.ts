@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ARCHIVE_STAGE_BEGIN_OFFSCREEN_FAILURES,
   ARCHIVE_STAGE_RELATIVE_PATHS,
@@ -27,7 +27,13 @@ vi.mock('../../src/background/obsidian-handlers', () => ({
   handleSaveStagedArchiveCompanion: (...args: unknown[]) => mocks.saveStagedArchive(...args),
 }));
 
-import { handleArchiveStageMessage } from '../../src/background/archive-stage-handlers';
+import {
+  abortArchiveStage,
+  appendArchiveStage,
+  beginArchiveStage,
+  handleArchiveStageMessage,
+  sealArchiveStage,
+} from '../../src/background/archive-stage-handlers';
 import { startArchiveStageDownloadRecovery } from '../../src/background/archive-stage-download-recovery';
 
 const stageId = `archive-stage-${'A'.repeat(32)}`;
@@ -99,6 +105,10 @@ function installStageUrlResponses(
 }
 
 describe('archive-stage background handlers', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     mocks.acquireLease.mockReset();
     mocks.confirmArchiveDownloadPath.mockReset();
@@ -268,6 +278,91 @@ describe('archive-stage background handlers', () => {
     ).resolves.toEqual({ success: false, error: 'archive-stage-begin-failed:offscreen-rejected' });
     expect(release).toHaveBeenCalledOnce();
   });
+
+  it.each(['resolve', 'reject'] as const)(
+    'reports allocated begin ownership and aborts after late acknowledgement %s',
+    async settlement => {
+      vi.useFakeTimers();
+      const release = installLease();
+      let resolveBegin: ((value: unknown) => void) | undefined;
+      let rejectBegin: ((reason: unknown) => void) | undefined;
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(message => {
+        if ((message as { action?: string }).action === 'archiveStageAbort') {
+          return Promise.resolve({ success: true });
+        }
+        return new Promise((resolve, reject) => {
+          resolveBegin = resolve;
+          rejectBegin = reject;
+        });
+      });
+      let allocated: string | undefined;
+      const pending = beginArchiveStage(descriptorFor('raw'), stageId => {
+        allocated = stageId;
+      });
+
+      await vi.advanceTimersByTimeAsync(10_001);
+      await expect(pending).resolves.toBeUndefined();
+      expect(allocated).toMatch(/^archive-stage-[A-Za-z0-9_-]{32,96}$/);
+
+      if (settlement === 'resolve') resolveBegin?.({ success: true });
+      else rejectBegin?.(new Error('late channel rejection'));
+      await vi.runAllTimersAsync();
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+        action: 'archiveStageAbort',
+        target: 'offscreen',
+        stageId: allocated,
+      });
+      expect(release).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each([
+    ['append', 'resolve'],
+    ['append', 'reject'],
+    ['seal', 'resolve'],
+    ['seal', 'reject'],
+  ] as const)(
+    're-aborts the exact stage after late %s acknowledgement %s',
+    async (operation, settlement) => {
+      vi.useFakeTimers();
+      const release = installLease();
+      let resolveLate: ((value: unknown) => void) | undefined;
+      let rejectLate: ((reason: unknown) => void) | undefined;
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(message => {
+        if ((message as { action?: string }).action === 'archiveStageAbort') {
+          return Promise.resolve({ success: true });
+        }
+        return new Promise((resolve, reject) => {
+          resolveLate = resolve;
+          rejectLate = reject;
+        });
+      });
+      const pending =
+        operation === 'append'
+          ? appendArchiveStage(stageId, 0, 'AQ==')
+          : sealArchiveStage(stageId, descriptorFor('raw'));
+
+      await vi.advanceTimersByTimeAsync(10_001);
+      await expect(pending).resolves.toBe(false);
+      await expect(abortArchiveStage(stageId)).resolves.toBe(true);
+      const abortMessages = () =>
+        vi
+          .mocked(chrome.runtime.sendMessage)
+          .mock.calls.filter(
+            ([message]) => (message as { action?: string }).action === 'archiveStageAbort'
+          );
+      expect(abortMessages()).toHaveLength(1);
+
+      if (settlement === 'resolve') resolveLate?.({ success: true });
+      else rejectLate?.(new Error('late channel rejection'));
+      await vi.runAllTimersAsync();
+      expect(abortMessages()).toEqual([
+        [{ action: 'archiveStageAbort', target: 'offscreen', stageId }],
+        [{ action: 'archiveStageAbort', target: 'offscreen', stageId }],
+      ]);
+      expect(release).toHaveBeenCalledTimes(3);
+    }
+  );
 
   it('distinguishes a rejected message channel from unavailable offscreen creation', async () => {
     const release = installLease();

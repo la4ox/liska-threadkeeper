@@ -7,6 +7,18 @@
 import { canonicalBase64ByteLength } from '../lib/base64';
 import { CHATGPT_CAPTURE_ENDPOINT } from '../lib/chatgpt-capture-contract';
 import {
+  ARCHIVE_STAGE_CHUNK_BYTES,
+  ARCHIVE_STAGE_RELATIVE_PATHS,
+  isSafeArchiveStageId,
+  type ArchiveStageDescriptor,
+} from '../lib/archive-stage-contract';
+import {
+  abortArchiveStage,
+  appendArchiveStage,
+  beginArchiveStage,
+  sealArchiveStage,
+} from './archive-stage-handlers';
+import {
   isChatGptCaptureTarget,
   isEquivalentChatGptCaptureTargetUrl,
   type ChatGptCaptureTarget,
@@ -29,7 +41,7 @@ const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
 
 interface ReplayScriptInjection {
-  target: { tabId: number };
+  target: { tabId: number; documentIds?: string[] };
   world: 'MAIN';
   func: (...args: never[]) => unknown;
   args: unknown[];
@@ -42,9 +54,13 @@ interface ReplayChromeApi {
     remove: (tabId: number) => Promise<void>;
   };
   scripting: {
-    executeScript: (injection: ReplayScriptInjection) => Promise<Array<{ result?: unknown }>>;
+    executeScript: (
+      injection: ReplayScriptInjection
+    ) => Promise<Array<{ result?: unknown; frameId?: number; documentId?: string }>>;
   };
 }
+
+export type ChatGptOpaqueReplayTransportMode = 'legacy-inline' | 'staged-v2';
 
 export interface ChatGptOpaqueReplayDependencies {
   chromeApi?: ReplayChromeApi;
@@ -54,10 +70,22 @@ export interface ChatGptOpaqueReplayDependencies {
   pollIntervalMs?: number;
   createNonce?: () => string;
   digestSha256?: (bytes: Uint8Array) => Promise<string>;
+  /** Internal/test-only selector. Production callers omit it and stay byte-for-byte v1. */
+  transportMode?: ChatGptOpaqueReplayTransportMode;
+  archiveStage?: {
+    begin: typeof beginArchiveStage;
+    append: typeof appendArchiveStage;
+    seal: typeof sealArchiveStage;
+    abort: typeof abortArchiveStage;
+  };
 }
 
 type HookState = ChatGptOpaqueReplayHookResult | { kind: 'missing' };
 type Readiness = 'ready' | 'waiting' | 'unexpected-origin' | 'unexpected-path';
+type PinnedDocument = { frameId: 0; documentId: string };
+type HookRead = { state: HookState; document?: PinnedDocument; documentMismatch?: true };
+
+class ReplayDeadlineError extends Error {}
 
 function normalizeTimeout(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return CHATGPT_OPAQUE_REPLAY_TIMEOUT_MS;
@@ -97,12 +125,16 @@ function safeNonce(createNonce: () => string): string | undefined {
   }
 }
 
-function marker(nonce: string): string {
-  return `#liska-capture=${nonce}&liska-opaque-replay=1`;
+function marker(nonce: string, transportMode: ChatGptOpaqueReplayTransportMode): string {
+  return `#liska-capture=${nonce}&liska-opaque-replay=${transportMode === 'staged-v2' ? '2' : '1'}`;
 }
 
-function targetUrl(target: ChatGptCaptureTarget, nonce: string): string {
-  return `${CHATGPT_ORIGIN}${target.pathname}${marker(nonce)}`;
+function targetUrl(
+  target: ChatGptCaptureTarget,
+  nonce: string,
+  transportMode: ChatGptOpaqueReplayTransportMode
+): string {
+  return `${CHATGPT_ORIGIN}${target.pathname}${marker(nonce, transportMode)}`;
 }
 
 function remainingTimeout(deadline: number, now: () => number): number {
@@ -111,7 +143,7 @@ function remainingTimeout(deadline: number, now: () => number): number {
 
 function withinDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timed out')), timeoutMs);
+    const timer = setTimeout(() => reject(new ReplayDeadlineError('timed out')), timeoutMs);
     operation.then(
       value => {
         clearTimeout(timer);
@@ -134,6 +166,13 @@ function resolvedDependencies(overrides: ChatGptOpaqueReplayDependencies) {
     pollIntervalMs: normalizePollInterval(overrides.pollIntervalMs),
     createNonce: overrides.createNonce ?? defaultNonce,
     digestSha256: overrides.digestSha256 ?? defaultDigestSha256,
+    transportMode: overrides.transportMode ?? ('legacy-inline' as const),
+    archiveStage: overrides.archiveStage ?? {
+      begin: beginArchiveStage,
+      append: appendArchiveStage,
+      seal: sealArchiveStage,
+      abort: abortArchiveStage,
+    },
   };
 }
 
@@ -159,6 +198,7 @@ async function waitForTemporaryTarget(
   tabId: number,
   target: ChatGptCaptureTarget,
   nonce: string,
+  transportMode: ChatGptOpaqueReplayTransportMode,
   deadline: number,
   now: () => number,
   sleep: (milliseconds: number) => Promise<void>,
@@ -172,7 +212,9 @@ async function waitForTemporaryTarget(
         const url = new URL(tab.url);
         if (url.origin !== CHATGPT_ORIGIN || url.username !== '' || url.password !== '') {
           readiness = 'unexpected-origin';
-        } else if (isEquivalentChatGptCaptureTargetUrl(tab.url, target, marker(nonce))) {
+        } else if (
+          isEquivalentChatGptCaptureTargetUrl(tab.url, target, marker(nonce, transportMode))
+        ) {
           readiness = 'ready';
         } else {
           readiness = 'unexpected-path';
@@ -201,22 +243,39 @@ async function readHookState(
   tabId: number,
   nonce: string,
   deadline: number,
-  now: () => number
-): Promise<HookState> {
+  now: () => number,
+  pinnedDocument?: PinnedDocument
+): Promise<HookRead> {
   try {
     const execution = await withinDeadline(
       chromeApi.scripting.executeScript({
-        target: { tabId },
+        target: {
+          tabId,
+          ...(pinnedDocument && { documentIds: [pinnedDocument.documentId] }),
+        },
         world: 'MAIN',
         func: readChatGptOpaqueReplayState,
         args: [nonce],
       }),
       remainingTimeout(deadline, now)
     );
-    const result = execution[0]?.result;
-    return isChatGptOpaqueReplayHookResult(result) ? result : { kind: 'missing' };
+    const entry = execution.length === 1 ? execution[0] : undefined;
+    if (pinnedDocument) {
+      if (entry?.frameId !== 0 || entry.documentId !== pinnedDocument.documentId) {
+        return { state: { kind: 'missing' }, documentMismatch: true };
+      }
+    }
+    const document =
+      entry?.frameId === 0 && typeof entry.documentId === 'string' && entry.documentId.length > 0
+        ? { frameId: 0 as const, documentId: entry.documentId }
+        : undefined;
+    const result = entry?.result;
+    return {
+      state: isChatGptOpaqueReplayHookResult(result) ? result : { kind: 'missing' },
+      ...(document && { document }),
+    };
   } catch {
-    return { kind: 'missing' };
+    return { state: { kind: 'missing' }, ...(pinnedDocument && { documentMismatch: true }) };
   }
 }
 
@@ -239,8 +298,7 @@ async function artifactFromHookResult(
   target: ChatGptCaptureTarget,
   digestSha256: (bytes: Uint8Array) => Promise<string>
 ): Promise<ChatGptOpaqueReplayArtifact | undefined> {
-  if (result.conversationId !== target.conversationId || result.singularDispatchCount !== 1)
-    return undefined;
+  if ('transport' in result.capture) return undefined;
   const bytes = strictBase64Bytes(result.capture.bodyBase64);
   if (bytes === undefined || bytes.byteLength !== result.capture.byteLength) return undefined;
   try {
@@ -262,20 +320,310 @@ async function artifactFromHookResult(
   };
 }
 
+type StagedHookCapture = Extract<
+  Extract<ChatGptOpaqueReplayHookResult, { kind: 'captured' }>['capture'],
+  { transport: 'staged' }
+>;
+
+type ValidatedReplayChunk = { offset: number; byteLength: number; chunkBase64: string };
+
+function validateReplayChunk(
+  value: unknown,
+  capture: StagedHookCapture,
+  index: number
+): ValidatedReplayChunk | undefined {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  )
+    return undefined;
+  const keys = Reflect.ownKeys(value);
+  const expectedKeys = ['kind', 'index', 'offset', 'byteLength', 'chunkBase64'];
+  if (keys.length !== expectedKeys.length || !expectedKeys.every(key => keys.includes(key))) {
+    return undefined;
+  }
+  for (const key of expectedKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) {
+      return undefined;
+    }
+  }
+  const chunk = value as Record<string, unknown>;
+  const expectedOffset = index * ARCHIVE_STAGE_CHUNK_BYTES;
+  const expectedLength = Math.min(ARCHIVE_STAGE_CHUNK_BYTES, capture.byteLength - expectedOffset);
+  if (
+    chunk.kind !== 'chunk' ||
+    chunk.index !== index ||
+    chunk.offset !== expectedOffset ||
+    chunk.byteLength !== expectedLength ||
+    typeof chunk.chunkBase64 !== 'string'
+  ) {
+    return undefined;
+  }
+  const bytes = strictBase64Bytes(chunk.chunkBase64);
+  return bytes?.byteLength === expectedLength
+    ? { offset: expectedOffset, byteLength: expectedLength, chunkBase64: chunk.chunkBase64 }
+    : undefined;
+}
+
+async function readPinnedReplayChunk(
+  resolved: ReturnType<typeof resolvedDependencies>,
+  tabId: number,
+  pinnedDocument: PinnedDocument,
+  nonce: string,
+  capture: StagedHookCapture,
+  index: number,
+  deadline: number
+): Promise<ValidatedReplayChunk | undefined> {
+  try {
+    const execution = await withinDeadline(
+      resolved.chromeApi.scripting.executeScript({
+        target: { tabId, documentIds: [pinnedDocument.documentId] },
+        world: 'MAIN',
+        func: readChatGptOpaqueReplayChunkState,
+        args: [nonce, index],
+      }),
+      remainingTimeout(deadline, resolved.now)
+    );
+    const entry = execution.length === 1 ? execution[0] : undefined;
+    if (entry?.frameId !== 0 || entry.documentId !== pinnedDocument.documentId) return undefined;
+    return validateReplayChunk(entry.result, capture, index);
+  } catch {
+    return undefined;
+  }
+}
+
+async function releasePinnedReplayChunks(
+  resolved: ReturnType<typeof resolvedDependencies>,
+  tabId: number,
+  pinnedDocument: PinnedDocument,
+  nonce: string
+): Promise<void> {
+  try {
+    await withinDeadline(
+      resolved.chromeApi.scripting.executeScript({
+        target: { tabId, documentIds: [pinnedDocument.documentId] },
+        world: 'MAIN',
+        func: releaseChatGptOpaqueReplayChunkState,
+        args: [nonce],
+      }),
+      CLEANUP_STEP_TIMEOUT_MS
+    );
+  } catch {
+    // Navigation or tab cleanup also destroys the nonce-scoped reader.
+  }
+}
+
+async function abortOwnedReplayStage(
+  resolved: ReturnType<typeof resolvedDependencies>,
+  stageId: string
+): Promise<boolean> {
+  if (!isSafeArchiveStageId(stageId)) return false;
+  let operation: Promise<boolean>;
+  try {
+    operation = Promise.resolve(resolved.archiveStage.abort(stageId)).catch(() => false);
+  } catch {
+    return false;
+  }
+  try {
+    return await withinDeadline(operation, CLEANUP_STEP_TIMEOUT_MS);
+  } catch {
+    // The observed operation remains attached and may still finish cleanup.
+    return false;
+  }
+}
+
+async function stageReplayCapture(
+  resolved: ReturnType<typeof resolvedDependencies>,
+  tabId: number,
+  pinnedDocument: PinnedDocument,
+  nonce: string,
+  target: ChatGptCaptureTarget,
+  capture: StagedHookCapture,
+  deadline: number
+): Promise<ChatGptOpaqueReplayArtifact | undefined> {
+  const descriptor: ArchiveStageDescriptor & {
+    kind: 'raw';
+    relativePath: typeof ARCHIVE_STAGE_RELATIVE_PATHS.raw;
+  } = {
+    kind: 'raw',
+    mediaType: 'application/json',
+    relativePath: ARCHIVE_STAGE_RELATIVE_PATHS.raw,
+    byteLength: capture.byteLength,
+    sha256: capture.sha256,
+  };
+  let allocatedStageId: string | undefined;
+  let stageId: string | undefined;
+  let handedOff = false;
+  let ownsBegin = true;
+  let beginPromise: Promise<string | undefined> | undefined;
+  try {
+    beginPromise = Promise.resolve(
+      resolved.archiveStage.begin(descriptor, id => {
+        if (isSafeArchiveStageId(id)) allocatedStageId = id;
+      })
+    );
+    void beginPromise.then(
+      lateStageId => {
+        if (!ownsBegin && isSafeArchiveStageId(lateStageId)) {
+          void abortOwnedReplayStage(resolved, lateStageId);
+        }
+      },
+      () => undefined
+    );
+    stageId = await withinDeadline(beginPromise, remainingTimeout(deadline, resolved.now));
+    if (!isSafeArchiveStageId(stageId)) return undefined;
+    if (allocatedStageId !== undefined && allocatedStageId !== stageId) return undefined;
+    allocatedStageId = stageId;
+
+    for (let index = 0; index < capture.chunkCount; index += 1) {
+      const readiness = await waitForTemporaryTarget(
+        resolved.chromeApi,
+        tabId,
+        target,
+        nonce,
+        resolved.transportMode,
+        deadline,
+        resolved.now,
+        resolved.sleep,
+        resolved.pollIntervalMs
+      );
+      if (readiness !== 'ready') return undefined;
+      const chunk = await readPinnedReplayChunk(
+        resolved,
+        tabId,
+        pinnedDocument,
+        nonce,
+        capture,
+        index,
+        deadline
+      );
+      if (!chunk) return undefined;
+      let outerAppendTimedOut = false;
+      const appendPromise = Promise.resolve(
+        resolved.archiveStage.append(stageId, chunk.offset, chunk.chunkBase64)
+      );
+      const abortAfterOuterTimeout = (): void => {
+        if (outerAppendTimedOut) {
+          void abortOwnedReplayStage(resolved, stageId!);
+        }
+      };
+      void appendPromise.then(abortAfterOuterTimeout, abortAfterOuterTimeout);
+      let appended: boolean;
+      try {
+        appended = await withinDeadline(appendPromise, remainingTimeout(deadline, resolved.now));
+      } catch (error) {
+        if (error instanceof ReplayDeadlineError) outerAppendTimedOut = true;
+        throw error;
+      }
+      if (!appended) return undefined;
+    }
+    const sealPromise = Promise.resolve(resolved.archiveStage.seal(stageId, descriptor));
+    void sealPromise.then(
+      () => {
+        if (!ownsBegin && !handedOff) {
+          void abortOwnedReplayStage(resolved, stageId!);
+        }
+      },
+      () => undefined
+    );
+    const sealed = await withinDeadline(sealPromise, remainingTimeout(deadline, resolved.now));
+    if (!sealed) return undefined;
+    const finalReadiness = await waitForTemporaryTarget(
+      resolved.chromeApi,
+      tabId,
+      target,
+      nonce,
+      resolved.transportMode,
+      deadline,
+      resolved.now,
+      resolved.sleep,
+      resolved.pollIntervalMs
+    );
+    if (finalReadiness !== 'ready') return undefined;
+    const postSeal = await readHookState(
+      resolved.chromeApi,
+      tabId,
+      nonce,
+      deadline,
+      resolved.now,
+      pinnedDocument
+    );
+    if (
+      postSeal.documentMismatch ||
+      postSeal.document?.documentId !== pinnedDocument.documentId ||
+      postSeal.state.kind !== 'captured' ||
+      postSeal.state.conversationId !== target.conversationId ||
+      postSeal.state.singularDispatchCount !== 1 ||
+      !('transport' in postSeal.state.capture) ||
+      postSeal.state.capture.transportVersion !== capture.transportVersion ||
+      postSeal.state.capture.transport !== capture.transport ||
+      postSeal.state.capture.byteLength !== capture.byteLength ||
+      postSeal.state.capture.sha256 !== capture.sha256 ||
+      postSeal.state.capture.mediaType !== capture.mediaType ||
+      postSeal.state.capture.chunkCount !== capture.chunkCount
+    ) {
+      return undefined;
+    }
+    handedOff = true;
+    return {
+      transport: 'staged',
+      routeFamily: target.routeFamily,
+      stageId,
+      ...descriptor,
+      endpoint: CHATGPT_CAPTURE_ENDPOINT,
+      transientAssetResolvers: [],
+    };
+  } catch (error) {
+    if (error instanceof ReplayDeadlineError) throw error;
+    return undefined;
+  } finally {
+    ownsBegin = false;
+    await releasePinnedReplayChunks(resolved, tabId, pinnedDocument, nonce);
+    const ownedIds = new Set([allocatedStageId, stageId].filter(isSafeArchiveStageId));
+    if (!handedOff) {
+      for (const ownedId of ownedIds) {
+        await abortOwnedReplayStage(resolved, ownedId);
+      }
+    }
+  }
+}
+
 async function verifiedReplayResponse(
   resolved: ReturnType<typeof resolvedDependencies>,
   tabId: number,
   nonce: string,
   target: ChatGptCaptureTarget,
   state: Extract<ChatGptOpaqueReplayHookResult, { kind: 'captured' }>,
-  deadline: number
+  deadline: number,
+  pinnedDocument?: PinnedDocument
 ): Promise<ChatGptOpaqueReplayResponse> {
+  if (state.conversationId !== target.conversationId || state.singularDispatchCount !== 1) {
+    if ('transport' in state.capture && pinnedDocument) {
+      await releasePinnedReplayChunks(resolved, tabId, pinnedDocument, nonce);
+    }
+    return createChatGptOpaqueReplayFailure('replay-result-invalid', 1);
+  }
   let artifact: ChatGptOpaqueReplayArtifact | undefined;
   try {
-    artifact = await withinDeadline(
-      artifactFromHookResult(state, target, resolved.digestSha256),
-      remainingTimeout(deadline, resolved.now)
-    );
+    artifact =
+      'transport' in state.capture
+        ? resolved.transportMode === 'staged-v2' && pinnedDocument
+          ? await stageReplayCapture(
+              resolved,
+              tabId,
+              pinnedDocument,
+              nonce,
+              target,
+              state.capture,
+              deadline
+            )
+          : undefined
+        : await withinDeadline(
+            artifactFromHookResult(state, target, resolved.digestSha256),
+            remainingTimeout(deadline, resolved.now)
+          );
   } catch {
     return createChatGptOpaqueReplayFailure('replay-result-timeout', 1);
   }
@@ -284,16 +632,21 @@ async function verifiedReplayResponse(
     tabId,
     target,
     nonce,
+    resolved.transportMode,
     deadline,
     resolved.now,
     resolved.sleep,
     resolved.pollIntervalMs
   );
-  if (readiness !== 'ready')
+  if (readiness !== 'ready') {
+    if (artifact && 'transport' in artifact && artifact.transport === 'staged') {
+      await abortOwnedReplayStage(resolved, artifact.stageId);
+    }
     return createChatGptOpaqueReplayFailure(
       readiness === 'waiting' ? 'temporary-tab-ready-timeout' : readiness,
       1
     );
+  }
   return artifact === undefined
     ? createChatGptOpaqueReplayFailure('replay-result-invalid', 1)
     : { success: true, data: artifact };
@@ -306,12 +659,14 @@ async function waitForReplayResult(
   target: ChatGptCaptureTarget,
   deadline: number
 ): Promise<ChatGptOpaqueReplayResponse> {
+  let pinnedDocument: PinnedDocument | undefined;
   while (resolved.now() <= deadline) {
     const readiness = await waitForTemporaryTarget(
       resolved.chromeApi,
       tabId,
       target,
       nonce,
+      resolved.transportMode,
       deadline,
       resolved.now,
       resolved.sleep,
@@ -321,12 +676,37 @@ async function waitForReplayResult(
       return createChatGptOpaqueReplayFailure(
         readiness === 'waiting' ? 'temporary-tab-ready-timeout' : readiness
       );
-    const state = await readHookState(resolved.chromeApi, tabId, nonce, deadline, resolved.now);
+    const read = await readHookState(
+      resolved.chromeApi,
+      tabId,
+      nonce,
+      deadline,
+      resolved.now,
+      pinnedDocument
+    );
+    if (read.documentMismatch) {
+      return createChatGptOpaqueReplayFailure('replay-result-invalid');
+    }
+    if (resolved.transportMode === 'staged-v2' && read.document) {
+      if (pinnedDocument && pinnedDocument.documentId !== read.document.documentId) {
+        return createChatGptOpaqueReplayFailure('replay-result-invalid');
+      }
+      pinnedDocument = read.document;
+    }
+    const state = read.state;
     if (state.kind === 'error') {
       return createChatGptOpaqueReplayFailure(state.code, state.singularDispatchCount);
     }
     if (state.kind === 'captured') {
-      return verifiedReplayResponse(resolved, tabId, nonce, target, state, deadline);
+      return verifiedReplayResponse(
+        resolved,
+        tabId,
+        nonce,
+        target,
+        state,
+        deadline,
+        pinnedDocument
+      );
     }
     const remaining = deadline - resolved.now();
     if (remaining <= 0) break;
@@ -371,7 +751,10 @@ export async function captureChatGptConversationViaOpaqueReplay(
     let creation: Promise<{ id?: number }>;
     try {
       creation = Promise.resolve(
-        resolved.chromeApi.tabs.create({ url: targetUrl(immutableTarget, nonce), active: false })
+        resolved.chromeApi.tabs.create({
+          url: targetUrl(immutableTarget, nonce, resolved.transportMode),
+          active: false,
+        })
       );
     } catch {
       return createChatGptOpaqueReplayFailure('temporary-tab-create-failed');
@@ -400,6 +783,7 @@ export async function captureChatGptConversationViaOpaqueReplay(
       tabId,
       immutableTarget,
       nonce,
+      resolved.transportMode,
       deadline,
       resolved.now,
       resolved.sleep,
@@ -431,6 +815,7 @@ export async function captureChatGptConversationViaOpaqueReplay(
 export function readChatGptOpaqueReplayState(nonce: string): HookState {
   try {
     const hasExactStringKeys = (value: object, expected: readonly string[]): boolean => {
+      if (Object.getPrototypeOf(value) !== Object.prototype) return false;
       const keys = Reflect.ownKeys(value);
       if (keys.length !== expected.length) return false;
       for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex += 1) {
@@ -442,6 +827,14 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
           }
         }
         if (!found) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, expected[expectedIndex]);
+        if (
+          descriptor === undefined ||
+          !('value' in descriptor) ||
+          descriptor.enumerable !== true
+        ) {
+          return false;
+        }
       }
       return true;
     };
@@ -517,9 +910,12 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
     const snapshot = pageWindow[`__liskaChatGptOpaqueReplay_${nonce}`];
     if (typeof snapshot !== 'object' || snapshot === null) return { kind: 'missing' };
     const state = snapshot as Record<string, unknown>;
-    if (state.kind === 'ready' && hasExactStringKeys(state, ['kind'])) return { kind: 'ready' };
+    const kindDescriptor = Object.getOwnPropertyDescriptor(state, 'kind');
+    if (kindDescriptor === undefined || !('value' in kindDescriptor)) return { kind: 'missing' };
+    const kind = kindDescriptor.value;
+    if (kind === 'ready' && hasExactStringKeys(state, ['kind'])) return { kind: 'ready' };
     if (
-      state.kind === 'error' &&
+      kind === 'error' &&
       hasExactStringKeys(state, ['kind', 'code', 'singularDispatchCount']) &&
       typeof state.code === 'string' &&
       codes.includes(state.code) &&
@@ -532,7 +928,7 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
       };
     }
     if (
-      state.kind !== 'captured' ||
+      kind !== 'captured' ||
       !hasExactStringKeys(state, ['kind', 'conversationId', 'capture', 'singularDispatchCount']) ||
       typeof state.conversationId !== 'string' ||
       state.singularDispatchCount !== 1 ||
@@ -542,6 +938,64 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
       return { kind: 'missing' };
     }
     const capture = state.capture as Record<string, unknown>;
+    const transportDescriptor = Object.getOwnPropertyDescriptor(capture, 'transport');
+    const versionDescriptor = Object.getOwnPropertyDescriptor(capture, 'transportVersion');
+    if (transportDescriptor !== undefined || versionDescriptor !== undefined) {
+      if (
+        !hasExactStringKeys(capture, [
+          'transportVersion',
+          'transport',
+          'byteLength',
+          'sha256',
+          'mediaType',
+          'chunkCount',
+        ])
+      ) {
+        return { kind: 'missing' };
+      }
+      const byteLength = capture.byteLength;
+      const chunkCount = capture.chunkCount;
+      if (
+        typeof byteLength !== 'number' ||
+        byteLength !== byteLength ||
+        byteLength <= 16 * 1024 * 1024 ||
+        byteLength > 64 * 1024 * 1024 ||
+        byteLength % 1 !== 0 ||
+        typeof chunkCount !== 'number' ||
+        chunkCount !== chunkCount ||
+        chunkCount <= 0 ||
+        chunkCount > 128 ||
+        chunkCount % 1 !== 0
+      ) {
+        return { kind: 'missing' };
+      }
+      const chunkBytes = 512 * 1024;
+      const adjustedLength = byteLength + chunkBytes - 1;
+      const expectedChunkCount = (adjustedLength - (adjustedLength % chunkBytes)) / chunkBytes;
+      if (
+        capture.transportVersion !== 1 ||
+        capture.transport !== 'staged' ||
+        chunkCount !== expectedChunkCount ||
+        typeof capture.sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(capture.sha256) ||
+        typeof capture.mediaType !== 'string'
+      ) {
+        return { kind: 'missing' };
+      }
+      return {
+        kind: 'captured',
+        conversationId: state.conversationId,
+        capture: {
+          transportVersion: 1,
+          transport: 'staged',
+          byteLength,
+          sha256: capture.sha256,
+          mediaType: capture.mediaType,
+          chunkCount,
+        },
+        singularDispatchCount: 1,
+      };
+    }
     if (!hasExactStringKeys(capture, ['bodyBase64', 'byteLength', 'sha256', 'mediaType'])) {
       return { kind: 'missing' };
     }
@@ -566,5 +1020,139 @@ export function readChatGptOpaqueReplayState(nonce: string): HookState {
     };
   } catch {
     return { kind: 'missing' };
+  }
+}
+
+/** Serialized exact-range reader for one nonce-scoped staged replay chunk. */
+export function readChatGptOpaqueReplayChunkState(
+  nonce: string,
+  index: number
+):
+  | { kind: 'chunk'; index: number; offset: number; byteLength: number; chunkBase64: string }
+  | { kind: 'missing' } {
+  try {
+    const exactDataKeys = (value: object, expected: readonly string[]): boolean => {
+      if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== expected.length) return false;
+      for (const key of expected) {
+        if (!keys.includes(key)) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (
+          descriptor === undefined ||
+          !('value' in descriptor) ||
+          descriptor.enumerable !== true
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    if (
+      typeof nonce !== 'string' ||
+      !/^[a-z0-9-]{16,128}$/i.test(nonce) ||
+      typeof index !== 'number' ||
+      index !== index ||
+      index < 0 ||
+      index % 1 !== 0
+    ) {
+      return { kind: 'missing' };
+    }
+    const pageWindow = window as unknown as Record<string, unknown>;
+    const snapshot = pageWindow[`__liskaChatGptOpaqueReplay_${nonce}`];
+    if (typeof snapshot !== 'object' || snapshot === null) return { kind: 'missing' };
+    const state = snapshot as Record<string, unknown>;
+    if (
+      !exactDataKeys(state, ['kind', 'conversationId', 'capture', 'singularDispatchCount']) ||
+      state.kind !== 'captured' ||
+      state.singularDispatchCount !== 1 ||
+      typeof state.capture !== 'object' ||
+      state.capture === null
+    ) {
+      return { kind: 'missing' };
+    }
+    const capture = state.capture as Record<string, unknown>;
+    if (
+      !exactDataKeys(capture, [
+        'transportVersion',
+        'transport',
+        'byteLength',
+        'sha256',
+        'mediaType',
+        'chunkCount',
+      ]) ||
+      capture.transportVersion !== 1 ||
+      capture.transport !== 'staged' ||
+      typeof capture.byteLength !== 'number' ||
+      capture.byteLength !== capture.byteLength ||
+      capture.byteLength <= 16 * 1024 * 1024 ||
+      capture.byteLength > 64 * 1024 * 1024 ||
+      capture.byteLength % 1 !== 0 ||
+      typeof capture.chunkCount !== 'number' ||
+      capture.chunkCount !== capture.chunkCount ||
+      capture.chunkCount <= 0 ||
+      capture.chunkCount > 128 ||
+      capture.chunkCount % 1 !== 0 ||
+      index >= capture.chunkCount
+    ) {
+      return { kind: 'missing' };
+    }
+    const totalByteLength = capture.byteLength;
+    const chunkCount = capture.chunkCount;
+    const chunkBytes = 512 * 1024;
+    const adjustedLength = totalByteLength + chunkBytes - 1;
+    const expectedChunkCount = (adjustedLength - (adjustedLength % chunkBytes)) / chunkBytes;
+    if (chunkCount !== expectedChunkCount) return { kind: 'missing' };
+    const reader = pageWindow[`__liskaChatGptOpaqueReplayChunkReader_${nonce}`];
+    if (typeof reader !== 'function') return { kind: 'missing' };
+    const chunk = reader(index);
+    if (typeof chunk !== 'object' || chunk === null) return { kind: 'missing' };
+    if (!exactDataKeys(chunk, ['kind', 'index', 'offset', 'byteLength', 'chunkBase64'])) {
+      return { kind: 'missing' };
+    }
+    const record = chunk as Record<string, unknown>;
+    const offset = index * 512 * 1024;
+    const remaining = totalByteLength - offset;
+    const chunkByteLength = remaining < 512 * 1024 ? remaining : 512 * 1024;
+    const expectedBase64Length =
+      4 *
+      (chunkByteLength % 3 === 0
+        ? chunkByteLength / 3
+        : (chunkByteLength + (3 - (chunkByteLength % 3))) / 3);
+    if (
+      record.kind !== 'chunk' ||
+      record.index !== index ||
+      record.offset !== offset ||
+      record.byteLength !== chunkByteLength ||
+      typeof record.chunkBase64 !== 'string' ||
+      record.chunkBase64.length !== expectedBase64Length
+    ) {
+      return { kind: 'missing' };
+    }
+    const binary = atob(record.chunkBase64);
+    if (binary.length !== chunkByteLength || btoa(binary) !== record.chunkBase64) {
+      return { kind: 'missing' };
+    }
+    return {
+      kind: 'chunk',
+      index,
+      offset,
+      byteLength: chunkByteLength,
+      chunkBase64: record.chunkBase64,
+    };
+  } catch {
+    return { kind: 'missing' };
+  }
+}
+
+/** Serialized one-way release for the staged byte reader. */
+export function releaseChatGptOpaqueReplayChunkState(nonce: string): boolean {
+  try {
+    if (typeof nonce !== 'string' || !/^[a-z0-9-]{16,128}$/i.test(nonce)) return false;
+    const pageWindow = window as unknown as Record<string, unknown>;
+    const release = pageWindow[`__liskaChatGptOpaqueReplayChunkRelease_${nonce}`];
+    return typeof release === 'function' && release() === true;
+  } catch {
+    return false;
   }
 }

@@ -8,9 +8,16 @@
  */
 
 import { canonicalBase64ByteLength } from './base64';
+import {
+  ARCHIVE_STAGE_CHUNK_BYTES,
+  ARCHIVE_STAGE_RELATIVE_PATHS,
+  isArchiveStageDescriptor,
+  isSafeArchiveStageId,
+} from './archive-stage-contract';
 import { isChatGptRouteFamily, type ChatGptRouteFamily } from './chatgpt-owner-context';
 import {
   CHATGPT_CAPTURE_ENDPOINT,
+  CHATGPT_CAPTURE_MAX_BYTES,
   CHATGPT_INLINE_CAPTURE_MAX_BYTES,
   isChatGptConversationId,
 } from './chatgpt-capture-contract';
@@ -85,12 +92,26 @@ export const CHATGPT_OPAQUE_REPLAY_ERROR_CODES = [
 
 export type ChatGptOpaqueReplayErrorCode = (typeof CHATGPT_OPAQUE_REPLAY_ERROR_CODES)[number];
 
-export interface ChatGptOpaqueReplayCapture {
+export interface ChatGptOpaqueReplayInlineCapture {
   bodyBase64: string;
   byteLength: number;
   sha256: string;
   mediaType: string;
 }
+
+/** Credential-free metadata for the versioned staged replay transport. */
+export interface ChatGptOpaqueReplayStagedCapture {
+  transportVersion: 1;
+  transport: 'staged';
+  byteLength: number;
+  sha256: string;
+  mediaType: string;
+  chunkCount: number;
+}
+
+export type ChatGptOpaqueReplayCapture =
+  | ChatGptOpaqueReplayInlineCapture
+  | ChatGptOpaqueReplayStagedCapture;
 
 export type ChatGptOpaqueReplayHookResult =
   | { kind: 'ready' }
@@ -103,7 +124,7 @@ export type ChatGptOpaqueReplayHookResult =
   | { kind: 'error'; code: ChatGptOpaqueReplayErrorCode; singularDispatchCount: 0 | 1 };
 
 /** Equivalent to the ordinary capture artifact, but replay never emits resolvers. */
-export interface ChatGptOpaqueReplayArtifact {
+export interface ChatGptOpaqueReplayInlineArtifact {
   routeFamily: ChatGptRouteFamily;
   bodyBase64: string;
   byteLength: number;
@@ -113,25 +134,45 @@ export interface ChatGptOpaqueReplayArtifact {
   transientAssetResolvers: [];
 }
 
+/** A sealed extension-owned raw archive stage. No page value can select its ID or path. */
+export interface ChatGptOpaqueReplayStagedArtifact {
+  transport: 'staged';
+  routeFamily: ChatGptRouteFamily;
+  stageId: string;
+  kind: 'raw';
+  relativePath: typeof ARCHIVE_STAGE_RELATIVE_PATHS.raw;
+  byteLength: number;
+  sha256: string;
+  mediaType: 'application/json';
+  endpoint: typeof CHATGPT_CAPTURE_ENDPOINT;
+  transientAssetResolvers: [];
+}
+
+export type ChatGptOpaqueReplayArtifact =
+  | ChatGptOpaqueReplayInlineArtifact
+  | ChatGptOpaqueReplayStagedArtifact;
+
 export type ChatGptOpaqueReplayResponse =
   | { success: true; data: ChatGptOpaqueReplayArtifact }
   // A background deadline's count of 0 is unobserved/ambiguous, not safe to retry.
   | { success: false; code: ChatGptOpaqueReplayErrorCode; singularDispatchCount: 0 | 1 };
 
-function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
-  const keys = Reflect.ownKeys(value);
-  if (keys.length !== expected.length) return false;
-  for (const expectedKey of expected) {
-    let found = false;
-    for (const key of keys) {
-      if (key === expectedKey) {
-        found = true;
-        break;
+function hasExactOwnDataKeys(value: object, expected: readonly string[]): boolean {
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== expected.length) return false;
+    for (const expectedKey of expected) {
+      if (!keys.includes(expectedKey)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, expectedKey);
+      if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) {
+        return false;
       }
     }
-    if (!found) return false;
+    return true;
+  } catch {
+    return false;
   }
-  return true;
 }
 
 function isJsonMediaType(value: unknown): value is string {
@@ -145,9 +186,42 @@ function isJsonMediaType(value: unknown): value is string {
 
 export function isChatGptOpaqueReplayCapture(value: unknown): value is ChatGptOpaqueReplayCapture {
   if (typeof value !== 'object' || value === null) return false;
-  if (!hasExactOwnKeys(value, ['bodyBase64', 'byteLength', 'sha256', 'mediaType'])) return false;
   const record = value as Record<string, unknown>;
+  let transport: PropertyDescriptor | undefined;
+  let transportVersion: PropertyDescriptor | undefined;
+  try {
+    transport = Object.getOwnPropertyDescriptor(value, 'transport');
+    transportVersion = Object.getOwnPropertyDescriptor(value, 'transportVersion');
+  } catch {
+    return false;
+  }
+  if (
+    transportVersion !== undefined ||
+    (transport !== undefined && 'value' in transport && transport.value === 'staged')
+  ) {
+    return (
+      hasExactOwnDataKeys(value, [
+        'transportVersion',
+        'transport',
+        'byteLength',
+        'sha256',
+        'mediaType',
+        'chunkCount',
+      ]) &&
+      record.transportVersion === 1 &&
+      record.transport === 'staged' &&
+      Number.isSafeInteger(record.byteLength) &&
+      (record.byteLength as number) > CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
+      (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
+      Number.isSafeInteger(record.chunkCount) &&
+      record.chunkCount === Math.ceil((record.byteLength as number) / ARCHIVE_STAGE_CHUNK_BYTES) &&
+      typeof record.sha256 === 'string' &&
+      /^[a-f0-9]{64}$/.test(record.sha256) &&
+      isJsonMediaType(record.mediaType)
+    );
+  }
   return (
+    hasExactOwnDataKeys(value, ['bodyBase64', 'byteLength', 'sha256', 'mediaType']) &&
     typeof record.bodyBase64 === 'string' &&
     Number.isSafeInteger(record.byteLength) &&
     (record.byteLength as number) >= 0 &&
@@ -165,18 +239,25 @@ export function isChatGptOpaqueReplayHookResult(
 ): value is ChatGptOpaqueReplayHookResult {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
-  if (record.kind === 'ready') return hasExactOwnKeys(value, ['kind']);
-  if (record.kind === 'captured') {
+  let kindDescriptor: PropertyDescriptor | undefined;
+  try {
+    kindDescriptor = Object.getOwnPropertyDescriptor(value, 'kind');
+  } catch {
+    return false;
+  }
+  if (kindDescriptor === undefined || !('value' in kindDescriptor)) return false;
+  if (kindDescriptor.value === 'ready') return hasExactOwnDataKeys(value, ['kind']);
+  if (kindDescriptor.value === 'captured') {
     return (
-      hasExactOwnKeys(value, ['kind', 'conversationId', 'capture', 'singularDispatchCount']) &&
+      hasExactOwnDataKeys(value, ['kind', 'conversationId', 'capture', 'singularDispatchCount']) &&
       isChatGptConversationId(record.conversationId) &&
       isChatGptOpaqueReplayCapture(record.capture) &&
       record.singularDispatchCount === 1
     );
   }
   return (
-    record.kind === 'error' &&
-    hasExactOwnKeys(value, ['kind', 'code', 'singularDispatchCount']) &&
+    kindDescriptor.value === 'error' &&
+    hasExactOwnDataKeys(value, ['kind', 'code', 'singularDispatchCount']) &&
     typeof record.code === 'string' &&
     (CHATGPT_OPAQUE_REPLAY_ERROR_CODES as readonly string[]).includes(record.code) &&
     (record.singularDispatchCount === 0 || record.singularDispatchCount === 1)
@@ -187,14 +268,24 @@ function isExactEndpoint(value: unknown): value is typeof CHATGPT_CAPTURE_ENDPOI
   return (
     typeof value === 'object' &&
     value !== null &&
-    hasExactOwnKeys(value, ['method', 'pathPattern']) &&
+    hasExactOwnDataKeys(value, ['method', 'pathPattern']) &&
     (value as { method?: unknown }).method === CHATGPT_CAPTURE_ENDPOINT.method &&
     (value as { pathPattern?: unknown }).pathPattern === CHATGPT_CAPTURE_ENDPOINT.pathPattern
   );
 }
 
 function isExactEmptyResolverList(value: unknown): value is [] {
-  return Array.isArray(value) && value.length === 0 && hasExactOwnKeys(value, ['length']);
+  try {
+    return (
+      Array.isArray(value) &&
+      Object.getPrototypeOf(value) === Array.prototype &&
+      value.length === 0 &&
+      Reflect.ownKeys(value).length === 1 &&
+      Reflect.ownKeys(value)[0] === 'length'
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Validate the replay core result before it can be adapted by any future route. */
@@ -202,8 +293,49 @@ export function isChatGptOpaqueReplayArtifact(
   value: unknown
 ): value is ChatGptOpaqueReplayArtifact {
   if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  let transport: PropertyDescriptor | undefined;
+  try {
+    transport = Object.getOwnPropertyDescriptor(value, 'transport');
+  } catch {
+    return false;
+  }
+  if (transport !== undefined && 'value' in transport && transport.value === 'staged') {
+    if (
+      !hasExactOwnDataKeys(value, [
+        'transport',
+        'routeFamily',
+        'stageId',
+        'kind',
+        'relativePath',
+        'byteLength',
+        'sha256',
+        'mediaType',
+        'endpoint',
+        'transientAssetResolvers',
+      ])
+    ) {
+      return false;
+    }
+    return (
+      isSafeArchiveStageId(record.stageId) &&
+      isArchiveStageDescriptor({
+        kind: record.kind,
+        relativePath: record.relativePath,
+        byteLength: record.byteLength,
+        sha256: record.sha256,
+        mediaType: record.mediaType,
+      }) &&
+      record.kind === 'raw' &&
+      (record.byteLength as number) > CHATGPT_INLINE_CAPTURE_MAX_BYTES &&
+      (record.byteLength as number) <= CHATGPT_CAPTURE_MAX_BYTES &&
+      isExactEndpoint(record.endpoint) &&
+      isChatGptRouteFamily(record.routeFamily) &&
+      isExactEmptyResolverList(record.transientAssetResolvers)
+    );
+  }
   if (
-    !hasExactOwnKeys(value, [
+    !hasExactOwnDataKeys(value, [
       'bodyBase64',
       'byteLength',
       'sha256',
@@ -215,7 +347,6 @@ export function isChatGptOpaqueReplayArtifact(
   ) {
     return false;
   }
-  const record = value as Record<string, unknown>;
   return (
     isChatGptOpaqueReplayCapture({
       bodyBase64: record.bodyBase64,
@@ -242,14 +373,21 @@ export function isChatGptOpaqueReplayResponse(
 ): value is ChatGptOpaqueReplayResponse {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
-  if (record.success === true) {
+  let success: PropertyDescriptor | undefined;
+  try {
+    success = Object.getOwnPropertyDescriptor(value, 'success');
+  } catch {
+    return false;
+  }
+  if (success === undefined || !('value' in success)) return false;
+  if (success.value === true) {
     return (
-      hasExactOwnKeys(value, ['success', 'data']) && isChatGptOpaqueReplayArtifact(record.data)
+      hasExactOwnDataKeys(value, ['success', 'data']) && isChatGptOpaqueReplayArtifact(record.data)
     );
   }
   return (
-    record.success === false &&
-    hasExactOwnKeys(value, ['success', 'code', 'singularDispatchCount']) &&
+    success.value === false &&
+    hasExactOwnDataKeys(value, ['success', 'code', 'singularDispatchCount']) &&
     typeof record.code === 'string' &&
     (CHATGPT_OPAQUE_REPLAY_ERROR_CODES as readonly string[]).includes(record.code) &&
     (record.singularDispatchCount === 0 || record.singularDispatchCount === 1)
