@@ -574,6 +574,56 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     expect(abort.mock.calls.filter(([id]) => id === STAGE_ID).length).toBeGreaterThanOrEqual(2);
   });
 
+  it('bounds a hanging owned-stage abort after begin timeout and still removes the tab', async () => {
+    vi.useFakeTimers();
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const abort = vi.fn(() => new Promise<boolean>(() => undefined));
+    const pending = captureChatGptConversationViaOpaqueReplay(TARGET, {
+      chromeApi: {
+        tabs: {
+          create: vi.fn().mockResolvedValue({ id: 123 }),
+          get: vi.fn().mockResolvedValue({
+            status: 'complete',
+            url: `https://chatgpt.com/c/${CONVERSATION_ID}${STAGED_MARKER}`,
+          }),
+          remove,
+        },
+        scripting: {
+          executeScript: vi.fn(async (injection: { func: Function }) => [
+            {
+              frameId: 0,
+              documentId: 'document-1',
+              result:
+                injection.func === releaseChatGptOpaqueReplayChunkState ? true : stagedState(),
+            },
+          ]),
+        },
+      },
+      createNonce: () => NONCE,
+      timeoutMs: 1_000,
+      transportMode: 'staged-v2',
+      archiveStage: {
+        begin: vi.fn((_descriptor, onAllocated?: (stageId: string) => void) => {
+          onAllocated?.(STAGE_ID);
+          return new Promise<string | undefined>(() => undefined);
+        }),
+        append: vi.fn(),
+        seal: vi.fn(),
+        abort,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(abort).toHaveBeenCalledWith(STAGE_ID);
+    await vi.advanceTimersByTimeAsync(501);
+    await expect(pending).resolves.toEqual({
+      success: false,
+      code: 'replay-result-timeout',
+      singularDispatchCount: 1,
+    });
+    expect(remove).toHaveBeenCalledWith(123);
+  });
+
   it.each(['resolve', 'reject'] as const)(
     're-aborts after an append settles with %s beyond the outer replay deadline',
     async settlement => {

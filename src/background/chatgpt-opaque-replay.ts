@@ -415,6 +415,25 @@ async function releasePinnedReplayChunks(
   }
 }
 
+async function abortOwnedReplayStage(
+  resolved: ReturnType<typeof resolvedDependencies>,
+  stageId: string
+): Promise<boolean> {
+  if (!isSafeArchiveStageId(stageId)) return false;
+  let operation: Promise<boolean>;
+  try {
+    operation = Promise.resolve(resolved.archiveStage.abort(stageId)).catch(() => false);
+  } catch {
+    return false;
+  }
+  try {
+    return await withinDeadline(operation, CLEANUP_STEP_TIMEOUT_MS);
+  } catch {
+    // The observed operation remains attached and may still finish cleanup.
+    return false;
+  }
+}
+
 async function stageReplayCapture(
   resolved: ReturnType<typeof resolvedDependencies>,
   tabId: number,
@@ -448,7 +467,7 @@ async function stageReplayCapture(
     void beginPromise.then(
       lateStageId => {
         if (!ownsBegin && isSafeArchiveStageId(lateStageId)) {
-          void resolved.archiveStage.abort(lateStageId).catch(() => false);
+          void abortOwnedReplayStage(resolved, lateStageId);
         }
       },
       () => undefined
@@ -487,7 +506,7 @@ async function stageReplayCapture(
       );
       const abortAfterOuterTimeout = (): void => {
         if (outerAppendTimedOut) {
-          void resolved.archiveStage.abort(stageId!).catch(() => false);
+          void abortOwnedReplayStage(resolved, stageId!);
         }
       };
       void appendPromise.then(abortAfterOuterTimeout, abortAfterOuterTimeout);
@@ -504,7 +523,7 @@ async function stageReplayCapture(
     void sealPromise.then(
       () => {
         if (!ownsBegin && !handedOff) {
-          void resolved.archiveStage.abort(stageId!).catch(() => false);
+          void abortOwnedReplayStage(resolved, stageId!);
         }
       },
       () => undefined
@@ -565,7 +584,7 @@ async function stageReplayCapture(
     const ownedIds = new Set([allocatedStageId, stageId].filter(isSafeArchiveStageId));
     if (!handedOff) {
       for (const ownedId of ownedIds) {
-        await resolved.archiveStage.abort(ownedId).catch(() => false);
+        await abortOwnedReplayStage(resolved, ownedId);
       }
     }
   }
@@ -621,7 +640,7 @@ async function verifiedReplayResponse(
   );
   if (readiness !== 'ready') {
     if (artifact && 'transport' in artifact && artifact.transport === 'staged') {
-      await resolved.archiveStage.abort(artifact.stageId).catch(() => false);
+      await abortOwnedReplayStage(resolved, artifact.stageId);
     }
     return createChatGptOpaqueReplayFailure(
       readiness === 'waiting' ? 'temporary-tab-ready-timeout' : readiness,

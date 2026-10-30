@@ -3526,13 +3526,13 @@ artifacts are accepted only for `16 MiB < byteLength <= 64 MiB`.
 Independent review found and closed four material lifecycle gaps: missing staged
 conversation binding, an accessor/`Infinity` count-loop hang, same-route document
 replacement after seal, and late rejected offscreen settlements without a second
-cleanup. Focused verification passes 4 files / 424 tests; the main agent's wider
-10-file replay/stage matrix passes 568 tests. TypeScript, the guarded production
+cleanup. Focused verification passes 4 files / 425 tests; the main agent's wider
+10-file replay/stage matrix passes 569 tests. TypeScript, the guarded production
 build, formatting and diff checks pass; full lint has zero errors and 16 warnings,
 13 of them from the deliberately linear new trust-boundary validators/lifecycles.
-The complete coverage suite passes 236 files: 8,150 tests passed and one existing
-test skipped (8,151 total). Coverage remains at the repository gates: 95.00%
-statements, 91.63% branches, 98.38% functions and 97.46% lines. The real unpadded
+The complete coverage suite passes 236 files: 8,151 tests passed and one existing
+test skipped (8,152 total). Coverage remains at the repository gates: 95.01%
+statements, 91.63% branches, 98.47% functions and 97.45% lines. The real unpadded
 provider gate remains open: the largest retained real raw inspected locally is
 13,117,554 bytes, while larger retained files are canonical derivatives rather
 than raw ingress evidence.
