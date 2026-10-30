@@ -3671,3 +3671,26 @@ bounds, immediate cancellation of synchronous parsing, or any deduplication,
 merge, deletion or mutation authority. The exact workload, commands and
 content-free metrics are recorded in
 `docs/snapshot-parser-heavy-acceptance.md`.
+
+## Snapshot parser-heavy installed acceptance checkpoint
+
+The exact accepted pair above was written to two temporary synthetic folders
+and selected separately through the installed Comet snapshot-analysis page.
+Each card reported 3 files / 15,856,212 bytes. One trusted, uninstrumented
+Analyze completed, and the terminal `Analysis complete. No source files were
+changed.` state was first observed about 11.9 seconds after the click. Both
+snapshots rendered `Verified byte consistency`, and the sole candidate
+relationship was `Same raw bytes, different evidence. Keep both.`
+
+Save was not invoked, and no snapshot-analysis report with mtime at or after the
+pre-run receipt appeared in either checked top-level Downloads root; one older
+report predates this run. Post-run checks matched all six source lengths,
+SHA-256 values and exact `mtimeMs` values to the receipt. Both selected folders
+still contained exactly their original three files. The agent-created analysis
+tab was exact-closed afterward.
+
+This closes installed-Comet parser-heavy responsiveness for the measured pair
+at 94.04% of the shared JSON-string ceiling. The elapsed observation includes UI
+scheduling and is not a performance guarantee. It does not establish peak
+memory, immediate cancellation of synchronous parsing, browser behavior for the
+refusing triple, other browser families or any mutation authority.

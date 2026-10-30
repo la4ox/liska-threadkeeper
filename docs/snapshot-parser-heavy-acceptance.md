@@ -135,11 +135,36 @@ git diff --check
 The explicit two-file TypeScript command also checks the new test infrastructure;
 the repository's ordinary TypeScript configuration includes `src/` only.
 
+## Installed Comet acceptance
+
+The same accepted pair was written to two temporary synthetic snapshot folders
+and selected separately in the installed private snapshot-analysis page. Each
+card reported exactly 3 files / 15,856,212 bytes. After one uninstrumented
+Analyze, the terminal `Analysis complete. No source files were changed.` state
+was first observed about 11.9 seconds after the trusted click. Both cards
+reported `Verified byte consistency`, and the only candidate relationship
+rendered as `Same raw bytes, different evidence. Keep both.`
+
+The Save control was not used. No `liska-snapshot-analysis.json` report appeared
+with mtime at or after the pre-run receipt in either the browser-configured or
+profile top-level Downloads root. One older report predates this run. Independent
+post-run reconciliation matched all six source file lengths, SHA-256 values and
+exact `mtimeMs` values to the pre-run receipt, with exactly three files still
+present in each selected folder. The temporary analysis tab was exact-closed
+afterward.
+
+The elapsed observation includes browser/UI scheduling and is not a performance
+guarantee. This closes installed-Comet responsiveness for this measured 94.04%
+string-budget pair; it does not measure peak memory, prove immediate cancellation
+of synchronous parsing, cover the refusing triple in-browser, or establish other
+browser families.
+
 ## Scope and nonclaims
 
-This is Node/Vitest acceptance of a parser-heavy synthetic operation, not evidence
-of installed-browser responsiveness. Timing is observational and machine-specific,
-not a benchmark guarantee. It does not prove peak memory or instant cancellation
-of the synchronous strict parser. Vitest's finite timeout is not parser preemption.
-It does not establish provider transport authenticity, all-pairs relation discovery,
-absence of external references, or permission to deduplicate, delete, merge, or mutate.
+The executable suite remains Node/Vitest acceptance; the separately recorded
+Comet canary supplies the bounded installed-Comet evidence above. Timing is
+observational and machine-specific, not a benchmark guarantee. Neither run proves
+peak memory or instant cancellation of the synchronous strict parser. Vitest's
+finite timeout is not parser preemption. They do not establish provider transport
+authenticity, all-pairs relation discovery, absence of external references, or
+permission to deduplicate, delete, merge, or mutate.
