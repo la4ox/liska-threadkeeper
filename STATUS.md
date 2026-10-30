@@ -2459,11 +2459,19 @@ now accepts only the exact marked URL or its exact hashless base while backgroun
 still pins the document ID. A metadata-only refinement can distinguish an exact
 room Fetch refused solely because `RequestInit` is present without reading any
 init field. Its live classification remains pending: later attempts were
-invalidated by the Dots page itself failing during reload. A future stable-page
-canary may establish `request-init-present` or retain `target-not-observed`; only
-that result may justify the next narrow Fetch/XHR adjustment. Once the real raw
-contract is grounded, this schema control should move out of the ordinary
-product surface or be removed.
+invalidated by the Dots page itself failing during reload.
+
+One later trusted popup canary ran once on a stable eligible Dots tab and
+returned exactly `Dots schema probe did not complete (timed-out).` The nonce
+fragment was absent afterward, and no diagnostic download appeared in browser
+or filesystem checks. The operation was not retried. That code can originate
+either from the MAIN observer's hard deadline or the background observation
+deadline; the popup does not distinguish them. Hook arming, endpoint admission
+and Fetch-init versus URL-object versus XHR therefore remain unproven for this
+run. No route or transport admission was widened, and this result alone does
+not justify another run or a Fetch/XHR adjustment. Once the real raw contract
+is grounded, the schema control should move out of the ordinary product surface
+or be removed.
 
 The intended archive behavior after this evidence gate is not a permanently
 redacted export. For the current workflow, one Dot to one long-lived room is the
