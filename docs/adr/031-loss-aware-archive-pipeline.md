@@ -574,6 +574,26 @@ still-unimplemented owner-context binary-acquisition contract rather than
 proving ordinary active image authority. No original WebP response or bytes
 were observed; planner and validator behavior therefore remain unchanged.
 
+One accessible project conversation was then captured through the installed
+trusted-click path. Downloads and Obsidian retained byte-identical 900,531-byte
+raw, 81,866-byte manifest and 1,916,044-byte canonical companions. The raw
+artifact length/SHA-256 and the canonical manifest binding both verify. Of 159
+asset records, exactly one is `image/webp`; its sole source pointer resolves to
+the exact raw metadata object with direct ID plus declared MIME, size,
+dimensions and source, and no Library, artifact, transport or interpreter
+marker. The canonical asset reconciles to the same opaque ledger ID.
+
+The content-free route family classified as `project`, so attachment policy
+returned `nonstandard-route` before optional acquisition. Every asset remained
+`not-attempted`; the WebP has no attempt timestamp, local artifact, acquired
+hash or binary file, while its canonical byte length remains explicitly
+provider-declared metadata rather than fetched-byte evidence. The fixed
+owner-context warning occurs once. Durable manifest/canonical data contains no
+project route or owner alias, and the temporary marker tab exact-closed. This
+closes raw-pointer and owner-policy evidence for a project WebP, not ordinary
+WebP authority, project attachment acquisition, a resolver route, or a WebP
+byte validator.
+
 Library evidence is classified in a separate pure pass over exact manifest
 source refs. The result exposes only opaque ledger asset IDs as `associated` or
 `ambiguous`; provider Library values never cross the function boundary.
@@ -704,7 +724,9 @@ creating zero binary files or attempts; all nine assets remained
 `not-attempted`, and one durable policy warning explains the omission. This is
 an explicit archive-only support contract. It does not authorize custom-GPT or
 project attachment downloads, infer owner IDs, or widen ordinary, Library, or
-interpreter transports.
+interpreter transports. The later project-WebP canary above exercises the same
+boundary for an explicitly typed direct-ID image record and reaches the same
+archive-only result.
 
 ### Research-output notes consume destination receipts, not acquisition claims
 
