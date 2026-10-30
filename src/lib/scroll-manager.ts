@@ -177,6 +177,12 @@ export interface HarvestEntry<T> {
    * merge (issues #352, #353).
    */
   order?: number;
+  /**
+   * Permanently discard numeric-order evidence for this accumulation pass.
+   * Providers set this when an invariant that made earlier indices comparable
+   * fails; the DOM-anchor merge remains the safe ordering fallback.
+   */
+  invalidateOrder?: true;
 }
 
 /** Platform-specific tuning for one virtualized accumulation pass. */
@@ -377,14 +383,25 @@ function createAccumulation<T>(
 ): Accumulation<T> {
   const content = new Map<string, T>();
   const orderIndex = new Map<string, number>();
+  let numericOrderTrusted = true;
   let order: string[] = [];
 
   const ingest = (container: HTMLElement): boolean => {
     const before = content.size;
     const window = harvest(container);
+    if (numericOrderTrusted && window.some(entry => entry.invalidateOrder)) {
+      // Anchor stitching can hold a temporary tail-overlap order while numeric
+      // evidence is still the authoritative final view. Freeze that trusted
+      // view before discarding the indices for the rest of the pass.
+      order = resolveOrder(order, orderIndex);
+      numericOrderTrusted = false;
+      orderIndex.clear();
+    }
     for (const entry of window) {
       content.set(entry.key, entry.value); // last write wins → freshest content
-      if (entry.order !== undefined) orderIndex.set(entry.key, entry.order);
+      if (numericOrderTrusted && entry.order !== undefined) {
+        orderIndex.set(entry.key, entry.order);
+      }
     }
     order = mergeWindow(
       order,

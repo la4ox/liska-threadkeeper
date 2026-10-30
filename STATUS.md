@@ -3872,8 +3872,12 @@ and tail proof, skipped windows, append/shrink conflicts, remounts, exact empty
 assistant state, cache invalidation, marker direction, 4,999ms grace rejection,
 grace reset and full grace-plus-top-settle extraction. TypeScript, formatting,
 diff checks and the guarded production build pass. The exact final Claude
-matrix passes 167/167 tests in 1,060.94 seconds. The complete final suite passes
-240 files / 8,648 tests with one file / three tests skipped in 908.65 seconds.
+matrix passes 168/168 tests in 842.38 seconds. The last repository-wide run on
+the same shared manager passed all 239 unchanged files and isolated one Claude
+ordering regression; after that exact correction, the full Claude file passes.
+Combined current-input evidence covers 240 passing files / 8,651 passing tests
+with one file / three tests skipped; current-head CI remains the independent
+single-run gate.
 
 Rendered Claude attachment previews and isolated Artifact companions remain
 separate later slices. This checkpoint proves the bounded transcript traversal

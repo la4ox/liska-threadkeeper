@@ -1359,6 +1359,36 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     );
   });
 
+  it('keeps anchor order when tail loss invalidates window-relative indices', async () => {
+    const scroller = mountMutableClaudeWindow(conversation.slice(4), write => {
+      if (write === 2) {
+        scroller.innerHTML = conversation
+          .slice(2, 4)
+          .map((turn, index) => renderTurn(turn, index + 2))
+          .join('');
+      } else if (write === 3) {
+        scroller.innerHTML = conversation
+          .slice(0, 2)
+          .map((turn, index) => renderTurn(turn, index))
+          .join('');
+      }
+    });
+    scroller.querySelector('[data-index="0"]')!.setAttribute('data-index', '4');
+    scroller.querySelector('[data-index="1"]')!.setAttribute('data-index', '5');
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.data?.messages.map(message => message.id)).toEqual(conversation.map(turnKey));
+    expect(result.data?.messages.map(message => plainText(message.content))).toEqual(
+      conversation.map(turn => turn.content)
+    );
+    expect(result.data?.domHistoryLoad).toBe('partial');
+    expect(result.data?.liskaLossDiagnostics).toEqual(['history-load-partial']);
+  });
+
   it.each(ASSISTANT_PLACEHOLDERS)(
     'marks a static assistant HTML placeholder partial: %s',
     async html => {
@@ -1649,7 +1679,6 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     { name: 'missing zero', indices: [1, 2, 3, 4, 5, 6] },
     { name: 'missing row identity', indices: [0, 1, null, 3, 4, 5] },
     { name: 'duplicate index', indices: [0, 1, 2, 2, 3, 4] },
-    { name: 'conflicting DOM order', indices: [0, 2, 1, 3, 4, 5] },
     { name: 'noncanonical integer', indices: [0, 1, '02', 3, 4, 5] },
     { name: 'exponent', indices: [0, 1, '2e0', 3, 4, 5] },
     { name: 'fraction', indices: [0, 1, '2.0', 3, 4, 5] },
@@ -1670,6 +1699,20 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     expect(result.data?.domHistoryLoad).toBe('partial');
     expect(result.data?.liskaLossDiagnostics).toContain('history-load-partial');
     expect(result.warnings).toHaveLength(1);
+  });
+
+  it('keeps DOM-anchor message order when numeric indices conflict with DOM order', async () => {
+    mountVirtualizedClaude(conversation, 3, { rowIndices: [0, 2, 1, 3, 4, 5] });
+    extractor.applySettings(settings());
+
+    const promise = extractor.extract();
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    expect(result.data?.messages.map(message => message.id)).toEqual(conversation.map(turnKey));
+    expect(result.data?.domHistoryLoad).toBe('partial');
+    expect(result.data?.liskaLossDiagnostics).toContain('history-load-partial');
   });
 
   it('retains a cross-window role conflict even if deduplication leaves a contiguous range', async () => {

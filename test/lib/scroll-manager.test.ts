@@ -1061,6 +1061,52 @@ describe('accumulateWhileScrolling', () => {
     expect(result.items).toEqual(Array.from({ length: 21 }, (_, i) => `v${i + 1}`));
   });
 
+  it('permanently falls back to anchor order after numeric order is invalidated', async () => {
+    const { container, harvest: nextWindow } = createRecordedWindowList([
+      [4, 5],
+      [2, 3, 5],
+      [0, 1],
+    ]);
+    let harvestCount = 0;
+    const harvest = () => {
+      const currentHarvest = harvestCount++;
+      return nextWindow().map(entry => ({
+        ...entry,
+        order: Number(entry.key.slice(1)),
+        ...(currentHarvest === 2 ? { invalidateOrder: true as const } : {}),
+      }));
+    };
+
+    const promise = accumulateWhileScrolling(container, harvest);
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.items).toEqual(['v0', 'v1', 'v2', 'v3', 'v4', 'v5']);
+  });
+
+  it('clears prior indices even when the invalidating window adds no keys', async () => {
+    const { container, harvest: nextWindow } = createRecordedWindowList([
+      [0, 1, 2],
+      [1, 2],
+      [0, 1, 2],
+    ]);
+    let harvestCount = 0;
+    const harvest = () => {
+      const currentHarvest = harvestCount++;
+      return nextWindow().map((entry, index, window) => ({
+        ...entry,
+        order: currentHarvest < 2 ? Number(entry.key.slice(1)) : window.length - index,
+        ...(currentHarvest === 1 ? { invalidateOrder: true as const } : {}),
+      }));
+    };
+
+    const promise = accumulateWhileScrolling(container, harvest);
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.items).toEqual(['v0', 'v1', 'v2']);
+  });
+
   it('orders turns by their monotonic index when the tail never evicts (issue #352)', async () => {
     // The last 3 turns stay mounted in every window; the middle evicts. Overlap
     // stitching alone wedges the tail into the middle — the engine must fall back

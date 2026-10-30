@@ -499,6 +499,7 @@ export class ClaudeExtractor extends BaseExtractor {
     };
     const stableEmptyKeys = new Set<string>();
     let consistentIdentities = true;
+    let numericOrderTrusted = true;
     const pendingHistory = createPendingHistoryGate(
       () => proof.catalogMax,
       () => consistentIdentities
@@ -533,6 +534,10 @@ export class ClaudeExtractor extends BaseExtractor {
           stableEmptyKeys,
           catalogMax
         );
+        numericOrderTrusted =
+          rowObservation.consistent &&
+          this.isHarvestOrderTrusted(entries, catalogMax, proof) &&
+          numericOrderTrusted;
         consistentIdentities =
           this.observeHarvestedIdentities(
             entries,
@@ -544,7 +549,13 @@ export class ClaudeExtractor extends BaseExtractor {
           rowObservation.consistent &&
           consistentIdentities;
         pendingHistory.observe(container);
-        return entries;
+        return numericOrderTrusted
+          ? entries
+          : entries.map(entry => ({
+              key: entry.key,
+              value: entry.value,
+              invalidateOrder: true as const,
+            }));
       },
       isHistoryComplete: messages =>
         consistentIdentities &&
@@ -562,6 +573,43 @@ export class ClaudeExtractor extends BaseExtractor {
           );
         }),
     };
+  }
+
+  /** Numeric order survives content loss, but not a changed catalog coordinate system. */
+  private isHarvestOrderTrusted(
+    entries: readonly HarvestEntry<ConversationMessage>[],
+    catalogMax: number | undefined,
+    proof: ClaudeHistoryProof
+  ): boolean {
+    if (catalogMax === undefined) return entries.length === 0;
+    const previousMax = proof.catalogMax;
+    const tailKey = entries.find(entry => entry.order === 0)?.key;
+    if (previousMax !== undefined && catalogMax < previousMax) return false;
+    if (
+      previousMax !== undefined &&
+      catalogMax > previousMax &&
+      (proof.tailKey === undefined || tailKey === undefined || tailKey !== proof.tailKey)
+    ) {
+      return false;
+    }
+    if (proof.tailKey !== undefined && tailKey !== undefined && tailKey !== proof.tailKey) {
+      return false;
+    }
+
+    const currentKeys = new Set<string>();
+    const currentOrders = new Set<number>();
+    return entries.every(entry => {
+      const order = entry.order;
+      if (order === undefined || currentKeys.has(entry.key) || currentOrders.has(order))
+        return false;
+      currentKeys.add(entry.key);
+      currentOrders.add(order);
+      return (
+        (!proof.keyToRelativeOrder.has(entry.key) ||
+          proof.keyToRelativeOrder.get(entry.key) === order) &&
+        (!proof.relativeOrderToKey.has(order) || proof.relativeOrderToKey.get(order) === entry.key)
+      );
+    });
   }
 
   /** Every indexed row in the chosen thread is evidence, even without a message. */
@@ -602,12 +650,14 @@ export class ClaudeExtractor extends BaseExtractor {
     const currentKeys = new Set<string>();
     for (const [position, entry] of entries.entries()) {
       const index = currentIndices[position];
-      const relativeOrder =
+      const expectedRelativeOrder =
         index !== undefined && catalogMax !== undefined ? index - catalogMax : undefined;
+      const entryOrder = entry.order;
       const role = stableHistoryRole(entry.key);
       if (
         index === undefined ||
-        relativeOrder === undefined ||
+        expectedRelativeOrder === undefined ||
+        entryOrder === undefined ||
         role === undefined ||
         role !== entry.value.role ||
         entry.value.id !== entry.key ||
@@ -617,28 +667,27 @@ export class ClaudeExtractor extends BaseExtractor {
           stableEmptyKeys,
           proof.renderabilityByKey
         ) ||
-        entry.order !== relativeOrder ||
+        entryOrder !== expectedRelativeOrder ||
         currentKeys.has(entry.key) ||
         (proof.rolesByKey.has(entry.key) && proof.rolesByKey.get(entry.key) !== role) ||
         (proof.keyToRelativeOrder.has(entry.key) &&
-          proof.keyToRelativeOrder.get(entry.key) !== relativeOrder) ||
-        (proof.relativeOrderToKey.has(relativeOrder) &&
-          proof.relativeOrderToKey.get(relativeOrder) !== entry.key)
+          proof.keyToRelativeOrder.get(entry.key) !== entryOrder) ||
+        (proof.relativeOrderToKey.has(entryOrder) &&
+          proof.relativeOrderToKey.get(entryOrder) !== entry.key)
       ) {
         consistent = false;
       }
-      if (role !== undefined && relativeOrder !== undefined) {
+      if (role !== undefined && entryOrder !== undefined) {
         currentKeys.add(entry.key);
         proof.rolesByKey.set(entry.key, role);
-        proof.keyToRelativeOrder.set(entry.key, relativeOrder);
-        proof.relativeOrderToKey.set(relativeOrder, entry.key);
+        proof.keyToRelativeOrder.set(entry.key, entryOrder);
+        proof.relativeOrderToKey.set(entryOrder, entry.key);
       }
     }
 
     if (catalogMax !== undefined) {
       if (proof.catalogMax !== undefined && catalogMax < proof.catalogMax) consistent = false;
-      const tailPosition = currentIndices.lastIndexOf(catalogMax);
-      const tailKey = tailPosition >= 0 ? entries[tailPosition]?.key : undefined;
+      const tailKey = entries.find(entry => entry.order === 0)?.key;
       if (tailKey === undefined || stableHistoryRole(tailKey) === undefined) {
         consistent = false;
       } else if (proof.tailKey === undefined) {
