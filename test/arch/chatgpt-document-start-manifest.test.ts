@@ -30,7 +30,13 @@ describe('ChatGPT document-start manifest entry', () => {
     });
     expect(entry).not.toHaveProperty('all_frames');
     expect(
-      contentScripts.filter(script => script.run_at === 'document_start' && script.world === 'MAIN')
+      contentScripts.filter(
+        script =>
+          script.run_at === 'document_start' &&
+          script.world === 'MAIN' &&
+          Array.isArray(script.matches) &&
+          script.matches.includes('https://chatgpt.com/*')
+      )
     ).toHaveLength(1);
   });
 

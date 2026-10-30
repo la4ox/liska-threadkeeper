@@ -52,9 +52,11 @@ export const SELECTORS = {
   // token would only buy the next rename.
   userMessage: USER_MESSAGE_SELECTORS,
 
-  // Virtual row of one conversation turn: the numeric index gives the
-  // accumulation order, and the row boundary distinguishes a collapsed
-  // prompt's inert overflow from a dismissed panel enclosing the whole row.
+  // Virtual row of one conversation turn. Claude renumbers these indices when
+  // older catalog pages are prepended, so the extractor uses them only for
+  // current-epoch relative order; stable identity comes from the strong turn
+  // roots below. The row boundary also distinguishes a collapsed prompt's
+  // inert overflow from a dismissed panel enclosing the whole row.
   conversationRow: ['[data-index]'],
 
   // Assistant roots: prefer October's identities while retaining legacy turns.
@@ -92,6 +94,12 @@ export const SELECTORS = {
     '.overflow-y-auto.overflow-x-hidden.flex-1' +
       ':not(nav):not([role="navigation"]):not(nav *):not([role="navigation"] *)' +
       `:has([data-index] ${THREAD_MESSAGE_ROOT})`, // Extractor-owned thread fallback (MEDIUM)
+  ],
+
+  // Current Claude exposes one content-free direct child while older transcript
+  // pages remain available. Text is localized and is never part of the contract.
+  pendingHistory: [
+    'div[data-testid="transcript-sizer"][data-rocksteady-sizer][data-sizer-excess] > button[type="button"].sr-only.select-none[tabindex="-1"]',
   ],
 } as const satisfies SelectorGroup;
 
