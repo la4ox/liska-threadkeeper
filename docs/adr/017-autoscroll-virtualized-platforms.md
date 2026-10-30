@@ -130,6 +130,65 @@ fail-closed behavior, raw/canonical archives, verified binary acquisition, and
 destination receipts are outside this axis contract. Upstream blob-image
 capture is not included.
 
+## Claude completeness and scroll-root replacement (2026-10-30 extension)
+
+A long authenticated Claude canary disproved the assumption that reaching a
+locally stable top is sufficient. Its official export contains 154 messages,
+while the installed DOM path first retained only 52 and called the pass
+complete. Content-free live traversal then observed catalog maxima 31, 63, 95,
+127 and 153 with 20%-viewport / 64px steps. The same messages receive new
+`data-index` values after every prepend, so the earlier numeric key was not a
+stable identity.
+
+Claude therefore opts into all of the following while other providers keep the
+shared numeric traversal defaults:
+
+1. 20%-viewport / 64px steps with a 100ms poll and five seconds of continuous
+   visible, geometry-stable rest at the oldest edge;
+2. exact role-namespaced provider identity: one canonical UUID suffix on the
+   strong user root or one exact assistant `UUID-hub-reply` key;
+3. order proof as `data-index - currentCatalogMax`, with a pinned unchanged
+   newest tail and bidirectional key/order maps across prepend epochs;
+4. final exact coverage of `M + 1` stable keys over every integer order from
+   `-M` through zero;
+5. re-resolution through the same ordered scroll-root selector policy, with at
+   most four connected-root replacements and a frozen conversation route;
+6. one Claude-only static MAIN-world scroll-prime listener. The isolated caller
+   permits two attempts per root, while the listener validates the exact
+   top-frame Claude origin and semantic target and performs only synchronous
+   page-owned `scrollBy`; it has no extension, storage, extraction or network
+   authority.
+
+Accumulated messages, exact empty-state evidence, ordering and the tool cache
+survive a same-chat root replacement. Initial replacement is re-pinned;
+mid-walk replacement is not. Cross-chat navigation aborts the export before any
+destination write. Missing/disconnected replacements, replacement-budget
+exhaustion, missing or conflicting UUID evidence, tail replacement, catalog
+shrink, skipped order, unsupported renderability or fallback identity remain
+sticky partial outcomes.
+
+Claude uses one content-free button shape for both directions of a virtualized
+gap. A marker before the first mounted indexed row blocks completion as possible
+older history. The same marker between or after rows is a later-history gap and
+does not. Claude briefly hides the older marker at the top of each current page
+before prepending the next page; measured transitions were about three seconds.
+If disappearance has not produced validated max growth, Liska therefore waits
+five continuous seconds, resetting on reappearance, before ordinary top settle
+can begin. This lets the final page terminate without weakening the transition
+window.
+
+Because smaller steps revisit persistent rows more often, Claude's tool
+conversion uses a per-export exact-input cache. It includes candidate kind,
+DOM order and ancestry, invalidates on any change, retains at most 16 MiB of
+serialized UTF-8 input, and does not weaken the existing conversion budgets.
+
+The packaged live canary started with messages 26–32 of a 32-row local catalog,
+used no manual history click or CDP scroll prime, traversed to max 153 and wrote
+154 messages (77+77). Download and Obsidian Markdown are byte-identical and no
+`history-load-partial` remains. Completeness is still an observed DOM statement,
+not an atomic snapshot guarantee; official-export reconciliation remains the
+independent reference.
+
 ## Open questions
 
 - **Live desktop ChatGPT end-to-end**: both automated Chromes force the mweb
