@@ -4068,3 +4068,30 @@ and sinks are unchanged. Focused coverage passes 9 files / 1,068 tests plus
 TypeScript, scoped runtime lint, formatting and diff checks. The original run's
 specific cause remains unknowable; one reviewed installed rerun is still the
 acceptance gate.
+
+That reviewed rerun is now complete. The exact 45-file / 1,242,272-byte build
+was installed with matching source and installed aggregate SHA-256
+`35372a8555582f330af07f3d9a99b308f5dc5af21e0590bfc46f2427f076294e`,
+then the extension and already-loaded provider page were reloaded. One trusted
+export ran once. It again selected one ordinary XLSX, but the source gate now
+ended as `source-http-4xx` before helper dispatch. The asset remained
+`not-attempted` with fixed detail `active-resolver-run-source-http-4xx`; attempt
+timestamp, local path, byte length and SHA-256 stayed null, and neither File nor
+Obsidian contained an XLSX binary. No retry occurred.
+
+The second capture preserved 13,118,031 raw bytes, a 17,250-byte manifest and
+29,340,875 canonical bytes in both destinations with exact pairwise hashes.
+File additionally wrote the unchanged 8,116,627-byte HTML view and 541-byte
+receipt; Obsidian wrote its configured Markdown variant. The result proves an
+actual client-error-class response on the separate temporary source request;
+it does not establish 401/403 authentication, 404/410 availability, 429 rate
+limiting, or any other cause. Normal capture success does not resolve that
+separate request.
+
+Do not retry, relax the source gate or redesign transport from this class alone.
+The only remaining bounded diagnostic option is an explicitly approved local
+integer status restricted to 400–499, with no URL, status text, header, body,
+credential, identifier, new request, retry or timing change, followed by exactly
+one final canary. Without that approval the XLSX slice remains a clean,
+unaccepted candidate and stops here. CI, Code Review and Security Review are
+clean on `de7a61d`; the live result does not upgrade XLSX support.

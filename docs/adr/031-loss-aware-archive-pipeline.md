@@ -755,13 +755,22 @@ normal-mode wiring, planner and honest loss state, but the legacy code cannot
 distinguish a 4xx/5xx/other source response from source-observation processing
 failure.
 
-The origin-specific diagnostic split above must therefore be reviewed,
-installed and exercised once before any transport change. The candidate remains
-unaccepted and must not be merged or advertised as support until a trusted live
-export proves a single 12,101-byte acquisition, structural admission, exact
-length/hash/path agreement in manifest, canonical, File and Obsidian outputs,
-absence of transient signed transport values from durable receipts, and
-unchanged sibling asset states.
+The origin-specific diagnostic split was reviewed, installed and exercised
+once. It returned `source-http-4xx` before helper dispatch. XLSX again remained
+`not-attempted` with null binary evidence, File and Obsidian preserved
+byte-identical raw/manifest/canonical companions, no binary existed and no retry
+ran. This establishes only a client-error-class response on the separate
+temporary source request; it does not establish authentication, absence,
+expiry, rate limiting or any other cause.
+
+No transport change follows from that class. One explicitly approved local
+integer status constrained to 400–499 may support one final diagnostic canary;
+it must add no URL, status text, header, body, credential, identifier, request,
+retry or timing authority. Without that decision the candidate stops as
+unaccepted. XLSX support still requires a trusted live export proving one
+12,101-byte acquisition, structural admission, exact length/hash/path agreement
+in manifest, canonical, File and Obsidian outputs, absence of transient signed
+transport values from durable receipts, and unchanged sibling asset states.
 
 ### Owner routes are capture context, not attachment authority
 

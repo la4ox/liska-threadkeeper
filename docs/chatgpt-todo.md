@@ -274,6 +274,17 @@ terminal states, and the existing no-credential-export boundary.
   either identifies the source failure class or proves a single 12,101-byte
   validated acquisition, exact File/Obsidian receipts, no durable signed
   URL/provider identity, and unchanged sibling asset states.
+- The exact reviewed attribution build was installed and exercised once. It
+  returned `source-http-4xx` before helper dispatch; the XLSX again remained
+  `not-attempted` with null binary fields, both raw/manifest/canonical archive
+  sets matched across File and Obsidian, and no retry or binary occurred. This
+  proves only a client-error-class response on the separate temporary source
+  request, not authentication, absence, expiry or rate limiting.
+- Stop transport changes here. The only remaining diagnostic is an explicitly
+  approved local integer status constrained to 400–499 and one final canary,
+  with no URL/header/body/credential value, new request, retry or timing change.
+  Without that approval keep PR #89 draft and unaccepted; even an exact status
+  would diagnose the source gate rather than constitute XLSX support.
 
 ### 7. User-facing derived outputs
 
