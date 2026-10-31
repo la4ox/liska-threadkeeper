@@ -12,7 +12,11 @@ import {
   persistChatGptDestinationHonestAttachments,
   type ChatGptAssetExportDependencies,
 } from '../../src/content/chatgpt-asset-export';
-import type { RawCaptureAssetRecord, RawCaptureManifest } from '../../src/archive';
+import type {
+  LiskaThreadArchive,
+  RawCaptureAssetRecord,
+  RawCaptureManifest,
+} from '../../src/archive';
 import type { ArchiveCompanionBundle } from '../../src/lib/types';
 import type { ChatGptActiveAssetPlanItem } from '../../src/lib/chatgpt-active-asset-contract';
 import type { ChatGptRouteFamily } from '../../src/lib/chatgpt-owner-context';
@@ -131,6 +135,7 @@ async function runPipeline(
   options: {
     failure?: Failure;
     sourceFailure?: (typeof SOURCE_FAILURES)[number];
+    sourceHttpStatus?: number;
     libraries?: boolean;
     xlsxEnabled?: boolean;
     raw?: unknown;
@@ -175,7 +180,13 @@ async function runPipeline(
       dispatched.push({ ...item });
       const failure = family(item.assetId) === 'xlsx' ? options.failure : undefined;
       if (family(item.assetId) === 'xlsx' && options.sourceFailure)
-        return { success: false, code: options.sourceFailure };
+        return {
+          success: false,
+          code: options.sourceFailure,
+          ...(options.sourceHttpStatus !== undefined && {
+            sourceHttpStatus: options.sourceHttpStatus,
+          }),
+        };
       if (failure === 'throws') throw new Error('private-exception');
       if (failure === 'timeout') return { success: false, code: 'resolver-result-timeout' };
       const result = activeSuccess(item);
@@ -332,6 +343,62 @@ async function runPipeline(
 
 describe('ordinary direct-ID XLSX planner/orchestration pipeline', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it.each([400, 403, 404, 429, 499])(
+    'preserves exact source status %s in File and Obsidian manifest/canonical detail without binary activity',
+    async sourceHttpStatus => {
+      const raw = ordinaryRaw();
+      raw.mapping.node.message.content.parts = ['Synthetic'];
+      raw.mapping.node.message.metadata.attachments =
+        raw.mapping.node.message.metadata.attachments.filter(item => item.mime_type === XLSX_MIME);
+      const run = await runPipeline({ raw, sourceFailure: 'source-http-4xx', sourceHttpStatus });
+      expect(run.dispatched).toHaveLength(1);
+      expect(run.resolveOrdinaryXlsxAsset).toHaveBeenCalledOnce();
+      expect(run.resolveActiveAsset).not.toHaveBeenCalled();
+      expect(run.acquireAssets).not.toHaveBeenCalled();
+      expect(run.persistBinaryAssets).not.toHaveBeenCalled();
+      expect(run.passive.mock.calls[0][1]).not.toContain(run.selectedXlsxId);
+      const detail = `active-resolver-run-source-http-4xx;source-http-status=${sourceHttpStatus}`;
+      for (const destination of ['file', 'obsidian']) {
+        expect(
+          run.manifests.get(destination)!.assets.find(item => item.id === run.selectedXlsxId)
+        ).toMatchObject({
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          byteLength: null,
+          sha256: null,
+          detail,
+        });
+        const artifact = run.finals
+          .get(destination)!
+          .artifacts.find(item => item.kind === 'canonical')!;
+        if (artifact.transport !== 'inline') throw new Error('expected inline fixture');
+        const canonical = JSON.parse(
+          Buffer.from(artifact.bodyBase64, 'base64').toString('utf8')
+        ) as LiskaThreadArchive;
+        expect(canonical.assets[run.selectedXlsxId]).toMatchObject({ localArtifactRef: null });
+        expect(canonical.assets[run.selectedXlsxId].acquisition).toEqual({
+          state: 'not-attempted',
+          attemptedAt: null,
+          detail,
+        });
+        expect(run.manifests.get(destination)!.warnings.join('\n')).toContain(
+          `source-http-statuses=${sourceHttpStatus}:1;`
+        );
+        expect(
+          JSON.stringify({
+            acquisition: canonical.assets[run.selectedXlsxId].acquisition,
+            manifest: run.manifests.get(destination),
+          })
+        ).not.toMatch(/private|ordinary-sheet-|https:|sig=|statusText|sourceHttpStatus/);
+      }
+      expect(run.finals.get('file')).toEqual(run.finals.get('obsidian'));
+      expect(run.result.warnings.join('\n')).toContain(
+        `source-http-statuses=${sourceHttpStatus}:1;`
+      );
+    }
+  );
 
   it('plans exact committed raw and carries size through the sole unchanged background command', async () => {
     const captured = await capture();

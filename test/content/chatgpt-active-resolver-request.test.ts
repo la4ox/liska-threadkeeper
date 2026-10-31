@@ -25,6 +25,47 @@ function metricResponse() {
 describe('ChatGPT active resolver content bridge', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it.each([400, 403, 404, 429, 499])(
+    'preserves exact source 4xx status %s through the metric bridge',
+    async sourceHttpStatus => {
+      const response = { success: false, code: 'source-http-4xx', sourceHttpStatus };
+      mocks.sendMessage.mockResolvedValue(response);
+      expect(
+        await probeChatGptActiveAssetResolvers(CONVERSATION_ID, ['synthetic-file-one'])
+      ).toEqual(response);
+    }
+  );
+
+  it('sanitizes malformed, accessor and smuggled source statuses without invoking the getter', async () => {
+    const getter = vi.fn(() => 403);
+    const accessor = { success: false, code: 'source-http-4xx' };
+    Object.defineProperty(accessor, 'sourceHttpStatus', { get: getter });
+    for (const response of [
+      accessor,
+      Object.assign(Object.create({ sourceHttpStatus: 403 }), {
+        success: false,
+        code: 'source-http-4xx',
+      }),
+      ...[399, 500, '403', 403.5, NaN, Infinity, -Infinity, null, undefined].map(
+        sourceHttpStatus => ({ success: false, code: 'source-http-4xx', sourceHttpStatus })
+      ),
+      ...['source-http-error', 'source-http-5xx', 'source-http-other'].map(code => ({
+        success: false,
+        code,
+        sourceHttpStatus: 403,
+      })),
+      { success: false, code: 'source-http-4xx', sourceHttpStatus: 403, extra: true },
+      { success: false, code: 'source-http-4xx', sourceHttpStatus: 403, [Symbol('private')]: true },
+      { ...metricResponse(), sourceHttpStatus: 403 },
+    ]) {
+      mocks.sendMessage.mockResolvedValue(response);
+      expect(
+        await probeChatGptActiveAssetResolvers(CONVERSATION_ID, ['synthetic-file-one'])
+      ).toEqual(createChatGptActiveResolverFailure('resolver-result-invalid'));
+    }
+    expect(getter).not.toHaveBeenCalled();
+  });
+
   it.each([
     'source-http-4xx',
     'source-http-5xx',

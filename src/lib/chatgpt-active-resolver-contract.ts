@@ -77,6 +77,18 @@ export const CHATGPT_ACTIVE_RESOLVER_ERROR_CODES = [
 ] as const;
 export type ChatGptActiveResolverErrorCode = (typeof CHATGPT_ACTIVE_RESOLVER_ERROR_CODES)[number];
 
+/** Exact source status only; legacy code-only failures remain valid. */
+export type ChatGptActiveResolverFailure =
+  | { code: 'source-http-4xx'; sourceHttpStatus?: number }
+  | {
+      code: Exclude<ChatGptActiveResolverErrorCode, 'source-http-4xx'>;
+      sourceHttpStatus?: never;
+    };
+
+export function isChatGptActiveResolverSourceHttpStatus(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 400 && (value as number) <= 499;
+}
+
 export interface ChatGptActiveResolverObservedCapture {
   bodyBase64: string;
   byteLength: number;
@@ -98,7 +110,7 @@ export type ChatGptActiveResolverHookResult =
       dispatchCount: number;
       outcomes: ChatGptActiveResolverHookOutcome[];
     }
-  | { kind: 'error'; code: ChatGptActiveResolverErrorCode };
+  | ({ kind: 'error' } & ChatGptActiveResolverFailure);
 
 export interface ChatGptActiveResolverMetrics {
   requestedCount: number;
@@ -110,7 +122,7 @@ export interface ChatGptActiveResolverMetrics {
 
 export type ChatGptActiveResolverResponse =
   | { success: true; data: ChatGptActiveResolverMetrics }
-  | { success: false; code: ChatGptActiveResolverErrorCode };
+  | ({ success: false } & ChatGptActiveResolverFailure);
 
 export function isChatGptActiveResolverProviderFileId(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(value);
@@ -121,11 +133,29 @@ function hasExactOwnKeys(value: object, expected: readonly string[]): boolean {
     const keys = Reflect.ownKeys(value);
     return (
       keys.length === expected.length &&
-      expected.every(key => keys.some(valueKey => valueKey === key))
+      expected.every(key => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return descriptor !== undefined && 'value' in descriptor;
+      })
     );
   } catch {
     return false;
   }
+}
+
+function isFailure(value: object, discriminator: 'kind' | 'success'): boolean {
+  const hasStatus = Object.prototype.hasOwnProperty.call(value, 'sourceHttpStatus');
+  if (!hasStatus && 'sourceHttpStatus' in value) return false;
+  if (!hasExactOwnKeys(value, [discriminator, 'code', ...(hasStatus ? ['sourceHttpStatus'] : [])]))
+    return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.code === 'string' &&
+    (CHATGPT_ACTIVE_RESOLVER_ERROR_CODES as readonly string[]).includes(record.code) &&
+    (!hasStatus ||
+      (record.code === 'source-http-4xx' &&
+        isChatGptActiveResolverSourceHttpStatus(record.sourceHttpStatus)))
+  );
 }
 
 export function isChatGptActiveResolverObservedCapture(
@@ -188,14 +218,15 @@ export function isChatGptActiveResolverHookResult(
   value: unknown
 ): value is ChatGptActiveResolverHookResult {
   if (typeof value !== 'object' || value === null) return false;
+  if (
+    !Object.prototype.hasOwnProperty.call(value, 'sourceHttpStatus') &&
+    'sourceHttpStatus' in value
+  )
+    return false;
   const record = value as Record<string, unknown>;
   if (record.kind === 'ready') return hasExactOwnKeys(value, ['kind']);
   if (record.kind === 'error') {
-    return (
-      hasExactOwnKeys(value, ['kind', 'code']) &&
-      typeof record.code === 'string' &&
-      (CHATGPT_ACTIVE_RESOLVER_ERROR_CODES as readonly string[]).includes(record.code)
-    );
+    return isFailure(value, 'kind');
   }
   return (
     record.kind === 'complete' &&
@@ -270,8 +301,14 @@ function isMetrics(value: unknown): value is ChatGptActiveResolverMetrics {
 }
 
 export function createChatGptActiveResolverFailure(
-  code: ChatGptActiveResolverErrorCode
-): ChatGptActiveResolverResponse {
+  code: ChatGptActiveResolverErrorCode,
+  sourceHttpStatus?: number
+): Extract<ChatGptActiveResolverResponse, { success: false }> {
+  if (sourceHttpStatus !== undefined) {
+    if (code !== 'source-http-4xx' || !isChatGptActiveResolverSourceHttpStatus(sourceHttpStatus))
+      throw new Error('invalid active resolver source status');
+    return { success: false, code, sourceHttpStatus };
+  }
   return { success: false, code };
 }
 
@@ -279,13 +316,13 @@ export function isChatGptActiveResolverResponse(
   value: unknown
 ): value is ChatGptActiveResolverResponse {
   if (typeof value !== 'object' || value === null) return false;
+  if (
+    !Object.prototype.hasOwnProperty.call(value, 'sourceHttpStatus') &&
+    'sourceHttpStatus' in value
+  )
+    return false;
   const record = value as Record<string, unknown>;
   if (record.success === true)
     return hasExactOwnKeys(value, ['success', 'data']) && isMetrics(record.data);
-  return (
-    record.success === false &&
-    hasExactOwnKeys(value, ['success', 'code']) &&
-    typeof record.code === 'string' &&
-    (CHATGPT_ACTIVE_RESOLVER_ERROR_CODES as readonly string[]).includes(record.code)
-  );
+  return record.success === false && isFailure(value, 'success');
 }

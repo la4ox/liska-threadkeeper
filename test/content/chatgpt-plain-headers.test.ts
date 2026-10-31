@@ -2014,12 +2014,15 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
   it.each([
     [399, 'source-http-other'],
     [400, 'source-http-4xx'],
+    [403, 'source-http-4xx'],
+    [404, 'source-http-4xx'],
+    [429, 'source-http-4xx'],
     [499, 'source-http-4xx'],
     [500, 'source-http-5xx'],
     [599, 'source-http-5xx'],
     [600, 'source-http-other'],
   ] as const)(
-    'keeps active plain-header source status %s before dispatch with only a fixed class code',
+    'keeps exact active plain-header source 4xx status %s before dispatch',
     async (status, code) => {
       const response = jsonResponse();
       vi.spyOn(Response.prototype, 'status', 'get').mockReturnValue(status);
@@ -2030,7 +2033,13 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
           headers: { authorization: SENTINEL },
         })
       ).resolves.toBe(response);
-      await vi.waitFor(() => expect(fixture.snapshot()).toEqual({ kind: 'error', code }));
+      await vi.waitFor(() =>
+        expect(fixture.snapshot()).toEqual({
+          kind: 'error',
+          code,
+          ...(code === 'source-http-4xx' && { sourceHttpStatus: status }),
+        })
+      );
       expect(fixture.constructed).toHaveLength(0);
       expect(fixture.original).toHaveBeenCalledOnce();
       expect(response.bodyUsed).toBe(false);

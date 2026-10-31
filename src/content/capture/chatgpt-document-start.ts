@@ -4126,12 +4126,16 @@ type ActiveResolverHookResult =
         | 'hook-state-failed'
         | 'source-not-eligible'
         | 'source-rejected'
-        | 'source-http-4xx'
         | 'source-http-5xx'
         | 'source-http-other'
         | 'source-response-processing-rejected'
         | 'source-non-json'
         | 'resolver-result-timeout';
+    }
+  | {
+      kind: 'error';
+      code: 'source-http-4xx';
+      sourceHttpStatus?: number;
     };
 
 type ActiveResolverPageState = {
@@ -4170,7 +4174,10 @@ function hasActiveResolverArmingPrimordials(primordials: PagePrimordials): boole
 
 function snapshotActiveResolverResult(result: ActiveResolverHookResult): ActiveResolverHookResult {
   if (result.kind === 'ready') return { kind: 'ready' };
-  if (result.kind === 'error') return { kind: 'error', code: result.code };
+  if (result.kind === 'error')
+    return result.code === 'source-http-4xx' && result.sourceHttpStatus !== undefined
+      ? { kind: 'error', code: result.code, sourceHttpStatus: result.sourceHttpStatus }
+      : { kind: 'error', code: result.code };
   const outcomes: ActiveResolverOutcome[] = [];
   for (const outcome of result.outcomes) {
     if (outcome.state === 'observed') {
@@ -4279,12 +4286,19 @@ function activeResolverSourceFailure(
   pageWindow: PageWindow,
   state: ActiveResolverPageState,
   target: MarkerTarget,
-  code: Extract<ActiveResolverHookResult, { kind: 'error' }>['code']
+  code: Extract<ActiveResolverHookResult, { kind: 'error' }>['code'],
+  sourceHttpStatus?: number
 ): void {
   if (state.dispatchCount > 0) {
     activeResolverComplete(pageWindow, state, target);
   } else {
-    finishActiveResolver(pageWindow, state, { kind: 'error', code });
+    finishActiveResolver(
+      pageWindow,
+      state,
+      code === 'source-http-4xx' && sourceHttpStatus !== undefined
+        ? { kind: 'error', code, sourceHttpStatus }
+        : { kind: 'error', code }
+    );
   }
 }
 
@@ -4602,7 +4616,8 @@ function observeActiveResolverSourceResponse(
                   ? 'source-http-4xx'
                   : status >= 500 && status <= 599
                     ? 'source-http-5xx'
-                    : 'source-http-other'
+                    : 'source-http-other',
+                status >= 400 && status <= 499 ? status : undefined
               );
               return;
             }

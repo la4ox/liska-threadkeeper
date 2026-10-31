@@ -3645,16 +3645,20 @@ describe('startChatGptDocumentStartCapture', () => {
     [201, 'source-http-other'],
     [399, 'source-http-other'],
     [400, 'source-http-4xx'],
+    [403, 'source-http-4xx'],
+    [404, 'source-http-4xx'],
+    [429, 'source-http-4xx'],
     [499, 'source-http-4xx'],
     [500, 'source-http-5xx'],
     [599, 'source-http-5xx'],
     [600, 'source-http-other'],
     [Number.MAX_SAFE_INTEGER, 'source-http-other'],
   ] as const)(
-    'classifies active source status %s without exposing it or dispatching in either command order',
+    'preserves only exact active source 4xx status %s without dispatching in either command order',
     async (status, code) => {
-      vi.spyOn(Response.prototype, 'status', 'get').mockReturnValue(status);
+      const statusGetter = vi.spyOn(Response.prototype, 'status', 'get').mockReturnValue(status);
       const headers = vi.spyOn(Response.prototype, 'headers', 'get');
+      const body = vi.spyOn(Response.prototype, 'body', 'get');
       const clone = vi.spyOn(Response.prototype, 'clone');
       for (const commandFirst of [false, true]) {
         const response = new Response('synthetic-private-source-body', {
@@ -3673,9 +3677,16 @@ describe('startChatGptDocumentStartCapture', () => {
           credentials: 'include',
           headers: { authorization: 'synthetic-private-authorization' },
         }) as unknown as Request;
+        // Undici's Response constructor also reads status; isolate the source gate.
+        statusGetter.mockClear();
+        body.mockClear();
         expect(page.pageWindow.fetch(source)).toBe(sourcePromise);
         await expect(sourcePromise).resolves.toBe(response);
-        const expected = { kind: 'error', code };
+        const expected = {
+          kind: 'error',
+          code,
+          ...(code === 'source-http-4xx' && { sourceHttpStatus: status }),
+        };
         await vi.waitFor(() => expect(activeResolverSnapshotOf(page)).toEqual(expected));
         vi.stubGlobal('window', page.pageWindow);
         expect(readChatGptActiveResolverState(NONCE)).toEqual(expected);
@@ -3684,6 +3695,8 @@ describe('startChatGptDocumentStartCapture', () => {
         expect(page.pageWindow.fetch).toBe(page.originalFetch);
         expect(page.timers.size).toBe(0);
         expect(response.bodyUsed).toBe(false);
+        expect(statusGetter).toHaveBeenCalledOnce();
+        expect(body).not.toHaveBeenCalled();
       }
       expect(headers).not.toHaveBeenCalled();
       expect(clone).not.toHaveBeenCalled();

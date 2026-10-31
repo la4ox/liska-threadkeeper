@@ -2,6 +2,8 @@
 import {
   isChatGptActiveResolverProviderFileId,
   isChatGptActiveResolverResponse,
+  createChatGptActiveResolverFailure,
+  type ChatGptActiveResolverFailure,
   type ChatGptActiveResolverErrorCode,
   type ChatGptActiveResolverMetrics,
 } from './chatgpt-active-resolver-contract';
@@ -30,7 +32,7 @@ export type ChatGptActiveAssetResponse =
         candidate: ChatGptActiveAssetCandidate | null;
       };
     }
-  | { success: false; code: ChatGptActiveResolverErrorCode };
+  | ({ success: false } & ChatGptActiveResolverFailure);
 
 export function isChatGptActiveAssetId(value: unknown): value is string {
   return typeof value === 'string' && /^chatgpt-asset-[a-f0-9]{64}$/.test(value);
@@ -67,17 +69,30 @@ function exactSingleOutcome(value: unknown): boolean {
   return ordinal !== undefined && 'value' in ordinal && typeof ordinal.value === 'string';
 }
 
+function hasInheritedSourceHttpStatus(value: object): boolean {
+  return (
+    !Object.prototype.hasOwnProperty.call(value, 'sourceHttpStatus') && 'sourceHttpStatus' in value
+  );
+}
+
+function activeAssetSuccessData(
+  value: Record<string, unknown>
+): { assetId: unknown; metrics: unknown; candidate: unknown } | undefined {
+  if (!exact(value, ['success', 'data']) || value.success !== true) return undefined;
+  const data = value.data;
+  if (!exact(data, ['assetId', 'metrics', 'candidate'])) return undefined;
+  return data as { assetId: unknown; metrics: unknown; candidate: unknown };
+}
+
 /** URL remains transient; durable diagnostics are exclusively fixed metric codes. */
 function validateActiveAssetResponse(value: unknown): value is ChatGptActiveAssetResponse {
-  if (exact(value, ['success', 'code']))
+  if (typeof value !== 'object' || value === null) return false;
+  if (hasInheritedSourceHttpStatus(value)) return false;
+  if (exact(value, ['success', 'code']) || exact(value, ['success', 'code', 'sourceHttpStatus']))
     return value.success === false && isChatGptActiveResolverResponse(value);
-  if (
-    !exact(value, ['success', 'data']) ||
-    value.success !== true ||
-    !exact(value.data, ['assetId', 'metrics', 'candidate'])
-  )
-    return false;
-  const { assetId, metrics, candidate } = value.data;
+  const data = activeAssetSuccessData(value as Record<string, unknown>);
+  if (data === undefined) return false;
+  const { assetId, metrics, candidate } = data;
   if (
     !isChatGptActiveAssetId(assetId) ||
     !exact(metrics, [
@@ -127,9 +142,10 @@ export function isChatGptActiveAssetResponse(value: unknown): value is ChatGptAc
 }
 
 export function activeAssetFailure(
-  code: ChatGptActiveResolverErrorCode
+  code: ChatGptActiveResolverErrorCode,
+  sourceHttpStatus?: number
 ): Extract<ChatGptActiveAssetResponse, { success: false }> {
-  return { success: false, code };
+  return createChatGptActiveResolverFailure(code, sourceHttpStatus);
 }
 
 /** Rebind transient candidates even when a test/substituted dependency bypasses messaging. */

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT,
   CHATGPT_ACTIVE_RESOLVER_MAX_BYTES,
@@ -32,6 +32,130 @@ function completeHook() {
 }
 
 describe('ChatGPT active resolver metric contract', () => {
+  it.each([400, 403, 404, 429, 499])('admits only exact source 4xx status %s', sourceHttpStatus => {
+    expect(
+      isChatGptActiveResolverHookResult({
+        kind: 'error',
+        code: 'source-http-4xx',
+        sourceHttpStatus,
+      })
+    ).toBe(true);
+    const failure = createChatGptActiveResolverFailure('source-http-4xx', sourceHttpStatus);
+    expect(failure).toEqual({ success: false, code: 'source-http-4xx', sourceHttpStatus });
+    expect(isChatGptActiveResolverResponse(failure)).toBe(true);
+    expect(createChatGptActiveResolverFailure('source-http-4xx')).toEqual({
+      success: false,
+      code: 'source-http-4xx',
+    });
+  });
+
+  it.each([399, 500, '403', 403.5, NaN, Infinity, -Infinity, null, undefined])(
+    'rejects present malformed source status %#',
+    sourceHttpStatus => {
+      expect(
+        isChatGptActiveResolverHookResult({
+          kind: 'error',
+          code: 'source-http-4xx',
+          sourceHttpStatus,
+        })
+      ).toBe(false);
+      expect(
+        isChatGptActiveResolverResponse({
+          success: false,
+          code: 'source-http-4xx',
+          sourceHttpStatus,
+        })
+      ).toBe(false);
+    }
+  );
+
+  it('rejects source status smuggling, accessors and extra keys without reading the status getter', () => {
+    const getter = vi.fn(() => 403);
+    for (const discriminator of [{ kind: 'error' }, { success: false }]) {
+      const value = { ...discriminator, code: 'source-http-4xx' };
+      Object.defineProperty(value, 'sourceHttpStatus', { get: getter });
+      expect(isChatGptActiveResolverHookResult(value)).toBe(false);
+      expect(isChatGptActiveResolverResponse(value)).toBe(false);
+      const inherited = Object.assign(Object.create({ sourceHttpStatus: 403 }), discriminator, {
+        code: 'source-http-4xx',
+      });
+      expect(isChatGptActiveResolverHookResult(inherited)).toBe(false);
+      expect(isChatGptActiveResolverResponse(inherited)).toBe(false);
+    }
+    for (const code of [
+      'source-http-error',
+      'source-http-5xx',
+      'source-http-other',
+      'source-rejected',
+    ]) {
+      expect(
+        isChatGptActiveResolverHookResult({ kind: 'error', code, sourceHttpStatus: 403 })
+      ).toBe(false);
+      expect(isChatGptActiveResolverResponse({ success: false, code, sourceHttpStatus: 403 })).toBe(
+        false
+      );
+    }
+    for (const extra of [{ private: true }, { [Symbol('private')]: true }]) {
+      expect(
+        isChatGptActiveResolverHookResult({
+          kind: 'error',
+          code: 'source-http-4xx',
+          sourceHttpStatus: 403,
+          ...extra,
+        })
+      ).toBe(false);
+      expect(
+        isChatGptActiveResolverResponse({
+          success: false,
+          code: 'source-http-4xx',
+          sourceHttpStatus: 403,
+          ...extra,
+        })
+      ).toBe(false);
+    }
+    expect(isChatGptActiveResolverHookResult({ kind: 'ready', sourceHttpStatus: 403 })).toBe(false);
+    expect(isChatGptActiveResolverHookResult({ ...completeHook(), sourceHttpStatus: 403 })).toBe(
+      false
+    );
+    expect(
+      isChatGptActiveResolverResponse({ success: true, data: {}, sourceHttpStatus: 403 })
+    ).toBe(false);
+    const inheritedGetter = vi.fn(() => 403);
+    const inheritedPrototype = Object.create(null);
+    Object.defineProperty(inheritedPrototype, 'sourceHttpStatus', { get: inheritedGetter });
+    expect(
+      isChatGptActiveResolverHookResult(
+        Object.assign(Object.create(inheritedPrototype), { kind: 'ready' })
+      )
+    ).toBe(false);
+    expect(
+      isChatGptActiveResolverHookResult(
+        Object.assign(Object.create(inheritedPrototype), completeHook())
+      )
+    ).toBe(false);
+    expect(
+      isChatGptActiveResolverResponse(
+        Object.assign(Object.create(inheritedPrototype), {
+          success: true,
+          data: {
+            requestedCount: 1,
+            dispatchCount: 1,
+            observedCount: 1,
+            outcomes: ['observed'],
+            attemptedAt: '2026-11-01T00:00:00.000Z',
+          },
+        })
+      )
+    ).toBe(false);
+    expect(inheritedGetter).not.toHaveBeenCalled();
+    expect(getter).not.toHaveBeenCalled();
+    expect(() => createChatGptActiveResolverFailure('source-http-5xx', 403)).toThrow(
+      'invalid active resolver source status'
+    );
+    expect(() => createChatGptActiveResolverFailure('source-http-4xx', 500)).toThrow(
+      'invalid active resolver source status'
+    );
+  });
   it.each([
     'file-not-found',
     'file-expired',
