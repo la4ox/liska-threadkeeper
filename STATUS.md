@@ -3972,3 +3972,49 @@ skipped in 122.07 seconds. Combined unique current-input evidence therefore
 covers all 245 files / 8,871 tests with three skips, while deliberately avoiding
 a false single-run claim for the resource-heavy autoscroll file. Repository CI
 remains the independent current-head single-run gate.
+
+## Official export File range-source and browser-harness candidate checkpoint
+
+Branch `codex/official-zip-file-source` starts from merged main `b4033bc` and
+closes the missing browser-File boundary in front of the existing official ZIP
+core without wiring ZIP into the reconciliation picker. One explicitly supplied
+native `File` becomes an anonymous frozen `OfficialZipSource` containing only
+`size` and exact `readRange(start, end, signal)`. The adapter accepts no name,
+path, MIME or timestamp; validates safe ranges and the existing ZIP32 archive
+ceiling; returns independently owned bytes; and maps native errors and caller
+abort reasons to fixed content-free codes.
+
+The adapter captures File/Blob/ArrayBuffer/AbortSignal/Promise platform
+intrinsics at module initialization. Instance, subclass and later prototype
+overrides cannot substitute same-length bytes or leak native failures. Pending
+native reads remain handled after a prompt public abort. The explicit trust
+boundary is the browser realm at module import; JavaScript cannot attest a realm
+already compromised before import.
+
+An opt-in synthetic browser acceptance extension is committed separately from
+the production CRX build. Its manifest has no permissions, host permissions,
+background worker, content scripts or network authority and uses a deny-by-
+default extension CSP. A Node-only independent ZIP32/CRC generator materializes
+eight deterministic files: legacy and both sharded layouts, STORE, truncated
+raw DEFLATE, trailing data in the final chunk and exactly across the 1 MiB read
+boundary, plus a large low-compressibility DEFLATE workload. Original picker
+`File` objects are identified only after explicit selection by exact length and
+SHA-256, never by filename, MIME or selection order. The runner exposes only
+fixed case IDs, PASS/FAIL/INCONCLUSIVE and bounded numeric metrics.
+
+The combined adapter/core/harness suite passes 255 tests. TypeScript, production
+build, repository lint with 31 pre-existing warnings and zero errors,
+formatting and diff checks pass. Independent review found no material defect and
+separately reconciled fixture bytes, hashes, raw-stream boundaries, native
+range ownership and privacy. The ordinary production package contains 55
+entries / 394,011 bytes, SHA-256
+`fe48d0546d45d017685167e57a3424d57787e02baaebc0941df82fb504ce62f7`,
+with zero harness, fixture-index or test-result entries.
+
+This checkpoint is not installed-browser acceptance. Loading the separate test
+extension, selecting the generated synthetic files through the real OS picker,
+observing native DEFLATE exact/truncated/trailing behavior, cancellation,
+backpressure and visible-tab responsiveness still require an explicit browser
+run. It does not claim real private-export import, production picker wiring,
+delivery, archive authenticity/completeness, total-memory bounds or OS read
+cancellation.

@@ -532,9 +532,24 @@ terminal states, and the existing no-credential-export boundary.
   their conversation JSON at the export root. The unpacked JSON/shard picker
   remains the primary archive path; ZIP is additive pre-extraction convenience,
   not a second reader or source of truth.
-- ZIP UI/File range-source wiring, installed-browser DEFLATE acceptance,
-  automatic directory discovery, external binary association, archive merge
-  and snapshot deduplication remain separate explicit slices.
+- Implemented candidate: one explicitly selected browser `File` can become an
+  anonymous frozen ZIP range source through captured native Blob/File
+  operations. Exact safe ranges, the existing archive ceiling, independently
+  owned bytes, prompt abort and fixed content-free failures are covered without
+  using filename, MIME, path, timestamp, network, extraction or whole-file
+  buffering as authority.
+- A separate opt-in MV3 acceptance extension and independent generator now
+  produce eight deterministic ZIP32 cases for exact legacy/sharded layouts,
+  STORE, malformed raw DEFLATE, a 1 MiB trailing boundary and a large
+  backpressure/cancellation workload. Its manifest has zero permissions/hosts
+  and no network/background/content-script authority. Normal production build
+  and packaged ZIP contain no harness, fixture index or test marker.
+- Installed-Comet File-picker/native-DEFLATE acceptance and later production UI
+  wiring remain separate gates. Synthetic source/Node success does not prove a
+  private export, browser buffering, total memory, production delivery or
+  archive authenticity/completeness. Automatic directory discovery, external
+  binary association, archive merge and snapshot deduplication also remain
+  separate explicit slices.
 
 ### 9. Adjacent provider: Dots chat export
 

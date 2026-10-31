@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Synthetic official ZIP acceptance</title>
+  </head>
+  <body>
+    <main>
+      <h1>Synthetic official ZIP acceptance</h1>
+      <p>Test-only, local, no permissions. Open this extension's Options page in a visible tab.</p>
+      <p>
+        Select all eight generated synthetic ZIPs in one picker. Do not select private archives.
+      </p>
+      <p>
+        Whole-file SHA-256 preflight and postflight are separate from the measured adapter phase.
+      </p>
+      <p>
+        PASS requires observed evidence. Hidden tabs or an unobserved pause plateau are
+        INCONCLUSIVE.
+      </p>
+      <button id="select" type="button">Select synthetic ZIPs and run once</button>
+      <input id="files" type="file" multiple hidden />
+      <p id="phase" role="status">Waiting for explicit selection.</p>
+      <h2 id="overall">NOT RUN</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Fixed case ID</th>
+            <th>Status</th>
+            <th>Bounded numeric metrics</th>
+          </tr>
+        </thead>
+        <tbody id="results"></tbody>
+      </table>
+      <h2>Content-free receipt</h2>
+      <pre id="receipt">No result.</pre>
+    </main>
+    <script type="module" src="./runner.ts"></script>
+  </body>
+</html>
