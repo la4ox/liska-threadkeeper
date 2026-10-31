@@ -641,7 +641,7 @@ describe('Dots response and clone bounds', () => {
     expect(snapshot(page)).toEqual({ kind: 'ready' });
     expect(page.window.fetch).toBe(page.fetch);
     await tick(5_000);
-    expect(snapshot(page)).toEqual({ kind: 'error', code: 'timed-out' });
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'observer-timed-out' });
     expect(cancel).toHaveBeenCalledTimes(2);
     expect(page.responses.every(response => !response.body.locked)).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
@@ -713,7 +713,7 @@ describe('Dots response and clone bounds', () => {
     expect(snapshot(page)).toEqual({ kind: 'error', code: 'ambiguous-room' });
   });
 
-  it('leaves a timeout terminal when provider responses arrive after the hard deadline', async () => {
+  it('leaves an observer timeout terminal when provider responses arrive after the hard deadline', async () => {
     let resolveMetadata!: (response: TestResponse) => void;
     let resolveMessages!: (response: TestResponse) => void;
     const metadata = new Promise<TestResponse>(resolve => {
@@ -727,7 +727,7 @@ describe('Dots response and clone bounds', () => {
     const first = page.window.fetch(ROOM);
     const second = page.window.fetch(MESSAGES);
     await tick(20_000);
-    expect(snapshot(page)).toEqual({ kind: 'error', code: 'timed-out' });
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'observer-timed-out' });
     const a = new TestResponse(`https://chatgpt.com${ROOM}`);
     const b = new TestResponse(`https://chatgpt.com${MESSAGES}`);
     resolveMetadata(a);
@@ -735,7 +735,7 @@ describe('Dots response and clone bounds', () => {
     await Promise.all([first, second]);
     await tick();
     expect(a.cloneCount + b.cloneCount).toBe(0);
-    expect(snapshot(page)).toEqual({ kind: 'error', code: 'timed-out' });
+    expect(snapshot(page)).toEqual({ kind: 'error', code: 'observer-timed-out' });
   });
 
   it('preserves the original rejection while exposing only a fixed hook code', async () => {

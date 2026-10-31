@@ -2473,6 +2473,19 @@ not justify another run or a Fetch/XHR adjustment. Once the real raw contract
 is grounded, the schema control should move out of the ordinary product surface
 or be removed.
 
+Branch `codex/dots-timeout-origin` closes only that diagnostic ambiguity. The
+unchanged MAIN hard timer now emits fixed `observer-timed-out`; exhaustion of
+the background polling deadline emits fixed `background-timed-out`. Generic
+`timed-out` remains an accepted legacy response for mixed-version cleanup but
+is not emitted by current code. No request, route, timer, retry, captured value,
+projection field, permission, download or durable sink changed. Focused
+observer/background/contract coverage passes 3 files / 203 tests, TypeScript
+passes, and the five unrelated Claude auto-scroll cases that timed out only in
+the resource-heavy full run passed together in isolation. No installed Dots
+canary has been run from this candidate; live provider compatibility and raw
+adapter authority remain unclaimed. `ITH-008` preserves the longer evidence
+gate and revisit conditions.
+
 The intended archive behavior after this evidence gate is not a permanently
 redacted export. For the current workflow, one Dot to one long-lived room is the
 working identity hypothesis: create one complete local raw/manifest/canonical
