@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeExtractor } from '../../src/content/extractors/claude';
 import * as claudeApi from '../../src/content/extractors/claude-api';
+import * as claudeRoute from '../../src/content/extractors/claude-detail-route';
 import { BaseExtractor } from '../../src/content/extractors/base';
 import type {
   ArchiveCompanionBundle,
@@ -151,7 +152,7 @@ describe('Claude structured detail preference', () => {
     extractor = new ClaudeExtractor();
     clearFixture();
     localStorage.clear();
-    vi.spyOn(claudeApi, 'resolveClaudeOrganizationId').mockReturnValue(ORGANIZATION_ID);
+    vi.spyOn(claudeRoute, 'resolveClaudeOrganizationId').mockReturnValue(ORGANIZATION_ID);
     vi.mocked(chrome.runtime.sendMessage).mockReset();
     vi.mocked(chrome.runtime.sendMessage).mockImplementation((_message, callback) => {
       if (typeof callback === 'function') callback({ success: true });
@@ -199,7 +200,7 @@ describe('Claude structured detail preference', () => {
 
   it('keeps the established DOM path when no organization capability is available', async () => {
     renderConversation();
-    vi.mocked(claudeApi.resolveClaudeOrganizationId).mockReturnValue(null);
+    vi.mocked(claudeRoute.resolveClaudeOrganizationId).mockReturnValue(null);
     const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
 
     const result = await extractor.extract();

@@ -230,7 +230,7 @@ describe('Claude exact-detail capture and archive composition', () => {
 
   it('can use an exact current-route verification banner as a non-secret routing hint', async () => {
     vi.mocked(performance.getEntriesByType).mockReturnValue([]);
-    document.body.innerHTML = `<a href="https://portal.anthropic.com/verify?org=${ORGANIZATION_ID}&return_to=claude&return_path=%2Fchat%2F${CONVERSATION_ID}">Verify</a>`;
+    document.body.innerHTML = `<div data-organization-banners><a href="https://portal.anthropic.com/verify?org=${ORGANIZATION_ID}&return_to=claude&return_path=%2Fchat%2F${CONVERSATION_ID}">Verify</a></div>`;
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(detailResponse());
 
     await fetchClaudeConversation(CONVERSATION_ID, false, FIXED_DEPENDENCIES);
@@ -240,7 +240,7 @@ describe('Claude exact-detail capture and archive composition', () => {
 
   it('ignores malformed resources and a verification banner bound to another route', () => {
     resourceEntries('not a URL');
-    document.body.innerHTML = `<a href="https://portal.anthropic.com/verify?org=${ORGANIZATION_ID}&return_to=claude&return_path=%2Fchat%2F${INACTIVE_ID}">Verify</a>`;
+    document.body.innerHTML = `<div data-organization-banners><a href="https://portal.anthropic.com/verify?org=${ORGANIZATION_ID}&return_to=claude&return_path=%2Fchat%2F${INACTIVE_ID}">Verify</a></div>`;
 
     expect(resolveClaudeOrganizationId(CONVERSATION_ID)).toBeNull();
   });

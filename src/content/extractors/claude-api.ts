@@ -25,11 +25,19 @@ import {
   parseJsonArtifact,
   sha256Hex,
 } from '../capture/response';
+import {
+  CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING,
+  CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING,
+  CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING,
+  CLAUDE_SCOPE_UNVERIFIED_WARNING,
+  ClaudeStructuredCaptureError,
+} from './claude-detail-contract';
+import {
+  CLAUDE_ORIGIN,
+  CLAUDE_UUID_PATTERN,
+  resolveClaudeOrganizationId,
+} from './claude-detail-route';
 
-const CLAUDE_ORIGIN = 'https://claude.ai';
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const ORGANIZATION_RESOURCE_PATH =
-  /^\/api\/organizations\/([0-9a-f-]{36})\/chat_conversations\/([0-9a-f-]{36})$/;
 const ARTIFACT_ID = 'conversation';
 const REASONING_LABEL = 'Claude reasoning';
 
@@ -37,18 +45,16 @@ export const CLAUDE_DETAIL_PATH_PATTERN =
   '/api/organizations/{organizationId}/chat_conversations/{conversationId}';
 export const CLAUDE_DETAIL_TIMEOUT_MS = 15_000;
 export const CLAUDE_DETAIL_MAX_BYTES = 32 * 1024 * 1024;
-export const CLAUDE_SCOPE_UNVERIFIED_WARNING =
-  'Claude detail transcript and alternate-branch coverage remain unverified; this capture is partial.';
-export const CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING =
-  'Claude attachment metadata was inventoried; attachment bytes were not attempted.';
-export const CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING =
-  'Claude attachment metadata inventory could not be completed; its scope is unknown and attachment bytes were not attempted.';
-export const CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING =
-  'Claude web detail may omit richer thinking, tool, or artifact content; include-thinking only projects fields present in the captured response.';
-export const CLAUDE_DOM_FALLBACK_WARNING =
-  'Claude readable note uses only the rendered page; this capture is partial and earlier messages or branches may be missing.';
-export const CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING =
-  'Claude structured detail could not be normalized or projected; the partial readable note uses the rendered page and preserves verified raw capture evidence.';
+export {
+  CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING,
+  CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING,
+  CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING,
+  CLAUDE_DOM_FALLBACK_WARNING,
+  CLAUDE_SCOPE_UNVERIFIED_WARNING,
+  CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
+  ClaudeStructuredCaptureError,
+} from './claude-detail-contract';
+export { resolveClaudeOrganizationId } from './claude-detail-route';
 
 export interface ClaudeApiConversation {
   data: ConversationData;
@@ -65,18 +71,6 @@ export interface ClaudeApiDependencies {
   resolveOrganizationId?: (conversationId: string) => string | null;
 }
 
-export class ClaudeStructuredCaptureError extends Error {
-  readonly code: string;
-  readonly archiveCompanion?: ArchiveCompanionBundle;
-
-  constructor(code: string, archiveCompanion?: ArchiveCompanionBundle) {
-    super(`Claude structured capture failed (${code}).`);
-    this.name = 'ClaudeStructuredCaptureError';
-    this.code = code;
-    this.archiveCompanion = archiveCompanion;
-  }
-}
-
 /** One exact same-origin detail read; successful transport never implies complete coverage. */
 // eslint-disable-next-line max-lines-per-function -- Keep verified raw evidence before normalization and projection.
 export async function fetchClaudeConversation(
@@ -84,7 +78,7 @@ export async function fetchClaudeConversation(
   includeThinking: boolean,
   dependencies: ClaudeApiDependencies = {}
 ): Promise<ClaudeApiConversation | null> {
-  if (!UUID_PATTERN.test(conversationId)) {
+  if (!CLAUDE_UUID_PATTERN.test(conversationId)) {
     throw new ClaudeStructuredCaptureError('conversation-id-invalid');
   }
   const organizationId = resolveOrganizationId(conversationId, dependencies);
@@ -168,79 +162,6 @@ export async function fetchClaudeConversation(
   }
 }
 
-/** Match only this conversation's exact previously observed detail URL, newest first. */
-function organizationFromResources(conversationId: string): string | null {
-  try {
-    const resources = performance.getEntriesByType('resource');
-    for (let index = resources.length - 1; index >= 0; index -= 1) {
-      let url: URL;
-      try {
-        url = new URL(resources[index].name);
-      } catch {
-        continue;
-      }
-      if (url.origin !== CLAUDE_ORIGIN || url.search || url.hash || url.username || url.password)
-        continue;
-      const match = ORGANIZATION_RESOURCE_PATH.exec(url.pathname);
-      if (match && match[2] === conversationId && UUID_PATTERN.test(match[1])) return match[1];
-    }
-  } catch {
-    // Resource timing can be unavailable; only the named organization hint is eligible below.
-  }
-  return null;
-}
-
-function organizationFromStorage(): string | null {
-  try {
-    const organizationId = localStorage.getItem('ccd-sync-org');
-    return organizationId !== null && UUID_PATTERN.test(organizationId) ? organizationId : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Verification banners expose only the current org and route, never a credential. */
-function organizationFromVerificationLink(conversationId: string): string | null {
-  try {
-    for (const link of document.querySelectorAll<HTMLAnchorElement>(
-      'a[href^="https://portal.anthropic.com/verify?"]'
-    )) {
-      let url: URL;
-      try {
-        url = new URL(link.href);
-      } catch {
-        continue;
-      }
-      if (
-        url.origin !== 'https://portal.anthropic.com' ||
-        url.pathname !== '/verify' ||
-        url.username ||
-        url.password ||
-        url.hash ||
-        url.searchParams.get('return_to') !== 'claude' ||
-        url.searchParams.get('return_path') !== `/chat/${conversationId}`
-      ) {
-        continue;
-      }
-      const organizationId = url.searchParams.get('org');
-      if (organizationId !== null && UUID_PATTERN.test(organizationId)) return organizationId;
-    }
-  } catch {
-    // The banner is optional and provider-controlled.
-  }
-  return null;
-}
-
-/** Resolve a non-secret route hint synchronously so DOM fallback keeps its original timer order. */
-export function resolveClaudeOrganizationId(conversationId: string): string | null {
-  if (!UUID_PATTERN.test(conversationId)) return null;
-  return (
-    organizationFromResources(conversationId) ??
-    organizationFromStorage() ??
-    organizationFromVerificationLink(conversationId)
-  );
-}
-
 function resolveOrganizationId(
   conversationId: string,
   dependencies: ClaudeApiDependencies
@@ -249,7 +170,9 @@ function resolveOrganizationId(
     const organizationId = dependencies.resolveOrganizationId
       ? dependencies.resolveOrganizationId(conversationId)
       : resolveClaudeOrganizationId(conversationId);
-    return organizationId !== null && UUID_PATTERN.test(organizationId) ? organizationId : null;
+    return organizationId !== null && CLAUDE_UUID_PATTERN.test(organizationId)
+      ? organizationId
+      : null;
   } catch {
     return null;
   }

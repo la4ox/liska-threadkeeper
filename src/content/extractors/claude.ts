@@ -31,9 +31,8 @@ import {
   CLAUDE_DOM_FALLBACK_WARNING,
   CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
   ClaudeStructuredCaptureError,
-  fetchClaudeConversation,
-  resolveClaudeOrganizationId,
-} from './claude-api';
+} from './claude-detail-contract';
+import { resolveClaudeOrganizationId } from './claude-detail-route';
 import {
   SELECTORS,
   DEEP_RESEARCH_SELECTORS,
@@ -225,6 +224,7 @@ export class ClaudeExtractor extends BaseExtractor {
     if (!organizationId) return super.extract();
     const initialIdentity = this.captureConversationIdentity();
     try {
+      const { fetchClaudeConversation } = await import('./claude-api');
       const captured = await fetchClaudeConversation(conversationId, this.enableToolContent, {
         resolveOrganizationId: () => organizationId,
       });
