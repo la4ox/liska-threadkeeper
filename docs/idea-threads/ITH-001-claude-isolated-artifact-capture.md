@@ -7,7 +7,7 @@ thread_id: ITH-001
 thread_state: settled
 privacy: repository-safe
 opened: 2026-10-30
-last_turn: 2026-10-30
+last_turn: 2026-10-31
 ---
 
 # ITH-001 — Claude isolated Artifact capture
@@ -153,7 +153,9 @@ Obsidian with honest partial-destination receipts.
 
 ## Relations
 
-- None yet.
+- relates_to [[ith-002-layered-archive-truth]]
+- relates_to [[ith-004-attachment-acquisition-authority]]
+- relates_to [[ith-005-bounded-completeness-proof]]
 
 ## Source receipts
 
