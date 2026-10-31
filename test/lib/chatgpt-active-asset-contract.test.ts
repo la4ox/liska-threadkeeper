@@ -12,6 +12,29 @@ import {
 } from '../fixtures/chatgpt-active-asset';
 
 describe('one-item active asset contract', () => {
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)('inherits exact fixed source failures including legacy %s', async code => {
+    const response = { success: false, code };
+    expect(isChatGptActiveAssetResponse(response)).toBe(true);
+    expect(
+      await isBoundChatGptActiveAssetResponse(response, activeItem(), ACTIVE_CONVERSATION_ID)
+    ).toBe(true);
+    for (const extra of [
+      { status: 500 },
+      { statusText: 'private' },
+      { error: 'private' },
+      { url: 'https://private.invalid/' },
+      { headers: 'private' },
+      { body: 'private' },
+    ])
+      expect(isChatGptActiveAssetResponse({ ...response, ...extra })).toBe(false);
+  });
+
   it('keeps data success separate from the immutable metric contract', async () => {
     const response = activeSuccess();
     expect(isChatGptActiveAssetResponse(response)).toBe(true);

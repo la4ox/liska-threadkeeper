@@ -9,6 +9,31 @@ vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
 import { resolveChatGptActiveAsset } from '../../src/content/capture/chatgpt-active-asset-request';
 describe('single-item active content bridge', () => {
   beforeEach(() => vi.clearAllMocks());
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)('propagates exact %s but sanitizes added source details', async code => {
+    const response = { success: false, code };
+    mocks.sendMessage.mockResolvedValue(response);
+    expect(await resolveChatGptActiveAsset(ACTIVE_CONVERSATION_ID, activeItem())).toEqual(response);
+    for (const extra of [
+      { status: 500 },
+      { statusText: 'private' },
+      { error: 'private' },
+      { url: 'https://private.invalid/' },
+      { headers: 'private' },
+      { body: 'private' },
+    ]) {
+      mocks.sendMessage.mockResolvedValue({ ...response, ...extra });
+      expect(await resolveChatGptActiveAsset(ACTIVE_CONVERSATION_ID, activeItem())).toEqual({
+        success: false,
+        code: 'resolver-result-invalid',
+      });
+    }
+  });
   it('sends only a copied one-item plan through the separate action', async () => {
     mocks.sendMessage.mockResolvedValue(activeSuccess());
     const item = activeItem();

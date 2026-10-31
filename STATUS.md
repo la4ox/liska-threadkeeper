@@ -4034,3 +4034,37 @@ step is one trusted export after that exact conversation loads: require one
 XLSX dispatch, 12,101 structurally valid bytes, exact manifest/canonical/path/
 SHA agreement in File and Obsidian, no signed URL or resolver ID in durable
 receipts, and no retry or collateral asset-state change.
+
+The narrow normal-mode wiring fix at `a8d6939` was subsequently reviewed and
+installed as a regular 45-file / 1,241,752-byte tree after materializing the
+build away from rejected hard-link artifacts. Source and installed aggregate
+SHA-256 both equal
+`e3cc73dd80b85590f84ad5ca844d78660100b9548a899da28f7813ee1f8adf53`.
+After explicit extension reload, the same provider conversation later loaded
+and one trusted export completed without a second click.
+
+That run proves normal-mode planner and destination wiring, not XLSX bytes. It
+selected one ordinary XLSX inside the four-operation active budget, then ended
+before helper dispatch with `run-failures=source-http-error:1` and unknown
+dispatch. The asset remained `not-attempted` with fixed detail
+`active-resolver-run-source-http-error`; attempt timestamp, local path, byte
+length and SHA-256 all stayed null, and no XLSX binary existed. File preserved
+13,118,031 raw bytes, a 17,254-byte manifest, 29,340,877 canonical bytes, an
+8,116,627-byte HTML reading view and its 541-byte receipt. Obsidian preserved
+raw, manifest and canonical companions with byte-identical lengths and hashes,
+plus its configured flattened Markdown variant. No transient resolver value or
+provider identity was added to durable diagnostics and no retry occurred.
+
+The legacy code conflates an actual non-200 source response with status/header/
+media or observation-Promise processing failure. The follow-up changes only
+that content-free attribution: actual statuses become `source-http-4xx`,
+`source-http-5xx`, or `source-http-other`; processing failure becomes
+`source-response-processing-rejected`; legacy `source-http-error` remains
+accepted but is no longer emitted by current active code. These fixed codes stay
+before-dispatch and preserve `not-attempted`/null binary evidence. Request
+admission, exact 200+JSON gate, headers/credentials opacity, timers, one-shot
+command, no-retry ownership, helper transport, OOXML validation, permissions
+and sinks are unchanged. Focused coverage passes 9 files / 1,068 tests plus
+TypeScript, scoped runtime lint, formatting and diff checks. The original run's
+specific cause remains unknowable; one reviewed installed rerun is still the
+acceptance gate.

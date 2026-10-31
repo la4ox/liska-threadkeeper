@@ -176,6 +176,17 @@ so a page may pre-empt the command and affect availability. That residual is
 accepted only for this disabled metric experiment and must not be described as
 an isolation guarantee.
 
+Source validation exposes only finite fixed codes. A real non-200 source status
+is classified as `source-http-4xx`, `source-http-5xx`, or
+`source-http-other`; status/header/media or observation-Promise processing
+failure is `source-response-processing-rejected`. Exact status, status text,
+exception, URL, header and body values remain unrepresentable. The earlier
+ambiguous `source-http-error` stays accepted only so a coherent new background
+can clean up an older hook result; current active code does not emit it. All of
+these are before-dispatch run failures and therefore keep the asset
+`not-attempted` with null binary evidence. They are distinct from per-item
+`http-error` and `response-processing-rejected` after helper dispatch.
+
 For the one selected ordinal the closure constructs exactly one same-origin
 request: `GET /backend-api/files/download/{file_id}` with
 `download_intent=true` and `check_context_scopes_for_conversation_id` bound to
@@ -732,13 +743,25 @@ semantics, verify every unrelated payload CRC or automatically open the file.
 Legacy interpreter/passive XLSX remains on its historical byte path because it
 does not carry this runtime-only profile.
 
-The exact candidate build is installed, but the fresh target page failed to
-load the conversation twice after reload. No resolver dispatch or durable XLSX
-write occurred. The candidate therefore remains unaccepted and must not be
-merged or advertised as support until one trusted live export proves a single
-12,101-byte acquisition, structural admission, exact length/hash/path agreement
-in manifest, canonical, File and Obsidian outputs, absence of transient signed
-transport values from durable receipts, and unchanged sibling asset states.
+The first installed candidate could not load the target conversation twice. A
+later normal-mode wiring correction was reviewed, installed and exercised once
+after the same conversation loaded. That trusted export selected exactly one
+ordinary XLSX candidate, preserved complete raw/manifest/canonical companions
+in File and Obsidian with byte-identical hashes, and wrote both reading outputs.
+The active resolver then stopped before dispatch with legacy
+`source-http-error`. The XLSX remained `not-attempted`, with no attempt
+timestamp, path, length, hash or binary file; no retry occurred. This proves the
+normal-mode wiring, planner and honest loss state, but the legacy code cannot
+distinguish a 4xx/5xx/other source response from source-observation processing
+failure.
+
+The origin-specific diagnostic split above must therefore be reviewed,
+installed and exercised once before any transport change. The candidate remains
+unaccepted and must not be merged or advertised as support until a trusted live
+export proves a single 12,101-byte acquisition, structural admission, exact
+length/hash/path agreement in manifest, canonical, File and Obsidian outputs,
+absence of transient signed transport values from durable receipts, and
+unchanged sibling asset states.
 
 ### Owner routes are capture context, not attachment authority
 

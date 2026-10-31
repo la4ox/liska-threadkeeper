@@ -25,6 +25,33 @@ function metricResponse() {
 describe('ChatGPT active resolver content bridge', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)('propagates exact %s but rejects provider details at the bridge', async code => {
+    const response = { success: false, code };
+    mocks.sendMessage.mockResolvedValue(response);
+    expect(await probeChatGptActiveAssetResolvers(CONVERSATION_ID, ['synthetic-file-one'])).toEqual(
+      response
+    );
+    for (const extra of [
+      { status: 500 },
+      { statusText: 'private' },
+      { error: 'private' },
+      { url: 'https://private.invalid/' },
+      { headers: 'private' },
+      { body: 'private' },
+    ]) {
+      mocks.sendMessage.mockResolvedValue({ ...response, ...extra });
+      expect(
+        await probeChatGptActiveAssetResolvers(CONVERSATION_ID, ['synthetic-file-one'])
+      ).toEqual(createChatGptActiveResolverFailure('resolver-result-invalid'));
+    }
+  });
+
   it('sends the exact transient ID list and returns only validated metrics', async () => {
     const providerFileIds = ['synthetic-file-one'];
     const response = metricResponse();

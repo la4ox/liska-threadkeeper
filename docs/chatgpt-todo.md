@@ -259,12 +259,21 @@ terminal states, and the existing no-credential-export boundary.
   DTD/entity, VBA and XLM packages, but does not render/calculate cells, inspect
   worksheet semantics, verify every unrelated payload CRC or certify safety.
   Legacy interpreter/passive XLSX remains unchanged when the profile is absent.
-- Installed acceptance remains open. The exact candidate build is installed,
-  but a fresh target tab failed to load the conversation twice and produced no
-  XLSX resolver attempt or durable binary. Do not claim XLSX support or merge
-  the candidate until one trusted export proves a single 12,101-byte validated
-  acquisition, exact File/Obsidian bytes and destination receipts, no durable
-  signed URL/provider identity, and unchanged sibling asset states.
+- Installed acceptance remains open. After the normal-mode wiring fix and one
+  successful page load, one trusted export selected the single XLSX candidate
+  and preserved complete raw/manifest/canonical companions in File and Obsidian
+  with byte-identical archive hashes. The resolver stopped before helper
+  dispatch with legacy `source-http-error`; XLSX stayed `not-attempted` with
+  null timestamp/path/length/hash and no binary. No retry occurred.
+- The diagnostic candidate now distinguishes actual source response classes as
+  `source-http-4xx`, `source-http-5xx`, or `source-http-other`, and maps source
+  observation processing failure to `source-response-processing-rejected`.
+  Exact status and exception details remain excluded; the generic code is
+  accepted only for mixed-version cleanup. Do not change transport or claim
+  XLSX support until this split is reviewed, installed and one trusted export
+  either identifies the source failure class or proves a single 12,101-byte
+  validated acquisition, exact File/Obsidian receipts, no durable signed
+  URL/provider identity, and unchanged sibling asset states.
 
 ### 7. User-facing derived outputs
 

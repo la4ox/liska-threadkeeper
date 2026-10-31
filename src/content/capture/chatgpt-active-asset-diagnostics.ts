@@ -17,6 +17,10 @@ const BEFORE_DISPATCH = new Set([
   'hook-state-failed',
   'source-not-eligible',
   'source-rejected',
+  'source-http-4xx',
+  'source-http-5xx',
+  'source-http-other',
+  'source-response-processing-rejected',
   'source-http-error',
   'source-non-json',
 ]);

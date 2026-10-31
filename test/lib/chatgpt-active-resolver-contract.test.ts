@@ -171,6 +171,28 @@ describe('ChatGPT active resolver metric contract', () => {
     ).toBe(false);
   });
 
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)('admits only exact fixed source failure shapes including legacy %s', code => {
+    expect(isChatGptActiveResolverHookResult({ kind: 'error', code })).toBe(true);
+    expect(isChatGptActiveResolverResponse(createChatGptActiveResolverFailure(code))).toBe(true);
+    for (const extra of [
+      { status: 500 },
+      { statusText: 'private' },
+      { error: 'private' },
+      { url: 'https://private.invalid/' },
+      { headers: 'private' },
+      { body: 'private' },
+    ]) {
+      expect(isChatGptActiveResolverHookResult({ kind: 'error', code, ...extra })).toBe(false);
+      expect(isChatGptActiveResolverResponse({ success: false, code, ...extra })).toBe(false);
+    }
+  });
+
   it('allows only the exact diagnostic outcome codes and one requested ordinal', () => {
     expect(
       isChatGptActiveResolverHookResult({ ...completeHook(), outcomes: [{ state: 'rejected' }] })

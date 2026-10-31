@@ -120,9 +120,17 @@ async function capture(raw: unknown = ordinaryRaw(), routeFamily: ChatGptRouteFa
 }
 
 type Failure = 'throws' | 'timeout' | 'binding' | 'provider' | 'not-dispatched' | 'acquisition';
+const SOURCE_FAILURES = [
+  'source-http-4xx',
+  'source-http-5xx',
+  'source-http-other',
+  'source-response-processing-rejected',
+  'source-http-error',
+] as const;
 async function runPipeline(
   options: {
     failure?: Failure;
+    sourceFailure?: (typeof SOURCE_FAILURES)[number];
     libraries?: boolean;
     xlsxEnabled?: boolean;
     raw?: unknown;
@@ -166,6 +174,8 @@ async function runPipeline(
       order.push(family(item.assetId));
       dispatched.push({ ...item });
       const failure = family(item.assetId) === 'xlsx' ? options.failure : undefined;
+      if (family(item.assetId) === 'xlsx' && options.sourceFailure)
+        return { success: false, code: options.sourceFailure };
       if (failure === 'throws') throw new Error('private-exception');
       if (failure === 'timeout') return { success: false, code: 'resolver-result-timeout' };
       const result = activeSuccess(item);
@@ -518,6 +528,57 @@ describe('ordinary direct-ID XLSX planner/orchestration pipeline', () => {
         )
       ).not.toContain(run.selectedXlsxId);
       expect(JSON.stringify(run.result)).not.toMatch(/private-exception|ordinary-sheet-|https:/);
+    }
+  );
+
+  it.each(SOURCE_FAILURES)(
+    'keeps XLSX %s not-attempted with null evidence and no acquisition, persistence or fallback',
+    async sourceFailure => {
+      const run = await runPipeline({ sourceFailure });
+      expect(run.resolveOrdinaryXlsxAsset).toHaveBeenCalledTimes(1);
+      expect(run.dispatched.filter(item => run.xlsxIds.includes(item.assetId))).toEqual([
+        expect.objectContaining({ assetId: run.selectedXlsxId }),
+      ]);
+      for (const manifest of run.manifests.values()) {
+        expect(manifest.assets.find(asset => asset.id === run.selectedXlsxId)).toMatchObject({
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          byteLength: null,
+          sha256: null,
+          detail: `active-resolver-run-${sourceFailure}`,
+        });
+        expect(
+          manifest.assets.find(
+            asset => run.xlsxIds.includes(asset.id) && asset.id !== run.selectedXlsxId
+          )
+        ).toMatchObject({
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          byteLength: null,
+          sha256: null,
+        });
+      }
+      expect(
+        run.acquireAssets.mock.calls.flatMap(([input]) =>
+          input.candidates.map(item => item.assetId)
+        )
+      ).not.toContain(run.selectedXlsxId);
+      expect(
+        run.persistBinaryAssets.mock.calls.flatMap(([input]) =>
+          input.assets.map(item => item.record.id)
+        )
+      ).not.toContain(run.selectedXlsxId);
+      expect(run.passive).toHaveBeenCalledOnce();
+      expect(run.passive.mock.calls[0][1]).not.toContain(run.selectedXlsxId);
+      expect(run.finals.get('file')).toEqual(run.finals.get('obsidian'));
+      expect(run.finals.get('file')!.artifacts.map(item => item.kind)).toEqual(
+        expect.arrayContaining(['raw', 'canonical', 'manifest'])
+      );
+      expect(JSON.stringify(run.result)).not.toMatch(
+        /private|ordinary-sheet-|https:|sig=|statusText/
+      );
     }
   );
 

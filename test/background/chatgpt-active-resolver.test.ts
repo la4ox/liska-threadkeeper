@@ -210,6 +210,56 @@ describe('ChatGPT active resolver background checkpoint', () => {
     };
     expect(serializedReader(NONCE)).toEqual({ kind: 'missing' });
   });
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)(
+    'reads and propagates only exact %s snapshots including legacy compatibility',
+    async code => {
+      const state = { kind: 'error', code };
+      vi.stubGlobal('window', { [`__liskaChatGptActiveResolver_${NONCE}`]: state });
+      const serializedReader = new Function(
+        `return (${readChatGptActiveResolverState.toString()});`
+      )() as typeof readChatGptActiveResolverState;
+      expect(serializedReader(NONCE)).toEqual(state);
+      for (const extra of [
+        { status: 500 },
+        { statusText: 'private' },
+        { error: 'private' },
+        { url: 'https://private.invalid/' },
+        { headers: 'private' },
+        { body: 'private' },
+      ]) {
+        vi.stubGlobal('window', {
+          [`__liskaChatGptActiveResolver_${NONCE}`]: { ...state, ...extra },
+        });
+        expect(serializedReader(NONCE)).toEqual({ kind: 'missing' });
+      }
+      for (const mode of ['metric', 'asset'] as const) {
+        const chrome = chromeApi(state);
+        const response =
+          mode === 'metric'
+            ? await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
+                chromeApi: chrome.api,
+                createNonce: () => NONCE,
+              })
+            : await resolveChatGptActiveAsset(
+                CONVERSATION_ID,
+                {
+                  assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+                  providerFileId: PROVIDER_ID,
+                },
+                { chromeApi: chrome.api, createNonce: () => NONCE }
+              );
+        expect(response).toEqual({ success: false, code });
+        expect(chrome.executeScript).toHaveBeenCalledTimes(3);
+        expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+      }
+    }
+  );
   it('uses a foreground exact marker, pins command/polls to the first document, and returns metrics only', async () => {
     const signedUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +

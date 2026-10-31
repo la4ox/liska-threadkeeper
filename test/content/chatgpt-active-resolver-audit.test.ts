@@ -655,18 +655,21 @@ describe('ChatGPT active resolver durable audit', () => {
     );
   });
 
-  it('records a safe failure code while leaving dispatch and outcomes explicitly unknown', () => {
-    const metric = chatGptActiveResolverMetricFromResponse(
-      { success: false, code: 'source-http-error' },
-      1
-    );
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)('records %s while leaving audit dispatch and outcomes explicitly unknown', code => {
+    const metric = chatGptActiveResolverMetricFromResponse({ success: false, code }, 1);
 
-    expect(metric).toEqual(chatGptActiveResolverFailureMetric(1, 'source-http-error'));
+    expect(metric).toEqual(chatGptActiveResolverFailureMetric(1, code));
     expect(chatGptActiveResolverAuditWarning(metric)).toBe(
-      'ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-error; file-ID binary acquisition remains disabled.'
+      `ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=${code}; file-ID binary acquisition remains disabled.`
     );
     expect(chatGptActiveResolverProbeWarning(metric)).toBe(
-      'ChatGPT active resolver diagnostic failed (source-http-error); file-ID binary acquisition remains disabled.'
+      `ChatGPT active resolver diagnostic failed (${code}); file-ID binary acquisition remains disabled.`
     );
   });
 

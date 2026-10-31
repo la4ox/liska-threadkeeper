@@ -58,6 +58,19 @@ asset. The earlier archive kept it `not-attempted`; this proves a narrow
 admission candidate, not that the current page-owned helper can return valid
 bytes.
 
+### E5 — The first normal-mode XLSX canary stopped honestly before dispatch
+
+After the normal-mode resolver wiring was reviewed and installed, one trusted
+export selected exactly the retained XLSX candidate. File and Obsidian received
+complete raw, manifest and canonical companions with byte-identical archive
+hashes, but the active resolver ended before helper dispatch with legacy
+`source-http-error`. The XLSX remained `not-attempted`; timestamp, local path,
+byte length and SHA-256 stayed null, no binary was written and no retry ran.
+
+This proves the planner, normal-mode seam and honest durable loss state. The
+legacy code does not prove whether the source response was 4xx/5xx/other or
+whether status/header/media/Promise processing failed.
+
 ### X1 — Guess provider routes or copy credential/header values
 
 This could increase apparent success, but it broadens network authority and can
@@ -96,6 +109,16 @@ can become durable truth.
 Revisit when: never for image classification; broader Office-family admission
 still requires its own identity, package and live-provider evidence.
 
+### X5 — Retry or change transport from one ambiguous source error
+
+The fixed legacy code combines several mutually different failures. Retrying
+could hide a server response or reproduce a processing defect while consuming
+the family's one-shot ownership. Changing the helper route would expand network
+authority without evidence.
+
+Revisit when: an origin-specific fixed code identifies the boundary, and only
+then if a separately reviewed transport change is actually warranted.
+
 ### D1 — Separate discovery, acquisition and durable persistence
 
 Liska records what was discovered, whether a request was actually attempted and
@@ -104,7 +127,7 @@ which exact bytes each destination verified. `not-attempted`, `declined`,
 synonyms. New asset families earn support through bounded, provider-specific
 proof rather than name or route guesses.
 
-Evidence: E1, E2, E3, E4
+Evidence: E1, E2, E3, E4, E5
 
 ### D2 — Admit ordinary direct XLSX through one explicit runtime profile
 
@@ -115,7 +138,19 @@ widens legacy interpreter XLSX, images, Library assets, endpoints, permissions
 or retry authority. Durable support remains conditional on a successful live
 File/Obsidian canary.
 
-Evidence: E2, E4
+Evidence: E2, E4, E5
+
+### D3 — Attribute the source gate before changing acquisition
+
+Current active code distinguishes actual source response classes as
+`source-http-4xx`, `source-http-5xx`, or `source-http-other`, and uses
+`source-response-processing-rejected` for status/header/media or observation
+processing failure. Exact status, exception, URL, header and body values remain
+outside the contract. The legacy generic code stays accepted only for coherent
+mixed-version cleanup; every new code remains before-dispatch and preserves
+`not-attempted`/null binary evidence.
+
+Evidence: E5
 
 ### T1 — Admit new attachment families one evidence gate at a time
 
@@ -135,11 +170,13 @@ proven without granting the capture path deletion authority.
 
 ### T3 — Close the ordinary XLSX live gate
 
-Trigger: the exact standard-owner conversation loads again. One trusted export
-must show one resolver dispatch, expected-length structurally valid bytes,
-content-addressed File/Obsidian equality and exact manifest/canonical receipts,
-with no signed transport value or new provider identity in durable output and
-no retry or sibling-state change.
+Trigger: install the reviewed source-attribution candidate, then run one trusted
+export after the exact standard-owner conversation loads. A refusal must expose
+one origin-specific fixed code without binary claims; success must show one
+resolver dispatch, expected-length structurally valid bytes, content-addressed
+File/Obsidian equality and exact manifest/canonical receipts, with no signed
+transport value or new provider identity in durable output and no retry or
+sibling-state change.
 
 ## Observations
 
@@ -148,15 +185,18 @@ no retry or sibling-state change.
 - [evidence] E2: `fetched` now requires exact verified bytes, length, media type and SHA-256 per destination
 - [evidence] E3: installed Obsidian append acceptance proved tail-only content-addressed image persistence #live
 - [evidence] E4: one complete standard-owner capture exposes a unique ordinary direct XLSX candidate, but no live byte proof yet
+- [evidence] E5: one installed normal-mode canary selected the XLSX but preserved it honestly as not-attempted after an ambiguous pre-dispatch source failure #live
 - [rejected] X1: guessed routes and reusable credential extraction exceed the evidence and privacy boundary
 - [rejected] X2: ambiguity is not an explicit decline and must not be recorded as one
 - [rejected] X3: later captures cannot silently authorize historical image backfill
 - [rejected] X4: XLSX is neither an ordinary image nor safely identified by MIME and ZIP magic alone
+- [rejected] X5: an ambiguous source error does not authorize retry or transport changes
 - [decision] D1: keep discovery, acquisition and durable persistence as separate evidence-bearing stages
 - [decision] D2: gate one ordinary direct XLSX behind exact identity, size and structural OOXML validation
+- [decision] D3: distinguish source response class from source processing failure before changing acquisition
 - [tail] T1: add attachment families only through provider-specific identity and byte proofs
 - [tail] T2: keep orphan cleanup behind a separate reversible authority boundary
-- [tail] T3: run one exact installed File/Obsidian XLSX canary when the provider conversation loads
+- [tail] T3: run one reviewed origin-specific File/Obsidian XLSX canary when the provider conversation loads
 
 ## Relations
 
@@ -175,3 +215,4 @@ no retry or sibling-state change.
 - S5 — [PR #76: append verified tail images to Obsidian](https://github.com/la4ox/liska-threadkeeper/pull/76)
 - S6 — local receipt `LISKA-CHAT-SYNTHESIS-20261031-ASSETS`; visibility: local-only; safe aggregate only
 - S7 — candidate commit `5964957`; ordinary direct XLSX implementation and tests; installed/live acceptance pending
+- S8 — local receipt `LISKA-XLSX-NORMAL-MODE-20261031`; visibility: local-only; safe aggregate only

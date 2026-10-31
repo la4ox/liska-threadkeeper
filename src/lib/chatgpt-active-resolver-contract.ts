@@ -67,6 +67,11 @@ export const CHATGPT_ACTIVE_RESOLVER_ERROR_CODES = [
   'hook-state-failed',
   'source-not-eligible',
   'source-rejected',
+  'source-http-4xx',
+  'source-http-5xx',
+  'source-http-other',
+  'source-response-processing-rejected',
+  // Legacy snapshots remain readable; the active hook no longer emits this code.
   'source-http-error',
   'source-non-json',
 ] as const;

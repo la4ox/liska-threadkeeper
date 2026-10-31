@@ -4126,7 +4126,10 @@ type ActiveResolverHookResult =
         | 'hook-state-failed'
         | 'source-not-eligible'
         | 'source-rejected'
-        | 'source-http-error'
+        | 'source-http-4xx'
+        | 'source-http-5xx'
+        | 'source-http-other'
+        | 'source-response-processing-rejected'
         | 'source-non-json'
         | 'resolver-result-timeout';
     };
@@ -4570,14 +4573,37 @@ function observeActiveResolverSourceResponse(
               activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
               return;
             }
-            const status = applyCaptured<number>(
+            const status = applyCaptured<unknown>(
               state.primordials,
               state.primordials.document.responseStatus,
               response,
               []
             );
+            if (
+              typeof status !== 'number' ||
+              status < 0 ||
+              status > 9007199254740991 ||
+              status % 1 !== 0
+            ) {
+              activeResolverSourceFailure(
+                pageWindow,
+                state,
+                target,
+                'source-response-processing-rejected'
+              );
+              return;
+            }
             if (status !== 200) {
-              activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+              activeResolverSourceFailure(
+                pageWindow,
+                state,
+                target,
+                status >= 400 && status <= 499
+                  ? 'source-http-4xx'
+                  : status >= 500 && status <= 599
+                    ? 'source-http-5xx'
+                    : 'source-http-other'
+              );
               return;
             }
             const headers = applyCaptured<Headers>(
@@ -4602,7 +4628,12 @@ function observeActiveResolverSourceResponse(
             state.sourceReady = true;
             maybeDispatchActiveResolver(pageWindow, state, target);
           } catch {
-            activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+            activeResolverSourceFailure(
+              pageWindow,
+              state,
+              target,
+              'source-response-processing-rejected'
+            );
           }
         },
         () => activeResolverSourceFailure(pageWindow, state, target, 'source-rejected'),
@@ -4614,11 +4645,17 @@ function observeActiveResolverSourceResponse(
       observation,
       [
         () => undefined,
-        () => activeResolverSourceFailure(pageWindow, state, target, 'source-http-error'),
+        () =>
+          activeResolverSourceFailure(
+            pageWindow,
+            state,
+            target,
+            'source-response-processing-rejected'
+          ),
       ]
     );
   } catch {
-    activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+    activeResolverSourceFailure(pageWindow, state, target, 'source-response-processing-rejected');
   }
 }
 
