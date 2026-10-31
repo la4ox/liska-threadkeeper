@@ -3884,3 +3884,91 @@ separate later slices. This checkpoint proves the bounded transcript traversal
 and destination equality only; it does not claim Artifact-body capture,
 attachment-binary completeness, atomicity against a concurrently edited chat,
 or official-export reconciliation as an automatic product feature.
+
+## Claude exact-detail structured capture checkpoint
+
+Claude ordinary chats now have a structured-first capture path that does not
+scroll or depend on mounted virtual rows. Authenticated read-only observation
+identified one exact page-owned request:
+`GET /api/organizations/{organizationId}/chat_conversations/{conversationId}`.
+The organization UUID is used only as a same-origin routing hint from an exact
+already-observed resource, the exact named page hint, or the current-route
+verification link. Liska does not read cookies, request-header values, browser
+tokens or arbitrary storage and does not retain the organization UUID in the
+manifest or canonical archive. The response UUID must match the current route.
+
+Local Claude evidence was kept source-separated. Two classic official-export
+batch directories and one richer reader package contain three conversation
+arrays: 15 snapshot records, 11 distinct conversations and 326 distinct
+messages. Every observed chain is linear with maximum fan-out one, one omitted
+root parent and no current-leaf field, so official exports do not prove whether
+alternate branches were absent or pruned. Their message content arrays retain
+thinking, tool-use, tool-result, image and document families which the measured
+web detail response may omit. The web manifest therefore records graph,
+messages and branches as `unknown`, assets as `not-attempted`, and the readable
+view as `structured-api / partial` rather than borrowing completeness from the
+154-message scrolling canary.
+
+The provider normalizer verifies exact raw and manifest hashes, exact route
+identity, unique bounded message IDs, deterministic parent/child order, cycles,
+current-leaf reachability and one explicitly diagnosed unresolved root parent.
+It retains ordered text/reasoning/tool/citation/attachment/unknown blocks with
+JSON-pointer provenance, creates metadata-only asset records without fetching
+binaries, bounds large inputs and redacts credential and identity aliases from
+canonical extensions. A direct-text-only message receives a stable diagnostic
+without asserting that hidden richer content existed. Legacy visible Deep
+Research remains ahead of structured capture; every request, schema, integrity,
+normalization or projection failure returns to the established partial DOM
+path. Verified raw+manifest survive post-identity failures, while same-document
+navigation cancels the whole operation and releases staged evidence instead of
+mixing conversations.
+
+Background archive authority now admits Claude only from an exact lowercase
+UUID `/chat/{id}` top-frame tab with an HTTPS same-origin injection document.
+Derived HTML remains ChatGPT/DeepSeek-only. After navigation away from the chat,
+only aborting an already owned Claude stage is permitted; begin, append, seal,
+read and commit remain exact-chat-bound. Raw inline transport keeps the 16 MiB
+boundary, canonical/manifest keep 32 MiB and larger eligible artifacts reuse the
+existing bounded stage contract.
+
+The exact candidate was built and installed through the rollback-preserving
+unpacked-extension installer: 43 files / 1,220,701 bytes, identical source and
+installed aggregate SHA-256
+`e64ba277090c23e436bf3d349c66531cb5c81bb04c7cf06140225fc5489159a6`.
+Rollback `liska-rollback-20261031T081610269Z-c5c3aa4d48e948fb865d964ebf299dd8`
+retains the previous installed bytes. One stale browser reload still referenced
+an old removed content bundle and failed closed; a second explicit extension
+reload plus page reload loaded the current bundle and logged `Sync initiated`,
+`Extracted Claude conversation from local session detail`, note generation and
+note-write completion.
+
+The installed four-message canary wrote raw 8,159 bytes / SHA-256
+`84b4d9efae6fed310dc34b0b5f140be2e0b2067230fb4722584dd6d0f55123fc`,
+manifest 1,226 bytes / SHA-256
+`643aa3625c94d38fa423c28363d7ca2e2c76fb43ec206013e00691710e394131`,
+and canonical 24,175 bytes / SHA-256
+`a09acb61ea9be16f28d7aa5544cfcf99c6f65ae68e934c6986d8ebfa92a04341`.
+Raw length/hash match the manifest exactly; canonical input hashes the exact
+manifest, retains four message nodes, one root and a present current leaf.
+Markdown carries `message_count: 4`, `capture_mode: structured-api` and
+`capture_completeness: partial`. Downloads and the configured Obsidian vault
+contain byte-identical copies of all three companions; their Markdown notes are
+also byte-identical at 5,125 bytes / SHA-256
+`6f33f5ee68f76daa360159fab4a8bdb40cdf41a3efdf4df2080002bb6e400576`.
+No Claude message was sent, no provider setting changed and no attachment byte
+was requested.
+
+Focused normalizer, capture, extractor, background authority and destination
+checks pass, as do TypeScript, formatting, diff checks and the guarded
+production build. Independent review found and closed sensitive alias leakage,
+pre-normalization raw-evidence loss, cross-conversation navigation mixing and
+post-navigation stage-cleanup authority. A separately overloaded verbose run
+of the legacy 168-test autoscroll file timed out after 22 minutes and is not
+accepted as a regression verdict. Its 158 completed tests passed; the ten
+timeout cases plus related boundary variants pass together as 19/19 in 112.34
+seconds, and the first timeout case passes alone in 5.98 seconds. The rest of
+the repository passes 243 files / 8,703 tests with one file / three tests
+skipped in 122.07 seconds. Combined unique current-input evidence therefore
+covers all 245 files / 8,871 tests with three skips, while deliberately avoiding
+a false single-run claim for the resource-heavy autoscroll file. Repository CI
+remains the independent current-head single-run gate.
