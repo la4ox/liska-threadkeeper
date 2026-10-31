@@ -10,8 +10,10 @@ import {
   CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
 } from '../../src/content/capture/chatgpt-asset-acquisition';
 import { validChatGptJpegBytes, validChatGptPngBytes } from '../fixtures/chatgpt-image-bytes';
+import { validStoredXlsxBytes } from '../fixtures/xlsx-package-bytes';
 
 const CONVERSATION_ID = '11111111-2222-4333-8444-555555555555';
+const XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 function digest(bytes: Uint8Array): Promise<string> {
   return Promise.resolve(createHash('sha256').update(bytes).digest('hex'));
@@ -223,6 +225,205 @@ describe('ChatGPT page-owned asset acquisition', () => {
       sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect([...result.runtimeAssets[0].bytes]).toEqual([...bytes]);
+  });
+
+  it('persists one size-bound package-validated XLSX without relabeling it as an image', async () => {
+    const record = ledger('a', XLSX_MEDIA_TYPE);
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]);
+    const url = signedUrl('xlsx');
+    const validateXlsxPackage = vi.fn().mockResolvedValue({ ok: true as const });
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [
+        {
+          assetId: record.id,
+          downloadUrl: url,
+          expectedByteLength: bytes.byteLength,
+          validationProfile: 'ordinary-direct-xlsx',
+        },
+      ],
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, XLSX_MEDIA_TYPE)),
+      validateXlsxPackage,
+      sha256: digest,
+    });
+
+    expect(validateXlsxPackage).toHaveBeenCalledOnce();
+    expect(validateXlsxPackage).toHaveBeenCalledWith(bytes);
+    expect(result.records[0]).toMatchObject({
+      state: 'fetched',
+      mediaType: XLSX_MEDIA_TYPE,
+      byteLength: bytes.byteLength,
+      relativePath: expect.stringMatching(/^assets\/[a-f0-9]{64}\.xlsx$/),
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect([...result.runtimeAssets[0].bytes]).toEqual([...bytes]);
+  });
+
+  it('runs real XLSX package admission across acquisition before hashing', async () => {
+    const record = ledger('f', XLSX_MEDIA_TYPE);
+    const bytes = validStoredXlsxBytes();
+    const url = signedUrl('xlsx-default-validator');
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [
+        {
+          assetId: record.id,
+          downloadUrl: url,
+          expectedByteLength: bytes.byteLength,
+          validationProfile: 'ordinary-direct-xlsx',
+        },
+      ],
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, XLSX_MEDIA_TYPE)),
+      sha256: digest,
+    });
+
+    expect(result.records[0]).toMatchObject({
+      state: 'fetched',
+      mediaType: XLSX_MEDIA_TYPE,
+      byteLength: bytes.byteLength,
+      relativePath: expect.stringMatching(/^assets\/[a-f0-9]{64}\.xlsx$/),
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(result.runtimeAssets[0].bytes).toEqual(bytes);
+  });
+
+  it.each([
+    ['missing declared size', undefined, 8],
+    ['zero declared size', 0, 8],
+    ['declared size mismatch', 7, 8],
+    ['declared size above caller cap', 8, 8],
+  ] as const)(
+    'rejects XLSX with %s before hashing or durable truth',
+    async (_label, expectedByteLength, actualByteLength) => {
+      const record = ledger('b', XLSX_MEDIA_TYPE);
+      const bytes = new Uint8Array(actualByteLength).fill(1);
+      const url = signedUrl(`xlsx-${_label}`);
+      const hash = vi.fn(digest);
+      const validateXlsxPackage = vi.fn().mockResolvedValue({ ok: true as const });
+      const result = await acquireChatGptPageOwnedAssets({
+        conversationId: CONVERSATION_ID,
+        assets: [record],
+        candidates: [
+          {
+            assetId: record.id,
+            downloadUrl: url,
+            ...(expectedByteLength !== undefined && { expectedByteLength }),
+            validationProfile: 'ordinary-direct-xlsx',
+          },
+        ],
+        fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, XLSX_MEDIA_TYPE)),
+        validateXlsxPackage,
+        sha256: hash,
+        ...(_label === 'declared size above caller cap' && { maxAssetBytes: 7 }),
+      });
+
+      expect(result.records[0]).toMatchObject({
+        state: 'failed',
+        detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+      });
+      expect(result.runtimeAssets).toEqual([]);
+      expect(hash).not.toHaveBeenCalled();
+      expect(validateXlsxPackage).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects an invalid XLSX package after bounded reading and before hashing', async () => {
+    const record = ledger('c', XLSX_MEDIA_TYPE);
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+    const url = signedUrl('invalid-xlsx');
+    const hash = vi.fn(digest);
+    const validateXlsxPackage = vi
+      .fn()
+      .mockResolvedValue({ ok: false as const, code: 'invalid-zip' as const });
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [
+        {
+          assetId: record.id,
+          downloadUrl: url,
+          expectedByteLength: bytes.byteLength,
+          validationProfile: 'ordinary-direct-xlsx',
+        },
+      ],
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, XLSX_MEDIA_TYPE)),
+      validateXlsxPackage,
+      sha256: hash,
+    });
+
+    expect(result.records[0]).toMatchObject({
+      state: 'failed',
+      detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+    });
+    expect(result.runtimeAssets).toEqual([]);
+    expect(validateXlsxPackage).toHaveBeenCalledOnce();
+    expect(hash).not.toHaveBeenCalled();
+  });
+
+  it('rejects an XLSX-only declared size on every non-XLSX candidate before network work', async () => {
+    const record = ledger('d', 'image/png');
+    const fetcher = vi.fn<typeof fetch>();
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: signedUrl(), expectedByteLength: 123 }],
+      fetcher,
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.records[0]).toMatchObject({
+      state: 'failed',
+      detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+    });
+  });
+
+  it('preserves legacy passive/interpreter XLSX acquisition when the ordinary profile is absent', async () => {
+    const record = ledger('e', XLSX_MEDIA_TYPE);
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const url = signedUrl('legacy-xlsx');
+    const validateXlsxPackage = vi.fn();
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [{ assetId: record.id, downloadUrl: url }],
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response(url, bytes, XLSX_MEDIA_TYPE)),
+      validateXlsxPackage,
+      sha256: digest,
+    });
+
+    expect(validateXlsxPackage).not.toHaveBeenCalled();
+    expect(result.records[0]).toMatchObject({
+      state: 'fetched',
+      mediaType: XLSX_MEDIA_TYPE,
+      byteLength: bytes.byteLength,
+      relativePath: expect.stringMatching(/^assets\/[a-f0-9]{64}\.xlsx$/),
+    });
+  });
+
+  it('rejects the ordinary XLSX profile on a non-XLSX record before network work', async () => {
+    const record = ledger('f', 'image/png');
+    const fetcher = vi.fn<typeof fetch>();
+    const result = await acquireChatGptPageOwnedAssets({
+      conversationId: CONVERSATION_ID,
+      assets: [record],
+      candidates: [
+        {
+          assetId: record.id,
+          downloadUrl: signedUrl(),
+          expectedByteLength: 123,
+          validationProfile: 'ordinary-direct-xlsx',
+        },
+      ],
+      fetcher,
+    });
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.records[0]).toMatchObject({
+      state: 'failed',
+      detail: CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL,
+    });
   });
 
   it.each([

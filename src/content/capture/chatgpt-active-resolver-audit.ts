@@ -43,6 +43,8 @@ export interface ChatGptActiveResolverAssetBatchAudit {
   libraryCsvAttemptCount: 0 | 1;
   /** Absent on historical CSV/JPEG audits; explicit values must remain bounded. */
   libraryTextPlainAttemptCount?: 0 | 1;
+  /** Absent on historical audits; spreadsheets are never counted as images. */
+  ordinaryXlsxAttemptCount?: 0 | 1;
 }
 
 export type ChatGptActiveResolverAudit =
@@ -312,38 +314,48 @@ function validatedBatchSnapshot(
   };
 }
 
+function isFamilyAttemptCount(value: unknown): value is 0 | 1 {
+  return value === 0 || value === 1;
+}
+
+function optionalFamilyAttemptCount(fields: DataFields, key: string): 0 | 1 | undefined {
+  if (!Object.prototype.hasOwnProperty.call(fields, key)) return undefined;
+  const value = fields[key];
+  if (!isFamilyAttemptCount(value)) invalidMetric();
+  return value;
+}
+
 function validatedAssetBatchSnapshot(
   fields: DataFields,
   snapshots: DataSnapshots
 ): ChatGptActiveResolverAssetBatchAudit {
-  const hasTextPlainCount = Object.prototype.hasOwnProperty.call(
+  const libraryTextPlainAttemptCount = optionalFamilyAttemptCount(
     fields,
     'libraryTextPlainAttemptCount'
   );
+  const ordinaryXlsxAttemptCount = optionalFamilyAttemptCount(fields, 'ordinaryXlsxAttemptCount');
   if (
     !hasExactFields(fields, [
       'acquisitionMode',
       'attempts',
       'libraryJpegAttemptCount',
       'libraryCsvAttemptCount',
-      ...(hasTextPlainCount ? ['libraryTextPlainAttemptCount'] : []),
+      ...(libraryTextPlainAttemptCount !== undefined ? ['libraryTextPlainAttemptCount'] : []),
+      ...(ordinaryXlsxAttemptCount !== undefined ? ['ordinaryXlsxAttemptCount'] : []),
     ]) ||
     fields.acquisitionMode !== 'asset-batch-4' ||
-    (fields.libraryJpegAttemptCount !== 0 && fields.libraryJpegAttemptCount !== 1) ||
-    (fields.libraryCsvAttemptCount !== 0 && fields.libraryCsvAttemptCount !== 1) ||
-    (hasTextPlainCount &&
-      fields.libraryTextPlainAttemptCount !== 0 &&
-      fields.libraryTextPlainAttemptCount !== 1)
+    !isFamilyAttemptCount(fields.libraryJpegAttemptCount) ||
+    !isFamilyAttemptCount(fields.libraryCsvAttemptCount)
   )
     invalidMetric();
   const attempts = validatedAttemptSnapshots(fields.attempts, snapshots);
   const libraryJpegAttemptCount = fields.libraryJpegAttemptCount as 0 | 1;
   const libraryCsvAttemptCount = fields.libraryCsvAttemptCount as 0 | 1;
-  const libraryTextPlainAttemptCount = hasTextPlainCount
-    ? (fields.libraryTextPlainAttemptCount as 0 | 1)
-    : 0;
   if (
-    libraryJpegAttemptCount + libraryCsvAttemptCount + libraryTextPlainAttemptCount >
+    libraryJpegAttemptCount +
+      libraryCsvAttemptCount +
+      (libraryTextPlainAttemptCount ?? 0) +
+      (ordinaryXlsxAttemptCount ?? 0) >
     attempts.length
   )
     invalidMetric();
@@ -352,8 +364,38 @@ function validatedAssetBatchSnapshot(
     attempts,
     libraryJpegAttemptCount,
     libraryCsvAttemptCount,
-    ...(hasTextPlainCount && { libraryTextPlainAttemptCount }),
+    ...(libraryTextPlainAttemptCount !== undefined && { libraryTextPlainAttemptCount }),
+    ...(ordinaryXlsxAttemptCount !== undefined && { ordinaryXlsxAttemptCount }),
   };
+}
+
+function batchCapability(
+  audit: ChatGptActiveResolverBatchAudit | ChatGptActiveResolverAssetBatchAudit
+): string {
+  if (audit.acquisitionMode !== 'asset-batch-4')
+    return 'file-ID binary acquisition is limited to four sequential PNG/JPEG images.';
+  if (audit.ordinaryXlsxAttemptCount !== undefined)
+    return 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV/text/plain/XLSX assets, including at most one Library CSV, one Library text/plain and one ordinary XLSX.';
+  if (audit.libraryTextPlainAttemptCount !== undefined)
+    return 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV/text/plain assets, including at most one Library CSV and one Library text/plain.';
+  return 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV assets, including at most one Library CSV.';
+}
+
+function batchFamilySummary(
+  audit: ChatGptActiveResolverBatchAudit | ChatGptActiveResolverAssetBatchAudit
+): string {
+  const libraryCount = audit.libraryJpegAttemptCount ?? 0;
+  if (audit.acquisitionMode === 'image-batch-4')
+    return `library-jpeg-attempts=${libraryCount}; ordinary-image-attempts=${audit.attempts.length - libraryCount};`;
+  const textCount = audit.libraryTextPlainAttemptCount ?? 0;
+  const xlsxCount = audit.ordinaryXlsxAttemptCount ?? 0;
+  const textFamily =
+    audit.libraryTextPlainAttemptCount !== undefined
+      ? `library-text-plain-attempts=${textCount}; `
+      : '';
+  const xlsxFamily =
+    audit.ordinaryXlsxAttemptCount !== undefined ? `ordinary-xlsx-attempts=${xlsxCount}; ` : '';
+  return `library-jpeg-attempts=${libraryCount}; library-csv-attempts=${audit.libraryCsvAttemptCount}; ${textFamily}${xlsxFamily}ordinary-image-attempts=${audit.attempts.length - libraryCount - audit.libraryCsvAttemptCount - textCount - xlsxCount};`;
 }
 
 function batchAuditWarning(
@@ -379,22 +421,7 @@ function batchAuditWarning(
   const runFailures = CHATGPT_ACTIVE_RESOLVER_ERROR_CODES.filter(code => failures.has(code))
     .map(code => `${code}:${failures.get(code)}`)
     .join(',');
-  const libraryCount = audit.libraryJpegAttemptCount ?? 0;
-  const csvCount = audit.acquisitionMode === 'asset-batch-4' ? audit.libraryCsvAttemptCount : 0;
-  const textPlainCount =
-    audit.acquisitionMode === 'asset-batch-4' ? (audit.libraryTextPlainAttemptCount ?? 0) : 0;
-  const textPlainFamily =
-    audit.acquisitionMode === 'asset-batch-4' && audit.libraryTextPlainAttemptCount !== undefined
-      ? `library-text-plain-attempts=${textPlainCount}; `
-      : '';
-  const families = `library-jpeg-attempts=${libraryCount}; ${audit.acquisitionMode === 'asset-batch-4' ? `library-csv-attempts=${csvCount}; ` : ''}${textPlainFamily}ordinary-image-attempts=${audit.attempts.length - libraryCount - csvCount - textPlainCount};`;
-  const capability =
-    audit.acquisitionMode === 'asset-batch-4'
-      ? audit.libraryTextPlainAttemptCount !== undefined
-        ? 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV/text/plain assets, including at most one Library CSV and one Library text/plain.'
-        : 'file-ID binary acquisition is limited to four sequential PNG/JPEG/CSV assets, including at most one Library CSV.'
-      : 'file-ID binary acquisition is limited to four sequential PNG/JPEG images.';
-  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; ${families} outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; ${capability}`;
+  return `ChatGPT active resolver batch audit: selected=${audit.attempts.length}/${CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT}; completed=${completed}; dispatched-known=${dispatched}; dispatch-unknown=${audit.attempts.length - completed}; observed=${observed}; ${batchFamilySummary(audit)} outcomes=${histogram(counts)}; run-failures=${runFailures || 'none'}; ${batchCapability(audit)}`;
 }
 
 export function chatGptActiveResolverAuditWarning(

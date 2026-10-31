@@ -69,8 +69,10 @@ import {
   extractChatGptLibraryJpegPlan,
   extractChatGptLibraryCsvPlan,
   extractChatGptLibraryTextPlainPlan,
+  extractChatGptOrdinaryXlsxPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptPageOwnedAssetCandidate,
+  type ChatGptOrdinaryXlsxPlanItem,
 } from './chatgpt-asset-resolver';
 import { CHATGPT_ACTIVE_RESOLVER_DIAGNOSTIC_MAX_COUNT } from '../../lib/chatgpt-active-resolver-contract';
 import { requestChatGptOpaqueResolverObservation } from './chatgpt-opaque-resolver-request';
@@ -900,6 +902,21 @@ export async function planChatGptLibraryTextPlainAsset(
   return planChatGptLibraryAsset(context, eligibleAssetIds, extractChatGptLibraryTextPlainPlan);
 }
 
+/** Ordinary XLSX has its own exact-raw admission, never Library/image authority. */
+export async function planChatGptOrdinaryXlsxAsset(
+  context: ChatGptAssetExportContext,
+  eligibleAssetIds: readonly string[]
+): Promise<ChatGptOrdinaryXlsxPlanItem | undefined> {
+  const original = await verifiedOriginalRaw(context);
+  const raw = parseRawForInventory(original.bytes);
+  if (!allowsChatGptAttachmentAcquisition(raw, context.routeFamily)) return undefined;
+  return extractChatGptOrdinaryXlsxPlan(
+    raw,
+    context.rawCaptureBundle.manifest.assets,
+    eligibleAssetIds
+  );
+}
+
 async function planChatGptLibraryAsset(
   context: ChatGptAssetExportContext,
   eligibleAssetIds: readonly string[],
@@ -962,9 +979,17 @@ export async function resolveChatGptLibraryTextPlainAsset(
   return resolvePlannedChatGptAsset(context, item, planChatGptLibraryTextPlainAsset);
 }
 
+/** Re-plan ordinary XLSX immediately before the unchanged sole ID-bearing command. */
+export async function resolveChatGptOrdinaryXlsxAsset(
+  context: ChatGptAssetExportContext,
+  item: ChatGptActiveAssetPlanItem & { expectedByteLength?: number }
+): Promise<ChatGptActiveAssetResponse> {
+  return resolvePlannedChatGptAsset(context, item, planChatGptOrdinaryXlsxAsset);
+}
+
 async function resolvePlannedChatGptAsset(
   context: ChatGptAssetExportContext,
-  item: ChatGptActiveAssetPlanItem,
+  item: ChatGptActiveAssetPlanItem & { expectedByteLength?: number },
   planner: typeof planChatGptActiveImageAsset
 ): Promise<ChatGptActiveAssetResponse> {
   try {
@@ -972,11 +997,18 @@ async function resolvePlannedChatGptAsset(
     if (
       !verified ||
       verified.assetId !== item.assetId ||
-      verified.providerFileId !== item.providerFileId
+      verified.providerFileId !== item.providerFileId ||
+      ('expectedByteLength' in verified ? verified.expectedByteLength : undefined) !==
+        item.expectedByteLength
     )
       return activeAssetFailure('invalid-provider-file-ids');
-    const response = await resolveChatGptActiveAsset(context.conversationId, verified);
-    return (await isBoundChatGptActiveAssetResponse(response, verified, context.conversationId))
+    const transportItem = { assetId: verified.assetId, providerFileId: verified.providerFileId };
+    const response = await resolveChatGptActiveAsset(context.conversationId, transportItem);
+    return (await isBoundChatGptActiveAssetResponse(
+      response,
+      transportItem,
+      context.conversationId
+    ))
       ? response
       : activeAssetFailure('resolver-result-invalid');
   } catch {

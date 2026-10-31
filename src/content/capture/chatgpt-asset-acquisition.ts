@@ -22,12 +22,15 @@ import {
 } from '../../lib/chatgpt-capture-contract';
 import { MAX_STAGED_BINARY_ASSET_BYTES } from '../../lib/constants';
 import { sha256Hex } from '../../lib/sha256';
+import type { XlsxPackageValidationResult } from '../../lib/xlsx-package-validation';
 import type { ChatGptPageOwnedAssetCandidate } from './chatgpt-asset-resolver';
 import { validateChatGptImageBytes } from './chatgpt-image-validation';
 
 const MAX_PAGE_OWNED_ASSET_ATTEMPTS = 20;
 const MAX_PAGE_OWNED_ASSET_BYTES_TOTAL = 128 * 1024 * 1024;
 const DEFAULT_ASSET_TIMEOUT_MS = 30_000;
+const CHATGPT_ORDINARY_XLSX_MEDIA_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export const CHATGPT_ASSET_FETCHED_DETAIL = 'page-owned-signed-response';
 export const CHATGPT_ASSET_FETCH_FAILED_DETAIL = 'page-owned-fetch-failed';
@@ -42,6 +45,8 @@ export interface AcquireChatGptPageOwnedAssetsInput {
   now?: () => Date;
   timeoutMs?: number;
   sha256?: (bytes: Uint8Array) => Promise<string>;
+  /** Injectable only for deterministic package-validation tests. */
+  validateXlsxPackage?: (bytes: Uint8Array) => Promise<XlsxPackageValidationResult>;
   /** Optional stricter caller budget; never raises the built-in 128 MiB cap. */
   maxTotalBytes?: number;
   /** Optional stricter per-asset budget; never raises the built-in 64 MiB cap. */
@@ -237,6 +242,23 @@ async function fetchOne(
   timestamp: string,
   maxAssetBytes: number
 ): Promise<{ record: RawCaptureAssetRecord; runtime?: RawCaptureAsset; byteCost: number }> {
+  const expectedXlsxBytes = candidate.expectedByteLength;
+  const ordinaryXlsxProfile = candidate.validationProfile === 'ordinary-direct-xlsx';
+  if (
+    (candidate.validationProfile !== undefined && !ordinaryXlsxProfile) ||
+    (ordinaryXlsxProfile &&
+      record.mediaType === CHATGPT_ORDINARY_XLSX_MEDIA_TYPE &&
+      (!Number.isSafeInteger(expectedXlsxBytes) ||
+        (expectedXlsxBytes as number) <= 0 ||
+        (expectedXlsxBytes as number) > maxAssetBytes)) ||
+    (ordinaryXlsxProfile && record.mediaType !== CHATGPT_ORDINARY_XLSX_MEDIA_TYPE) ||
+    (!ordinaryXlsxProfile && expectedXlsxBytes !== undefined)
+  ) {
+    return {
+      record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
+      byteCost: 0,
+    };
+  }
   const signedUrl = await exactSignedAssetUrl(
     candidate,
     input.conversationId,
@@ -292,6 +314,24 @@ async function fetchOne(
       };
     }
     const { bytes } = read;
+    if (ordinaryXlsxProfile) {
+      if (bytes.byteLength !== expectedXlsxBytes) {
+        return {
+          record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
+          byteCost: read.byteCost,
+        };
+      }
+      const packageValidator =
+        input.validateXlsxPackage ??
+        (await import('../../lib/xlsx-package-validation')).validateXlsxPackageBytes;
+      const packageValidation = await packageValidator(bytes);
+      if (!packageValidation.ok) {
+        return {
+          record: failedRecord(record, timestamp, CHATGPT_ASSET_RESPONSE_REJECTED_DETAIL),
+          byteCost: read.byteCost,
+        };
+      }
+    }
     if (
       (mediaType === 'image/png' || mediaType === 'image/jpeg') &&
       !validateChatGptImageBytes(bytes, mediaType).ok

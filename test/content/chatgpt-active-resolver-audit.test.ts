@@ -32,6 +32,85 @@ function completeMetric(): ChatGptActiveResolverMetric {
 }
 
 describe('ChatGPT active resolver durable audit', () => {
+  it('counts ordinary XLSX separately from images inside the same four-operation cap', () => {
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'asset-batch-4',
+      libraryJpegAttemptCount: 1,
+      libraryCsvAttemptCount: 1,
+      libraryTextPlainAttemptCount: 1,
+      ordinaryXlsxAttemptCount: 1,
+      attempts: Array.from({ length: 4 }, completeMetric),
+    });
+    expect(warning).toContain('selected=4/4; completed=4;');
+    expect(warning).toContain(
+      'library-text-plain-attempts=1; ordinary-xlsx-attempts=1; ordinary-image-attempts=0;'
+    );
+    expect(warning).toContain('PNG/JPEG/CSV/text/plain/XLSX assets');
+    expect(warning).toContain('one ordinary XLSX.');
+  });
+
+  it.each([0, 1] as const)('admits exact ordinary XLSX count %s without phantom images', count => {
+    expect(
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'asset-batch-4',
+        libraryJpegAttemptCount: 0,
+        libraryCsvAttemptCount: 0,
+        ordinaryXlsxAttemptCount: count,
+        attempts: [completeMetric()],
+      })
+    ).toContain(`ordinary-xlsx-attempts=${count}; ordinary-image-attempts=${1 - count};`);
+  });
+
+  it.each([undefined, null, -1, 2, 0.5, 'private', {}, NaN])(
+    'rejects unsafe present ordinary XLSX count %s',
+    ordinaryXlsxAttemptCount => {
+      expect(() =>
+        chatGptActiveResolverAuditWarning({
+          acquisitionMode: 'asset-batch-4',
+          libraryJpegAttemptCount: 0,
+          libraryCsvAttemptCount: 0,
+          ordinaryXlsxAttemptCount,
+          attempts: [completeMetric()],
+        } as never)
+      ).toThrow('invalid active resolver metric');
+    }
+  );
+
+  it('includes ordinary XLSX in closed family-total validation', () => {
+    expect(() =>
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'asset-batch-4',
+        libraryJpegAttemptCount: 1,
+        libraryCsvAttemptCount: 1,
+        ordinaryXlsxAttemptCount: 1,
+        attempts: [completeMetric(), completeMetric()],
+      })
+    ).toThrow('invalid active resolver metric');
+  });
+
+  it.each(['getter', 'extra', 'symbol', 'image-mode'] as const)(
+    'rejects non-exact XLSX audit %s without evaluating accessors',
+    mode => {
+      const getter = vi.fn(() => 1);
+      const audit: Record<string | symbol, unknown> = {
+        acquisitionMode: 'asset-batch-4',
+        libraryJpegAttemptCount: 0,
+        libraryCsvAttemptCount: 0,
+        ordinaryXlsxAttemptCount: 1,
+        attempts: [completeMetric()],
+      };
+      if (mode === 'getter')
+        Object.defineProperty(audit, 'ordinaryXlsxAttemptCount', { get: getter });
+      if (mode === 'extra') audit.providerFileId = 'private';
+      if (mode === 'symbol') audit[Symbol('private')] = 1;
+      if (mode === 'image-mode') audit.acquisitionMode = 'image-batch-4';
+      expect(() => chatGptActiveResolverAuditWarning(audit as never)).toThrow(
+        'invalid active resolver metric'
+      );
+      expect(getter).not.toHaveBeenCalled();
+    }
+  );
+
   it('counts text/plain separately within the same four-operation budget', () => {
     const warning = chatGptActiveResolverAuditWarning({
       acquisitionMode: 'asset-batch-4',
