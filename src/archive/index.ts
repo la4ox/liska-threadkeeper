@@ -1,6 +1,7 @@
 export * from './capture';
 export * from './branches';
 export * from './normalizers/chatgpt';
+export * from './normalizers/claude';
 export * from './normalizers/deepseek';
 export * from './importers/chatgpt-official';
 export * from './reconciliation/chatgpt';

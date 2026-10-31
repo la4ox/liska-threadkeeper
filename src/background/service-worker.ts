@@ -9,6 +9,7 @@ import {
   validateChatGptCaptureSender,
   validateChatGptStandardConversationSender,
   validateArchiveStageSender,
+  validateClaudeArchiveStageAbortSender,
   validateMessageContent,
   validateSender,
   validateStagedBinaryAssetSender,
@@ -428,6 +429,8 @@ function isAuthorizedArchiveStageRequest(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): boolean {
+  if (message.action === 'abortStagedArchiveArtifact' && message.source === 'claude')
+    return validateClaudeArchiveStageAbortSender(sender, message.source);
   return !isArchiveStageMessage(message) || validateArchiveStageSender(sender, message.source);
 }
 
@@ -435,8 +438,16 @@ function isAuthorizedArchiveCompanionRequest(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender
 ): boolean {
+  if (message.action === 'persistArchiveCompanion') {
+    if (
+      message.source !== 'chatgpt' &&
+      message.source !== 'deepseek' &&
+      message.source !== 'claude'
+    )
+      return false;
+    return validateArchiveStageSender(sender, message.source);
+  }
   if (
-    message.action !== 'persistArchiveCompanion' &&
     message.action !== 'persistDerivedHtmlPresentation' &&
     message.action !== 'persistDerivedBranchHtmlPresentation'
   )
