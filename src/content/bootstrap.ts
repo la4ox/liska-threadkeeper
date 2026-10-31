@@ -1475,6 +1475,7 @@ const chatGptAttachmentDependencies = (
   ...(archivePresentationContext && { archivePresentationContext }),
   persistArtifacts: persistArchiveCompanionArtifacts,
   observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+  resolveOrdinaryXlsxAsset: resolveChatGptOrdinaryXlsxAsset,
   ...(strictReplay
     ? {
         observeResolvers: observeChatGptAssetResolversViaOpaqueSource,
@@ -1482,7 +1483,6 @@ const chatGptAttachmentDependencies = (
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
         resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
         resolveLibraryTextPlainAsset: resolveChatGptLibraryTextPlainAsset,
-        resolveOrdinaryXlsxAsset: resolveChatGptOrdinaryXlsxAsset,
       }
     : {}),
 });
