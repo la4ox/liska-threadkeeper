@@ -7,7 +7,7 @@ import type { RawCaptureBundle } from '../archive/capture';
 import type { LiskaThreadArchive } from '../archive/types';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
 import type { ChatGptRouteFamily } from './chatgpt-owner-context';
-import type { DerivedHtmlArtifact } from './derived-presentation-contract';
+import type { DerivedHtmlArtifact, DerivedOutputSource } from './derived-presentation-contract';
 import type { DerivedBranchHtmlArtifact } from './derived-branch-presentation-contract';
 
 /**
@@ -210,7 +210,7 @@ export interface NoteFrontmatter {
 export type OutputDestination = 'obsidian' | 'file' | 'clipboard';
 
 /** Providers currently able to create structured raw/canonical archive stages. */
-export type StructuredArchiveSource = Extract<AIPlatform, 'chatgpt' | 'deepseek'>;
+export type StructuredArchiveSource = Extract<AIPlatform, 'chatgpt' | 'deepseek' | 'claude'>;
 
 /** Destinations that can retain private archive companion bytes. */
 export type PersistentOutputDestination = Exclude<OutputDestination, 'clipboard'>;
@@ -312,7 +312,7 @@ export interface ChatGptAssetExportContext {
  * not belong in this context.
  */
 export interface StructuredArchivePresentationContext {
-  readonly source: StructuredArchiveSource;
+  readonly source: DerivedOutputSource;
   readonly archive: LiskaThreadArchive;
   readonly captureId: string;
   readonly conversationKey: string;
@@ -599,7 +599,7 @@ export type ExtensionMessage =
   | {
       action: 'persistDerivedHtmlPresentation';
       reportDurableWriteOutcome: true;
-      source: StructuredArchiveSource;
+      source: DerivedOutputSource;
       captureId: string;
       conversationKey: string;
       expectedSyncSettingsSnapshot: string;
@@ -610,7 +610,7 @@ export type ExtensionMessage =
   | {
       action: 'persistDerivedBranchHtmlPresentation';
       reportDurableWriteOutcome: true;
-      source: StructuredArchiveSource;
+      source: DerivedOutputSource;
       captureId: string;
       conversationKey: string;
       expectedSyncSettingsSnapshot: string;

@@ -53,6 +53,21 @@ byte-identical Download/Obsidian output.
 This proves that measured transcript traversal, not isolated Artifact-body
 capture or atomicity against a concurrently edited chat.
 
+### E4 — Claude exact-detail capture closed one no-scroll linear checkpoint
+
+Claude's authenticated page exposes one exact same-origin conversation-detail
+response. Liska now preserves those bytes before interpretation, builds a
+provider-specific canonical graph, projects the declared current leaf and keeps
+the virtualized DOM path as fallback. One installed four-message canary wrote
+raw, manifest, canonical and Markdown to both File and Obsidian without any DOM
+scroll; every corresponding byte hash matched across destinations.
+
+The evidence stays deliberately partial. The manifest records graph, messages
+and branches as `unknown`, attachment bytes as `not-attempted`, and direct-text
+fallback diagnostics where the web response does not expose the richer content
+blocks observed in official exports. The canary does not prove alternate-branch
+coverage, thinking/tool/Artifact completeness or attachment acquisition.
+
 ### X1 — Use coordinates, visible counts or one generic scroll rule
 
 Virtual rows move, overlap, disappear and can reuse similar marker shapes.
@@ -78,7 +93,7 @@ topology/order reconstruction, bounded work and an explicit terminal proof.
 Missing proof remains partial, raw-only, unknown or refused; one provider's
 success does not upgrade another provider, mode, content family or size class.
 
-Evidence: E1, E2, E3
+Evidence: E1, E2, E3, E4
 
 ### T1 — Close the real staged-response gate
 
@@ -97,20 +112,20 @@ recovery obligations rather than merely fixing a constant.
 Trigger: a representative real graph needs the increase and a separately
 reviewed bound passes File/Obsidian measurement, cancellation and reconciliation.
 
-### T3 — Prove Claude structured capture without DOM scrolling
+### T3 — Extend Claude structured proof beyond the linear web-detail checkpoint
 
-The accepted Claude transcript path still depends on virtualized DOM traversal.
-A future structured or native-response path may reduce UI fragility and retain
-better raw evidence, but it must not inherit completeness from the scrolling
-canary. It needs its own authenticated source contract, stable conversation and
-branch identity, topology, attachment semantics, byte/work ceilings and exact
-raw/manifest/canonical destination receipts. The DOM path remains an honest
-fallback rather than a source to remove pre-emptively.
+The ordinary no-scroll source contract and destination receipts are now proven,
+but the provider response has not exposed an alternate branch in the available
+live or official-export corpus. The official reader package also retains richer
+thinking, tool, image and document blocks than the measured web-detail response.
+Keep completeness `unknown` and DOM traversal available until branch topology,
+richer block families and attachment-bearing responses receive their own live
+proof; do not promote this checkpoint into a full-graph claim.
 
-Trigger: one reproducible Claude response surface can be observed without
-extracting credentials or replaying private tokens, and ordinary, branched and
-attachment-bearing canaries reconcile its evidence with the web transcript and
-available official export.
+Trigger: a real Claude conversation with alternate descendants or a new
+attachment/content family can be exercised through the exact detail route and
+reconciled against the visible transcript plus available official-export
+evidence without extracting credentials or sending a message.
 
 ## Observations
 
@@ -118,12 +133,13 @@ available official export.
 - [evidence] E1: real virtualized histories produced successful-looking but partial DOM exports and unstable row ordering #live
 - [evidence] E2: large real graphs forced iterative traversal, staged transport, explicit budgets and honest refusal
 - [evidence] E3: stable identity, order, tail and remount proofs closed one 154-message Claude transcript canary #live
+- [evidence] E4: exact Claude detail bytes closed one installed linear no-scroll capture while branch and richer-content scope stayed unknown #live
 - [rejected] X1: coordinates, visible counts and one generic scroll rule cannot own cross-provider completeness
 - [rejected] X2: a refusal or synthetic pass does not by itself authorize raising a production bound
 - [decision] D1: scope completeness to the exact provider, mode, content family, size class and terminal proof
 - [tail] T1: prove a real unpadded staged response through both durable destinations and recovery
 - [tail] T2: change wide-graph ceilings only after representative product and resource evidence
-- [tail] T3: prove a bounded Claude structured source before claiming complete capture without DOM scrolling
+- [tail] T3: extend the proven linear Claude detail path to real branch and richer-content evidence before any completeness upgrade
 
 ## Relations
 
@@ -140,3 +156,5 @@ available official export.
 - S4 — [Claude virtual-history completeness checkpoint](../../STATUS.md#claude-virtual-history-completeness-and-root-remount-checkpoint)
 - S5 — [PR #86: prove complete virtualized Claude history](https://github.com/la4ox/liska-threadkeeper/pull/86)
 - S6 — local receipt `LISKA-CHAT-SYNTHESIS-20261031-COMPLETENESS`; visibility: local-only; safe aggregate only
+- S7 — [Claude exact-detail structured capture checkpoint](../../STATUS.md#claude-exact-detail-structured-capture-checkpoint)
+- S8 — tests `test/archive/claude-normalizer.test.ts`, `test/content/claude-api-archive.test.ts`, `test/extractors/claude-api-first.test.ts`, `test/background/claude-archive-transport.test.ts`

@@ -35,6 +35,8 @@ import {
   sealArchiveStage,
 } from '../../src/background/archive-stage-handlers';
 import { startArchiveStageDownloadRecovery } from '../../src/background/archive-stage-download-recovery';
+import { CHATGPT_INLINE_CAPTURE_MAX_BYTES } from '../../src/lib/chatgpt-capture-contract';
+import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
 
 const stageId = `archive-stage-${'A'.repeat(32)}`;
 const settings = {} as ExtensionSettings;
@@ -512,6 +514,50 @@ describe('archive-stage background handlers', () => {
     expect(mocks.saveStagedArchive).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
   });
+
+  it.each(['raw', 'canonical'] as const)(
+    'persists a Claude %s stage above its inline limit through both durable outputs',
+    async kind => {
+      const release = installLease();
+      installStageUrlResponses();
+      mocks.saveStagedArchive.mockResolvedValue({ success: true });
+      mocks.downloadArchiveBlob.mockResolvedValue({ error: null, terminal: true, downloadId: 75 });
+      const request = {
+        ...commitMessage(kind, ['file', 'obsidian']),
+        source: 'claude' as const,
+        captureId: 'capture-claude-11111111-2222-4333-8444-555555555555',
+        artifact: {
+          ...artifactFor(kind),
+          byteLength: (kind === 'raw' ? CHATGPT_INLINE_CAPTURE_MAX_BYTES : MAX_CONTENT_SIZE) + 1,
+        },
+      };
+
+      await expect(handleArchiveStageMessage(request, settings)).resolves.toEqual({
+        results: [
+          { destination: 'file', success: true },
+          { destination: 'obsidian', success: true },
+        ],
+        allSuccessful: true,
+        anySuccessful: true,
+      });
+      expect(mocks.saveStagedArchive).toHaveBeenCalledWith(
+        settings,
+        expect.objectContaining({
+          source: 'claude',
+          captureId: request.captureId,
+          conversationKey,
+          capturedAt: request.capturedAt,
+          stageId,
+          descriptor: expect.objectContaining({ kind, byteLength: request.artifact.byteLength }),
+        })
+      );
+      expect(mocks.confirmArchiveDownloadPath).toHaveBeenCalledWith(
+        expect.objectContaining({ terminal: true, downloadId: 75 }),
+        `_liska-archive/${conversationKey}/${request.captureId}/${request.artifact.relativePath}`
+      );
+      expect(release).toHaveBeenCalledOnce();
+    }
+  );
 
   it('does not start File when durable provisional ownership cannot be persisted', async () => {
     installLease();

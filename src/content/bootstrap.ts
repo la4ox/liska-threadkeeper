@@ -482,7 +482,7 @@ const ARCHIVE_COMPANION_WRITE_ORDER: readonly ArchiveCompanionKind[] = [
 ];
 
 function isStructuredArchiveSource(source: AIPlatform): source is StructuredArchiveSource {
-  return source === 'chatgpt' || source === 'deepseek';
+  return source === 'chatgpt' || source === 'deepseek' || source === 'claude';
 }
 
 function requestedArchiveArtifacts(

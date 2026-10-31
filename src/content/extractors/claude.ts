@@ -18,13 +18,21 @@ import {
 import { generateHash } from '../../lib/hash';
 import { mergeLiskaLossDiagnostics } from '../../lib/loss-diagnostics';
 import { requestClaudeScrollPrime } from '../capture/claude-scroll-prime';
+import { abortStagedArchiveArtifact } from '../archive-stage';
 import type { HarvestEntry } from '../../lib/scroll-manager';
 import type {
+  ArchiveCompanionBundle,
   ConversationMessage,
   DeepResearchSource,
   ExtractionResult,
   SyncSettings,
 } from '../../lib/types';
+import {
+  CLAUDE_DOM_FALLBACK_WARNING,
+  CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
+  ClaudeStructuredCaptureError,
+} from './claude-detail-contract';
+import { resolveClaudeOrganizationId } from './claude-detail-route';
 import {
   SELECTORS,
   DEEP_RESEARCH_SELECTORS,
@@ -38,6 +46,7 @@ const STEP_ROW_SELECTOR = '[data-cds="TurnStatus"]';
 const ANSWER_CHROME_SELECTOR = `h2.sr-only, [data-testid="message-actions"], ${STEP_ROW_SELECTOR}`;
 const ARTIFACT_CONTENT_OMITTED_WARNING =
   'Visible Claude Artifact content was not included because the isolated frame layout is unsupported.';
+const CONVERSATION_CHANGED_ERROR = 'Conversation changed during extraction. No output was created.';
 const STABLE_EMPTY_ASSISTANT_ROOT =
   'div[data-testid="assistant-message"][data-cds="AssistantMessage"][data-is-streaming="false"]';
 const STABLE_EMPTY_BUSY_SELECTOR =
@@ -192,14 +201,114 @@ export class ClaudeExtractor extends BaseExtractor {
     this.enableAutoScroll = settings.enableAutoScroll ?? false;
   }
 
-  /** Preserve the existing transcript/report path and record only observed loss. */
+  /** Prefer exact same-origin detail bytes, while preserving legacy report and DOM fallback paths. */
   async extract(): Promise<ExtractionResult> {
     // A user can start export while the Artifact is visible and Claude can then
     // rerender or dismiss that pane during asynchronous history scrolling. Keep
     // the initial positive observation; a later observation may add evidence,
     // but provider churn must not erase an already observed omission.
     const artifactFrameObserved = this.hasUnsupportedArtifactFrame();
-    const result = await super.extract();
+    const result = await this.extractPreferredSource();
+    return this.withArtifactOmission(result, artifactFrameObserved);
+  }
+
+  /** Keep the selected legacy report authoritative; ordinary signed-in chats can use detail JSON. */
+  private async extractPreferredSource(): Promise<ExtractionResult> {
+    if (this.isDeepResearchVisible() || !this.isSignedInConversationRoute()) {
+      return super.extract();
+    }
+
+    const conversationId = this.getConversationId();
+    if (!conversationId) return super.extract();
+    const organizationId = resolveClaudeOrganizationId(conversationId);
+    if (!organizationId) return super.extract();
+    const initialIdentity = this.captureConversationIdentity();
+    try {
+      const { fetchClaudeConversation } = await import('./claude-api');
+      const captured = await fetchClaudeConversation(conversationId, this.enableToolContent, {
+        resolveOrganizationId: () => organizationId,
+      });
+      if (!this.isConversationIdentityCurrent(initialIdentity)) {
+        return this.conversationChanged(captured?.archiveCompanion);
+      }
+      // The synchronous route admission above makes null unreachable in ordinary
+      // production, but a dependency failure still preserves the established path.
+      if (!captured) return super.extract();
+      console.info('[G2O] Extracted Claude conversation from local session detail');
+      return {
+        success: true,
+        data: captured.data.title.trim()
+          ? captured.data
+          : { ...captured.data, title: this.getTitle() },
+        archiveCompanion: captured.archiveCompanion,
+        warnings: captured.warnings.length > 0 ? captured.warnings : undefined,
+      };
+    } catch (error) {
+      const archiveCompanion =
+        error instanceof ClaudeStructuredCaptureError ? error.archiveCompanion : undefined;
+      if (!this.isConversationIdentityCurrent(initialIdentity)) {
+        return this.conversationChanged(archiveCompanion);
+      }
+      console.warn(
+        '[G2O] Claude detail API unavailable; falling back to rendered conversation:',
+        error instanceof ClaudeStructuredCaptureError ? error.code : 'unknown-error'
+      );
+      return this.extractDomFallback(archiveCompanion, conversationId);
+    }
+  }
+
+  /** Navigation cancels the operation; no archive from A can be attached to page B. */
+  private async conversationChanged(
+    archiveCompanion?: ArchiveCompanionBundle
+  ): Promise<ExtractionResult> {
+    if (archiveCompanion) {
+      await Promise.all(
+        archiveCompanion.artifacts
+          .filter(artifact => artifact.transport === 'staged')
+          .map(artifact => abortStagedArchiveArtifact(artifact.stageId, 'claude'))
+      );
+    }
+    return {
+      success: false,
+      error: CONVERSATION_CHANGED_ERROR,
+    };
+  }
+
+  /** A rendered fallback never certifies the unmounted transcript or alternate branches. */
+  private async extractDomFallback(
+    archiveCompanion?: ArchiveCompanionBundle,
+    expectedConversationId?: string
+  ): Promise<ExtractionResult> {
+    const fallback = await super.extract();
+    if (expectedConversationId && this.getConversationId() !== expectedConversationId) {
+      return this.conversationChanged(archiveCompanion);
+    }
+    if (!fallback.success) {
+      if (fallback.error === CONVERSATION_CHANGED_ERROR) {
+        return this.conversationChanged(archiveCompanion);
+      }
+      return archiveCompanion ? { ...fallback, archiveCompanion } : fallback;
+    }
+    return {
+      ...fallback,
+      data: fallback.data
+        ? { ...fallback.data, capture: { mode: 'dom-fallback', completeness: 'partial' } }
+        : fallback.data,
+      ...(archiveCompanion ? { archiveCompanion } : {}),
+      warnings: [
+        ...(fallback.warnings ?? []),
+        archiveCompanion
+          ? CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING
+          : CLAUDE_DOM_FALLBACK_WARNING,
+      ],
+    };
+  }
+
+  /** Add only a positively observed isolated-Artifact omission to either capture path. */
+  private withArtifactOmission(
+    result: ExtractionResult,
+    artifactFrameObserved: boolean
+  ): ExtractionResult {
     if (
       !result.success ||
       !result.data ||
@@ -220,6 +329,11 @@ export class ClaudeExtractor extends BaseExtractor {
         ? result.warnings
         : [...(result.warnings ?? []), ARTIFACT_CONTENT_OMITTED_WARNING],
     };
+  }
+
+  /** Structured capture is only for an exact lowercase UUID conversation route. */
+  private isSignedInConversationRoute(): boolean {
+    return /^\/chat\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(window.location.pathname);
   }
 
   /** Inspect top-document frame presence only; never access the isolated document. */

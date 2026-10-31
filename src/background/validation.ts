@@ -59,7 +59,11 @@ import { validatePersistDerivedHtmlMessage } from './derived-html-validation';
 import { snapshotPersistDerivedBranchHtmlMessage } from './derived-branch-html-validation';
 import { validateNoteCaptureMetadata } from './note-capture-validation';
 
-const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = ['chatgpt', 'deepseek'];
+const STRUCTURED_ARCHIVE_SOURCES: readonly StructuredArchiveSource[] = [
+  'chatgpt',
+  'deepseek',
+  'claude',
+];
 
 function isStructuredArchiveSource(value: unknown): value is StructuredArchiveSource {
   return STRUCTURED_ARCHIVE_SOURCES.includes(value as StructuredArchiveSource);
@@ -153,11 +157,55 @@ export function validateArchiveStageSender(
     if (source === 'deepseek') {
       return isExactDeepSeekConversationUrl(url) && isExactDeepSeekDocumentUrl(sender.url);
     }
-    if (!isExactChatGptDocumentUrl(sender.url)) return false;
-    if (!isExactChatGptConversationUrl(url)) return false;
-    const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
-    const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(url.pathname);
-    return isChatGptConversationId(standard?.[1] ?? custom?.[1]);
+    if (source === 'claude') {
+      return (
+        isExactClaudeConversationUrl(url, sender.tab.url) && isExactClaudeDocumentUrl(sender.url)
+      );
+    }
+    if (source !== 'chatgpt') return false;
+    return isExactChatGptDocumentUrl(sender.url) && isExactChatGptConversationUrl(url);
+  } catch {
+    return false;
+  }
+}
+
+/** Cleanup only: Claude SPA navigation must not strand an already-issued stage capability. */
+export function validateClaudeArchiveStageAbortSender(
+  sender: chrome.runtime.MessageSender,
+  source: StructuredArchiveSource
+): boolean {
+  return (
+    source === 'claude' &&
+    sender.frameId === 0 &&
+    typeof sender.tab?.url === 'string' &&
+    typeof sender.url === 'string' &&
+    isExactClaudeAbortPageUrl(sender.tab.url) &&
+    isExactClaudeAbortPageUrl(sender.url)
+  );
+}
+
+function isExactClaudeAbortPageUrl(rawUrl: string): boolean {
+  // Require the literal authority too: URL parsing normalizes an explicit :443 port away.
+  return /^https:\/\/claude\.ai(?:\/|$)/.test(rawUrl) && isExactClaudeDocumentUrl(rawUrl);
+}
+
+function isExactClaudeConversationUrl(url: URL, rawUrl: string): boolean {
+  return (
+    url.origin === 'https://claude.ai' &&
+    url.username === '' &&
+    url.password === '' &&
+    url.search === '' &&
+    url.hash === '' &&
+    /^\/chat\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(url.pathname) &&
+    rawUrl === `https://claude.ai${url.pathname}`
+  );
+}
+
+function isExactClaudeDocumentUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    // SPA navigation changes the current tab route, not the injection document URL.
+    return url.origin === 'https://claude.ai' && url.username === '' && url.password === '';
   } catch {
     return false;
   }
@@ -184,12 +232,15 @@ function isExactDeepSeekDocumentUrl(rawUrl: string): boolean {
 }
 
 function isExactChatGptConversationUrl(url: URL): boolean {
+  const standard = /^\/c\/([^/]+)\/?$/.exec(url.pathname);
+  const custom = /^\/g\/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?\/c\/([^/]+)\/?$/.exec(url.pathname);
   return (
     url.origin === 'https://chatgpt.com' &&
     url.username === '' &&
     url.password === '' &&
     url.search === '' &&
-    url.hash === ''
+    url.hash === '' &&
+    isChatGptConversationId(standard?.[1] ?? custom?.[1])
   );
 }
 
@@ -396,7 +447,7 @@ function archiveCompanionMaxBytes(
   kind: ArchiveCompanionArtifact['kind'],
   source: StructuredArchiveSource
 ): number {
-  return kind === 'raw' && source === 'chatgpt'
+  return kind === 'raw' && (source === 'chatgpt' || source === 'claude')
     ? CHATGPT_INLINE_CAPTURE_MAX_BYTES
     : MAX_CONTENT_SIZE;
 }

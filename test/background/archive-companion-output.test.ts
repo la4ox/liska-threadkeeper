@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../../src/lib/image-utils';
+import { CHATGPT_INLINE_CAPTURE_MAX_BYTES } from '../../src/lib/chatgpt-capture-contract';
+import { sha256Hex } from '../../src/lib/sha256';
 import type { ArchiveCompanionArtifact, ExtensionSettings } from '../../src/lib/types';
 
 const mocks = vi.hoisted(() => ({
@@ -79,14 +81,13 @@ async function artifact(kind: ArchiveCompanionArtifact['kind']): Promise<Archive
 async function message(
   kind: ArchiveCompanionArtifact['kind'],
   outputs: ('file' | 'obsidian')[],
-  source: 'chatgpt' | 'deepseek' = 'chatgpt'
+  source: 'chatgpt' | 'deepseek' | 'claude' = 'chatgpt'
 ) {
   return {
     action: 'persistArchiveCompanion' as const,
     noteFileName: 'local-note.md',
     source,
-    captureId:
-      source === 'chatgpt' ? CAPTURE_ID : 'capture-deepseek-11111111-2222-4333-8444-555555555555',
+    captureId: `capture-${source}-11111111-2222-4333-8444-555555555555`,
     conversationKey: CONVERSATION_KEY,
     artifact: await artifact(kind),
     outputs,
@@ -618,6 +619,58 @@ describe('archive companion durable outputs', () => {
         artifact: request.artifact,
       })
     );
+  });
+
+  it.each(['raw', 'manifest', 'canonical'] as const)(
+    'persists verified Claude %s bytes to File and Obsidian without another provider source',
+    async kind => {
+      const request = await message(kind, ['file', 'obsidian'], 'claude');
+      const result = await handlePersistArchiveCompanion(request, settings);
+
+      expect(result.allSuccessful).toBe(true);
+      expect(mocks.saveArchive).toHaveBeenCalledWith(
+        settings,
+        expect.objectContaining({
+          source: 'claude',
+          captureId: request.captureId,
+          conversationKey: CONVERSATION_KEY,
+          artifact: request.artifact,
+        })
+      );
+      expect(Array.from(mocks.saveArchive.mock.calls[0][1].bytes as Uint8Array)).toEqual(
+        Array.from(new TextEncoder().encode(`{"kind":"${kind}"}`))
+      );
+      expect(chrome.downloads.download).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: `_liska-archive/${CONVERSATION_KEY}/${request.captureId}/${request.artifact.relativePath}`,
+        }),
+        expect.any(Function)
+      );
+    }
+  );
+
+  it('rejects an integrity-valid Claude raw body above the shared inline staging threshold before writing', async () => {
+    const request = await message('raw', ['file', 'obsidian'], 'claude');
+    const bytes = new Uint8Array(CHATGPT_INLINE_CAPTURE_MAX_BYTES + 1);
+    request.artifact = {
+      ...request.artifact,
+      transport: 'inline',
+      byteLength: bytes.byteLength,
+      sha256: await sha256Hex(bytes),
+      bodyBase64: bytesToBase64(bytes),
+    };
+
+    expect(await handlePersistArchiveCompanion(request, settings)).toMatchObject({
+      allSuccessful: false,
+      anySuccessful: false,
+      results: [
+        { destination: 'file', error: 'Archive companion integrity verification failed' },
+        { destination: 'obsidian', error: 'Archive companion integrity verification failed' },
+      ],
+    });
+    expect(mocks.saveArchive).not.toHaveBeenCalled();
+    expect(chrome.downloads.download).not.toHaveBeenCalled();
+    expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('keeps a successful destination when its sibling companion write fails', async () => {

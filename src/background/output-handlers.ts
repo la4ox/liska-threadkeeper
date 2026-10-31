@@ -288,7 +288,7 @@ async function verifyArchiveCompanion(
   if (artifact.transport !== 'inline') return null;
   const bytes = decodeCanonicalBase64(artifact.bodyBase64);
   const maxBytes =
-    artifact.kind === 'raw' && source === 'chatgpt'
+    artifact.kind === 'raw' && (source === 'chatgpt' || source === 'claude')
       ? CHATGPT_INLINE_CAPTURE_MAX_BYTES
       : MAX_CONTENT_SIZE;
   if (!bytes || bytes.byteLength !== artifact.byteLength || bytes.byteLength > maxBytes)
@@ -949,7 +949,11 @@ export async function handlePersistArchiveCompanion(
   message: Extract<ExtensionMessage, { action: 'persistArchiveCompanion' }>,
   settings: ExtensionSettings
 ): Promise<MultiOutputResponse> {
-  if (message.source !== 'chatgpt' && message.source !== 'deepseek') {
+  if (
+    message.source !== 'chatgpt' &&
+    message.source !== 'deepseek' &&
+    message.source !== 'claude'
+  ) {
     return archivePreflightFailure(message, 'Archive companion source is unsupported');
   }
   const bytes = await verifyArchiveCompanion(message.artifact, message.source);
