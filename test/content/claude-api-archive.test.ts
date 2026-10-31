@@ -14,6 +14,7 @@ import {
   CLAUDE_SCOPE_UNVERIFIED_WARNING,
   ClaudeStructuredCaptureError,
   fetchClaudeConversation,
+  resolveClaudeOrganizationId,
 } from '../../src/content/extractors/claude-api';
 
 // Deliberately synthetic; no provider export or captured personal conversation is used here.
@@ -235,6 +236,27 @@ describe('Claude exact-detail capture and archive composition', () => {
     await fetchClaudeConversation(CONVERSATION_ID, false, FIXED_DEPENDENCIES);
 
     expect(fetcher.mock.calls[0][0]).toBe(detailUrl());
+  });
+
+  it('ignores malformed resources and a verification banner bound to another route', () => {
+    resourceEntries('not a URL');
+    document.body.innerHTML = `<a href="https://portal.anthropic.com/verify?org=${ORGANIZATION_ID}&return_to=claude&return_path=%2Fchat%2F${INACTIVE_ID}">Verify</a>`;
+
+    expect(resolveClaudeOrganizationId(CONVERSATION_ID)).toBeNull();
+  });
+
+  it('fails closed when an injected organization resolver throws', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+
+    await expect(
+      fetchClaudeConversation(CONVERSATION_ID, false, {
+        resolveOrganizationId: () => {
+          throw new Error('private resolver failure');
+        },
+      })
+    ).resolves.toBeNull();
+
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each([
