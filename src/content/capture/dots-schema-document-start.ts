@@ -104,7 +104,7 @@ type HookCode =
   | 'duplicate-endpoint'
   | 'target-not-observed'
   | 'request-init-present'
-  | 'timed-out'
+  | 'observer-timed-out'
   | 'navigation-changed';
 type HookResult =
   | { kind: 'ready' }
@@ -712,7 +712,7 @@ function armTimers(state: ProbeState): void {
     OBSERVATION_MS,
   ]);
   state.hardTimer = captured(state.p, state.p.setTimeout, state.page, [
-    () => fail(state, 'timed-out'),
+    () => fail(state, 'observer-timed-out'),
     HARD_DEADLINE_MS,
   ]);
 }

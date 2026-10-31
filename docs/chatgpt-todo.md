@@ -595,6 +595,14 @@ terminal states, and the existing no-credential-export boundary.
   repeating the current probe merely to force a terminal classification. Any
   further live run requires a separate explicit decision and a diagnostic that
   first distinguishes the two deadline sources.
+- Diagnostic candidate `codex/dots-timeout-origin` now assigns
+  `observer-timed-out` only to the existing MAIN hard deadline and
+  `background-timed-out` only to background polling exhaustion. The legacy
+  generic code remains accepted for mixed-version compatibility but is no
+  longer emitted by either current path. Request admission, 15/20/25-second
+  timing, cleanup, document pinning, projection shape and sink authority are
+  unchanged. This makes one later reviewed installed canary interpretable; it
+  does not itself establish Dots transport or authorize a raw adapter.
 - Keep the MAIN observer import-free and the serialized page-state reader in
   `lib`; background-to-content imports violate the repository layering gate.
   Current full coverage is 95.04% with the unchanged 95% statement threshold.
