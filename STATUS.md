@@ -3972,3 +3972,65 @@ skipped in 122.07 seconds. Combined unique current-input evidence therefore
 covers all 245 files / 8,871 tests with three skips, while deliberately avoiding
 a false single-run claim for the resource-heavy autoscroll file. Repository CI
 remains the independent current-head single-run gate.
+
+## ChatGPT ordinary direct XLSX candidate checkpoint
+
+A complete standard-owner ChatGPT capture retained 13,118,031 raw bytes and
+one exact direct XLSX attachment with a positive 12,101-byte declared size. The
+whole retained ledger contains no Library, interpreter/sandbox,
+custom-GPT/project or template ownership marker for that asset. Before this
+candidate the manifest and canonical archive preserved it honestly as
+`not-attempted`; that evidence authorizes one bounded attempt, not a general
+spreadsheet-support claim.
+
+The candidate adds a distinct one-item `ordinary-xlsx` family rather than
+widening ordinary images or Library acquisition. It requires the exact raw
+attachment identity, exact XLSX MIME, positive bounded declared size, standard
+owner context and whole-ledger absence of conflicting ownership evidence. It
+replans from committed raw immediately before the ID-bearing command, consumes
+one of the existing four active slots, and keeps the shared 20-attempt / 128 MiB
+budget and no-retry rule. Current ordering is Library CSV, JPEG, text/plain,
+ordinary XLSX, then ordinary images. The separate optional audit count never
+inflates image metrics.
+
+Only this ordinary family carries the runtime-only
+`ordinary-direct-xlsx` validation profile. Acquisition requires exact response
+MIME and actual length equal to the declared raw size, then lazily loads a
+dependency-free structural OOXML validator before hashing or persistence. The
+validator bounds ZIP metadata, XML, relationships, expansion, namespaces,
+depth and attributes; rejects encryption, traversal, duplicates, external
+relationships, DTD/entities, VBA and XLM; and verifies the workbook/content-type
+and worksheet relationship shape. It does not render or calculate cells,
+inspect worksheet payload semantics, verify every unrelated payload CRC or
+certify a workbook as malware-free. Legacy interpreter/passive XLSX behavior is
+unchanged when that profile is absent.
+
+Independent review found and closed two material issues: the first acquisition
+gate would have regressed legacy XLSX, and namespace-scope cloning permitted a
+small XML amplification case to consume about 11.7 seconds. The explicit
+profile restored the historical path; namespace reuse plus an aggregate work
+budget rejects the same adversarial package in about 33 ms. Focused and broader
+current-input checks pass, including 997 tests across the affected ChatGPT
+matrix. The guarded build emits the validator as a separate 15.32 KiB lazy
+chunk; the main content chunk remains 412,123 bytes.
+
+The repository-wide coverage attempt passed 245 files / 9,079 tests with one
+file / three tests skipped. Its only failures were six unchanged legacy Claude
+autoscroll cases reaching the generic 30-second per-test timeout under coverage
+load. The exact six scenarios pass together without coverage in 9.15 seconds
+(6.70 seconds of test time). Combined current-input evidence therefore covers
+all 246 non-skipped files / 9,085 passing tests with three skips, but deliberately
+does not claim one all-green coverage invocation. Current-head CI remains the
+independent clean-run gate.
+
+The exact 45-file / 1,241,752-byte candidate was installed through the verified
+rollback-preserving installer with identical source and installed aggregate
+SHA-256 `449bb88d48831313d194071cbc4d737e90722aa1d9fdfc4dc576ca04158216fe`.
+After the explicit extension reload, a fresh provider tab failed to load the
+target conversation; one exact provider retry failed the same way. No XLSX
+resolver dispatch or durable binary write occurred, so installed/live support
+is not claimed and the candidate must remain unmerged. The next acceptance
+step is one trusted export after that exact conversation loads: require one
+XLSX dispatch, 12,101 structurally valid bytes, exact manifest/canonical/path/
+SHA agreement in File and Obsidian, no signed URL or resolver ID in durable
+receipts, and no retry or collateral asset-state change.

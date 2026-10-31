@@ -245,6 +245,26 @@ terminal states, and the existing no-credential-export boundary.
   focused regression excludes it from resolver warnings/receipts. Exact MIME agreement
   still permits only opaque byte retention: no decoding, newline rewriting,
   encoding guarantee or inline preview. General Library text remains unsupported.
+- Implemented but not yet live-accepted: one standard-owner ordinary direct
+  XLSX specialization. A complete 13,118,031-byte raw capture retains one exact
+  12,101-byte candidate with a positive declared size and no Library,
+  interpreter/sandbox, custom-GPT/project or template ownership evidence. The
+  candidate requires whole-ledger uniqueness, immediate committed-raw replan,
+  exact response MIME and exact declared/actual length; it consumes one of the
+  existing four active slots after Library text/plain and before ordinary
+  images, with no retry or new endpoint/permission.
+- The runtime-only `ordinary-direct-xlsx` profile lazily applies bounded ZIP and
+  OOXML relationship validation before hashing or persistence. It rejects
+  malformed, encrypted, traversing, duplicate, external-relationship,
+  DTD/entity, VBA and XLM packages, but does not render/calculate cells, inspect
+  worksheet semantics, verify every unrelated payload CRC or certify safety.
+  Legacy interpreter/passive XLSX remains unchanged when the profile is absent.
+- Installed acceptance remains open. The exact candidate build is installed,
+  but a fresh target tab failed to load the conversation twice and produced no
+  XLSX resolver attempt or durable binary. Do not claim XLSX support or merge
+  the candidate until one trusted export proves a single 12,101-byte validated
+  acquisition, exact File/Obsidian bytes and destination receipts, no durable
+  signed URL/provider identity, and unchanged sibling asset states.
 
 ### 7. User-facing derived outputs
 

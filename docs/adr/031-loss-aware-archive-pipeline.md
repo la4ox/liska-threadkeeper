@@ -662,15 +662,17 @@ records: that policy selects the 4,233-byte candidate and leaves the
 21,231-byte candidate `not-attempted`; these are provider metadata sizes, not
 newly acquired-byte claims.
 
-Ordering is interpreter acquisition, then Library CSV, JPEG, text/plain, then
-remaining ordinary images. CSV/JPEG retain their relative priority. Each
-Library family can consume at most one of the existing four active operations;
+Ordering is interpreter acquisition, then Library CSV, JPEG, text/plain, one
+ordinary direct XLSX, then remaining ordinary images. CSV/JPEG retain their
+relative priority. Each Library family and the XLSX family can consume at most
+one of the existing four active operations;
 all families retain the shared 20-attempt/128 MiB acquisition budget. Dispatch
 ownership begins before the request and prohibits retry or passive fallback,
 including helper/binding/MIME/byte/persistence failures. The optional
 `libraryTextPlainAttemptCount` adds a bounded 0/1 count to `asset-batch-4`;
-historical metric/image/CSV audit shapes and their warning text remain valid.
-Text attempts are never counted as ordinary images.
+the separate optional `ordinaryXlsxAttemptCount` does the same without changing
+historical metric/image/CSV audit shapes or their warning text. Text and XLSX
+attempts are never counted as ordinary images.
 
 Only exact ledger `text/plain` and matching response MIME essence are admitted
 (response charset parameters do not promise an encoding). The bytes are
@@ -694,6 +696,49 @@ provenance independently of acquisition; resolver planning introduces no new
 durable identifier field. A focused regression compares source refs before and
 after acquisition and excludes the direct and Library IDs from resolver
 warnings/receipts. This closes only the one-item specialization.
+
+### Ordinary direct XLSX is a separate bounded profile
+
+A complete standard-owner capture retained one exact direct XLSX attachment in
+13,118,031 raw bytes. Its declared size is 12,101 bytes, and the whole retained
+ledger contains no Library, interpreter/sandbox, custom-GPT/project or template
+ownership marker for that asset. The pre-candidate archive preserved it as
+`not-attempted`. Those facts justify one bounded transport attempt; they do not
+prove that the current provider helper returns usable XLSX bytes.
+
+The candidate therefore adds a distinct one-item `ordinary-xlsx` planner rather
+than widening ordinary images, Library authority or general documents. It
+requires exact XLSX MIME, a positive bounded declared size, one exact direct raw
+attachment identity, standard owner context and whole-ledger absence of
+conflicts. The planner rereads committed raw immediately before dispatch and
+binds both opaque asset and provider identity. It uses the unchanged page-owned
+file-ID transport, one existing active slot, the shared attempt/byte budget and
+the established no-retry/passive-fallback rule. Filename, MIME, declared size,
+pointer-only evidence and Library aliases never substitute for direct identity.
+
+Only that planner supplies the runtime-only `ordinary-direct-xlsx` validation
+profile and expected byte length. Acquisition requires matching response MIME,
+actual length equal to the raw declaration and successful bounded structural
+OOXML admission before hashing or persistence. The dependency-free validator is
+lazy-loaded only after those gates. It validates ZIP central/local structure,
+bounded metadata decompression and CRCs, safe unique paths, content types, the
+root office-document relationship, workbook relationships and referenced
+worksheet parts. Encryption, traversal, duplicate paths, external
+relationships, DTD/entities, VBA, XLM and resource-limit excess fail closed.
+
+This is package identification, not workbook safety certification. Liska does
+not render or calculate cells, interpret formulas, inspect worksheet payload
+semantics, verify every unrelated payload CRC or automatically open the file.
+Legacy interpreter/passive XLSX remains on its historical byte path because it
+does not carry this runtime-only profile.
+
+The exact candidate build is installed, but the fresh target page failed to
+load the conversation twice after reload. No resolver dispatch or durable XLSX
+write occurred. The candidate therefore remains unaccepted and must not be
+merged or advertised as support until one trusted live export proves a single
+12,101-byte acquisition, structural admission, exact length/hash/path agreement
+in manifest, canonical, File and Obsidian outputs, absence of transient signed
+transport values from durable receipts, and unchanged sibling asset states.
 
 ### Owner routes are capture context, not attachment authority
 
