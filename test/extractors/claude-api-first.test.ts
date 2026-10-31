@@ -17,6 +17,7 @@ import {
 } from '../fixtures/dom-helpers';
 
 const CONVERSATION_ID = '12345678-1234-4abc-8def-1234567890ab';
+const ORGANIZATION_ID = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
 
 function companion(): ArchiveCompanionBundle {
   return {
@@ -150,6 +151,7 @@ describe('Claude structured detail preference', () => {
     extractor = new ClaudeExtractor();
     clearFixture();
     localStorage.clear();
+    vi.spyOn(claudeApi, 'resolveClaudeOrganizationId').mockReturnValue(ORGANIZATION_ID);
     vi.mocked(chrome.runtime.sendMessage).mockReset();
     vi.mocked(chrome.runtime.sendMessage).mockImplementation((_message, callback) => {
       if (typeof callback === 'function') callback({ success: true });
@@ -172,7 +174,11 @@ describe('Claude structured detail preference', () => {
 
     const result = await extractor.extract();
 
-    expect(fetchDetail).toHaveBeenCalledWith(CONVERSATION_ID, false);
+    expect(fetchDetail).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      false,
+      expect.objectContaining({ resolveOrganizationId: expect.any(Function) })
+    );
     expect(result.success).toBe(true);
     expect(result.data?.messages.map(message => message.content)).toEqual([
       'API question',
@@ -193,7 +199,8 @@ describe('Claude structured detail preference', () => {
 
   it('keeps the established DOM path when no organization capability is available', async () => {
     renderConversation();
-    vi.spyOn(claudeApi, 'fetchClaudeConversation').mockResolvedValue(null);
+    vi.mocked(claudeApi.resolveClaudeOrganizationId).mockReturnValue(null);
+    const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
 
     const result = await extractor.extract();
 
@@ -202,6 +209,7 @@ describe('Claude structured detail preference', () => {
     );
     expect(result.data?.capture).toBeUndefined();
     expect(result.warnings ?? []).not.toContain(claudeApi.CLAUDE_DOM_FALLBACK_WARNING);
+    expect(fetchDetail).not.toHaveBeenCalled();
   });
 
   it('marks a failed structured attempt as partial rendered fallback', async () => {

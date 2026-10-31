@@ -32,6 +32,7 @@ import {
   CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
   ClaudeStructuredCaptureError,
   fetchClaudeConversation,
+  resolveClaudeOrganizationId,
 } from './claude-api';
 import {
   SELECTORS,
@@ -220,14 +221,18 @@ export class ClaudeExtractor extends BaseExtractor {
 
     const conversationId = this.getConversationId();
     if (!conversationId) return super.extract();
+    const organizationId = resolveClaudeOrganizationId(conversationId);
+    if (!organizationId) return super.extract();
     const initialIdentity = this.captureConversationIdentity();
     try {
-      const captured = await fetchClaudeConversation(conversationId, this.enableToolContent);
+      const captured = await fetchClaudeConversation(conversationId, this.enableToolContent, {
+        resolveOrganizationId: () => organizationId,
+      });
       if (!this.isConversationIdentityCurrent(initialIdentity)) {
         return this.conversationChanged(captured?.archiveCompanion);
       }
-      // No exact organization capability was available. Preserve the established
-      // rendered path without pretending a structured request was attempted.
+      // The synchronous route admission above makes null unreachable in ordinary
+      // production, but a dependency failure still preserves the established path.
       if (!captured) return super.extract();
       console.info('[G2O] Extracted Claude conversation from local session detail');
       return {

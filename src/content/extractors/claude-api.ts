@@ -231,6 +231,16 @@ function organizationFromVerificationLink(conversationId: string): string | null
   return null;
 }
 
+/** Resolve a non-secret route hint synchronously so DOM fallback keeps its original timer order. */
+export function resolveClaudeOrganizationId(conversationId: string): string | null {
+  if (!UUID_PATTERN.test(conversationId)) return null;
+  return (
+    organizationFromResources(conversationId) ??
+    organizationFromStorage() ??
+    organizationFromVerificationLink(conversationId)
+  );
+}
+
 function resolveOrganizationId(
   conversationId: string,
   dependencies: ClaudeApiDependencies
@@ -238,9 +248,7 @@ function resolveOrganizationId(
   try {
     const organizationId = dependencies.resolveOrganizationId
       ? dependencies.resolveOrganizationId(conversationId)
-      : (organizationFromResources(conversationId) ??
-        organizationFromStorage() ??
-        organizationFromVerificationLink(conversationId));
+      : resolveClaudeOrganizationId(conversationId);
     return organizationId !== null && UUID_PATTERN.test(organizationId) ? organizationId : null;
   } catch {
     return null;
