@@ -32,6 +32,204 @@ function completeMetric(): ChatGptActiveResolverMetric {
 }
 
 describe('ChatGPT active resolver durable audit', () => {
+  it.each([400, 403, 404, 429, 499])(
+    'records exact source status %s only on the unknown-dispatch 4xx metric',
+    sourceHttpStatus => {
+      const metric = chatGptActiveResolverMetricFromResponse(
+        { success: false, code: 'source-http-4xx', sourceHttpStatus },
+        1
+      );
+      expect(metric).toEqual({
+        requestedCount: 1,
+        dispatchCount: null,
+        observedCount: 0,
+        outcomeCounts: null,
+        failureCode: 'source-http-4xx',
+        sourceHttpStatus,
+      });
+      expect(Reflect.ownKeys(metric).sort()).toEqual(
+        [
+          'requestedCount',
+          'dispatchCount',
+          'observedCount',
+          'outcomeCounts',
+          'failureCode',
+          'sourceHttpStatus',
+        ].sort()
+      );
+      expect(chatGptActiveResolverAuditWarning(metric)).toBe(
+        `ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-4xx; source-http-status=${sourceHttpStatus}; file-ID binary acquisition remains disabled.`
+      );
+    }
+  );
+
+  it('adds deterministic ascending present-only status counts without changing historical warning bytes', () => {
+    const attempts = [
+      chatGptActiveResolverFailureMetric(1, 'source-http-4xx', 429),
+      chatGptActiveResolverFailureMetric(1, 'source-http-4xx'),
+      completeMetric(),
+      chatGptActiveResolverFailureMetric(1, 'source-http-4xx', 403),
+    ];
+    const audit = {
+      acquisitionMode: 'asset-batch-4' as const,
+      libraryJpegAttemptCount: 0 as const,
+      libraryCsvAttemptCount: 0 as const,
+      ordinaryXlsxAttemptCount: 1 as const,
+      attempts,
+    };
+    const warning = chatGptActiveResolverAuditWarning(audit)!;
+    expect(warning).toContain(
+      'selected=4/4; completed=1; dispatched-known=1; dispatch-unknown=3; observed=1;'
+    );
+    expect(warning).toContain('run-failures=source-http-4xx:3; source-http-statuses=403:1,429:1;');
+    expect(chatGptActiveResolverAuditWarning({ ...audit, attempts: [...attempts].reverse() })).toBe(
+      warning
+    );
+    expect(
+      chatGptActiveResolverAuditWarning({
+        ...audit,
+        attempts: attempts.map(metric => {
+          const { sourceHttpStatus: _status, ...historical } = metric;
+          return historical;
+        }),
+      })
+    ).toBe(warning.replace('source-http-statuses=403:1,429:1; ', ''));
+    expect(
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'image-batch-4',
+        attempts: [attempts[0], attempts[0], attempts[3]],
+      })
+    ).toContain('source-http-statuses=403:1,429:2;');
+    expect(() =>
+      chatGptActiveResolverAuditWarning({ ...audit, attempts: [...attempts, attempts[0]] })
+    ).toThrow('invalid active resolver metric');
+  });
+
+  it('rejects invalid source status metric shapes and smuggling without invoking accessors', () => {
+    const base = chatGptActiveResolverFailureMetric(1, 'source-http-4xx', 403);
+    const { sourceHttpStatus: _sourceHttpStatus, ...codeOnly } = base;
+    const getter = vi.fn(() => 403);
+    const accessor = { ...base };
+    Object.defineProperty(accessor, 'sourceHttpStatus', { get: getter });
+    for (const metric of [
+      accessor,
+      ...[399, 500, '403', 403.5, NaN, Infinity, -Infinity, null, undefined].map(
+        sourceHttpStatus => ({ ...base, sourceHttpStatus })
+      ),
+      ...['source-http-error', 'source-http-5xx', 'source-rejected', null].map(failureCode => ({
+        ...base,
+        failureCode,
+      })),
+      { ...base, dispatchCount: 0 },
+      { ...base, observedCount: 1 },
+      { ...base, outcomeCounts: completeMetric().outcomeCounts },
+      { ...completeMetric(), sourceHttpStatus: 403 },
+      { ...base, extra: true },
+      { ...base, [Symbol('private')]: true },
+    ]) {
+      expect(() => chatGptActiveResolverAuditWarning(metric as never)).toThrow(
+        'invalid active resolver metric'
+      );
+      expect(() =>
+        chatGptActiveResolverAuditWarning({
+          acquisitionMode: 'image-batch-4',
+          attempts: [metric],
+        } as never)
+      ).toThrow('invalid active resolver metric');
+    }
+    expect(getter).not.toHaveBeenCalled();
+    expect(() => chatGptActiveResolverFailureMetric(1, 'source-http-error', 403)).toThrow(
+      'invalid active resolver source status'
+    );
+
+    const inheritedGetter = vi.fn(() => 403);
+    const prototype = Object.create(null);
+    Object.defineProperty(prototype, 'sourceHttpStatus', { get: inheritedGetter });
+    const inherited = Object.assign(Object.create(prototype), codeOnly);
+    expect(chatGptActiveResolverAuditWarning(inherited as never)).toBe(
+      'ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-4xx; file-ID binary acquisition remains disabled.'
+    );
+    expect(inheritedGetter).not.toHaveBeenCalled();
+  });
+  it('counts ordinary XLSX separately from images inside the same four-operation cap', () => {
+    const warning = chatGptActiveResolverAuditWarning({
+      acquisitionMode: 'asset-batch-4',
+      libraryJpegAttemptCount: 1,
+      libraryCsvAttemptCount: 1,
+      libraryTextPlainAttemptCount: 1,
+      ordinaryXlsxAttemptCount: 1,
+      attempts: Array.from({ length: 4 }, completeMetric),
+    });
+    expect(warning).toContain('selected=4/4; completed=4;');
+    expect(warning).toContain(
+      'library-text-plain-attempts=1; ordinary-xlsx-attempts=1; ordinary-image-attempts=0;'
+    );
+    expect(warning).toContain('PNG/JPEG/CSV/text/plain/XLSX assets');
+    expect(warning).toContain('one ordinary XLSX.');
+  });
+
+  it.each([0, 1] as const)('admits exact ordinary XLSX count %s without phantom images', count => {
+    expect(
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'asset-batch-4',
+        libraryJpegAttemptCount: 0,
+        libraryCsvAttemptCount: 0,
+        ordinaryXlsxAttemptCount: count,
+        attempts: [completeMetric()],
+      })
+    ).toContain(`ordinary-xlsx-attempts=${count}; ordinary-image-attempts=${1 - count};`);
+  });
+
+  it.each([undefined, null, -1, 2, 0.5, 'private', {}, NaN])(
+    'rejects unsafe present ordinary XLSX count %s',
+    ordinaryXlsxAttemptCount => {
+      expect(() =>
+        chatGptActiveResolverAuditWarning({
+          acquisitionMode: 'asset-batch-4',
+          libraryJpegAttemptCount: 0,
+          libraryCsvAttemptCount: 0,
+          ordinaryXlsxAttemptCount,
+          attempts: [completeMetric()],
+        } as never)
+      ).toThrow('invalid active resolver metric');
+    }
+  );
+
+  it('includes ordinary XLSX in closed family-total validation', () => {
+    expect(() =>
+      chatGptActiveResolverAuditWarning({
+        acquisitionMode: 'asset-batch-4',
+        libraryJpegAttemptCount: 1,
+        libraryCsvAttemptCount: 1,
+        ordinaryXlsxAttemptCount: 1,
+        attempts: [completeMetric(), completeMetric()],
+      })
+    ).toThrow('invalid active resolver metric');
+  });
+
+  it.each(['getter', 'extra', 'symbol', 'image-mode'] as const)(
+    'rejects non-exact XLSX audit %s without evaluating accessors',
+    mode => {
+      const getter = vi.fn(() => 1);
+      const audit: Record<string | symbol, unknown> = {
+        acquisitionMode: 'asset-batch-4',
+        libraryJpegAttemptCount: 0,
+        libraryCsvAttemptCount: 0,
+        ordinaryXlsxAttemptCount: 1,
+        attempts: [completeMetric()],
+      };
+      if (mode === 'getter')
+        Object.defineProperty(audit, 'ordinaryXlsxAttemptCount', { get: getter });
+      if (mode === 'extra') audit.providerFileId = 'private';
+      if (mode === 'symbol') audit[Symbol('private')] = 1;
+      if (mode === 'image-mode') audit.acquisitionMode = 'image-batch-4';
+      expect(() => chatGptActiveResolverAuditWarning(audit as never)).toThrow(
+        'invalid active resolver metric'
+      );
+      expect(getter).not.toHaveBeenCalled();
+    }
+  );
+
   it('counts text/plain separately within the same four-operation budget', () => {
     const warning = chatGptActiveResolverAuditWarning({
       acquisitionMode: 'asset-batch-4',
@@ -576,18 +774,21 @@ describe('ChatGPT active resolver durable audit', () => {
     );
   });
 
-  it('records a safe failure code while leaving dispatch and outcomes explicitly unknown', () => {
-    const metric = chatGptActiveResolverMetricFromResponse(
-      { success: false, code: 'source-http-error' },
-      1
-    );
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)('records %s while leaving audit dispatch and outcomes explicitly unknown', code => {
+    const metric = chatGptActiveResolverMetricFromResponse({ success: false, code }, 1);
 
-    expect(metric).toEqual(chatGptActiveResolverFailureMetric(1, 'source-http-error'));
+    expect(metric).toEqual(chatGptActiveResolverFailureMetric(1, code));
     expect(chatGptActiveResolverAuditWarning(metric)).toBe(
-      'ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=source-http-error; file-ID binary acquisition remains disabled.'
+      `ChatGPT active resolver audit: requested=1; dispatched=unknown; observed=0; outcomes=unavailable; failure=${code}; file-ID binary acquisition remains disabled.`
     );
     expect(chatGptActiveResolverProbeWarning(metric)).toBe(
-      'ChatGPT active resolver diagnostic failed (source-http-error); file-ID binary acquisition remains disabled.'
+      `ChatGPT active resolver diagnostic failed (${code}); file-ID binary acquisition remains disabled.`
     );
   });
 

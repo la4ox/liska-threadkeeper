@@ -81,6 +81,96 @@ afterEach(() => {
 });
 
 describe('ChatGPT active resolver background checkpoint', () => {
+  it.each([400, 403, 404, 429, 499])(
+    'propagates exact source status %s through serialized early and poll errors',
+    async sourceHttpStatus => {
+      const state = { kind: 'error', code: 'source-http-4xx', sourceHttpStatus };
+      vi.stubGlobal('window', { [`__liskaChatGptActiveResolver_${NONCE}`]: state });
+      const serializedReader = new Function(
+        `return (${readChatGptActiveResolverState.toString()});`
+      )() as typeof readChatGptActiveResolverState;
+      expect(serializedReader(NONCE)).toEqual(state);
+      for (const early of [false, true])
+        for (const mode of ['metric', 'asset']) {
+          const chrome = early
+            ? readyTabApi(vi.fn().mockResolvedValue([{ result: state, documentId: DOCUMENT_ID }]))
+            : chromeApi(state);
+          const dependencies = { chromeApi: chrome.api, createNonce: () => NONCE };
+          const response =
+            mode === 'metric'
+              ? await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], dependencies)
+              : await resolveChatGptActiveAsset(
+                  CONVERSATION_ID,
+                  { assetId: `chatgpt-asset-${'a'.repeat(64)}`, providerFileId: PROVIDER_ID },
+                  dependencies
+                );
+          expect(response).toEqual({ success: false, code: 'source-http-4xx', sourceHttpStatus });
+          expect(chrome.api.scripting.executeScript).toHaveBeenCalledTimes(early ? 1 : 3);
+          expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+        }
+    }
+  );
+
+  it('does not trust the page-owned Number helper while reading an exact source status', () => {
+    const state = { kind: 'error', code: 'source-http-4xx', sourceHttpStatus: 403 };
+    const poisonedIsInteger = vi.fn(() => {
+      throw new Error('page-owned Number helper');
+    });
+    vi.stubGlobal('window', { [`__liskaChatGptActiveResolver_${NONCE}`]: state });
+    vi.stubGlobal('Number', { isInteger: poisonedIsInteger });
+    const serializedReader = new Function(
+      `return (${readChatGptActiveResolverState.toString()});`
+    )() as typeof readChatGptActiveResolverState;
+    expect(serializedReader(NONCE)).toEqual(state);
+    expect(poisonedIsInteger).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed or smuggled statuses in the self-contained reader and background poll boundary', async () => {
+    const getter = vi.fn(() => 403);
+    const accessor = { kind: 'error', code: 'source-http-4xx' };
+    Object.defineProperty(accessor, 'sourceHttpStatus', { get: getter });
+    const inheritedPrototype = Object.create(null);
+    Object.defineProperty(inheritedPrototype, 'sourceHttpStatus', { get: getter });
+    const serializedReader = new Function(
+      `return (${readChatGptActiveResolverState.toString()});`
+    )() as typeof readChatGptActiveResolverState;
+    const states = [
+      accessor,
+      Object.assign(Object.create({ sourceHttpStatus: 403 }), {
+        kind: 'error',
+        code: 'source-http-4xx',
+      }),
+      Object.assign(Object.create({ sourceHttpStatus: 403 }), { kind: 'ready' }),
+      Object.assign(Object.create(inheritedPrototype), { kind: 'ready' }),
+      Object.assign(
+        Object.create({ sourceHttpStatus: 403 }),
+        observedState('e30=', 2, '0'.repeat(64))
+      ),
+      ...[399, 500, '403', 403.5, NaN, Infinity, -Infinity, null, undefined].map(
+        sourceHttpStatus => ({ kind: 'error', code: 'source-http-4xx', sourceHttpStatus })
+      ),
+      ...['source-http-error', 'source-http-5xx', 'source-http-other', 'source-rejected'].map(
+        code => ({ kind: 'error', code, sourceHttpStatus: 403 })
+      ),
+      { kind: 'error', code: 'source-http-4xx', sourceHttpStatus: 403, extra: true },
+      { kind: 'error', code: 'source-http-4xx', sourceHttpStatus: 403, [Symbol('private')]: true },
+      { kind: 'ready', sourceHttpStatus: 403 },
+      { ...observedState('e30=', 2, '0'.repeat(64)), sourceHttpStatus: 403 },
+    ];
+    for (const state of states) {
+      vi.stubGlobal('window', { [`__liskaChatGptActiveResolver_${NONCE}`]: state });
+      expect(serializedReader(NONCE)).toEqual({ kind: 'missing' });
+      const chrome = chromeApi(state);
+      expect(
+        await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
+          chromeApi: chrome.api,
+          createNonce: () => NONCE,
+        })
+      ).toEqual({ success: false, code: 'resolver-result-invalid' });
+      expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+    }
+    expect(getter).not.toHaveBeenCalled();
+  });
   it('bounds data-candidate key hashing by the same outer deadline and cleans its tab', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
@@ -210,6 +300,56 @@ describe('ChatGPT active resolver background checkpoint', () => {
     };
     expect(serializedReader(NONCE)).toEqual({ kind: 'missing' });
   });
+  it.each([
+    'source-http-4xx',
+    'source-http-5xx',
+    'source-http-other',
+    'source-response-processing-rejected',
+    'source-http-error',
+  ] as const)(
+    'reads and propagates only exact %s snapshots including legacy compatibility',
+    async code => {
+      const state = { kind: 'error', code };
+      vi.stubGlobal('window', { [`__liskaChatGptActiveResolver_${NONCE}`]: state });
+      const serializedReader = new Function(
+        `return (${readChatGptActiveResolverState.toString()});`
+      )() as typeof readChatGptActiveResolverState;
+      expect(serializedReader(NONCE)).toEqual(state);
+      for (const extra of [
+        { status: 500 },
+        { statusText: 'private' },
+        { error: 'private' },
+        { url: 'https://private.invalid/' },
+        { headers: 'private' },
+        { body: 'private' },
+      ]) {
+        vi.stubGlobal('window', {
+          [`__liskaChatGptActiveResolver_${NONCE}`]: { ...state, ...extra },
+        });
+        expect(serializedReader(NONCE)).toEqual({ kind: 'missing' });
+      }
+      for (const mode of ['metric', 'asset'] as const) {
+        const chrome = chromeApi(state);
+        const response =
+          mode === 'metric'
+            ? await probeChatGptActiveAssetResolvers(CONVERSATION_ID, [PROVIDER_ID], {
+                chromeApi: chrome.api,
+                createNonce: () => NONCE,
+              })
+            : await resolveChatGptActiveAsset(
+                CONVERSATION_ID,
+                {
+                  assetId: `chatgpt-asset-${'a'.repeat(64)}`,
+                  providerFileId: PROVIDER_ID,
+                },
+                { chromeApi: chrome.api, createNonce: () => NONCE }
+              );
+        expect(response).toEqual({ success: false, code });
+        expect(chrome.executeScript).toHaveBeenCalledTimes(3);
+        expect(chrome.remove).toHaveBeenCalledExactlyOnceWith(123);
+      }
+    }
+  );
   it('uses a foreground exact marker, pins command/polls to the first document, and returns metrics only', async () => {
     const signedUrl =
       `https://chatgpt.com/backend-api/estuary/content?cid=${CONVERSATION_ID}` +

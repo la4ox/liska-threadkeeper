@@ -34,6 +34,7 @@ import {
   planChatGptLibraryJpegAsset,
   planChatGptLibraryCsvAsset,
   planChatGptLibraryTextPlainAsset,
+  planChatGptOrdinaryXlsxAsset,
   planChatGptInterpreterAssetIds,
   verifyChatGptAssetExportContext,
   type ChatGptAssetResolverObservation,
@@ -148,6 +149,11 @@ export interface ChatGptAssetExportDependencies {
     context: ChatGptAssetExportContext,
     item: ChatGptActiveAssetPlanItem
   ) => Promise<ChatGptActiveAssetResponse>;
+  /** Separate one-XLSX ordinary route; consumes one of the same four active slots. */
+  resolveOrdinaryXlsxAsset?: (
+    context: ChatGptAssetExportContext,
+    item: ChatGptActiveAssetPlanItem & { expectedByteLength?: number }
+  ) => Promise<ChatGptActiveAssetResponse>;
   acquireAssets?: typeof acquireChatGptPageOwnedAssets;
   persistBinaryAssets?: typeof persistVerifiedBinaryAssets;
   buildDestinationCompanion?: typeof buildChatGptBinaryAwareArchiveCompanion;
@@ -208,6 +214,7 @@ interface ResolvedAssetAcquisition {
 
 interface ActiveAssetAttempt {
   assetId: string;
+  expectedByteLength?: number;
   response: ChatGptActiveAssetResponse;
   metric: ChatGptActiveResolverMetric;
 }
@@ -413,6 +420,7 @@ const ACTIVE_ASSET_PLANNERS = {
   'library-jpeg': planChatGptLibraryJpegAsset,
   'library-csv': planChatGptLibraryCsvAsset,
   'library-text-plain': planChatGptLibraryTextPlainAsset,
+  'ordinary-xlsx': planChatGptOrdinaryXlsxAsset,
 };
 
 async function resolveOneUnattemptedAsset(
@@ -430,9 +438,10 @@ async function resolveOneUnattemptedAsset(
     'library-jpeg': dependencies.resolveLibraryAsset,
     'library-csv': dependencies.resolveLibraryCsvAsset,
     'library-text-plain': dependencies.resolveLibraryTextPlainAsset,
+    'ordinary-xlsx': dependencies.resolveOrdinaryXlsxAsset,
   }[family];
   if (resolver === undefined) return undefined;
-  let item: ChatGptActiveAssetPlanItem | undefined;
+  let item: (ChatGptActiveAssetPlanItem & { expectedByteLength?: number }) | undefined;
   try {
     const planner = ACTIVE_ASSET_PLANNERS[family];
     item = await planner(
@@ -457,6 +466,7 @@ async function resolveOneUnattemptedAsset(
   const response = await resolveBoundActiveAsset(context, bound, resolver);
   return {
     assetId: bound.assetId,
+    ...(bound.expectedByteLength !== undefined && { expectedByteLength: bound.expectedByteLength }),
     response,
     metric: chatGptActiveResolverMetricFromResponse(
       response.success ? { success: true, data: response.data.metrics } : response,
@@ -467,12 +477,13 @@ async function resolveOneUnattemptedAsset(
 
 async function resolveBoundActiveAsset(
   context: ChatGptAssetExportContext,
-  bound: ChatGptActiveAssetPlanItem,
+  bound: ChatGptActiveAssetPlanItem & { expectedByteLength?: number },
   resolver: NonNullable<ChatGptAssetExportDependencies['resolveActiveAsset']>
 ): Promise<ChatGptActiveAssetResponse> {
   try {
     const result = await resolver(context, { ...bound });
-    return (await isBoundChatGptActiveAssetResponse(result, bound, context.conversationId))
+    const transportItem = { assetId: bound.assetId, providerFileId: bound.providerFileId };
+    return (await isBoundChatGptActiveAssetResponse(result, transportItem, context.conversationId))
       ? result
       : activeAssetFailure('resolver-result-invalid');
   } catch {
@@ -489,17 +500,19 @@ function addActiveBatchAudit(
   attempts: ChatGptActiveResolverMetric[],
   libraryJpegAttemptCount: 0 | 1,
   libraryCsvAttemptCount: 0 | 1,
-  libraryTextPlainAttemptCount: 0 | 1
+  libraryTextPlainAttemptCount: 0 | 1,
+  ordinaryXlsxAttemptCount: 0 | 1
 ): void {
   if (attempts.length === 0) return;
   resolution.activeResolverMetric =
-    libraryCsvAttemptCount || libraryTextPlainAttemptCount
+    libraryCsvAttemptCount || libraryTextPlainAttemptCount || ordinaryXlsxAttemptCount
       ? {
           acquisitionMode: 'asset-batch-4',
           attempts,
           libraryJpegAttemptCount,
           libraryCsvAttemptCount,
           ...(libraryTextPlainAttemptCount && { libraryTextPlainAttemptCount }),
+          ...(ordinaryXlsxAttemptCount && { ordinaryXlsxAttemptCount }),
         }
       : { acquisitionMode: 'image-batch-4', attempts, libraryJpegAttemptCount };
   addWarning(
@@ -572,15 +585,21 @@ async function resolveAndAcquireAssetCandidates(
       active.response
     );
     if (active.response.success && active.response.data.candidate !== null) {
-      const candidate = active.response.data.candidate;
+      const candidate = {
+        ...active.response.data.candidate,
+        ...(active.expectedByteLength !== undefined && {
+          expectedByteLength: active.expectedByteLength,
+          validationProfile: 'ordinary-direct-xlsx' as const,
+        }),
+      };
       candidates.set(active.assetId, candidate);
       resolution.matched = true;
       await acquireBatch([candidate]);
       acquired.records = applyChatGptActiveAcquisitionFailure(acquired.records, active.assetId);
     }
   };
-  const applyLibraryFamily = async (
-    family: 'library-csv' | 'library-jpeg' | 'library-text-plain'
+  const applySingleAssetFamily = async (
+    family: 'library-csv' | 'library-jpeg' | 'library-text-plain' | 'ordinary-xlsx'
   ): Promise<0 | 1> => {
     if (!hasAssetBudget(budget) || activeMetrics.length >= CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT)
       return 0;
@@ -598,10 +617,11 @@ async function resolveAndAcquireAssetCandidates(
     await applyActiveAttempt(active);
     return 1;
   };
-  const libraryCsvAttemptCount = await applyLibraryFamily('library-csv');
-  const libraryJpegAttemptCount = await applyLibraryFamily('library-jpeg');
-  // Preserve the established CSV -> JPEG priority; text/plain precedes ordinary images.
-  const libraryTextPlainAttemptCount = await applyLibraryFamily('library-text-plain');
+  const libraryCsvAttemptCount = await applySingleAssetFamily('library-csv');
+  const libraryJpegAttemptCount = await applySingleAssetFamily('library-jpeg');
+  // Preserve CSV -> JPEG -> text/plain priority, then one XLSX before ordinary images.
+  const libraryTextPlainAttemptCount = await applySingleAssetFamily('library-text-plain');
+  const ordinaryXlsxAttemptCount = await applySingleAssetFamily('ordinary-xlsx');
   if (dependencies.resolveActiveAsset !== undefined) {
     while (activeMetrics.length < CHATGPT_ACTIVE_IMAGE_BATCH_MAX_COUNT) {
       if (!hasAssetBudget(budget)) break;
@@ -632,7 +652,8 @@ async function resolveAndAcquireAssetCandidates(
     activeMetrics,
     libraryJpegAttemptCount,
     libraryCsvAttemptCount,
-    libraryTextPlainAttemptCount
+    libraryTextPlainAttemptCount,
+    ordinaryXlsxAttemptCount
   );
 
   const remainingAssetIds = [...allowedAssetIds]

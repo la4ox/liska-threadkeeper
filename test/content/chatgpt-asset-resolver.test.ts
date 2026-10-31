@@ -16,6 +16,7 @@ import {
   extractChatGptLibraryJpegPlan,
   extractChatGptLibraryCsvPlan,
   extractChatGptLibraryTextPlainPlan,
+  extractChatGptOrdinaryXlsxPlan,
   extractChatGptInterpreterAssetPlan,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptTransientResolverRecord,
@@ -64,6 +65,260 @@ function indexedInterpreterAsset(index: number): RawCaptureAssetRecord {
 }
 
 describe('ChatGPT page-owned asset resolver matching', () => {
+  describe('separate ordinary direct-ID XLSX admission', () => {
+    const mediaType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const pointer = '/mapping/node/message/metadata/attachments/0';
+    function fixture(extra: Record<string, unknown> = {}) {
+      const attachment = { id: 'file_xlsx', mime_type: mediaType, size: 256, ...extra };
+      const raw = {
+        mapping: {
+          node: { message: { id: 'message', metadata: { attachments: [attachment] } } },
+        },
+      };
+      const record = { ...asset('a', pointer), mediaType };
+      return { raw, record, attachment };
+    }
+
+    it('admits the exact attachment and never promotes XLSX to image or Library authority', () => {
+      const { raw, record } = fixture();
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toEqual({
+        assetId: record.id,
+        providerFileId: 'file_xlsx',
+        expectedByteLength: 256,
+      });
+      expect(extractChatGptActiveImagePlan(raw, [record], [record.id])).toBeUndefined();
+      expect(extractChatGptLibraryJpegPlan(raw, [record], [record.id])).toBeUndefined();
+      expect(extractChatGptLibraryCsvPlan(raw, [record], [record.id])).toBeUndefined();
+      expect(extractChatGptLibraryTextPlainPlan(raw, [record], [record.id])).toBeUndefined();
+    });
+
+    it.each([
+      { id: undefined },
+      { id: undefined, asset_pointer: 'file-service://file_xlsx' },
+      { id: 'unsupported/value' },
+      { id: 42 },
+      { file_id: {} },
+      { file_id: 'file_conflict' },
+      { asset_pointer: 'file-service://file_conflict' },
+      { asset_pointer: 'malformed' },
+      { library_file_id: 'library' },
+      { libraryFileId: 'library' },
+      { library_file_id: 0 },
+      { libraryFileId: {} },
+      { library_file_id: ' ' },
+      { name: '/mnt/data/private.xlsx' },
+      { mime_type: undefined },
+      { mime_type: 'application/zip' },
+      { mime_type: `${mediaType}; charset=utf-8` },
+      { mime_type: mediaType.toUpperCase() },
+      { mimeType: 'text/plain' },
+      { size: undefined, size_bytes: 256 },
+      { size: null },
+      { size: '256' },
+      { size: 0 },
+      { size: -1 },
+      { size: 1.5 },
+      { size: Number.MAX_SAFE_INTEGER + 1 },
+      { size: 64 * 1024 * 1024 + 1 },
+      { size: NaN },
+    ])('refuses unsupported or conflicting raw attachment evidence %#', extra => {
+      const { raw, record } = fixture(extra);
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeUndefined();
+    });
+
+    it('accepts only positive bounded size, exact MIME and unique eligible not-attempted ledger ID', () => {
+      const { raw, record, attachment } = fixture({ size: 64 * 1024 * 1024 });
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeDefined();
+      attachment.size = 1;
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeDefined();
+      expect(
+        extractChatGptOrdinaryXlsxPlan(raw, [record, { ...record }], [record.id])
+      ).toBeUndefined();
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [])).toBeUndefined();
+      expect(
+        extractChatGptOrdinaryXlsxPlan(raw, [{ ...record, state: 'declined' }], [record.id])
+      ).toBeUndefined();
+      expect(
+        extractChatGptOrdinaryXlsxPlan(
+          raw,
+          [{ ...record, mediaType: 'application/zip' }],
+          [record.id]
+        )
+      ).toBeUndefined();
+      expect(
+        extractChatGptOrdinaryXlsxPlan(raw, [{ ...record, id: 'unsafe' }], ['unsafe'])
+      ).toBeUndefined();
+    });
+
+    it('requires an exact metadata attachment sourceRef, not arbitrary raw direct-ID data', () => {
+      const { raw, attachment, record } = fixture();
+      const other = {
+        ...record,
+        sourceRefs: [{ artifactId: 'conversation', rawPointer: '/other' }],
+      };
+      expect(
+        extractChatGptOrdinaryXlsxPlan({ ...raw, other: attachment }, [other], [other.id])
+      ).toBeUndefined();
+      record.sourceRefs[0].artifactId = 'foreign';
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeUndefined();
+    });
+
+    it('supports the nested graph envelope and escaped node sourceRef', () => {
+      const { raw, record } = fixture();
+      const nested = { conversation: { mapping: { 'node/one': raw.mapping.node } } };
+      record.sourceRefs[0].rawPointer =
+        '/conversation/mapping/node~1one/message/metadata/attachments/0';
+      expect(extractChatGptOrdinaryXlsxPlan(nested, [record], [record.id])).toBeDefined();
+    });
+
+    it.each([
+      ['gizmo_id', 'owner'],
+      ['gizmoId', {}],
+      ['project_id', 'owner'],
+      ['projectId', false],
+      ['conversation_template_id', 'owner'],
+      ['conversationTemplateId', 0],
+    ])('denies raw owner evidence %s in either graph or wrapper', (field, value) => {
+      const { raw, record } = fixture();
+      expect(
+        extractChatGptOrdinaryXlsxPlan({ ...raw, [field]: value }, [record], [record.id])
+      ).toBeUndefined();
+      const nested = {
+        ...record,
+        sourceRefs: [{ artifactId: 'conversation', rawPointer: `/conversation${pointer}` }],
+      };
+      expect(
+        extractChatGptOrdinaryXlsxPlan({ [field]: value, conversation: raw }, [nested], [nested.id])
+      ).toBeUndefined();
+      expect(
+        extractChatGptOrdinaryXlsxPlan(
+          { ...raw, conversation: { mapping: {} } },
+          [record],
+          [record.id]
+        )
+      ).toBeUndefined();
+    });
+
+    it.each([
+      { id: 'file_xlsx' },
+      { asset_pointer: 'file-service://file_xlsx' },
+      { id: 'file_other', asset_pointer: 'file-service://file_xlsx' },
+      { id: 'unsupported/value', asset_pointer: 'file-service://file_xlsx' },
+      { id: 'file_xlsx', file_id: 'file_other', library_file_id: {} },
+      { id: 'file_xlsx', library_file_id: 'private-library' },
+    ])(
+      'hidden/declined/unsupported sibling identity blocks XLSX before eligibility %#',
+      sibling => {
+        const { raw, record } = fixture();
+        const other = {
+          ...asset('b', '/hidden'),
+          state: 'declined' as const,
+          mediaType: 'unsupported',
+        };
+        for (const records of [
+          [record, other],
+          [other, record],
+        ])
+          expect(
+            extractChatGptOrdinaryXlsxPlan({ ...raw, hidden: sibling }, records, [record.id])
+          ).toBeUndefined();
+      }
+    );
+
+    it('checks every merged ref for Library, interpreter and conflicting identity evidence', () => {
+      const { raw, record } = fixture();
+      const attachments = raw.mapping.node.message.metadata.attachments;
+      attachments.push({
+        ...attachments[0],
+        name: '/mnt/data/private.xlsx',
+      } as (typeof attachments)[0]);
+      record.sourceRefs.push({
+        artifactId: 'conversation',
+        rawPointer: pointer.replace('/0', '/1'),
+      });
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeUndefined();
+      attachments[1] = { ...attachments[0], libraryFileId: {} } as (typeof attachments)[0];
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeUndefined();
+      attachments[1] = { ...attachments[0], id: 'file_other' };
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeUndefined();
+      attachments[1] = { ...attachments[0], size: 257 };
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeUndefined();
+      attachments[1] = { ...attachments[0] };
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toMatchObject({
+        expectedByteLength: 256,
+      });
+    });
+
+    it('cannot bypass sandbox ownership with a missing interpreter message ID or merged text ref', () => {
+      const { raw, record } = fixture({ name: '/mnt/data/private.xlsx' });
+      raw.mapping.node.message.id = '';
+      expect(extractChatGptOrdinaryXlsxPlan(raw, [record], [record.id])).toBeUndefined();
+      const ordinary = fixture();
+      const withText = {
+        ...ordinary.raw,
+        text: '[sheet](sandbox:/mnt/data/private.xlsx)',
+      };
+      ordinary.record.sourceRefs.push({ artifactId: 'conversation', rawPointer: '/text' });
+      expect(
+        extractChatGptOrdinaryXlsxPlan(withText, [ordinary.record], [ordinary.record.id])
+      ).toBeUndefined();
+    });
+
+    it('does not fall through interpreter ownership beyond its dispatch cap', () => {
+      const { raw, record } = fixture();
+      const attachments = raw.mapping.node.message.metadata.attachments;
+      const records = Array.from(
+        { length: CHATGPT_INTERPRETER_ASSET_PLAN_MAX_COUNT + 1 },
+        (_, index) => {
+          attachments[index] = {
+            ...attachments[0],
+            id: `file_interpreter_${index}`,
+            name: `/mnt/data/${index}.xlsx`,
+          } as (typeof attachments)[0];
+          return {
+            ...record,
+            id: `chatgpt-asset-${index.toString(16).padStart(64, '0')}`,
+            sourceRefs: [
+              { artifactId: 'conversation', rawPointer: pointer.replace('/0', `/${index}`) },
+            ],
+          };
+        }
+      );
+      expect(
+        extractChatGptOrdinaryXlsxPlan(
+          raw,
+          records,
+          records.map(item => item.id)
+        )
+      ).toBeUndefined();
+    });
+
+    it('deterministically selects only the lowest opaque eligible asset ID', () => {
+      const { raw, record } = fixture();
+      raw.mapping.node.message.metadata.attachments.push({
+        id: 'file_second',
+        mime_type: mediaType,
+        size: 512,
+      });
+      const second = {
+        ...record,
+        id: asset('b', pointer).id,
+        sourceRefs: [{ artifactId: 'conversation', rawPointer: pointer.replace('/0', '/1') }],
+      };
+      for (const records of [
+        [record, second],
+        [second, record],
+      ])
+        expect(
+          extractChatGptOrdinaryXlsxPlan(
+            raw,
+            records,
+            records.map(item => item.id)
+          )
+        ).toEqual({ assetId: record.id, providerFileId: 'file_xlsx', expectedByteLength: 256 });
+    });
+  });
+
   describe.each([
     ['JPEG', 'image/jpeg', extractChatGptLibraryJpegPlan],
     ['CSV', 'text/csv', extractChatGptLibraryCsvPlan],

@@ -538,7 +538,8 @@ async function runChatGptActiveResolvers(
       resolved.now
     );
     if (initial.documentId === undefined) return activeAssetFailure('document-id-missing');
-    if (initial.state.kind === 'error') return activeAssetFailure(initial.state.code);
+    if (initial.state.kind === 'error')
+      return activeAssetFailure(initial.state.code, initial.state.sourceHttpStatus);
     if (initial.state.kind !== 'ready') return activeAssetFailure('resolver-result-invalid');
     const pinnedTarget = { tabId, documentIds: [initial.documentId] };
     // Check the route once more immediately before the sole ID-bearing command.
@@ -572,7 +573,8 @@ async function runChatGptActiveResolvers(
       if (read.documentId !== initial.documentId) {
         return activeAssetFailure('resolver-result-invalid');
       }
-      if (read.state.kind === 'error') return activeAssetFailure(read.state.code);
+      if (read.state.kind === 'error')
+        return activeAssetFailure(read.state.code, read.state.sourceHttpStatus);
       if (read.state.kind === 'complete') {
         let metrics: ActiveResolverRunResponse | undefined;
         try {
@@ -665,7 +667,8 @@ export function readChatGptActiveResolverState(nonce: string): HookState {
             break;
           }
         }
-        if (!found) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, expected[expectedIndex]);
+        if (!found || descriptor === undefined || !('value' in descriptor)) return false;
       }
       return true;
     };
@@ -682,26 +685,41 @@ export function readChatGptActiveResolverState(nonce: string): HookState {
     ];
     if (typeof snapshot !== 'object' || snapshot === null) return { kind: 'missing' };
     const state = snapshot as Record<string, unknown>;
+    const hasSourceHttpStatus = Object.prototype.hasOwnProperty.call(state, 'sourceHttpStatus');
+    if (!hasSourceHttpStatus && 'sourceHttpStatus' in state) return { kind: 'missing' };
     if (state.kind === 'ready' && exact(state, ['kind'])) return { kind: 'ready' };
     if (
       state.kind === 'error' &&
-      exact(state, ['kind', 'code']) &&
+      exact(state, ['kind', 'code', ...(hasSourceHttpStatus ? ['sourceHttpStatus'] : [])]) &&
       typeof state.code === 'string'
     ) {
       const codes = [
         'hook-state-failed',
         'source-not-eligible',
         'source-rejected',
+        'source-http-4xx',
+        'source-http-5xx',
+        'source-http-other',
+        'source-response-processing-rejected',
         'source-http-error',
         'source-non-json',
         'resolver-result-timeout',
       ];
-      return allowed(state.code, codes)
-        ? {
-            kind: 'error',
-            code: state.code as Extract<ChatGptActiveResolverHookResult, { kind: 'error' }>['code'],
-          }
-        : { kind: 'missing' };
+      if (!allowed(state.code, codes)) return { kind: 'missing' };
+      if (hasSourceHttpStatus) {
+        const status = state.sourceHttpStatus;
+        return state.code === 'source-http-4xx' &&
+          typeof status === 'number' &&
+          (status as number) >= 400 &&
+          (status as number) <= 499 &&
+          (status as number) % 1 === 0
+          ? { kind: 'error', code: 'source-http-4xx', sourceHttpStatus: status as number }
+          : { kind: 'missing' };
+      }
+      return {
+        kind: 'error',
+        code: state.code as Extract<ChatGptActiveResolverHookResult, { kind: 'error' }>['code'],
+      };
     }
     if (
       state.kind !== 'complete' ||

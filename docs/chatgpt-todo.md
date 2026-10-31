@@ -245,6 +245,46 @@ terminal states, and the existing no-credential-export boundary.
   focused regression excludes it from resolver warnings/receipts. Exact MIME agreement
   still permits only opaque byte retention: no decoding, newline rewriting,
   encoding guarantee or inline preview. General Library text remains unsupported.
+- Implemented but not yet live-accepted: one standard-owner ordinary direct
+  XLSX specialization. A complete 13,118,031-byte raw capture retains one exact
+  12,101-byte candidate with a positive declared size and no Library,
+  interpreter/sandbox, custom-GPT/project or template ownership evidence. The
+  candidate requires whole-ledger uniqueness, immediate committed-raw replan,
+  exact response MIME and exact declared/actual length; it consumes one of the
+  existing four active slots after Library text/plain and before ordinary
+  images, with no retry or new endpoint/permission.
+- The runtime-only `ordinary-direct-xlsx` profile lazily applies bounded ZIP and
+  OOXML relationship validation before hashing or persistence. It rejects
+  malformed, encrypted, traversing, duplicate, external-relationship,
+  DTD/entity, VBA and XLM packages, but does not render/calculate cells, inspect
+  worksheet semantics, verify every unrelated payload CRC or certify safety.
+  Legacy interpreter/passive XLSX remains unchanged when the profile is absent.
+- Installed acceptance remains open. After the normal-mode wiring fix and one
+  successful page load, one trusted export selected the single XLSX candidate
+  and preserved complete raw/manifest/canonical companions in File and Obsidian
+  with byte-identical archive hashes. The resolver stopped before helper
+  dispatch with legacy `source-http-error`; XLSX stayed `not-attempted` with
+  null timestamp/path/length/hash and no binary. No retry occurred.
+- The diagnostic candidate now distinguishes actual source response classes as
+  `source-http-4xx`, `source-http-5xx`, or `source-http-other`, and maps source
+  observation processing failure to `source-response-processing-rejected`.
+  Exact status and exception details remain excluded; the generic code is
+  accepted only for mixed-version cleanup. Do not change transport or claim
+  XLSX support until this split is reviewed, installed and one trusted export
+  either identifies the source failure class or proves a single 12,101-byte
+  validated acquisition, exact File/Obsidian receipts, no durable signed
+  URL/provider identity, and unchanged sibling asset states.
+- The exact reviewed attribution build was installed and exercised once. It
+  returned `source-http-4xx` before helper dispatch; the XLSX again remained
+  `not-attempted` with null binary fields, both raw/manifest/canonical archive
+  sets matched across File and Obsidian, and no retry or binary occurred. This
+  proves only a client-error-class response on the separate temporary source
+  request, not authentication, absence, expiry or rate limiting.
+- Stop transport changes here. The only remaining diagnostic is an explicitly
+  approved local integer status constrained to 400–499 and one final canary,
+  with no URL/header/body/credential value, new request, retry or timing change.
+  Without that approval keep PR #89 draft and unaccepted; even an exact status
+  would diagnose the source gate rather than constitute XLSX support.
 
 ### 7. User-facing derived outputs
 

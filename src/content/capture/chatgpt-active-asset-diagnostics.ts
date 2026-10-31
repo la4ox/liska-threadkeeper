@@ -1,6 +1,9 @@
 /** Fixed active-helper outcomes, never provider text or successful-URL byte claims. */
 import type { RawCaptureAssetRecord } from '../../archive';
-import type { ChatGptActiveAssetResponse } from '../../lib/chatgpt-active-asset-contract';
+import {
+  isChatGptActiveAssetResponse,
+  type ChatGptActiveAssetResponse,
+} from '../../lib/chatgpt-active-asset-contract';
 
 const BEFORE_DISPATCH = new Set([
   'invalid-conversation-id',
@@ -17,6 +20,10 @@ const BEFORE_DISPATCH = new Set([
   'hook-state-failed',
   'source-not-eligible',
   'source-rejected',
+  'source-http-4xx',
+  'source-http-5xx',
+  'source-http-other',
+  'source-response-processing-rejected',
   'source-http-error',
   'source-non-json',
 ]);
@@ -37,6 +44,13 @@ export function applyChatGptActiveAssetFailure(
     : response.success
       ? response.data.metrics.attemptedAt
       : now;
+  const sourceStatus =
+    isChatGptActiveAssetResponse(response) &&
+    !response.success &&
+    response.code === 'source-http-4xx' &&
+    response.sourceHttpStatus !== undefined
+      ? `;source-http-status=${response.sourceHttpStatus}`
+      : '';
   return records.map(record =>
     record.id !== assetId
       ? record
@@ -51,7 +65,7 @@ export function applyChatGptActiveAssetFailure(
           relativePath: null,
           byteLength: null,
           sha256: null,
-          detail: `active-resolver-${response.success ? '' : 'run-'}${outcome}`,
+          detail: `active-resolver-${response.success ? '' : 'run-'}${outcome}${sourceStatus}`,
         }
   );
 }

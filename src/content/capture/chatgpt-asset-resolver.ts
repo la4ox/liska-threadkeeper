@@ -12,6 +12,7 @@ import {
   chatGptSandboxLinksFromAssistantTextPart,
 } from '../../archive/chatgpt-sandbox-link';
 import { sha256Hex } from '../../lib/sha256';
+import { MAX_STAGED_BINARY_ASSET_BYTES } from '../../lib/constants';
 import { allowsChatGptAttachmentAcquisition } from '../../lib/chatgpt-owner-context';
 import {
   CHATGPT_RESOLVER_KEY_DOMAIN,
@@ -46,6 +47,8 @@ const CHATGPT_INTERPRETER_MAX_POINTER_LENGTH = 4_096;
 const CHATGPT_ACTIVE_IMAGE_MEDIA_TYPES = new Set<string>(['image/png', 'image/jpeg']);
 const CHATGPT_LIBRARY_ID_FIELDS = ['library_file_id', 'libraryFileId'] as const;
 const CHATGPT_LIBRARY_ID_MAX_LENGTH = 512;
+const CHATGPT_ORDINARY_XLSX_MEDIA_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export interface ChatGptTransientResolverRecord {
   resolverKey: string;
@@ -57,6 +60,14 @@ export interface ChatGptPageOwnedAssetCandidate {
   downloadUrl: string;
   /** Runtime-only binding retained only for opaque numeric-cid resolver URLs. */
   resolverKey?: string;
+  /** Ordinary XLSX only: exact declared size, retained transiently until acquisition. */
+  expectedByteLength?: number;
+  /** Runtime-only discriminator; absent preserves pre-existing passive/interpreter behavior. */
+  validationProfile?: 'ordinary-direct-xlsx';
+}
+
+export interface ChatGptOrdinaryXlsxPlanItem extends ChatGptActiveAssetPlanItem {
+  expectedByteLength: number;
 }
 
 export interface MatchChatGptAssetResolversInput {
@@ -677,6 +688,122 @@ export function extractChatGptLibraryTextPlainPlan(
   eligibleAssetIds: readonly string[]
 ): ChatGptActiveAssetPlanItem | undefined {
   return extractChatGptLibraryAssetPlan(raw, assets, eligibleAssetIds, 'text/plain');
+}
+
+/** Exact MIME and bounded declared size belong to the raw attachment, not its filename. */
+function isOrdinaryXlsxAttachment(value: Record<string, unknown>): boolean {
+  const mimeTypes = ['mime_type', 'mimeType']
+    .filter(field => Object.prototype.hasOwnProperty.call(value, field))
+    .map(field => value[field]);
+  return (
+    mimeTypes.length > 0 &&
+    mimeTypes.every(mediaType => mediaType === CHATGPT_ORDINARY_XLSX_MEDIA_TYPE) &&
+    Number.isSafeInteger(value.size) &&
+    (value.size as number) > 0 &&
+    (value.size as number) <= MAX_STAGED_BINARY_ASSET_BYTES
+  );
+}
+
+function ordinaryXlsxSourceEvidence(
+  raw: unknown,
+  ref: unknown
+): { providerFileIds: Set<string>; expectedByteLength?: number } | undefined {
+  if (
+    !isPlainRecord(ref) ||
+    ref.artifactId !== 'conversation' ||
+    typeof ref.rawPointer !== 'string'
+  )
+    return undefined;
+  const value = atJsonPointer(raw, ref.rawPointer);
+  if (!isPlainRecord(value) || hasLibraryFileIdentity(value)) return undefined;
+  const providerFileIds = libraryDirectProviderFileIds(value);
+  if (!providerFileIds || hasConflictingLibraryPointer(value, providerFileIds)) return undefined;
+  if (interpreterAttachmentPointer(ref.rawPointer) === undefined) return { providerFileIds };
+  // A sandbox attachment cannot fall through merely because its message ID is
+  // invalid or interpreter dispatch has already reached its separate cap.
+  if (isChatGptInterpreterSandboxPath(value.name)) return undefined;
+  if (providerFileIds.size !== 1 || !isOrdinaryXlsxAttachment(value)) return undefined;
+  return { providerFileIds, expectedByteLength: value.size as number };
+}
+
+function ordinaryXlsxProviderFileId(
+  raw: unknown,
+  asset: RawCaptureAssetRecord
+): { providerFileId: string; expectedByteLength: number } | undefined {
+  const direct = new Set<string>();
+  const sizes = new Set<number>();
+  const seenPointers = new Set<string>();
+  for (const ref of asset.sourceRefs) {
+    const evidence = ordinaryXlsxSourceEvidence(raw, ref);
+    if (!evidence || seenPointers.has(ref.rawPointer)) return undefined;
+    seenPointers.add(ref.rawPointer);
+    for (const id of evidence.providerFileIds) direct.add(id);
+    if (evidence.expectedByteLength !== undefined) sizes.add(evidence.expectedByteLength);
+  }
+  return direct.size === 1 && sizes.size === 1
+    ? { providerFileId: [...direct][0], expectedByteLength: [...sizes][0] }
+    : undefined;
+}
+
+function isEligibleOrdinaryXlsxRecord(
+  asset: RawCaptureAssetRecord,
+  eligible: ReadonlySet<string>
+): boolean {
+  return (
+    eligible.has(asset.id) &&
+    asset.state === 'not-attempted' &&
+    asset.mediaType === CHATGPT_ORDINARY_XLSX_MEDIA_TYPE
+  );
+}
+
+/** Every sibling identity is deny-only evidence, including ineligible pointer aliases. */
+function ordinaryXlsxIdentityCollides(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  selected: RawCaptureAssetRecord,
+  providerFileId: string
+): boolean {
+  return assets.some(asset => {
+    if (asset === selected || !asset || !Array.isArray(asset.sourceRefs)) return false;
+    return asset.sourceRefs.some(ref => {
+      if (!isPlainRecord(ref) || ref.artifactId !== 'conversation') return false;
+      return denyOnlyProviderIdentityFacts(
+        atJsonPointer(raw, ref.rawPointer),
+        isChatGptActiveResolverProviderFileId
+      ).denyIdentities.includes(providerFileId);
+    });
+  });
+}
+
+/** Separate one-item ordinary XLSX authority; never image or Library authority. */
+export function extractChatGptOrdinaryXlsxPlan(
+  raw: unknown,
+  assets: readonly RawCaptureAssetRecord[],
+  eligibleAssetIds: readonly string[]
+): ChatGptOrdinaryXlsxPlanItem | undefined {
+  if (!allowsChatGptAttachmentAcquisition(raw) || !Array.isArray(assets)) return undefined;
+  const eligible = new Set(eligibleAssetIds);
+  const assetIdCounts = new Map<string, number>();
+  for (const asset of assets) {
+    if (asset && typeof asset.id === 'string')
+      assetIdCounts.set(asset.id, (assetIdCounts.get(asset.id) ?? 0) + 1);
+  }
+  const selected: ChatGptOrdinaryXlsxPlanItem[] = [];
+  for (const asset of assets) {
+    if (
+      !asset ||
+      !isChatGptActiveAssetId(asset.id) ||
+      assetIdCounts.get(asset.id) !== 1 ||
+      !Array.isArray(asset.sourceRefs)
+    )
+      continue;
+    const evidence = ordinaryXlsxProviderFileId(raw, asset);
+    if (!evidence || ordinaryXlsxIdentityCollides(raw, assets, asset, evidence.providerFileId))
+      continue;
+    if (!isEligibleOrdinaryXlsxRecord(asset, eligible)) continue;
+    selected.push({ assetId: asset.id, ...evidence });
+  }
+  return selected.sort((left, right) => compareStrings(left.assetId, right.assetId))[0];
 }
 
 function extractChatGptLibraryAssetPlan(

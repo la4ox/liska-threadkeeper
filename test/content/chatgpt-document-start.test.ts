@@ -3521,7 +3521,7 @@ describe('startChatGptDocumentStartCapture', () => {
     await vi.waitFor(() =>
       expect(activeResolverSnapshotOf(malformedPage)).toMatchObject({
         kind: 'error',
-        code: 'source-http-error',
+        code: 'source-response-processing-rejected',
       })
     );
 
@@ -3618,7 +3618,7 @@ describe('startChatGptDocumentStartCapture', () => {
         Promise.resolve(
           new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })
         ),
-      'source-http-error',
+      'source-http-5xx',
     ],
   ] as const)(
     'keeps active source transparent and terminal on %s',
@@ -3640,35 +3640,268 @@ describe('startChatGptDocumentStartCapture', () => {
     }
   );
 
-  it('preserves an already-commanded HTTP source failure with zero dispatch', async () => {
-    const sourceUrl =
-      `https://chatgpt.com/backend-api/conversations/${CONVERSATION_ID}` +
-      '?include_has_versions=true&num_turns=10';
-    const page = fakePage(
-      markedActiveResolverUrl(),
-      async () =>
-        new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }),
-      OpaqueTestRequest
-    );
-    const command = (() => {
-      startChatGptDocumentStartCapture(page.pageWindow);
-      return Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
-        ?.value as (providerFileIds: unknown) => boolean;
-    })();
-    expect(command(['first'])).toBe(true);
-    await page.pageWindow.fetch(
-      new OpaqueTestRequest(sourceUrl, {
-        credentials: 'include',
-        headers: { authorization: 'synthetic-authorization-sentinel' },
-      }) as unknown as Request
-    );
+  it.each([
+    [0, 'source-http-other'],
+    [201, 'source-http-other'],
+    [399, 'source-http-other'],
+    [400, 'source-http-4xx'],
+    [403, 'source-http-4xx'],
+    [404, 'source-http-4xx'],
+    [429, 'source-http-4xx'],
+    [499, 'source-http-4xx'],
+    [500, 'source-http-5xx'],
+    [599, 'source-http-5xx'],
+    [600, 'source-http-other'],
+    [Number.MAX_SAFE_INTEGER, 'source-http-other'],
+  ] as const)(
+    'preserves only exact active source 4xx status %s without dispatching in either command order',
+    async (status, code) => {
+      const statusGetter = vi.spyOn(Response.prototype, 'status', 'get').mockReturnValue(status);
+      const headers = vi.spyOn(Response.prototype, 'headers', 'get');
+      const body = vi.spyOn(Response.prototype, 'body', 'get');
+      const clone = vi.spyOn(Response.prototype, 'clone');
+      for (const commandFirst of [false, true]) {
+        const response = new Response('synthetic-private-source-body', {
+          statusText: 'synthetic-private-status-text',
+          headers: { 'content-type': 'application/json', 'x-private': 'synthetic-private-header' },
+        });
+        const sourcePromise = Promise.resolve(response);
+        const page = fakePage(markedActiveResolverUrl(), () => sourcePromise, OpaqueTestRequest);
+        startChatGptDocumentStartCapture(page.pageWindow);
+        const command = Object.getOwnPropertyDescriptor(
+          page.pageWindow,
+          ACTIVE_RESOLVER_COMMAND_KEY
+        )?.value as (value: unknown) => boolean;
+        if (commandFirst) expect(command(['file_one'])).toBe(true);
+        const source = new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+          credentials: 'include',
+          headers: { authorization: 'synthetic-private-authorization' },
+        }) as unknown as Request;
+        // Undici's Response constructor also reads status; isolate the source gate.
+        statusGetter.mockClear();
+        body.mockClear();
+        expect(page.pageWindow.fetch(source)).toBe(sourcePromise);
+        await expect(sourcePromise).resolves.toBe(response);
+        const expected = {
+          kind: 'error',
+          code,
+          ...(code === 'source-http-4xx' && { sourceHttpStatus: status }),
+        };
+        await vi.waitFor(() => expect(activeResolverSnapshotOf(page)).toEqual(expected));
+        vi.stubGlobal('window', page.pageWindow);
+        expect(readChatGptActiveResolverState(NONCE)).toEqual(expected);
+        expect(command(['file_one'])).toBe(false);
+        expect(page.originalFetch).toHaveBeenCalledExactlyOnceWith(source);
+        expect(page.pageWindow.fetch).toBe(page.originalFetch);
+        expect(page.timers.size).toBe(0);
+        expect(response.bodyUsed).toBe(false);
+        expect(statusGetter).toHaveBeenCalledOnce();
+        expect(body).not.toHaveBeenCalled();
+      }
+      expect(headers).not.toHaveBeenCalled();
+      expect(clone).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    undefined,
+    null,
+    '500',
+    {},
+    -1,
+    400.5,
+    NaN,
+    Infinity,
+    -Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+    'throwing getter',
+  ])('contains malformed active source status %# without coercion or dispatch', async status => {
+    const coerce = vi.fn(() => {
+      throw new Error('synthetic-private-status-coercion');
+    });
+    const malformed =
+      typeof status === 'object' && status !== null ? { [Symbol.toPrimitive]: coerce } : status;
+    const response = new Response('synthetic-private-body');
+    vi.spyOn(Response.prototype, 'status', 'get').mockImplementation(() => {
+      if (status === 'throwing getter') throw new Error('synthetic-private-status-exception');
+      return malformed as number;
+    });
+    const headers = vi.spyOn(Response.prototype, 'headers', 'get');
+    const page = fakePage(markedActiveResolverUrl(), async () => response, OpaqueTestRequest);
+    startChatGptDocumentStartCapture(page.pageWindow);
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (value: unknown) => boolean;
+    expect(command(['file_one'])).toBe(true);
+    await expect(
+      page.pageWindow.fetch(
+        new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+          headers: { authorization: 'synthetic-private-authorization' },
+        }) as unknown as Request
+      )
+    ).resolves.toBe(response);
     await vi.waitFor(() =>
       expect(activeResolverSnapshotOf(page)).toEqual({
         kind: 'error',
-        code: 'source-http-error',
+        code: 'source-response-processing-rejected',
       })
     );
+    expect(coerce).not.toHaveBeenCalled();
+    expect(headers).not.toHaveBeenCalled();
+    expect(response.bodyUsed).toBe(false);
     expect(page.originalFetch).toHaveBeenCalledOnce();
+    expect(page.pageWindow.fetch).toBe(page.originalFetch);
+    expect(page.timers.size).toBe(0);
+    expect(command(['file_one'])).toBe(false);
+  });
+
+  it.each(['headers getter', 'header access', 'media processing'] as const)(
+    'contains active source %s failures as processing rejection',
+    async failure => {
+      const response = new Response('synthetic-private-body', {
+        headers: { 'content-type': 'application/json' },
+      });
+      const page = fakePage(markedActiveResolverUrl(), async () => response, OpaqueTestRequest);
+      const reject = () => {
+        throw new Error('synthetic-private-processing-exception');
+      };
+      if (failure === 'headers getter')
+        vi.spyOn(Response.prototype, 'headers', 'get').mockImplementation(reject);
+      if (failure === 'header access')
+        vi.spyOn(Headers.prototype, 'get').mockImplementation(reject);
+      if (failure === 'media processing') {
+        class ProcessingString extends String {
+          trim(): string {
+            return reject();
+          }
+        }
+        page.pageWindow.String = ProcessingString as unknown as StringConstructor;
+      }
+      startChatGptDocumentStartCapture(page.pageWindow);
+      const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+        ?.value as (value: unknown) => boolean;
+      expect(command(['file_one'])).toBe(true);
+      await expect(
+        page.pageWindow.fetch(
+          new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+            headers: { authorization: 'synthetic-private-authorization' },
+          }) as unknown as Request
+        )
+      ).resolves.toBe(response);
+      await vi.waitFor(() =>
+        expect(activeResolverSnapshotOf(page)).toEqual({
+          kind: 'error',
+          code: 'source-response-processing-rejected',
+        })
+      );
+      expect(response.bodyUsed).toBe(false);
+      expect(page.originalFetch).toHaveBeenCalledOnce();
+      expect(page.pageWindow.fetch).toBe(page.originalFetch);
+      expect(page.timers.size).toBe(0);
+    }
+  );
+
+  it.each(['first then throws', 'second then throws', 'observation rejects'] as const)(
+    'contains active source Promise machinery failure: %s',
+    async failure => {
+      let calls = 0;
+      class ProcessingPromise {
+        then(this: Promise<unknown>, ...handlers: unknown[]): Promise<unknown> {
+          calls += 1;
+          if (
+            (failure === 'first then throws' && calls === 1) ||
+            (failure === 'second then throws' && calls === 2)
+          )
+            throw new Error('synthetic-private-then-exception');
+          if (failure === 'observation rejects' && calls === 1)
+            return Promise.reject(new Error('synthetic-private-observation-rejection'));
+          return Reflect.apply(Promise.prototype.then, this, handlers) as Promise<unknown>;
+        }
+      }
+      const response = new Response('synthetic-private-body', {
+        headers: { 'content-type': 'application/json' },
+      });
+      const sourcePromise = Promise.resolve(response);
+      const page = fakePage(markedActiveResolverUrl(), () => sourcePromise, OpaqueTestRequest);
+      page.pageWindow.Promise = ProcessingPromise as unknown as PromiseConstructor;
+      startChatGptDocumentStartCapture(page.pageWindow);
+      const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+        ?.value as (value: unknown) => boolean;
+      expect(command(['file_one'])).toBe(true);
+      expect(
+        page.pageWindow.fetch(
+          new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+            headers: { authorization: 'synthetic-private-authorization' },
+          }) as unknown as Request
+        )
+      ).toBe(sourcePromise);
+      await expect(sourcePromise).resolves.toBe(response);
+      await vi.waitFor(() =>
+        expect(activeResolverSnapshotOf(page)).toEqual({
+          kind: 'error',
+          code: 'source-response-processing-rejected',
+        })
+      );
+      expect(page.originalFetch).toHaveBeenCalledOnce();
+      expect(page.pageWindow.fetch).toBe(page.originalFetch);
+      expect(page.timers.size).toBe(0);
+      expect(response.bodyUsed).toBe(false);
+    }
+  );
+
+  it('preserves a dispatched active ordinal when its source observation later rejects', async () => {
+    let calls = 0;
+    class ProcessingPromise {
+      then(this: Promise<unknown>, ...handlers: unknown[]): Promise<unknown> {
+        calls += 1;
+        if (calls === 1) {
+          const fulfilled = handlers[0] as (value: unknown) => unknown;
+          return Reflect.apply(Promise.prototype.then, this, [
+            (value: unknown) => {
+              fulfilled(value);
+              throw new Error('synthetic-private-late-observation');
+            },
+            handlers[1],
+          ]) as Promise<unknown>;
+        }
+        return Reflect.apply(Promise.prototype.then, this, handlers) as Promise<unknown>;
+      }
+    }
+    let helperSignal: AbortSignal | undefined;
+    const page = fakePage(
+      markedActiveResolverUrl(),
+      input => {
+        if (typeof input === 'string')
+          return Promise.resolve(
+            new Response('{}', {
+              headers: { 'content-type': 'application/json' },
+            })
+          );
+        helperSignal = (input as unknown as OpaqueTestRequest).signal;
+        return new Promise<Response>(() => undefined);
+      },
+      OpaqueTestRequest
+    );
+    page.pageWindow.Promise = ProcessingPromise as unknown as PromiseConstructor;
+    startChatGptDocumentStartCapture(page.pageWindow);
+    const command = Object.getOwnPropertyDescriptor(page.pageWindow, ACTIVE_RESOLVER_COMMAND_KEY)
+      ?.value as (value: unknown) => boolean;
+    expect(command(['file_one'])).toBe(true);
+    await page.pageWindow.fetch(SOURCE_RESPONSE_URL, {
+      headers: { authorization: 'synthetic-private-authorization' },
+    });
+    await vi.waitFor(() =>
+      expect(activeResolverSnapshotOf(page)).toEqual({
+        kind: 'complete',
+        conversationId: CONVERSATION_ID,
+        requestedCount: 1,
+        dispatchCount: 1,
+        outcomes: [{ state: 'timed-out' }],
+      })
+    );
+    expect(helperSignal?.aborted).toBe(true);
+    expect(page.originalFetch).toHaveBeenCalledTimes(2);
+    expect(page.pageWindow.fetch).toBe(page.originalFetch);
+    expect(page.timers.size).toBe(0);
   });
 
   it('keeps a settled global-timeout partial queue immutable after delayed capture hashing', async () => {

@@ -176,6 +176,17 @@ so a page may pre-empt the command and affect availability. That residual is
 accepted only for this disabled metric experiment and must not be described as
 an isolation guarantee.
 
+Source validation exposes only finite fixed codes. A real non-200 source status
+is classified as `source-http-4xx`, `source-http-5xx`, or
+`source-http-other`; status/header/media or observation-Promise processing
+failure is `source-response-processing-rejected`. Exact status, status text,
+exception, URL, header and body values remain unrepresentable. The earlier
+ambiguous `source-http-error` stays accepted only so a coherent new background
+can clean up an older hook result; current active code does not emit it. All of
+these are before-dispatch run failures and therefore keep the asset
+`not-attempted` with null binary evidence. They are distinct from per-item
+`http-error` and `response-processing-rejected` after helper dispatch.
+
 For the one selected ordinal the closure constructs exactly one same-origin
 request: `GET /backend-api/files/download/{file_id}` with
 `download_intent=true` and `check_context_scopes_for_conversation_id` bound to
@@ -662,15 +673,17 @@ records: that policy selects the 4,233-byte candidate and leaves the
 21,231-byte candidate `not-attempted`; these are provider metadata sizes, not
 newly acquired-byte claims.
 
-Ordering is interpreter acquisition, then Library CSV, JPEG, text/plain, then
-remaining ordinary images. CSV/JPEG retain their relative priority. Each
-Library family can consume at most one of the existing four active operations;
+Ordering is interpreter acquisition, then Library CSV, JPEG, text/plain, one
+ordinary direct XLSX, then remaining ordinary images. CSV/JPEG retain their
+relative priority. Each Library family and the XLSX family can consume at most
+one of the existing four active operations;
 all families retain the shared 20-attempt/128 MiB acquisition budget. Dispatch
 ownership begins before the request and prohibits retry or passive fallback,
 including helper/binding/MIME/byte/persistence failures. The optional
 `libraryTextPlainAttemptCount` adds a bounded 0/1 count to `asset-batch-4`;
-historical metric/image/CSV audit shapes and their warning text remain valid.
-Text attempts are never counted as ordinary images.
+the separate optional `ordinaryXlsxAttemptCount` does the same without changing
+historical metric/image/CSV audit shapes or their warning text. Text and XLSX
+attempts are never counted as ordinary images.
 
 Only exact ledger `text/plain` and matching response MIME essence are admitted
 (response charset parameters do not promise an encoding). The bytes are
@@ -694,6 +707,70 @@ provenance independently of acquisition; resolver planning introduces no new
 durable identifier field. A focused regression compares source refs before and
 after acquisition and excludes the direct and Library IDs from resolver
 warnings/receipts. This closes only the one-item specialization.
+
+### Ordinary direct XLSX is a separate bounded profile
+
+A complete standard-owner capture retained one exact direct XLSX attachment in
+13,118,031 raw bytes. Its declared size is 12,101 bytes, and the whole retained
+ledger contains no Library, interpreter/sandbox, custom-GPT/project or template
+ownership marker for that asset. The pre-candidate archive preserved it as
+`not-attempted`. Those facts justify one bounded transport attempt; they do not
+prove that the current provider helper returns usable XLSX bytes.
+
+The candidate therefore adds a distinct one-item `ordinary-xlsx` planner rather
+than widening ordinary images, Library authority or general documents. It
+requires exact XLSX MIME, a positive bounded declared size, one exact direct raw
+attachment identity, standard owner context and whole-ledger absence of
+conflicts. The planner rereads committed raw immediately before dispatch and
+binds both opaque asset and provider identity. It uses the unchanged page-owned
+file-ID transport, one existing active slot, the shared attempt/byte budget and
+the established no-retry/passive-fallback rule. Filename, MIME, declared size,
+pointer-only evidence and Library aliases never substitute for direct identity.
+
+Only that planner supplies the runtime-only `ordinary-direct-xlsx` validation
+profile and expected byte length. Acquisition requires matching response MIME,
+actual length equal to the raw declaration and successful bounded structural
+OOXML admission before hashing or persistence. The dependency-free validator is
+lazy-loaded only after those gates. It validates ZIP central/local structure,
+bounded metadata decompression and CRCs, safe unique paths, content types, the
+root office-document relationship, workbook relationships and referenced
+worksheet parts. Encryption, traversal, duplicate paths, external
+relationships, DTD/entities, VBA, XLM and resource-limit excess fail closed.
+
+This is package identification, not workbook safety certification. Liska does
+not render or calculate cells, interpret formulas, inspect worksheet payload
+semantics, verify every unrelated payload CRC or automatically open the file.
+Legacy interpreter/passive XLSX remains on its historical byte path because it
+does not carry this runtime-only profile.
+
+The first installed candidate could not load the target conversation twice. A
+later normal-mode wiring correction was reviewed, installed and exercised once
+after the same conversation loaded. That trusted export selected exactly one
+ordinary XLSX candidate, preserved complete raw/manifest/canonical companions
+in File and Obsidian with byte-identical hashes, and wrote both reading outputs.
+The active resolver then stopped before dispatch with legacy
+`source-http-error`. The XLSX remained `not-attempted`, with no attempt
+timestamp, path, length, hash or binary file; no retry occurred. This proves the
+normal-mode wiring, planner and honest loss state, but the legacy code cannot
+distinguish a 4xx/5xx/other source response from source-observation processing
+failure.
+
+The origin-specific diagnostic split was reviewed, installed and exercised
+once. It returned `source-http-4xx` before helper dispatch. XLSX again remained
+`not-attempted` with null binary evidence, File and Obsidian preserved
+byte-identical raw/manifest/canonical companions, no binary existed and no retry
+ran. This establishes only a client-error-class response on the separate
+temporary source request; it does not establish authentication, absence,
+expiry, rate limiting or any other cause.
+
+No transport change follows from that class. One explicitly approved local
+integer status constrained to 400–499 may support one final diagnostic canary;
+it must add no URL, status text, header, body, credential, identifier, request,
+retry or timing authority. Without that decision the candidate stops as
+unaccepted. XLSX support still requires a trusted live export proving one
+12,101-byte acquisition, structural admission, exact length/hash/path agreement
+in manifest, canonical, File and Obsidian outputs, absence of transient signed
+transport values from durable receipts, and unchanged sibling asset states.
 
 ### Owner routes are capture context, not attachment authority
 

@@ -4126,9 +4126,16 @@ type ActiveResolverHookResult =
         | 'hook-state-failed'
         | 'source-not-eligible'
         | 'source-rejected'
-        | 'source-http-error'
+        | 'source-http-5xx'
+        | 'source-http-other'
+        | 'source-response-processing-rejected'
         | 'source-non-json'
         | 'resolver-result-timeout';
+    }
+  | {
+      kind: 'error';
+      code: 'source-http-4xx';
+      sourceHttpStatus?: number;
     };
 
 type ActiveResolverPageState = {
@@ -4167,7 +4174,10 @@ function hasActiveResolverArmingPrimordials(primordials: PagePrimordials): boole
 
 function snapshotActiveResolverResult(result: ActiveResolverHookResult): ActiveResolverHookResult {
   if (result.kind === 'ready') return { kind: 'ready' };
-  if (result.kind === 'error') return { kind: 'error', code: result.code };
+  if (result.kind === 'error')
+    return result.code === 'source-http-4xx' && result.sourceHttpStatus !== undefined
+      ? { kind: 'error', code: result.code, sourceHttpStatus: result.sourceHttpStatus }
+      : { kind: 'error', code: result.code };
   const outcomes: ActiveResolverOutcome[] = [];
   for (const outcome of result.outcomes) {
     if (outcome.state === 'observed') {
@@ -4276,12 +4286,19 @@ function activeResolverSourceFailure(
   pageWindow: PageWindow,
   state: ActiveResolverPageState,
   target: MarkerTarget,
-  code: Extract<ActiveResolverHookResult, { kind: 'error' }>['code']
+  code: Extract<ActiveResolverHookResult, { kind: 'error' }>['code'],
+  sourceHttpStatus?: number
 ): void {
   if (state.dispatchCount > 0) {
     activeResolverComplete(pageWindow, state, target);
   } else {
-    finishActiveResolver(pageWindow, state, { kind: 'error', code });
+    finishActiveResolver(
+      pageWindow,
+      state,
+      code === 'source-http-4xx' && sourceHttpStatus !== undefined
+        ? { kind: 'error', code, sourceHttpStatus }
+        : { kind: 'error', code }
+    );
   }
 }
 
@@ -4570,14 +4587,38 @@ function observeActiveResolverSourceResponse(
               activeResolverSourceFailure(pageWindow, state, target, 'source-not-eligible');
               return;
             }
-            const status = applyCaptured<number>(
+            const status = applyCaptured<unknown>(
               state.primordials,
               state.primordials.document.responseStatus,
               response,
               []
             );
+            if (
+              typeof status !== 'number' ||
+              status < 0 ||
+              status > 9007199254740991 ||
+              status % 1 !== 0
+            ) {
+              activeResolverSourceFailure(
+                pageWindow,
+                state,
+                target,
+                'source-response-processing-rejected'
+              );
+              return;
+            }
             if (status !== 200) {
-              activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+              activeResolverSourceFailure(
+                pageWindow,
+                state,
+                target,
+                status >= 400 && status <= 499
+                  ? 'source-http-4xx'
+                  : status >= 500 && status <= 599
+                    ? 'source-http-5xx'
+                    : 'source-http-other',
+                status >= 400 && status <= 499 ? status : undefined
+              );
               return;
             }
             const headers = applyCaptured<Headers>(
@@ -4602,7 +4643,12 @@ function observeActiveResolverSourceResponse(
             state.sourceReady = true;
             maybeDispatchActiveResolver(pageWindow, state, target);
           } catch {
-            activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+            activeResolverSourceFailure(
+              pageWindow,
+              state,
+              target,
+              'source-response-processing-rejected'
+            );
           }
         },
         () => activeResolverSourceFailure(pageWindow, state, target, 'source-rejected'),
@@ -4614,11 +4660,17 @@ function observeActiveResolverSourceResponse(
       observation,
       [
         () => undefined,
-        () => activeResolverSourceFailure(pageWindow, state, target, 'source-http-error'),
+        () =>
+          activeResolverSourceFailure(
+            pageWindow,
+            state,
+            target,
+            'source-response-processing-rejected'
+          ),
       ]
     );
   } catch {
-    activeResolverSourceFailure(pageWindow, state, target, 'source-http-error');
+    activeResolverSourceFailure(pageWindow, state, target, 'source-response-processing-rejected');
   }
 }
 

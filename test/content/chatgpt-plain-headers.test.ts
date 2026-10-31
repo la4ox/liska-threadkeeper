@@ -2011,6 +2011,44 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
     }
   );
 
+  it.each([
+    [399, 'source-http-other'],
+    [400, 'source-http-4xx'],
+    [403, 'source-http-4xx'],
+    [404, 'source-http-4xx'],
+    [429, 'source-http-4xx'],
+    [499, 'source-http-4xx'],
+    [500, 'source-http-5xx'],
+    [599, 'source-http-5xx'],
+    [600, 'source-http-other'],
+  ] as const)(
+    'keeps exact active plain-header source 4xx status %s before dispatch',
+    async (status, code) => {
+      const response = jsonResponse();
+      vi.spyOn(Response.prototype, 'status', 'get').mockReturnValue(status);
+      const fixture = setup(async () => response, 'active-resolver');
+      expect(activeCommand(fixture)(['synthetic-file'])).toBe(true);
+      await expect(
+        fixture.page.fetch(SOURCE, {
+          headers: { authorization: SENTINEL },
+        })
+      ).resolves.toBe(response);
+      await vi.waitFor(() =>
+        expect(fixture.snapshot()).toEqual({
+          kind: 'error',
+          code,
+          ...(code === 'source-http-4xx' && { sourceHttpStatus: status }),
+        })
+      );
+      expect(fixture.constructed).toHaveLength(0);
+      expect(fixture.original).toHaveBeenCalledOnce();
+      expect(response.bodyUsed).toBe(false);
+      expect(JSON.stringify(fixture.snapshot())).not.toContain(SENTINEL);
+      expect(fixture.page.fetch).toBe(fixture.original);
+      expect(timers.size).toBe(0);
+    }
+  );
+
   it.each(['opaque-resolver-observer', 'active-resolver', 'interpreter-resolver'])(
     'retains absent/empty/signal-only eligibility and rejects all compatible overrides in %s',
     async mode => {
@@ -2104,7 +2142,11 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
         )?.get?.();
         expect(state, entry.label).toMatchObject({
           kind: 'error',
-          code: entry.eligible ? 'source-http-error' : 'source-not-eligible',
+          code: entry.eligible
+            ? mode === 'active-resolver'
+              ? 'source-http-5xx'
+              : 'source-http-error'
+            : 'source-not-eligible',
         });
         expect(fixture.constructed, entry.label).toHaveLength(0);
         expect(fixture.original, entry.label).toHaveBeenCalledExactlyOnceWith(...args);

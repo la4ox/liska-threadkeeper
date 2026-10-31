@@ -106,7 +106,8 @@ async function pipeline(
     | 'binary-failed'
     | 'substituted' = 'success',
   obsidianOk = true,
-  activeMediaType: 'image/png' | 'image/jpeg' = 'image/png'
+  activeMediaType: 'image/png' | 'image/jpeg' = 'image/png',
+  sourceHttpStatus?: number
 ) {
   const captured = await capture(syntheticRaw(2, 'image/gif', [activeMediaType, activeMediaType]));
   const context = captured.assetExportContext!;
@@ -134,6 +135,8 @@ async function pipeline(
       expect(message.action).toBe('resolveChatGptActiveAsset');
       expect(message.item).toEqual(selected);
       order.push('active');
+      if (sourceHttpStatus !== undefined)
+        return { success: false, code: 'source-http-4xx', sourceHttpStatus };
       if (mode === 'run-failed') return { success: false, code: 'source-http-error' };
       const response = activeSuccess(message.item);
       if (mode === 'expired' || mode === 'helper-failed' || mode === 'not-dispatched') {
@@ -438,6 +441,37 @@ async function batchPipeline(
 
 describe('active image destination-honest pipeline', () => {
   beforeEach(() => vi.clearAllMocks());
+  it.each([400, 403, 404, 429, 499])(
+    'keeps image source status %s as exact not-attempted durable evidence without acquisition or retry',
+    async sourceHttpStatus => {
+      const run = await pipeline('run-failed', true, 'image/png', sourceHttpStatus);
+      expect(messaging.sendMessage).toHaveBeenCalledOnce();
+      expect(run.fetcher).not.toHaveBeenCalled();
+      expect(run.persistBinaryAssets).not.toHaveBeenCalled();
+      expect(run.calls.flatMap(call => call.assetIds)).not.toContain(run.selected.assetId);
+      expect(run.passive.mock.calls[0][1]).not.toContain(run.selected.assetId);
+      const detail = `active-resolver-run-source-http-4xx;source-http-status=${sourceHttpStatus}`;
+      for (const destination of ['file', 'obsidian']) {
+        const bundle = run.final.get(destination)!;
+        const manifest = parseArtifact<RawCaptureManifest>(bundle, 'manifest');
+        const canonical = parseArtifact<LiskaThreadArchive>(bundle, 'canonical');
+        expect(manifest.assets.find(asset => asset.id === run.selected.assetId)).toMatchObject({
+          state: 'not-attempted',
+          attemptedAt: null,
+          relativePath: null,
+          byteLength: null,
+          sha256: null,
+          detail,
+        });
+        expect(canonical.assets[run.selected.assetId].localArtifactRef).toBeNull();
+        expect(JSON.stringify(canonical.assets[run.selected.assetId])).toContain(detail);
+        expect(manifest.warnings.join('\n')).toContain(
+          `source-http-statuses=${sourceHttpStatus}:1;`
+        );
+      }
+      expect(run.final.get('file')).toEqual(run.final.get('obsidian'));
+    }
+  );
   it('keeps a preview-shaped orphan PNG unresolved and eligible for active planning', async () => {
     const raw = syntheticRaw(0);
     const message = raw.mapping.node.message;

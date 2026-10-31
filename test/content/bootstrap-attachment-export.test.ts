@@ -100,6 +100,7 @@ import {
   resolveChatGptLibraryJpegAsset,
   resolveChatGptLibraryCsvAsset,
   resolveChatGptLibraryTextPlainAsset,
+  resolveChatGptOrdinaryXlsxAsset,
   observeChatGptInterpreterAssetResolvers,
 } from '../../src/content/capture/chatgpt-current-branch';
 
@@ -428,6 +429,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
           persistArtifacts: expect.any(Function),
           expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
           observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+          resolveOrdinaryXlsxAsset: resolveChatGptOrdinaryXlsxAsset,
         })
       );
       expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
@@ -632,7 +634,53 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     }
   });
 
-  it('injects passive observation and separate ordinary/Library image and CSV routes only for strict replay', async () => {
+  it.each([false, true])(
+    'keeps only XLSX always active while preserving replay=%s settings and dependency gates',
+    async strictReplay => {
+      settings.enableChatGptOpaqueReplay = strictReplay;
+      const expectedSyncSettingsSnapshot = serializeSyncSettingsSnapshot(settings);
+      mocks.extract.mockResolvedValue(noteResult);
+
+      await handleSync();
+
+      const dependencies = mocks.attachmentExport.mock.calls[0][4];
+      expect(dependencies.expectedSyncSettingsSnapshot).toBe(expectedSyncSettingsSnapshot);
+      expect(dependencies.observeInterpreterResolvers).toBe(
+        observeChatGptInterpreterAssetResolvers
+      );
+      expect(dependencies.resolveOrdinaryXlsxAsset).toBe(resolveChatGptOrdinaryXlsxAsset);
+      expect(
+        Object.keys(dependencies)
+          .filter(key => key.startsWith('resolve'))
+          .sort()
+      ).toEqual(
+        strictReplay
+          ? [
+              'resolveActiveAsset',
+              'resolveLibraryAsset',
+              'resolveLibraryCsvAsset',
+              'resolveLibraryTextPlainAsset',
+              'resolveOrdinaryXlsxAsset',
+            ]
+          : ['resolveOrdinaryXlsxAsset']
+      );
+      if (strictReplay)
+        expect(dependencies.observeResolvers).toBe(observeChatGptAssetResolversViaOpaqueSource);
+      else expect(dependencies).not.toHaveProperty('observeResolvers');
+      expect(dependencies).not.toHaveProperty('observeActiveResolvers');
+      expect(mocks.applySettings).toHaveBeenCalledExactlyOnceWith(settings);
+      expect(mocks.setBranchExportMode).toHaveBeenCalledExactlyOnceWith('current');
+      expect(settings.enableChatGptOpaqueReplay).toBe(strictReplay);
+      expect(mocks.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'saveToOutputs',
+          expectedSyncSettingsSnapshot,
+        })
+      );
+    }
+  );
+
+  it('adds passive observation and separate ordinary/Library image and text routes for strict replay', async () => {
     settings.enableChatGptOpaqueReplay = true;
     mocks.extract.mockResolvedValue(noteResult);
 
@@ -651,6 +699,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
         resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
         resolveLibraryTextPlainAsset: resolveChatGptLibraryTextPlainAsset,
+        resolveOrdinaryXlsxAsset: resolveChatGptOrdinaryXlsxAsset,
       })
     );
   });
@@ -670,6 +719,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
         resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
         resolveLibraryTextPlainAsset: resolveChatGptLibraryTextPlainAsset,
+        resolveOrdinaryXlsxAsset: resolveChatGptOrdinaryXlsxAsset,
       })
     );
   });
@@ -705,6 +755,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       expect.objectContaining({
         persistArtifacts: expect.any(Function),
         observeInterpreterResolvers: observeChatGptInterpreterAssetResolvers,
+        resolveOrdinaryXlsxAsset: resolveChatGptOrdinaryXlsxAsset,
       })
     );
     expect(mocks.attachmentExport.mock.calls[0][4]).not.toHaveProperty('observeResolvers');
@@ -1124,6 +1175,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         resolveLibraryAsset: resolveChatGptLibraryJpegAsset,
         resolveLibraryCsvAsset: resolveChatGptLibraryCsvAsset,
         resolveLibraryTextPlainAsset: resolveChatGptLibraryTextPlainAsset,
+        resolveOrdinaryXlsxAsset: resolveChatGptOrdinaryXlsxAsset,
       })
     );
     expect(mocks.persistAllBranchesPresentation).toHaveBeenCalledOnce();
