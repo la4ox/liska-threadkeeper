@@ -2,16 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../../src/lib/image-utils';
 import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../../src/lib/constants';
 import { getDateVariables } from '../../src/lib/path-utils';
+import { ObsidianResponseLimitError } from '../../src/lib/obsidian-api';
 import type { ArchiveCompanionArtifact, ExtensionSettings } from '../../src/lib/types';
 
 const mocks = vi.hoisted(() => ({
   getFile: vi.fn(),
   putBinaryFile: vi.fn(),
-  getBinaryFile: vi.fn(),
+  getBinaryFileBounded: vi.fn(),
   client: vi.fn(),
 }));
 
-vi.mock('../../src/lib/obsidian-api', () => ({
+vi.mock('../../src/lib/obsidian-api', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/lib/obsidian-api')>()),
   ObsidianApiClient: mocks.client,
   isObsidianApiError: () => false,
 }));
@@ -86,7 +88,7 @@ describe('Obsidian archive companion persistence', () => {
       return {
         getFile: mocks.getFile,
         putBinaryFile: mocks.putBinaryFile,
-        getBinaryFile: mocks.getBinaryFile,
+        getBinaryFileBounded: mocks.getBinaryFileBounded,
       };
     });
     mocks.getFile.mockResolvedValue(null);
@@ -95,7 +97,7 @@ describe('Obsidian archive companion persistence', () => {
 
   it('writes beside the resolved note folder and verifies a binary readback hash', async () => {
     const value = await request();
-    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    mocks.getBinaryFileBounded.mockResolvedValue(value.bytes);
 
     const result = await handleSaveArchiveCompanion(settings, value);
 
@@ -106,7 +108,11 @@ describe('Obsidian archive companion persistence', () => {
     expect(Array.from(putArgs?.[1] as Uint8Array)).toEqual(Array.from(value.bytes));
     expect(putArgs?.[2]).toBe('application/octet-stream');
     expect(putArgs?.[3]).toBe(ARCHIVE_COMPANION_API_TIMEOUT_MS);
-    expect(mocks.getBinaryFile).toHaveBeenCalledWith(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+    expect(mocks.getBinaryFileBounded).toHaveBeenCalledWith(
+      path,
+      value.bytes.byteLength,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
     expect(result).toEqual({ success: true });
   });
 
@@ -115,13 +121,14 @@ describe('Obsidian archive companion persistence', () => {
     async mode => {
       const value = await request();
       const observe = vi.fn();
-      mocks.getBinaryFile.mockResolvedValue(value.bytes);
+      mocks.getBinaryFileBounded.mockResolvedValue(value.bytes);
       if (mode === 'preflight') mocks.getFile.mockResolvedValue('already exists');
       if (mode === 'put')
         mocks.putBinaryFile.mockRejectedValue(new DOMException('timeout', 'TimeoutError'));
-      if (mode === 'readback-size') mocks.getBinaryFile.mockResolvedValue(new Uint8Array([1]));
+      if (mode === 'readback-size')
+        mocks.getBinaryFileBounded.mockResolvedValue(new Uint8Array([1]));
       if (mode === 'readback-hash')
-        mocks.getBinaryFile.mockResolvedValue(new Uint8Array(value.bytes.byteLength));
+        mocks.getBinaryFileBounded.mockResolvedValue(new Uint8Array(value.bytes.byteLength));
       await handleSaveArchiveCompanion(settings, value, observe);
       expect(observe.mock.calls.map(call => call[0])).toEqual(
         mode === 'preflight' ? [] : mode === 'confirmed' ? ['unknown', 'confirmed'] : ['unknown']
@@ -149,7 +156,7 @@ describe('Obsidian archive companion persistence', () => {
       vaultPath: 'AI/{platform}/{YYYY}/{MM}/{DD}',
     } as ExtensionSettings;
     const value = await request();
-    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    mocks.getBinaryFileBounded.mockResolvedValue(value.bytes);
 
     await handleSaveArchiveCompanion(datedSettings, {
       ...value,
@@ -193,7 +200,7 @@ describe('Obsidian archive companion persistence', () => {
       vaultPath: 'AI/{platform}/{YYYY}/{MM}/{DD}',
     } as ExtensionSettings;
     const value = await request();
-    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    mocks.getBinaryFileBounded.mockResolvedValue(value.bytes);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(() => {
@@ -265,7 +272,7 @@ describe('Obsidian archive companion persistence', () => {
       vaultPath: 'AI/{platform}/{YYYY}/{MM}/{DD}',
     } as ExtensionSettings;
     const value = await request();
-    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    mocks.getBinaryFileBounded.mockResolvedValue(value.bytes);
     const firstDate = new Date(2026, 4, 2, 12, 0, 0);
     const secondDate = new Date(2026, 10, 29, 12, 0, 0);
     const secondCaptureId = 'capture-chatgpt-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -326,7 +333,7 @@ describe('Obsidian archive companion persistence', () => {
       success: false,
       error: 'archive-obsidian-put-failed',
     });
-    expect(mocks.getBinaryFile).not.toHaveBeenCalled();
+    expect(mocks.getBinaryFileBounded).not.toHaveBeenCalled();
   });
 
   it('reports a fixed put timeout code', async () => {
@@ -339,7 +346,7 @@ describe('Obsidian archive companion persistence', () => {
   });
 
   it('reports when archive readback is missing', async () => {
-    mocks.getBinaryFile.mockResolvedValueOnce(null);
+    mocks.getBinaryFileBounded.mockResolvedValueOnce(null);
 
     await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
       success: false,
@@ -348,7 +355,7 @@ describe('Obsidian archive companion persistence', () => {
   });
 
   it('reports when archive readback has a different byte length', async () => {
-    mocks.getBinaryFile.mockResolvedValueOnce(new Uint8Array([0]));
+    mocks.getBinaryFileBounded.mockResolvedValueOnce(new Uint8Array([0]));
 
     await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
       success: false,
@@ -356,11 +363,54 @@ describe('Obsidian archive companion persistence', () => {
     });
   });
 
+  it('retains the archive size-mismatch diagnostic when bounded readback stops at overflow', async () => {
+    const value = await request();
+    const observe = vi.fn();
+    mocks.getBinaryFileBounded.mockRejectedValueOnce(new ObsidianResponseLimitError());
+    await expect(handleSaveArchiveCompanion(settings, value, observe)).resolves.toEqual({
+      success: false,
+      error: 'archive-obsidian-readback-size-mismatch',
+    });
+    expect(mocks.getBinaryFileBounded).toHaveBeenCalledWith(
+      expect.any(String),
+      value.bytes.byteLength,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+    expect(observe.mock.calls.map(call => call[0])).toEqual(['unknown']);
+  });
+
+  it('uses exact bounds and preserves overflow diagnostics for staged archive JSON', async () => {
+    const value = await request();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(value.bytes)));
+    mocks.getBinaryFileBounded.mockRejectedValueOnce(new ObsidianResponseLimitError());
+    await expect(
+      handleSaveStagedArchiveCompanion(settings, {
+        source: 'chatgpt',
+        captureId: CAPTURE_ID,
+        conversationKey: CONVERSATION_KEY,
+        stageId: `archive-stage-${'A'.repeat(32)}`,
+        descriptor: {
+          kind: 'canonical',
+          relativePath: 'canonical/liska-thread-1.json',
+          mediaType: 'application/json',
+          byteLength: value.bytes.byteLength,
+          sha256: value.artifact.sha256,
+        },
+        blobUrl: 'blob:chrome-extension://test/archive-stage',
+      })
+    ).resolves.toEqual({ success: false, error: 'archive-obsidian-readback-size-mismatch' });
+    expect(mocks.getBinaryFileBounded).toHaveBeenCalledWith(
+      expect.any(String),
+      value.bytes.byteLength,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+  });
+
   it('does not claim success when the vault readback hash does not match', async () => {
     const value = await request();
     const mismatched = new Uint8Array(value.bytes);
     mismatched[0] ^= 1;
-    mocks.getBinaryFile.mockResolvedValue(mismatched);
+    mocks.getBinaryFileBounded.mockResolvedValue(mismatched);
 
     const result = await handleSaveArchiveCompanion(settings, value);
 
@@ -369,7 +419,7 @@ describe('Obsidian archive companion persistence', () => {
 
   it('reports when archive readback hashing itself fails', async () => {
     const value = await request();
-    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    mocks.getBinaryFileBounded.mockResolvedValue(value.bytes);
     const digest = vi
       .spyOn(globalThis.crypto.subtle, 'digest')
       .mockRejectedValueOnce(new Error('nope'));
@@ -382,7 +432,9 @@ describe('Obsidian archive companion persistence', () => {
   });
 
   it('reports a fixed readback code when the vault readback fails', async () => {
-    mocks.getBinaryFile.mockRejectedValueOnce(new Error('private vault path must not escape'));
+    mocks.getBinaryFileBounded.mockRejectedValueOnce(
+      new Error('private vault path must not escape')
+    );
 
     await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
       success: false,
@@ -391,7 +443,7 @@ describe('Obsidian archive companion persistence', () => {
   });
 
   it('reports a fixed readback timeout code', async () => {
-    mocks.getBinaryFile.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
+    mocks.getBinaryFileBounded.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
 
     await expect(handleSaveArchiveCompanion(settings, await request())).resolves.toEqual({
       success: false,
@@ -420,7 +472,7 @@ describe('Obsidian archive companion persistence', () => {
     };
     const fetchBlob = vi.fn().mockResolvedValue(new Response(value.bytes));
     vi.stubGlobal('fetch', fetchBlob);
-    mocks.getBinaryFile.mockResolvedValue(value.bytes);
+    mocks.getBinaryFileBounded.mockResolvedValue(value.bytes);
 
     const result = await handleSaveStagedBinaryAsset(settings, {
       source: 'chatgpt',
@@ -500,24 +552,45 @@ describe('Obsidian archive companion persistence', () => {
       vi.fn().mockImplementation(() => Promise.resolve(new Response(staged.value.bytes)))
     );
 
-    mocks.getBinaryFile.mockResolvedValueOnce(null);
+    mocks.getBinaryFileBounded.mockResolvedValueOnce(null);
     await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
       success: false,
       error: 'binary-obsidian-readback-missing',
     });
 
-    mocks.getBinaryFile.mockResolvedValueOnce(new Uint8Array([1]));
+    mocks.getBinaryFileBounded.mockResolvedValueOnce(new Uint8Array([1]));
     await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
       success: false,
       error: 'binary-obsidian-readback-size-mismatch',
     });
 
-    mocks.getBinaryFile.mockResolvedValueOnce(
+    mocks.getBinaryFileBounded.mockResolvedValueOnce(
       new Uint8Array(staged.request.descriptor.byteLength).fill(8)
     );
     await expect(handleSaveStagedBinaryAsset(settings, staged.request)).resolves.toEqual({
       success: false,
       error: 'binary-obsidian-readback-hash-mismatch',
     });
+  });
+
+  it.each([
+    [new ObsidianResponseLimitError(), 'binary-obsidian-readback-size-mismatch'],
+    [new DOMException('private', 'TimeoutError'), 'binary-obsidian-readback-timeout'],
+    [new Error('private failure'), 'binary-obsidian-readback-failed'],
+  ])('preserves fixed staged readback diagnostics for %s', async (error, code) => {
+    const staged = await stagedRequest();
+    const observe = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(staged.value.bytes)));
+    mocks.getBinaryFileBounded.mockRejectedValueOnce(error);
+    await expect(handleSaveStagedBinaryAsset(settings, staged.request, observe)).resolves.toEqual({
+      success: false,
+      error: code,
+    });
+    expect(mocks.getBinaryFileBounded).toHaveBeenCalledWith(
+      expect.any(String),
+      staged.request.descriptor.byteLength,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
+    expect(observe.mock.calls.map(call => call[0])).toEqual(['unknown']);
   });
 });

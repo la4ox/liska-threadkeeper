@@ -2,12 +2,49 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   ObsidianApiClient,
   ObsidianApiError,
+  ObsidianResponseLimitError,
   isObsidianApiError,
   classifyNetworkError,
   encodeVaultPath,
 } from '../../src/lib/obsidian-api';
-import { ARCHIVE_COMPANION_API_TIMEOUT_MS, DEFAULT_API_TIMEOUT } from '../../src/lib/constants';
+import {
+  ARCHIVE_COMPANION_API_TIMEOUT_MS,
+  DEFAULT_API_TIMEOUT,
+  MAX_CONTENT_SIZE,
+  MAX_EXTENSION_MESSAGE_SIZE,
+  MAX_STAGED_BINARY_ASSET_BYTES,
+} from '../../src/lib/constants';
 import { getErrorMessage } from '../../src/lib/error-utils';
+import { generateNoteContent } from '../../src/lib/note-generator';
+import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
+import type { ObsidianNote } from '../../src/lib/types';
+
+function failedBody(error: unknown): Response {
+  return new Response(new ReadableStream({ start: controller => controller.error(error) }));
+}
+
+/** Lazy fixed-size chunks keep oversized test inputs out of the retained working set. */
+function sizedBody(size: number, headers?: HeadersInit) {
+  const cancel = vi.fn();
+  const chunk = new Uint8Array(64 * 1024).fill(97);
+  let sent = 0;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        if (sent === size) {
+          controller.close();
+          return;
+        }
+        const count = Math.min(chunk.byteLength, size - sent);
+        sent += count;
+        controller.enqueue(chunk.subarray(0, count));
+      },
+      cancel,
+    },
+    { highWaterMark: 0 }
+  );
+  return { response: new Response(body, { headers }), body, cancel, sent: () => sent };
+}
 
 /**
  * Local REST API 4.1.3+ (GHSA-62gx-5q78-wrvx) splits the request path on
@@ -328,11 +365,7 @@ describe('ObsidianApiClient', () => {
 
   describe('getFile', () => {
     it('returns file content when file exists', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        text: () => Promise.resolve('# File Content'),
-      });
+      mockFetch.mockResolvedValue(new Response('# File Content'));
 
       const content = await client.getFile('path/to/file.md');
 
@@ -384,11 +417,7 @@ describe('ObsidianApiClient', () => {
     });
 
     it('normalizes a connection failure while reading the response body', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        text: () => Promise.reject(new TypeError('Body stream failed')),
-      });
+      mockFetch.mockResolvedValue(failedBody(new TypeError('Body stream failed')));
 
       const error = await client.getFile('path/to/file.md').catch(value => value);
 
@@ -403,8 +432,10 @@ describe('ObsidianApiClient', () => {
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
-        text: () => {
-          throw new TypeError('Body reader failed synchronously');
+        body: {
+          getReader: () => {
+            throw new TypeError('Body reader failed synchronously');
+          },
         },
       });
 
@@ -416,21 +447,13 @@ describe('ObsidianApiClient', () => {
 
     it('preserves an unknown body parser error unchanged', async () => {
       const malformed = new SyntaxError('Malformed body');
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        text: () => Promise.reject(malformed),
-      });
+      mockFetch.mockResolvedValue(failedBody(malformed));
 
       await expect(client.getFile('path/to/file.md')).rejects.toBe(malformed);
     });
 
     it('encodes path correctly', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        text: () => Promise.resolve('content'),
-      });
+      mockFetch.mockResolvedValue(new Response('content'));
 
       await client.getFile('AI/Gemini/test file.md');
 
@@ -443,11 +466,7 @@ describe('ObsidianApiClient', () => {
 
   describe('getBinaryFile', () => {
     it('returns exact response bytes for archive write verification', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        arrayBuffer: () => Promise.resolve(new Uint8Array([0, 255, 1]).buffer),
-      });
+      mockFetch.mockResolvedValue(new Response(new Uint8Array([0, 255, 1])));
 
       const bytes = await client.getBinaryFile('AI/chatgpt/archive.json');
 
@@ -462,11 +481,7 @@ describe('ObsidianApiClient', () => {
       const timeout = vi
         .spyOn(AbortSignal, 'timeout')
         .mockImplementation(() => new AbortController().signal);
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        arrayBuffer: () => Promise.resolve(new Uint8Array([1]).buffer),
-      });
+      mockFetch.mockResolvedValue(new Response(new Uint8Array([1])));
 
       await client.getBinaryFile('AI/chatgpt/default-timeout.json');
 
@@ -487,11 +502,7 @@ describe('ObsidianApiClient', () => {
             const signal = options.signal;
             const complete = setTimeout(() => {
               signal?.removeEventListener('abort', abort);
-              resolve({
-                ok: true,
-                status: 200,
-                arrayBuffer: () => Promise.resolve(new Uint8Array([1]).buffer),
-              });
+              resolve(new Response(new Uint8Array([1])));
             }, DEFAULT_API_TIMEOUT + 1);
             const abort = () => {
               clearTimeout(complete);
@@ -519,17 +530,311 @@ describe('ObsidianApiClient', () => {
     });
 
     it('normalizes a timeout while reading exact binary bytes', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        arrayBuffer: () =>
-          Promise.reject(new DOMException('The operation timed out', 'TimeoutError')),
-      });
+      mockFetch.mockResolvedValue(
+        failedBody(new DOMException('The operation timed out', 'TimeoutError'))
+      );
 
       await expect(client.getBinaryFile('archive.json')).rejects.toMatchObject({
         status: 0,
         message: 'Request timed out. Please check your connection.',
       });
+    });
+  });
+
+  describe('streamed response bounds', () => {
+    it('round-trips a maximum UTF-8 body plus generated frontmatter through ordinary note reads', async () => {
+      const body = '猫'.repeat(Math.floor(MAX_CONTENT_SIZE / 3)) + 'x'.repeat(MAX_CONTENT_SIZE % 3);
+      const note: ObsidianNote = {
+        fileName: 'max-body.md',
+        body,
+        contentHash: 'synthetic',
+        frontmatter: {
+          id: 'max-body',
+          title: 'Maximum admitted body',
+          source: 'chatgpt',
+          url: 'https://chatgpt.com/c/max-body',
+          created: '2026-11-01T00:00:00.000Z',
+          modified: '2026-11-01T00:00:00.000Z',
+          tags: ['synthetic'],
+          message_count: 1,
+        },
+      };
+      const generated = generateNoteContent(note, {
+        ...DEFAULT_SYNC_SETTINGS,
+        obsidianApiKey: 'test-api-key',
+      });
+      expect(new TextEncoder().encode(body).byteLength).toBe(MAX_CONTENT_SIZE);
+      expect(new TextEncoder().encode(generated).byteLength).toBeGreaterThan(MAX_CONTENT_SIZE);
+      let saved = '';
+      mockFetch.mockImplementation((_url: string, options: RequestInit) => {
+        if (options.method === 'PUT') {
+          saved = options.body as string;
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(new Response(saved));
+      });
+      await client.putFile(note.fileName, generated);
+      expect((await client.getFile(note.fileName)) === generated).toBe(true);
+      expect(saved === generated).toBe(true);
+    });
+
+    it.each([
+      ['text', MAX_EXTENSION_MESSAGE_SIZE],
+      ['binary', MAX_STAGED_BINARY_ASSET_BYTES],
+    ] as const)('accepts the exact %s byte limit across many chunks', async (kind, maximum) => {
+      const stream = sizedBody(maximum);
+      mockFetch.mockResolvedValue(stream.response);
+      const result =
+        kind === 'text' ? await client.getFile('a.md') : await client.getBinaryFile('a.bin');
+      expect(result?.length).toBe(maximum);
+      expect(result?.[0]).toBe(kind === 'text' ? 'a' : 97);
+      expect(stream.sent()).toBe(maximum);
+      expect(stream.body.locked).toBe(false);
+    });
+
+    it.each([
+      ['text', MAX_EXTENSION_MESSAGE_SIZE],
+      ['binary', MAX_STAGED_BINARY_ASSET_BYTES],
+    ] as const)(
+      'cancels %s at limit+1 without retaining or reading the remaining body',
+      async (kind, maximum) => {
+        const stream = sizedBody(maximum + 1, { 'Content-Length': '1' });
+        mockFetch.mockResolvedValue(stream.response);
+        await expect(
+          kind === 'text' ? client.getFile('a.md') : client.getBinaryFile('a.bin')
+        ).rejects.toBeInstanceOf(ObsidianResponseLimitError);
+        expect(stream.sent()).toBe(maximum + 1);
+        expect(stream.cancel).toHaveBeenCalledOnce();
+        expect(stream.body.locked).toBe(false);
+      }
+    );
+
+    it.each([undefined, '1', '999999999'])(
+      'counts stream bytes with Content-Length %s',
+      async length => {
+        const headers = length === undefined ? undefined : { 'Content-Length': length };
+        const stream = sizedBody(4, headers);
+        mockFetch.mockResolvedValue(stream.response);
+        await expect(client.getBinaryFileBounded('a.bin', 3)).rejects.toBeInstanceOf(
+          ObsidianResponseLimitError
+        );
+        expect(stream.cancel).toHaveBeenCalledOnce();
+        expect(stream.body.locked).toBe(false);
+      }
+    );
+
+    it('accepts a multi-chunk exact binary bound and copies chunks before reuse', async () => {
+      const chunk = new Uint8Array([1, 2]);
+      let step = 0;
+      const body = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (step++ === 0) controller.enqueue(chunk);
+            else if (step === 2) {
+              chunk.fill(3);
+              controller.enqueue(chunk);
+            } else controller.close();
+          },
+        },
+        { highWaterMark: 0 }
+      );
+      mockFetch.mockResolvedValue(new Response(body, { headers: { 'Content-Length': '1' } }));
+      await expect(client.getBinaryFileBounded('a.bin', 4)).resolves.toEqual(
+        new Uint8Array([1, 2, 3, 3])
+      );
+      expect(body.locked).toBe(false);
+    });
+
+    it('cancels at the overflowing chunk without requesting later chunks', async () => {
+      const pull = vi.fn(controller => controller.enqueue(new Uint8Array([1, 2])));
+      const cancel = vi.fn();
+      const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+      mockFetch.mockResolvedValue(new Response(body));
+      await expect(client.getBinaryFileBounded('a.bin', 3)).rejects.toBeInstanceOf(
+        ObsidianResponseLimitError
+      );
+      expect(pull).toHaveBeenCalledTimes(2);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(body.locked).toBe(false);
+    });
+
+    it('coalesces empty and one-byte chunks without changing exact bytes', async () => {
+      let step = 0;
+      const chunk = new Uint8Array([97]);
+      const body = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (step === 10_000) controller.close();
+            else {
+              controller.enqueue(step % 2 === 0 ? new Uint8Array() : chunk);
+              step++;
+            }
+          },
+        },
+        { highWaterMark: 0 }
+      );
+      mockFetch.mockResolvedValue(new Response(body));
+      await expect(client.getBinaryFileBounded('a.bin', 5000)).resolves.toEqual(
+        new Uint8Array(5000).fill(97)
+      );
+      expect(body.locked).toBe(false);
+    });
+
+    it.each([null, '', new Uint8Array()])('preserves empty ordinary files (%s)', async body => {
+      mockFetch.mockResolvedValueOnce(new Response(body));
+      await expect(client.getFile('empty.md')).resolves.toBe('');
+      mockFetch.mockResolvedValueOnce(new Response(body));
+      await expect(client.getBinaryFile('empty.bin')).resolves.toEqual(new Uint8Array());
+    });
+
+    it('preserves Response.text UTF-8 replacement and BOM behavior', async () => {
+      mockFetch.mockResolvedValue(new Response(new Uint8Array([0xef, 0xbb, 0xbf, 0xff, 0x61])));
+      await expect(client.getFile('a.md')).resolves.toBe('\ufffda');
+    });
+
+    it.each(['text', 'binary', 'directory', 'bounded'] as const)(
+      'preserves body-phase network and unknown errors for %s',
+      async kind => {
+        const read = () =>
+          kind === 'text'
+            ? client.getFile('a.md')
+            : kind === 'binary'
+              ? client.getBinaryFile('a.bin')
+              : kind === 'directory'
+                ? client.listEntries('AI')
+                : client.getBinaryFileBounded('a.bin', 10);
+        for (const [error, message] of [
+          [
+            new DOMException('private', 'TimeoutError'),
+            'Request timed out. Please check your connection.',
+          ],
+          [new DOMException('private', 'AbortError'), 'Request was cancelled.'],
+          [new TypeError('private'), 'Cannot reach Obsidian. Is it running?'],
+        ] as const) {
+          const response = failedBody(error);
+          mockFetch.mockResolvedValueOnce(response);
+          await expect(read()).rejects.toMatchObject({ status: 0, message });
+          expect(response.body?.locked).toBe(false);
+        }
+        const unknown = new Error('unknown stream failure');
+        mockFetch.mockResolvedValueOnce(failedBody(unknown));
+        await expect(read()).rejects.toBe(unknown);
+      }
+    );
+
+    it('keeps a body-phase timeout active after successful headers', async () => {
+      vi.useFakeTimers();
+      const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new DOMException('private', 'TimeoutError')), ms);
+        return controller.signal;
+      });
+      mockFetch.mockImplementation((_url: string, options: RequestInit) =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                options.signal?.addEventListener('abort', () =>
+                  controller.error(options.signal?.reason)
+                );
+              },
+            })
+          )
+        )
+      );
+      try {
+        const assertion = expect(client.getBinaryFile('a.bin', 1234)).rejects.toMatchObject({
+          message: 'Request timed out. Please check your connection.',
+        });
+        await vi.advanceTimersByTimeAsync(1234);
+        await assertion;
+        expect(timeout).toHaveBeenCalledWith(1234);
+      } finally {
+        timeout.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not replace a limit failure when stream cancellation fails', async () => {
+      const cancel = vi.fn().mockRejectedValue(new Error('cancel failed'));
+      const body = new ReadableStream<Uint8Array>(
+        { pull: controller => controller.enqueue(new Uint8Array([1, 2])), cancel },
+        { highWaterMark: 0 }
+      );
+      mockFetch.mockResolvedValue(new Response(body));
+      await expect(client.getBinaryFileBounded('a.bin', 1)).rejects.toBeInstanceOf(
+        ObsidianResponseLimitError
+      );
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(body.locked).toBe(false);
+    });
+
+    it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+      'rejects invalid explicit limit %s before dispatch',
+      async maximum => {
+        await expect(client.getBinaryFileBounded('a.bin', maximum)).rejects.toMatchObject({
+          message: 'Obsidian response byte limit is invalid.',
+        });
+        expect(mockFetch).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  describe('authenticated request policy', () => {
+    const requests = [
+      ['text', (client: ObsidianApiClient) => client.getFile('a.md')],
+      ['binary', (client: ObsidianApiClient) => client.getBinaryFile('a.bin')],
+      ['directory', (client: ObsidianApiClient) => client.listEntries('AI')],
+      ['text write', (client: ObsidianApiClient) => client.putFile('a.md', '')],
+      [
+        'binary write',
+        (client: ObsidianApiClient) =>
+          client.putBinaryFile('a.bin', new Uint8Array(), 'application/octet-stream'),
+      ],
+    ] as const;
+
+    it.each(requests)('omits credentials, caching and redirects for %s', async (_name, request) => {
+      mockFetch.mockResolvedValue(new Response('{"files":[]}'));
+      await request(client);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          credentials: 'omit',
+          redirect: 'error',
+          cache: 'no-store',
+        })
+      );
+    });
+
+    it.each(requests)(
+      'rejects a redirected %s before body or 404 handling',
+      async (_name, request) => {
+        const response = new Response(null, { status: 404 });
+        Object.defineProperty(response, 'redirected', { value: true });
+        mockFetch.mockResolvedValue(response);
+        await expect(request(client)).rejects.toMatchObject({
+          message: 'Obsidian response was redirected.',
+        });
+      }
+    );
+
+    it('does not authenticate a redirected connection probe', async () => {
+      const response = new Response(null);
+      Object.defineProperty(response, 'redirected', { value: true });
+      mockFetch.mockResolvedValue(response);
+      await expect(client.testConnection()).resolves.toEqual({
+        reachable: true,
+        authenticated: false,
+        error: 'Obsidian response was redirected.',
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          credentials: 'omit',
+          redirect: 'error',
+          cache: 'no-store',
+        })
+      );
     });
   });
 
@@ -632,11 +937,9 @@ describe('ObsidianApiClient', () => {
 
   describe('listFiles', () => {
     it('returns file list for existing directory', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ files: ['note1.md', 'note2.md', 'subdir/'] }),
-      });
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ files: ['note1.md', 'note2.md', 'subdir/'] }))
+      );
 
       const files = await client.listFiles('AI/claude');
 
@@ -661,11 +964,9 @@ describe('ObsidianApiClient', () => {
     });
 
     it('filters out directories from response', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ files: ['note.md', 'images/', 'another.md', 'docs/'] }),
-      });
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ files: ['note.md', 'images/', 'another.md', 'docs/'] }))
+      );
 
       const files = await client.listFiles('AI');
 
@@ -694,27 +995,23 @@ describe('ObsidianApiClient', () => {
       });
     });
 
-    it('filters out non-string elements from files array (Q1)', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ files: ['note.md', 42, null, 'other.md', true] }),
+    it('rejects non-string elements instead of treating a malformed list as absent', async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ files: ['note.md', 42, null, 'other.md', true] }))
+      );
+      await expect(client.listFiles('AI')).rejects.toMatchObject({
+        message: 'Obsidian directory response is invalid.',
       });
-
-      const files = await client.listFiles('AI');
-
-      expect(files).toEqual(['note.md', 'other.md']);
     });
   });
 
   describe('listEntries', () => {
     it('returns files AND directory markers (no filtering)', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({ files: ['2026/', '2025/', 'README.md', 'old-chat-abc12345.md'] }),
-      });
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({ files: ['2026/', '2025/', 'README.md', 'old-chat-abc12345.md'] })
+        )
+      );
 
       const entries = await client.listEntries('AI/gemini');
 
@@ -750,29 +1047,104 @@ describe('ObsidianApiClient', () => {
       });
     });
 
-    it('filters out non-string elements but preserves directory entries', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ files: ['2026/', 42, null, 'note.md', true] }),
+    it('rejects malformed entries even when valid directory entries are present', async () => {
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify({ files: ['2026/', 42, null, 'note.md', true] }))
+      );
+      await expect(client.listEntries('AI')).rejects.toMatchObject({
+        message: 'Obsidian directory response is invalid.',
       });
-
-      const entries = await client.listEntries('AI');
-
-      expect(entries).toEqual(['2026/', 'note.md']);
     });
 
     it('normalizes an abort while reading a directory response body', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.reject(new DOMException('The operation was aborted', 'AbortError')),
-      });
+      mockFetch.mockResolvedValue(
+        failedBody(new DOMException('The operation was aborted', 'AbortError'))
+      );
 
       await expect(client.listEntries('AI')).rejects.toMatchObject({
         status: 0,
         message: 'Request was cancelled.',
       });
+    });
+
+    it.each([
+      'not-json',
+      '',
+      'null',
+      '[]',
+      '{}',
+      '{"files":null}',
+      '{"files":{}}',
+      '{"files":["valid.md",false]}',
+      '{"files":[""]}',
+    ])('rejects malformed directory JSON %s without returning an absent directory', async body => {
+      mockFetch.mockResolvedValue(new Response(body));
+      await expect(client.listEntries('AI')).rejects.toMatchObject({
+        message: 'Obsidian directory response is invalid.',
+      });
+    });
+
+    it('rejects malformed UTF-8 rather than repairing directory entries', async () => {
+      mockFetch.mockResolvedValue(new Response(new Uint8Array([0xff])));
+      await expect(client.listEntries('AI')).rejects.toMatchObject({
+        message: 'Obsidian directory response is invalid.',
+      });
+    });
+
+    it('accepts the entry-count ceiling and rejects ceiling+1', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ files: Array(100_000).fill('a') }))
+      );
+      await expect(client.listEntries('AI')).resolves.toHaveLength(100_000);
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ files: Array(100_001).fill('a') }))
+      );
+      await expect(client.listEntries('AI')).rejects.toMatchObject({
+        message: 'Obsidian directory response is invalid.',
+      });
+    });
+
+    it('accepts 1024-code-unit names but rejects 1025 without truncation', async () => {
+      const entry = 'a'.repeat(1024);
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ files: [entry] })));
+      await expect(client.listEntries('AI')).resolves.toEqual([entry]);
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ files: [entry + 'a'] })));
+      await expect(client.listEntries('AI')).rejects.toMatchObject({
+        message: 'Obsidian directory response is invalid.',
+      });
+    });
+
+    it('bounds raw/decoded directory JSON at 8 MiB before parsing, regardless of Content-Length', async () => {
+      const json = new TextEncoder().encode('{"files":[]}');
+      for (const excess of [0, 1]) {
+        let remaining = 8 * 1024 * 1024 + excess - json.byteLength;
+        let emittedJson = false;
+        const padding = new Uint8Array(64 * 1024).fill(32);
+        const cancel = vi.fn();
+        const body = new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              if (!emittedJson) {
+                emittedJson = true;
+                controller.enqueue(json);
+              } else if (remaining > 0) {
+                const count = Math.min(remaining, padding.byteLength);
+                remaining -= count;
+                controller.enqueue(padding.subarray(0, count));
+              } else controller.close();
+            },
+            cancel,
+          },
+          { highWaterMark: 0 }
+        );
+        mockFetch.mockResolvedValueOnce(new Response(body, { headers: { 'Content-Length': '1' } }));
+        if (excess === 0) await expect(client.listEntries('AI')).resolves.toEqual([]);
+        else {
+          await expect(client.listEntries('AI')).rejects.toBeInstanceOf(ObsidianResponseLimitError);
+          expect(cancel).toHaveBeenCalledOnce();
+        }
+        expect(body.locked).toBe(false);
+      }
     });
   });
 

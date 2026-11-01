@@ -3,7 +3,11 @@
  * API docs: https://github.com/coddingtonbear/obsidian-local-rest-api
  */
 
-import { DEFAULT_API_TIMEOUT } from './constants';
+import {
+  DEFAULT_API_TIMEOUT,
+  MAX_EXTENSION_MESSAGE_SIZE,
+  MAX_STAGED_BINARY_ASSET_BYTES,
+} from './constants';
 
 /**
  * Network error type classification
@@ -89,12 +93,34 @@ export class ObsidianApiError extends Error {
   }
 }
 
+/** Allows exact-byte readback callers to retain their size-mismatch diagnostic. */
+export class ObsidianResponseLimitError extends ObsidianApiError {
+  constructor() {
+    super(0, 'Obsidian response body exceeds its limit.');
+    this.name = 'ObsidianResponseLimitError';
+  }
+}
+
 export interface ObsidianServerVersions {
   self: string;
   obsidian: string;
 }
 
 const SERVER_INFO_MAX_BYTES = 64 * 1024;
+
+// A persisted note includes generated frontmatter in addition to the admitted
+// 32 MiB body. Use the existing 60 MiB serialized-message allowance so a valid
+// saved note remains readable by collision/append probes and later exports.
+const SERIALIZED_NOTE_MAX_BYTES = MAX_EXTENSION_MESSAGE_SIZE;
+
+// Directory JSON uses a tighter 8 MiB wire/decoded allocation budget before
+// JSON.parse, below the ordinary 32 MiB content contract. Post-parse validation
+// caps lists at 100k entries and 8 Mi aggregate string code units; a single
+// 1024-code-unit name already exceeds ordinary filesystem component limits.
+const DIRECTORY_MAX_BYTES = 8 * 1024 * 1024;
+const DIRECTORY_MAX_ENTRIES = 100_000;
+const DIRECTORY_MAX_ENTRY_CODE_UNITS = 1024;
+const DIRECTORY_MAX_STRING_CODE_UNITS = DIRECTORY_MAX_BYTES;
 
 function serverVersions(value: unknown): ObsidianServerVersions | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
@@ -181,36 +207,52 @@ export class ObsidianApiClient {
     timeoutMs = DEFAULT_API_TIMEOUT
   ): Promise<Response> {
     try {
-      return await fetch(url, {
+      const response = await fetch(url, {
         ...options,
+        credentials: 'omit',
+        redirect: 'error',
+        cache: 'no-store',
         signal: createTimeoutSignal(timeoutMs),
       });
+      if (response.redirected) throw this.createError(0, 'Obsidian response was redirected.');
+      return response;
     } catch (error) {
       this.rethrowNetworkError(error);
     }
   }
 
-  /** Strict bounded body read for reconciliation capability checks and readback. */
-  private async readBoundedBytes(response: Response, maximum: number): Promise<Uint8Array> {
-    if (!response.body) throw this.createError(0, 'Obsidian response body is unavailable.');
-    const reader = response.body.getReader();
-    const parts: Uint8Array[] = [];
+  /** Retain only admitted stream bytes; never trust Content-Length for the cap. */
+  private async readBoundedBytes(
+    response: Response,
+    maximum: number,
+    allowEmptyBody = false
+  ): Promise<Uint8Array> {
+    const body = response.body;
+    if (!body) {
+      if (allowEmptyBody && body === null) return new Uint8Array();
+      throw this.createError(0, 'Obsidian response body is unavailable.');
+    }
+    const reader = await this.readResponseBody(async () => body.getReader());
+    // Coalesce chunks so even zero-/one-byte chunks cannot accumulate an
+    // unbounded array of retained chunk objects. Capacity never exceeds the cap.
+    let bytes = new Uint8Array();
     let size = 0;
     try {
       while (true) {
         const next = await this.readResponseBody(() => reader.read());
         if (next.done) break;
-        size += next.value.byteLength;
-        if (size > maximum) throw this.createError(0, 'Obsidian response body exceeds its limit.');
-        parts.push(next.value.slice());
+        const nextSize = size + next.value.byteLength;
+        if (nextSize > maximum) throw new ObsidianResponseLimitError();
+        if (nextSize > bytes.byteLength) {
+          const capacity = Math.min(maximum, Math.max(nextSize, 64 * 1024, bytes.byteLength * 2));
+          const grown = new Uint8Array(capacity);
+          grown.set(bytes);
+          bytes = grown;
+        }
+        bytes.set(next.value, size);
+        size = nextSize;
       }
-      const bytes = new Uint8Array(size);
-      let offset = 0;
-      for (const part of parts) {
-        bytes.set(part, offset);
-        offset += part.byteLength;
-      }
-      return bytes;
+      return size === bytes.byteLength ? bytes : bytes.slice(0, size);
     } finally {
       try {
         await reader.cancel();
@@ -350,8 +392,18 @@ export class ObsidianApiClient {
       const response = await fetch(`${this.baseUrl}/vault/`, {
         method: 'GET',
         headers: this.getHeaders(),
+        credentials: 'omit',
+        redirect: 'error',
+        cache: 'no-store',
         signal: createTimeoutSignal(DEFAULT_API_TIMEOUT),
       });
+
+      if (response.redirected)
+        return {
+          reachable: true,
+          authenticated: false,
+          error: 'Obsidian response was redirected.',
+        };
 
       // Authentication error
       if (response.status === 401 || response.status === 403) {
@@ -410,7 +462,8 @@ export class ObsidianApiClient {
       throw this.createError(response.status, `Failed to get file: ${response.statusText}`);
     }
 
-    return await this.readResponseBody(() => response.text());
+    const bytes = await this.readBoundedBytes(response, SERIALIZED_NOTE_MAX_BYTES, true);
+    return new TextDecoder().decode(bytes);
   }
 
   /**
@@ -435,7 +488,7 @@ export class ObsidianApiClient {
     if (!response.ok) {
       throw this.createError(response.status, `Failed to get file: ${response.statusText}`);
     }
-    return new Uint8Array(await this.readResponseBody(() => response.arrayBuffer()));
+    return this.readBoundedBytes(response, MAX_STAGED_BINARY_ASSET_BYTES, true);
   }
 
   /**
@@ -533,9 +586,31 @@ export class ObsidianApiClient {
       throw this.createError(response.status, `Failed to list files: ${response.statusText}`);
     }
 
-    const data = (await this.readResponseBody(() => response.json())) as Record<string, unknown>;
-    const rawFiles = Array.isArray(data?.files) ? data.files : [];
-    return rawFiles.filter((f): f is string => typeof f === 'string');
+    const bytes = await this.readBoundedBytes(response, DIRECTORY_MAX_BYTES);
+    let data: unknown;
+    try {
+      data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    } catch {
+      throw this.createError(0, 'Obsidian directory response is invalid.');
+    }
+    if (typeof data !== 'object' || data === null || Array.isArray(data))
+      throw this.createError(0, 'Obsidian directory response is invalid.');
+    const files: unknown = (data as Record<string, unknown>).files;
+    if (!Array.isArray(files) || files.length > DIRECTORY_MAX_ENTRIES)
+      throw this.createError(0, 'Obsidian directory response is invalid.');
+    let stringCodeUnits = 0;
+    for (const entry of files) {
+      if (
+        typeof entry !== 'string' ||
+        entry.length === 0 ||
+        entry.length > DIRECTORY_MAX_ENTRY_CODE_UNITS
+      )
+        throw this.createError(0, 'Obsidian directory response is invalid.');
+      stringCodeUnits += entry.length;
+      if (stringCodeUnits > DIRECTORY_MAX_STRING_CODE_UNITS)
+        throw this.createError(0, 'Obsidian directory response is invalid.');
+    }
+    return files as string[];
   }
 
   /**
