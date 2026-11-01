@@ -180,6 +180,8 @@ type DocumentPrimordials = {
   urlPathname: CapturedCallable | undefined;
   urlSearch: CapturedCallable | undefined;
   urlHash: CapturedCallable | undefined;
+  promiseConstructor: typeof Promise | undefined;
+  promisePrototype: object | undefined;
   promiseThen: CapturedCallable | undefined;
   arrayIsArray: CapturedCallable | undefined;
   arrayPush: CapturedCallable | undefined;
@@ -358,6 +360,8 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     urlPathname: getterAt(getOwnPropertyDescriptor, urlPrototype, 'pathname'),
     urlSearch: getterAt(getOwnPropertyDescriptor, urlPrototype, 'search'),
     urlHash: getterAt(getOwnPropertyDescriptor, urlPrototype, 'hash'),
+    promiseConstructor: typeof NativePromise === 'function' ? NativePromise : undefined,
+    promisePrototype: NativePromise?.prototype,
     promiseThen: methodAt(NativePromise?.prototype, 'then'),
     arrayIsArray:
       typeof NativeArray?.isArray === 'function'
@@ -389,6 +393,33 @@ function applyCaptured<T>(
     throw PRIMORDIAL_UNAVAILABLE;
   }
   return primordials.document.reflectApply(callback, receiver, argumentsList) as T;
+}
+
+/** Fail closed if page code changes Promise fulfillment delivery after arming. */
+function assertPromiseIntegrity(primordials: PagePrimordials): void {
+  const document = primordials.document;
+  const getOwnPropertyDescriptor = document.objectGetOwnPropertyDescriptor;
+  const promisePrototype = document.promisePrototype;
+  if (
+    getOwnPropertyDescriptor === undefined ||
+    promisePrototype === undefined ||
+    document.promiseConstructor === undefined ||
+    document.promiseThen === undefined
+  ) {
+    throw PRIMORDIAL_UNAVAILABLE;
+  }
+  const constructorDescriptor = getOwnPropertyDescriptor(promisePrototype, 'constructor');
+  const thenDescriptor = getOwnPropertyDescriptor(promisePrototype, 'then');
+  if (
+    constructorDescriptor === undefined ||
+    !('value' in constructorDescriptor) ||
+    constructorDescriptor.value !== document.promiseConstructor ||
+    thenDescriptor === undefined ||
+    !('value' in thenDescriptor) ||
+    thenDescriptor.value !== document.promiseThen
+  ) {
+    throw PRIMORDIAL_UNAVAILABLE;
+  }
 }
 
 function markerTargetFromHref(href: string): MarkerTarget | undefined {
@@ -506,6 +537,8 @@ function hasArmingPrimordials(primordials: PagePrimordials): boolean {
     document.URL !== undefined &&
     document.objectDefineProperty !== undefined &&
     document.objectGetOwnPropertyDescriptor !== undefined &&
+    document.promiseConstructor !== undefined &&
+    document.promisePrototype !== undefined &&
     document.stringToUpperCase !== undefined &&
     document.promiseThen !== undefined &&
     primordials.setTimeout !== undefined &&
@@ -823,6 +856,7 @@ async function readBoundedClone(
   response: Response,
   maxBytes: number
 ): Promise<CapturedBytesEnvelope> {
+  assertPromiseIntegrity(primordials);
   const NativeUint8Array = primordials.document.uint8Array;
   if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
 
@@ -834,9 +868,12 @@ async function readBoundedClone(
       response,
       []
     );
+    assertPromiseIntegrity(primordials);
     const bytes = new NativeUint8Array(buffer);
     if (uint8ArrayByteLength(primordials, bytes) > maxBytes) throw PAYLOAD_TOO_LARGE;
-    return capturedBytesEnvelope(primordials, bytes);
+    const envelope = capturedBytesEnvelope(primordials, bytes);
+    assertPromiseIntegrity(primordials);
+    return envelope;
   }
 
   const reader = applyCaptured<ReadableStreamDefaultReader<Uint8Array>>(
@@ -858,6 +895,7 @@ async function readBoundedClone(
       reader,
       []
     );
+    assertPromiseIntegrity(primordials);
     if (next.done) break;
     const chunk = next.value;
     if (chunk === undefined) throw PRIMORDIAL_UNAVAILABLE;
@@ -879,7 +917,9 @@ async function readBoundedClone(
     applyCaptured<void>(primordials, primordials.document.uint8ArraySet, bytes, [chunk, offset]);
     offset += chunkLengths[index];
   }
-  return capturedBytesEnvelope(primordials, bytes);
+  const envelope = capturedBytesEnvelope(primordials, bytes);
+  assertPromiseIntegrity(primordials);
+  return envelope;
 }
 
 const BASE64_DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -933,6 +973,7 @@ function base64FromBytes(primordials: PagePrimordials, bytes: Uint8Array): strin
 }
 
 async function sha256FromBytes(primordials: PagePrimordials, bytes: Uint8Array): Promise<string> {
+  assertPromiseIntegrity(primordials);
   const exactBuffer = exactArrayBufferFromBytes(primordials, bytes);
   const digest = await applyCaptured<ArrayBuffer>(
     primordials,
@@ -940,6 +981,7 @@ async function sha256FromBytes(primordials: PagePrimordials, bytes: Uint8Array):
     primordials.subtleReceiver,
     ['SHA-256', exactBuffer]
   );
+  assertPromiseIntegrity(primordials);
   const NativeUint8Array = primordials.document.uint8Array;
   if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
   const digestBytes = new NativeUint8Array(digest);
@@ -3770,6 +3812,7 @@ async function captureOpaqueReplayResponse(
 ): Promise<void> {
   if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
   try {
+    assertPromiseIntegrity(state.primordials);
     const status = applyCaptured<number>(
       state.primordials,
       state.primordials.document.responseStatus,
@@ -3812,13 +3855,15 @@ async function captureOpaqueReplayResponse(
       []
     );
     discardOpaqueReplayOriginalBody(state.primordials, response);
-    const { bytes } = await readBoundedClone(
+    const envelope = await readBoundedClone(
       state.primordials,
       clone,
       state.target.replayTransportVersion === 1
         ? STAGED_CAPTURE_MAX_BYTES
         : INLINE_CAPTURE_MAX_BYTES
     );
+    assertPromiseIntegrity(state.primordials);
+    const { bytes } = envelope;
     if (state.target.replayTransportVersion === 1) {
       // The response body has reached network completion. V2 retains only
       // bytes while hashing and serving nonce-scoped chunks.
@@ -3826,6 +3871,7 @@ async function captureOpaqueReplayResponse(
     }
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
     const sha256 = await sha256FromBytes(state.primordials, bytes);
+    assertPromiseIntegrity(state.primordials);
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
     const byteLength = uint8ArrayByteLength(state.primordials, bytes);
     if (state.target.replayTransportVersion === 1 && byteLength > INLINE_CAPTURE_MAX_BYTES) {

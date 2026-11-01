@@ -602,6 +602,66 @@ describe('startChatGptDocumentStartCapture', () => {
       expect(wire).not.toContain('synthetic-private-credential');
     }
   );
+
+  it.each(['legacy-inline', 'staged-v2'] as const)(
+    'fails the whole %s producer closed after post-arming Promise poisoning',
+    async mode => {
+      const originalBytes = new TextEncoder().encode('{"source":"original"}');
+      const forgedBytes = new TextEncoder().encode('{"source":"forged"}');
+      const page = fakePage(
+        mode === 'staged-v2' ? markedStagedOpaqueReplayUrl() : markedOpaqueReplayUrl(),
+        async input =>
+          (input as OpaqueTestRequest).url === SOURCE_RESPONSE_URL
+            ? new Response('{}', { headers: { 'content-type': 'application/json' } })
+            : new Response(originalBytes, { headers: { 'content-type': 'application/json' } }),
+        OpaqueTestRequest
+      );
+      const realm = createContext({ page: page.pageWindow, forgedBytes });
+      runInContext('page.Promise = Promise', realm);
+
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+      runInContext(
+        `
+        const NativePromise = Promise;
+        const nativeThen = Promise.prototype.then;
+        Object.defineProperty(Promise.prototype, 'constructor', {
+          configurable: true,
+          value: { [Symbol.species]: NativePromise },
+        });
+        Object.defineProperty(Promise.prototype, 'then', {
+          configurable: true,
+          value(onFulfilled, onRejected) {
+            return Reflect.apply(nativeThen, this, [value => {
+              if (value && typeof value === 'object' && 'bytes' in value) {
+                return onFulfilled({ bytes: forgedBytes });
+              }
+              if (value instanceof ArrayBuffer) return onFulfilled(forgedBytes.buffer);
+              return onFulfilled(value);
+            }, onRejected]);
+          },
+        });
+      `,
+        realm
+      );
+
+      await page.pageWindow.fetch(
+        new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+          credentials: 'include',
+          headers: { authorization: 'synthetic-private-credential' },
+        }) as unknown as Request
+      );
+      await vi.waitFor(() =>
+        expect(opaqueReplaySnapshotOf(page)).toEqual({
+          kind: 'error',
+          code: 'response-processing-failed',
+          singularDispatchCount: 1,
+        })
+      );
+      expect(JSON.stringify(opaqueReplaySnapshotOf(page))).not.toContain(
+        Buffer.from(forgedBytes).toString('base64')
+      );
+    }
+  );
   it.each([
     ['probe', 'url', markedOpaqueProbeUrl],
     ['probe', 'redirected', markedOpaqueProbeUrl],
