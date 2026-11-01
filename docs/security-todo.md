@@ -455,3 +455,38 @@ deliberately unported.
 - upstream changes in untouched provider/shared blocks have been reviewed;
 - full tests, coverage, build, lint, formatting, and one independent review are
   green after the final security patch set.
+
+## Repository-scan ordinary-image destination integrity — candidate 2026-11-01
+
+Repository workflow
+`wfr_c294dc0cd6f299d087315e0f99ec41d66f098d39a4abf0dfdf55e9fca9aab721`
+reported medium finding `csf_f4bdef66eee0e03879dd3d07` / occurrence
+`occ_6d8073e1a620a00d37a7797f` against revision `389e310`: ordinary File and
+Obsidian image links were not bound to collision-safe retained files.
+
+Branch `codex/sec-immutable-images` starts from merged main `09dbb18` and has a
+reviewed local candidate. Ordinary images now use strict full-SHA planning under
+`liska-v1`; fresh Obsidian uses create-only persistence plus bounded exact
+readback and embeds only confirmed full vault-relative paths; File confirms all
+image terminal/path/existence evidence before it dispatches Markdown. Failed or
+uncertain Obsidian images are removed with the existing count warning, while
+File fails before Markdown. Legacy title/index resolver exports are removed.
+
+Independent review found and closed two additional candidate seams: fresh
+Downloads evidence had ignored `state`/`exists`, and a protected-Markdown parser
+budget failure had been misclassified as image-free success. The absolute
+Downloads prefix remains explicitly browser-owned and opaque; another
+same-privilege extension mutating download paths is outside the cooperative
+browser boundary. Downloads evidence is not byte readback or a permanence
+claim.
+
+The final affected matrix passes 9 test files / 574 tests. TypeScript and the
+production build, targeted ESLint, focused formatting and diff checks pass; the
+independent candidate review reports no material finding under the stated
+boundary.
+
+The candidate is not yet merged or live-browser accepted. Keep the Cloud
+finding open until the reviewed source head is merged, fetched `main` contains
+that head, current-head CI/reviews are clean, and the merged invariant is
+reconciled back to the exact occurrence. Do not treat local tests as authority
+to close the remote record.

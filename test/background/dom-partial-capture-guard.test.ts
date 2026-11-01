@@ -23,6 +23,9 @@ const client = vi.hoisted(() => ({
   getFile: vi.fn(),
   putFile: vi.fn(),
   putBinaryFile: vi.fn(),
+  getServerVersions: vi.fn(),
+  getBinaryFileBounded: vi.fn(),
+  putBinaryFileIfAbsent: vi.fn(),
   listEntries: vi.fn(),
 }));
 vi.mock('../../src/lib/obsidian-api', () => ({
@@ -30,6 +33,9 @@ vi.mock('../../src/lib/obsidian-api', () => ({
     getFile = client.getFile;
     putFile = client.putFile;
     putBinaryFile = client.putBinaryFile;
+    getServerVersions = client.getServerVersions;
+    getBinaryFileBounded = client.getBinaryFileBounded;
+    putBinaryFileIfAbsent = client.putBinaryFileIfAbsent;
     listEntries = client.listEntries;
   },
   isObsidianApiError: () => false,
@@ -87,6 +93,11 @@ beforeEach(() => {
   client.getFile.mockResolvedValue(null);
   client.putFile.mockResolvedValue(undefined);
   client.putBinaryFile.mockResolvedValue(undefined);
+  client.getServerVersions.mockResolvedValue({ self: '5.5.2', obsidian: '1.14.5' });
+  client.getBinaryFileBounded
+    .mockResolvedValueOnce(null)
+    .mockResolvedValue(new TextEncoder().encode('hello'));
+  client.putBinaryFileIfAbsent.mockResolvedValue(undefined);
   client.listEntries.mockResolvedValue([]);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -284,7 +295,8 @@ describe('partial DOM history mutable-note overwrite guard', () => {
       isNewFile: true,
     });
     expect(client.putFile).toHaveBeenCalledTimes(1);
-    expect(client.putBinaryFile).toHaveBeenCalledTimes(1);
+    expect(client.putBinaryFileIfAbsent).toHaveBeenCalledTimes(1);
+    expect(client.putBinaryFile).not.toHaveBeenCalled();
   });
 
   it.each(['canonical', 'suffix'])(
@@ -298,7 +310,7 @@ describe('partial DOM history mutable-note overwrite guard', () => {
       expect(client.getFile).toHaveBeenCalledTimes(target === 'canonical' ? 1 : 2);
       expect(client.listEntries).not.toHaveBeenCalled();
       expect(client.putFile).not.toHaveBeenCalled();
-      expect(client.putBinaryFile).not.toHaveBeenCalled();
+      expect(client.putBinaryFileIfAbsent).not.toHaveBeenCalled();
     }
   );
 
@@ -320,7 +332,7 @@ describe('partial DOM history mutable-note overwrite guard', () => {
       error: 'partial-capture-existing-count-untrusted',
     });
     expect(client.putFile).not.toHaveBeenCalled();
-    expect(client.putBinaryFile).not.toHaveBeenCalled();
+    expect(client.putBinaryFileIfAbsent).not.toHaveBeenCalled();
     expect(client.getFile).toHaveBeenCalledTimes(1);
   });
 
@@ -371,7 +383,7 @@ describe('partial DOM history mutable-note overwrite guard', () => {
         error: 'partial-capture-invalid-message-count',
       });
       expect(client.putFile).not.toHaveBeenCalled();
-      expect(client.putBinaryFile).not.toHaveBeenCalled();
+      expect(client.putBinaryFileIfAbsent).not.toHaveBeenCalled();
     }
   );
 
@@ -383,7 +395,7 @@ describe('partial DOM history mutable-note overwrite guard', () => {
     expect(result).toEqual({ success: false, error: 'append-operation-failed' });
     expect(client.getFile).toHaveBeenCalledTimes(1);
     expect(client.putFile).not.toHaveBeenCalled();
-    expect(client.putBinaryFile).not.toHaveBeenCalled();
+    expect(client.putBinaryFileIfAbsent).not.toHaveBeenCalled();
   });
 
   it.each([2, 3])('append retains its no-op for existing %s >= incoming', async rendered => {

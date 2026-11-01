@@ -4,9 +4,10 @@
 
 Accepted (v2.0.0), amended by [ADR-021](021-remote-image-fetch-in-service-worker.md),
 [ADR-027](027-generated-image-capture-from-rendered-element.md), and
-[ADR-045](045-tail-only-obsidian-append-images.md). The implementation is for
-Gemini generated images; the notes below record where the shipped behaviour
-differs from the original proposal.
+[ADR-045](045-tail-only-obsidian-append-images.md), plus the ordinary-image
+destination-integrity amendment below. The implementation is for Gemini
+generated images; the notes below record where the shipped behaviour differs
+from the original proposal.
 
 ## Context
 
@@ -87,16 +88,25 @@ therefore deviates from this ADR's original proposal as follows:
    `![alt](g2o-image://{id})` placeholder; the background resolves it per
    destination.
 3. **Three output destinations** (not Obsidian-only):
-   - **Obsidian fresh save** — image written to the vault via `putBinaryFile`;
-     body uses an Obsidian **wikilink embed `![[filename]]`** (chosen over
-     `![](path)` because Obsidian resolves attachments by name, independent of
-     the folder).
+   - **Obsidian fresh save** — exact decoded bytes use a full-SHA-256 filename
+     under the configured image root's `liska-v1` namespace. Liska reuses only
+     byte-identical existing content; otherwise it uses create-only PUT plus
+     bounded exact readback. The body receives a percent-encoded standard
+     Markdown embed containing the confirmed full vault-relative path. A
+     failed or unconfirmed image is omitted from the body and counted in the
+     existing nonfatal warning; an occupied different file is never replaced.
    - **Obsidian append** — only images referenced by the verified new tail use
      full-SHA names under a dedicated `liska-v1` namespace, create-only writes,
      and exact readback before the note append. Historical images are not
      backfilled. See ADR-045.
-   - **File download** — markdown plus each image as **separate files**; body
-     references the image filename only.
+   - **File download** — images remain separate files, but every referenced
+     image is dispatched before Markdown under the relative
+     `liska-v1/sha256-<digest>.<ext>` path. Liska requires browser-reported
+     terminal completion, current `state: complete`, current `exists: true`,
+     and the exact requested path below the browser-owned opaque Downloads
+     root. Rename, collision, interruption, deletion, timeout, lookup failure,
+     parser uncertainty, or any unknown outcome stops before Markdown is
+     dispatched.
    - **Clipboard** — image placeholders are stripped; no image is copied.
 4. **Opt-in default** — `enableImageExport` defaults to **true** (the feature
    was explicitly requested); a per-image 10MB cap and a ≤20 images/note bound
@@ -109,6 +119,24 @@ therefore deviates from this ADR's original proposal as follows:
 
 The `putBinaryFile` Content-Type is the image's own MIME type (e.g. `image/png`)
 rather than `application/octet-stream`.
+
+### Ordinary-image destination-integrity amendment (2026-11-01)
+
+The former ordinary title/index names (`<note>-img-1.png`) and their public
+resolver helpers are removed. Ordinary destinations now share the append
+planner's strict canonical Base64, allowlisted MIME, decoded-size, full-digest,
+and exact-byte deduplication rules. Resolution requires an explicit confirmed
+image-ID-to-path map; there is no fallback that can manufacture a link before
+persistence evidence exists.
+
+Chrome exposes the retained filename as an absolute path but does not expose a
+trusted Downloads-root value. Liska therefore verifies the requested relative
+path below an opaque browser-owned prefix. This cooperative-browser contract
+does not claim filesystem byte readback, atomic multi-file commit, permanence
+after observation, or resistance to another same-privilege extension mutating
+Downloads state. Those stronger properties would require a different delivery
+contract such as one self-contained archive. The current separate-file contract
+is retained deliberately.
 
 ## References
 
