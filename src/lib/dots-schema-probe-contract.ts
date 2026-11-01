@@ -104,6 +104,9 @@ export const DOTS_SCHEMA_PROBE_ERROR_CODES = Object.freeze([
   'document-unavailable',
   'document-replaced',
   'navigation-changed',
+  'observer-timed-out',
+  'background-timed-out',
+  // Legacy compatibility only; current emitters use origin-specific timeout codes.
   'timed-out',
   'target-not-observed',
   'request-init-present',
