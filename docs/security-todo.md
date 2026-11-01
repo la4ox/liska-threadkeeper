@@ -490,3 +490,45 @@ finding open until the reviewed source head is merged, fetched `main` contains
 that head, current-head CI/reviews are clean, and the merged invariant is
 reconciled back to the exact occurrence. Do not treat local tests as authority
 to close the remote record.
+
+## Repository-scan queue after PR 96 — 2026-11-01
+
+PR 96 merged reviewed head `f1266ad` as `dd240ab`; CI, Code Review and Security
+Review are clean, and merge ancestry is verified. The corresponding
+repository-scan image occurrence is still administratively `New`: repository
+findings expose neither the commit version required by the connector close API
+nor a status action in the current detail UI. Keep source remediation and Cloud
+administration distinct; do not launch a duplicate fix or claim closure.
+
+Static triage of the other nine current records against `dd240ab` yields eight
+confirmed queues and one superseded record:
+
+1. ChatGPT opaque-replay page primordials;
+2. provider-DOM trusted-control redress (owned by ITH-009);
+3. quadratic ChatGPT/DeepSeek privacy diagnostics;
+4. recursive nested ChatGPT content normalization;
+5. superlinear Markdown/image processing before the final size gate;
+6. DeepSeek navigation identity mixing;
+7. unbounded build-comparison ZIP extraction/readback;
+8. default-port normalization bypass of the Obsidian minimum-port rule.
+
+The Obsidian response-buffering record is superseded by PR 92's bounded text,
+binary and directory readers. This is static triage only; no runtime exploit or
+new repository scan was performed.
+
+## Linear privacy-diagnostic candidate
+
+Branch `codex/sec-linear-privacy-diagnostics` addresses
+`csf_238ec3b8127a895cabcda3a7` / `occ_0b55bd216944b6ba5eeae57e` at the two
+recorder boundaries. Private WeakMap/Set membership replaces repeated array
+scans while preserving the ordered serialized arrays, exact provider-specific
+dedup keys, first-row messages, repeated sanitation side effects and structural
+tracker literals.
+
+The deterministic pre-fix proof measured 4,032,008 and 16,064,008 historical
+array reads at 2,000 and 4,000 unique keys; the candidate stays within 16 at
+both sizes. Review also covered partial `push` failure after an element was
+retained but before length assignment completed. Five affected suites pass 354
+tests; complete archive JSON hashes, TypeScript, production build, targeted
+lint, formatting and diff checks pass. Publish this as its own PR; close or
+reclassify the Cloud row only after reviewed merge ancestry is established.

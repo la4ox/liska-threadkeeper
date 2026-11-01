@@ -18,6 +18,7 @@ import {
   nullableString,
   normalizeTimestamp,
   optionalTimestamp,
+  recordPrivacyRedaction,
   redactSensitiveUrls,
   sanitizedCitationUrl,
   sanitizeJson,
@@ -36,6 +37,170 @@ type RawRecord = Record<string, unknown>;
 const encoder = new TextEncoder();
 const fetchedAssetBytes = encoder.encode('test');
 const fetchedAssetSha256 = createHash('sha256').update(fetchedAssetBytes).digest('hex');
+
+describe('ChatGPT privacy diagnostic indexing', () => {
+  it.each([2_000, 4_000])('only reads seed rows when recording %i unique keys', count => {
+    const seedCount = 8;
+    let numericIndexReads = 0;
+    const redactions = new Proxy(
+      Array.from({ length: seedCount }, (_, index) => ({
+        code: 'seed-code',
+        message: `seed ${index}`,
+        pointer: `/seed/${index}`,
+      })),
+      {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^(?:0|[1-9]\d*)$/.test(property)) {
+            numericIndexReads += 1;
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      }
+    );
+    const privacy: PrivacyTracker = { redactions };
+
+    for (let index = 0; index < count; index += 1) {
+      recordPrivacyRedaction(privacy, 'added-code', `first ${index}`, `/added/${index}`);
+    }
+    for (let index = count - 1; index >= 0; index -= 1) {
+      recordPrivacyRedaction(privacy, 'added-code', 'duplicate', `/added/${index}`);
+    }
+    recordPrivacyRedaction(privacy, 'seed-code', 'duplicate', '/seed/7');
+
+    expect(numericIndexReads).toBeLessThanOrEqual(seedCount * 2);
+    expect(redactions).toHaveLength(seedCount + count);
+    expect(redactions.at(-1)).toEqual({
+      code: 'added-code',
+      message: `first ${count - 1}`,
+      pointer: `/added/${count - 1}`,
+    });
+  });
+
+  it('preserves first rows, exact code-pointer tuples, insertion order, and tracker shape', () => {
+    const first = { code: 'same-code', message: 'first message', pointer: '/shared' };
+    const privacy: PrivacyTracker = { redactions: [first] };
+    const distinct = [
+      { code: 'other-code', message: 'other code', pointer: '/shared' },
+      { code: 'code|/segment', message: 'pipe in code', pointer: '/tail' },
+      { code: 'code', message: 'pipe in pointer', pointer: '/segment|/tail' },
+      { code: 'code\u0000/segment', message: 'null in code', pointer: '/tail' },
+      { code: 'code', message: 'null in pointer', pointer: '/segment\u0000/tail' },
+      { code: 'code","/segment', message: 'quote in code', pointer: '/tail' },
+      { code: 'code', message: 'quote in pointer', pointer: '/segment","/tail' },
+    ];
+
+    recordPrivacyRedaction(undefined, 'unused', 'unused', '/unused');
+    recordPrivacyRedaction(privacy, first.code, 'later message', first.pointer);
+    for (const row of distinct) {
+      recordPrivacyRedaction(privacy, row.code, row.message, row.pointer);
+      recordPrivacyRedaction(privacy, row.code, 'later message', row.pointer);
+    }
+
+    expect(privacy.redactions).toEqual([first, ...distinct]);
+    expect(privacy.redactions[0]).toBe(first);
+    expect(Reflect.ownKeys(privacy)).toEqual(['redactions']);
+    expect(Reflect.ownKeys(privacy.redactions)).toEqual([
+      ...Array.from({ length: distinct.length + 1 }, (_, index) => String(index)),
+      'length',
+    ]);
+    expect(JSON.stringify(privacy)).toBe(JSON.stringify({ redactions: [first, ...distinct] }));
+  });
+
+  it('isolates independent arrays and lazily seeds replacement and cloned arrays', () => {
+    const privacy: PrivacyTracker = { redactions: [] };
+    const independent: PrivacyTracker = { redactions: [] };
+    recordPrivacyRedaction(privacy, 'code', 'first', '/same');
+    recordPrivacyRedaction(independent, 'code', 'independent', '/same');
+    const original = privacy.redactions;
+    privacy.redactions = [];
+    recordPrivacyRedaction(privacy, 'code', 'replacement', '/same');
+    expect(privacy.redactions).toEqual([
+      { code: 'code', message: 'replacement', pointer: '/same' },
+    ]);
+    privacy.redactions = structuredClone(original);
+    recordPrivacyRedaction(privacy, 'code', 'duplicate', '/same');
+    recordPrivacyRedaction(privacy, 'code', 'new', '/new');
+    recordPrivacyRedaction({ redactions: original }, 'code', 'shared duplicate', '/same');
+
+    expect(original).toEqual([{ code: 'code', message: 'first', pointer: '/same' }]);
+    expect(independent.redactions).toEqual([
+      { code: 'code', message: 'independent', pointer: '/same' },
+    ]);
+    expect(privacy.redactions).toEqual([
+      ...original,
+      { code: 'code', message: 'new', pointer: '/new' },
+    ]);
+  });
+
+  it.each(['0', 'length'])('reconciles a failed append at property %s', failedProperty => {
+    let rejectAppend = true;
+    const appendError = new Error('synthetic append failure');
+    const privacy: PrivacyTracker = {
+      redactions: new Proxy([], {
+        set(target, property, value, receiver) {
+          if (property === failedProperty && rejectAppend) {
+            rejectAppend = false;
+            throw appendError;
+          }
+          return Reflect.set(target, property, value, receiver);
+        },
+      }),
+    };
+
+    let caught: unknown;
+    try {
+      recordPrivacyRedaction(privacy, 'code', 'first', '/same');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(appendError);
+    const retained = privacy.redactions[0];
+    expect(privacy.redactions).toEqual(
+      failedProperty === '0' ? [] : [{ code: 'code', message: 'first', pointer: '/same' }]
+    );
+    recordPrivacyRedaction(privacy, 'code', 'retry', '/same');
+    expect(privacy.redactions).toEqual([
+      { code: 'code', message: failedProperty === '0' ? 'retry' : 'first', pointer: '/same' },
+    ]);
+    if (failedProperty === 'length') expect(privacy.redactions[0]).toBe(retained);
+  });
+
+  it('still sanitizes duplicate values and marks each result as redacted', () => {
+    const privacy: PrivacyTracker = { redactions: [] };
+    for (let index = 0; index < 2; index += 1) {
+      expect(sanitizeJson({ api_key: 'synthetic-secret' }, privacy, '/object')).toEqual({
+        value: { _liskaRedactedSensitiveValue: true },
+        redacted: true,
+        truncated: false,
+      });
+      expect(
+        sanitizeJson('https://example.invalid/?token=synthetic-secret', privacy, '/url')
+      ).toEqual({
+        value: {
+          value: '[redacted-sensitive-url]',
+          _liskaTruncated: false,
+          _liskaRedactedSensitiveValue: true,
+        },
+        redacted: true,
+        truncated: false,
+      });
+    }
+    expect(privacy.redactions).toHaveLength(2);
+  });
+
+  it('preserves the public archive serialization of a legitimate redacted capture', async () => {
+    const raw = rawWithParts(['See https://example.invalid/?token=synthetic-secret']);
+    raw.gizmo_id = 'synthetic-gizmo';
+    rootMessage(raw).metadata = { api_key: 'synthetic-secret', retained: true };
+    const { archive } = await normalizeRaw(raw);
+
+    // Pin the complete public JSON bytes from the pre-indexing implementation.
+    expect(createHash('sha256').update(JSON.stringify(archive)).digest('hex')).toBe(
+      '3d220afc50a2f3d29f426fcfbf06006246f6209683578de96073e5b0b6c72c21'
+    );
+    expect(validateLiskaThreadArchive(archive)).toEqual({ valid: true, issues: [] });
+  });
+});
 
 function sha256(bytes: Uint8Array): Promise<string> {
   return Promise.resolve(createHash('sha256').update(bytes).digest('hex'));
