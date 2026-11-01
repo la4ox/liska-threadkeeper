@@ -1,0 +1,38 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #e6edf5;
+  background: #121820;
+}
+main {
+  max-width: 1100px;
+  margin: 2rem auto;
+  padding: 1rem;
+}
+button {
+  padding: 0.7rem 1rem;
+  font: inherit;
+  cursor: pointer;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+td,
+th {
+  border: 1px solid #6d7d90;
+  padding: 0.5rem;
+  text-align: left;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+[data-status='PASS'] {
+  color: #8ee6b3;
+}
+[data-status='FAIL'] {
+  color: #ff9b9b;
+}
+[data-status='INCONCLUSIVE'] {
+  color: #ffe09a;
+}

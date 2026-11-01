@@ -532,9 +532,32 @@ terminal states, and the existing no-credential-export boundary.
   their conversation JSON at the export root. The unpacked JSON/shard picker
   remains the primary archive path; ZIP is additive pre-extraction convenience,
   not a second reader or source of truth.
-- ZIP UI/File range-source wiring, installed-browser DEFLATE acceptance,
-  automatic directory discovery, external binary association, archive merge
-  and snapshot deduplication remain separate explicit slices.
+- Implemented candidate: one explicitly selected browser `File` can become an
+  anonymous frozen ZIP range source through captured native Blob/File
+  operations. Exact safe ranges, the existing archive ceiling, independently
+  owned bytes, prompt abort and fixed content-free failures are covered without
+  using filename, MIME, path, timestamp, network, extraction or whole-file
+  buffering as authority.
+- A separate opt-in MV3 acceptance extension and independent generator now
+  produce eight deterministic ZIP32 cases for exact legacy/sharded layouts,
+  STORE, malformed raw DEFLATE, a 1 MiB trailing boundary and a large
+  backpressure/cancellation workload. Its manifest has zero permissions/hosts
+  and no network/background/content-script authority. Normal production build
+  and packaged ZIP contain no harness, fixture index or test marker.
+- Installed-Comet File-picker/native-runtime synthetic acceptance is complete
+  on 2026-11-01: one clean visible zero-permission harness run returned overall
+  `PASS` for all eight cases, ranges/owned buffers, raw DEFLATE negatives,
+  paused-consumer backpressure, active/delayed abort and responsiveness. The
+  measured phase took 1,341.5 ms; all eight postflight hashes stayed unchanged,
+  and independent verification matched every fixture length/full SHA-256.
+  Exact metrics and the index hash are in ADR-046. An earlier hidden-tab run
+  remains `INCONCLUSIVE`, not evidence or a runtime failure.
+- Production ZIP UI/delivery and separately authorized private official-export
+  acceptance remain open. The synthetic pass proves only this exact installed
+  Comet picker/native workload, not a private export, archive authenticity or
+  completeness, total browser memory or OS read cancellation. Automatic
+  directory discovery, external binary association, archive merge and snapshot
+  deduplication also remain separate explicit slices.
 
 ### 9. Adjacent provider: Dots chat export
 
