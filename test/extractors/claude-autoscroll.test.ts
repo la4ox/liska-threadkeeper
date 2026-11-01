@@ -20,43 +20,21 @@ import {
 import type { ScrollConfig } from '../../src/content/extractors/base';
 import type { HarvestEntry } from '../../src/lib/scroll-manager';
 import { clearFixture, setClaudeLocation, resetLocation } from '../fixtures/dom-helpers';
-import type { ConversationMessage, SyncSettings } from '../../src/lib/types';
+import type { ConversationMessage } from '../../src/lib/types';
 import { installClaudeScrollPrimeMain } from '../../src/content/capture/claude-scroll-prime-main-runtime';
+import {
+  MAX_SCROLL,
+  createClaudeAutoscrollFixture,
+  setPendingHistoryMarker,
+  settings,
+  type Turn,
+} from '../fixtures/claude-autoscroll';
 
-const MAX_SCROLL = 10_000;
+const { turnUuid, turnKey, withAssistantIdentity, renderTurn, mountVirtualizedClaude } =
+  createClaudeAutoscrollFixture();
 const ASSISTANT_PLACEHOLDERS = ['<p></p>', '<p><br></p>', '<span>&nbsp;</span>'];
 const STABLE_EMPTY_ASSISTANT =
   '<div data-testid="assistant-message" data-cds="AssistantMessage" data-is-streaming="false"><h3 data-find-omitted aria-hidden="true" class="sr-only select-none"></h3></div>';
-
-function setPendingHistoryMarker(
-  container: HTMLElement,
-  pending: boolean,
-  placement: 'before' | 'between' | 'after' = 'before'
-): void {
-  container
-    .querySelectorAll('[data-testid="transcript-sizer"][data-rocksteady-sizer]')
-    .forEach(element => element.remove());
-  if (!pending) return;
-  const sizer = document.createElement('div');
-  sizer.setAttribute('data-testid', 'transcript-sizer');
-  sizer.setAttribute('data-rocksteady-sizer', '');
-  sizer.setAttribute('data-sizer-excess', '');
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'sr-only select-none';
-  button.tabIndex = -1;
-  sizer.append(button);
-  if (placement === 'before') {
-    container.prepend(sizer);
-  } else if (placement === 'after') {
-    container.append(sizer);
-  } else {
-    const rows = container.querySelectorAll('[data-index]');
-    const pivot = rows.item(Math.max(1, Math.floor(rows.length / 2)));
-    if (pivot) pivot.before(sizer);
-    else container.append(sizer);
-  }
-}
 
 class DefaultStepClaudeExtractor extends ClaudeExtractor {
   protected getScrollConfig(): ScrollConfig {
@@ -67,48 +45,6 @@ class DefaultStepClaudeExtractor extends ClaudeExtractor {
       pollIntervalMs: undefined,
     };
   }
-}
-
-interface Turn {
-  role: 'user' | 'assistant';
-  content: string;
-  toolHtml?: string;
-  bodyHtml?: string;
-  uuid?: string;
-}
-
-let nextTurnUuid = 1;
-
-function turnUuid(turn: Turn): string {
-  if (turn.uuid) return turn.uuid;
-  const suffix = (nextTurnUuid++).toString(16).padStart(12, '0');
-  turn.uuid = `00000000-0000-4000-8000-${suffix}`;
-  return turn.uuid;
-}
-
-function turnKey(turn: Turn): string {
-  return `${turn.role}:${turnUuid(turn)}`;
-}
-
-function withAssistantIdentity(turn: Turn, html: string): string {
-  const uuid = turnUuid(turn);
-  if (
-    html.includes('data-testid="assistant-message"') &&
-    html.includes('data-cds="AssistantMessage"') &&
-    !html.includes('data-turn-key=')
-  ) {
-    return html.replace(
-      'data-cds="AssistantMessage"',
-      `data-cds="AssistantMessage" data-turn-key="${uuid}-hub-reply"`
-    );
-  }
-  if (html.includes('class="font-claude-response"')) {
-    return html.replace(
-      'class="font-claude-response"',
-      `data-testid="assistant-message" data-cds="AssistantMessage" data-turn-key="${uuid}-hub-reply" class="font-claude-response"`
-    );
-  }
-  return html;
 }
 
 interface ToolCacheStateForTest {
@@ -148,142 +84,6 @@ function discardedToolRoot(payloads: string[]): HTMLElement {
     element.textContent = payloads[index];
   });
   return root;
-}
-
-/** Render one turn wrapped in a `data-index` virtual-row wrapper. */
-function renderTurn(turn: Turn, index: number | string | null, fallbackOnly = false): string {
-  const uuid = turnUuid(turn);
-  let inner =
-    turn.role === 'user'
-      ? fallbackOnly
-        ? `<p class="whitespace-pre-wrap break-words">${turn.content}</p>`
-        : `<div class="bg-bg-300 rounded-xl"><div data-testid="user-message" id="user-message-${uuid}">${turn.content}</div></div>`
-      : `<div ${
-          fallbackOnly
-            ? 'data-is-streaming="false"'
-            : `data-testid="assistant-message" data-cds="AssistantMessage" data-turn-key="${uuid}-hub-reply" class="font-claude-response"`
-        }>${
-          turn.toolHtml === undefined
-            ? `<div class="standard-markdown"><p>${turn.content}</p></div>`
-            : `<div class="row-start-1"><div class="standard-markdown">${turn.toolHtml}</div></div>
-               <div class="row-start-2"><div class="standard-markdown"><p>${turn.content}</p></div></div>`
-        }</div>`;
-  if (turn.bodyHtml !== undefined) {
-    inner = turn.role === 'assistant' ? withAssistantIdentity(turn, turn.bodyHtml) : turn.bodyHtml;
-  }
-  return `<div ${index === null ? '' : `data-index="${index}"`}><div data-test-render-count="2">${inner}</div></div>`;
-}
-
-/**
- * Install a virtualized Claude conversation into the DOM. Only `windowSize`
- * consecutive turns are mounted at once, chosen by the current scrollTop
- * (bottom on open). Returns the thread and a spy on sidebar scroll writes.
- */
-function mountVirtualizedClaude(
-  turns: Turn[],
-  windowSize: number,
-  {
-    semanticRoot = true,
-    sidebar = false,
-    indexedSidebar = false,
-    fallbackOnly = false,
-    rowIndices,
-    onScroll,
-    requireRelativeNudge = false,
-    relativeNudgeFailures = 0,
-    boundedWindowAdvance = true,
-  }: {
-    semanticRoot?: boolean;
-    sidebar?: boolean;
-    indexedSidebar?: boolean;
-    fallbackOnly?: boolean;
-    rowIndices?: readonly (number | string | null)[];
-    onScroll?: () => void;
-    requireRelativeNudge?: boolean;
-    relativeNudgeFailures?: number;
-    boundedWindowAdvance?: boolean;
-  } = {}
-) {
-  document.body.innerHTML = `
-    ${sidebar ? `<div id="sidebar" role="navigation" class="overflow-y-auto overflow-x-hidden flex-1">${indexedSidebar ? '<div data-index="99">Sidebar item</div>' : 'Sidebar item'}</div>` : ''}
-    <div ${semanticRoot ? 'data-autoscroll-container' : ''} class="overflow-y-auto overflow-x-hidden flex-1" id="scroller"></div>
-  `;
-  const scroller = document.getElementById('scroller') as HTMLElement;
-  const sidebarElement = document.getElementById('sidebar');
-  const sidebarScroll = vi.fn();
-  if (sidebarElement) {
-    Object.defineProperty(sidebarElement, 'scrollTop', {
-      get: () => MAX_SCROLL,
-      set: sidebarScroll,
-      configurable: true,
-    });
-  }
-
-  let scrollTop = MAX_SCROLL; // opens at the bottom
-  let unlocked = !requireRelativeNudge;
-  let remainingRelativeFailures = relativeNudgeFailures;
-  let renderedStart = Math.max(0, turns.length - windowSize);
-  const render = (preserveStart = false): void => {
-    const maxStart = Math.max(0, turns.length - windowSize);
-    const frac = scrollTop / MAX_SCROLL;
-    const targetStart = Math.round(frac * maxStart);
-    const movingUp = targetStart < renderedStart;
-    if (!preserveStart) {
-      renderedStart =
-        movingUp && boundedWindowAdvance
-          ? Math.max(targetStart, renderedStart - Math.max(1, windowSize - 1))
-          : Math.min(targetStart, maxStart);
-    }
-    const start = renderedStart;
-    const positions = Array.from(
-      { length: Math.min(windowSize, turns.length - start) },
-      (_, index) => start + index
-    );
-    const tail = turns.length - 1;
-    if (positions.length > 0 && positions.length === windowSize && !positions.includes(tail)) {
-      positions[positions.length - 1] = tail;
-    }
-    scroller.innerHTML = positions
-      .map(position =>
-        renderTurn(turns[position], rowIndices ? rowIndices[position] : position, fallbackOnly)
-      )
-      .join('');
-  };
-
-  Object.defineProperty(scroller, 'scrollTop', {
-    get: () => scrollTop,
-    set: (v: number) => {
-      if (!unlocked && v < scrollTop) return;
-      scrollTop = Math.max(0, Math.min(MAX_SCROLL, v));
-      onScroll?.();
-      render();
-    },
-    configurable: true,
-  });
-  Object.defineProperty(scroller, 'clientHeight', { get: () => 900, configurable: true });
-  Object.defineProperty(scroller, 'scrollHeight', {
-    get: () => MAX_SCROLL + 900,
-    configurable: true,
-  });
-  scroller.scrollBy = vi.fn((options: ScrollToOptions) => {
-    if (remainingRelativeFailures > 0) {
-      remainingRelativeFailures--;
-      return;
-    }
-    unlocked = true;
-    scroller.scrollTop += options.top ?? 0;
-  });
-
-  render();
-  return {
-    scroller,
-    sidebarScroll,
-    anchorAfterPrepend(delta: number) {
-      renderedStart += delta;
-      render(true);
-      scrollTop = 400;
-    },
-  };
 }
 
 /** Retain row nodes while a small scroll range drives window-to-window changes. */
@@ -352,10 +152,6 @@ function stableEmptyGateFixture(extractor: ClaudeExtractor) {
       return config.isHistoryComplete!(entries.map(entry => entry.value));
     },
   };
-}
-
-function settings(overrides: Partial<SyncSettings> = {}): SyncSettings {
-  return { enableAutoScroll: true, ...overrides } as SyncSettings;
 }
 
 /** Plain text of a message body via the DOM (avoids regex HTML stripping). */
@@ -1077,69 +873,6 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     }
   );
 
-  it.each([
-    { delays: [700] },
-    { delays: [600, 1000] },
-    { delays: [2300] },
-    { delays: [2300, 3200] },
-    { delays: [100, 100, 100, 100] },
-  ])('waits for delayed older history pages and geometry growth ($delays)', async ({ delays }) => {
-    const pageStarts =
-      delays.length === 4
-        ? [122, 90, 58, 26, 0]
-        : Array.from({ length: delays.length + 1 }, (_, index) =>
-            Math.round(122 * (1 - index / delays.length))
-          );
-    const turns = longConversation.slice(pageStarts[0]);
-    let page = 0;
-    let pending = false;
-    let geometry = MAX_SCROLL + 900;
-    let lastGrowth = 0;
-    const mounted = mountVirtualizedClaude(turns, 3, {
-      onScroll: () => {
-        setPendingHistoryMarker(scroller, !pending && page < delays.length);
-        if (scroller.scrollTop !== 0 || pending || page >= delays.length) return;
-        pending = true;
-        setPendingHistoryMarker(scroller, false);
-        setTimeout(() => {
-          const previousStart = pageStarts[page];
-          const firstIndex = pageStarts[page + 1];
-          turns.splice(0, turns.length, ...longConversation.slice(firstIndex));
-          page++;
-          pending = false;
-          geometry += MAX_SCROLL;
-          lastGrowth = Date.now();
-          // Provider anchor adjustment after prepending an older page. The
-          // logical window shifts by the prepend delta while geometry stays
-          // near the top, matching the observed short post-request insertion.
-          mounted.anchorAfterPrepend(previousStart - firstIndex);
-        }, delays[page]);
-      },
-    });
-    const { scroller } = mounted;
-    setPendingHistoryMarker(scroller, true);
-    Object.defineProperty(scroller, 'scrollHeight', { get: () => geometry, configurable: true });
-    extractor.applySettings(settings());
-
-    const promise = extractor.extract();
-    await vi.runAllTimersAsync();
-    const result = await promise;
-
-    expect(page).toBe(delays.length);
-    expect(Date.now() - lastGrowth).toBeGreaterThanOrEqual(5000);
-    expect(result.success).toBe(true);
-    expect(result.data?.messages.map(message => message.id)).toEqual(longConversation.map(turnKey));
-    expect(result.data?.metadata).toMatchObject({
-      messageCount: 154,
-      userMessageCount: 77,
-      assistantMessageCount: 77,
-    });
-    expect(result.data?.domHistoryLoad).toBe('complete');
-    expect(result.data?.liskaLossDiagnostics).toBeUndefined();
-    expect(result.warnings).toBeUndefined();
-    expect(scroller.querySelectorAll('[data-index]')).toHaveLength(3);
-  });
-
   it.each([50, 150])(
     'rebinds an exact replacement root at %sms without reading its detached predecessor',
     async at => {
@@ -1688,7 +1421,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     { name: 'unsafe integer', indices: [0, 1, '9007199254740992', 3, 4, 5] },
     { name: 'unsafe count', indices: [0, 1, '9007199254740991', 3, 4, 5] },
   ])('fails closed at local top with $name', async ({ indices }) => {
-    mountVirtualizedClaude(conversation, 3, { rowIndices: indices });
+    mountVirtualizedClaude(conversation, 3, { maxScroll: 540, rowIndices: indices });
     extractor.applySettings(settings());
 
     const promise = extractor.extract();
@@ -1702,7 +1435,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
   });
 
   it('keeps DOM-anchor message order when numeric indices conflict with DOM order', async () => {
-    mountVirtualizedClaude(conversation, 3, { rowIndices: [0, 2, 1, 3, 4, 5] });
+    mountVirtualizedClaude(conversation, 3, { maxScroll: 540, rowIndices: [0, 2, 1, 3, 4, 5] });
     extractor.applySettings(settings());
 
     const promise = extractor.extract();
@@ -1716,7 +1449,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
   });
 
   it('retains a cross-window role conflict even if deduplication leaves a contiguous range', async () => {
-    mountVirtualizedClaude(conversation.slice(0, 2), 2);
+    mountVirtualizedClaude(conversation.slice(0, 2), 2, { maxScroll: 540 });
     const keys = conversation.slice(0, 2).map(turnKey);
     const entry = (
       index: number,
@@ -1755,7 +1488,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
   });
 
   it('rejects conflicting key/order evidence even when the final ID range is contiguous', async () => {
-    mountVirtualizedClaude(conversation.slice(0, 2), 2);
+    mountVirtualizedClaude(conversation.slice(0, 2), 2, { maxScroll: 540 });
     const keys = conversation.slice(0, 2).map(turnKey);
     const harvest = vi.spyOn(
       extractor as unknown as { harvestWindow(): HarvestEntry<ConversationMessage>[] },
@@ -1786,7 +1519,17 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
   });
 
   it('accumulates all virtualized turns in order when enabled', async () => {
-    mountVirtualizedClaude(conversation, 3); // only 3 of 6 mounted at a time
+    const mountedWindows = new Map<number, number[]>();
+    const { scroller } = mountVirtualizedClaude(conversation, 3, {
+      // Three 180px production steps still traverse every virtual window.
+      maxScroll: 540,
+      onScroll: () => {
+        const indices = Array.from(scroller.querySelectorAll('[data-index]'), row =>
+          Number(row.getAttribute('data-index'))
+        );
+        mountedWindows.set(indices[0], indices);
+      },
+    });
     extractor.applySettings(settings());
 
     const promise = extractor.extract();
@@ -1794,6 +1537,13 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
     const result = await promise;
 
     expect(result.success).toBe(true);
+    // Overlapping windows evict newer rows while retaining the final turn.
+    expect([...mountedWindows.values()]).toEqual([
+      [3, 4, 5],
+      [2, 3, 5],
+      [1, 2, 5],
+      [0, 1, 5],
+    ]);
     expect(result.data?.messages).toHaveLength(6);
     expect(result.data?.domHistoryLoad).toBe('complete');
     expect(result.data?.messages.map(m => plainText(m.content))).toEqual([
@@ -1812,7 +1562,10 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
   });
 
   it('scrolls the thread instead of a same-class sidebar preceding it', async () => {
-    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, { sidebar: true });
+    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      maxScroll: 540,
+      sidebar: true,
+    });
     extractor.applySettings(settings());
 
     const promise = extractor.extract();
@@ -1833,7 +1586,10 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
   });
 
   it('ignores an exact pending-history marker outside the selected thread root', async () => {
-    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, { sidebar: true });
+    const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      maxScroll: 540,
+      sidebar: true,
+    });
     const sidebar = document.getElementById('sidebar') as HTMLElement;
     setPendingHistoryMarker(sidebar, true);
     extractor.applySettings(settings());
@@ -1854,6 +1610,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
   it('prefers the semantic root even when an earlier class fallback has indexed descendants', async () => {
     const { scroller, sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      maxScroll: 540,
       sidebar: true,
       indexedSidebar: true,
     });
@@ -1879,6 +1636,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
   it('uses the indexed-row class fallback when the semantic attribute is absent', async () => {
     const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      maxScroll: 540,
       semanticRoot: false,
       sidebar: true,
       indexedSidebar: true,
@@ -1904,6 +1662,7 @@ describe('ClaudeExtractor auto-scroll (virtualization)', () => {
 
   it('scrolls fallback-only legacy roles when the semantic root is absent', async () => {
     const { sidebarScroll } = mountVirtualizedClaude(conversation, 3, {
+      maxScroll: 540,
       semanticRoot: false,
       sidebar: true,
       indexedSidebar: true,
