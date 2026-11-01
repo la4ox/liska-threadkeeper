@@ -7,7 +7,7 @@ thread_id: ITH-008
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-10-31
+last_turn: 2026-11-01
 ---
 
 # ITH-008 — Dots evidence before provider adaptation
@@ -46,10 +46,10 @@ discards provider values. It cannot write an archive, Obsidian note, Clipboard
 payload or setting.
 
 Installed runs proved marker cleanup and fixed refusals, but no committed live
-schema projection exists. The most recent stable run returned one ambiguous
-`timed-out` code that could have originated in either the MAIN observer or the
-background polling loop. It therefore established neither request admission
-nor response shape.
+schema projection exists. The latest stable run at that checkpoint returned one
+ambiguous `timed-out` code that could have originated in either the MAIN observer
+or the background polling loop. It therefore established neither request
+admission nor response shape.
 
 ### E3 — Synthetic contracts do not establish the live provider schema
 
@@ -58,6 +58,26 @@ validation, cleanup and privacy properties against synthetic page shapes. They
 do not establish active-room identity, pagination, message/event families,
 ordering, edits, branches, attachments or history completeness in the live
 provider.
+
+### E4 — One installed origin-specific canary exhausted background polling
+
+One separately authorized trusted popup operation ran on 2026-11-01 from the
+exact selected `/dots/{dot~room}` tab with the verified installed candidate.
+The popup returned exactly `background-timed-out`; the nonce fragment was absent
+afterward and no top-level Dots/schema diagnostic file appeared. The code
+returned before diagnostic download, so this is not a download-failure receipt.
+The installed-build and rollback safe aggregate is retained in S6. No retry was
+made.
+
+The result establishes popup/background messaging, selected-route and nonce
+admission, and completion of marker-update/reload promises. Background accepted
+no terminal MAIN state before its polling deadline. `observer-timed-out` would
+instead require background to accept the MAIN hard-deadline error. Hook arming,
+MAIN execution, endpoint admission, transport kind, a room response,
+RequestInit/URL-object/XHR classification and schema capture remain unproven.
+Whether background ever accepted ready or pinned a document also remains
+unknown. This negative result justifies no retry or code, timer, admission,
+permission or sink change.
 
 ### X1 — Keep Dots on generic ChatGPT or rendered-DOM fallback
 
@@ -99,14 +119,18 @@ remain outside scope.
 
 Evidence: E1, E2, E3
 
-### T1 — Run one origin-specific schema canary
+### T1 — The one origin-specific schema canary is spent with negative evidence
 
-Use one already selected eligible Dots tab and one trusted popup action. Retain
-only the fixed terminal code or the existing bounded schema projection, verify
-marker cleanup and do not retry merely to force success.
+The original trigger authorized one already-selected eligible Dots tab and one
+trusted popup action after review, tests, installed-build verification and
+separate live authorization. E4 consumes that trigger with
+`background-timed-out`, marker cleanup and no schema file. Do not repeat an
+unchanged canary merely to force success or terminal MAIN classification.
 
-Trigger: the timeout-origin candidate passes focused/full tests, review and an
-installed-build check, followed by separate explicit live authorization.
+Trigger: only separate explicit authorization for further work. The useful next
+bounded value-free diagnostic is whether background ever accepted ready and
+pinned a document; E4 alone does not authorize implementation, another live run
+or any timer/admission/permission/sink change.
 
 ### T2 — Define the conversation-scoped raw boundary
 
@@ -134,11 +158,12 @@ are evidenced and reviewed, followed by one ordinary live current-room canary.
 - [evidence] E1: host-only routing produced repeatable but partial ten-message Dots notes without archives #live
 - [evidence] E2: the bounded schema probe established a narrow privacy boundary but no live schema contract #live
 - [evidence] E3: synthetic lifecycle and privacy tests do not establish the provider's live message model #synthetic
+- [evidence] E4: one installed canary returned background-timed-out without an accepted terminal MAIN state or schema evidence #live
 - [rejected] X1: generic ChatGPT or rendered-DOM fallback cannot own Dots identity or completeness
 - [rejected] X2: route names alone do not authorize raw body capture or replay
 - [decision] D1: distinguish observer and background deadline origins before another live canary
 - [decision] D2: keep Dots as a raw-first separate provider behind explicit evidence gates
-- [tail] T1: run one reviewed origin-specific schema canary without automatic retry
+- [tail] T1: the authorized canary is spent; separately authorize a bounded ready/document-pinning diagnostic before further work
 - [tail] T2: define a narrow conversation-scoped raw boundary from successful schema evidence
 - [tail] T3: implement append-only Dots export only after identity, pagination and loss contracts are proven
 
@@ -156,3 +181,4 @@ are evidenced and reviewed, followed by one ordinary live current-room canary.
 - S3 — [ADR-023: Multi-host platform registry](../adr/023-multi-host-platform-registry.md)
 - S4 — tests `test/content/dots-schema-document-start.test.ts`, `test/background/dots-schema-probe.test.ts`, `test/lib/dots-schema-probe-contract.test.ts`
 - S5 — [PR #69: bounded Dots transport schema probe](https://github.com/la4ox/liska-threadkeeper/pull/69)
+- S6 — [Installed timeout-origin canary, 2026-11-01](../../STATUS.md#dots-timeout-origin-installed-canary-2026-11-01); safe aggregate: 44 files / 1,223,153 bytes, identical source/installed aggregate SHA-256 and installed manifest SHA-256 recorded at the checkpoint, rollback leaf retained; one `background-timed-out` result, nonce absent and no top-level diagnostic file. Local paths and provider values are omitted.

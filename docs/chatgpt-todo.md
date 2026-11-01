@@ -592,17 +592,36 @@ terminal states, and the existing no-credential-export boundary.
   nonce fragment and no diagnostic download; no retry was made. MAIN versus
   background timeout origin is unresolved, so this does not classify
   RequestInit, URL-object or XHR and does not authorize widening admission or
-  repeating the current probe merely to force a terminal classification. Any
-  further live run requires a separate explicit decision and a diagnostic that
-  first distinguishes the two deadline sources.
+  repeating the current probe merely to force a terminal classification. That
+  result required a separate explicit live decision and a diagnostic that first
+  distinguishes the two deadline sources.
 - Diagnostic candidate `codex/dots-timeout-origin` now assigns
   `observer-timed-out` only to the existing MAIN hard deadline and
   `background-timed-out` only to background polling exhaustion. The legacy
   generic code remains accepted for mixed-version compatibility but is no
   longer emitted by either current path. Request admission, 15/20/25-second
   timing, cleanup, document pinning, projection shape and sink authority are
-  unchanged. This makes one later reviewed installed canary interpretable; it
-  does not itself establish Dots transport or authorize a raw adapter.
+  unchanged. The installed result below tests this distinction; the code change
+  alone does not establish Dots transport or authorize a raw adapter.
+- One separately authorized installed canary on 2026-11-01 used the exact
+  selected `/dots/{dot~room}` tab and returned exactly `background-timed-out`.
+  The nonce fragment was absent afterward; no top-level Dots/schema diagnostic
+  file appeared, and the code returned before diagnostic download. The installed
+  build and rollback safe aggregate are recorded in the
+  [dated checkpoint](../STATUS.md#dots-timeout-origin-installed-canary-2026-11-01).
+  No retry was made.
+- This proves popup/background messaging, selected-route/nonce admission and
+  completion of marker-update/reload promises, but background accepted no
+  terminal MAIN state before polling expired. It does not prove hook arming,
+  MAIN execution, endpoint admission, transport kind, a room response,
+  RequestInit/URL-object/XHR classification, schema capture or download failure.
+  `observer-timed-out` would instead require background to accept the MAIN
+  hard-deadline error; ready acceptance and document pinning remain unknown here.
+- The one-canary trigger is spent with negative schema evidence. No retry or
+  code/timer/admission/permission/sink change is justified. If separately
+  authorized, investigate only whether background ever accepted ready and
+  pinned a document through a bounded value-free diagnostic, not another
+  unchanged canary.
 - Keep the MAIN observer import-free and the serialized page-state reader in
   `lib`; background-to-content imports violate the repository layering gate.
   Current full coverage is 95.04% with the unchanged 95% statement threshold.

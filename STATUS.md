@@ -3985,3 +3985,34 @@ skipped in 122.07 seconds. Combined unique current-input evidence therefore
 covers all 245 files / 8,871 tests with three skips, while deliberately avoiding
 a false single-run claim for the resource-heavy autoscroll file. Repository CI
 remains the independent current-head single-run gate.
+
+## Dots timeout-origin installed canary 2026-11-01
+
+One separately authorized trusted popup canary ran on 2026-11-01 from the
+already-selected exact `/dots/{dot~room}` tab. The installed candidate contains
+44 files / 1,223,153 bytes; source and installed aggregate SHA-256 are identical:
+`fa8e4da267d792aac112c9d05affa004f2094ff0b06caf629ee663870113e156`.
+The installed manifest SHA-256 is
+`b556fa5df4243344f52385ec6adb9c85030425d3568749364b0837eb51f15289`.
+The rollback leaf exists; local absolute paths are intentionally omitted.
+
+The popup returned exactly `background-timed-out`. The nonce fragment was absent
+afterward, and no top-level Dots/schema diagnostic file appeared. The code path
+returned before diagnostic download, so the absent file is not evidence of a
+download failure. No retry was made.
+
+This establishes popup/background messaging, selected-route and nonce admission,
+and completion of the marker-update and reload promises. Background accepted no
+terminal MAIN state before its polling deadline. Unlike `observer-timed-out`,
+this does not establish acceptance of a MAIN hard-deadline error. It proves
+neither hook arming nor MAIN execution, endpoint admission, transport kind, a
+room response, RequestInit/URL-object/XHR classification or schema capture. It
+also does not establish whether background ever accepted ready or pinned a
+document.
+
+This consumes the one authorized origin-specific canary with negative schema
+evidence. No retry, code, timer, admission, permission or sink change is justified
+by this result. If further work is separately authorized, the useful next bounded
+value-free diagnostic is whether background ever accepted ready and pinned a
+document, not another unchanged canary. Dots transport and raw-adapter authority
+remain unproven; ITH-008 records this boundary as E4 and the spent T1 trigger.
