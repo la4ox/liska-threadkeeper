@@ -259,8 +259,8 @@ terminal states, and the existing no-credential-export boundary.
   DTD/entity, VBA and XLM packages, but does not render/calculate cells, inspect
   worksheet semantics, verify every unrelated payload CRC or certify safety.
   Legacy interpreter/passive XLSX remains unchanged when the profile is absent.
-- Installed acceptance remains open. After the normal-mode wiring fix and one
-  successful page load, one trusted export selected the single XLSX candidate
+- The first normal-mode installed canary did not close acceptance. After the
+  wiring fix and one successful page load, one trusted export selected the single XLSX candidate
   and preserved complete raw/manifest/canonical companions in File and Obsidian
   with byte-identical archive hashes. The resolver stopped before helper
   dispatch with legacy `source-http-error`; XLSX stayed `not-attempted` with
@@ -268,23 +268,34 @@ terminal states, and the existing no-credential-export boundary.
 - The diagnostic candidate now distinguishes actual source response classes as
   `source-http-4xx`, `source-http-5xx`, or `source-http-other`, and maps source
   observation processing failure to `source-response-processing-rejected`.
-  Exact status and exception details remain excluded; the generic code is
-  accepted only for mixed-version cleanup. Do not change transport or claim
-  XLSX support until this split is reviewed, installed and one trusted export
-  either identifies the source failure class or proves a single 12,101-byte
-  validated acquisition, exact File/Obsidian receipts, no durable signed
-  URL/provider identity, and unchanged sibling asset states.
+  Apart from the separately approved local 400–499 source-status diagnostic,
+  exact status and exception details remain excluded; the generic code is
+  accepted only for mixed-version cleanup. These diagnostics do not authorize
+  transport changes or constitute XLSX support.
 - The exact reviewed attribution build was installed and exercised once. It
   returned `source-http-4xx` before helper dispatch; the XLSX again remained
   `not-attempted` with null binary fields, both raw/manifest/canonical archive
   sets matched across File and Obsidian, and no retry or binary occurred. This
   proves only a client-error-class response on the separate temporary source
   request, not authentication, absence, expiry or rate limiting.
-- Stop transport changes here. The only remaining diagnostic is an explicitly
-  approved local integer status constrained to 400–499 and one final canary,
-  with no URL/header/body/credential value, new request, retry or timing change.
-  Without that approval keep PR #89 draft and unaccepted; even an exact status
-  would diagnose the source gate rather than constitute XLSX support.
+- The final explicitly approved installed canary completed on 2026-11-01. One
+  ordinary direct XLSX was selected, the source gate passed with HTTP 200 JSON,
+  and one known helper dispatch completed. The provider envelope was
+  `provider-status-other`, with no accepted download candidate, binary
+  acquisition, expected-length check or OOXML validation. The local exact-status
+  diagnostic did not fire because the source did not fail with 4xx.
+- The final manifest records `failed` with `attemptedAt` present and exact XLSX
+  MIME retained as identity metadata, but null path/byte length/SHA-256. File
+  and Obsidian raw (13,118,031 bytes), manifest (17,248 bytes) and canonical
+  (29,340,883 bytes) companions are byte-identical, with exact hashes in
+  `STATUS.md`. File also saved HTML (8,116,627 bytes) and its receipt. Both
+  Markdown notes saved but differ by the configured presentation transform;
+  no Markdown byte-identity claim is made. Neither capture contains an XLSX
+  binary and no retry occurred.
+- The final canary approval is spent. Ordinary XLSX remains implemented but
+  live-unaccepted and PR #89 remains draft. Stop this slice without another
+  canary, code change, retry or transport redesign. A finer provider-envelope
+  diagnostic is a separate future decision, not an authorized next step here.
 
 ### 7. User-facing derived outputs
 

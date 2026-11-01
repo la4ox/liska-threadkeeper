@@ -179,7 +179,8 @@ an isolation guarantee.
 Source validation exposes only finite fixed codes. A real non-200 source status
 is classified as `source-http-4xx`, `source-http-5xx`, or
 `source-http-other`; status/header/media or observation-Promise processing
-failure is `source-response-processing-rejected`. Exact status, status text,
+failure is `source-response-processing-rejected`. Apart from the explicitly
+approved local 400–499 source-status diagnostic, exact status, status text,
 exception, URL, header and body values remain unrepresentable. The earlier
 ambiguous `source-http-error` stays accepted only so a coherent new background
 can clean up an older hook result; current active code does not emit it. All of
@@ -763,14 +764,36 @@ ran. This establishes only a client-error-class response on the separate
 temporary source request; it does not establish authentication, absence,
 expiry, rate limiting or any other cause.
 
-No transport change follows from that class. One explicitly approved local
-integer status constrained to 400–499 may support one final diagnostic canary;
-it must add no URL, status text, header, body, credential, identifier, request,
-retry or timing authority. Without that decision the candidate stops as
-unaccepted. XLSX support still requires a trusted live export proving one
-12,101-byte acquisition, structural admission, exact length/hash/path agreement
-in manifest, canonical, File and Obsidian outputs, absence of transient signed
-transport values from durable receipts, and unchanged sibling asset states.
+No transport change followed from that class. The local integer diagnostic,
+restricted to 400–499 and adding no URL, status text, header, body, credential,
+identifier, request, retry or timing authority, was explicitly approved for one
+final installed canary. That canary was completed on 2026-11-01 and consumes the
+remaining approval.
+
+It selected one ordinary direct XLSX; the source gate passed with HTTP 200 and
+JSON, and one known helper dispatch completed. The provider envelope was
+classified as `provider-status-other`, without an accepted download candidate.
+No binary acquisition, expected-length check or structural OOXML validation
+occurred. The local exact-status diagnostic did not fire because the source did
+not fail with 4xx. This does not identify a finer envelope cause or explain the
+earlier source failure.
+
+The manifest asset is `failed` with `attemptedAt` present, exact XLSX MIME
+retained only as identity metadata, and null path, byte length and SHA-256.
+File and Obsidian preserved byte-identical raw (13,118,031 bytes), manifest
+(17,248 bytes) and canonical (29,340,883 bytes) companions; their pairwise
+SHA-256 receipts are recorded in `STATUS.md`. File additionally saved the
+8,116,627-byte HTML view with its receipt. Both Markdown outputs were saved, but the
+configured presentation transform means Markdown byte identity is not claimed.
+Neither destination contains an XLSX binary and no retry ran.
+
+Ordinary XLSX remains implemented but live-unaccepted; PR #89 remains draft.
+No further canary, code change, retry or transport redesign is justified by this
+result. Any finer provider-envelope diagnostic requires a separately authorized
+future decision. Live acceptance still requires proof of one expected-length
+structurally admitted acquisition and exact manifest/canonical/File/Obsidian
+length/hash/path agreement, but that is not another authorized step in this
+slice.
 
 ### Owner routes are capture context, not attachment authority
 

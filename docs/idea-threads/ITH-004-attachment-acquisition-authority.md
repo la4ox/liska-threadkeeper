@@ -7,7 +7,7 @@ thread_id: ITH-004
 thread_state: settled
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-10-31
+last_turn: 2026-11-01
 ---
 
 # ITH-004 — Attachment acquisition authority and honest loss states
@@ -84,6 +84,29 @@ client-error-class response. It does not identify authentication, availability,
 expiry, rate limiting or any other cause, and normal capture success does not
 resolve the separate request.
 
+### E7 — The final approved canary reached the helper but acquired no XLSX
+
+The final explicitly approved installed canary completed on 2026-11-01. It
+selected one ordinary direct XLSX; the source gate passed with HTTP 200 and
+JSON, and one known helper dispatch completed. The provider envelope was
+classified as `provider-status-other`, with no accepted download candidate.
+No binary acquisition, expected-length check or structural OOXML validation
+occurred. The local exact-status diagnostic did not fire because the source did
+not fail with 4xx; this does not explain the earlier source failure or a finer
+provider-envelope cause.
+
+The manifest asset is `failed` with `attemptedAt` present. Exact XLSX MIME
+remains identity metadata, while path, byte length and SHA-256 are null. File
+and Obsidian preserved byte-identical raw, manifest and canonical companions;
+File additionally saved HTML with its receipt. Both Markdown notes were saved but
+differ by the configured presentation transform, so no Markdown byte identity
+is claimed. Neither capture contains an XLSX binary and no retry ran.
+
+Receipt S10 records the safe aggregate. This spends the final canary approval:
+ordinary XLSX remains implemented but live-unaccepted and PR #89 remains
+draft. No code change, retry or transport redesign follows from this result;
+any finer envelope diagnostic is a separate future decision.
+
 ### X1 — Guess provider routes or copy credential/header values
 
 This could increase apparent success, but it broadens network authority and can
@@ -138,9 +161,9 @@ Calling the result an authorization error, missing resource or rate limit would
 turn a broad protocol class into an unsupported causal claim. Each hypothesis
 has materially different architecture and retry consequences.
 
-Revisit when: one explicitly approved bounded status diagnostic establishes the
-actual integer, then investigate its provider meaning without changing
-transport automatically.
+Revisit when: a separately authorized future decision establishes a narrower
+source or provider-envelope diagnostic. E7 supplied no exact 4xx integer and
+does not reopen this branch or authorize transport changes.
 
 ### D1 — Separate discovery, acquisition and durable persistence
 
@@ -150,7 +173,7 @@ which exact bytes each destination verified. `not-attempted`, `declined`,
 synonyms. New asset families earn support through bounded, provider-specific
 proof rather than name or route guesses.
 
-Evidence: E1, E2, E3, E4, E5, E6
+Evidence: E1, E2, E3, E4, E5, E6, E7
 
 ### D2 — Admit ordinary direct XLSX through one explicit runtime profile
 
@@ -159,18 +182,20 @@ positive declared size, immediate committed-raw replan, one shared active slot,
 exact response MIME/length and bounded structural OOXML validation. It never
 widens legacy interpreter XLSX, images, Library assets, endpoints, permissions
 or retry authority. Durable support remains conditional on a successful live
-File/Obsidian canary.
+File/Obsidian canary. E7 exhausted the current approval without that byte proof;
+this slice authorizes no further canary.
 
-Evidence: E2, E4, E5, E6
+Evidence: E2, E4, E5, E6, E7
 
 ### D3 — Attribute the source gate before changing acquisition
 
 Current active code distinguishes actual source response classes as
 `source-http-4xx`, `source-http-5xx`, or `source-http-other`, and uses
 `source-response-processing-rejected` for status/header/media or observation
-processing failure. Exact status, exception, URL, header and body values remain
-outside the contract. The legacy generic code stays accepted only for coherent
-mixed-version cleanup; every new code remains before-dispatch and preserves
+processing failure. Apart from the explicitly approved local 400–499
+source-status diagnostic, exact status, exception, URL, header and body values
+remain outside the contract. The legacy generic code stays accepted only for
+coherent mixed-version cleanup; every new code remains before-dispatch and preserves
 `not-attempted`/null binary evidence.
 
 Evidence: E5, E6
@@ -178,13 +203,18 @@ Evidence: E5, E6
 ### D4 — Stop at 4xx unless the exact local status is explicitly approved
 
 The 4xx class does not authorize retry, source-gate relaxation or a new
-transport. The only remaining bounded diagnostic is one local integer restricted
-to 400–499, with no URL, status text, header, body, credential, identifier, new
-request, retry or timing change, followed by exactly one final canary. Without
-that explicit decision the ordinary XLSX candidate remains unaccepted and this
-line stops.
+transport. At E6, the only remaining bounded diagnostic was one local integer
+restricted to 400–499, with no URL, status text, header, body, credential,
+identifier, new request, retry or timing change, followed by exactly one final
+canary. Without that explicit decision the ordinary XLSX candidate would remain
+unaccepted and this line would stop.
 
-Evidence: E6
+That approval was subsequently granted and consumed by E7. Its source gate
+passed, so no exact 4xx status was recorded. The candidate remains unaccepted;
+the earlier conditional approval is not authority for another canary or for
+provider-envelope diagnostics.
+
+Evidence: E6, E7
 
 ### T1 — Admit new attachment families one evidence gate at a time
 
@@ -204,14 +234,15 @@ proven without granting the capture path deletion authority.
 
 ### T3 — Close the ordinary XLSX live gate
 
-Trigger: explicit approval for the bounded exact-status diagnostic permits one
-final trusted export after the exact standard-owner conversation loads. A
-refusal must preserve the status only within 400–499 and retain null binary
-claims; success must show one resolver dispatch, expected-length structurally
-valid bytes, content-addressed File/Obsidian equality and exact
-manifest/canonical receipts, with no signed transport value or new provider
-identity in durable output and no retry or sibling-state change. Without
-approval, leave the slice draft and unaccepted.
+Trigger: a separately authorized future decision defines whether and how to
+investigate the `provider-status-other` envelope or revisit live acceptance.
+E7 spent the final canary approval; this slice permits no further canary, retry,
+code change or transport redesign. Any later acceptance must still prove one
+resolver dispatch, expected-length structurally valid bytes, content-addressed
+File/Obsidian equality and exact manifest/canonical receipts, with no signed
+transport value or new provider identity in durable output and no retry or
+sibling-state change. Until that separate decision, leave PR #89 draft and the
+implemented XLSX family live-unaccepted.
 
 ## Observations
 
@@ -222,6 +253,7 @@ approval, leave the slice draft and unaccepted.
 - [evidence] E4: one complete standard-owner capture exposes a unique ordinary direct XLSX candidate, but no live byte proof yet
 - [evidence] E5: one installed normal-mode canary selected the XLSX but preserved it honestly as not-attempted after an ambiguous pre-dispatch source failure #live
 - [evidence] E6: the reviewed source-attribution canary narrowed the separate temporary source request only to 4xx and preserved null binary truth #live
+- [evidence] E7: the final approved canary passed the source gate and completed one helper dispatch, but provider-status-other left XLSX failed without bytes; approval is spent #live
 - [rejected] X1: guessed routes and reusable credential extraction exceed the evidence and privacy boundary
 - [rejected] X2: ambiguity is not an explicit decline and must not be recorded as one
 - [rejected] X3: later captures cannot silently authorize historical image backfill
@@ -231,10 +263,10 @@ approval, leave the slice draft and unaccepted.
 - [decision] D1: keep discovery, acquisition and durable persistence as separate evidence-bearing stages
 - [decision] D2: gate one ordinary direct XLSX behind exact identity, size and structural OOXML validation
 - [decision] D3: distinguish source response class from source processing failure before changing acquisition
-- [decision] D4: stop at 4xx unless one exact local status canary is explicitly approved
+- [decision] D4: the one explicitly approved local source-status canary was consumed by E7 and grants no further canary or envelope-diagnostic authority
 - [tail] T1: add attachment families only through provider-specific identity and byte proofs
 - [tail] T2: keep orphan cleanup behind a separate reversible authority boundary
-- [tail] T3: run at most one explicitly approved exact-status File/Obsidian XLSX canary, or leave the slice unaccepted
+- [tail] T3: revisit provider-envelope diagnostics or XLSX acceptance only through a separately authorized future decision; no further canary belongs to this slice
 
 ## Relations
 
@@ -255,3 +287,4 @@ approval, leave the slice draft and unaccepted.
 - S7 — candidate commit `5964957`; ordinary direct XLSX implementation and tests; installed/live acceptance pending
 - S8 — local receipt `LISKA-XLSX-NORMAL-MODE-20261031`; visibility: local-only; safe aggregate only
 - S9 — local receipt `LISKA-XLSX-SOURCE-4XX-20261031`; visibility: local-only; safe aggregate only
+- S10 — local receipt `LISKA-XLSX-PROVIDER-STATUS-OTHER-20261101`; visibility: local-only; safe aggregate only

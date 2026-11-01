@@ -4095,3 +4095,42 @@ credential, identifier, new request, retry or timing change, followed by exactly
 one final canary. Without that approval the XLSX slice remains a clean,
 unaccepted candidate and stops here. CI, Code Review and Security Review are
 clean on `de7a61d`; the live result does not upgrade XLSX support.
+
+## ChatGPT ordinary direct XLSX final installed canary — 2026-11-01
+
+The final explicitly approved installed canary is spent. One trusted export
+selected one ordinary direct XLSX. The separate source gate passed with HTTP
+200 and JSON, and one known helper dispatch completed. The provider envelope
+was classified as `provider-status-other`: no download candidate was accepted,
+no binary acquisition occurred, and neither expected-length nor structural
+OOXML validation was reached. The local exact-status diagnostic did not fire
+because the source did not fail with 4xx. This result does not explain the
+provider envelope or establish why the earlier source request returned 4xx.
+
+The manifest asset is now honestly `failed` with `attemptedAt` present. Its
+exact XLSX MIME,
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, remains
+identity metadata, not proof of response bytes; local path, byte length and
+SHA-256 remain null. Neither destination contains an XLSX binary and no retry
+occurred.
+
+File and Obsidian preserved byte-identical raw, manifest and canonical
+companions, with these pairwise lengths and SHA-256 hashes:
+
+- Raw: 13,118,031 bytes;
+  `67ab8b989fbf12944d8d498235445f72d97684bcb1031904108a5c678212405c`.
+- Manifest: 17,248 bytes;
+  `976594d6c8f6e409a2cf19585ecdea0f759bac0ef38c8f95e499ee74dd29e684`.
+- Canonical: 29,340,883 bytes;
+  `6a49dff2bc0d33c21edd7d4262a3637b6f9ce0143c6576f5b856cf95e8dd0f1b`.
+
+File additionally saved the 8,116,627-byte HTML reading view with its receipt.
+Both destinations saved Markdown, but Obsidian applies the configured
+presentation transform; Markdown byte identity is not claimed. The safe local
+receipt is `LISKA-XLSX-PROVIDER-STATUS-OTHER-20261101`; no private path, content
+or provider identifier is recorded here.
+
+Ordinary XLSX remains implemented but live-unaccepted, and PR #89 remains
+draft. This slice stops without another canary, code change, retry or transport
+redesign. Any finer provider-envelope diagnostic is a separate future decision,
+not authority granted by this result.
