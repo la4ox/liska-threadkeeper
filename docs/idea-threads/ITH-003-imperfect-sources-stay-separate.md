@@ -7,7 +7,7 @@ thread_id: ITH-003
 thread_state: settled
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-10-31
+last_turn: 2026-11-01
 ---
 
 # ITH-003 — Imperfect sources stay separate before reconciliation
@@ -47,6 +47,33 @@ left or right capture. File and Obsidian delivery preserve the official raw,
 manifest, canonical archive, comparison and root bundle manifest as a new
 immutable reconciliation snapshot. Source-local references remain unambiguous.
 
+### E4 — A browser File boundary can be proven without enabling ZIP import UI
+
+The additive File adapter and independent synthetic generator reproduce the
+existing anonymous range-source contract without filenames, paths, MIME,
+network or delivery authority. Node and built-artifact checks cover exact
+ranges, native-storage ownership, raw-stream negatives, cancellation and
+production package separation. That source-only checkpoint did not prove the
+installed browser picker/native decoder or any real private export; E5 records
+the separate installed synthetic evidence.
+
+### E5 — Installed Comet passes the separate synthetic boundary, not private import
+
+On 2026-11-01, the installed zero-permission harness completed one clean visible
+OS-picker run with overall `PASS`: all eight synthetic legacy/sharded, STORE,
+malformed raw-DEFLATE and large cases passed. The measured adapter/native phase
+took 1,341.5 ms, visible heartbeat passed, paused native reads plateaued before
+EOF, both active and synthetic delayed abort passed, and all eight postflight
+hashes were unchanged. Independent verification matched every full ZIP SHA-256
+and length to `fixture-index.json`; S9 retains the exact metrics and index hash.
+
+An earlier hidden-tab run was `INCONCLUSIVE`, not acceptance evidence or a
+runtime failure: code inspection confirmed hidden-state precedence after the
+user switched away. The clean pass closes only the exact installed Comet
+picker/native File/range/DEFLATE/backpressure/abort/responsiveness gate. It does
+not prove a private official export, production ZIP UI/delivery, archive
+authenticity/completeness, total memory or OS read cancellation.
+
 ### X1 — Merge captures by title, time, filename or current Markdown
 
 Those fields are convenient but not identity or provenance. Concatenating
@@ -65,6 +92,16 @@ the ZIP layer would create two readers with drifting claims.
 Revisit when: never for the current adapter; new source semantics belong in the
 official importer, while containers remain bounded byte sources.
 
+### X3 — Patch the production extension or wire the picker before browser proof
+
+A one-off production `dist` patch would be hard to reproduce and easy to ship;
+direct UI wiring would make Node evidence look like browser compatibility. The
+adopted harness is a separate zero-permission test extension built only by an
+explicit maintainer command and absent from production packages.
+
+Revisit when: never for patched production bytes; production picker wiring may
+resume only after the separate installed-browser gate closes.
+
 ### D1 — Preserve each source and reconcile exact facts before any merge
 
 The adopted path keeps web, official and library-derived evidence as separate
@@ -74,14 +111,25 @@ merge or declare one source globally superior.
 
 Evidence: E1, E2, E3
 
+### D2 — Keep browser compatibility evidence in a separate opt-in harness
+
+The committed harness imports production File/core code, uses only explicitly
+selected deterministic files and reports fixed IDs plus bounded metrics. PASS
+is never inferred from an unobserved pause or missing native feature.
+Production UI, permissions, schemas, importers and packages remain unchanged.
+
+Evidence: E2, E4, E5
+
 ### T1 — Wire official ZIP selection only after browser evidence
 
-The core ZIP adapter still needs installed-browser raw-DEFLATE behavior, bounded
-File range reads, cancellation, backpressure, responsiveness and authorized
-private-export acceptance before it can enter the local reconciliation page.
+E5 closes the installed-browser synthetic raw-DEFLATE, bounded File range,
+cancellation, backpressure and responsiveness gate. Production ZIP selection
+and delivery are still unwired, and authorized private-export acceptance remains
+separate and open.
 
-Trigger: those exact browser gates pass without changing importer or provenance
-semantics.
+Trigger: independently reviewed production ZIP UI/delivery integration and
+separately authorized selected-private-export acceptance, without changing
+importer or provenance semantics.
 
 ### T2 — Consider explicit merge only after provenance becomes composable
 
@@ -97,10 +145,14 @@ specified, independently reviewed and preferred to linked separate captures.
 - [evidence] E1: one real comparison retained 200 web-only nodes/messages while all 42 exact asset IDs matched #local-only
 - [evidence] E2: exact official import preserves slice and shard provenance while manifests and ZIP remain bounded input evidence
 - [evidence] E3: compare-only delivery exposes exact differences while keeping both archives immutable
+- [evidence] E4: File/core compatibility first had reproducible synthetic source evidence without installed-browser proof #synthetic
+- [evidence] E5: a clean installed Comet synthetic PASS closes the exact picker/native-runtime gate, not production UI or private-export acceptance #synthetic
 - [rejected] X1: titles, times, filenames and readable Markdown cannot authorize archive merging
 - [rejected] X2: ZIP is a bounded byte-source adapter, not a second importer or stronger truth source
+- [rejected] X3: neither a patched production build nor premature picker wiring is acceptable browser evidence
 - [decision] D1: preserve imperfect sources independently and reconcile exact scoped facts before any merge
-- [tail] T1: add ZIP UI only after installed-browser streaming and cancellation gates
+- [decision] D2: keep File/native-runtime acceptance in a separate zero-permission opt-in harness
+- [tail] T1: installed-browser synthetic gates are closed; production ZIP UI/delivery and authorized private-export acceptance remain open
 - [tail] T2: revisit merge only with composable provenance and conflict-preserving semantics
 
 ## Relations
@@ -118,3 +170,5 @@ specified, independently reviewed and preferred to linked separate captures.
 - S5 — [PR #50: compare ChatGPT archive formats](https://github.com/la4ox/liska-threadkeeper/pull/50)
 - S6 — [PR #84: bounded official export ZIP core](https://github.com/la4ox/liska-threadkeeper/pull/84)
 - S7 — local receipt `LISKA-CHAT-SYNTHESIS-20261031-SOURCES`; visibility: local-only; safe aggregate only
+- S8 — commits `f7fb940`, `eb0df8c`; bounded File source and synthetic browser harness; source-only checkpoint before installed acceptance
+- S9 — [Installed Comet synthetic acceptance, 2026-11-01](../adr/046-official-export-zip-source.md#installed-comet-acceptance--2026-11-01); exact metrics and fixture-index SHA-256; no private-export content

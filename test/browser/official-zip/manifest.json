@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Synthetic official ZIP acceptance (test only)",
+  "version": "1.0.0",
+  "permissions": [],
+  "host_permissions": [],
+  "options_ui": { "page": "index.html", "open_in_tab": true },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; style-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'"
+  }
+}
