@@ -4016,3 +4016,87 @@ by this result. If further work is separately authorized, the useful next bounde
 value-free diagnostic is whether background ever accepted ready and pinned a
 document, not another unchanged canary. Dots transport and raw-adapter authority
 remain unproven; ITH-008 records this boundary as E4 and the spent T1 trigger.
+
+## Official export File range-source and browser-harness candidate checkpoint
+
+Branch `codex/official-zip-file-source` starts from merged main `b4033bc` and
+closes the missing browser-File boundary in front of the existing official ZIP
+core without wiring ZIP into the reconciliation picker. One explicitly supplied
+native `File` becomes an anonymous frozen `OfficialZipSource` containing only
+`size` and exact `readRange(start, end, signal)`. The adapter accepts no name,
+path, MIME or timestamp; validates safe ranges and the existing ZIP32 archive
+ceiling; returns independently owned bytes; and maps native errors and caller
+abort reasons to fixed content-free codes.
+
+The adapter captures File/Blob/ArrayBuffer/AbortSignal/Promise platform
+intrinsics at module initialization. Instance, subclass and later prototype
+overrides cannot substitute same-length bytes or leak native failures. Pending
+native reads remain handled after a prompt public abort. The explicit trust
+boundary is the browser realm at module import; JavaScript cannot attest a realm
+already compromised before import.
+
+An opt-in synthetic browser acceptance extension is committed separately from
+the production CRX build. Its manifest has no permissions, host permissions,
+background worker, content scripts or network authority and uses a deny-by-
+default extension CSP. A Node-only independent ZIP32/CRC generator materializes
+eight deterministic files: legacy and both sharded layouts, STORE, truncated
+raw DEFLATE, trailing data in the final chunk and exactly across the 1 MiB read
+boundary, plus a large low-compressibility DEFLATE workload. Original picker
+`File` objects are identified only after explicit selection by exact length and
+SHA-256, never by filename, MIME or selection order. The runner exposes only
+fixed case IDs, PASS/FAIL/INCONCLUSIVE and bounded numeric metrics.
+
+The combined adapter/core/harness suite passes 255 tests. TypeScript, production
+build, repository lint with 31 pre-existing warnings and zero errors,
+formatting and diff checks pass. Independent review found no material defect and
+separately reconciled fixture bytes, hashes, raw-stream boundaries, native
+range ownership and privacy. The ordinary production package contains 55
+entries / 394,011 bytes, SHA-256
+`fe48d0546d45d017685167e57a3424d57787e02baaebc0941df82fb504ce62f7`,
+with zero harness, fixture-index or test-result entries.
+
+This checkpoint is not installed-browser acceptance. Loading the separate test
+extension, selecting the generated synthetic files through the real OS picker,
+observing native DEFLATE exact/truncated/trailing behavior, cancellation,
+backpressure and visible-tab responsiveness still require an explicit browser
+run. It does not claim real private-export import, production picker wiring,
+delivery, archive authenticity/completeness, total-memory bounds or OS read
+cancellation.
+
+## Official export ZIP installed-Comet synthetic acceptance — 2026-11-01
+
+The separate zero-permission MV3 harness completed one clean visible run through
+the installed Comet OS File picker with overall `PASS`. All eight synthetic
+legacy/sharded, STORE, malformed raw-DEFLATE and large-workload cases passed.
+Preflight identified eight original files by exact length/SHA-256 in 63.4 ms;
+the measured adapter/native phase took 1,341.5 ms; postflight took 36.9 ms and
+confirmed all eight selected-file hashes unchanged. Whole-file pre/postflight
+hashing is outside the measured adapter phase.
+
+The exact bounded runner metrics were:
+
+- visible timer/animation heartbeat: `PASS [31.3,20.9,250,67,189]` (maximum
+  timer/frame gaps in ms, declared gap ceiling in ms, timer/frame counts);
+- direct ranges and owned buffers: `PASS [4,170]`;
+- native paused consumer and resumed drain:
+  `PASS [6,6,6,6,6,2097152,12636993,16777216,8]` (five read-start samples,
+  paused payload bytes, compressed payload bytes, resumed expanded bytes,
+  retained chunks);
+- active abort with no growth: `PASS [0.2,6,6,0,0]` (public abort ms,
+  reads at abort/after observation, output growth, late reads);
+- synthetic delayed-source pending abort: `PASS [0.2,1,4,4]` (public abort ms,
+  delayed starts, native reads before/after observation).
+
+An earlier run was `INCONCLUSIVE` only because the page became hidden after
+the user switched away. Code inspection confirmed hidden-state precedence over
+timer-gap classification. That run is neither acceptance evidence nor a runtime
+failure.
+
+Independent deterministic verification found exactly eight ZIPs, each with full
+SHA-256 and length matching `fixture-index.json`; the index SHA-256 is
+`34181009c3a575a1f45d4c2da34d02df67e95328a716ad30e12f54be861c61f7`.
+The installed-browser gate is complete for this exact Comet picker/native
+runtime and synthetic File/range/DEFLATE/backpressure/abort/responsiveness
+workload. Production ZIP UI/delivery and separately authorized private official
+export acceptance remain open. This does not prove archive authenticity or
+completeness, total browser memory bounds, or OS-level read cancellation.
