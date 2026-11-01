@@ -4219,3 +4219,66 @@ production build, targeted ESLint, focused Prettier and diff checks also pass.
 The implementation is offline-verified but is not yet committed, published,
 CI-reviewed, installed, or live-accepted. The exact Cloud occurrence remains
 open until merge ancestry and current-main evidence are established.
+
+## Ordinary image destination-integrity merge result — 2026-11-01
+
+PR 96 merged the reviewed source head `f1266ad` into `main` as `dd240ab`.
+Fetched `origin/main` contains that exact head as an ancestor. GitHub CI passed
+248 test files with one file skipped and 9,079 tests with five skips; the
+production package built successfully. Exact-head Code Review and Security
+Review completed with no findings.
+
+The repository-scan occurrence `occ_6d8073e1a620a00d37a7797f` remains `New`
+administratively. Its repository-finding record has no commit detail or version,
+so the connector's commit-finding close operation cannot accept it. The web
+detail exposed View scan/Fix with Codex but no status mutation. No replacement
+scan, duplicate fix PR or fictitious closure was created. Source remediation is
+merged; installed File/Obsidian acceptance remains a separate live gate.
+
+## Security Cloud repository-scan static triage — 2026-11-01
+
+All nine records remaining after the ordinary-image fix were re-read against
+current `main` `dd240ab`, with no repository `SECURITY.md` policy present. Eight
+claims remain statically confirmed and one is superseded by current code. The
+confirmed exploitability queue is:
+
+1. page-realm mutable primordials can substitute ChatGPT opaque replay state;
+2. provider DOM/CSS can redress the trusted in-page export control;
+3. ChatGPT and DeepSeek privacy-diagnostic deduplication is quadratic;
+4. nested ChatGPT content normalization has an uncontrolled recursive walk;
+5. provider Markdown/image processing permits superlinear pre-limit work;
+6. DeepSeek navigation can mix structured evidence from chat A with DOM fallback B;
+7. build comparison extracts and reads an untrusted release ZIP without budgets;
+8. normalized default ports 80/443 bypass the declared Obsidian minimum port.
+
+The prior low Obsidian-response buffering claim is not actionable on this main:
+PR 92 routes ordinary text, binary and directory reads through bounded streaming
+and rejects redirects. The ranking is static evidence, not runtime exploitation
+or exhaustive new discovery. ITH-009 already owns the provider-DOM UI redesign;
+the other confirmed records remain separate fix slices rather than one broad PR.
+
+## Linear privacy diagnostics candidate — 2026-11-01
+
+Branch `codex/sec-linear-privacy-diagnostics` starts at merged main `dd240ab`
+and addresses repository finding `csf_238ec3b8127a895cabcda3a7` / occurrence
+`occ_0b55bd216944b6ba5eeae57e`. Both provider normalizers formerly scanned the
+complete prior redaction array for every new diagnostic. A deterministic
+pre-fix reproducer observed 4,032,008 numeric historical-row reads for 2,000
+unique keys and 16,064,008 for 4,000.
+
+Each recorder now keeps its ordered diagnostic array as the only serialized
+source and uses a private array-keyed WeakMap/Set membership sidecar. ChatGPT
+keys exact JSON tuples of code and pointer; DeepSeek retains its pointer-only
+contract. Existing arrays are seeded once, replacement/cloned/shared arrays
+receive their own index, and duplicate calls still perform sanitation and local
+redacted-state callbacks. A partially completed Proxy `push` is reconciled from
+only its attempted own data slot before the original error is rethrown, so a
+retry preserves the first row without a rescan.
+
+The deterministic regression now stays within 16 historical-row reads at both
+input sizes. Complete legitimate ChatGPT and DeepSeek archive JSON hashes remain
+byte-identical to the pre-patch outputs. Five affected normalizer/inventory
+suites pass 354 tests; TypeScript, the production build, targeted lint,
+formatting and diff checks pass. Independent review found the partial-push seam
+and rechecked its fix; no other material finding remains in this candidate. It
+is not yet committed, published or CI-reviewed.

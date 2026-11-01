@@ -29,6 +29,9 @@ export interface DeepSeekPrivacyTracker {
   redactions: DeepSeekPrivacyRedaction[];
 }
 
+// Runtime-only membership follows array replacements without changing serialized trackers.
+const redactionPointersByArray = new WeakMap<DeepSeekPrivacyRedaction[], Set<string>>();
+
 interface CloneState {
   entries: number;
   redacted: boolean;
@@ -310,10 +313,30 @@ function isSensitiveDeepSeekSignedPath(value: string): boolean {
 }
 
 function recordRedaction(tracker: DeepSeekPrivacyTracker, pointer: string): void {
-  if (tracker.redactions.some(entry => entry.pointer === pointer)) return;
-  tracker.redactions.push({
+  const redactions = tracker.redactions;
+  let pointers = redactionPointersByArray.get(redactions);
+  if (!pointers) {
+    pointers = new Set(redactions.map(entry => entry.pointer));
+    redactionPointersByArray.set(redactions, pointers);
+  }
+  if (pointers.has(pointer)) return;
+  const row = {
     code: 'privacy-redacted-sensitive-extension-field',
     message: 'A sensitive DeepSeek provider value was omitted from canonical extensions.',
     pointer,
-  });
+  };
+  const appendIndex = redactions.length;
+  try {
+    redactions.push(row);
+  } catch (error) {
+    try {
+      // A push can retain the row before failing to set length.
+      const retained = Object.getOwnPropertyDescriptor(redactions, appendIndex);
+      if (retained && 'value' in retained && retained.value === row) pointers.add(pointer);
+    } catch {
+      // Inspecting a custom array must not replace the original append error.
+    }
+    throw error;
+  }
+  pointers.add(pointer);
 }

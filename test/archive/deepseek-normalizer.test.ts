@@ -12,12 +12,164 @@ import {
   type RawCaptureBundle,
 } from '../../src/archive';
 import { projectArchiveBranch } from '../../src/content/archive-projection';
-import { redactSensitiveText, sanitizeJson } from '../../src/archive/normalizers/deepseek/privacy';
+import {
+  redactSensitiveText,
+  sanitizeJson,
+  type DeepSeekPrivacyTracker,
+} from '../../src/archive/normalizers/deepseek/privacy';
 
 const fixtureBytes = new Uint8Array(
   readFileSync('test/fixtures/archive/deepseek-raw/branching-replace.json')
 );
 const fixture = JSON.parse(new TextDecoder().decode(fixtureBytes)) as DeepSeekRaw;
+
+describe('DeepSeek privacy diagnostic indexing', () => {
+  it.each([2_000, 4_000])('only reads seed rows when recording %i unique pointers', count => {
+    const seedCount = 8;
+    let numericIndexReads = 0;
+    const redactions = new Proxy(
+      Array.from({ length: seedCount }, (_, index) => ({
+        code: 'seed-code',
+        message: `seed ${index}`,
+        pointer: `/seed/${index}`,
+      })),
+      {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^(?:0|[1-9]\d*)$/.test(property)) {
+            numericIndexReads += 1;
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      }
+    );
+    const tracker: DeepSeekPrivacyTracker = { redactions };
+
+    for (let index = 0; index < count; index += 1) {
+      sanitizeJson({ api_key: 'synthetic-secret' }, tracker, `/added/${index}`);
+    }
+    for (let index = count - 1; index >= 0; index -= 1) {
+      redactSensitiveText('Bearer synthetic-secret', tracker, `/added/${index}/api_key`);
+    }
+    redactSensitiveText('Bearer synthetic-secret', tracker, '/seed/7');
+
+    expect(numericIndexReads).toBeLessThanOrEqual(seedCount * 2);
+    expect(redactions).toHaveLength(seedCount + count);
+    expect(redactions[0]).toEqual({
+      code: 'seed-code',
+      message: 'seed 0',
+      pointer: '/seed/0',
+    });
+  });
+
+  it('deduplicates by pointer alone without skipping repeated sanitation or callbacks', () => {
+    const first = { code: 'seed-code', message: 'first message', pointer: '/same' };
+    const tracker: DeepSeekPrivacyTracker = { redactions: [first] };
+    let redactionsObserved = 0;
+
+    for (let index = 0; index < 2; index += 1) {
+      expect(
+        redactSensitiveText(
+          'Bearer synthetic-secret https://example.invalid/?token=synthetic-secret',
+          tracker,
+          '/same',
+          () => {
+            redactionsObserved += 1;
+          }
+        )
+      ).toBe('[redacted-credential] [redacted-sensitive-url]');
+      expect(sanitizeJson({ signed_path: 'synthetic-secret' }, tracker, '/same')).toEqual({
+        _liskaRedactedSensitiveValue: true,
+      });
+      expect(sanitizeJson('Bearer synthetic-secret', tracker, '/same')).toEqual({
+        value: '[redacted-credential]',
+        _liskaRedactedSensitiveValue: true,
+        _liskaTruncated: false,
+      });
+    }
+
+    expect(redactionsObserved).toBe(4);
+    expect(tracker.redactions).toEqual([first]);
+    expect(tracker.redactions[0]).toBe(first);
+    expect(Reflect.ownKeys(tracker)).toEqual(['redactions']);
+    expect(Reflect.ownKeys(tracker.redactions)).toEqual(['0', 'length']);
+    expect(JSON.stringify(tracker)).toBe(JSON.stringify({ redactions: [first] }));
+  });
+
+  it('isolates independent arrays and lazily seeds replacement and cloned arrays', () => {
+    const tracker: DeepSeekPrivacyTracker = { redactions: [] };
+    const independent: DeepSeekPrivacyTracker = { redactions: [] };
+    redactSensitiveText('Bearer synthetic-secret', tracker, '/same');
+    redactSensitiveText('Bearer synthetic-secret', independent, '/same');
+    const original = tracker.redactions;
+    tracker.redactions = [];
+    redactSensitiveText('Bearer synthetic-secret', tracker, '/same');
+    expect(tracker.redactions).toEqual(original);
+    tracker.redactions = structuredClone(original);
+    redactSensitiveText('Bearer synthetic-secret', tracker, '/same');
+    redactSensitiveText('Bearer synthetic-secret', tracker, '/new');
+    redactSensitiveText('Bearer synthetic-secret', { redactions: original }, '/same');
+
+    expect(original).toHaveLength(1);
+    expect(independent.redactions).toEqual(original);
+    expect(independent.redactions).not.toBe(original);
+    expect(tracker.redactions.map(row => row.pointer)).toEqual(['/same', '/new']);
+  });
+
+  it.each(['0', 'length'])('reconciles a failed append at property %s', failedProperty => {
+    let rejectAppend = true;
+    const appendError = new Error('synthetic append failure');
+    const tracker: DeepSeekPrivacyTracker = {
+      redactions: new Proxy([], {
+        set(target, property, value, receiver) {
+          if (property === failedProperty && rejectAppend) {
+            rejectAppend = false;
+            throw appendError;
+          }
+          return Reflect.set(target, property, value, receiver);
+        },
+      }),
+    };
+
+    let caught: unknown;
+    try {
+      redactSensitiveText('Bearer synthetic-secret', tracker, '/same');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(appendError);
+    const retained = tracker.redactions[0];
+    expect(tracker.redactions.map(row => row.pointer)).toEqual(
+      failedProperty === '0' ? [] : ['/same']
+    );
+    expect(redactSensitiveText('Bearer synthetic-secret', tracker, '/same')).toBe(
+      '[redacted-credential]'
+    );
+    expect(tracker.redactions).toEqual([
+      {
+        code: 'privacy-redacted-sensitive-extension-field',
+        message: 'A sensitive DeepSeek provider value was omitted from canonical extensions.',
+        pointer: '/same',
+      },
+    ]);
+    if (failedProperty === 'length') expect(tracker.redactions[0]).toBe(retained);
+  });
+
+  it('preserves the public archive serialization of a legitimate redacted capture', async () => {
+    const bytes = encodedRaw(raw => {
+      raw.data.biz_data.chat_messages[4].extension_data = {
+        retained: true,
+        api_key: 'synthetic-secret',
+      };
+    });
+    const { archive } = await normalizeBytes(bytes);
+
+    // Pin the complete public JSON bytes from the pre-indexing implementation.
+    expect(hash(new TextEncoder().encode(JSON.stringify(archive)))).toBe(
+      'dbf7aad79c0d5b09a02941a77c912e9053f3f02fbea98aba87c084dc04e111b1'
+    );
+    expect(validateLiskaThreadArchive(archive)).toEqual({ valid: true, issues: [] });
+  });
+});
 
 interface DeepSeekRaw extends Record<string, unknown> {
   data: {

@@ -27,6 +27,8 @@ const SENSITIVE_QUERY_KEY =
 const SENSITIVE_URI_PREFIX = /^(?:data:|blob:|file:|file-service:|sediment:|attachment:)/i;
 const URI_CANDIDATE =
   /(?:https?:\/\/|data:|blob:|file:|file-service:|sediment:|attachment:)[^\s<>"']+/gi;
+// Runtime-only membership follows array replacements without changing serialized trackers.
+const redactionKeysByArray = new WeakMap<PrivacyTracker['redactions'], Set<string>>();
 
 interface CloneState {
   entries: number;
@@ -248,8 +250,29 @@ export function recordPrivacyRedaction(
   pointer: string
 ): void {
   if (!privacy) return;
-  if (privacy.redactions.some(entry => entry.code === code && entry.pointer === pointer)) return;
-  privacy.redactions.push({ code, message, pointer });
+  const redactions = privacy.redactions;
+  let keys = redactionKeysByArray.get(redactions);
+  if (!keys) {
+    keys = new Set(redactions.map(entry => JSON.stringify([entry.code, entry.pointer])));
+    redactionKeysByArray.set(redactions, keys);
+  }
+  const key = JSON.stringify([code, pointer]);
+  if (keys.has(key)) return;
+  const row = { code, message, pointer };
+  const appendIndex = redactions.length;
+  try {
+    redactions.push(row);
+  } catch (error) {
+    try {
+      // A push can retain the row before failing to set length.
+      const retained = Object.getOwnPropertyDescriptor(redactions, appendIndex);
+      if (retained && 'value' in retained && retained.value === row) keys.add(key);
+    } catch {
+      // Inspecting a custom array must not replace the original append error.
+    }
+    throw error;
+  }
+  keys.add(key);
 }
 
 export function recordProviderContextRedaction(
