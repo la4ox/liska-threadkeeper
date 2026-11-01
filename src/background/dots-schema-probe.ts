@@ -107,6 +107,8 @@ const hookErrorCodes = new Set<string>([
   'duplicate-endpoint',
   'target-not-observed',
   'request-init-present',
+  'observer-timed-out',
+  // Accept older document-start hooks without emitting this code ourselves.
   'timed-out',
   'navigation-changed',
 ]);
@@ -381,7 +383,7 @@ async function observeProjection(
       break;
     }
   }
-  return { success: false, code: 'timed-out', documentId };
+  return { success: false, code: 'background-timed-out', documentId };
 }
 
 /** Serialized into the selected page document; removes only this exact owned URL marker. */

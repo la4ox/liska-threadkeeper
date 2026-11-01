@@ -235,7 +235,7 @@ describe('Dots selected-tab schema probe', () => {
     h.reload.mockImplementationOnce(async () => h.setCurrentUrl(DOTS_URL));
     await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
       success: false,
-      code: 'timed-out',
+      code: 'background-timed-out',
     });
     expect(h.downloadEvidence).not.toHaveBeenCalled();
     expect(h.currentUrl()).toBe(DOTS_URL);
@@ -490,7 +490,7 @@ describe('Dots selected-tab schema probe', () => {
     }
   });
 
-  it.each(['ambiguous-room', 'request-init-present'] as const)(
+  it.each(['ambiguous-room', 'request-init-present', 'observer-timed-out', 'timed-out'] as const)(
     'propagates fixed observer code %s and never downloads an error',
     async code => {
       const h = harness([
@@ -506,6 +506,8 @@ describe('Dots selected-tab schema probe', () => {
         code,
       });
       expect(h.downloadEvidence).not.toHaveBeenCalled();
+      expect(h.currentUrl()).toBe(DOTS_URL);
+      expect(h.operations.size).toBe(0);
     }
   );
 
@@ -560,7 +562,7 @@ describe('Dots selected-tab schema probe', () => {
     ]);
     await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
       success: false,
-      code: 'timed-out',
+      code: 'background-timed-out',
     });
     expect(h.downloadEvidence).not.toHaveBeenCalled();
   });
@@ -696,7 +698,7 @@ describe('Dots selected-tab schema probe', () => {
     const h = harness(states);
     await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
       success: false,
-      code: 'timed-out',
+      code: 'background-timed-out',
     });
     expect(h.downloadEvidence).not.toHaveBeenCalled();
     expect(h.operations.size).toBe(0);
@@ -736,7 +738,7 @@ describe('Dots selected-tab schema probe', () => {
       });
       const result = probeDotsSchemaInActiveTab(h);
       await vi.runAllTimersAsync();
-      await expect(result).resolves.toEqual({ success: false, code: 'timed-out' });
+      await expect(result).resolves.toEqual({ success: false, code: 'background-timed-out' });
       expect(cleanupStarted).toBe(true);
       expect(h.currentUrl()).toBe(DOTS_URL);
       expect(h.operations.size).toBe(0);
@@ -1120,7 +1122,7 @@ describe('Dots probe browser failures and default local delivery', () => {
     };
     await expect(probeDotsSchemaInActiveTab(h)).resolves.toEqual({
       success: false,
-      code: 'timed-out',
+      code: 'background-timed-out',
     });
     expect(h.currentUrl()).toBe(DOTS_URL);
     expect(h.operations.size).toBe(0);

@@ -366,6 +366,17 @@ describe('Dots schema-only evidence contract', () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
+  it.each(['observer-timed-out', 'background-timed-out', 'timed-out'] as const)(
+    'accepts the exact content-free timeout code %s, including legacy compatibility',
+    code => {
+      const response = createDotsSchemaProbeFailure(code);
+      expect(response).toEqual({ success: false, code });
+      expect(isDotsSchemaProbeResponse(response)).toBe(true);
+      expect(isDotsSchemaProbeResponse({ ...response, error: 'private' })).toBe(false);
+      expect(isDotsSchemaProbeResponse({ success: false, code: `${code}: private` })).toBe(false);
+    }
+  );
+
   it('admits only the exact fixed RequestInit-presence failure response', () => {
     expect(DOTS_SCHEMA_PROBE_ERROR_CODES).toContain('request-init-present');
     expect(isDotsSchemaProbeResponse(createDotsSchemaProbeFailure('request-init-present'))).toBe(

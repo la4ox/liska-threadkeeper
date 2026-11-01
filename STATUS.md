@@ -2473,6 +2473,19 @@ not justify another run or a Fetch/XHR adjustment. Once the real raw contract
 is grounded, the schema control should move out of the ordinary product surface
 or be removed.
 
+Branch `codex/dots-timeout-origin` closes only that diagnostic ambiguity. The
+unchanged MAIN hard timer now emits fixed `observer-timed-out`; exhaustion of
+the background polling deadline emits fixed `background-timed-out`. Generic
+`timed-out` remains an accepted legacy response for mixed-version cleanup but
+is not emitted by current code. No request, route, timer, retry, captured value,
+projection field, permission, download or durable sink changed. Focused
+observer/background/contract coverage passes 3 files / 203 tests, TypeScript
+passes, and the five unrelated Claude auto-scroll cases that timed out only in
+the resource-heavy full run passed together in isolation. No installed Dots
+canary has been run from this candidate; live provider compatibility and raw
+adapter authority remain unclaimed. `ITH-008` preserves the longer evidence
+gate and revisit conditions.
+
 The intended archive behavior after this evidence gate is not a permanently
 redacted export. For the current workflow, one Dot to one long-lived room is the
 working identity hypothesis: create one complete local raw/manifest/canonical
@@ -4134,6 +4147,36 @@ Ordinary XLSX remains implemented but live-unaccepted, and PR #89 remains
 draft. This slice stops without another canary, code change, retry or transport
 redesign. Any finer provider-envelope diagnostic is a separate future decision,
 not authority granted by this result.
+## Dots timeout-origin installed canary 2026-11-01
+
+One separately authorized trusted popup canary ran on 2026-11-01 from the
+already-selected exact `/dots/{dot~room}` tab. The installed candidate contains
+44 files / 1,223,153 bytes; source and installed aggregate SHA-256 are identical:
+`fa8e4da267d792aac112c9d05affa004f2094ff0b06caf629ee663870113e156`.
+The installed manifest SHA-256 is
+`b556fa5df4243344f52385ec6adb9c85030425d3568749364b0837eb51f15289`.
+The rollback leaf exists; local absolute paths are intentionally omitted.
+
+The popup returned exactly `background-timed-out`. The nonce fragment was absent
+afterward, and no top-level Dots/schema diagnostic file appeared. The code path
+returned before diagnostic download, so the absent file is not evidence of a
+download failure. No retry was made.
+
+This establishes popup/background messaging, selected-route and nonce admission,
+and completion of the marker-update and reload promises. Background accepted no
+terminal MAIN state before its polling deadline. Unlike `observer-timed-out`,
+this does not establish acceptance of a MAIN hard-deadline error. It proves
+neither hook arming nor MAIN execution, endpoint admission, transport kind, a
+room response, RequestInit/URL-object/XHR classification or schema capture. It
+also does not establish whether background ever accepted ready or pinned a
+document.
+
+This consumes the one authorized origin-specific canary with negative schema
+evidence. No retry, code, timer, admission, permission or sink change is justified
+by this result. If further work is separately authorized, the useful next bounded
+value-free diagnostic is whether background ever accepted ready and pinned a
+document, not another unchanged canary. Dots transport and raw-adapter authority
+remain unproven; ITH-008 records this boundary as E4 and the spent T1 trigger.
 
 ## Official export File range-source and browser-harness candidate checkpoint
 
