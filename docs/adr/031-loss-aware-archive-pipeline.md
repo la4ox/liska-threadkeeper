@@ -695,6 +695,63 @@ durable identifier field. A focused regression compares source refs before and
 after acquisition and excludes the direct and Library IDs from resolver
 warnings/receipts. This closes only the one-item specialization.
 
+### Historical rejected/unaccepted experiment: ordinary direct XLSX
+
+Unmerged [PR #89](https://github.com/la4ox/liska-threadkeeper/pull/89) explored
+one ordinary direct XLSX family on `codex/chatgpt-ordinary-xlsx`. This subsection
+preserves rejected/unaccepted experiment evidence, not an adopted runtime rule.
+The branch-only implementation, planner ordering, validation profile and
+source-diagnostic changes are not part of main through this documentation.
+Revision-bound sources are
+[candidate head `f6fb659`](https://github.com/la4ox/liska-threadkeeper/commit/f6fb6591e9311932de29394798de42f5738861b7)
+and [final evidence `a086fe3`](https://github.com/la4ox/liska-threadkeeper/commit/a086fe3af022b67dc2e52e2170677f1a0f961a08).
+
+The candidate used one exact 12,101-byte declared attachment in a complete
+13,118,031-byte raw capture. Whole-ledger evidence excluded Library,
+interpreter/sandbox, custom-GPT/project and template ownership for that asset.
+Its proposed admission required exact direct identity/MIME, positive bounded
+size, whole-ledger uniqueness and owner separation, and immediate committed-raw
+replan. It consumed one existing active slot after Library text/plain and before
+ordinary images, keeping the four-operation, 20-attempt / 128 MiB budgets,
+page-owned transport and no-retry boundary unchanged on that branch.
+
+The branch's runtime-only `ordinary-direct-xlsx` profile required exact response
+MIME/length and lazy, bounded structural ZIP/OOXML validation before hashing or
+persistence. The package checks rejected encryption, traversal, duplicates,
+external relationships, DTD/entities, VBA/XLM and resource excess; they did not
+render/calculate cells, inspect worksheet semantics, verify every unrelated
+payload CRC or certify safety. Independent review and offline tests corrected a
+legacy-XLSX regression and XML amplification case, but did not prove live bytes.
+The [dated historical checkpoint](../../STATUS.md#ordinary-direct-xlsx-experiment-retired-unaccepted--2026-11-01)
+records the review/test limits and exact safe aggregate hashes.
+
+Three installed branch canaries failed to close acceptance. The first ended
+before helper dispatch with ambiguous legacy `source-http-error`; the second
+reported only `source-http-4xx` before dispatch. Both retained `not-attempted`
+with null timestamp/path/length/SHA-256 and no XLSX binary. The candidate's
+fixed source-class/processing diagnostics were an attribution experiment, not
+new mainline diagnostic behavior; the 4xx class established no specific cause.
+
+The final separately approved canary on 2026-11-01 passed the source gate with
+HTTP 200 JSON and completed one known helper dispatch, but the envelope was
+`provider-status-other` with no accepted download candidate. No binary
+acquisition, expected-length check or structural OOXML validation occurred.
+The branch manifest recorded `failed` with `attemptedAt` present, MIME only as
+identity metadata, and null path/byte length/SHA-256. The local 400–499 integer
+diagnostic did not fire and explained neither the earlier 4xx nor the envelope.
+All three preserved pairwise equal File/Obsidian raw/manifest/canonical
+companions; none produced an XLSX binary or retried. The final Markdown outputs
+were saved but not byte-identical because of the configured presentation
+transform.
+
+The capability is retired unaccepted and its final canary authority is spent.
+Intended disposition is to merge the docs-only evidence PR, then close #89
+unmerged while retaining the branch. The history grants no new canary, code
+change, retry, envelope diagnostic or transport redesign. A future attempt
+requires a new, separately authorized evidence plan, not continuation of this
+experiment's exhausted gate. [ITH-004](../idea-threads/ITH-004-attachment-acquisition-authority.md)
+retains the rejected paths and that explicit revisit condition.
+
 ### Owner routes are capture context, not attachment authority
 
 Custom-GPT and project routes now have a separate content-free runtime contract.

@@ -4100,3 +4100,88 @@ runtime and synthetic File/range/DEFLATE/backpressure/abort/responsiveness
 workload. Production ZIP UI/delivery and separately authorized private official
 export acceptance remain open. This does not prove archive authenticity or
 completeness, total browser memory bounds, or OS-level read cancellation.
+
+## Ordinary direct XLSX experiment retired unaccepted — 2026-11-01
+
+This is a historical, documentation-only transfer from unmerged
+[PR #89](https://github.com/la4ox/liska-threadkeeper/pull/89), branch
+`codex/chatgpt-ordinary-xlsx`, at
+[candidate head `f6fb659`](https://github.com/la4ox/liska-threadkeeper/commit/f6fb6591e9311932de29394798de42f5738861b7).
+The final installed evidence was recorded in
+[`a086fe3`](https://github.com/la4ox/liska-threadkeeper/commit/a086fe3af022b67dc2e52e2170677f1a0f961a08).
+None of that branch's ordinary-XLSX implementation, validation profile or
+source-diagnostic changes is being adopted into main by this evidence entry.
+The capability never passed live byte acceptance and is retired unaccepted.
+
+The historical candidate started from a complete 13,118,031-byte raw capture
+with one exact ordinary direct XLSX attachment, declared as 12,101 bytes. The
+retained whole ledger contained no Library, interpreter/sandbox,
+custom-GPT/project or template ownership marker for that asset. Its branch-only
+design required exact direct identity and MIME, positive bounded declared size,
+whole-ledger uniqueness/owner separation and immediate committed-raw replan.
+It proposed one existing active slot after Library text/plain and before ordinary
+images, preserving the four-operation, 20-attempt / 128 MiB budgets and no-retry
+ownership rather than widening image, Library or interpreter authority.
+
+Only the candidate's runtime-only `ordinary-direct-xlsx` profile required exact
+response MIME/declared length and bounded structural ZIP/OOXML admission before
+hashing or persistence. Its lazy validator rejected unsafe package paths,
+encryption, external relationships, DTD/entities, VBA/XLM and resource excess.
+It did not render/calculate cells, inspect worksheet semantics, verify every
+unrelated payload CRC or certify workbook safety. These were candidate design
+and offline-test claims, not live validation of the retained workbook.
+
+The branch history records independent review closing a legacy-XLSX regression
+with the explicit profile and an XML namespace-amplification case with namespace
+reuse plus an aggregate work budget. It records 997 affected ChatGPT tests and
+a later source-attribution check of 9 files / 1,068 tests, plus TypeScript,
+scoped lint, formatting and build checks. Its broader coverage attempt passed
+245 files / 9,079 tests with three skips but timed out in six unchanged Claude
+autoscroll cases; those six passed together without coverage. The combined
+record therefore covered 246 non-skipped files / 9,085 passing tests, not one
+all-green coverage invocation. Recorded CI, Code Review and Security Review
+were clean at candidate revision `de7a61d`; none of these historical checks is a
+current-main test run or a substitute for live XLSX acceptance.
+
+Three installed trusted-export canaries followed on that branch:
+
+1. The normal-mode canary selected one XLSX but stopped before helper dispatch
+   with legacy `source-http-error` (the durable dispatch metric was unknown).
+   This ambiguous code did not distinguish a source status from source-response
+   processing failure. The asset stayed `not-attempted`, with null attempt
+   timestamp/path/length/SHA-256, and no XLSX binary or retry.
+2. The attribution canary reported `source-http-4xx` before helper dispatch.
+   The same null binary evidence and `not-attempted` state remained. This proved
+   only a client-error-class response on the separate source request, not
+   authentication, absence, expiry, rate limiting or another cause. No retry ran.
+3. The final approved canary on 2026-11-01 passed the source gate with HTTP 200
+   JSON and completed one known helper dispatch. Its envelope was classified as
+   `provider-status-other`; no download candidate was accepted. No binary
+   acquisition, expected-length check or structural OOXML validation occurred.
+   The asset was `failed` with `attemptedAt` present, exact XLSX MIME only as
+   identity metadata, and null path/byte length/SHA-256. No XLSX binary or retry
+   occurred. The locally approved 400–499 integer diagnostic did not fire, so
+   this neither explained the earlier 4xx nor established a finer envelope cause.
+
+All three historical canaries preserved pairwise byte-identical File/Obsidian
+raw, manifest and canonical companions. The final safe aggregate was:
+
+- Raw: 13,118,031 bytes;
+  `67ab8b989fbf12944d8d498235445f72d97684bcb1031904108a5c678212405c`.
+- Manifest: 17,248 bytes;
+  `976594d6c8f6e409a2cf19585ecdea0f759bac0ef38c8f95e499ee74dd29e684`.
+- Canonical: 29,340,883 bytes;
+  `6a49dff2bc0d33c21edd7d4262a3637b6f9ce0143c6576f5b856cf95e8dd0f1b`.
+
+File also saved an 8,116,627-byte HTML view and its receipt. Both Markdown notes
+were saved but differed by the configured presentation transform; Markdown byte
+identity is not claimed. Local-only receipts are
+`LISKA-XLSX-NORMAL-MODE-20261031`, `LISKA-XLSX-SOURCE-4XX-20261031` and
+`LISKA-XLSX-PROVIDER-STATUS-OTHER-20261101`; only safe aggregates are retained here.
+
+The final canary authorization is spent. Intended disposition: merge the
+documentation-only evidence PR first, then close #89 unmerged and retain its
+branch as historical evidence. No further canary, code change, retry,
+provider-envelope diagnostic or transport redesign is authorized by these
+results. Any future ordinary direct XLSX work requires a new, separately
+authorized evidence plan; this is not an open acceptance step for main.
