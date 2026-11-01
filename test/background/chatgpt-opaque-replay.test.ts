@@ -1,11 +1,17 @@
+import { createHash } from 'node:crypto';
+import { createContext, runInContext } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  captureChatGptConversationViaOpaqueReplay,
+  captureChatGptConversationViaOpaqueReplay as captureReplay,
+  parseChatGptOpaqueReplayStateWire,
   readChatGptOpaqueReplayChunkState,
-  readChatGptOpaqueReplayState,
+  readChatGptOpaqueReplayState as readStateWire,
   releaseChatGptOpaqueReplayChunkState,
 } from '../../src/background/chatgpt-opaque-replay';
-import { CHATGPT_OPAQUE_REPLAY_ERROR_CODES } from '../../src/lib/chatgpt-opaque-replay-contract';
+import {
+  isChatGptOpaqueReplayHookResult,
+  CHATGPT_OPAQUE_REPLAY_ERROR_CODES,
+} from '../../src/lib/chatgpt-opaque-replay-contract';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const TARGET = {
@@ -19,6 +25,122 @@ const MARKER = `#liska-capture=${NONCE}&liska-opaque-replay=1`;
 const SHA256 = '0'.repeat(64);
 const STAGE_ID = `archive-stage-${'A'.repeat(32)}`;
 const STAGED_MARKER = `#liska-capture=${NONCE}&liska-opaque-replay=2`;
+
+const WIRE_PREFIX = 'liska-opaque-replay-wire:1:';
+const MISSING_WIRE = 'liska-opaque-replay-wire:missing';
+
+function poisonedPageRealm(wire: string, chunks: string[] = []) {
+  const realm = createContext({ initialWire: wire, chunks, nonce: NONCE });
+  runInContext(
+    `
+    globalThis.window = globalThis;
+    let stateWire = initialWire;
+    let released = false;
+    let poisonCalls = 0;
+    const poison = () => { poisonCalls += 1; throw new Error('page poison executed'); };
+    Object.defineProperty(window, '__liskaChatGptOpaqueReplay_' + nonce, {
+      configurable: false, get: () => stateWire,
+    });
+    Object.defineProperty(window, '__liskaChatGptOpaqueReplayChunkReader_' + nonce, {
+      configurable: false, writable: false,
+      value: index => released ? '${MISSING_WIRE}' : chunks[index] ?? '${MISSING_WIRE}',
+    });
+    Object.defineProperty(window, '__liskaChatGptOpaqueReplayChunkRelease_' + nonce, {
+      configurable: false, writable: false,
+      value: () => { const owned = !released; released = true; return owned; },
+    });
+    Object.defineProperty(Object.prototype, 'then', { get: poison });
+    Object.defineProperty(Object.prototype, 'toJSON', { get: poison });
+    Object.defineProperty(Promise, Symbol.species, { get: poison });
+    Promise.prototype.then = poison;
+    Promise.prototype.constructor = poison;
+    Promise.resolve = poison;
+    globalThis.Promise = poison;
+    JSON.stringify = poison;
+    JSON.parse = poison;
+    Object.getPrototypeOf = poison;
+    Object.getOwnPropertyDescriptor = poison;
+    Object.create = poison;
+    Object.defineProperty = poison;
+    Reflect.ownKeys = poison;
+    Reflect.apply = poison;
+    Array.isArray = poison;
+    Number.isSafeInteger = poison;
+    RegExp.prototype.test = poison;
+    Function.prototype.call = poison;
+    Function.prototype.apply = poison;
+    globalThis.atob = poison;
+    globalThis.btoa = poison;
+  `,
+    realm
+  );
+  const execute = (func: (...args: never[]) => unknown, args: unknown[]) =>
+    runInContext(
+      `(${func.toString()})(${args.map(value => JSON.stringify(value)).join(',')})`,
+      realm
+    );
+  return { realm, execute, poisonCalls: () => runInContext('poisonCalls', realm) as number };
+}
+
+// Legacy lifecycle fixtures describe the unchanged public contract. Encode at
+// their mock extension-transfer boundary; the separate VM tests below execute
+// the actual serialized MAIN thunks in a poisoned, independent page realm.
+function fixtureWire(value: unknown, nonce = NONCE, mode = 'legacy-inline'): unknown {
+  if (typeof value !== 'object' || value === null) return value;
+  const state = value as Record<string, unknown>;
+  const kind =
+    state.kind === 'captured'
+      ? 'transport' in (state.capture as object)
+        ? 'staged'
+        : 'inline'
+      : state.kind;
+  return (
+    WIRE_PREFIX +
+    kind +
+    ':' +
+    JSON.stringify(kind === 'chunk' ? { nonce, ...state } : { nonce, mode, ...state, kind })
+  );
+}
+
+async function captureChatGptConversationViaOpaqueReplay(
+  ...args: Parameters<typeof captureReplay>
+): ReturnType<typeof captureReplay> {
+  const overrides = args[1];
+  if (!overrides?.chromeApi) return captureReplay(...args);
+  const api = overrides.chromeApi;
+  return captureReplay(args[0], {
+    ...overrides,
+    chromeApi: {
+      ...api,
+      scripting: {
+        executeScript: async injection => {
+          const entries = await api.scripting.executeScript(injection);
+          return entries.map(entry => ({
+            ...entry,
+            result: fixtureWire(
+              entry.result,
+              injection.args[0] as string,
+              overrides.transportMode ?? 'legacy-inline'
+            ),
+          }));
+        },
+      },
+    },
+  });
+}
+
+// These compatibility assertions validate the public fixture contract, not a
+// browser transfer. Objects are never returned by the production MAIN reader.
+function readChatGptOpaqueReplayState(nonce: string) {
+  const value = (window as unknown as Record<string, unknown>)[
+    `__liskaChatGptOpaqueReplay_${nonce}`
+  ];
+  if (typeof value !== 'string') {
+    if (!isChatGptOpaqueReplayHookResult(value)) return { kind: 'missing' };
+    return parseChatGptOpaqueReplayStateWire(fixtureWire(value, nonce), nonce, 'legacy-inline');
+  }
+  return parseChatGptOpaqueReplayStateWire(readStateWire(nonce), nonce, 'legacy-inline');
+}
 
 function stagedState(byteLength = 16 * 1024 * 1024 + 1) {
   return {
@@ -71,11 +193,223 @@ function chromeApi(result: unknown, url?: string) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('ChatGPT opaque replay temporary-tab core', () => {
+  it('models inherited thenable replacement of an ordinary script return as an attack control', async () => {
+    const realm = createContext({
+      authentic: fixtureWire(capturedState()),
+      forged: 'forged-result',
+    });
+    const object = runInContext(
+      `
+      let calls = 0;
+      Object.defineProperty(Object.prototype, 'then', { value: function (resolve) {
+        calls += 1; resolve(forged);
+      } });
+      ({ kind: 'ready' });
+    `,
+      realm
+    );
+    expect(await Promise.resolve(object)).toBe('forged-result');
+    expect(runInContext('calls', realm)).toBe(1);
+    const primitive = runInContext('authentic', realm);
+    expect(await Promise.resolve(primitive)).toBe(primitive);
+    expect(runInContext('calls', realm)).toBe(1);
+  });
+  it.each(['legacy-inline', 'staged-v2'] as const)(
+    'transfers ready/error/inline primitives through poisoned MAIN globals in %s',
+    async mode => {
+      const bytes = Buffer.from('authentic replay bytes');
+      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      const captured = {
+        ...capturedState(),
+        capture: {
+          bodyBase64: bytes.toString('base64'),
+          byteLength: bytes.length,
+          sha256,
+          mediaType: 'application/json',
+        },
+      };
+      for (const state of [
+        { kind: 'ready' },
+        { kind: 'error', code: 'replay-rejected', singularDispatchCount: 1 },
+        captured,
+      ]) {
+        const wire = fixtureWire(state, NONCE, mode) as string;
+        const page = poisonedPageRealm(wire);
+        const returned = page.execute(readStateWire, [NONCE]);
+        expect(typeof returned).toBe('string');
+        // Models Chromium's mandatory Promise resolution separately from its
+        // property converter and from clean extension-realm parsing. Primitive
+        // resolution cannot inspect inherited page Object.prototype.then.
+        const transferred = await Promise.resolve(returned);
+        expect(transferred).toBe(wire);
+        expect(parseChatGptOpaqueReplayStateWire(transferred, NONCE, mode)).toEqual(state);
+        expect(page.poisonCalls()).toBe(0);
+        if (state.kind === 'captured') {
+          const chrome = chromeApi(
+            wire,
+            `https://chatgpt.com${TARGET.pathname}${mode === 'staged-v2' ? STAGED_MARKER : MARKER}`
+          );
+          const response = await captureReplay(TARGET, {
+            chromeApi: chrome.api,
+            createNonce: () => NONCE,
+            transportMode: mode,
+          });
+          expect(response).toMatchObject({
+            success: true,
+            data: { sha256, bodyBase64: bytes.toString('base64') },
+          });
+        }
+      }
+    }
+  );
+
+  it('rejects ordinary object/boxed returns before any page thenable or converter copy', async () => {
+    const page = poisonedPageRealm(MISSING_WIRE);
+    runInContext('stateWire = { kind: "ready" }', page.realm);
+    const result = page.execute(readStateWire, [NONCE]);
+    expect(await Promise.resolve(result)).toBe(MISSING_WIRE);
+    runInContext('stateWire = new String(initialWire)', page.realm);
+    expect(page.execute(readStateWire, [NONCE])).toBe(MISSING_WIRE);
+    expect(page.poisonCalls()).toBe(0);
+  });
+
+  it.each([false, true])(
+    'verifies >16 MiB multi-chunks via poisoned MAIN thunks (digest mismatch %s)',
+    async hashMismatch => {
+      const bytes = Buffer.alloc(16 * 1024 * 1024 + 1, 0x61);
+      bytes[bytes.length - 1] = 0xff;
+      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      const state = stagedState(bytes.length);
+      state.capture.sha256 = sha256;
+      const wire = fixtureWire(state, NONCE, 'staged-v2') as string;
+      const chunks = Array.from({ length: state.capture.chunkCount }, (_, index) => {
+        const offset = index * 512 * 1024;
+        const chunk = Buffer.from(
+          bytes.subarray(offset, Math.min(bytes.length, offset + 512 * 1024))
+        );
+        if (hashMismatch && index === 0) chunk[0] ^= 1;
+        return fixtureWire({
+          kind: 'chunk',
+          index,
+          offset,
+          byteLength: chunk.length,
+          chunkBase64: chunk.toString('base64'),
+        }) as string;
+      });
+      const page = poisonedPageRealm(wire, chunks);
+      const actualBytes = createHash('sha256');
+      let actualLength = 0;
+      const append = vi.fn(async (_id, offset, chunkBase64) => {
+        expect(offset).toBe(actualLength);
+        const chunk = Buffer.from(chunkBase64, 'base64');
+        actualLength += chunk.length;
+        actualBytes.update(chunk);
+        return true;
+      });
+      const seal = vi.fn(
+        async () => actualLength === bytes.length && actualBytes.digest('hex') === sha256
+      );
+      const abort = vi.fn();
+      const executeScript = vi.fn(async injection => [
+        {
+          frameId: 0,
+          documentId: 'pinned-document',
+          result: await Promise.resolve(page.execute(injection.func, injection.args)),
+        },
+      ]);
+      const response = await captureReplay(TARGET, {
+        createNonce: () => NONCE,
+        transportMode: 'staged-v2',
+        chromeApi: {
+          tabs: {
+            create: vi.fn(async () => ({ id: 123 })),
+            get: vi.fn(async () => ({
+              status: 'complete',
+              url: `https://chatgpt.com${TARGET.pathname}${STAGED_MARKER}`,
+            })),
+            remove: vi.fn(async () => undefined),
+          },
+          scripting: { executeScript },
+        },
+        archiveStage: { begin: vi.fn(async () => STAGE_ID), append, seal, abort },
+      });
+      expect(response).toMatchObject(
+        hashMismatch
+          ? { success: false, code: 'replay-result-invalid', singularDispatchCount: 1 }
+          : {
+              success: true,
+              data: { transport: 'staged', sha256, byteLength: bytes.length, stageId: STAGE_ID },
+            }
+      );
+      expect(append).toHaveBeenCalledTimes(33);
+      expect(seal).toHaveBeenCalledOnce();
+      if (hashMismatch) expect(abort).toHaveBeenCalledWith(STAGE_ID);
+      else expect(abort).not.toHaveBeenCalled();
+      expect(page.execute(readStateWire, [NONCE])).toBe(wire);
+      expect(page.execute(readChatGptOpaqueReplayChunkState, [NONCE, 0])).toBe(MISSING_WIRE);
+      expect(page.execute(releaseChatGptOpaqueReplayChunkState, [NONCE])).toBe(false);
+      expect(page.poisonCalls()).toBe(0);
+    }
+  );
+
+  it('bounds primitive wire before JSON.parse and rejects malformed schemas/correlation', () => {
+    const inline = capturedState();
+    const valid = fixtureWire(inline) as string;
+    const invalid = [
+      undefined,
+      null,
+      {},
+      new String(valid),
+      'wrong:' + valid,
+      WIRE_PREFIX + 'inline:' + ' '.repeat(4 * Math.ceil((16 * 1024 * 1024) / 3) + 4096),
+      WIRE_PREFIX + 'ready:' + ' '.repeat(4097),
+      fixtureWire(inline, 'wrong-nonce'),
+      fixtureWire(inline, NONCE, 'staged-v2'),
+      fixtureWire({ ...inline, secret: 'no' }),
+      fixtureWire({ ...inline, capture: { ...inline.capture, stageId: STAGE_ID } }),
+      fixtureWire({ ...inline, capture: { ...inline.capture, byteLength: 1.5 } }),
+      fixtureWire({ ...inline, capture: { ...inline.capture, byteLength: 2 ** 53 } }),
+      fixtureWire({ ...inline, capture: { ...inline.capture, bodyBase64: 'AB==', byteLength: 1 } }),
+      fixtureWire({ ...inline, capture: { ...inline.capture, mediaType: 'text/html' } }),
+      fixtureWire({ ...inline, capture: { ...inline.capture, sha256: 'not-a-hash' } }),
+      WIRE_PREFIX + 'inline:{',
+      WIRE_PREFIX + 'unknown:{}',
+      fixtureWire(stagedState(), NONCE, 'legacy-inline'),
+    ];
+    const parse = vi.spyOn(JSON, 'parse');
+    for (const value of invalid.slice(0, 7)) {
+      expect(parseChatGptOpaqueReplayStateWire(value, NONCE, 'legacy-inline')).toEqual({
+        kind: 'missing',
+      });
+    }
+    expect(parse).not.toHaveBeenCalled();
+    for (const value of invalid.slice(7)) {
+      expect(parseChatGptOpaqueReplayStateWire(value, NONCE, 'legacy-inline')).toEqual({
+        kind: 'missing',
+      });
+    }
+    expect(parseChatGptOpaqueReplayStateWire(valid, NONCE, 'legacy-inline')).toEqual(inline);
+    expect(
+      parseChatGptOpaqueReplayStateWire(
+        fixtureWire(stagedState(64 * 1024 * 1024), NONCE, 'staged-v2'),
+        NONCE,
+        'staged-v2'
+      )
+    ).toMatchObject({ kind: 'captured', capture: { chunkCount: 128 } });
+    expect(
+      parseChatGptOpaqueReplayStateWire(
+        fixtureWire(stagedState(64 * 1024 * 1024 + 1), NONCE, 'staged-v2'),
+        NONCE,
+        'staged-v2'
+      )
+    ).toEqual({ kind: 'missing' });
+  });
   it.each([
     ['custom-gpt', 'private-owner'],
     ['project', 'g-p-private-project'],
@@ -284,29 +618,31 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
   it('pins one top-frame document and stages exact sequential v2 chunks without whole base64', async () => {
     const fullChunkBase64 = Buffer.alloc(512 * 1024, 1).toString('base64');
     const lastChunkBase64 = Buffer.from([2]).toString('base64');
-    const executeScript = vi.fn(async (injection: { func: Function; args: unknown[] }) => {
-      if (injection.func === releaseChatGptOpaqueReplayChunkState) {
-        return [{ frameId: 0, documentId: 'document-1', result: true }];
-      }
-      if (injection.func === readChatGptOpaqueReplayChunkState) {
-        const index = injection.args[1] as number;
-        const last = index === 32;
-        return [
-          {
-            frameId: 0,
-            documentId: 'document-1',
-            result: {
-              kind: 'chunk',
-              index,
-              offset: index * 512 * 1024,
-              byteLength: last ? 1 : 512 * 1024,
-              chunkBase64: last ? lastChunkBase64 : fullChunkBase64,
+    const executeScript = vi.fn(
+      async (injection: { func: (...args: never[]) => unknown; args: unknown[] }) => {
+        if (injection.func === releaseChatGptOpaqueReplayChunkState) {
+          return [{ frameId: 0, documentId: 'document-1', result: true }];
+        }
+        if (injection.func === readChatGptOpaqueReplayChunkState) {
+          const index = injection.args[1] as number;
+          const last = index === 32;
+          return [
+            {
+              frameId: 0,
+              documentId: 'document-1',
+              result: {
+                kind: 'chunk',
+                index,
+                offset: index * 512 * 1024,
+                byteLength: last ? 1 : 512 * 1024,
+                chunkBase64: last ? lastChunkBase64 : fullChunkBase64,
+              },
             },
-          },
-        ];
+          ];
+        }
+        return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
       }
-      return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
-    });
+    );
     const create = vi.fn().mockResolvedValue({ id: 123 });
     const remove = vi.fn().mockResolvedValue(undefined);
     const begin = vi.fn(async (_descriptor, onAllocated?: (stageId: string) => void) => {
@@ -432,43 +768,65 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     'append',
     'seal',
     'reload-after-seal',
+    'wire-change-after-seal',
+    'chunk-nonce',
+    'chunk-index',
+    'chunk-extra-key',
+    'chunk-oversize',
   ] as const)(
     'aborts its extension-owned stage on %s failure without inline fallback',
     async fault => {
       const fullChunkBase64 = Buffer.alloc(512 * 1024, 3).toString('base64');
       const lastChunkBase64 = Buffer.from([4]).toString('base64');
       let reloaded = false;
-      const executeScript = vi.fn(async (injection: { func: Function; args: unknown[] }) => {
-        if (injection.func === releaseChatGptOpaqueReplayChunkState) {
-          if (reloaded) throw new Error('old document reader disappeared');
-          return [{ frameId: 0, documentId: 'document-1', result: true }];
-        }
-        if (injection.func === readChatGptOpaqueReplayChunkState) {
-          if (fault === 'throwing-reader') throw new Error('synthetic reader failure');
-          const index = injection.args[1] as number;
-          const last = index === 32;
+      let sealed = false;
+      const executeScript = vi.fn(
+        async (injection: { func: (...args: never[]) => unknown; args: unknown[] }) => {
+          if (injection.func === releaseChatGptOpaqueReplayChunkState) {
+            if (reloaded) throw new Error('old document reader disappeared');
+            return [{ frameId: 0, documentId: 'document-1', result: true }];
+          }
+          if (injection.func === readChatGptOpaqueReplayChunkState) {
+            if (fault === 'throwing-reader') throw new Error('synthetic reader failure');
+            const index = injection.args[1] as number;
+            const last = index === 32;
+            return [
+              {
+                frameId: 0,
+                documentId: fault === 'document' ? 'document-2' : 'document-1',
+                result:
+                  fault === 'chunk-oversize'
+                    ? WIRE_PREFIX + 'chunk:' + ' '.repeat(704_000)
+                    : {
+                        kind: 'chunk',
+                        index: fault === 'chunk-index' ? index + 1 : index,
+                        ...(fault === 'chunk-nonce' && { nonce: 'wrong-correlation-nonce' }),
+                        ...(fault === 'chunk-extra-key' && { stageId: STAGE_ID }),
+                        offset: fault === 'chunk-offset' ? 1 : index * 512 * 1024,
+                        byteLength: last ? 1 : 512 * 1024,
+                        chunkBase64:
+                          fault === 'base64'
+                            ? `${'A'.repeat(fullChunkBase64.length - 2)}B=`
+                            : last
+                              ? lastChunkBase64
+                              : fullChunkBase64,
+                      },
+              },
+            ];
+          }
+          if (reloaded) return [];
           return [
             {
               frameId: 0,
-              documentId: fault === 'document' ? 'document-2' : 'document-1',
-              result: {
-                kind: 'chunk',
-                index,
-                offset: fault === 'chunk-offset' ? 1 : index * 512 * 1024,
-                byteLength: last ? 1 : 512 * 1024,
-                chunkBase64:
-                  fault === 'base64'
-                    ? `${'A'.repeat(fullChunkBase64.length - 2)}B=`
-                    : last
-                      ? lastChunkBase64
-                      : fullChunkBase64,
-              },
+              documentId: 'document-1',
+              result:
+                fault === 'wire-change-after-seal' && sealed
+                  ? fixtureWire(stagedState(), NONCE, 'staged-v2') + ' '
+                  : stagedState(),
             },
           ];
         }
-        if (reloaded) return [];
-        return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
-      });
+      );
       let routeReads = 0;
       const begin = vi.fn(async (_descriptor, onAllocated?: (stageId: string) => void) => {
         onAllocated?.(STAGE_ID);
@@ -476,6 +834,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
       });
       const append = vi.fn().mockResolvedValue(fault !== 'append');
       const seal = vi.fn(async () => {
+        sealed = true;
         if (fault === 'reload-after-seal') reloaded = true;
         return fault !== 'seal';
       });
@@ -541,7 +900,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
           remove: vi.fn().mockResolvedValue(undefined),
         },
         scripting: {
-          executeScript: vi.fn(async (injection: { func: Function }) => [
+          executeScript: vi.fn(async (injection: { func: (...args: never[]) => unknown }) => [
             {
               frameId: 0,
               documentId: 'document-1',
@@ -589,7 +948,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
           remove,
         },
         scripting: {
-          executeScript: vi.fn(async (injection: { func: Function }) => [
+          executeScript: vi.fn(async (injection: { func: (...args: never[]) => unknown }) => [
             {
               frameId: 0,
               documentId: 'document-1',
@@ -639,27 +998,29 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
       );
       const abort = vi.fn().mockResolvedValue(true);
       const fullChunkBase64 = Buffer.alloc(512 * 1024, 5).toString('base64');
-      const executeScript = vi.fn(async (injection: { func: Function; args: unknown[] }) => {
-        if (injection.func === releaseChatGptOpaqueReplayChunkState) {
-          return [{ frameId: 0, documentId: 'document-1', result: true }];
-        }
-        if (injection.func === readChatGptOpaqueReplayChunkState) {
-          return [
-            {
-              frameId: 0,
-              documentId: 'document-1',
-              result: {
-                kind: 'chunk',
-                index: 0,
-                offset: 0,
-                byteLength: 512 * 1024,
-                chunkBase64: fullChunkBase64,
+      const executeScript = vi.fn(
+        async (injection: { func: (...args: never[]) => unknown; args: unknown[] }) => {
+          if (injection.func === releaseChatGptOpaqueReplayChunkState) {
+            return [{ frameId: 0, documentId: 'document-1', result: true }];
+          }
+          if (injection.func === readChatGptOpaqueReplayChunkState) {
+            return [
+              {
+                frameId: 0,
+                documentId: 'document-1',
+                result: {
+                  kind: 'chunk',
+                  index: 0,
+                  offset: 0,
+                  byteLength: 512 * 1024,
+                  chunkBase64: fullChunkBase64,
+                },
               },
-            },
-          ];
+            ];
+          }
+          return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
         }
-        return [{ frameId: 0, documentId: 'document-1', result: stagedState() }];
-      });
+      );
       const pending = captureChatGptConversationViaOpaqueReplay(TARGET, {
         chromeApi: {
           tabs: {
@@ -1113,11 +1474,9 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     ['NaN byte length', Number.NaN, 33],
     ['infinite chunk count', 16 * 1024 * 1024 + 1, Number.POSITIVE_INFINITY],
   ])(
-    'rejects %s before staged count iteration or reader invocation',
+    'rejects %s in the extension contract without MAIN metadata traversal',
     (_label, byteLength, chunkCount) => {
-      const reader = vi.fn(() => {
-        throw new Error('reader must not run');
-      });
+      const reader = vi.fn(() => MISSING_WIRE);
       const state = {
         ...stagedState(),
         capture: { ...stagedState().capture, byteLength, chunkCount },
@@ -1128,8 +1487,8 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
       });
 
       expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
-      expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
-      expect(reader).not.toHaveBeenCalled();
+      expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual(MISSING_WIRE);
+      expect(reader).toHaveBeenCalledExactlyOnceWith(0);
     }
   );
 
@@ -1150,7 +1509,7 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
     });
 
     expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
-    expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual(MISSING_WIRE);
     expect(byteLength).not.toHaveBeenCalled();
   });
 
@@ -1195,6 +1554,8 @@ describe('ChatGPT opaque replay temporary-tab core', () => {
         throw new Error('synthetic state getter failure');
       },
     });
-    expect(readChatGptOpaqueReplayState(NONCE)).toEqual({ kind: 'missing' });
+    expect(parseChatGptOpaqueReplayStateWire(readStateWire(NONCE), NONCE, 'legacy-inline')).toEqual(
+      { kind: 'missing' }
+    );
   });
 });
