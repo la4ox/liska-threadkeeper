@@ -246,6 +246,39 @@ terminal states, and the existing no-credential-export boundary.
   still permits only opaque byte retention: no decoding, newline rewriting,
   encoding guarantee or inline preview. General Library text remains unsupported.
 
+#### Retired unaccepted experiment: ordinary direct XLSX
+
+- Ordinary direct XLSX is not an accepted mainline capability. Unmerged
+  [PR #89](https://github.com/la4ox/liska-threadkeeper/pull/89) implemented only
+  a branch candidate; its planner, runtime-only validation profile and
+  source-diagnostic split are not shipped by this docs-only evidence transfer.
+  Historical sources are [head `f6fb659`](https://github.com/la4ox/liska-threadkeeper/commit/f6fb6591e9311932de29394798de42f5738861b7)
+  and [final evidence `a086fe3`](https://github.com/la4ox/liska-threadkeeper/commit/a086fe3af022b67dc2e52e2170677f1a0f961a08).
+- The branch design bounded one standard-owner, exact direct XLSX with positive
+  declared size and whole-ledger ownership/identity checks. It proposed immediate
+  committed-raw replan, one shared active slot, exact response MIME/length and
+  bounded structural OOXML admission, with no broader endpoint, permission or
+  retry authority. Recorded reviews/offline tests were not live byte acceptance.
+- Three installed branch canaries ended respectively with ambiguous
+  pre-dispatch `source-http-error`, pre-dispatch `source-http-4xx`, and finally
+  HTTP 200 JSON plus one helper dispatch ending in `provider-status-other`.
+  The first two retained `not-attempted` with null attempt/binary fields; the
+  final asset was `failed` with `attemptedAt` present and null path/length/hash.
+  No download candidate was accepted, no XLSX binary was acquired and no
+  expected-length or OOXML validation was reached; no retry ran.
+- File/Obsidian raw, manifest and canonical companions matched in all three
+  historical runs. The [dated checkpoint](../STATUS.md#ordinary-direct-xlsx-experiment-retired-unaccepted--2026-11-01)
+  retains final safe lengths/hashes and the Markdown presentation difference.
+  This proves honest loss-state preservation, not spreadsheet support or a
+  cause for the earlier 4xx/provider envelope.
+- The capability is retired unaccepted; the final canary authorization is spent.
+  Intended disposition: merge the documentation-only evidence PR, then close
+  #89 unmerged and retain its branch. Do not continue with another canary,
+  retry, code change, envelope diagnostic or transport redesign under the old
+  approval. Any future work requires a new, separately authorized evidence plan;
+  [ITH-004 T3](idea-threads/ITH-004-attachment-acquisition-authority.md#t3--revisit-ordinary-xlsx-only-through-a-new-evidence-plan)
+  records the trigger, not an authorized next action.
+
 ### 7. User-facing derived outputs
 
 - The pure `liska-html/1` renderer and opt-in current/selected File delivery are
