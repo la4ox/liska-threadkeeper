@@ -544,12 +544,20 @@ terminal states, and the existing no-credential-export boundary.
   backpressure/cancellation workload. Its manifest has zero permissions/hosts
   and no network/background/content-script authority. Normal production build
   and packaged ZIP contain no harness, fixture index or test marker.
-- Installed-Comet File-picker/native-DEFLATE acceptance and later production UI
-  wiring remain separate gates. Synthetic source/Node success does not prove a
-  private export, browser buffering, total memory, production delivery or
-  archive authenticity/completeness. Automatic directory discovery, external
-  binary association, archive merge and snapshot deduplication also remain
-  separate explicit slices.
+- Installed-Comet File-picker/native-runtime synthetic acceptance is complete
+  on 2026-11-01: one clean visible zero-permission harness run returned overall
+  `PASS` for all eight cases, ranges/owned buffers, raw DEFLATE negatives,
+  paused-consumer backpressure, active/delayed abort and responsiveness. The
+  measured phase took 1,341.5 ms; all eight postflight hashes stayed unchanged,
+  and independent verification matched every fixture length/full SHA-256.
+  Exact metrics and the index hash are in ADR-046. An earlier hidden-tab run
+  remains `INCONCLUSIVE`, not evidence or a runtime failure.
+- Production ZIP UI/delivery and separately authorized private official-export
+  acceptance remain open. The synthetic pass proves only this exact installed
+  Comet picker/native workload, not a private export, archive authenticity or
+  completeness, total browser memory or OS read cancellation. Automatic
+  directory discovery, external binary association, archive merge and snapshot
+  deduplication also remain separate explicit slices.
 
 ### 9. Adjacent provider: Dots chat export
 
