@@ -4185,3 +4185,37 @@ branch as historical evidence. No further canary, code change, retry,
 provider-envelope diagnostic or transport redesign is authorized by these
 results. Any future ordinary direct XLSX work requires a new, separately
 authorized evidence plan; this is not an open acceptance step for main.
+
+## Ordinary image destination-integrity candidate — 2026-11-01
+
+Branch `codex/sec-immutable-images` starts from merged main `09dbb18` and
+addresses repository-scan finding `csf_f4bdef66eee0e03879dd3d07` / occurrence
+`occ_6d8073e1a620a00d37a7797f`. The former ordinary title/index image namespace
+could be externally uniquified after Markdown had already selected the old
+name, while fresh Obsidian unconditionally replaced an occupied same-named
+attachment.
+
+The candidate shares one strict full-SHA-256 planner between ordinary and append
+images. Fresh Obsidian uses the existing create-only Local REST API capability,
+bounded exact-byte readback, byte-identical reuse and confirmed full
+vault-relative Markdown paths. It never overwrites different existing bytes;
+unconfirmed images are omitted with the existing nonfatal count warning. File
+persists every content-addressed image before Markdown and requires terminal,
+current-complete, current-existing and exact requested relative-path evidence.
+Collision rename, interruption, deletion, timeout, lookup failure and parser
+uncertainty therefore leave no Markdown that falsely claims the image.
+
+The old `imageFileName`, `resolveImagesForObsidian` and `resolveImagesForFile`
+exports are removed rather than retained as unsafe dead APIs. Independent
+review found and rechecked the fresh Downloads-state/existence and real
+200,000-node parser-budget seams; no material finding remains under the explicit
+cooperative-browser boundary. The absolute Downloads root remains browser-owned
+and opaque, and Downloads evidence is not byte readback, atomic multi-file
+commit or a permanence guarantee.
+
+The final affected matrix passes 9 test files / 574 tests. TypeScript and the
+production build, targeted ESLint, focused Prettier and diff checks also pass.
+
+The implementation is offline-verified but is not yet committed, published,
+CI-reviewed, installed, or live-accepted. The exact Cloud occurrence remains
+open until merge ancestry and current-main evidence are established.

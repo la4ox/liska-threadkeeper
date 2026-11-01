@@ -31,9 +31,9 @@ import {
   isAppendEligibleConversation,
   type ProbeState,
 } from '../lib/note-identity';
-import { resolveImagesForObsidian, stripImagePlaceholders } from '../lib/image-output';
+import { resolveImagesToConfirmedPaths, stripImagePlaceholders } from '../lib/image-output';
 import { flattenLargeCallouts } from '../lib/callout-flatten';
-import { base64ToBytes } from '../lib/image-utils';
+import { prepareOrdinaryImagePlan, persistOrdinaryObsidianImages } from './ordinary-image-assets';
 import { collisionSuffix, candidateFileName } from '../lib/filename-collision';
 import { validateObsidianUrl } from '../lib/validation';
 import { ARCHIVE_COMPANION_API_TIMEOUT_MS } from '../lib/constants';
@@ -753,9 +753,7 @@ async function saveFreshNote(
     });
   }
 
-  // Collision resolution owns the durable filename. Companion image names
-  // and wikilinks must use that same resolved namespace or a renamed note can
-  // overwrite the earlier note's images.
+  // Note collision policy remains independent of immutable image addressing.
   const resolvedNote =
     target.fileName === note.fileName ? note : { ...note, fileName: target.fileName };
   const { note: saveNote, failedImageCount } = await prepareNoteImages(
@@ -796,7 +794,7 @@ function imageWarning(failedImageCount: number): string | undefined {
 
 /**
  * For a fresh (non-append) save, write captured images to the vault and return
- * a note whose body embeds them via `![[filename]]` wikilinks. When image
+ * a note whose body embeds only confirmed full vault-relative paths. When image
  * export is disabled or there are no images, image placeholders are stripped.
  *
  * Image-write failures never block the note (ADR-008, ADR-021, ADR-027), but they are
@@ -817,25 +815,15 @@ async function prepareNoteImages(
     return { note: stripped, failedImageCount: 0 };
   }
 
-  const baseName = note.fileName.replace(/\.md$/i, '');
-  const { body, files } = resolveImagesForObsidian(note.body, images, baseName);
-
-  const imageDir = resolvePathTemplate(settings.imageVaultPath, templateVariables);
-  let failedImageCount = 0;
-  for (const file of files) {
-    const path = imageDir ? `${imageDir}/${file.fileName}` : file.fileName;
-    if (containsPathTraversal(path)) {
-      failedImageCount += 1;
-      continue;
-    }
-    try {
-      await client.putBinaryFile(path, base64ToBytes(file.data), file.mimeType);
-    } catch {
-      console.warn('[G2O Background] Image write failed');
-      failedImageCount += 1;
-    }
-  }
-
+  const plan = await prepareOrdinaryImagePlan(note.body, images);
+  const { pathsById, failedImageCount } = await persistOrdinaryObsidianImages(
+    client,
+    settings,
+    templateVariables,
+    plan
+  );
+  const { body } = resolveImagesToConfirmedPaths(note.body, images, pathsById);
+  if (failedImageCount > 0) console.warn('[G2O Background] Image write failed');
   return { note: { ...note, body }, failedImageCount };
 }
 

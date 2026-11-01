@@ -8,7 +8,8 @@
 import { extractErrorMessage } from '../lib/error-utils';
 import { generateNoteContent } from '../lib/note-generator';
 import { handleSave, handleSaveArchiveCompanion } from './obsidian-handlers';
-import { resolveImagesForFile, stripImagePlaceholders } from '../lib/image-output';
+import { resolveImagesToConfirmedPaths, stripImagePlaceholders } from '../lib/image-output';
+import { ordinaryImageRelativePath, prepareOrdinaryImagePlan } from './ordinary-image-assets';
 import { MAX_CONTENT_SIZE } from '../lib/constants';
 import { CHATGPT_INLINE_CAPTURE_MAX_BYTES } from '../lib/chatgpt-capture-contract';
 import { canonicalBase64ByteLength } from '../lib/base64';
@@ -53,11 +54,6 @@ import type {
   OffscreenClipboardMessage,
   StructuredArchiveSource,
 } from '../lib/types';
-
-/** Note filename without its `.md` extension — the base for image filenames. */
-function noteBaseName(fileName: string): string {
-  return fileName.replace(/\.md$/i, '');
-}
 
 /** Runtime type guard for offscreen clipboard response */
 function isClipboardWriteResponse(value: unknown): value is { success: boolean; error?: string } {
@@ -391,6 +387,11 @@ export interface ArchiveDownloadOutcome {
   downloadId?: number;
 }
 
+/**
+ * Authenticate only the requested path relative to Chrome's opaque Downloads
+ * root, not that root's absolute prefix. The cooperative-browser boundary does
+ * not cover another same-privilege extension mutating Downloads state or paths.
+ */
 function archiveDownloadPathMatches(filename: unknown, expectedRelativePath: string): boolean {
   if (typeof filename !== 'string') return false;
   const normalized = filename.replace(/\\/g, '/');
@@ -433,6 +434,33 @@ export async function confirmArchiveDownloadPath(
     }
   }
   return detailed ? status : status === 'confirmed';
+}
+
+/** Ordinary embeds require fresh complete/existing-item evidence, not only an earlier terminal event. */
+async function confirmOrdinaryImageDownloadPath(
+  outcome: ArchiveDownloadOutcome,
+  expectedRelativePath: string
+): Promise<ArchiveDownloadPathStatus> {
+  if (!outcome.terminal || outcome.error !== null || outcome.downloadId === undefined)
+    return 'unconfirmed';
+  try {
+    const downloads = await withTimeout(
+      chrome.downloads.search({ id: outcome.downloadId }),
+      DOWNLOAD_SEARCH_TIMEOUT_MS,
+      'Image download path lookup timed out'
+    );
+    const item = downloads.find(download => download.id === outcome.downloadId);
+    // Both fields are required by Chrome's DownloadItem contract. Fail closed
+    // on missing evidence too. `exists` is Chrome's observation, not a byte
+    // readback or an atomic filesystem-existence guarantee.
+    if (item?.state !== 'complete' || item.exists !== true || typeof item.filename !== 'string')
+      return 'unconfirmed';
+    return archiveDownloadPathMatches(item.filename, expectedRelativePath)
+      ? 'confirmed'
+      : 'mismatch';
+  } catch {
+    return 'unconfirmed';
+  }
 }
 
 function isTerminalDownloadState(state: string | undefined): state is 'complete' | 'interrupted' {
@@ -1050,7 +1078,45 @@ async function downloadStrictMarkdown(url: string, filename: string): Promise<Ou
   }
 }
 
-/** Download Markdown and then each captured image; ordinary images retain their existing behavior. */
+/** Downloads can uniquify image names; only an exact retained path may authorize an embed. */
+async function prepareFileImageBody(
+  note: ObsidianNote,
+  settings: ExtensionSettings,
+  strictFileDownload?: true
+): Promise<{ body: string } | { failure: OutputResult }> {
+  const images = settings.enableImageExport ? (note.images ?? []) : [];
+  if (images.length === 0) return { body: stripImagePlaceholders(note.body) };
+  const plan = await prepareOrdinaryImagePlan(note.body, images);
+  if (plan.parserFailed || plan.failedImageCount > 0) {
+    return { failure: imageDownloadFailure(strictFileDownload, false) };
+  }
+  const noteFolder = note.fileName.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+  for (const asset of plan.assets) {
+    const path = [noteFolder, ordinaryImageRelativePath(asset.fileName)].filter(Boolean).join('/');
+    try {
+      const outcome = await downloadArchiveBlob(
+        `data:${asset.mediaType};base64,${bytesToBase64(asset.bytes)}`,
+        path,
+        async () => undefined
+      );
+      if (!outcome.terminal || outcome.error !== null) {
+        return { failure: imageDownloadFailure(strictFileDownload, !outcome.terminal) };
+      }
+      const confirmed = await confirmOrdinaryImageDownloadPath(outcome, path);
+      if (confirmed !== 'confirmed') {
+        return { failure: imageDownloadFailure(strictFileDownload, confirmed === 'unconfirmed') };
+      }
+    } catch {
+      return { failure: imageDownloadFailure(strictFileDownload, true) };
+    }
+  }
+  const pathsById = new Map(
+    [...plan.namesById].map(([id, name]) => [id, ordinaryImageRelativePath(name)])
+  );
+  return { body: resolveImagesToConfirmedPaths(note.body, images, pathsById).body };
+}
+
+/** Confirm all immutable images before dispatching any Markdown that embeds them. */
 async function handleDownloadToFile(
   note: ObsidianNote,
   settings: ExtensionSettings,
@@ -1058,11 +1124,12 @@ async function handleDownloadToFile(
 ): Promise<OutputResult> {
   let markdownResult: OutputResult | undefined;
   try {
-    const images = settings.enableImageExport ? (note.images ?? []) : [];
-    const { body, files } =
-      images.length > 0
-        ? resolveImagesForFile(note.body, images, noteBaseName(note.fileName))
-        : { body: stripImagePlaceholders(note.body), files: [] };
+    const prepared =
+      settings.enableImageExport && note.images?.length
+        ? await prepareFileImageBody(note, settings, strictFileDownload)
+        : { body: stripImagePlaceholders(note.body) };
+    if ('failure' in prepared) return prepared.failure;
+    const { body } = prepared;
 
     const content = generateNoteContent({ ...note, body }, settings);
     const url = `data:text/markdown;charset=utf-8;base64,${stringToBase64(content)}`;
@@ -1076,31 +1143,25 @@ async function handleDownloadToFile(
         };
     if (!markdownResult.success) return markdownResult;
 
-    for (const file of files) {
-      const imgError = await downloadDataUrl(
-        `data:${file.mimeType};base64,${file.data}`,
-        file.fileName
-      );
-      if (imgError) {
-        return {
-          ...markdownResult,
-          success: false,
-          error: 'Image download failed (1 image)',
-        };
-      }
-    }
-
     return markdownResult;
   } catch (error) {
     return {
       ...markdownResult,
       destination: 'file',
       success: false,
-      ...(strictFileDownload &&
-        !markdownResult && { strictFileOutcome: 'confirmed-failure' as const }),
+      ...(strictFileDownload && !markdownResult && { strictFileOutcome: 'unconfirmed' as const }),
       error: extractErrorMessage(error),
     };
   }
+}
+
+function imageDownloadFailure(strict: true | undefined, unconfirmed: boolean): OutputResult {
+  return {
+    destination: 'file',
+    success: false,
+    error: 'Image download failed (1 image)',
+    ...(strict && { strictFileOutcome: unconfirmed ? 'unconfirmed' : 'confirmed-failure' }),
+  };
 }
 
 /**

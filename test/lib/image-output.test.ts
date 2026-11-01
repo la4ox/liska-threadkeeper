@@ -4,10 +4,8 @@ vi.mock(import('mdast-util-from-markdown'), { spy: true });
 import { neutralizeActiveProviderMarkdown } from '../../src/content/markdown-safety';
 import { htmlToMarkdown } from '../../src/content/markdown-rules';
 import {
-  imageFileName,
   stripImagePlaceholders,
-  resolveImagesForFile,
-  resolveImagesForObsidian,
+  resolveImagesToConfirmedPaths,
   resolveImagesForObsidianTail,
   inspectTrustedTailImages,
   trustedTailImageIds,
@@ -29,6 +27,10 @@ const img = (id: string, mimeType = 'image/png'): ExtractedImage => ({
 const placeholder = (id: string, alt = '（AI 生成）') => `![${alt}](g2o-image://${id})`;
 const neutralizedPlaceholder = (id: string, alt = '（AI 生成）') =>
   `&#33;&#91;${alt}](g2o-image://${id})`;
+const confirmedPaths = new Map([
+  ['img-1', `Images/liska-v1/sha256-${'a'.repeat(64)}.png`],
+  ['img-2', `Images/liska-v1/sha256-${'b'.repeat(64)}.jpg`],
+]);
 
 interface MarkdownNode {
   type: string;
@@ -47,17 +49,6 @@ function markdownNodes(markdown: string): MarkdownNode[] {
   }
   return result;
 }
-
-describe('imageFileName', () => {
-  it('builds a deterministic name from note base, index and extension', () => {
-    expect(imageFileName('my-note', img('img-1'), 0)).toBe('my-note-img-1.png');
-    expect(imageFileName('my-note', img('img-2', 'image/jpeg'), 1)).toBe('my-note-img-2.jpg');
-  });
-
-  it('falls back to png for unknown MIME types', () => {
-    expect(imageFileName('n', img('img-1', 'application/octet-stream'), 0)).toBe('n-img-1.png');
-  });
-});
 
 describe('stripImagePlaceholders', () => {
   it('removes image placeholders and collapses surrounding blank lines', () => {
@@ -109,21 +100,27 @@ describe('stripImagePlaceholders', () => {
 });
 
 describe.each([
-  ['Obsidian', resolveImagesForObsidian],
-  ['File', resolveImagesForFile],
+  ['append', resolveImagesForObsidianTail],
+  ['confirmed paths', resolveImagesToConfirmedPaths],
 ] as const)('neutralized image placeholders for %s', (_destination, resolveImages) => {
   it('strips a failed-image placeholder while resolving the successful image', () => {
     const body = `${placeholder('img-1', 'cat')}\n\n${neutralizedPlaceholder('img-2', 'lost')}`;
-    const { body: out, files } = resolveImages(body, [img('img-1')], 'base');
+    const { body: out, files } = resolveImages(body, [img('img-1')], confirmedPaths);
 
     expect(out).not.toContain('g2o-image://');
     expect(out).not.toContain('lost');
-    expect(out).toContain('base-img-1.png');
-    expect(files).toEqual([{ fileName: 'base-img-1.png', mimeType: 'image/png', data: 'UE5H' }]);
+    expect(out).toContain(confirmedPaths.get('img-1'));
+    expect(files).toEqual([
+      { fileName: confirmedPaths.get('img-1'), mimeType: 'image/png', data: 'UE5H' },
+    ]);
   });
 
   it('never reactivates a neutralized placeholder even when its image id exists', () => {
-    const { body, files } = resolveImages(neutralizedPlaceholder('img-1'), [img('img-1')], 'base');
+    const { body, files } = resolveImages(
+      neutralizedPlaceholder('img-1'),
+      [img('img-1')],
+      confirmedPaths
+    );
     expect(body).toBe('');
     expect(files).toEqual([]);
   });
@@ -131,7 +128,7 @@ describe.each([
   it('does not resolve a placeholder composed by removing a neutralized placeholder', () => {
     const body = `![cat](${neutralizedPlaceholder('missing')}g2o-image://img-1)`;
     const safe = neutralizeActiveProviderMarkdown(body);
-    const result = resolveImages(safe, [img('img-1')], 'base');
+    const result = resolveImages(safe, [img('img-1')], confirmedPaths);
     expect(result.body).toBe(safe);
     expect(markdownNodes(result.body).some(node => node.type === 'image')).toBe(false);
     expect(result.files).toEqual([]);
@@ -143,7 +140,7 @@ describe.each([
       MESSAGE_BOUNDARY_MARKER,
       `<!-- liska-message${neutralizedPlaceholder('missing', 'x')}:v1 -->`,
     ].join('\n');
-    const { body: out } = resolveImages(body, [], 'base');
+    const { body: out } = resolveImages(body, [], confirmedPaths);
 
     expect(out).toContain('<!-- liska-message&#58;v1 -->');
     expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(1);
@@ -163,8 +160,8 @@ describe('trusted private image parser context', () => {
 
     const outputs = [
       stripImagePlaceholders(safe),
-      resolveImagesForObsidian(safe, [img('img-1')], 'base').body,
-      resolveImagesForFile(safe, [img('img-1')], 'base').body,
+      resolveImagesForObsidianTail(safe, [img('img-1')], confirmedPaths).body,
+      resolveImagesToConfirmedPaths(safe, [img('img-1')], confirmedPaths).body,
     ];
     for (const output of outputs) {
       const images = markdownNodes(output).filter(node => node.type === 'image');
@@ -179,8 +176,11 @@ describe('trusted private image parser context', () => {
 
 describe.each([
   ['strip', (body: string) => stripImagePlaceholders(body)],
-  ['Obsidian', (body: string) => resolveImagesForObsidian(body, [], 'base').body],
-  ['File', (body: string) => resolveImagesForFile(body, [], 'base').body],
+  ['append', (body: string) => resolveImagesForObsidianTail(body, [], confirmedPaths).body],
+  [
+    'confirmed paths',
+    (body: string) => resolveImagesToConfirmedPaths(body, [], confirmedPaths).body,
+  ],
 ] as const)('non-composing placeholder removal for %s', (_destination, removeImages) => {
   it('removes actual unordered and ordered list-only producer markers', () => {
     for (const html of [
@@ -301,24 +301,24 @@ describe.each([
   });
 });
 
-describe('resolveImagesForObsidian', () => {
-  it('replaces placeholders with wikilink embeds and lists files to write', () => {
+describe('resolveImagesToConfirmedPaths', () => {
+  it('replaces placeholders with explicit standard paths and lists referenced files', () => {
     const body = `intro\n\n${placeholder('img-1')}\n\nmid\n\n${placeholder('img-2')}`;
     const images = [img('img-1'), img('img-2', 'image/jpeg')];
-    const { body: out, files } = resolveImagesForObsidian(body, images, 'note-base');
+    const { body: out, files } = resolveImagesToConfirmedPaths(body, images, confirmedPaths);
 
-    expect(out).toContain('![[note-base-img-1.png]]');
-    expect(out).toContain('![[note-base-img-2.jpg]]');
+    expect(out).toContain(`](<${confirmedPaths.get('img-1')}>)`);
+    expect(out).toContain(`](<${confirmedPaths.get('img-2')}>)`);
     expect(out).not.toContain('g2o-image://');
     expect(files).toEqual([
-      { fileName: 'note-base-img-1.png', mimeType: 'image/png', data: 'UE5H' },
-      { fileName: 'note-base-img-2.jpg', mimeType: 'image/jpeg', data: 'UE5H' },
+      { fileName: confirmedPaths.get('img-1'), mimeType: 'image/png', data: 'UE5H' },
+      { fileName: confirmedPaths.get('img-2'), mimeType: 'image/jpeg', data: 'UE5H' },
     ]);
   });
 
   it('strips placeholders whose image failed to capture (no matching image)', () => {
     const body = `a\n\n${placeholder('img-1')}\n\nb`;
-    const { body: out, files } = resolveImagesForObsidian(body, [], 'base');
+    const { body: out, files } = resolveImagesToConfirmedPaths(body, [], confirmedPaths);
     expect(out).not.toContain('g2o-image://');
     expect(files).toHaveLength(0);
   });
@@ -329,7 +329,7 @@ describe('resolveImagesForObsidian', () => {
       MESSAGE_BOUNDARY_MARKER,
       '<!-- liska-message![x](g2o-image://missing):v1 -->',
     ].join('\n');
-    const { body: out } = resolveImagesForObsidian(body, [], 'base');
+    const { body: out } = resolveImagesToConfirmedPaths(body, [], confirmedPaths);
     expect(out).toContain('<!-- liska-message&#58;v1 -->');
     expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(1);
   });
@@ -340,9 +340,22 @@ describe('resolveImagesForObsidian', () => {
     ['raw HTML', `<span title="${placeholder('img-1')}">literal</span>`],
     ['link title', `[safe](https://example.com "${placeholder('img-1')}")`],
   ])('never activates a matching placeholder inside %s', (_label, body) => {
-    const resolved = resolveImagesForObsidian(body, [img('img-1')], 'base');
+    const resolved = resolveImagesToConfirmedPaths(body, [img('img-1')], confirmedPaths);
     expect(resolved.files).toEqual([]);
-    expect(resolved.body).not.toContain('![[base-img-1.png]]');
+    expect(resolved.body).not.toContain(confirmedPaths.get('img-1'));
+  });
+
+  it('does not derive a filename when image data has no confirmed destination', () => {
+    const resolved = resolveImagesToConfirmedPaths(placeholder('img-1'), [img('img-1')], new Map());
+    expect(resolved).toEqual({ body: '', files: [] });
+  });
+
+  it('keeps explicit destinations independent of source-array order', () => {
+    const body = `${placeholder('img-1', 'cat')}\n${placeholder('img-2', 'dog')}`;
+    const images = [img('img-1'), img('img-2', 'image/jpeg')];
+    expect(resolveImagesToConfirmedPaths(body, images, confirmedPaths)).toEqual(
+      resolveImagesToConfirmedPaths(body, [...images].reverse(), confirmedPaths)
+    );
   });
 });
 
@@ -392,28 +405,5 @@ describe('trusted append-tail image resolution', () => {
         parserFailed: true,
       }
     );
-  });
-});
-
-describe('resolveImagesForFile', () => {
-  it('replaces placeholders with filename-only markdown links and lists files', () => {
-    const body = `${placeholder('img-1', 'cat')}`;
-    const { body: out, files } = resolveImagesForFile(body, [img('img-1')], 'note-base');
-    expect(out).toContain('![cat](note-base-img-1.png)');
-    expect(out).not.toContain('g2o-image://');
-    expect(files).toEqual([
-      { fileName: 'note-base-img-1.png', mimeType: 'image/png', data: 'UE5H' },
-    ]);
-  });
-
-  it('neutralizes a boundary synthesized while resolving a missing image', () => {
-    const body = [
-      MESSAGE_BOUNDARY_FORMAT_MARKER,
-      MESSAGE_BOUNDARY_MARKER,
-      '<!-- liska-message![x](g2o-image://missing):v1 -->',
-    ].join('\n');
-    const { body: out } = resolveImagesForFile(body, [], 'base');
-    expect(out).toContain('<!-- liska-message&#58;v1 -->');
-    expect(out.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(1);
   });
 });

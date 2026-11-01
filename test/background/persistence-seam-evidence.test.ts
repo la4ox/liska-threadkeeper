@@ -39,6 +39,9 @@ const mockClient = vi.hoisted(() => ({
   getFile: vi.fn(),
   putFile: vi.fn(),
   putBinaryFile: vi.fn(),
+  getServerVersions: vi.fn(),
+  getBinaryFileBounded: vi.fn(),
+  putBinaryFileIfAbsent: vi.fn(),
   listFiles: vi.fn(),
   listEntries: vi.fn(),
 }));
@@ -49,6 +52,9 @@ vi.mock('../../src/lib/obsidian-api', () => ({
     getFile = mockClient.getFile;
     putFile = mockClient.putFile;
     putBinaryFile = mockClient.putBinaryFile;
+    getServerVersions = mockClient.getServerVersions;
+    getBinaryFileBounded = mockClient.getBinaryFileBounded;
+    putBinaryFileIfAbsent = mockClient.putBinaryFileIfAbsent;
     listFiles = mockClient.listFiles;
     listEntries = mockClient.listEntries;
   },
@@ -170,6 +176,11 @@ describe('persistence seam evidence: append recontextualization', () => {
     mockClient.getFile.mockResolvedValue(null);
     mockClient.putFile.mockResolvedValue(undefined);
     mockClient.putBinaryFile.mockResolvedValue(undefined);
+    mockClient.getServerVersions.mockResolvedValue({ self: '5.5.2', obsidian: '1.14.5' });
+    mockClient.getBinaryFileBounded
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(new Uint8Array([80, 78, 71]));
+    mockClient.putBinaryFileIfAbsent.mockResolvedValue(undefined);
     mockClient.listFiles.mockResolvedValue([]);
     mockClient.listEntries.mockResolvedValue([]);
   });
@@ -672,9 +683,14 @@ describe('persistence seam evidence: serialized bytes and side-effect order', ()
     const response = await handleSave({ ...settings, enableAppendMode: false }, note);
 
     expect(response.success).toBe(false);
-    expect(mockClient.putBinaryFile).toHaveBeenCalledTimes(1);
+    expect(mockClient.putBinaryFileIfAbsent).toHaveBeenCalledTimes(1);
+    expect(mockClient.getBinaryFileBounded).toHaveBeenCalledTimes(2);
+    expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
     expect(mockClient.putFile).toHaveBeenCalledTimes(1);
-    expect(mockClient.putBinaryFile.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mockClient.putBinaryFileIfAbsent.mock.invocationCallOrder[0]).toBeLessThan(
+      mockClient.putFile.mock.invocationCallOrder[0]
+    );
+    expect(mockClient.getBinaryFileBounded.mock.invocationCallOrder[1]).toBeLessThan(
       mockClient.putFile.mock.invocationCallOrder[0]
     );
     expect(note).toEqual(before);

@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { ExtensionSettings, MultiOutputResponse, ObsidianNote } from '../../src/lib/types';
 import { generateHash } from '../../src/lib/hash';
+import { sha256Hex } from '../../src/lib/sha256';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
 import { decorateChatGptArchiveNote } from '../../src/content/chatgpt-archive-links';
@@ -2098,6 +2099,14 @@ describe('background/index', () => {
       },
     };
 
+    beforeEach(() => {
+      mockClient.getServerVersions.mockResolvedValue({ self: '5.5.2', obsidian: '1.14.5' });
+      mockClient.getBinaryFileBounded
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(new Uint8Array([80, 78, 71]));
+      mockClient.putBinaryFileIfAbsent.mockResolvedValue(undefined);
+    });
+
     function save(outputs: string[]): ReturnType<typeof vi.fn> {
       const sendResponse = vi.fn();
       capturedListener(
@@ -2108,7 +2117,7 @@ describe('background/index', () => {
       return sendResponse;
     }
 
-    it('obsidian: writes image binary to the vault and embeds a wikilink', async () => {
+    it('obsidian: creates immutable image bytes and embeds their full vault-relative path', async () => {
       mockClient.getFile.mockResolvedValue(null); // fresh file
       mockClient.putFile.mockResolvedValue(undefined);
       mockClient.putBinaryFile.mockResolvedValue(undefined);
@@ -2116,17 +2125,19 @@ describe('background/index', () => {
       const sendResponse = save(['obsidian']);
       await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
 
-      expect(mockClient.putBinaryFile).toHaveBeenCalledWith(
-        'AI/gemini/images/img-note-img-1.png',
+      const path = `AI/gemini/images/liska-v1/sha256-${await sha256Hex(new Uint8Array([80, 78, 71]))}.png`;
+      expect(mockClient.putBinaryFileIfAbsent).toHaveBeenCalledWith(
+        path,
         expect.any(Uint8Array),
         'image/png'
       );
       const savedContent = mockClient.putFile.mock.calls[0][1] as string;
-      expect(savedContent).toContain('![[img-note-img-1.png]]');
+      expect(savedContent).toContain(`](<${path}>)`);
+      expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
       expect(savedContent).not.toContain('g2o-image://');
     });
 
-    it('obsidian: collision-renamed notes use the resolved image namespace', async () => {
+    it('obsidian: collision-renamed notes share the immutable content namespace', async () => {
       const suffix = generateHash('imgconv');
       const resolvedFileName = `img-note-${suffix}.md`;
       mockClient.getFile.mockImplementation((path: string) => {
@@ -2141,14 +2152,15 @@ describe('background/index', () => {
       const sendResponse = save(['obsidian']);
       await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
 
-      expect(mockClient.putBinaryFile).toHaveBeenCalledWith(
-        `AI/gemini/images/img-note-${suffix}-img-1.png`,
+      const path = `AI/gemini/images/liska-v1/sha256-${await sha256Hex(new Uint8Array([80, 78, 71]))}.png`;
+      expect(mockClient.putBinaryFileIfAbsent).toHaveBeenCalledWith(
+        path,
         expect.any(Uint8Array),
         'image/png'
       );
       expect(mockClient.putFile).toHaveBeenCalledWith(
         `AI/Gemini/${resolvedFileName}`,
-        expect.stringContaining(`![[img-note-${suffix}-img-1.png]]`)
+        expect.stringContaining(`](<${path}>)`)
       );
       const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
       expect(response.results.find(result => result.destination === 'obsidian')?.savedAs).toBe(
@@ -2156,12 +2168,22 @@ describe('background/index', () => {
       );
     });
 
-    it('file: downloads the markdown and each image as separate files', async () => {
+    it('file: confirms immutable images before downloading the Markdown', async () => {
       // Reset any download impl left by earlier tests (clearAllMocks keeps impl).
-      vi.mocked(chrome.downloads.download).mockImplementation((_options, callback) => {
+      let requestedPath: string | undefined;
+      vi.mocked(chrome.downloads.download).mockImplementation((options, callback) => {
+        requestedPath = options.filename;
         callback?.(1);
         return 1 as unknown as ReturnType<typeof chrome.downloads.download>;
       });
+      vi.mocked(chrome.downloads.search).mockImplementation(async () => [
+        {
+          id: 1,
+          state: 'complete',
+          exists: true,
+          filename: `C:/Downloads/${requestedPath}`,
+        } as chrome.downloads.DownloadItem,
+      ]);
 
       const sendResponse = save(['file']);
       await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
@@ -2175,7 +2197,8 @@ describe('background/index', () => {
 
       expect(urls.some(u => u?.startsWith('data:text/markdown'))).toBe(true);
       expect(urls.some(u => u?.startsWith('data:image/png;base64,UE5H'))).toBe(true);
-      expect(names).toContain('img-note-img-1.png');
+      expect(names[0]).toMatch(/^liska-v1\/sha256-[a-f0-9]{64}\.png$/);
+      expect(names[1]).toBe('img-note.md');
     });
 
     it('clipboard: strips image placeholders entirely', async () => {
@@ -2195,7 +2218,8 @@ describe('background/index', () => {
     it('obsidian: reports a warning when an image write fails, without blocking the note (issue #376)', async () => {
       mockClient.getFile.mockResolvedValue(null); // fresh file
       mockClient.putFile.mockResolvedValue(undefined);
-      mockClient.putBinaryFile.mockRejectedValue(new Error('boom'));
+      mockClient.putBinaryFileIfAbsent.mockRejectedValue(new Error('boom'));
+      mockClient.getBinaryFileBounded.mockReset().mockResolvedValue(null);
       const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
       const sendResponse = save(['obsidian']);
@@ -2230,7 +2254,7 @@ describe('background/index', () => {
       let downloads = 0;
       vi.mocked(chrome.downloads.download).mockImplementation((_options, callback) => {
         downloads += 1;
-        if (downloads === 2) {
+        if (downloads === 1) {
           (chrome.runtime as { lastError: chrome.runtime.LastError | null }).lastError = {
             message: 'Download blocked',
           };

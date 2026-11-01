@@ -2,14 +2,13 @@
  * Resolve `g2o-image://{id}` body placeholders per output destination.
  *
  * The content script emits destination-agnostic placeholders (`![alt](g2o-image://id)`);
- * each output handler resolves them here:
- * - Obsidian:  wikilink embed `![[filename]]` + binary files to write to the vault
- * - File:      filename-only markdown `![alt](filename)` + files to download
+ * callers supply explicit asset destinations rather than deriving filenames:
+ * - Append: confirmed immutable-asset wikilinks `![[filename]]`
+ * - Ordinary Obsidian/File: standard Markdown to confirmed vault/relative paths
  * - Clipboard: placeholders stripped entirely
  */
 
 import { fromMarkdown } from 'mdast-util-from-markdown';
-import { mimeToExtension } from './image-utils';
 import type { ExtractedImage } from './types';
 import {
   MESSAGE_BOUNDARY_FORMAT_MARKER,
@@ -18,7 +17,7 @@ import {
   neutralizeMessageBoundaryMarkers,
 } from './message-counter';
 
-/** A resolved image ready to be written (vault) or downloaded (file). */
+/** A referenced image with an explicit destination supplied by its caller. */
 export interface ResolvedImageFile {
   readonly fileName: string;
   readonly mimeType: string;
@@ -237,6 +236,14 @@ export interface TrustedTailImageInspection {
 
 /** Fail-closed parser evidence plus exact active ids for one trusted append tail. */
 export function inspectTrustedTailImages(body: string): TrustedTailImageInspection {
+  return inspectImagePlaceholders(body, true);
+}
+
+/** Active ordinary placeholders, using the same protected-Markdown parser as rewriting. */
+export function inspectImagePlaceholders(
+  body: string,
+  trustedTail = false
+): TrustedTailImageInspection {
   const context = protectedPlaceholderContext(body);
   const protectedRanges = context.ranges;
   const ids: string[] = [];
@@ -247,14 +254,17 @@ export function inspectTrustedTailImages(body: string): TrustedTailImageInspecti
       const offset = match.index ?? -1;
       if (
         offset >= 0 &&
-        trustedTailOccurrence(
-          match[0],
-          match[1] ?? '',
-          offset,
-          line,
-          lineStart + offset,
-          protectedRanges
-        )
+        match[1] === '![' &&
+        !overlapsProtectedRange(lineStart + offset, match[0].length, protectedRanges) &&
+        (!trustedTail ||
+          trustedTailOccurrence(
+            match[0],
+            match[1],
+            offset,
+            line,
+            lineStart + offset,
+            protectedRanges
+          ))
       ) {
         ids.push(match[3] ?? '');
       }
@@ -262,15 +272,6 @@ export function inspectTrustedTailImages(body: string): TrustedTailImageInspecti
     lineStart += line.length + 1;
   }
   return { ids, parserFailed: context.parserFailed };
-}
-
-/**
- * Deterministic image filename: `{noteBaseName}-img-{n}.{ext}` (n is 1-based).
- * Stable across re-saves so overwrites are idempotent.
- */
-export function imageFileName(noteBaseName: string, image: ExtractedImage, index: number): string {
-  const ext = mimeToExtension(image.mimeType);
-  return `${noteBaseName}-img-${index + 1}.${ext}`;
 }
 
 /** Remove expected line-isolated placeholders; keep anomalous inline forms inert. */
@@ -306,19 +307,13 @@ export function stripTailImagePlaceholders(body: string): string {
  */
 interface ImageResolveOptions {
   readonly trustedTail?: boolean;
-  readonly fileNamesById?: ReadonlyMap<string, string>;
-}
-
-interface ImageResolveEntry {
-  readonly image: ExtractedImage;
-  readonly index: number;
+  readonly fileNamesById: ReadonlyMap<string, string>;
 }
 
 interface ImageResolveContext {
-  readonly byId: ReadonlyMap<string, ImageResolveEntry>;
+  readonly byId: ReadonlyMap<string, ExtractedImage>;
   readonly files: ResolvedImageFile[];
   readonly emitted: Set<string>;
-  readonly noteBaseName: string;
   readonly render: (fileName: string, alt: string) => string;
   readonly options: ImageResolveOptions;
 }
@@ -345,15 +340,13 @@ function resolvePlaceholder(
   ) {
     return fallback();
   }
-  const entry = context.byId.get(id);
-  if (!entry) return fallback();
-  const fileName = context.options.fileNamesById
-    ? context.options.fileNamesById.get(id)
-    : imageFileName(context.noteBaseName, entry.image, entry.index);
+  const image = context.byId.get(id);
+  if (!image) return fallback();
+  const fileName = context.options.fileNamesById.get(id);
   if (!fileName) return fallback();
   if (!context.emitted.has(id)) {
     context.emitted.add(id);
-    context.files.push({ fileName, mimeType: entry.image.mimeType, data: entry.image.data });
+    context.files.push({ fileName, mimeType: image.mimeType, data: image.data });
   }
   return context.render(fileName, alt);
 }
@@ -361,14 +354,13 @@ function resolvePlaceholder(
 function resolve(
   body: string,
   images: readonly ExtractedImage[],
-  noteBaseName: string,
   render: (fileName: string, alt: string) => string,
-  options: ImageResolveOptions = {}
+  options: ImageResolveOptions
 ): ImageResolution {
-  const byId = new Map(images.map((image, index) => [image.id, { image, index }]));
+  const byId = new Map(images.map(image => [image.id, image]));
   const files: ResolvedImageFile[] = [];
   const emitted = new Set<string>();
-  const context = { byId, files, emitted, noteBaseName, render, options };
+  const context = { byId, files, emitted, render, options };
 
   const resolvedBody = rewriteImageLines(
     body,
@@ -394,37 +386,43 @@ function resolve(
   return { body: resolvedBody, files };
 }
 
-/**
- * Obsidian: replace placeholders with wikilink embeds `![[filename]]`.
- * Obsidian resolves attachments by name, so the link needs no folder path.
- */
-export function resolveImagesForObsidian(
-  body: string,
-  images: readonly ExtractedImage[],
-  noteBaseName: string
-): ImageResolution {
-  return resolve(body, images, noteBaseName, fileName => `![[${fileName}]]`);
-}
-
 /** Resolve only standalone active placeholders from one already-verified append tail. */
 export function resolveImagesForObsidianTail(
   body: string,
   images: readonly ExtractedImage[],
   fileNamesById: ReadonlyMap<string, string>
 ): ImageResolution {
-  return resolve(body, images, '', fileName => `![[${fileName}]]`, {
+  return resolve(body, images, fileName => `![[${fileName}]]`, {
     trustedTail: true,
     fileNamesById,
   });
 }
 
 /**
- * File download: replace placeholders with filename-only markdown links.
+ * Render only confirmed destinations. Full Obsidian folder paths start at the
+ * vault root; File paths are relative to the downloaded Markdown. Encode every
+ * segment so folder punctuation cannot become a title, heading, alias or URL.
  */
-export function resolveImagesForFile(
+export function resolveImagesToConfirmedPaths(
   body: string,
   images: readonly ExtractedImage[],
-  noteBaseName: string
+  pathsById: ReadonlyMap<string, string>
 ): ImageResolution {
-  return resolve(body, images, noteBaseName, (fileName, alt) => `![${alt}](${fileName})`);
+  return resolve(
+    body,
+    images,
+    (path, alt) => {
+      const destination = path
+        .split('/')
+        .map(segment =>
+          encodeURIComponent(segment).replace(
+            /[!'()*]/g,
+            char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+          )
+        )
+        .join('/');
+      return `![${alt}](<${destination}>)`;
+    },
+    { fileNamesById: pathsById }
+  );
 }

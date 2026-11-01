@@ -1,19 +1,19 @@
 import type { ObsidianApiClient, ObsidianServerVersions } from '../lib/obsidian-api';
-import { canonicalBase64ByteLength } from '../lib/base64';
+import { MAX_IMAGE_SIZE_BYTES } from '../lib/image-utils';
 import {
-  base64ToBytes,
-  bytesToBase64,
-  isAllowedImageMime,
-  MAX_IMAGE_SIZE_BYTES,
-  mimeToExtension,
-} from '../lib/image-utils';
+  IMMUTABLE_IMAGE_NAMESPACE,
+  ImmutableImageError,
+  planImmutableImageAssets,
+  sameImageBytes,
+  supportsImmutableImageWrites,
+  type ImmutableImageAsset,
+} from '../lib/immutable-image-assets';
 import {
   inspectTrustedTailImages,
   resolveImagesForObsidianTail,
   stripTailImagePlaceholders,
 } from '../lib/image-output';
 import { containsPathTraversal, resolvePathTemplate } from '../lib/path-utils';
-import { sha256Hex } from '../lib/sha256';
 import type { ExtensionSettings, ExtractedImage } from '../lib/types';
 import { flattenLargeCallouts } from '../lib/callout-flatten';
 import {
@@ -22,10 +22,6 @@ import {
 } from '../lib/final-markdown-gate';
 import { MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER } from '../lib/message-counter';
 import { AppendBoundaryError } from '../lib/append-utils';
-
-const IMAGE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-const FULL_SHA256 = /^[a-f0-9]{64}$/;
-const APPEND_IMAGE_NAMESPACE = 'liska-v1';
 
 export type AppendImageErrorCode =
   | 'append-image-reference-invalid'
@@ -51,16 +47,9 @@ function fail(code: AppendImageErrorCode): never {
   throw new AppendImageError(code);
 }
 
-interface PlannedAsset {
-  readonly fileName: string;
-  readonly mediaType: string;
-  readonly bytes: Uint8Array;
-  readonly sha256: string;
-}
-
 export interface AppendImagePlan {
   readonly body: string;
-  readonly assets: readonly PlannedAsset[];
+  readonly assets: readonly ImmutableImageAsset[];
   readonly occurrenceCount: number;
 }
 
@@ -136,87 +125,9 @@ export function prepareAppendTailWrite(
     : finalized;
 }
 
-function normalizeMime(value: string): string {
-  const normalized = value.split(';')[0]!.trim().toLowerCase();
-  return normalized === 'image/jpg' ? 'image/jpeg' : normalized;
-}
-
-function decodeImage(image: ExtractedImage): { bytes: Uint8Array; mediaType: string } {
-  const mediaType = normalizeMime(image.mimeType);
-  const expectedLength = canonicalBase64ByteLength(image.data);
-  if (
-    !isAllowedImageMime(mediaType) ||
-    expectedLength === undefined ||
-    expectedLength < 1 ||
-    expectedLength > MAX_IMAGE_SIZE_BYTES
-  ) {
-    fail('append-image-data-invalid');
-  }
-  try {
-    const bytes = base64ToBytes(image.data);
-    if (bytes.byteLength !== expectedLength || bytesToBase64(bytes) !== image.data) {
-      fail('append-image-data-invalid');
-    }
-    return { bytes, mediaType };
-  } catch (error) {
-    if (error instanceof AppendImageError) throw error;
-    fail('append-image-data-invalid');
-  }
-}
-
-function selectedTailImages(
-  required: ReadonlySet<string>,
-  images: readonly ExtractedImage[]
-): ReadonlyMap<string, ExtractedImage> {
-  for (const id of required) if (!IMAGE_ID.test(id)) fail('append-image-reference-invalid');
-  const selected = new Map<string, ExtractedImage>();
-  for (const image of images) {
-    if (!required.has(image.id)) continue;
-    if (!IMAGE_ID.test(image.id) || selected.has(image.id)) fail('append-image-reference-invalid');
-    selected.set(image.id, image);
-  }
-  for (const id of required) if (!selected.has(id)) fail('append-image-reference-invalid');
-  return selected;
-}
-
-async function planContentAddressedAssets(
-  required: ReadonlySet<string>,
-  selected: ReadonlyMap<string, ExtractedImage>
-) {
-  const assetsByFileName = new Map<string, PlannedAsset>();
-  const assetsByDigest = new Map<string, PlannedAsset>();
-  const names = new Map<string, string>();
-  for (const id of required) {
-    const image = selected.get(id)!;
-    const { bytes, mediaType } = decodeImage(image);
-    const digest = await sha256Hex(bytes);
-    if (!FULL_SHA256.test(digest)) fail('append-image-data-invalid');
-    const fileName = `sha256-${digest}.${mimeToExtension(mediaType)}`;
-    const digestMatch = assetsByDigest.get(digest);
-    if (digestMatch) {
-      if (digestMatch.mediaType !== mediaType || !sameBytes(digestMatch.bytes, bytes)) {
-        fail('append-image-data-invalid');
-      }
-      names.set(id, digestMatch.fileName);
-      continue;
-    }
-    const existing = assetsByFileName.get(fileName);
-    if (existing && (existing.mediaType !== mediaType || !sameBytes(existing.bytes, bytes))) {
-      fail('append-image-data-invalid');
-    }
-    if (!existing) {
-      const planned = { fileName, mediaType, bytes, sha256: digest };
-      assetsByFileName.set(fileName, planned);
-      assetsByDigest.set(digest, planned);
-    }
-    names.set(id, fileName);
-  }
-  return { assetsByFileName, names };
-}
-
 function validateResolvedAssetNames(
   resolved: ReturnType<typeof resolveImagesForObsidianTail>,
-  assetsByFileName: ReadonlyMap<string, PlannedAsset>
+  assetsByFileName: ReadonlyMap<string, ImmutableImageAsset>
 ): void {
   const resolvedNames = new Set(resolved.files.map(file => file.fileName));
   if (
@@ -243,8 +154,14 @@ export async function prepareAppendImagePlan(
       occurrenceCount: 0,
     });
   }
-  const selected = selectedTailImages(required, images);
-  const { assetsByFileName, names } = await planContentAddressedAssets(required, selected);
+  let planned: Awaited<ReturnType<typeof planImmutableImageAssets>>;
+  try {
+    planned = await planImmutableImageAssets(required, images);
+  } catch (error) {
+    if (error instanceof ImmutableImageError) fail(`append-image-${error.code}`);
+    throw error;
+  }
+  const { assetsByFileName, names, selected } = planned;
   const resolved = resolveImagesForObsidianTail(tail, [...selected.values()], names);
   validateResolvedAssetNames(resolved, assetsByFileName);
   return Object.freeze({
@@ -266,22 +183,6 @@ export async function prepareAppendTail(
   return { body: imagePlan.body, imagePlan };
 }
 
-function supportedCreateOnlyServer(versions: ObsidianServerVersions): boolean {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(versions.self);
-  if (!match) return false;
-  const [major, minor, patch] = match.slice(1).map(Number);
-  if (![major, minor, patch].every(Number.isSafeInteger)) return false;
-  return major > 5 || (major === 5 && minor >= 5);
-}
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
-}
-
 async function readAsset(
   client: AppendImageClient,
   path: string,
@@ -294,7 +195,7 @@ async function readAsset(
     fail('append-image-read-failed');
   }
   if (bytes === null) return 'missing';
-  return sameBytes(bytes, expected) ? 'identical' : 'different';
+  return sameImageBytes(bytes, expected) ? 'identical' : 'different';
 }
 
 function assetPath(
@@ -308,7 +209,7 @@ function assetPath(
   } catch {
     fail('append-image-path-invalid');
   }
-  const path = [imageRoot, APPEND_IMAGE_NAMESPACE, fileName].filter(Boolean).join('/');
+  const path = [imageRoot, IMMUTABLE_IMAGE_NAMESPACE, fileName].filter(Boolean).join('/');
   if (!path || containsPathTraversal(path)) fail('append-image-path-invalid');
   return path;
 }
@@ -328,7 +229,7 @@ export async function persistAppendImagePlan(
   } catch {
     fail('append-image-server-info-failed');
   }
-  if (!supportedCreateOnlyServer(versions)) fail('append-image-server-unsupported');
+  if (!supportsImmutableImageWrites(versions.self)) fail('append-image-server-unsupported');
 
   let created = 0;
   let reused = 0;
