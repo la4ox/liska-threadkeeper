@@ -703,6 +703,17 @@ terminal states, and the existing no-credential-export boundary.
   live current-chat capture, explicit loss diagnostics, and a separate
   attachment/branch assessment before enabling the provider generally.
 
+### 10. Extension-owned export popup
+
+- Make `Export` the default popup tab and `Settings` the second; keep
+  situational choices with explicit export actions.
+- Any optional warm fox is launch-only. Older or unsupported browsers use the
+  toolbar popup or a compact extension-owned window fallback, never a forced upgrade
+  or direct page-DOM export.
+- Track popup lifecycle, one-shot binding, branch/Stop, fox default,
+  feature-detected popup/window fallback, and tests in
+  [ITH-009](idea-threads/ITH-009-extension-owned-export-popup.md).
+
 ## Deliberate non-goals without new evidence
 
 - No broad cookie, storage, bearer, or device-header extraction.
