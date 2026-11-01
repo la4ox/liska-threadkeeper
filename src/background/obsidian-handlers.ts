@@ -4,7 +4,11 @@
  * Handles save, get, and connection test operations
  */
 
-import { isObsidianApiError, ObsidianApiClient } from '../lib/obsidian-api';
+import {
+  isObsidianApiError,
+  ObsidianApiClient,
+  ObsidianResponseLimitError,
+} from '../lib/obsidian-api';
 import { getErrorMessage } from '../lib/error-utils';
 import { generateNoteContent } from '../lib/note-generator';
 import {
@@ -164,6 +168,7 @@ function archiveObsidianFailureCode(
   if (stage === 'put') {
     return timedOut ? 'archive-obsidian-put-timeout' : 'archive-obsidian-put-failed';
   }
+  if (error instanceof ObsidianResponseLimitError) return 'archive-obsidian-readback-size-mismatch';
   return timedOut ? 'archive-obsidian-readback-timeout' : 'archive-obsidian-readback-failed';
 }
 
@@ -270,7 +275,11 @@ async function writeAndVerifyArchiveCompanion(
 
   let readBack: Uint8Array | null;
   try {
-    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+    readBack = await client.getBinaryFileBounded(
+      path,
+      bytes.byteLength,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
   } catch (error) {
     return { success: false, error: archiveObsidianFailureCode('readback', error) };
   }
@@ -341,6 +350,7 @@ function stagedBinaryFailureCode(
   }
   if (stage === 'put')
     return timedOut ? 'binary-obsidian-put-timeout' : 'binary-obsidian-put-failed';
+  if (error instanceof ObsidianResponseLimitError) return 'binary-obsidian-readback-size-mismatch';
   return timedOut ? 'binary-obsidian-readback-timeout' : 'binary-obsidian-readback-failed';
 }
 
@@ -443,7 +453,11 @@ async function writeAndVerifyStagedBinary(
 
   let readBack: Uint8Array | null;
   try {
-    readBack = await client.getBinaryFile(path, ARCHIVE_COMPANION_API_TIMEOUT_MS);
+    readBack = await client.getBinaryFileBounded(
+      path,
+      descriptor.byteLength,
+      ARCHIVE_COMPANION_API_TIMEOUT_MS
+    );
   } catch (error) {
     return { success: false, error: stagedBinaryFailureCode('readback', error) };
   }
