@@ -4,6 +4,178 @@ This plan keeps repository-wide Security Cloud work separate from provider
 feature development. Findings remain open until their exact current revision is
 reconciled with source and verification evidence.
 
+## Current-main security roadmap — 2026-11-02
+
+Baseline: `main` at `ef26fca9e8ae1e71b1307b54f455fb4aa5d295a8`.
+This checkpoint supersedes older candidate/status wording below without
+rewriting the historical evidence. Merged source remediation, Security Cloud
+administration, adopted product direction, installed-runtime acceptance and a
+new repository scan are separate states.
+
+### Merged since the repository scan
+
+- [PR 92](https://github.com/la4ox/liska-threadkeeper/pull/92), merge
+  `d34c8b2`: bounded streamed Obsidian text, binary and directory reads;
+  authenticated reads reject redirects and exact archive/staged readbacks keep
+  their size, hash and timeout diagnostics.
+- [PR 95](https://github.com/la4ox/liska-threadkeeper/pull/95), merge
+  `09dbb18`: documentation-only adoption of the extension-owned export popup in
+  [ITH-009](idea-threads/ITH-009-extension-owned-export-popup.md). It did not
+  move runtime export authority out of provider-page DOM.
+- [PR 96](https://github.com/la4ox/liska-threadkeeper/pull/96), merge
+  `dd240ab`: ordinary images use immutable full-SHA identities; Obsidian uses
+  create-only persistence plus exact readback, and File confirms retained image
+  paths before dispatching Markdown.
+- [PR 97](https://github.com/la4ox/liska-threadkeeper/pull/97), merge
+  `29cd48e`: ChatGPT and DeepSeek privacy-diagnostic membership is linear while
+  preserving ordered output, provider-specific keys, sanitation side effects
+  and archive bytes.
+- [PR 99](https://github.com/la4ox/liska-threadkeeper/pull/99), merge
+  `ef26fca`: opaque replay crosses MAIN through a bounded primitive wire and
+  rejects post-arming Promise poisoning. PR 98 was the earlier review vehicle
+  for the same source line and is not a second remediation.
+
+All five merge commits are ancestors of this baseline. Their presence on
+`main` does not by itself close a repository-scan occurrence or prove an
+installed browser/vault path. Do not launch duplicate fixes merely because an
+administrative Cloud row remains open.
+
+### Product and archive decisions to preserve
+
+#### Extension-owned export UI
+
+- The future popup has two tabs: `Export` first and `Settings` second. Frequent
+  situational choices belong beside the explicit Export actions; persistent
+  preferences stay in Settings.
+- The page fox becomes an optional warm launcher. It may open the extension
+  surface but never selects a branch, authorizes capture or starts persistence.
+- Feature-detect `chrome.action.openPopup()` on newer Chromium. Older or
+  unsupported browsers retain the browser-toolbar popup; a compact
+  extension-owned window may be a fallback. Do not force a browser upgrade and
+  do not fall back to direct page-DOM export.
+- Do not use a warning that users must read, Shadow DOM alone or a full-height
+  side panel as the authorization boundary.
+- Runtime implementation still needs one-shot binding to the exact tab,
+  document, conversation, operation, destination/settings snapshot and popup
+  lifecycle, plus branch-picker, Stop and fallback tests. PR 95 records the
+  direction only.
+
+#### Snapshot and image identity
+
+- Provider filename, provider reference, capture event and local retained path
+  are different facts. Raw/canonical evidence keeps provider metadata; a
+  manifest maps it to exact destination paths, lengths and SHA-256 digests.
+- SHA-256 identifies exact stored bytes only. Capture time and source identity
+  remain provenance even when two events contain byte-identical images.
+- Never rename an existing asset to `.old`/`.backup`, silently replace it, or
+  repair an uncertain write by deleting it. Changed bytes receive another
+  immutable path; verified identical bytes may be reused where the destination
+  can actually read and hash them.
+- Keep repeated full snapshots append-only. Cross-snapshot destructive
+  deduplication remains a separate explicit product under ITH-006, not an
+  automatic side effect of export.
+- The broader File snapshot layout remains future work: one unique
+  capture-scoped directory containing Markdown, raw, manifest, canonical and
+  assets. Persist bounded raw evidence and confirmed assets before publishing
+  Markdown; write a completion manifest last. Its absence means incomplete,
+  not a falsely complete archive.
+- Chrome `conflictAction: 'uniquify'` can change a retained name. PR 96 binds
+  links to browser-reported terminal path/state/existence evidence, but a real
+  collision canary remains required. Downloads history is not filesystem byte
+  readback or a permanence guarantee.
+
+#### Deep nested content
+
+- Replace recursive canonical traversal with an iterative explicit stack. Do
+  not rely on tail-call optimization, recursive generators or silent
+  truncation.
+- Initial implementation targets are design ceilings, not shipped promises:
+  64 MiB raw acquisition, 32 MiB canonical and Markdown output, depth 2,048,
+  250,000 visited occurrences and 1,000,000 work units. Yield/cancel around
+  every 2,048 work units or approximately 8 ms; wall-clock time is a watchdog,
+  not the primary deterministic acceptance rule.
+- On exhaustion, report a typed limit and counters, preserve already admitted
+  raw bytes, discard/quarantine partial canonical output, publish no ordinary
+  complete snapshot and create no completion manifest. Measure these ceilings
+  against the largest real fixtures and exact limit/limit+1 cases before
+  adopting them in source.
+
+#### Obsidian destination policy
+
+- Exact loopback, canonical full origin, no URL credentials, no unexpected
+  redirects, worker-owned bearer use, safe vault-path segments, bounded
+  responses and configuration invalidation are security invariants. A high port
+  number alone does not authenticate the local process.
+- Decision 2026-11-02: keep intentional default-port compatibility; the scanner
+  item is not actionable merely from port number. Settings/UI and background
+  validation admit only exact loopback `127.0.0.1`, http/https, no URL
+  credentials and no redirects; provider pages and chat text cannot save
+  `obsidianUrl`. Add a stronger separate hardening boundary instead: perform a
+  bounded unauthenticated `GET /` with no bearer, require exact Local REST API
+  `status`, `service`, version shape and `authenticated: false`, and only then
+  send the key. The authenticated root response must confirm the same service
+  and versions with `authenticated: true`; every mismatch fails closed. This
+  catches accidental unrelated loopback services but does not claim
+  cryptographic process identity or eliminate the narrow inter-request race.
+
+### Remaining repository-scan categories
+
+The ten-finding scan at `389e310` now has four merged source-remediation
+boundaries (Obsidian buffering, ordinary-image collisions, privacy-diagnostic
+quadratic work and opaque replay provenance) plus one accepted-policy verdict
+for default ports. Five categories remain current work:
+
+1. **DeepSeek navigation identity mixing:** bind structured capture, DOM
+   fallback and durable evidence to one immutable conversation identity across
+   every await/navigation boundary.
+2. **Recursive nested ChatGPT content normalization:** implement the iterative,
+   budgeted and typed-failure contract above, then test downstream serializer,
+   transport and presentation consumers.
+3. **Superlinear Markdown/image processing before the final size gate:** bound
+   aggregate provider text before parsing, index protected ranges and avoid
+   repeated full-line reconstruction while preserving literal safety.
+4. **Unbounded build-comparison ZIP extraction/readback:** admit the archive
+   under compressed bytes, entry count, per-entry/aggregate expanded bytes,
+   ratio, path and work ceilings; stream extraction/hashing and clean rejected
+   partial trees.
+5. **Provider-DOM trusted-control redress:** implement ITH-009 as a dedicated UI
+   slice after the narrow data-integrity/resource fixes, without restoring page
+   authority for old-browser convenience.
+
+Keep these as focused PRs. Do not combine the popup redesign, canonical walker,
+Markdown budgets, provider identity and maintainer ZIP tooling into one review.
+
+Separate from the five remaining scan categories, implement the adopted
+Obsidian unauthenticated identity preflight as a small hardening PR. Preserve
+`80`/`443` compatibility, send no bearer on probe failure, bound and strictly
+validate both root responses, retain stable authentication/throttle diagnostics
+and cover wrong-service, malformed, redirected, changed-version and
+inter-request failure paths. Verify the installed plugin supports the documented
+public root before publication.
+
+### Pending live gates and final reconciliation
+
+- PR 92: disposable Local REST API compatibility for ordinary text/list/binary
+  reads; unit streams already cover exact caps, overflow and redirects.
+- PR 96: real Chrome `uniquify` collision plus disposable Obsidian same-bytes,
+  different-bytes and create-only conflict behavior. Verify the installed Local
+  REST API version and binary conditional-write handler.
+- PR 99: installed Chromium MAIN-world transfer and ordinary timeout-fallback
+  capture, preserving inline/staged limits, document pinning, cleanup and fixed
+  error codes.
+- ChatGPT phase exit: one natural, unpadded provider response above 16 MiB must
+  traverse staged replay into both durable destinations with exact hashes,
+  chunk facts, cleanup and worker-restart evidence. Keep the 64 MiB raw ceiling;
+  canonical size or synthetic padding is not provider-ingress proof.
+
+Each source slice needs focused regressions, the relevant full checks, one
+independent candidate review, current-head CI/review and merge ancestry. Do not
+retry unavailable per-PR Security Review or spend credits automatically. After
+this roadmap block, run one explicit findings-only repository scan against a
+frozen then-current `main` and reconcile every occurrence with source and
+runtime evidence. No new scan, Cloud closure or installed-runtime proof is
+claimed by this document update.
+
 ## Current checkpoint
 
 The first fix wave covered eight statically confirmed findings:
