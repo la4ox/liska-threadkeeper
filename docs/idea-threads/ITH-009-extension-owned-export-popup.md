@@ -228,6 +228,11 @@ or binary stages without releasing controller ownership. Exact post-result
 accounting now releases only the request's stage after confirmed success;
 failure, unknown outcome and wrong ownership remain retryable and fail closed.
 
+The first current-head CI run exposed a statement-coverage gap rather than a
+behavioral failure. Deterministic controller lifecycle/refusal tests raised the
+unchanged global gate to 95.01% and controller statements to 99.26%, without
+altering production code or coverage thresholds.
+
 Sources: S11
 
 ### T6 — Close the installed-runtime evidence gap

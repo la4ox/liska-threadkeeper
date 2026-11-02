@@ -42,7 +42,7 @@ function fixture() {
     storage: {
       session: {
         get: vi.fn(async () => structuredClone(stored)),
-        set: vi.fn(async (record: object) => {
+        set: vi.fn(async (record: Record<string, unknown>) => {
           stored = structuredClone(record);
         }),
         remove: vi.fn(async () => {
@@ -52,11 +52,11 @@ function fixture() {
     },
     action: { openPopup: vi.fn(async () => undefined) },
     windows: {
-      create: vi.fn(async () => ({ id: 9, tabs: [{ id: 10 }] })),
+      create: vi.fn(async (_options: chrome.windows.CreateData) => ({ id: 9, tabs: [{ id: 10 }] })),
       update: vi.fn(async () => ({})),
     },
     tabs: {
-      get: vi.fn(async () => ({ ...tab })),
+      get: vi.fn(async (_tabId: number) => ({ ...tab })),
       query: vi.fn(async () => [{ ...tab }]),
       sendMessage: vi.fn(async (_id: number, message: Record<string, unknown>) => {
         if (message.action === 'beginExportOperation') {
@@ -153,6 +153,16 @@ function tabSender(tabId: number): chrome.runtime.MessageSender {
   return { ...source(), tab: { ...source().tab!, id: tabId }, documentId: `document-${tabId}` };
 }
 
+function surfaceSender(f: ReturnType<typeof fixture>, index = 0): chrome.runtime.MessageSender {
+  const page = f.api.windows.create.mock.calls[index][0] as { url: string };
+  return {
+    id: extensionId,
+    url: page.url,
+    frameId: 0,
+    tab: { id: 10, windowId: 9 },
+  } as chrome.runtime.MessageSender;
+}
+
 function delayClaims(f: ReturnType<typeof fixture>) {
   let selectedTabId = 7;
   const pending = new Map<
@@ -210,6 +220,7 @@ function seedPendingIntents(f: ReturnType<typeof fixture>, tabIds: number[]) {
       snapshot: string;
       keyHash: string;
       expires: number;
+      uiSessionId?: string;
     }>;
   };
   const template = state.operations[0];
@@ -227,6 +238,513 @@ function seedPendingIntents(f: ReturnType<typeof fixture>, tabIds: number[]) {
 }
 
 describe('worker-owned export generations', () => {
+  it('denies untrusted status reads and honestly reports a missing supported toolbar target', async () => {
+    const f = fixture();
+    expect(await f.controller.handle({ action: 'getExportStatus' }, source())).toMatchObject({
+      success: false,
+    });
+    f.api.tabs.query.mockResolvedValueOnce([{ ...f.tab, url: 'https://example.com/' }]);
+    f.api.tabs.query.mockResolvedValueOnce([]);
+    for (let attempt = 0; attempt < 2; attempt++)
+      expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).toEqual({
+        success: true,
+        error: 'Open a supported conversation tab first.',
+      });
+    expect(f.readSettings).not.toHaveBeenCalled();
+    expect(f.api.storage.session.set).not.toHaveBeenCalled();
+  });
+  it('denies invalid start modes and unknown operation controls without dispatching or persisting', async () => {
+    const f = fixture();
+    expect(
+      await f.controller.handle(
+        {
+          action: 'startExportOperation',
+          mode: 'everything',
+          expectedTarget: { tabId: 7, route },
+          expectedOutputs: ['file'],
+        } as never,
+        toolbar
+      )
+    ).toMatchObject({ success: false });
+    expect(
+      await f.controller.handle(
+        { action: 'cancelExportOperation', exportOperationId: crypto.randomUUID() },
+        toolbar
+      )
+    ).toMatchObject({ success: false });
+    expect(f.api.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(f.api.storage.session.set).not.toHaveBeenCalled();
+  });
+  it('denies an explicit mismatched action source without revoking the valid generation', async () => {
+    const f = fixture();
+    await f.start();
+    expect(await f.authorize('saveToOutputs', { source: 'claude', outputs: ['file'] })).toBe(false);
+    expect(await f.authorize('saveToOutputs', { source: 'chatgpt', outputs: ['file'] })).toBe(true);
+  });
+  it('ignores irrelevant tab changes without persisting or cancelling the live generation', async () => {
+    const f = fixture();
+    await f.start();
+    f.api.storage.session.set.mockClear();
+    f.api.tabs.sendMessage.mockClear();
+    await f.controller.tabChanged(7, {});
+    expect(f.api.storage.session.set).not.toHaveBeenCalled();
+    expect(f.api.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(true);
+  });
+  it('keeps a rejected branch choice awaiting selection without admitting durable work', async () => {
+    const f = fixture();
+    await f.start('selected');
+    const selectionId = crypto.randomUUID();
+    await f.controller.handle(
+      {
+        action: 'awaitExportSelection',
+        exportOperationId: f.claim.exportOperationId!,
+        selectionId,
+      },
+      source()
+    );
+    f.api.tabs.sendMessage.mockResolvedValueOnce({ accepted: false });
+    expect(
+      await f.controller.handle(
+        {
+          action: 'chooseExportBranch',
+          exportOperationId: f.claim.exportOperationId!,
+          selectionId,
+          choice: 1,
+        },
+        toolbar
+      )
+    ).toMatchObject({ success: false });
+    expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).toMatchObject({
+      operation: { phase: 'awaiting-selection', selectionId },
+    });
+    expect(
+      f.api.tabs.sendMessage.mock.calls.some(call => call[1].action === 'applyExportChoice')
+    ).toBe(false);
+    expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(false);
+    expect(await f.authorize('captureChatGptConversation')).toBe(true);
+  });
+  it('recognizes exact UI candidates without granting an unregistered fallback surface authority', async () => {
+    const f = fixture();
+    const candidate = {
+      id: extensionId,
+      url: url(`src/popup/index.html?surface=${crypto.randomUUID()}`),
+      frameId: 0,
+      tab: { id: 10, windowId: 9 },
+    } as chrome.runtime.MessageSender;
+    expect(f.controller.isUiCandidate(toolbar)).toBe(true);
+    expect(f.controller.isUiCandidate(candidate)).toBe(true);
+    expect(await f.controller.isUi(candidate)).toBe(false);
+    for (const patch of [
+      { id: 'foreign-extension' },
+      { url: undefined },
+      { url: url('src/popup/index.html?surface=invalid') },
+      { url: candidate.url + '&extra=1' },
+    ])
+      expect(f.controller.isUiCandidate({ ...candidate, ...patch })).toBe(false);
+  });
+  it('reserves a binary stage durably and refuses another generation claiming the same ID', async () => {
+    const f = fixture();
+    await f.start();
+    const first = f.claim.exportOperationId!;
+    const request = { source: 'chatgpt', stageId: 'binary-stage' };
+    expect(await f.authorize('beginStagedBinaryAsset', request)).toBe(true);
+    f.restart();
+    expect(await f.authorize('abortStagedBinaryAsset', request)).toBe(true);
+    await f.complete();
+    await f.start();
+    expect(await f.authorize('beginStagedBinaryAsset', request)).toBe(false);
+    expect(await f.authorize('abortStagedBinaryAsset', request)).toBe(false);
+    expect(
+      await f.authorize('abortStagedBinaryAsset', { ...request, exportOperationId: first })
+    ).toBe(true);
+    expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(true);
+  });
+  it('ignores failed, missing, overlong and duplicate stage results without changing ownership', async () => {
+    const f = fixture();
+    await f.start();
+    const id = f.claim.exportOperationId!;
+    await f.controller.recordResult(id, { success: true, stageId: 'owned-stage' });
+    for (const result of [
+      undefined,
+      { success: false, stageId: 'unaccepted-stage' },
+      { success: true, data: {} },
+      { success: true, stageId: 'x'.repeat(257) },
+      { success: true, stageId: 'owned-stage' },
+    ])
+      await f.controller.recordResult(id, result);
+    await f.controller.recordResult(crypto.randomUUID(), {
+      success: true,
+      stageId: 'foreign-stage',
+    });
+    expect(f.stored[EXPORT_STATE_KEY]).toMatchObject({
+      operations: [{ id, stages: ['owned-stage'] }],
+    });
+    expect(await f.authorize('abortStagedBinaryAsset', { stageId: 'owned-stage' })).toBe(true);
+  });
+  it('fails closed when persisted operations repeat a generation ID', async () => {
+    const f = fixture();
+    await f.start();
+    await f.controller.recordResult(f.claim.exportOperationId, {
+      success: true,
+      stageId: 'owned-stage',
+    });
+    const state = f.stored[EXPORT_STATE_KEY] as { operations: unknown[] };
+    state.operations.push(structuredClone(state.operations[0]));
+    f.restart();
+    expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(false);
+    expect(await f.authorize('abortStagedBinaryAsset', { stageId: 'owned-stage' })).toBe(false);
+    expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).not.toHaveProperty(
+      'operation'
+    );
+    expect(await f.start()).toMatchObject({ operation: { phase: 'exporting' } });
+    expect((f.stored[EXPORT_STATE_KEY] as { operations: unknown[] }).operations).toHaveLength(1);
+  });
+  it.each([
+    { id: 'foreign-extension' },
+    { frameId: 1 },
+    { documentId: undefined },
+    { documentId: 'invalid document' },
+    { tab: undefined },
+  ])('rejects an invalid content launcher sender %j', async patch => {
+    const f = fixture();
+    expect(
+      await f.controller.handle({ action: 'openExportSurface' }, { ...source(), ...patch })
+    ).toMatchObject({ success: false });
+    expect(f.api.action.openPopup).not.toHaveBeenCalled();
+    expect(f.api.windows.create).not.toHaveBeenCalled();
+  });
+  it.each(['cancel', 'expire'] as const)(
+    'revokes authority even when the %s notification rejects',
+    async event => {
+      const f = fixture();
+      await f.start('selected');
+      f.api.tabs.sendMessage.mockRejectedValue(new Error('Document disconnected'));
+      if (event === 'expire') f.advance(EXPORT_OPERATION_MS + 1);
+      else
+        expect(
+          await f.controller.handle(
+            { action: 'cancelExportOperation', exportOperationId: f.claim.exportOperationId! },
+            toolbar
+          )
+        ).toMatchObject({ success: true });
+      expect(await f.authorize('captureChatGptConversation')).toBe(false);
+      expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).toMatchObject({
+        operation: { phase: 'cancelled' },
+      });
+      expect(f.api.tabs.sendMessage).toHaveBeenLastCalledWith(
+        7,
+        { action: 'cancelExportOperation', exportOperationId: f.claim.exportOperationId },
+        { documentId: 'document-one', frameId: 0 }
+      );
+    }
+  );
+  it('relinquishes local cleanup ownership even if both metadata save and removal fail', async () => {
+    const f = fixture();
+    await f.start();
+    await f.controller.recordResult(f.claim.exportOperationId, {
+      success: true,
+      stageId: 'owned-stage',
+    });
+    const request = {
+      exportOperationId: f.claim.exportOperationId,
+      source: 'chatgpt',
+      stageId: 'owned-stage',
+    };
+    f.api.storage.session.set.mockRejectedValueOnce(new Error('Session unavailable'));
+    f.api.storage.session.remove.mockRejectedValueOnce(new Error('Removal unavailable'));
+    expect(await f.controller.takeStageForCleanup(request, source())).toBe(true);
+    expect(f.api.storage.session.remove).toHaveBeenCalledWith(EXPORT_STATE_KEY);
+    expect(await f.controller.takeStageForCleanup(request, source())).toBe(false);
+    expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(false);
+  });
+  it('replaces an existing fallback surface when its window can no longer be focused', async () => {
+    const f = fixture();
+    f.api.action.openPopup.mockRejectedValue(new Error('Popup unavailable'));
+    await f.controller.handle({ action: 'openExportSurface' }, source());
+    const oldUi = surfaceSender(f);
+    expect(await f.controller.isUi(oldUi)).toBe(true);
+    f.api.windows.update.mockRejectedValueOnce(new Error('Window closed'));
+    await f.controller.handle({ action: 'openExportSurface' }, source());
+    const newUi = surfaceSender(f, 1);
+    expect(newUi.url).not.toBe(oldUi.url);
+    expect(f.api.windows.update).toHaveBeenCalledWith(9, { focused: true });
+    expect(f.api.windows.create).toHaveBeenCalledTimes(2);
+    expect(await f.controller.isUi(oldUi)).toBe(false);
+    expect(await f.controller.isUi(newUi)).toBe(true);
+    expect((f.stored[EXPORT_STATE_KEY] as { surfaces: unknown[] }).surfaces).toHaveLength(1);
+  });
+  it.each([{ tabs: [{ id: 10 }] }, { id: 9, tabs: [] }])(
+    'cancels selected preparation when the fallback window is malformed: %j',
+    async window => {
+      const f = fixture();
+      await f.start('selected');
+      f.api.windows.create.mockResolvedValueOnce(window as never);
+      expect(
+        await f.controller.handle(
+          {
+            action: 'awaitExportSelection',
+            exportOperationId: f.claim.exportOperationId!,
+            selectionId: crypto.randomUUID(),
+          },
+          source()
+        )
+      ).toMatchObject({ success: false });
+      expect(await f.authorize('captureChatGptConversation')).toBe(false);
+      expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).toMatchObject({
+        operation: { phase: 'cancelled' },
+      });
+      f.restart();
+      expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(false);
+    }
+  );
+  it.each(['absent', 'current', 'selected'] as const)(
+    'does not request branch options outside awaiting-selection: %s',
+    async mode => {
+      const f = fixture();
+      if (mode !== 'absent') await f.start(mode);
+      expect(
+        await f.controller.handle({ action: 'getExportBranchOptions' }, toolbar)
+      ).toMatchObject({ success: false });
+      expect(
+        f.api.tabs.sendMessage.mock.calls.some(call => call[1].action === 'readExportBranchOptions')
+      ).toBe(false);
+    }
+  );
+  it.each(['completeExportOperation', 'awaitExportSelection'] as const)(
+    'does not accept content-only %s from the toolbar',
+    async action => {
+      const f = fixture();
+      await f.start('selected');
+      expect(
+        await f.controller.handle(
+          {
+            action,
+            exportOperationId: f.claim.exportOperationId!,
+            outcome: 'ended',
+            selectionId: crypto.randomUUID(),
+          } as never,
+          toolbar
+        )
+      ).toMatchObject({ success: false });
+      expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).toMatchObject({
+        operation: { phase: 'preparing' },
+      });
+    }
+  );
+  it.each(['unaccepted', 'rejected'] as const)(
+    'removes the pending intent after an %s begin without reserving the tab',
+    async response => {
+      const f = fixture();
+      if (response === 'unaccepted')
+        f.api.tabs.sendMessage.mockResolvedValueOnce({ accepted: false });
+      else f.api.tabs.sendMessage.mockRejectedValueOnce(new Error('No content receiver'));
+      expect(await f.start()).toMatchObject({ success: false });
+      expect(f.stored[EXPORT_STATE_KEY]).toMatchObject({ intents: [], operations: [] });
+      const intentId = f.api.tabs.sendMessage.mock.calls[0][1].intentId as string;
+      expect(
+        await f.controller.handle({ action: 'claimExportOperation', intentId, route }, source())
+      ).toMatchObject({ success: false });
+      expect(await f.start()).toMatchObject({ operation: { phase: 'exporting' } });
+    }
+  );
+  it('binds a fallback UI claim and its renewed expiry to only the registered surface', async () => {
+    const f = fixture();
+    f.api.action.openPopup.mockRejectedValue(new Error('Popup unavailable'));
+    await f.controller.handle({ action: 'openExportSurface' }, source());
+    const ui = surfaceSender(f);
+    f.advance(100);
+    expect(
+      await f.controller.handle(
+        {
+          action: 'startExportOperation',
+          mode: 'selected',
+          expectedTarget: { tabId: 7, route },
+          expectedOutputs: ['file'],
+        },
+        ui
+      )
+    ).toMatchObject({ operation: { id: f.claim.exportOperationId, phase: 'preparing' } });
+    const state = f.stored[EXPORT_STATE_KEY] as {
+      intents: unknown[];
+      operations: Array<{ id: string; uiSessionId: string; expires: number }>;
+      surfaces: Array<{ id: string; operationId: string; expires: number }>;
+    };
+    expect(state.intents).toEqual([]);
+    expect(state.surfaces[0]).toMatchObject({
+      id: state.operations[0].uiSessionId,
+      operationId: f.claim.exportOperationId,
+      expires: 1_100 + EXPORT_OPERATION_MS,
+    });
+    expect(state.surfaces[0].expires).toBe(f.claim.expiresAt);
+    f.restart();
+    expect(await f.controller.isUi(ui)).toBe(true);
+    expect(await f.controller.uiSource(ui)).toMatchObject({ tabId: 7, route });
+    await f.controller.tabRemoved(10);
+    expect(await f.authorize('captureChatGptConversation')).toBe(false);
+  });
+  it.each(['unaccepted', 'rejected'] as const)(
+    'cancels a validated branch choice when applying it is %s',
+    async response => {
+      const f = fixture();
+      await f.start('selected');
+      const selectionId = crypto.randomUUID();
+      await f.controller.handle(
+        {
+          action: 'awaitExportSelection',
+          exportOperationId: f.claim.exportOperationId!,
+          selectionId,
+        },
+        source()
+      );
+      f.api.tabs.sendMessage.mockResolvedValueOnce({ accepted: true });
+      if (response === 'unaccepted')
+        f.api.tabs.sendMessage.mockResolvedValueOnce({ accepted: false });
+      else f.api.tabs.sendMessage.mockRejectedValueOnce(new Error('Choice receiver disconnected'));
+      expect(
+        await f.controller.handle(
+          {
+            action: 'chooseExportBranch',
+            exportOperationId: f.claim.exportOperationId!,
+            selectionId,
+            choice: 1,
+          },
+          toolbar
+        )
+      ).toMatchObject({ success: false });
+      expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(false);
+      f.restart();
+      expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).toMatchObject({
+        operation: { phase: 'cancelled' },
+      });
+    }
+  );
+  it.each(['persistence', 'post-handoff route'] as const)(
+    'keeps failed %s handoff cleanup with the caller without restoring controller ownership',
+    async failure => {
+      const f = fixture();
+      await f.start();
+      await f.controller.recordResult(f.claim.exportOperationId, {
+        success: true,
+        stageId: 'owned-stage',
+      });
+      const message = {
+        action: 'commitStagedBinaryAsset',
+        source: 'chatgpt',
+        stageId: 'owned-stage',
+        exportOperationId: f.claim.exportOperationId,
+      };
+      if (failure === 'persistence')
+        f.api.storage.session.set.mockRejectedValueOnce(new Error('Session quota'));
+      else
+        f.api.tabs.get
+          .mockResolvedValueOnce({ ...f.tab })
+          .mockResolvedValueOnce({ ...f.tab, url: route + '?changed=1' });
+      const dispatch = vi.fn(async () => 'committed');
+      expect(await f.controller.dispatchStageCommit(message, source(), dispatch)).toEqual({
+        dispatched: false,
+        cleanupOwned: true,
+      });
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(await f.controller.takeStageForCleanup(message, source())).toBe(false);
+      f.restart();
+      expect(await f.controller.takeStageForCleanup(message, source())).toBe(false);
+      expect(await f.controller.dispatchStageCommit(message, source(), dispatch)).toEqual({
+        dispatched: false,
+        cleanupOwned: false,
+      });
+      expect(dispatch).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['claude', undefined])('denies saveToOutputs frontmatter source %s', async platform => {
+    const f = fixture();
+    await f.start();
+    expect(
+      await f.authorize('saveToOutputs', {
+        outputs: ['file'],
+        data: { frontmatter: { source: platform } },
+      })
+    ).toBe(false);
+    expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(true);
+  });
+  it('cancels a duplicate returned stage receiver without borrowing the original cleanup owner', async () => {
+    const f = fixture();
+    await f.start();
+    const first = f.claim.exportOperationId!;
+    await f.controller.recordResult(first, { success: true, stageId: 'owned-stage' });
+    await f.complete();
+    await f.start();
+    const second = f.claim.exportOperationId!;
+    await f.controller.recordResult(second, { success: true, data: { stageId: 'owned-stage' } });
+    f.restart();
+    expect(await f.controller.handle({ action: 'getExportStatus' }, toolbar)).toMatchObject({
+      operation: { id: second, phase: 'cancelled' },
+    });
+    expect(await f.authorize('abortStagedBinaryAsset', { stageId: 'owned-stage' })).toBe(false);
+    expect(
+      await f.authorize('abortStagedBinaryAsset', {
+        exportOperationId: first,
+        stageId: 'owned-stage',
+      })
+    ).toBe(true);
+    expect(await f.authorize('captureChatGptConversation')).toBe(false);
+  });
+  it.each(['removed', 'url', 'loading'] as const)(
+    'revokes pending intents only for the %s source tab',
+    async event => {
+      const f = fixture();
+      const delayed = delayClaims(f);
+      const first = delayed.start(7);
+      await vi.waitFor(() => expect(delayed.pending.has(7)).toBe(true));
+      const second = delayed.start(8);
+      await vi.waitFor(() => expect(delayed.pending.has(8)).toBe(true));
+      if (event === 'removed') await f.controller.tabRemoved(7);
+      else
+        await f.controller.tabChanged(
+          7,
+          event === 'url' ? { url: route + '?changed=1' } : { status: 'loading' }
+        );
+      expect((f.stored[EXPORT_STATE_KEY] as { intents: unknown[] }).intents).toHaveLength(1);
+      expect(await delayed.claim(7)).toMatchObject({ success: false });
+      expect(await first).toMatchObject({ success: false });
+      expect(await delayed.claim(8)).toMatchObject({ success: true });
+      expect(await second).toMatchObject({ operation: { phase: 'exporting' } });
+      expect(f.stored[EXPORT_STATE_KEY]).toMatchObject({
+        intents: [],
+        operations: [{ target: { tabId: 8 } }],
+      });
+    }
+  );
+  it('closing a fallback tab removes its bound and direct intents but preserves an unrelated intent', async () => {
+    const f = fixture();
+    await f.start();
+    f.api.action.openPopup.mockRejectedValue(new Error('Popup unavailable'));
+    await f.controller.handle({ action: 'openExportSurface' }, source());
+    const ui = surfaceSender(f);
+    const intents = seedPendingIntents(f, [10, 8, 9]);
+    intents[1].uiSessionId = new URL(ui.url!).searchParams.get('surface')!;
+    f.restart();
+    await f.controller.tabRemoved(10);
+    expect(f.stored[EXPORT_STATE_KEY]).toMatchObject({
+      surfaces: [],
+      intents: [{ id: intents[2].id }],
+    });
+    expect((f.stored[EXPORT_STATE_KEY] as { intents: unknown[] }).intents).toHaveLength(1);
+    expect(await f.controller.isUi(ui)).toBe(false);
+    expect(await f.authorize('saveToOutputs', { outputs: ['file'] })).toBe(true);
+    expect(
+      await f.controller.handle(
+        { action: 'claimExportOperation', intentId: intents[1].id, route },
+        tabSender(8)
+      )
+    ).toMatchObject({ success: false });
+    expect(
+      await f.controller.handle(
+        { action: 'claimExportOperation', intentId: intents[2].id, route },
+        tabSender(9)
+      )
+    ).toMatchObject({ success: true });
+  });
   it.each(['abortStagedArchiveArtifact', 'abortStagedBinaryAsset'] as const)(
     'retains failed or unknown %s cleanup for an exact retry',
     async action => {

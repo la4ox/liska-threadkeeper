@@ -828,10 +828,10 @@ cleanup retains the capability for a safe retry. Both 64-cycle reproductions now
 admit the next export, and restart/retry/wrong-owner controls pass.
 
 Final local evidence after the terminal-status repair: the complete repository
-suite passes 254 files / 9,354 tests, with one file / 3 tests skipped. The earlier
+coverage suite passes 254 files / 9,393 tests, with one file / 3 tests skipped. The earlier
 closed affected matrix passed 154 files / 6,101 tests, with one file / 2 tests
 skipped; the final reviewer-equivalent authorization/UI matrix passes 6 files /
-132 tests, the final controller/route cleanup matrix passes 2 files / 89 tests,
+132 tests, the final controller/route matrix passes 2 files / 128 tests,
 and the directly affected background matrix passes 41 files / 1,622 tests.
 Production build, emitted-worker runtime check, lint (52 warnings / 0 errors),
 formatting and diff checks pass. A synthetic 380px preview checks Export default,
@@ -839,6 +839,15 @@ literal branch descriptors, ordinal/all selection, Stop/status, cancellation and
 preserved Settings. Completion wording is now neutral unless the worker can prove
 that selected-branch preparation ended before any extension-owned choice; that
 bounded outcome says explicitly that nothing was saved.
+
+The first current-head CI run passed every test but failed its unchanged 95%
+global statement threshold at 94.87%. Thirty-nine deterministic controller tests
+now cover malformed fallback windows, rejected begin/choice handshakes, exact
+stage handoff and cleanup failures, wrong senders/sources, duplicate stages,
+pending-intent tab lifecycle and related fail-closed branches. The unchanged
+coverage gate now exits zero at 95.01% statements (26,185 / 27,558); controller
+coverage is 99.26% statements and 100% lines/functions. No production branch or
+threshold was weakened for coverage.
 
 The final 45-file / 1,258,921-byte build was copied into the existing unpacked
 Liska target through the verified rollback-preserving updater. Source and
