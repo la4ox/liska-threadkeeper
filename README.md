@@ -9,7 +9,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 ## Why Liska
 
 - **Loss-aware DeepSeek export:** signed-in conversations preserve the exact same-origin history response, normalize its complete graph into `liska-thread/1`, and render the active branch without scrolling through the page.
-- **Fast ChatGPT export:** after a trusted click, an inactive disposable tab observes ChatGPT's page-native conversation response at document start and reconstructs the complete graph without scrolling. The default view follows the current branch; a local chooser can export one explicit branch or every leaf plus an index. A marked DOM fallback remains available for the default view.
+- **Fast ChatGPT export:** after an explicit extension-popup action, an inactive disposable tab observes ChatGPT's page-native conversation response at document start and reconstructs the complete graph without scrolling. The default view follows the current branch; an extension-owned chooser can export one explicit branch or every leaf plus an index. A marked DOM fallback remains available for the default view.
 - **Offline ChatGPT reconciliation:** a separate Archive Tools page compares an existing web canonical snapshot with the exact matching conversation in an official export, then saves one verifiable local ZIP without modifying either source.
 - **Local outputs:** download Markdown, copy it, or write to Obsidian. Liska has no analytics, telemetry, account, or operated server.
 - **Long-thread support:** the text pipeline accepts large notes up to 32 MiB of UTF-8; other supported sites can accumulate virtualized conversations with bounded auto-scroll.
@@ -17,7 +17,7 @@ Liska is a local-first Chromium extension that turns AI conversations into clean
 - **Literal citation boundaries:** provider titles, internal footnote markers, and HTTP(S) source destinations cannot create extra Markdown links, images, or embeds.
 - **Safe derived Markdown:** structured provider text is parsed before the reading export. Automatic provider images, private/unsupported destinations, and Obsidian wikilinks/embeds remain visible but literal; only receipt-proven local ChatGPT attachment targets stay active. Raw and canonical archives remain exact.
 - **Optional attachments:** supported generated images can be saved beside Markdown exports.
-- **Intentional export:** page scripts cannot activate the export button programmatically; a real user click is required.
+- **Intentional export:** only explicit actions in Liska's extension-owned Export surface authorize capture and output. The page fox only opens that surface; page DOM never selects a branch or starts an export.
 
 ## Supported services
 
@@ -55,14 +55,17 @@ extension on its own.
 ## Use it
 
 1. Open a supported AI conversation.
-2. Click **Bring thread home** in the lower-right corner.
-3. Liska writes to whichever outputs are enabled in its popup: **File**, **Clipboard**, and/or **Obsidian**.
+2. Open Liska from the browser toolbar or the small page fox. The popup opens on **Export**; persistent preferences and Archive Tools are under **Settings**.
+3. Check the displayed conversation and destinations, then choose **Export current** or, on ChatGPT, **Choose branch…**. The latter prepares choices without saving; select one branch or **Export all branches** in the extension-owned window.
+4. Reopen Export for status or **Stop / cancel**. Closing the popup after starting does not stop an accepted export. Closing the branch-choice window cancels preparation; already saved outputs are never removed.
+
+The page fox uses `action.openPopup()` where available and a compact extension window otherwise, retaining Chromium 111 support. A changed conversation, document, destination/settings snapshot, or expired operation revokes further dispatch; uncertain writes are not retried.
 
 File and clipboard export work without Obsidian or an API key.
 
 ### Compare a web snapshot with an official ChatGPT export
 
-1. Open Liska's popup and choose **Archive Tools → Compare ChatGPT archives**.
+1. Open Liska's popup, select **Settings**, and choose **Archive Tools → Compare ChatGPT archives**.
 2. Select an existing web `canonical/liska-thread-1.json` and either legacy `conversations.json` or all `conversations-NNN.json` shards from one uncompressed official export. For a sharded v1 export, you may separately select its `export_manifest.json` to check the declared shard names before scanning.
 3. Choose a File ZIP, an Obsidian snapshot, or both. File opens Save As; Obsidian is an explicit opt-in.
 
@@ -71,7 +74,7 @@ Liska matches only the exact conversation ID declared by the web snapshot. Every
 ### Optional Obsidian setup
 
 1. Install and enable [Obsidian Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) 4.1.3 or later.
-2. Copy its API key into Liska's popup.
+2. Copy its API key into Liska's **Settings** tab.
 3. Keep the API URL on the exact loopback host, normally `http://127.0.0.1:27123`. HTTPS on `127.0.0.1` is supported when its certificate is trusted by the operating system.
 4. Choose a vault path such as `AI/{platform}/{YYYY}/{MM}` and enable the Obsidian output.
 
@@ -79,7 +82,7 @@ The bearer key is stored in `chrome.storage.local`, is never exposed to supporte
 
 ## Important limits
 
-- The main button exports the provider-selected current branch. ChatGPT also offers a local chooser for one explicit branch or every leaf plus an index.
+- **Export current** exports the provider-selected current branch. ChatGPT also offers an extension-owned chooser for one explicit branch or every leaf plus an index.
 - Automatic scheduled backups are not implemented yet; every export begins with a real click.
 - Reconciliation accepts legacy `conversations.json` or an explicitly selected `conversations-NNN.json` shard set under a shared 2 GiB / 100,000-record budget. An optional separately selected v1 `export_manifest.json` is capped at 2 MiB and checks declared canonical shard names only; it is not saved. Reconciliation can write one File ZIP through **Save As** and, with Local REST API 5.5.0 or later, a separate root-last verified Obsidian snapshot. Automatic manifest/directory/ZIP discovery remains a separate follow-up.
 - DeepSeek structured exports save raw/manifest/canonical companions beside durable Markdown outputs. Text, Markdown, the active branch, and optional Thinking are supported. With **Export images & attachments** enabled for File or Obsidian, Liska can fetch up to 20 passive files from exact current `signed_path` records in verified history, or from an exact file-service fetch that the current page already recorded in the newest bounded ResourceTiming tail and that uniquely matches a current raw file ID. In-band history wins. Liska never clicks a file card or calls `fetch_files`; a missing preview remains honestly unresolved. Raw is saved first, writes are destination-specific, and provider IDs/signed URLs stay out of manifest/canonical output.

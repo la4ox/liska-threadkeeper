@@ -191,6 +191,36 @@ describe('popup/app', () => {
   });
 
   describe('initPopup', () => {
+    it('retains Settings Test, Dots and Reconcile in a fallback-window URL', async () => {
+      const previous = window.location.href;
+      window.history.replaceState(null, '', '?surface=11111111-1111-4111-8111-111111111111');
+      try {
+        await initWithDefaults();
+        expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
+        expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(false);
+        el<HTMLButtonElement>('openReconciliationBtn').click();
+        expect(chrome.tabs.create).toHaveBeenCalledWith({
+          url: chrome.runtime.getURL('src/reconcile/index.html'),
+        });
+        el<HTMLButtonElement>('testBtn').click();
+        await vi.waitFor(() =>
+          expect(sendMessage).toHaveBeenCalledWith({ action: 'testConnection' })
+        );
+        await vi.waitFor(() => expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false));
+        vi.mocked(sendMessage).mockResolvedValueOnce({
+          success: true,
+          fileName: 'liska-dots-schema-probe.json',
+        } as never);
+        handleTrustedDotsSchemaProbeClick({ isTrusted: true } as Event, () => {
+          void runDotsSchemaProbe();
+        });
+        await vi.waitFor(() =>
+          expect(sendMessage).toHaveBeenCalledWith({ action: 'probeDotsSchema' })
+        );
+      } finally {
+        window.history.replaceState(null, '', previous);
+      }
+    });
     it('populates the form from stored settings', async () => {
       await initWithDefaults();
 

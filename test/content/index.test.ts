@@ -21,10 +21,8 @@ import {
 } from '../fixtures/dom-helpers';
 
 vi.mock('../../src/content/ui', () => ({
-  injectBranchExportButton: vi.fn(),
-  injectSyncButton: vi.fn(),
+  injectExportLauncher: vi.fn(),
   removeExportControls: vi.fn(),
-  showArchiveBranchPicker: vi.fn(),
   setButtonLoading: vi.fn(),
   showSuccessToast: vi.fn(),
   showErrorToast: vi.fn(),
@@ -37,8 +35,7 @@ vi.mock('../../src/lib/messaging', () => ({
 }));
 
 import {
-  injectBranchExportButton,
-  injectSyncButton,
+  injectExportLauncher,
   removeExportControls,
   setButtonLoading,
   showSuccessToast,
@@ -275,17 +272,17 @@ describe('content/bootstrap', () => {
     it('skips initialization on unsupported pages', async () => {
       setNonGeminiLocation('example.com');
       await initialize();
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
     });
 
     it('injects the sync button on a Gemini conversation page', async () => {
       loadGeminiConversation();
       await initialize();
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
-      expect(injectSyncButton).toHaveBeenCalledWith(expect.any(Function));
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledWith(expect.any(Function));
     });
 
-    it('adds the explicit branch entry point only on ChatGPT', async () => {
+    it('adds only the launch affordance on ChatGPT', async () => {
       setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
       createChatGPTPage('01234567-89ab-4cde-8f01-23456789abcd', [
         { role: 'user', content: 'Question' },
@@ -294,8 +291,7 @@ describe('content/bootstrap', () => {
 
       await initialize();
 
-      expect(injectSyncButton).toHaveBeenCalledWith(expect.any(Function));
-      expect(injectBranchExportButton).toHaveBeenCalledWith(expect.any(Function));
+      expect(injectExportLauncher).toHaveBeenCalledWith(expect.any(Function));
     });
 
     it('does not inject misleading ChatGPT controls on Dots', async () => {
@@ -304,8 +300,7 @@ describe('content/bootstrap', () => {
 
       await initialize();
 
-      expect(injectSyncButton).not.toHaveBeenCalled();
-      expect(injectBranchExportButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
       expect(sendMessage).not.toHaveBeenCalled();
     });
   });
@@ -333,7 +328,7 @@ describe('content/bootstrap', () => {
         const pending = initialize();
 
         await vi.advanceTimersByTimeAsync(0);
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(injectExportLauncher).toHaveBeenCalledTimes(1);
         await pending;
 
         expect(sendMessage).not.toHaveBeenCalled();
@@ -355,9 +350,9 @@ describe('content/bootstrap', () => {
         document.querySelector('main')!.innerHTML = html;
         await vi.advanceTimersByTimeAsync(0);
         await vi.advanceTimersByTimeAsync(99);
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(1);
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(injectExportLauncher).toHaveBeenCalledTimes(1);
         await pending;
 
         expect(sendMessage).not.toHaveBeenCalled();
@@ -378,14 +373,14 @@ describe('content/bootstrap', () => {
       `);
       const pending = initialize();
       await vi.advanceTimersByTimeAsync(100);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
 
       document.querySelector('.conversation-thread')!.innerHTML =
         '<div data-testid="user-message">Transcript question</div>';
       await vi.advanceTimersByTimeAsync(100);
       await pending;
 
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
       expect(sendMessage).not.toHaveBeenCalled();
       expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
     });
@@ -403,13 +398,13 @@ describe('content/bootstrap', () => {
         loadFixture(`<main>${legacyHtml}</main>`);
         const pending = initialize();
         await vi.advanceTimersByTimeAsync(100);
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
 
         document.querySelector('main')!.insertAdjacentHTML('beforeend', html);
         await vi.advanceTimersByTimeAsync(100);
         await pending;
 
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(injectExportLauncher).toHaveBeenCalledTimes(1);
         expect(sendMessage).not.toHaveBeenCalled();
         expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
       }
@@ -427,8 +422,7 @@ describe('content/bootstrap', () => {
 
         await initialize();
 
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
-        expect(injectBranchExportButton).toHaveBeenCalledTimes(platform === 'chatgpt' ? 1 : 0);
+        expect(injectExportLauncher).toHaveBeenCalledTimes(1);
         expect(sendMessage).not.toHaveBeenCalled();
         expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
         expect(extract).not.toHaveBeenCalled();
@@ -444,8 +438,7 @@ describe('content/bootstrap', () => {
       const pending = initialize();
 
       await vi.advanceTimersByTimeAsync(0);
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
-      expect(injectBranchExportButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
       await pending;
 
       expect(sendMessage).not.toHaveBeenCalled();
@@ -466,28 +459,26 @@ describe('content/bootstrap', () => {
       await pending;
 
       expect(removeExportControls).toHaveBeenCalled();
-      expect(injectSyncButton).not.toHaveBeenCalled();
-      expect(injectBranchExportButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
     });
 
     it('removes stale controls on Dots SPA navigation and restores them on return', async () => {
       setChatGPTLocation('01234567-89ab-4cde-8f01-23456789abcd');
       loadFixture('<main><section data-testid="conversation-turn-1"></section></main>');
       await initialize();
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
 
       setNonGeminiLocation('chatgpt.com', '/dots/home');
       document.querySelector('main')!.appendChild(document.createElement('div'));
       await vi.advanceTimersByTimeAsync(0);
       expect(removeExportControls).toHaveBeenCalledTimes(1);
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
 
       setChatGPTLocation('11111111-2222-4333-8444-555555555555');
       document.querySelector('main')!.innerHTML =
         '<section data-testid="conversation-turn-2"></section>';
       await vi.advanceTimersByTimeAsync(0);
-      await vi.waitFor(() => expect(injectSyncButton).toHaveBeenCalledTimes(2));
-      expect(injectBranchExportButton).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(injectExportLauncher).toHaveBeenCalledTimes(2));
     });
 
     it('keeps existing controls across ordinary ChatGPT route changes', async () => {
@@ -501,8 +492,7 @@ describe('content/bootstrap', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(removeExportControls).not.toHaveBeenCalled();
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
-      expect(injectBranchExportButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
     });
 
     it('restores Dots-return controls as busy while the original export is active', async () => {
@@ -528,7 +518,7 @@ describe('content/bootstrap', () => {
       document.querySelector('main')!.innerHTML =
         '<section data-testid="conversation-turn-2"></section>';
       await vi.advanceTimersByTimeAsync(0);
-      await vi.waitFor(() => expect(injectSyncButton).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(injectExportLauncher).toHaveBeenCalledTimes(2));
 
       expect(setButtonLoading.mock.calls.filter(call => call[0] === true)).toHaveLength(2);
       setNonGeminiLocation('chatgpt.com', '/dots/home');
@@ -551,9 +541,9 @@ describe('content/bootstrap', () => {
         '<section data-testid="conversation-turn-1"></section>';
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(99);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
       await pending;
 
       expect(sendMessage).not.toHaveBeenCalled();
@@ -571,21 +561,21 @@ describe('content/bootstrap', () => {
       const extract = vi.spyOn(ClaudeExtractor.prototype, 'extract');
       const pending = initialize();
       await vi.advanceTimersByTimeAsync(0);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
 
       // An unrelated observed mutation must not make the global query accept the sidebar.
       document.querySelector('main')!.append(document.createElement('span'));
       await vi.advanceTimersByTimeAsync(100);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
 
       document.querySelector('main')!.innerHTML = `<div data-index="1">${content}</div>`;
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(99);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
       await pending;
 
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
       expect(sendMessage).not.toHaveBeenCalled();
       expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
       expect(extract).not.toHaveBeenCalled();
@@ -597,12 +587,12 @@ describe('content/bootstrap', () => {
       const pending = initialize();
 
       await vi.advanceTimersByTimeAsync(9_999);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
       document.querySelector('main')!.append(document.createElement('span'));
       await vi.advanceTimersByTimeAsync(1);
       await pending;
 
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
       expect(sendMessage).not.toHaveBeenCalled();
       expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
       expect(vi.getTimerCount()).toBe(0);
@@ -615,7 +605,7 @@ describe('content/bootstrap', () => {
         loadFixture('<main></main>');
         const observe = vi.spyOn(MutationObserver.prototype, 'observe');
         const pending = initialize();
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
         expect(observe).toHaveBeenCalledWith(document.querySelector('main'), {
           childList: true,
           subtree: true,
@@ -624,11 +614,11 @@ describe('content/bootstrap', () => {
         document.querySelector('main')!.innerHTML = html;
         await vi.advanceTimersByTimeAsync(0);
         await vi.advanceTimersByTimeAsync(99);
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(1);
         await pending;
 
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(injectExportLauncher).toHaveBeenCalledTimes(1);
         expect(sendMessage).not.toHaveBeenCalled();
       }
     );
@@ -645,21 +635,21 @@ describe('content/bootstrap', () => {
         expect(document.querySelector(CONVERSATION_READY_SELECTORS[platform])).toBeNull();
         const pending = initialize();
         await vi.advanceTimersByTimeAsync(100);
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
 
         // Neither the immediate query nor the observer may use foreign hints.
         document.querySelector('main')!.innerHTML = foreignHtml;
         await vi.advanceTimersByTimeAsync(100);
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
 
         document.querySelector('main')!.insertAdjacentHTML('beforeend', html);
         await vi.advanceTimersByTimeAsync(0);
         await vi.advanceTimersByTimeAsync(99);
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(1);
         await pending;
 
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
+        expect(injectExportLauncher).toHaveBeenCalledTimes(1);
         expect(sendMessage).not.toHaveBeenCalled();
         expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
       }
@@ -671,12 +661,12 @@ describe('content/bootstrap', () => {
       const pending = initialize();
 
       await vi.advanceTimersByTimeAsync(9_999);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
       document.querySelector('main')!.insertAdjacentHTML('beforeend', '<div data-index="1"></div>');
       await vi.advanceTimersByTimeAsync(1);
       await pending;
 
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
       expect(sendMessage).not.toHaveBeenCalled();
       expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
       expect(vi.getTimerCount()).toBe(0);
@@ -692,16 +682,16 @@ describe('content/bootstrap', () => {
       loadFixture(`<main>${html}</main>`);
       const pending = initialize();
       await vi.advanceTimersByTimeAsync(100);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
 
       document.querySelector('main')!.insertAdjacentHTML('beforeend', html);
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(100);
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(9_800);
       await pending;
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
     });
 
     it.each(readinessSurfaces.filter(({ platform }) => ['chatgpt', 'deepseek'].includes(platform)))(
@@ -719,14 +709,13 @@ describe('content/bootstrap', () => {
         const pending = initialize();
 
         await vi.advanceTimersByTimeAsync(9_999);
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
         // A mutation just before the deadline must not extend the escape timeout.
         document.querySelector('main')!.append(document.createElement('div'));
         await vi.advanceTimersByTimeAsync(1);
         await pending;
 
-        expect(injectSyncButton).toHaveBeenCalledTimes(1);
-        expect(injectBranchExportButton).toHaveBeenCalledTimes(platform === 'chatgpt' ? 1 : 0);
+        expect(injectExportLauncher).toHaveBeenCalledTimes(1);
         expect(sendMessage).not.toHaveBeenCalled();
         expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
         expect(extract).not.toHaveBeenCalled();
@@ -741,7 +730,7 @@ describe('content/bootstrap', () => {
       loadFixture('<main id="root"></main>');
 
       const pending = initialize();
-      expect(injectSyncButton).not.toHaveBeenCalled();
+      expect(injectExportLauncher).not.toHaveBeenCalled();
 
       // Container arrives later (lazy render)
       document.querySelector('main')!.innerHTML = createGeminiConversationDOM([
@@ -750,7 +739,7 @@ describe('content/bootstrap', () => {
 
       await vi.advanceTimersByTimeAsync(100);
       await pending;
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
     });
 
     it('falls back to document.body observation without a platform root', async () => {
@@ -765,7 +754,7 @@ describe('content/bootstrap', () => {
 
       await vi.advanceTimersByTimeAsync(100);
       await pending;
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
     });
 
     it('gives up waiting after the fallback timeout', async () => {
@@ -777,7 +766,7 @@ describe('content/bootstrap', () => {
       await pending;
 
       // Initialization still completes (button injected on a bare page)
-      expect(injectSyncButton).toHaveBeenCalledTimes(1);
+      expect(injectExportLauncher).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -785,7 +774,7 @@ describe('content/bootstrap', () => {
     it('initializes immediately when the DOM is already ready', async () => {
       loadGeminiConversation();
       startContentScript();
-      await vi.waitFor(() => expect(injectSyncButton).toHaveBeenCalled());
+      await vi.waitFor(() => expect(injectExportLauncher).toHaveBeenCalled());
     });
 
     it('waits for DOMContentLoaded while the document is loading', async () => {
@@ -796,10 +785,10 @@ describe('content/bootstrap', () => {
       });
       try {
         startContentScript();
-        expect(injectSyncButton).not.toHaveBeenCalled();
+        expect(injectExportLauncher).not.toHaveBeenCalled();
 
         document.dispatchEvent(new Event('DOMContentLoaded'));
-        await vi.waitFor(() => expect(injectSyncButton).toHaveBeenCalled());
+        await vi.waitFor(() => expect(injectExportLauncher).toHaveBeenCalled());
       } finally {
         Object.defineProperty(document, 'readyState', {
           value: 'complete',
@@ -810,7 +799,7 @@ describe('content/bootstrap', () => {
 
     it('logs initialization failures instead of throwing', async () => {
       loadGeminiConversation();
-      vi.mocked(injectSyncButton).mockImplementation(() => {
+      vi.mocked(injectExportLauncher).mockImplementation(() => {
         throw new Error('inject failed');
       });
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

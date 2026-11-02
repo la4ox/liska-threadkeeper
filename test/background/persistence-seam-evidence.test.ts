@@ -1,3 +1,7 @@
+import { AdmittedExportController } from './admitted-export-controller';
+vi.mock('../../src/background/export-operation-controller', () => ({
+  ExportOperationController: AdmittedExportController,
+}));
 /**
  * Synthetic evidence for the DES-019 late-persistence seams.
  *

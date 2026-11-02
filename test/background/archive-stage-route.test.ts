@@ -1,3 +1,7 @@
+import { AdmittedExportController } from './admitted-export-controller';
+vi.mock('../../src/background/export-operation-controller', () => ({
+  ExportOperationController: AdmittedExportController,
+}));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ARCHIVE_STAGE_RELATIVE_PATHS } from '../../src/lib/archive-stage-contract';
 

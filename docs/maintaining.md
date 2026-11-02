@@ -73,8 +73,10 @@ rollbacks. Use `-PlanOnly` to validate and print a content-free receipt without
 building, writing files, or touching a browser.
 
 A successful ordinary run returns `reloadRequired: true`. Reload only Liska on
-`chrome://extensions` or the browser's equivalent internal extensions page;
-open conversation tabs do not need to be reloaded. `-RestartComet` is an
+`chrome://extensions` or the browser's equivalent internal extensions page. Any
+already-open provider tab whose content script came from the previous extension
+context must then be reloaded once before testing the new build; otherwise the
+worker correctly rejects the stale claim as unavailable. `-RestartComet` is an
 explicit fallback that gracefully closes the exact running Comet executable,
 starts that same binary with `--restore-last-session`, and confirms a new main
 window. It is off by default. A forced close additionally requires the explicit

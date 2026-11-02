@@ -6,7 +6,7 @@ import branchingFixture from '../fixtures/archive/branching-chatgpt-thread.json'
 
 vi.mock('../../src/content/ui', () => ({
   injectBranchExportButton: vi.fn(),
-  injectSyncButton: vi.fn(),
+  injectExportLauncher: vi.fn(),
   setButtonLoading: vi.fn(),
   showArchiveBranchPicker: vi.fn(),
   showErrorToast: vi.fn(),

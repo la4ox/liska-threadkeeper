@@ -4,6 +4,7 @@
  */
 
 import type { ChatGptCaptureResponse } from './chatgpt-capture-contract';
+import { takePreparedRuntimeMessage } from './export-operation-scope';
 import type { ChatGptOpaqueProbeResponse } from './chatgpt-opaque-probe-contract';
 import type { ChatGptOpaqueReplayResponse } from './chatgpt-opaque-replay-contract';
 import type { ChatGptOpaqueResolverResponse } from './chatgpt-opaque-resolver-contract';
@@ -84,17 +85,9 @@ export function sendMessage<K extends keyof MessageResponseMap>(
   message: ExtensionMessage & { action: K }
 ): Promise<MessageResponseMap[K]> {
   return new Promise((resolve, reject) => {
-    // Guard against extension context invalidation (e.g. after extension reload/update)
-    // Content scripts survive extension reloads but lose access to chrome.runtime.
-    // chrome.runtime.id becomes undefined when context is invalidated, even though
-    // chrome.runtime.sendMessage still exists as a function reference.
-    if (!isExtensionContextValid()) {
-      reject(new Error(CONTEXT_INVALIDATED_MESSAGE));
-      return;
-    }
-
     try {
-      chrome.runtime.sendMessage(message, response => {
+      const prepared = takePreparedRuntimeMessage(message);
+      chrome.runtime.sendMessage(prepared, response => {
         // Guard against context invalidation during in-flight message
         if (!isExtensionContextValid()) {
           reject(new Error(CONTEXT_INVALIDATED_MESSAGE));

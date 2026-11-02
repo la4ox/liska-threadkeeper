@@ -1,3 +1,4 @@
+import { withExportGeneration } from '../lib/export-operation-scope';
 /** One already-built branch artifact transport; no preparation or bundle-completion claim. */
 import { jsonUtf8ByteLength } from '../lib/byte-size';
 import { MAX_EXTENSION_MESSAGE_SIZE } from '../lib/constants';
@@ -99,7 +100,7 @@ function sendBranchHtmlMessage(message: BranchHtmlMessage): Promise<unknown> {
         settle(false);
         return;
       }
-      chrome.runtime.sendMessage(message, response => {
+      chrome.runtime.sendMessage(withExportGeneration(message), response => {
         if (settled) return;
         try {
           if (!chrome.runtime?.id || chrome.runtime.lastError) settle(false);

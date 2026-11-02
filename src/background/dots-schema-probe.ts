@@ -55,6 +55,8 @@ interface DotsSchemaProbeChromeApi {
 }
 
 export interface DotsSchemaProbeDependencies {
+  /** Only a worker-validated registered extension window may supply this source. */
+  sourceTab?: { tabId: number; url: string };
   chromeApi?: DotsSchemaProbeChromeApi;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
@@ -556,7 +558,15 @@ export async function probeDotsSchemaInActiveTab(
   let tabs: chrome.tabs.Tab[];
   try {
     tabs = await withinDeadline(
-      resolved.chromeApi.tabs.query({ active: true, currentWindow: true }),
+      overrides.sourceTab
+        ? resolved.chromeApi.tabs
+            .get(overrides.sourceTab.tabId)
+            .then(tab =>
+              tab.id === overrides.sourceTab!.tabId && tab.url === overrides.sourceTab!.url
+                ? [tab]
+                : []
+            )
+        : resolved.chromeApi.tabs.query({ active: true, currentWindow: true }),
       remaining(deadline, resolved.now)
     );
   } catch {

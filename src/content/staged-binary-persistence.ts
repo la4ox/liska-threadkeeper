@@ -15,6 +15,7 @@ import {
 } from '../lib/binary-asset-contract';
 import { bytesToBase64 } from '../lib/image-utils';
 import { sendMessage } from '../lib/messaging';
+import { prepareRuntimeMessage } from '../lib/export-operation-scope';
 import { isSerializedSyncSettingsSnapshot } from '../lib/sync-settings-snapshot';
 import {
   durableWriteOutcomeFromResult,
@@ -27,6 +28,7 @@ import type {
   PersistentOutputDestination,
   StagedBinaryAssetDescriptor,
   StagedBinaryAssetResult,
+  ExtensionMessage,
 } from '../lib/types';
 
 export interface VerifiedBinaryAssetRuntime {
@@ -200,12 +202,12 @@ async function appendStageChunks(
   return true;
 }
 
-async function commitStage(
+function prepareCommitStage(
   input: StagedBinaryPersistenceInput,
   stageId: string,
   descriptor: StagedBinaryAssetDescriptor
-): Promise<unknown> {
-  return sendMessage({
+): Extract<ExtensionMessage, { action: 'commitStagedBinaryAsset' }> {
+  return prepareRuntimeMessage({
     action: 'commitStagedBinaryAsset',
     stageId,
     captureId: input.captureId,
@@ -240,9 +242,10 @@ async function stageOneAsset(
     if (!(await appendStageChunks(input.source, stageId, asset.bytes))) {
       return failureResult(asset.assetId, descriptor, input.outputs, 'binary-stage-append-failed');
     }
+    const preparedCommit = prepareCommitStage(input, stageId, descriptor);
     committed = true;
     attempts.forEach(attempt => attempt?.issue());
-    const response = await commitStage(input, stageId, descriptor);
+    const response = await sendMessage(preparedCommit);
     if (!isBinaryCommitResponse(response, input.outputs)) {
       return failureResult(asset.assetId, descriptor, input.outputs, 'binary-stage-commit-failed');
     }

@@ -14,6 +14,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import {
+  EXPORT_CONTROL_ACTIONS,
+  EXPORT_DURABLE_ACTIONS,
+  EXPORT_PREPARATION_ACTIONS,
+} from '../../src/lib/export-operation-contract';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -41,6 +46,33 @@ const actions = [...whitelistMatch[1].matchAll(/'([^']+)'/g)].map(m => m[1]);
 const clientSources = [...collectSources('src/content'), ...collectSources('src/popup')];
 
 describe('architecture: message actions have live senders', () => {
+  it.each([...EXPORT_CONTROL_ACTIONS])(
+    'control action "%s" has a live content/popup sender',
+    action => {
+      expect(clientSources.some(source => new RegExp(`action:\\s*'${action}'`).test(source))).toBe(
+        true
+      );
+    }
+  );
+  it('covers every provider privileged dispatch family with operation authority', () => {
+    const publicActions = new Set([
+      'getSettings',
+      'saveSettings',
+      'updateOutputOptions',
+      'testConnection',
+      'probeDotsSchema',
+      'abortStagedArchiveArtifact',
+      'abortStagedBinaryAsset',
+    ]);
+    expect(
+      actions.filter(
+        action =>
+          !publicActions.has(action) &&
+          !EXPORT_DURABLE_ACTIONS.has(action) &&
+          !EXPORT_PREPARATION_ACTIONS.has(action)
+      )
+    ).toEqual([]);
+  });
   it('extracts a non-empty whitelist', () => {
     expect(actions.length).toBeGreaterThan(0);
   });

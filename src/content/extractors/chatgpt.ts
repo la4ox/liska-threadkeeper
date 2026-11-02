@@ -41,11 +41,7 @@ import {
 } from '../capture/chatgpt-opaque-replay-request';
 import { projectArchiveBranch, type ArchiveProjectionResult } from '../archive-projection';
 import { buildArchiveBranchPickerOptions } from '../archive-branch-options';
-import {
-  showArchiveBranchPicker,
-  type ArchiveBranchPickerOption,
-  type ArchiveBranchPickerSelection,
-} from '../ui';
+import { type ArchiveBranchPickerOption, type ArchiveBranchPickerSelection } from '../ui';
 import { abortStagedArchiveArtifact } from '../archive-stage';
 import {
   retainStructuredArchivePresentation,
@@ -231,7 +227,7 @@ export class ChatGPTExtractor extends BaseExtractor {
     super();
     this.captureCurrentBranch = dependencies.captureCurrentBranch ?? captureChatGptCurrentBranch;
     this.captureArchive = dependencies.captureArchive ?? captureChatGptArchive;
-    this.selectBranch = dependencies.selectBranch ?? showArchiveBranchPicker;
+    this.selectBranch = dependencies.selectBranch ?? (async () => null);
     this.manifestAllowsStructuredCapture =
       dependencies.manifestAllowsStructuredCapture ?? manifestAllowsChatGptStructuredCapture;
     this.requestOpaqueProbe = dependencies.requestOpaqueProbe ?? requestChatGptOpaqueProbe;

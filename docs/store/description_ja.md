@@ -9,7 +9,7 @@ Liska は Google Gemini（gemini.google.com）、Claude AI（claude.ai）、Chat
 • クリップボード：整形済み Markdown をコピーしてどこにでも貼り付け
 
 ✨ 主な機能
-• Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook の会話をワンクリックでエクスポート
+• Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook の会話を拡張機能の Export 画面からエクスポート
 • YAML フロントマター付きの整形された Markdown
 • Q&A ブロックに Obsidian コールアウト構文（正しい AI 名を表示）
 • Deep Research（Gemini、Perplexity）と Extended Thinking / Artifacts（Claude）に対応
@@ -47,7 +47,7 @@ Obsidian 連携の場合：
 🚀 使い方
 
 1. gemini.google.com、claude.ai、chatgpt.com、www.perplexity.ai、chat.deepseek.com、notebook.google.com で会話を開く
-2. ページに表示される紫色の「スレッドを書き出す」ボタンをクリック
+2. ブラウザのツールバーまたはページの小さなキツネから Liska を開き、Export 画面で対象の会話と保存先を確認
 3. エクスポート方法を選択：Obsidian、ファイル、またはクリップボード
 4. 完了！会話が Markdown として保存されます
 

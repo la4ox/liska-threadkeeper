@@ -1,3 +1,4 @@
+import { withExportGeneration } from '../lib/export-operation-scope';
 /**
  * Content-script image capture.
  *
@@ -68,10 +69,12 @@ async function fetchRemoteImageDetailed(
   alt: string
 ): Promise<ImageCaptureResult> {
   try {
-    const response = (await chrome.runtime.sendMessage({
-      action: 'fetchImage',
-      url,
-    })) as ImageFetchResponse | undefined;
+    const response = (await chrome.runtime.sendMessage(
+      withExportGeneration({
+        action: 'fetchImage',
+        url,
+      })
+    )) as ImageFetchResponse | undefined;
 
     if (!response?.success) {
       return captureFailed(response?.error ?? 'background fetch returned no response');

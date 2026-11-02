@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Synthetic Liska Export preview</title>
+<script type="module">
+  // Local visual fixture only. No provider session, captures or output APIs.
+  const html = await (await fetch('/src/popup/index.html')).text();
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  parsed.querySelectorAll('script').forEach(node => node.remove());
+  parsed.querySelector('link').href = '/src/popup/styles.css';
+  document.head.append(...parsed.head.children);
+  document.body.replaceChildren(...parsed.body.children);
+  const messages = await (await fetch('/src/_locales/en/messages.json')).json();
+  const { DEFAULT_SYNC_SETTINGS } = await import('/src/lib/settings-schema.ts');
+  let operation;
+  const result = () => ({ success: true, target: { tabId: 7, title: 'Synthetic conversation — no private data', platform: 'chatgpt', route: 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd' }, outputs: ['file'], ...(operation ? { operation } : {}) });
+  globalThis.chrome = {
+    runtime: {
+      id: 'visual-fixture', getURL: path => `/${path}`,
+      sendMessage: (message, callback) => {
+        if (message.action === 'startExportOperation') operation = { id: crypto.randomUUID(), mode: message.mode, phase: message.mode === 'selected' ? 'awaiting-selection' : 'exporting', selectionId: crypto.randomUUID() };
+        if (message.action === 'chooseExportBranch') operation.phase = 'exporting';
+        if (message.action === 'cancelExportOperation') operation.phase = 'cancelled';
+        const response = message.action === 'getExportBranchOptions' ? { ...result(), options: [
+          { ordinal: 1, messageCount: 24, uniqueMessageCount: 3, isCurrent: true, preview: 'A quiet first branch. This is synthetic preview text.' },
+          { ordinal: 2, messageCount: 28, uniqueMessageCount: 7, isCurrent: false, preview: '<img src=x> stays literal; another synthetic branch with a longer description.' },
+        ] } : result();
+        callback(response); return Promise.resolve(response);
+      },
+    },
+    i18n: { getMessage: key => messages[key]?.message ?? key },
+    storage: {
+      sync: { get: async () => DEFAULT_SYNC_SETTINGS, set: async () => {} },
+      local: { get: async () => ({ secureSettings: { obsidianApiKey: '' } }), set: async () => {} },
+    },
+    tabs: { create: async () => {} },
+  };
+  const { initPopup } = await import('/src/popup/app.ts');
+  const { initExportSurface } = await import('/src/popup/export.ts');
+  await initPopup(); await initExportSurface();
+</script>

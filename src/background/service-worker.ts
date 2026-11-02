@@ -3,6 +3,13 @@
  * Handles HTTP communication with Obsidian REST API
  */
 
+import { ExportOperationController } from './export-operation-controller';
+import {
+  EXPORT_CONTROL_ACTIONS,
+  isExportAction,
+  isExportToken,
+  type ExportControlMessage,
+} from '../lib/export-operation-contract';
 import { getErrorMessage } from '../lib/error-utils';
 import { getSettings, migrateSettings, saveSettings } from '../lib/storage';
 import {
@@ -87,7 +94,31 @@ import { isAuthorizedDotsSchemaProbeSender, probeDotsSchemaInActiveTab } from '.
 /** Latest popup destination intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
 let outputOptionsUpdateSequence = 0;
+let exportSettingsRevision = 0;
 const REPLAY_STAGE_CLEANUP_TIMEOUT_MS = 500;
+async function effectiveSettings(): Promise<ExtensionSettings> {
+  const settings = await getSettings();
+  return outputOptionsOverride
+    ? { ...settings, outputOptions: { ...outputOptionsOverride } }
+    : settings;
+}
+const exportOperations = new ExportOperationController({
+  chrome,
+  settings: effectiveSettings,
+  revision: () => exportSettingsRevision,
+});
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if ((area === 'sync' && changes.settings) || (area === 'local' && changes.secureSettings)) {
+    exportSettingsRevision += 1;
+    void exportOperations.settingsChanged().catch(() => undefined);
+  }
+});
+chrome.tabs.onRemoved?.addListener(tabId => {
+  void exportOperations.tabRemoved(tabId);
+});
+chrome.tabs.onUpdated?.addListener((tabId, change) => {
+  void exportOperations.tabChanged(tabId, change);
+});
 
 type DurableOutputMessage = Extract<
   ExtensionMessage,
@@ -127,6 +158,62 @@ function settingsChangedOutputResponse(
     allSuccessful: false,
     anySuccessful: false,
   };
+}
+
+/** Reject before dispatch in each existing closed response protocol. */
+function unauthorizedOperationResponse(message: ExtensionMessage): unknown {
+  if (message.action === 'persistDerivedBranchHtmlPresentation') {
+    return buildDerivedBranchHtmlPersistResponse(
+      { state: 'not-dispatched' },
+      { state: 'not-dispatched' }
+    );
+  }
+  if ('outputs' in message) {
+    const response = settingsChangedOutputResponse(message);
+    for (const result of response.results) result.error = 'export-authorization-expired';
+    return response;
+  }
+  return chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' });
+}
+
+async function rejectUnauthorizedOperation(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender,
+  settings: ExtensionSettings,
+  exportOperationId?: string
+): Promise<unknown> {
+  if (
+    (message.action === 'commitStagedArchiveCompanion' ||
+      message.action === 'commitStagedBinaryAsset') &&
+    (await exportOperations.takeStageForCleanup({ ...message, exportOperationId }, sender))
+  ) {
+    return rejectChangedSettings(message, settings);
+  }
+  return unauthorizedOperationResponse(message);
+}
+
+async function dispatchOwnedStageCommit(
+  message: Extract<
+    ExtensionMessage,
+    { action: 'commitStagedArchiveCompanion' | 'commitStagedBinaryAsset' }
+  >,
+  sender: chrome.runtime.MessageSender,
+  settings: ExtensionSettings,
+  exportOperationId?: string
+): Promise<unknown> {
+  const admission = await exportOperations.dispatchStageCommit<unknown>(
+    { ...message, exportOperationId },
+    sender,
+    () =>
+      message.action === 'commitStagedArchiveCompanion'
+        ? handleArchiveStageMessage(message, settings)
+        : handleStagedBinaryAssetMessage(message, settings)
+  );
+  return admission.dispatched
+    ? admission.result
+    : admission.cleanupOwned
+      ? rejectChangedSettings(message, settings)
+      : unauthorizedOperationResponse(message);
 }
 
 /** Only validated, sender-bound commits reach this exact temporary-stage abort. */
@@ -172,10 +259,13 @@ function dispatchMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender,
   sendResponse: (response: unknown) => void,
-  branchHtmlAdmitted: boolean
+  branchHtmlAdmitted: boolean,
+  exportOperationId?: string
 ): void {
-  handleMessage(message, sender, branchHtmlAdmitted)
-    .then(response => {
+  handleMessage(message, sender, branchHtmlAdmitted, exportOperationId)
+    .then(async response => {
+      if (isExportAction(message.action))
+        await exportOperations.recordResult(exportOperationId, response, message, sender);
       try {
         sendResponse(response);
       } catch {
@@ -212,12 +302,53 @@ chrome.runtime.onMessage.addListener(
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: unknown) => void
   ) => {
+    let exportOperationId: string | undefined;
+    try {
+      // Read no action/data fields before the established branch snapshot.
+      const descriptor =
+        typeof message === 'object' && message !== null
+          ? Object.getOwnPropertyDescriptor(message, 'exportOperationId')
+          : undefined;
+      if (descriptor) {
+        if (!('value' in descriptor) || !isExportToken(descriptor.value))
+          throw new Error('Invalid generation');
+        exportOperationId = descriptor.value;
+        const descriptors = Object.getOwnPropertyDescriptors(message);
+        delete descriptors.exportOperationId;
+        message = Object.create(Object.getPrototypeOf(message), descriptors);
+      }
+    } catch {
+      sendResponse({ success: false, error: 'Invalid message content' });
+      return false;
+    }
     const branchSnapshot = snapshotPersistDerivedBranchHtmlMessage(message);
     const branchHtmlAdmitted = branchSnapshot !== undefined;
     if (branchSnapshot) message = branchSnapshot;
     else if (hasOwnDataProperty(message, 'action', 'persistDerivedBranchHtmlPresentation')) {
       sendResponse({ success: false, error: 'Invalid message content' });
       return false;
+    }
+    if (typeof message === 'object' && message !== null) {
+      try {
+        const action = Object.getOwnPropertyDescriptor(message, 'action')?.value;
+        if (typeof action === 'string' && EXPORT_CONTROL_ACTIONS.has(action)) {
+          exportOperations
+            .handle(
+              {
+                ...message,
+                ...(exportOperationId ? { exportOperationId } : {}),
+              } as ExportControlMessage,
+              sender
+            )
+            .then(sendResponse, () =>
+              sendResponse({ success: false, error: 'Export unavailable' })
+            );
+          return true;
+        }
+      } catch {
+        sendResponse({ success: false, error: 'Invalid message content' });
+        return false;
+      }
     }
     // Ignore messages targeted at offscreen document
     // These are handled by the offscreen document's own listener
@@ -272,7 +403,7 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    dispatchMessage(message, sender, sendResponse, branchHtmlAdmitted);
+    dispatchMessage(message, sender, sendResponse, branchHtmlAdmitted, exportOperationId);
     return true; // Indicates async response
   }
 );
@@ -373,11 +504,7 @@ function isAuthorizedOutputOptionsUpdate(
   sender: chrome.runtime.MessageSender
 ): boolean {
   if (message.action !== 'updateOutputOptions') return true;
-  return (
-    sender.tab === undefined &&
-    sender.id === chrome.runtime.id &&
-    sender.url === chrome.runtime.getURL('src/popup/index.html')
-  );
+  return exportOperations.isUiCandidate(sender);
 }
 
 function isAuthorizedDotsSchemaProbeRequest(
@@ -385,10 +512,12 @@ function isAuthorizedDotsSchemaProbeRequest(
   sender: chrome.runtime.MessageSender
 ): boolean {
   if (message.action !== 'probeDotsSchema') return true;
-  return isAuthorizedDotsSchemaProbeSender(
-    sender,
-    chrome.runtime.id,
-    chrome.runtime.getURL('src/popup/index.html')
+  return (
+    isAuthorizedDotsSchemaProbeSender(
+      sender,
+      chrome.runtime.id,
+      chrome.runtime.getURL('src/popup/index.html')
+    ) || exportOperations.isUiCandidate(sender)
   );
 }
 
@@ -397,12 +526,7 @@ function isAuthorizedSettingsSave(
   sender: chrome.runtime.MessageSender
 ): boolean {
   if (message.action !== 'saveSettings') return true;
-  return (
-    sender.tab === undefined &&
-    sender.id === chrome.runtime.id &&
-    typeof sender.url === 'string' &&
-    sender.url.startsWith(chrome.runtime.getURL(''))
-  );
+  return exportOperations.isUiCandidate(sender);
 }
 
 type ArchiveStageContentMessage = Extract<
@@ -703,12 +827,12 @@ async function handleChatGptInterpreterResolver(
   }
 }
 
-async function handleDotsSchemaProbe() {
+async function handleDotsSchemaProbe(sourceTab?: { tabId: number; url: string }) {
   if (!(await hasScriptingPermission())) {
     return createDotsSchemaProbeFailure('permission-unavailable');
   }
   try {
-    const response = await probeDotsSchemaInActiveTab();
+    const response = await probeDotsSchemaInActiveTab(sourceTab ? { sourceTab } : undefined);
     return isDotsSchemaProbeResponse(response)
       ? response
       : createDotsSchemaProbeFailure('result-invalid');
@@ -802,7 +926,8 @@ function redactSettingsForContentScript(settings: ExtensionSettings): ContentScr
 async function handleMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender,
-  branchHtmlAdmitted: boolean
+  branchHtmlAdmitted: boolean,
+  exportOperationId?: string
 ): Promise<unknown> {
   if (
     !branchHtmlAdmitted &&
@@ -810,11 +935,36 @@ async function handleMessage(
   )
     return { success: false, error: 'Invalid message content' };
   if (isChatGptBridgeAction(message)) {
+    if (!(await exportOperations.authorize({ ...message, exportOperationId }, sender)))
+      return chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' });
     return handleChatGptBridgeMessage(message, sender);
   }
-  if (message.action === 'probeDotsSchema') return handleDotsSchemaProbe();
+  if (message.action === 'probeDotsSchema') {
+    if (
+      isAuthorizedDotsSchemaProbeSender(
+        sender,
+        chrome.runtime.id,
+        chrome.runtime.getURL('src/popup/index.html')
+      )
+    )
+      return handleDotsSchemaProbe();
+    if (!(await exportOperations.isUi(sender)))
+      return createDotsSchemaProbeFailure('invalid-sender');
+    const source = await exportOperations.uiSource(sender);
+    return source
+      ? handleDotsSchemaProbe({ tabId: source.tabId, url: source.route })
+      : createDotsSchemaProbeFailure('active-tab-required');
+  }
+
+  if (
+    (message.action === 'saveSettings' || message.action === 'updateOutputOptions') &&
+    !(await exportOperations.isUi(sender))
+  )
+    return { success: false, error: 'Unauthorized' };
 
   if (message.action === 'updateOutputOptions') {
+    exportSettingsRevision += 1;
+    void exportOperations.settingsChanged().catch(() => undefined);
     // A disabled destination must take effect immediately, even if sync storage
     // later rejects the write; do not resurrect the older stored destination.
     outputOptionsUpdateSequence += 1;
@@ -828,6 +978,8 @@ async function handleMessage(
   }
 
   if (message.action === 'saveSettings') {
+    exportSettingsRevision += 1;
+    void exportOperations.settingsChanged().catch(() => undefined);
     const sequence = ++outputOptionsUpdateSequence;
     try {
       await saveSettings(message.settings);
@@ -842,9 +994,12 @@ async function handleMessage(
   }
 
   if (isArchiveStageMessage(message) && message.action !== 'commitStagedArchiveCompanion') {
+    if (!(await exportOperations.authorize({ ...message, exportOperationId }, sender)))
+      return { success: false, error: 'Unauthorized' };
     return handleArchiveStageMessage(message);
   }
 
+  const settingsRevision = exportSettingsRevision;
   const storedSettings = await getSettings();
   if (
     !branchHtmlAdmitted &&
@@ -855,6 +1010,31 @@ async function handleMessage(
   const settings = outputOptionsOverride
     ? { ...storedSettings, outputOptions: { ...outputOptionsOverride } }
     : storedSettings;
+
+  const needsExportAdmission =
+    isExportAction(message.action) &&
+    !(message.action === 'testConnection' && (await exportOperations.isUi(sender)));
+  if (
+    needsExportAdmission &&
+    !(await exportOperations.authorize({ ...message, exportOperationId }, sender))
+  )
+    return rejectUnauthorizedOperation(message, sender, settings, exportOperationId);
+  if (
+    needsExportAdmission &&
+    !message.action.startsWith('abortStaged') &&
+    settingsRevision !== exportSettingsRevision
+  ) {
+    // Ownership was just checked. Preserve exact-stage cleanup and the existing
+    // not-dispatched protocol when a settings mutation wins this final await.
+    if (
+      message.action === 'commitStagedArchiveCompanion' ||
+      message.action === 'commitStagedBinaryAsset'
+    )
+      return rejectUnauthorizedOperation(message, sender, settings, exportOperationId);
+    return 'outputs' in message && message.action !== 'persistDerivedBranchHtmlPresentation'
+      ? rejectChangedSettings(message, settings)
+      : unauthorizedOperationResponse(message);
+  }
 
   if (
     'expectedSyncSettingsSnapshot' in message &&
@@ -867,6 +1047,11 @@ async function handleMessage(
   ) {
     // Admission only: do not dispatch outputs, adopt new settings, or retry
     // without the guard. A relinquished stage still needs its exact abort.
+    if (
+      message.action === 'commitStagedArchiveCompanion' ||
+      message.action === 'commitStagedBinaryAsset'
+    )
+      return rejectUnauthorizedOperation(message, sender, settings, exportOperationId);
     return message.action === 'persistDerivedBranchHtmlPresentation'
       ? branchHtmlAdmitted
         ? buildDerivedBranchHtmlPersistResponse(
@@ -877,7 +1062,11 @@ async function handleMessage(
       : rejectChangedSettings(message, settings);
   }
 
-  if (isArchiveStageMessage(message)) return handleArchiveStageMessage(message, settings);
+  if (
+    message.action === 'commitStagedArchiveCompanion' ||
+    message.action === 'commitStagedBinaryAsset'
+  )
+    return dispatchOwnedStageCommit(message, sender, settings, exportOperationId);
 
   switch (message.action) {
     case 'saveToOutputs':
@@ -901,7 +1090,6 @@ async function handleMessage(
 
     case 'beginStagedBinaryAsset':
     case 'appendStagedBinaryAsset':
-    case 'commitStagedBinaryAsset':
     case 'abortStagedBinaryAsset':
       return handleStagedBinaryAssetMessage(message, settings);
 
