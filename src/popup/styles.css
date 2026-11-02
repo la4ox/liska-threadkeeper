@@ -565,3 +565,61 @@ select {
 .advanced-content {
   padding-top: 12px;
 }
+/* Export owns the default surface; hidden must win over component display rules. */
+[hidden] {
+  display: none !important;
+}
+.export-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #d8d4e2;
+}
+.export-tabs button {
+  flex: 1;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.export-tabs [aria-selected='true'] {
+  background: #5b21b6;
+  color: white;
+}
+.export-panel {
+  padding: 20px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.export-panel h2 {
+  font-size: 19px;
+}
+.export-target {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 130px;
+  overflow-y: auto;
+}
+.export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0;
+}
+.export-branches {
+  display: grid;
+  gap: 8px;
+  max-height: 350px;
+  overflow-y: auto;
+}
+.branch-choice {
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid #a78bfa;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}

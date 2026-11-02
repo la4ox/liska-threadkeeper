@@ -241,9 +241,8 @@
   "extDescription": {
     "message": "Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook のスレッドをローカル Markdown として保存"
   },
-
   "ui_launcherLabel": {
-    "message": "Liska の書き出し操作"
+    "message": "Liska のエクスポート画面を開く"
   },
   "ui_launcherLoading": {
     "message": "Liska — 書き出し中"
@@ -254,7 +253,6 @@
   "ui_syncing": {
     "message": "同期中..."
   },
-
   "settings_title": {
     "message": "設定"
   },
@@ -360,17 +358,20 @@
   "settings_hideApiKey": {
     "message": "API キーを隠す"
   },
-
   "toast_success_created": {
     "message": "作成しました: $FILE$",
     "placeholders": {
-      "file": { "content": "$1" }
+      "file": {
+        "content": "$1"
+      }
     }
   },
   "toast_success_updated": {
     "message": "更新しました: $FILE$",
     "placeholders": {
-      "file": { "content": "$1" }
+      "file": {
+        "content": "$1"
+      }
     }
   },
   "toast_error_noApiKey": {
@@ -385,7 +386,9 @@
   "toast_error_saveFailed": {
     "message": "保存に失敗しました: $ERROR$",
     "placeholders": {
-      "error": { "content": "$1" }
+      "error": {
+        "content": "$1"
+      }
     }
   },
   "toast_info_extracting": {
@@ -397,7 +400,6 @@
   "toast_warning_partial": {
     "message": "一部のコンテンツが抽出できなかった可能性があります"
   },
-
   "error_invalidApiKey": {
     "message": "API キーの形式が無効です"
   },
@@ -425,7 +427,6 @@
   "error_invalidUrl": {
     "message": "無効な API URL です。http:// または https:// で始まる URL を入力してください"
   },
-
   "status_connectionSuccess": {
     "message": "接続に成功しました！"
   },
@@ -435,7 +436,6 @@
   "status_testing": {
     "message": "接続をテスト中..."
   },
-
   "settings_outputDestinations": {
     "message": "出力先"
   },
@@ -457,7 +457,9 @@
   "success_partialOutputs": {
     "message": "一部成功: $DETAILS$",
     "placeholders": {
-      "details": { "content": "$1" }
+      "details": {
+        "content": "$1"
+      }
     }
   },
   "error_noOutputSelected": {
@@ -484,7 +486,9 @@
   "error_outputFailed": {
     "message": "$OUTPUT$への保存に失敗しました",
     "placeholders": {
-      "output": { "content": "$1" }
+      "output": {
+        "content": "$1"
+      }
     }
   },
   "output_obsidian": {
@@ -496,7 +500,6 @@
   "output_clipboard": {
     "message": "クリップボード"
   },
-
   "settings_enableAppendMode": {
     "message": "追記モード"
   },
@@ -554,7 +557,6 @@
   "settings_maxCalloutLinesHelp": {
     "message": "この行数を超えるメッセージはプレーンテキストで保存されます（Obsidian のみ）。"
   },
-
   "toast_appended": {
     "message": "新しいメッセージを $COUNT$ 件追加しました",
     "placeholders": {
@@ -817,5 +819,70 @@
   },
   "reconcile_resultObsidianIncomplete": {
     "message": "Obsidian スナップショットは未完了です。ファイルの削除や再試行はしていません"
+  },
+  "export_tab": {
+    "message": "エクスポート"
+  },
+  "export_settings": {
+    "message": "設定"
+  },
+  "export_heading": {
+    "message": "この会話をローカルに保存"
+  },
+  "export_confirmHelp": {
+    "message": "この拡張機能内の操作だけが取得とエクスポートを許可します。開始後はこのウィンドウを閉じてもかまいません。"
+  },
+  "export_current": {
+    "message": "現在の会話をエクスポート"
+  },
+  "export_selected": {
+    "message": "ブランチを選択…"
+  },
+  "export_stop": {
+    "message": "停止 / キャンセル"
+  },
+  "export_all": {
+    "message": "すべてのブランチをエクスポート"
+  },
+  "export_branchMessages": {
+    "message": "$COUNT$ 件のメッセージ",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "export_branchCurrent": {
+    "message": "現在"
+  },
+  "export_destinations": {
+    "message": "出力先"
+  },
+  "export_none": {
+    "message": "出力先が未選択です — 設定を開いてください"
+  },
+  "export_noTarget": {
+    "message": "対応している会話タブを先に開いてください。"
+  },
+  "export_ready": {
+    "message": "準備完了。実行するエクスポート操作を選んでください。"
+  },
+  "export_phase_preparing": {
+    "message": "ブランチ候補を準備しています — まだ何も保存されていません。"
+  },
+  "export_phase_awaiting_selection": {
+    "message": "ブランチを選ぶか、すべてをエクスポートしてください。ブランチ画面を閉じると準備を取り消します。"
+  },
+  "export_phase_exporting": {
+    "message": "エクスポート中です。停止すると以後の処理を止めますが、保存済みの出力は残ります。"
+  },
+  "export_phase_cancelled": {
+    "message": "停止しました。保存済みの出力は保持されています。"
+  },
+  "export_phase_completed": {
+    "message": "処理が終了しました。エクスポート結果の詳細は会話ページの通知を確認してください。"
+  },
+  "export_outcome_branch_preparation_ended": {
+    "message": "エクスポート対象を選ばないままブランチの準備が終了しました。何も保存されていません。"
   }
 }

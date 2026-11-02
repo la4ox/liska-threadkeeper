@@ -7,7 +7,7 @@ thread_id: ITH-009
 thread_state: settled
 privacy: repository-safe
 opened: 2026-11-01
-last_turn: 2026-11-01
+last_turn: 2026-11-02
 ---
 
 # ITH-009 — Extension-owned export popup boundary
@@ -156,6 +156,83 @@ the toolbar/window fallback paths.
 Trigger: alongside implementation and before claiming the popup boundary is
 verified.
 
+### E5 — Candidate realization separates page launch from export authority
+
+The 2026-11-02 candidate removes provider-DOM current/branch actions, the page
+branch picker and the page Stop card. Its synthetic redress substitute exercises
+the genuine fox listener and finds only a request to open trusted UI, with no
+export action nodes. Controller tests exercise one-shot intent claim, explicit
+operation generations, exact owners, phase/destination/settings checks,
+restart hydration, corrupt-state rejection and stale-generation cleanup.
+Real-worker tests independently retain the gate while replacing only sinks.
+
+The synthetic browser preview uses the real popup markup, styles and application
+with content-free browser fixtures. Export first, branch text, all-branch choice,
+running Stop, cancellation and Settings were visibly inspected at 380px width.
+This does not establish installed-extension behavior, real provider acquisition,
+or Chrome 111 fallback behavior. Sources: S8, S9, S10.
+
+### D2 — Realize D1 with a worker-owned generation and a two-stage branch decision
+
+An extension-owned action creates a 30-second one-shot pending intent. Content
+claims it once; the worker binds a new generation to browser-supplied tab,
+top-frame and document identity and the exact normalized provider route.
+Current mode may export immediately; selected mode may prepare only until a
+second extension-owned branch/all choice is validated against content's retained
+catalog. No raw archive or branch catalog is persisted in session metadata.
+
+The two-hour generation expires, is revoked by Stop/navigation/settings changes,
+and cannot be borrowed by a stale continuation. Exact owned-stage abort remains
+available after cancellation. Closing an accepted-start popup does not cancel;
+closing the registered branch window does. The worker captures the source tab
+before opening a fallback window. Its opaque UI URL is a lookup only; exact
+registered extension tab/window identity is required too. No new broad
+permission or browser-version increase is needed. Existing independent local
+archive tools retain their own workflow.
+
+Evidence: E2, E3, E4, E5, E6
+
+### E6 — Installed ChatGPT preparation stays extension-owned and cancellable
+
+The reviewed candidate build was installed byte-for-byte through the maintained
+rollback updater, only Liska was reloaded, and the test ChatGPT tab was reloaded
+once to replace its invalidated old content-script context. The toolbar popup
+showed the exact conversation title/route and preserved Obsidian + File outputs;
+the configured Local REST API connection test succeeded. The page fox opened
+that popup and exposed no page current/branch/Stop authority.
+
+`Choose branch…` entered an explicit no-save preparation phase, displayed Stop,
+and opened one registered compact extension window containing a literal bounded
+branch descriptor plus a separate all-branches action. No ordinal/all choice was
+made. Stop cancelled preparation, a reopened toolbar popup retained the stopped
+state, and fresh checks found no new browser-download, maintained-export or open
+vault files. This installed receipt covers launch, preparation, branch-window
+identity, Stop/cancel and reopen behavior; it does not claim durable current,
+ordinal or all-branches output, or absent/rejected-`openPopup` compatibility.
+
+Final independent review also reproduced a multi-surface race where an old
+visible ordinal could be submitted with a newly observed operation/selection.
+The repaired UI retires choices on either identity change, binds every listener
+to the exact catalog response and ignores late old catalogs; replaying the old
+listener now sends no choice.
+
+Sources: S11
+
+### T6 — Close the installed-runtime evidence gap
+
+Run the reviewed candidate in the installed extension on a synthetic provider
+conversation: current, selected ordinal, all, cancel, Stop and reopened status;
+also verify absent/rejected openPopup fallback on the supported browser range.
+Do not repeat a private export or modify browser settings merely for evidence.
+
+Trigger: after independent candidate review and authorization of the specific
+installed-browser test scope.
+
+Partial evidence 2026-11-02: E6 closes the installed launch/preparation/cancel
+and reopened-status portion without writing user data. Retain this tail for the
+durable current/ordinal/all paths and an actual absent/rejected-`openPopup`
+compatibility receipt.
+
 ## Observations
 
 - [hypothesis] H1: trusted clicks and disclosure initially seemed sufficient to keep export intent in the compact page launcher
@@ -175,6 +252,11 @@ verified.
 - [tail] T4: feature-detect openPopup and preserve an extension-owned fallback
 - [tail] T5: test authorization, hostile-page, ordinary-text and fallback cases
 
+- [evidence] E5: candidate tests separate launch-only provider DOM from worker-owned generations; synthetic render is not installed-provider proof
+- [decision] D2: use one-shot claims, explicit generations and a second extension-owned branch decision, with registered fallback identity and owner-only cleanup
+- [evidence] E6: the installed ChatGPT path kept launch, preparation, branch choice and Stop on registered extension surfaces and produced no output before cancellation
+- [tail] T6: retain an explicit installed-runtime and older-Chromium fallback evidence gate
+
 ## Relations
 
 - informed_by [[ith-002-layered-archive-truth]]
@@ -190,3 +272,7 @@ verified.
 - S5 — [Content UI entry](../../src/content/ui.ts) and [Liska launcher](../../src/content/liska-launcher.ts)
 - S6 — [Chrome action API](https://developer.chrome.com/docs/extensions/reference/api/action/)
 - S7 — local receipt `csf_5072816416f2eab1f2507059`; visibility: local-only; safe aggregate only
+- S8 — [Operation controller](../../src/background/export-operation-controller.ts), [controller tests](../../test/background/export-operation-controller.test.ts) and [real-worker gate tests](../../test/background/export-operation-route.test.ts)
+- S9 — [Content lifecycle tests](../../test/content/export-operation-client.test.ts), [launch-only redress substitute](../../test/content/ui.test.ts) and [popup tests](../../test/popup/export.test.ts)
+- S10 — [Synthetic local browser preview](../../test/popup/export-preview.html); no provider data or live output APIs
+- S11 — [Installed extension-owned export authority checkpoint](../security-todo.md#extension-owned-export-authority-local-checkpoint--2026-11-02); exact build inventory, rollback and content-free live aggregate retained there

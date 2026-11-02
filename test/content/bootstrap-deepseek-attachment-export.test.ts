@@ -63,7 +63,7 @@ vi.mock('../../src/content/derived-html-persistence', async importOriginal => {
 
 vi.mock('../../src/content/ui', () => ({
   injectBranchExportButton: vi.fn(),
-  injectSyncButton: vi.fn(),
+  injectExportLauncher: vi.fn(),
   setButtonLoading: mocks.setButtonLoading,
   showErrorToast: mocks.showErrorToast,
   showToast: mocks.showToast,

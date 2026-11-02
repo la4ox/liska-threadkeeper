@@ -113,6 +113,26 @@ function harness(
 }
 
 describe('Dots selected-tab schema probe', () => {
+  it('uses an exact registered-window source instead of the currently focused extension tab', async () => {
+    const fixture = harness();
+    fixture.query.mockResolvedValue([
+      { id: 99, url: 'chrome-extension://extension/src/popup/index.html', active: true },
+    ]);
+    expect(
+      await probeDotsSchemaInActiveTab({ ...fixture, sourceTab: { tabId: TAB_ID, url: DOTS_URL } })
+    ).toMatchObject({ success: true });
+    expect(fixture.query).not.toHaveBeenCalled();
+    expect(fixture.reload).toHaveBeenCalledExactlyOnceWith(TAB_ID);
+  });
+  it('rejects navigation away from the registered-window source before adding a marker', async () => {
+    const fixture = harness();
+    fixture.setCurrentUrl('https://chatgpt.com/dots/another');
+    expect(
+      await probeDotsSchemaInActiveTab({ ...fixture, sourceTab: { tabId: TAB_ID, url: DOTS_URL } })
+    ).toMatchObject({ success: false, code: 'active-tab-required' });
+    expect(fixture.update).not.toHaveBeenCalled();
+    expect(fixture.reload).not.toHaveBeenCalled();
+  });
   it('accepts only the exact popup sender', () => {
     const popupUrl = 'chrome-extension://extension/src/popup/index.html';
     expect(

@@ -6,7 +6,7 @@ reconciled with source and verification evidence.
 
 ## Current-main security roadmap — 2026-11-02
 
-Baseline: `main` at `ef26fca9e8ae1e71b1307b54f455fb4aa5d295a8`.
+Baseline: `main` at `2ac32ec58af29742ac4646440ed64582a9d84c67`.
 This checkpoint supersedes older candidate/status wording below without
 rewriting the historical evidence. Merged source remediation, Security Cloud
 administration, adopted product direction, installed-runtime acceptance and a
@@ -34,8 +34,25 @@ new repository scan are separate states.
   `ef26fca`: opaque replay crosses MAIN through a bounded primitive wire and
   rejects post-arming Promise poisoning. PR 98 was the earlier review vehicle
   for the same source line and is not a second remediation.
+- [PR 101](https://github.com/la4ox/liska-threadkeeper/pull/101), merge
+  `f035a80`: the adopted Obsidian identity hardening now performs a bounded
+  unauthenticated Local REST API root preflight before bearer use, then requires
+  an authenticated response from the same service/version contract.
+- [PR 102](https://github.com/la4ox/liska-threadkeeper/pull/102), merge
+  `5527545`: DeepSeek structured capture, fallback and durable evidence remain
+  bound to one exact conversation identity across navigation and await seams.
+- [PR 103](https://github.com/la4ox/liska-threadkeeper/pull/103), merge
+  `34fe11a`: nested ChatGPT content normalization is iterative, budgeted and
+  typed-failure aware instead of consuming the JavaScript call stack.
+- [PR 104](https://github.com/la4ox/liska-threadkeeper/pull/104), merge
+  `ad2c693`: Markdown and image processing use bounded aggregate work,
+  indexed protected ranges and streaming placeholder scans before final size
+  admission.
+- [PR 105](https://github.com/la4ox/liska-threadkeeper/pull/105), merge
+  `2ac32ec`: build-comparison ZIP acquisition, inventory, extraction and hashing
+  are pinned, streamed and bounded with rejected-tree cleanup.
 
-All five merge commits are ancestors of this baseline. Their presence on
+All ten merge commits are ancestors of this baseline. Their presence on
 `main` does not by itself close a repository-scan occurrence or prove an
 installed browser/vault path. Do not launch duplicate fixes merely because an
 administrative Cloud row remains open.
@@ -44,21 +61,31 @@ administrative Cloud row remains open.
 
 #### Extension-owned export UI
 
-- The future popup has two tabs: `Export` first and `Settings` second. Frequent
+- The candidate popup has two tabs: `Export` first and `Settings` second. Frequent
   situational choices belong beside the explicit Export actions; persistent
   preferences stay in Settings.
-- The page fox becomes an optional warm launcher. It may open the extension
+- The page fox is a warm, launch-only affordance (the separate default-visibility preference remains deferred). It may open the extension
   surface but never selects a branch, authorizes capture or starts persistence.
 - Feature-detect `chrome.action.openPopup()` on newer Chromium. Older or
   unsupported browsers retain the browser-toolbar popup; a compact
-  extension-owned window may be a fallback. Do not force a browser upgrade and
+  extension-owned window is the fallback when programmatic opening is absent or rejected. Do not force a browser upgrade and
   do not fall back to direct page-DOM export.
 - Do not use a warning that users must read, Shadow DOM alone or a full-height
   side panel as the authorization boundary.
-- Runtime implementation still needs one-shot binding to the exact tab,
-  document, conversation, operation, destination/settings snapshot and popup
-  lifecycle, plus branch-picker, Stop and fallback tests. PR 95 records the
-  direction only.
+- The candidate worker controller binds a one-shot 30-second intent to a fresh
+  operation generation, exact tab/top-frame/document/route, and immutable
+  effective settings and destinations. Operations expire after two hours.
+  Explicit generations accompany content messages; preparation cannot commit
+  any of the six durable output families. Stage ownership survives worker
+  restart in bounded extension-private session metadata; missing/corrupt state
+  fails closed. Cancellation permits only exact owned-stage cleanup.
+- Deterministic controller, real-worker dispatch, content lifecycle and popup
+  tests cover replay, wrong owners, settings/output drift, phase, restart,
+  expiry, ABA, branch selection, close/cancel and fallback identity. The
+  launch-only redress substitute finds no page export/branch/Stop action nodes.
+  A synthetic browser preview checks the 380px popup and Settings. These are
+  not an installed-provider or old-Chromium live receipt; keep those gates open
+  before claiming deployed closure of `csf_5072816416f2eab1f2507059`.
 
 #### Snapshot and image identity
 
@@ -118,40 +145,25 @@ administrative Cloud row remains open.
   catches accidental unrelated loopback services but does not claim
   cryptographic process identity or eliminate the narrow inter-request race.
 
-### Remaining repository-scan categories
+### Repository-scan categories at current main
 
-The ten-finding scan at `389e310` now has four merged source-remediation
-boundaries (Obsidian buffering, ordinary-image collisions, privacy-diagnostic
-quadratic work and opaque replay provenance) plus one accepted-policy verdict
-for default ports. Five categories remain current work:
+The ten-finding scan at `389e310` now has current-main source or policy
+boundaries for nine categories: bounded Obsidian reads, ordinary-image
+collisions, privacy-diagnostic quadratic work, opaque replay provenance,
+default-port policy plus identity preflight, DeepSeek navigation identity,
+iterative nested ChatGPT content, Markdown/image work admission and bounded
+build-comparison ZIP handling. PRs 102–105 deliberately remained separate,
+reviewable slices; their merge ancestry does not itself update Security Cloud.
 
-1. **DeepSeek navigation identity mixing:** bind structured capture, DOM
-   fallback and durable evidence to one immutable conversation identity across
-   every await/navigation boundary.
-2. **Recursive nested ChatGPT content normalization:** implement the iterative,
-   budgeted and typed-failure contract above, then test downstream serializer,
-   transport and presentation consumers.
-3. **Superlinear Markdown/image processing before the final size gate:** bound
-   aggregate provider text before parsing, index protected ranges and avoid
-   repeated full-line reconstruction while preserving literal safety.
-4. **Unbounded build-comparison ZIP extraction/readback:** admit the archive
-   under compressed bytes, entry count, per-entry/aggregate expanded bytes,
-   ratio, path and work ceilings; stream extraction/hashing and clean rejected
-   partial trees.
-5. **Provider-DOM trusted-control redress:** implement ITH-009 as a dedicated UI
-   slice after the narrow data-integrity/resource fixes, without restoring page
-   authority for old-browser convenience.
+**Provider-DOM trusted-control redress** is the only scanned source category not
+yet on `main`. The candidate below implements ITH-009 without restoring page
+authority for old-browser convenience. Keep it as its own PR and reconcile the
+exact occurrence only after current-head CI/reviews and merge ancestry.
 
-Keep these as focused PRs. Do not combine the popup redesign, canonical walker,
-Markdown budgets, provider identity and maintainer ZIP tooling into one review.
-
-Separate from the five remaining scan categories, implement the adopted
-Obsidian unauthenticated identity preflight as a small hardening PR. Preserve
-`80`/`443` compatibility, send no bearer on probe failure, bound and strictly
-validate both root responses, retain stable authentication/throttle diagnostics
-and cover wrong-service, malformed, redirected, changed-version and
-inter-request failure paths. Verify the installed plugin supports the documented
-public root before publication.
+The adopted Obsidian unauthenticated identity preflight is already merged in PR 101. It preserves intentional `80`/`443` compatibility, sends no bearer on probe
+failure, strictly validates both bounded root responses and retains stable
+authentication/throttle diagnostics. It is separate hardening, not permission
+to relabel the scanner's default-port policy verdict as an exploit fix.
 
 ### Pending live gates and final reconciliation
 
@@ -763,6 +775,82 @@ also pass after the reviewed transfer repair and final close-error cleanup.
 This checkpoint is local source/test evidence, not a merge, installed-runtime
 acceptance or Security Cloud closure. Keep the exact occurrence open until the
 reviewed source head is merged and reconciled through the current-main gates.
+
+## Extension-owned export authority local checkpoint — 2026-11-02
+
+Uncommitted candidate on `codex/provider-owned-export-confirmation-v2`, based on
+`2ac32ec`, addresses finding `csf_5072816416f2eab1f2507059` / occurrence
+`occ_0a02f7562dd1274cab065c4e`. Provider DOM now contains only a launch-only fox;
+current/branch actions, branch/all selection and Stop live in extension-owned
+UI. Export is the default popup tab and Settings remains independent.
+
+A worker-owned, session-restorable controller consumes a 30-second intent once,
+binds a fresh generation to exact tab, top-frame document, provider route,
+settings/destinations and mode, and requires that generation on content capture,
+preparation and every durable output family. Selected ChatGPT capture cannot
+commit until a second extension-owned ordinal/all choice. Registered compact
+windows preserve Chrome 111 fallback without broad permissions or URL-only
+authority. Exact owned-stage cleanup remains available after cancellation;
+already-dispatched or uncertain commits are never reclaimed or retried.
+
+Independent reviews found three material P2 seams. First, a queued navigation cancel
+could lose to an authorization awaiting settings; synchronous tab revocation
+epochs plus final route/document/phase/expiry/revision checks now close it.
+Second, cancellation could throw after a caller relinquished a temporary stage;
+messages are now synchronously prepared before ownership transfer, and worker
+denial cleans only a proven uncommitted generation-owned stage. Direct
+interleaving and unmocked binary/archive regressions cover both repairs.
+Third, an old branch button could survive while another extension surface
+replaced the operation/selection and then submit its ordinal against the new
+generation. Branch choices are now retired immediately on either identity
+change, every listener captures its exact response identity, and late old
+catalog responses are ignored. The reviewer reproduced the original race and
+then verified that the repaired retained listener sends no choice.
+
+Final local evidence after the terminal-status repair: the complete repository
+suite passes 254 files / 9,336 tests, with one file / 3 tests skipped. The earlier
+closed affected matrix passed 154 files / 6,101 tests, with one file / 2 tests
+skipped; the final reviewer-equivalent authorization/UI matrix passes 6 files /
+132 tests. Production build, emitted-worker runtime check, lint (51 warnings / 0 errors),
+formatting and diff checks pass. A synthetic 380px preview checks Export default,
+literal branch descriptors, ordinal/all selection, Stop/status, cancellation and
+preserved Settings. Completion wording is now neutral unless the worker can prove
+that selected-branch preparation ended before any extension-owned choice; that
+bounded outcome says explicitly that nothing was saved.
+
+The final 45-file / 1,257,996-byte build was copied into the existing unpacked
+Liska target through the verified rollback-preserving updater. Source and
+installed inventory SHA-256 are both
+`72e2c8dc355f635ce7442111e79c5695c032229d01f1c63e793a814d891d8de3`;
+manifest SHA-256 is
+`917e32400149125f1896fb6546b40bf1dc4f7341a6afe8024cc0b93a5db7cac9`.
+Rollback `liska-rollback-20261102T183605195Z-648012d666a64bc3bbbf6df3d5881013`
+is retained. Comet Developer mode was enabled and only Liska was reloaded. The
+source manifest adds no permission or web-accessible-resource entry; CRXJS
+exposes one shared pure contract chunk automatically, with no tokens, controller
+or popup UI.
+
+An installed ChatGPT smoke then confirmed the exact title/route and preserved
+Obsidian + File destinations, while Settings' configured Local REST API test
+returned `Connection successful!`. The page fox opened the extension popup and
+never displayed current/branch/Stop actions in provider DOM. `Choose branch…`
+entered the no-save preparation phase, exposed extension-owned Stop, then opened
+one registered compact extension window with a literal `#1 · 34 messages ·
+current` descriptor and a separate `Export all branches` action. Stop cancelled
+before a branch/all choice; reopening the toolbar popup retained `Stopped`, and
+fresh filesystem checks found zero new files in the browser download roots, the
+maintained chat-export folder or the open Obsidian vault. Reloading Liska
+invalidated the already-open tab's old content-script context; one ordinary page
+reload was required before the new controller could be claimed.
+
+This proves the installed toolbar, launch-only fox, registered branch window,
+preparation, Stop/cancel and reopened-status paths without modifying a chat or an
+append-only archive. It does not exercise durable current/ordinal/all output, nor
+does it emulate absent/rejected `action.openPopup()` on an older supported
+Chromium. Keep those T6 limits explicit and keep the finding open until
+current-head review/CI and merge ancestry are complete. Ordinary chat text
+remains outside the demonstrated threat precondition; hostile or compromised
+provider-page code is required for the original redress path.
 
 ## Earlier linear privacy-diagnostic candidate evidence
 

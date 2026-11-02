@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
   const stopDispose = vi.fn();
   return {
     state,
+    claimedContentExport: vi.fn(),
     stopDispose,
     applySettings: vi.fn(),
     attachmentExport: vi.fn(),
@@ -79,12 +80,19 @@ vi.mock('../../src/content/archive-branch-persistence', () => ({
 
 vi.mock('../../src/content/ui', () => ({
   injectBranchExportButton: vi.fn(),
-  injectSyncButton: vi.fn(),
+  injectExportLauncher: vi.fn(),
   setButtonLoading: mocks.setButtonLoading,
   showErrorToast: mocks.showErrorToast,
   showToast: mocks.showToast,
   showWarningToast: mocks.showWarningToast,
   showAllBranchesStopControl: mocks.showAllBranchesStopControl,
+}));
+
+vi.mock('../../src/content/export-operation-client', () => ({
+  claimedContentExport: mocks.claimedContentExport,
+  selectExportBranch: vi.fn(),
+  installExportOperationClient: vi.fn(),
+  openExportSurface: vi.fn(),
 }));
 
 vi.mock('../../src/lib/messaging', () => ({ sendMessage: mocks.sendMessage }));
@@ -221,6 +229,7 @@ function mockSettingsAndSave(): void {
 describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.claimedContentExport.mockReturnValue(undefined);
     settings.enableImageExport = true;
     settings.enableHtmlExport = false;
     settings.enableChatGptOpaqueReplay = false;
@@ -695,7 +704,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
 
     await handleSync('selected');
 
-    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
+    expect(mocks.showAllBranchesStopControl).not.toHaveBeenCalled();
     expect(mocks.setBranchExportMode).toHaveBeenCalledWith('selected');
     expect(mocks.attachmentExport).toHaveBeenCalledWith(
       context,
@@ -897,7 +906,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
         expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
       })
     );
-    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
+    expect(mocks.showAllBranchesStopControl).not.toHaveBeenCalled();
   });
 
   it('rejects the 2052-write HTML plan before the attachment pipeline writes anything', async () => {
@@ -983,32 +992,40 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       })
     );
     expect(mocks.html).not.toHaveBeenCalled();
-    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
+    expect(mocks.showAllBranchesStopControl).not.toHaveBeenCalled();
   });
 
-  it('disposes Stop once and schedules nothing when stopped before attachment work', async () => {
+  it('schedules nothing when the extension operation was stopped before attachment work', async () => {
     mocks.extract.mockResolvedValue({
       success: true,
       archiveCompanion: companion,
       chatGptAssetExportContext: context,
       allBranches: {} as AllBranchesPresentationPlan,
     } satisfies ExtractionResult);
-    mocks.showAllBranchesStopControl.mockImplementationOnce((onStop: () => void) => {
-      mocks.state.stopCallback = onStop;
-      onStop();
-      return { stopRequested: true, requestStop: vi.fn(), dispose: mocks.stopDispose };
+    const abort = new AbortController();
+    abort.abort();
+    mocks.claimedContentExport.mockReturnValue({
+      scope: { abort, route: window.location.href },
+      settings,
+      selected: true,
     });
 
     await handleSync('selected');
 
     expect(mocks.attachmentExport).not.toHaveBeenCalled();
     expect(mocks.persistAllBranchesPresentation).not.toHaveBeenCalled();
-    expect(mocks.showWarningToast).toHaveBeenCalledWith(expect.stringContaining('was stopped'));
-    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
+    expect(mocks.showAllBranchesStopControl).not.toHaveBeenCalled();
     expect(mocks.setButtonLoading).toHaveBeenLastCalledWith(false);
   });
 
   it('lets an in-flight attachment pipeline finish, then schedules no Markdown after Stop', async () => {
+    const abort = new AbortController();
+    mocks.claimedContentExport.mockReturnValue({
+      scope: { abort, route: window.location.href },
+      settings,
+      selected: true,
+    });
+    mocks.state.stopCallback = () => abort.abort();
     mocks.extract.mockResolvedValue({
       success: true,
       archiveCompanion: companion,
@@ -1048,7 +1065,7 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
       { kind: 'raw', state: 'confirmed', byteLength: 2 },
     ]);
     expect(mocks.showWarningToast).toHaveBeenCalledWith(expect.stringContaining('was stopped'));
-    expect(mocks.stopDispose).toHaveBeenCalledTimes(1);
+    expect(mocks.showAllBranchesStopControl).not.toHaveBeenCalled();
   });
 
   it('withholds all-branches Markdown when no destination completed its archive companions', async () => {
@@ -1139,6 +1156,29 @@ describe('ChatGPT opt-in attachment bootstrap orchestration', () => {
     expect(mocks.sendMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'saveToOutputs' })
     );
+  });
+
+  it('does not persist failed selected preparation before a branch choice', async () => {
+    const abort = new AbortController();
+    mocks.claimedContentExport.mockReturnValue({
+      scope: { abort, route: window.location.href },
+      settings,
+      selected: false,
+    });
+    mocks.extract.mockResolvedValue({
+      success: false,
+      archiveCompanion: companion,
+      error: 'synthetic preparation failure',
+    });
+    await handleSync('selected');
+    expect(
+      mocks.sendMessage.mock.calls.some(([message]) =>
+        ['saveToOutputs', 'persistArchiveCompanion', 'commitStagedArchiveCompanion'].includes(
+          message.action
+        )
+      )
+    ).toBe(false);
+    expect(mocks.attachmentExport).not.toHaveBeenCalled();
   });
 
   it('keeps ChatGPT failed-extraction evidence routing and withholds Markdown/binary export', async () => {

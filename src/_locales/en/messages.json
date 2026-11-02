@@ -243,9 +243,8 @@
     "message": "Bring Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook threads home as local Markdown",
     "description": "Extension description shown in browser and store"
   },
-
   "ui_launcherLabel": {
-    "message": "Liska export actions"
+    "message": "Open Liska export controls"
   },
   "ui_launcherLoading": {
     "message": "Liska — export in progress"
@@ -258,7 +257,6 @@
     "message": "Syncing...",
     "description": "Text shown while syncing"
   },
-
   "settings_title": {
     "message": "Settings",
     "description": "Settings page title"
@@ -399,7 +397,6 @@
     "message": "Hide API key",
     "description": "Tooltip for hide API key button"
   },
-
   "toast_success_created": {
     "message": "Created: $FILE$",
     "description": "Success message when file is created",
@@ -454,7 +451,6 @@
     "message": "Some content may not have been extracted",
     "description": "Warning when partial extraction"
   },
-
   "error_invalidApiKey": {
     "message": "Invalid API key format",
     "description": "Error for invalid API key"
@@ -491,7 +487,6 @@
     "message": "Invalid API URL. Must be http:// or https:// URL",
     "description": "Error for invalid API URL"
   },
-
   "status_connectionSuccess": {
     "message": "Connection successful!",
     "description": "Success status for connection test"
@@ -504,7 +499,6 @@
     "message": "Testing connection...",
     "description": "Status while testing connection"
   },
-
   "settings_outputDestinations": {
     "message": "Output Destinations",
     "description": "Section title for output destinations"
@@ -589,7 +583,6 @@
     "message": "clipboard",
     "description": "Clipboard output name"
   },
-
   "settings_enableAppendMode": {
     "message": "Append Mode",
     "description": "Label for append mode toggle"
@@ -666,7 +659,6 @@
     "message": "Messages longer than this many lines are saved as plain text (Obsidian only).",
     "description": "Help text for max callout lines input"
   },
-
   "toast_appended": {
     "message": "$COUNT$ new message(s) appended",
     "description": "Toast when messages are appended",
@@ -942,5 +934,70 @@
   },
   "reconcile_resultObsidianIncomplete": {
     "message": "Obsidian snapshot incomplete; no files were deleted or retried"
+  },
+  "export_tab": {
+    "message": "Export"
+  },
+  "export_settings": {
+    "message": "Settings"
+  },
+  "export_heading": {
+    "message": "Bring this conversation home"
+  },
+  "export_confirmHelp": {
+    "message": "Only these extension controls authorize capture and export. You can close this window after starting."
+  },
+  "export_current": {
+    "message": "Export current"
+  },
+  "export_selected": {
+    "message": "Choose branch…"
+  },
+  "export_stop": {
+    "message": "Stop / cancel"
+  },
+  "export_all": {
+    "message": "Export all branches"
+  },
+  "export_branchMessages": {
+    "message": "$COUNT$ messages",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "export_branchCurrent": {
+    "message": "current"
+  },
+  "export_destinations": {
+    "message": "Destinations"
+  },
+  "export_none": {
+    "message": "None enabled — open Settings"
+  },
+  "export_noTarget": {
+    "message": "Open a supported conversation tab first."
+  },
+  "export_ready": {
+    "message": "Ready. Choose an explicit export action."
+  },
+  "export_phase_preparing": {
+    "message": "Preparing branch choices — nothing has been saved."
+  },
+  "export_phase_awaiting_selection": {
+    "message": "Choose a branch or export all. Closing the branch window cancels preparation."
+  },
+  "export_phase_exporting": {
+    "message": "Export in progress. Stop prevents further work; already saved outputs remain."
+  },
+  "export_phase_cancelled": {
+    "message": "Stopped. Already saved outputs were retained."
+  },
+  "export_phase_completed": {
+    "message": "Operation ended. Check the conversation notification for export outcome details."
+  },
+  "export_outcome_branch_preparation_ended": {
+    "message": "Branch preparation ended without an export choice. Nothing was saved."
   }
 }

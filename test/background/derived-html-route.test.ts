@@ -1,3 +1,7 @@
+import { AdmittedExportController } from './admitted-export-controller';
+vi.mock('../../src/background/export-operation-controller', () => ({
+  ExportOperationController: AdmittedExportController,
+}));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import type { ExtensionSettings } from '../../src/lib/types';

@@ -6,8 +6,10 @@
  */
 
 import { initPopup } from './app';
+import { initExportSurface } from './export';
 
 document.addEventListener('DOMContentLoaded', () => {
+  void initExportSurface();
   initPopup().catch(error => {
     console.error('[G2O Popup] Init error:', error);
   });

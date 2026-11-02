@@ -66,17 +66,21 @@ import {
   persistDerivedHtmlForFile,
 } from './derived-html-persistence';
 import {
-  injectBranchExportButton,
-  injectSyncButton,
+  injectExportLauncher,
   removeExportControls,
   setButtonLoading,
-  showAllBranchesStopControl,
   showErrorToast,
   showWarningToast,
   showToast,
 } from './ui';
-import type { AllBranchesStopControl } from './ui';
+import {
+  claimedContentExport,
+  installExportOperationClient,
+  openExportSurface,
+  selectExportBranch,
+} from './export-operation-client';
 import { sendMessage } from '../lib/messaging';
+import { prepareRuntimeMessage } from '../lib/export-operation-scope';
 import {
   createOperationWriteLedger,
   durableWriteOutcomeFromResult,
@@ -84,7 +88,6 @@ import {
 } from '../lib/operation-write-ledger';
 import {
   AUTO_SAVE_CHECK_INTERVAL,
-  EVENT_THROTTLE_DELAY,
   INFO_TOAST_DURATION,
   MAX_CONTENT_SIZE,
   MAX_EXTENSION_MESSAGE_SIZE,
@@ -111,7 +114,6 @@ import type {
   StructuredArchiveSource,
 } from '../lib/types';
 import { platformForHost } from '../lib/platform-registry';
-import { throttle } from '../lib/throttle';
 import { abortStagedArchiveArtifact } from './archive-stage';
 import { buildArchivePersistenceMessage, buildSaveToOutputsMessage } from './capture-routing';
 
@@ -285,7 +287,10 @@ export function getExtractor(): IConversationExtractor | null {
   // like "evil-gemini.google.com.attacker.com"
   const platform = platformForHost(window.location.hostname);
   if (!platform) return null;
-  const extractor = new EXTRACTOR_CONSTRUCTORS[platform]();
+  const extractor =
+    platform === 'chatgpt'
+      ? new ChatGPTExtractor({ selectBranch: selectExportBranch })
+      : new EXTRACTOR_CONSTRUCTORS[platform]();
   return extractor.canExtract() ? extractor : null;
 }
 
@@ -294,6 +299,7 @@ export function getExtractor(): IConversationExtractor | null {
  * Called once by the index.ts entry shim; exported so tests can drive it.
  */
 export function startContentScript(): void {
+  installExportOperationClient(handleSync);
   const startInit = () => {
     initialize().catch(error => {
       console.error('[G2O] Content script initialization failed:', error);
@@ -330,13 +336,9 @@ export async function initialize(): Promise<void> {
     return;
   }
 
-  // Apply throttle to sync handler (NEW-06)
-  const throttledHandleSync = throttle(() => handleSync('current'), EVENT_THROTTLE_DELAY);
-  injectSyncButton(throttledHandleSync);
-  if (extractor.platform === 'chatgpt') {
-    const throttledBranchSync = throttle(() => handleSync('selected'), EVENT_THROTTLE_DELAY);
-    injectBranchExportButton(throttledBranchSync);
-  }
+  injectExportLauncher(() => {
+    void openExportSurface().catch(() => showErrorToast('Open Liska from the browser toolbar.'));
+  });
   if (syncOperationActive) setButtonLoading(true);
   console.info('[G2O] Sync button injected');
 }
@@ -670,9 +672,10 @@ export async function persistArchiveCompanionArtifacts(
     }
 
     try {
+      const preparedMessage = prepareRuntimeMessage(message);
       if (artifact.transport === 'staged') unclaimedStages.delete(artifact.stageId);
       attempts.forEach(({ attempt }) => attempt?.issue());
-      const response: unknown = await sendMessage(message);
+      const response: unknown = await sendMessage(preparedMessage);
       for (const { destination, attempt } of attempts) {
         const result = isMultiOutputResponse(response, activeOutputs)
           ? response.results.find(result => result.destination === destination)
@@ -1559,8 +1562,22 @@ async function rejectChangedDeepSeekOperation(
   return true;
 }
 
+async function discardStoppedExtractionStages(
+  result: ExtractionResult,
+  source: AIPlatform
+): Promise<void> {
+  if (!result.archiveCompanion || !isStructuredArchiveSource(source)) return;
+  await Promise.all(
+    result.archiveCompanion.artifacts.map(artifact =>
+      'stageId' in artifact
+        ? abortStagedArchiveArtifact(artifact.stageId, source)
+        : Promise.resolve()
+    )
+  );
+}
+
 /**
- * Handle sync button click
+ * Run the pipeline. Production enters only through the claimed operation client.
  */
 // eslint-disable-next-line complexity, max-lines-per-function -- The staged user-visible pipeline stays linear so evidence persistence always precedes Markdown validation.
 export async function handleSync(branchMode: 'current' | 'selected' = 'current'): Promise<void> {
@@ -1572,11 +1589,11 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
   console.info('[G2O] Sync initiated');
   setButtonLoading(true);
   let stage = 'loading extension settings';
-  let allBranchesStopControl: AllBranchesStopControl | undefined;
+  const operation = claimedContentExport();
   let allBranchesAbortController: AbortController | undefined;
 
   try {
-    const settings = freezeSettingsSnapshot(await getSettings());
+    const settings = freezeSettingsSnapshot(operation?.settings ?? (await getSettings()));
     const expectedSyncSettingsSnapshot = serializeSyncSettingsSnapshot(settings);
     const enabledOutputs = getEnabledOutputs(settings);
     const extractor = getExtractor();
@@ -1590,6 +1607,11 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         return;
       }
     }
+    if (
+      operation &&
+      (operation.scope.abort.signal.aborted || operation.scope.route !== window.location.href)
+    )
+      return;
     if (!extractor || !extractor.canExtract()) {
       showErrorToast('Not on a valid conversation page');
       return;
@@ -1601,12 +1623,21 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     stage = 'extracting the conversation';
     const result = await extractor.extract();
     if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result)) return;
-    if (result.cancelled) return;
+    if (
+      result.cancelled ||
+      (operation &&
+        (operation.scope.abort.signal.aborted || operation.scope.route !== window.location.href))
+    ) {
+      await discardStoppedExtractionStages(result, extractor.platform);
+      return;
+    }
+    if (branchMode === 'selected' && operation && (!operation.selected || !result.success)) {
+      await discardStoppedExtractionStages(result, extractor.platform);
+      showWarningToast('Branch preparation ended without an export choice. Nothing was saved.');
+      return;
+    }
     if (result.allBranches) {
-      allBranchesAbortController = new AbortController();
-      allBranchesStopControl = showAllBranchesStopControl(() => {
-        allBranchesAbortController?.abort();
-      });
+      allBranchesAbortController = operation?.scope.abort ?? new AbortController();
       if (!result.archiveCompanion) {
         showErrorToast('All-branches export requires a complete canonical archive');
         return;
@@ -1821,7 +1852,6 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     console.error(`[G2O] Sync error while ${stage}:`, error);
     showErrorToast(`Failed while ${stage}: ${extractErrorMessage(error)}`);
   } finally {
-    allBranchesStopControl?.dispose();
     syncOperationActive = false;
     setButtonLoading(false);
   }

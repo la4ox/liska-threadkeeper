@@ -569,7 +569,9 @@ export interface TemplateOptions {
 /**
  * Message types for chrome.runtime communication
  */
-export type ExtensionMessage =
+/** Generation is transport-only: never copied into notes, archives, provider DOM or URLs. */
+export type ExtensionMessage = ExtensionActionMessage & { exportOperationId?: string };
+type ExtensionActionMessage =
   | {
       action: 'saveToOutputs';
       data: ObsidianNote;

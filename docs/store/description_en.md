@@ -9,7 +9,7 @@ Liska extracts conversations from Google Gemini (gemini.google.com), Claude AI (
 • Clipboard: Copy formatted Markdown to paste anywhere
 
 ✨ KEY FEATURES
-• One-click export from Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook conversations
+• Explicit extension-owned export controls for Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook conversations
 • Clean Markdown formatting with YAML frontmatter
 • Obsidian callout syntax for Q&A blocks (shows correct AI name)
 • Deep Research support (Gemini, Perplexity) and Extended Thinking/Artifacts (Claude)
@@ -47,8 +47,9 @@ File download and clipboard options work without any setup.
 🚀 HOW TO USE
 
 1. Open any conversation on gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, or notebook.google.com
-2. Click the purple "Bring thread home" button (appears on the page)
-3. Choose your export method: Obsidian, File, or Clipboard
-4. Done! Your conversation is saved as Markdown
+2. Open Liska from the browser toolbar or the small page fox
+3. Check the target and destinations on Export; configure File, Clipboard, or Obsidian under Settings
+4. Choose Export current, or prepare ChatGPT branch choices and confirm one branch or all branches
+5. Reopen Export for status or Stop. The page fox never authorizes an export.
 
 Perfect for researchers, students, and anyone who wants to build a personal knowledge base from their AI conversations.
