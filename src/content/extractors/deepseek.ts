@@ -18,6 +18,7 @@ import type {
   SyncSettings,
 } from '../../lib/types';
 import { SELECTORS } from './selectors/deepseek';
+import { abortStagedArchiveArtifact } from '../archive-stage';
 import {
   DEEPSEEK_DOM_FALLBACK_WARNING,
   DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
@@ -26,6 +27,13 @@ import {
 } from './deepseek-api';
 
 type MessageRole = 'user' | 'assistant';
+
+interface DeepSeekConversationIdentity {
+  readonly conversationId: string;
+  readonly route: string;
+}
+
+const CONVERSATION_CHANGED_ERROR = 'Conversation changed during extraction. No output was created.';
 
 /**
  * DeepSeek conversation extractor.
@@ -37,6 +45,8 @@ type MessageRole = 'user' | 'assistant';
 export class DeepSeekExtractor extends BaseExtractor {
   readonly platform = 'deepseek';
   protected override readonly titleUsesFirstUserFallback = true;
+  private activeFallbackIdentity?: DeepSeekConversationIdentity;
+  private fallbackNavigationInvalidated = false;
 
   /** Include DeepSeek's expanded reasoning text as a collapsed tool callout. */
   enableToolContent = false;
@@ -55,35 +65,41 @@ export class DeepSeekExtractor extends BaseExtractor {
    * DOM path, including user-controlled virtual-list auto-scroll.
    */
   async extract(): Promise<ExtractionResult> {
-    if (this.isSignedInConversationRoute()) {
+    const initialIdentity = this.captureSignedConversationIdentity();
+    if (initialIdentity) {
       try {
-        const conversationId = this.getConversationId();
-        const apiConversation = conversationId
-          ? await fetchDeepSeekConversation(conversationId, this.enableToolContent)
-          : null;
-        if (apiConversation) {
-          if (conversationId) {
-            console.info('[G2O] Extracted DeepSeek conversation from local session history');
-            return {
-              success: true,
-              data: apiConversation.data.title.trim()
-                ? apiConversation.data
-                : { ...apiConversation.data, title: this.getTitle() },
-              archiveCompanion: apiConversation.archiveCompanion,
-              deepSeekAssetExportContext: apiConversation.assetExportContext,
-              structuredPresentationContext: apiConversation.structuredPresentationContext,
-              warnings: apiConversation.warnings.length > 0 ? apiConversation.warnings : undefined,
-            };
-          }
+        const apiConversation = await fetchDeepSeekConversation(
+          initialIdentity.conversationId,
+          this.enableToolContent
+        );
+        if (!this.isSignedConversationIdentityCurrent(initialIdentity)) {
+          return this.conversationChanged(apiConversation?.archiveCompanion);
         }
+        if (apiConversation) {
+          console.info('[G2O] Extracted DeepSeek conversation from local session history');
+          return {
+            success: true,
+            data: apiConversation.data.title.trim()
+              ? apiConversation.data
+              : { ...apiConversation.data, title: this.getTitle() },
+            archiveCompanion: apiConversation.archiveCompanion,
+            deepSeekAssetExportContext: apiConversation.assetExportContext,
+            structuredPresentationContext: apiConversation.structuredPresentationContext,
+            warnings: apiConversation.warnings.length > 0 ? apiConversation.warnings : undefined,
+          };
+        }
+        return this.extractDomFallback(undefined, initialIdentity);
       } catch (error) {
+        const archiveCompanion =
+          error instanceof DeepSeekStructuredCaptureError ? error.archiveCompanion : undefined;
+        if (!this.isSignedConversationIdentityCurrent(initialIdentity)) {
+          return this.conversationChanged(archiveCompanion);
+        }
         console.warn(
           '[G2O] DeepSeek history API unavailable; falling back to rendered conversation:',
           error instanceof Error ? error.message : 'unknown error'
         );
-        return this.extractDomFallback(
-          error instanceof DeepSeekStructuredCaptureError ? error.archiveCompanion : undefined
-        );
+        return this.extractDomFallback(archiveCompanion, initialIdentity);
       }
     }
 
@@ -92,10 +108,46 @@ export class DeepSeekExtractor extends BaseExtractor {
 
   /** Rendered content cannot certify complete history, even after auto-scroll. */
   private async extractDomFallback(
+    archiveCompanion?: ArchiveCompanionBundle,
+    expectedIdentity?: DeepSeekConversationIdentity
+  ): Promise<ExtractionResult> {
+    if (this.fallbackIdentityChanged(expectedIdentity)) {
+      return this.conversationChanged(archiveCompanion);
+    }
+    this.activeFallbackIdentity = expectedIdentity;
+    this.fallbackNavigationInvalidated = false;
+    try {
+      const fallback = await super.extract();
+      if (this.fallbackIdentityChanged(expectedIdentity)) {
+        return this.conversationChanged(archiveCompanion);
+      }
+      return this.finalizeDomFallback(fallback, archiveCompanion);
+    } catch (error) {
+      if (this.fallbackIdentityChanged(expectedIdentity)) {
+        return this.conversationChanged(archiveCompanion);
+      }
+      throw error;
+    } finally {
+      this.activeFallbackIdentity = undefined;
+      this.fallbackNavigationInvalidated = false;
+    }
+  }
+
+  private fallbackIdentityChanged(identity: DeepSeekConversationIdentity | undefined): boolean {
+    return Boolean(
+      identity &&
+      (this.fallbackNavigationInvalidated || !this.isSignedConversationIdentityCurrent(identity))
+    );
+  }
+
+  private async finalizeDomFallback(
+    fallback: ExtractionResult,
     archiveCompanion?: ArchiveCompanionBundle
   ): Promise<ExtractionResult> {
-    const fallback = await super.extract();
     if (!fallback.success) {
+      if (fallback.error === CONVERSATION_CHANGED_ERROR) {
+        return this.conversationChanged(archiveCompanion);
+      }
       // Bootstrap owns persistence/cleanup of any already-verified evidence.
       return archiveCompanion ? { ...fallback, archiveCompanion } : fallback;
     }
@@ -112,6 +164,37 @@ export class DeepSeekExtractor extends BaseExtractor {
           : DEEPSEEK_DOM_FALLBACK_WARNING,
       ],
     };
+  }
+
+  /** Navigation cancels the operation; no archive from A can be attached to page B. */
+  private async conversationChanged(
+    archiveCompanion?: ArchiveCompanionBundle
+  ): Promise<ExtractionResult> {
+    if (archiveCompanion) {
+      await Promise.all(
+        archiveCompanion.artifacts
+          .filter(artifact => artifact.transport === 'staged')
+          .map(artifact => abortStagedArchiveArtifact(artifact.stageId, 'deepseek'))
+      );
+    }
+    return { success: false, error: CONVERSATION_CHANGED_ERROR };
+  }
+
+  /** Signed-in history capture is bound to both its conversation and route family. */
+  private captureSignedConversationIdentity(): DeepSeekConversationIdentity | null {
+    if (!this.isSignedInConversationRoute()) return null;
+    const conversationId = this.getConversationId();
+    return conversationId
+      ? { conversationId, route: window.location.pathname.replace(/\/$/, '') }
+      : null;
+  }
+
+  private isSignedConversationIdentityCurrent(identity: DeepSeekConversationIdentity): boolean {
+    return (
+      this.isSignedInConversationRoute() &&
+      this.getConversationId() === identity.conversationId &&
+      window.location.pathname.replace(/\/$/, '') === identity.route
+    );
   }
 
   // ========== ID & Title Extraction ==========
@@ -173,7 +256,17 @@ export class DeepSeekExtractor extends BaseExtractor {
   protected getScrollConfig(): ScrollConfig {
     return {
       container: SELECTORS.scrollContainer,
-      harvest: () => this.harvestWindow(),
+      harvest: () => {
+        if (this.fallbackNavigationInvalidated) throw new Error(CONVERSATION_CHANGED_ERROR);
+        if (
+          this.activeFallbackIdentity &&
+          !this.isSignedConversationIdentityCurrent(this.activeFallbackIdentity)
+        ) {
+          this.fallbackNavigationInvalidated = true;
+          throw new Error(CONVERSATION_CHANGED_ERROR);
+        }
+        return this.harvestWindow();
+      },
     };
   }
 

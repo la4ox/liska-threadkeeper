@@ -184,6 +184,21 @@ export function validateClaudeArchiveStageAbortSender(
   );
 }
 
+/** Cleanup only: DeepSeek SPA navigation must not strand an already-issued stage capability. */
+export function validateDeepSeekArchiveStageAbortSender(
+  sender: chrome.runtime.MessageSender,
+  source: StructuredArchiveSource
+): boolean {
+  return (
+    source === 'deepseek' &&
+    sender.frameId === 0 &&
+    typeof sender.tab?.url === 'string' &&
+    typeof sender.url === 'string' &&
+    isExactDeepSeekAbortPageUrl(sender.tab.url) &&
+    isExactDeepSeekAbortPageUrl(sender.url)
+  );
+}
+
 function isExactClaudeAbortPageUrl(rawUrl: string): boolean {
   // Require the literal authority too: URL parsing normalizes an explicit :443 port away.
   return /^https:\/\/claude\.ai(?:\/|$)/.test(rawUrl) && isExactClaudeDocumentUrl(rawUrl);
@@ -229,6 +244,13 @@ function isExactDeepSeekDocumentUrl(rawUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isExactDeepSeekAbortPageUrl(rawUrl: string): boolean {
+  // Require the literal authority too: URL parsing normalizes an explicit :443 port away.
+  return (
+    /^https:\/\/chat\.deepseek\.com(?:[/?#]|$)/.test(rawUrl) && isExactDeepSeekDocumentUrl(rawUrl)
+  );
 }
 
 function isExactChatGptConversationUrl(url: URL): boolean {

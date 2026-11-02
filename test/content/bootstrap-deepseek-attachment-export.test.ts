@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   attachmentExport: vi.fn(),
   html: vi.fn(),
   extract: vi.fn(),
+  getConversationId: vi.fn(),
   sendMessage: vi.fn(),
   setButtonLoading: vi.fn(),
   showErrorToast: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock('../../src/content/extractors/deepseek', () => ({
     readonly platform = 'deepseek' as const;
     canExtract = () => true;
     extract = () => mocks.extract();
-    getConversationId = () => 'synthetic-deepseek-conversation';
+    getConversationId = () => mocks.getConversationId();
     getTitle = () => 'Synthetic DeepSeek attachment';
     extractMessages = () => [];
     validate = (result: ExtractionResult) => mocks.validate(result);
@@ -49,9 +50,10 @@ vi.mock('../../src/content/extractors/deepseek', () => ({
   },
 }));
 
-vi.mock('../../src/content/deepseek-asset-export', () => ({
-  persistDeepSeekDestinationHonestAttachments: mocks.attachmentExport,
-}));
+vi.mock('../../src/content/deepseek-asset-export', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/content/deepseek-asset-export')>();
+  return { ...actual, persistDeepSeekDestinationHonestAttachments: mocks.attachmentExport };
+});
 
 vi.mock('../../src/content/derived-html-persistence', async importOriginal => {
   const actual =
@@ -212,6 +214,32 @@ function result(): ExtractionResult {
   };
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(accept => {
+    resolve = accept;
+  });
+  return { promise, resolve };
+}
+
+function setDeepSeekLocation(id: string): void {
+  const pathname = `/a/chat/s/${id}`;
+  Object.defineProperty(window, 'location', {
+    value: {
+      hostname: 'chat.deepseek.com',
+      pathname,
+      href: `https://chat.deepseek.com${pathname}`,
+      origin: 'https://chat.deepseek.com',
+      protocol: 'https:',
+      host: 'chat.deepseek.com',
+      search: '',
+      hash: '',
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
 function mockMessages(): void {
   mocks.sendMessage.mockImplementation(
     (message: { action: string; outputs?: OutputDestination[] }) => {
@@ -254,6 +282,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
     settings.enableImageExport = true;
     settings.enableHtmlExport = false;
     settings.outputOptions = { obsidian: false, file: true, clipboard: false };
+    mocks.getConversationId.mockReturnValue('synthetic-deepseek-conversation');
     ({ companion, context } = await capture());
     mocks.extract.mockResolvedValue(result());
     mocks.validate.mockReturnValue({ isValid: true, warnings: [], errors: [] });
@@ -279,6 +308,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
         {
           persistArtifacts: expect.any(Function),
           expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+          isConversationCurrent: expect.any(Function),
         }
       );
       expect(mocks.html).not.toHaveBeenCalled();
@@ -294,6 +324,66 @@ describe('DeepSeek attachment bootstrap gate', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('refuses every durable output when the page changes after extractor resolution', async () => {
+    const pending = deferred<ExtractionResult>();
+    mocks.extract.mockReturnValue(pending.promise);
+
+    const sync = handleSync();
+    await vi.waitFor(() => expect(mocks.extract).toHaveBeenCalledOnce());
+    mocks.getConversationId.mockReturnValue('other-deepseek-conversation');
+    setDeepSeekLocation('other-deepseek-conversation');
+    pending.resolve(result());
+    await sync;
+
+    expect(mocks.attachmentExport).not.toHaveBeenCalled();
+    expect(mocks.validate).not.toHaveBeenCalled();
+    expect(mocks.sendMessage.mock.calls.map(call => call[0])).toEqual([{ action: 'getSettings' }]);
+    expect(mocks.showErrorToast).toHaveBeenCalledWith(
+      'Conversation changed during extraction. No output was created.'
+    );
+  });
+
+  it('stops generic archive persistence when navigation happens during the raw write', async () => {
+    settings.enableImageExport = false;
+    const rawWrite = deferred<MultiOutputResponse>();
+    mocks.sendMessage.mockImplementation(message => {
+      if (message.action === 'getSettings') return Promise.resolve(settings);
+      if (message.action === 'persistArchiveCompanion' && message.artifact.kind === 'raw') {
+        return rawWrite.promise;
+      }
+      return Promise.reject(new Error(`unexpected background message: ${message.action}`));
+    });
+
+    const sync = handleSync();
+    await vi.waitFor(() =>
+      expect(mocks.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'persistArchiveCompanion',
+          artifact: expect.objectContaining({ kind: 'raw' }),
+        })
+      )
+    );
+    mocks.getConversationId.mockReturnValue('other-deepseek-conversation');
+    setDeepSeekLocation('other-deepseek-conversation');
+    rawWrite.resolve({
+      results: [{ destination: 'file', success: true }],
+      allSuccessful: true,
+      anySuccessful: true,
+    });
+    await sync;
+
+    expect(mocks.sendMessage.mock.calls.map(call => call[0])).toEqual([
+      { action: 'getSettings' },
+      expect.objectContaining({
+        action: 'persistArchiveCompanion',
+        artifact: expect.objectContaining({ kind: 'raw' }),
+      }),
+    ]);
+    expect(mocks.showErrorToast).toHaveBeenCalledWith(
+      expect.stringContaining('DeepSeek conversation changed during export')
+    );
   });
 
   it('writes finalized File HTML after attachment finalization and before Markdown', async () => {
@@ -316,6 +406,7 @@ describe('DeepSeek attachment bootstrap gate', () => {
         expect.objectContaining({
           presentationContext,
           expectedSyncSettingsSnapshot: serializeSyncSettingsSnapshot(settings),
+          isConversationCurrent: expect.any(Function),
         })
       );
       return {
@@ -352,6 +443,26 @@ describe('DeepSeek attachment bootstrap gate', () => {
 
     expect(order).toEqual(['html', 'markdown']);
     expect(mocks.html).toHaveBeenCalledOnce();
+  });
+
+  it('does not dispatch Markdown after navigation while finalized File HTML is pending', async () => {
+    settings.enableHtmlExport = true;
+    const html = deferred<{ success: true; warnings: string[] }>();
+    mocks.html.mockReturnValue(html.promise);
+
+    const sync = handleSync();
+    await vi.waitFor(() => expect(mocks.html).toHaveBeenCalledOnce());
+    mocks.getConversationId.mockReturnValue('other-deepseek-conversation');
+    setDeepSeekLocation('other-deepseek-conversation');
+    html.resolve({ success: true, warnings: [] });
+    await sync;
+
+    expect(mocks.sendMessage.mock.calls.some(call => call[0]?.action === 'saveToOutputs')).toBe(
+      false
+    );
+    expect(mocks.showErrorToast).toHaveBeenCalledWith(
+      'Conversation changed during extraction. No output was created.'
+    );
   });
 
   it.each(['file', 'obsidian'] as const)(
