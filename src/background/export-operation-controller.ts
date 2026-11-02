@@ -824,7 +824,12 @@ export class ExportOperationController {
       return true;
     });
   }
-  async recordResult(id: string | undefined, response: unknown): Promise<void> {
+  async recordResult(
+    id: string | undefined,
+    response: unknown,
+    message?: { action: string; source?: unknown; stageId?: unknown },
+    sender?: chrome.runtime.MessageSender
+  ): Promise<void> {
     await this.locked(async () => {
       const op = this.state.operations.find(item => item.id === id);
       const result = response as {
@@ -832,6 +837,18 @@ export class ExportOperationController {
         stageId?: string;
         data?: { stageId?: string };
       };
+      if (message && EXPORT_CLEANUP_ACTIONS.has(message.action)) {
+        // Cleanup retains its capability until the handler confirms success.
+        // Use the validated request identity, never a stage ID from the result.
+        if (result?.success === true && sender) {
+          const owned = this.ownedStage({ ...message, exportOperationId: id }, sender);
+          if (owned) {
+            owned.op.stages = owned.op.stages.filter(stageId => stageId !== owned.stageId);
+            await this.save();
+          }
+        }
+        return;
+      }
       const stageId =
         result?.success === true ? (result.stageId ?? result.data?.stageId) : undefined;
       if (!op || typeof stageId !== 'string' || stageId.length > 256 || op.stages.includes(stageId))

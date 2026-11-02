@@ -227,6 +227,108 @@ function seedPendingIntents(f: ReturnType<typeof fixture>, tabIds: number[]) {
 }
 
 describe('worker-owned export generations', () => {
+  it.each(['abortStagedArchiveArtifact', 'abortStagedBinaryAsset'] as const)(
+    'retains failed or unknown %s cleanup for an exact retry',
+    async action => {
+      const f = fixture();
+      await f.start();
+      const id = f.claim.exportOperationId!;
+      await f.controller.recordResult(id, { success: true, stageId: 'owned-stage' });
+      const request = { action, source: 'chatgpt', stageId: 'owned-stage' };
+      for (const response of [{ success: false }, undefined, null, { success: 'true' }]) {
+        await f.controller.recordResult(id, response, request, source());
+        f.restart();
+        expect(await f.controller.authorize({ ...request, exportOperationId: id }, source())).toBe(
+          true
+        );
+      }
+      await f.controller.recordResult(id, { success: true }, request, source());
+      f.restart();
+      expect(await f.controller.authorize({ ...request, exportOperationId: id }, source())).toBe(
+        false
+      );
+    }
+  );
+  it.each(['abortStagedArchiveArtifact', 'abortStagedBinaryAsset'] as const)(
+    'successful %s releases only the exact request generation and owner',
+    async action => {
+      const f = fixture();
+      await f.start();
+      const first = f.claim.exportOperationId!;
+      await f.controller.recordResult(first, { success: true, stageId: 'first-stage' });
+      await f.complete();
+      await f.start();
+      const second = f.claim.exportOperationId!;
+      await f.controller.recordResult(second, { success: true, stageId: 'second-stage' });
+      const request = { action, source: 'chatgpt', stageId: 'first-stage' };
+      await f.controller.recordResult(second, { success: true }, request, source());
+      await f.controller.recordResult(
+        first,
+        { success: true },
+        { ...request, stageId: 'unknown-stage' },
+        source()
+      );
+      await f.controller.recordResult(
+        first,
+        { success: true },
+        { ...request, source: 'claude' },
+        source()
+      );
+      for (const patch of [
+        { documentId: 'another-document' },
+        { frameId: 1 },
+        { id: 'foreign-extension' },
+      ]) {
+        await f.controller.recordResult(first, { success: true }, request, {
+          ...source(),
+          ...patch,
+        });
+      }
+      expect(await f.controller.authorize({ ...request, exportOperationId: first }, source())).toBe(
+        true
+      );
+      // A result-supplied stage ID cannot redirect cleanup to another generation.
+      await f.controller.recordResult(
+        first,
+        { success: true, stageId: 'second-stage' },
+        request,
+        source()
+      );
+      f.restart();
+      expect(await f.controller.authorize({ ...request, exportOperationId: first }, source())).toBe(
+        false
+      );
+      expect(
+        await f.controller.authorize(
+          { ...request, stageId: 'second-stage', exportOperationId: second },
+          source()
+        )
+      ).toBe(true);
+    }
+  );
+  it.each(['abortStagedArchiveArtifact', 'abortStagedBinaryAsset'] as const)(
+    'releases confirmed %s ownership so 64 cleanup cycles do not block the next start',
+    async action => {
+      const f = fixture();
+      for (let index = 0; index < 64; index++) {
+        await f.start();
+        const id = f.claim.exportOperationId!;
+        const stageId = `owned-${index}`;
+        await f.controller.recordResult(id, { success: true, stageId });
+        const request = { action, source: 'chatgpt', stageId };
+        expect(await f.controller.authorize({ ...request, exportOperationId: id }, source())).toBe(
+          true
+        );
+        await f.controller.recordResult(id, { success: true }, request, source());
+        await f.complete();
+      }
+      f.restart();
+      expect(await f.start()).toMatchObject({ success: true, operation: { phase: 'exporting' } });
+      const state = f.stored[EXPORT_STATE_KEY] as { operations: Array<{ stages: string[] }> };
+      expect(state.operations).toHaveLength(64);
+      expect(state.operations.every(op => op.stages.length === 0)).toBe(true);
+    }
+  );
   it('does not reserve a second delayed claim when only protected records remain', async () => {
     const f = fixture();
     for (let index = 0; index < 64; index++) {

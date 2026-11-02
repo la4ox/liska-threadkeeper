@@ -5,7 +5,7 @@ import { htmlMessage, htmlSettings } from './derived-html-fixture';
 import { branchHtmlMessage } from './derived-branch-html-fixture';
 import { validateMessageContent } from '../../src/background/validation';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
-import { EXPORT_DURABLE_ACTIONS } from '../../src/lib/export-operation-contract';
+import { EXPORT_DURABLE_ACTIONS, EXPORT_STATE_KEY } from '../../src/lib/export-operation-contract';
 
 const mocks = vi.hoisted(() => ({
   output: vi.fn(),
@@ -182,6 +182,84 @@ beforeEach(async () => {
   await import('../../src/background/service-worker');
 });
 describe('export authority at actual worker dispatch', () => {
+  it.each(['archive', 'binary'] as const)(
+    'retains %s cleanup ownership until confirmed success, then persists its release',
+    async kind => {
+      await dispatch(
+        {
+          action: 'startExportOperation',
+          mode: 'current',
+          expectedTarget: { tabId: 7, route },
+          expectedOutputs: ['obsidian', 'file', 'clipboard'],
+        },
+        popup()
+      );
+      const commit = (await messages())[kind === 'archive' ? 4 : 5] as unknown as {
+        artifact: { stageId: string; transport: string };
+        descriptor: object;
+      };
+      if (kind === 'archive') {
+        const { stageId: _stageId, transport: _transport, ...descriptor } = commit.artifact;
+        await dispatch({
+          action: 'beginStagedArchiveArtifact',
+          source: 'chatgpt',
+          descriptor,
+          exportOperationId: operationId,
+        });
+      } else
+        await dispatch({
+          action: 'beginStagedBinaryAsset',
+          source: 'chatgpt',
+          stageId: binaryId,
+          descriptor: commit.descriptor,
+          exportOperationId: operationId,
+        });
+      const ownedId = kind === 'archive' ? stageId : binaryId;
+      const abort = {
+        action: kind === 'archive' ? 'abortStagedArchiveArtifact' : 'abortStagedBinaryAsset',
+        source: 'chatgpt',
+        stageId: ownedId,
+        exportOperationId: operationId,
+      };
+      const sink = kind === 'archive' ? mocks.archive : mocks.binary;
+      const retained = async () => {
+        const stored = await chrome.storage.session.get(EXPORT_STATE_KEY);
+        return (
+          stored[EXPORT_STATE_KEY].operations as Array<{ id: string; stages: string[] }>
+        ).find(op => op.id === operationId)!.stages;
+      };
+      let finish!: (response: unknown) => void;
+      sink.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finish = resolve;
+          })
+      );
+      const pending = dispatch(abort);
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      expect(await retained()).toEqual([ownedId]);
+      finish({ success: false, error: 'cleanup-deferred' });
+      expect(await pending).toMatchObject({ success: false });
+      expect(await retained()).toEqual([ownedId]);
+      sink.mockResolvedValueOnce(undefined);
+      expect(await dispatch(abort)).toBeUndefined();
+      expect(await retained()).toEqual([ownedId]);
+      const calls = sink.mock.calls.length;
+      expect(await dispatch(abort, { ...sender(), documentId: 'wrong-document' })).toMatchObject({
+        success: false,
+      });
+      expect(sink).toHaveBeenCalledTimes(calls);
+      expect(await retained()).toEqual([ownedId]);
+      sink.mockResolvedValueOnce({ success: true });
+      expect(await dispatch(abort)).toMatchObject({ success: true });
+      expect(await retained()).toEqual([]);
+      const completedCalls = sink.mock.calls.length;
+      vi.resetModules();
+      await import('../../src/background/service-worker');
+      expect(await dispatch(abort)).toMatchObject({ success: false });
+      expect(sink).toHaveBeenCalledTimes(completedCalls);
+    }
+  );
   it('does not dispatch when navigation arrives during the authorization settings await', async () => {
     await dispatch(
       {

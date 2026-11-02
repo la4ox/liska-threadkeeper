@@ -818,25 +818,35 @@ delayed two-tab reproduction now transitions `62 operations + 2 intents` to 64
 claimed operations; restart preserves both authorizations. All-protected and
 32-intent controls remain fail-closed.
 
+The next current-head review found that a successful explicit archive/binary
+abort deleted its temporary stage but left the exact cleanup capability in the
+controller. That stale ownership could make 64 honest cancel/cleanup cycles look
+permanently protected and close the cap again. Post-result accounting now
+revalidates the exact request stage/generation/owner and releases ownership only
+after `{ success: true }`; pending, failed, unknown, unauthorized and mismatched
+cleanup retains the capability for a safe retry. Both 64-cycle reproductions now
+admit the next export, and restart/retry/wrong-owner controls pass.
+
 Final local evidence after the terminal-status repair: the complete repository
-suite passes 254 files / 9,346 tests, with one file / 3 tests skipped. The earlier
+suite passes 254 files / 9,354 tests, with one file / 3 tests skipped. The earlier
 closed affected matrix passed 154 files / 6,101 tests, with one file / 2 tests
 skipped; the final reviewer-equivalent authorization/UI matrix passes 6 files /
-132 tests, and the final controller/route cap matrix passes 2 files / 81 tests.
-Production build, emitted-worker runtime check, lint (51 warnings / 0 errors),
+132 tests, the final controller/route cleanup matrix passes 2 files / 89 tests,
+and the directly affected background matrix passes 41 files / 1,622 tests.
+Production build, emitted-worker runtime check, lint (52 warnings / 0 errors),
 formatting and diff checks pass. A synthetic 380px preview checks Export default,
 literal branch descriptors, ordinal/all selection, Stop/status, cancellation and
 preserved Settings. Completion wording is now neutral unless the worker can prove
 that selected-branch preparation ended before any extension-owned choice; that
 bounded outcome says explicitly that nothing was saved.
 
-The final 45-file / 1,258,731-byte build was copied into the existing unpacked
+The final 45-file / 1,258,921-byte build was copied into the existing unpacked
 Liska target through the verified rollback-preserving updater. Source and
 installed inventory SHA-256 are both
-`b76216293d6d0218ee096f1b563ba3fcfeabceec9264d973bf3be746ecb6c979`;
+`1f141146d803bb261853ad16fb0079ead88756110f614cb946207540474b9e06`;
 manifest SHA-256 is
 `917e32400149125f1896fb6546b40bf1dc4f7341a6afe8024cc0b93a5db7cac9`.
-Rollback `liska-rollback-20261102T191419130Z-822ac3ed24214ed5805db3390fc0b958`
+Rollback `liska-rollback-20261102T194014713Z-23e746d9f9974e5ab3d2a0eab03b8633`
 is retained. Comet Developer mode was enabled and only Liska was reloaded. The
 source manifest adds no permission or web-accessible-resource entry; CRXJS
 exposes one shared pure contract chunk automatically, with no tokens, controller

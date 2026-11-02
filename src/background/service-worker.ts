@@ -265,7 +265,7 @@ function dispatchMessage(
   handleMessage(message, sender, branchHtmlAdmitted, exportOperationId)
     .then(async response => {
       if (isExportAction(message.action))
-        await exportOperations.recordResult(exportOperationId, response);
+        await exportOperations.recordResult(exportOperationId, response, message, sender);
       try {
         sendResponse(response);
       } catch {

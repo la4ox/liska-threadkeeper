@@ -223,6 +223,11 @@ history, preserves live and cleanup-owning generations, and repairs legacy
 overreservation newest-intent-first. A delayed two-tab reproduction now remains
 at 64 claimed operations and survives worker restart.
 
+A subsequent review found that successful explicit aborts deleted their archive
+or binary stages without releasing controller ownership. Exact post-result
+accounting now releases only the request's stage after confirmed success;
+failure, unknown outcome and wrong ownership remain retryable and fail closed.
+
 Sources: S11
 
 ### T6 — Close the installed-runtime evidence gap
