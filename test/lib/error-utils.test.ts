@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { extractErrorMessage, getErrorMessage } from '../../src/lib/error-utils';
-import { ObsidianApiError } from '../../src/lib/obsidian-api';
+import { ObsidianApiError, ObsidianIdentityError } from '../../src/lib/obsidian-api';
 
 describe('extractErrorMessage', () => {
   it('extracts message from Error instances', () => {
@@ -44,6 +44,27 @@ describe('getErrorMessage', () => {
 
   it('returns specific message for auth error (status 403)', () => {
     const error = new ObsidianApiError(403, 'Forbidden');
+    expect(getErrorMessage(error)).toBe('Invalid API key. Please check your settings.');
+  });
+
+  it('preserves an anonymous identity failure instead of calling it an API-key failure', () => {
+    const error = new ObsidianIdentityError(
+      'anonymous',
+      401,
+      'The configured Obsidian API address returned HTTP 401 before authentication.'
+    );
+    expect(getErrorMessage(error)).toBe(
+      'The configured Obsidian API address returned HTTP 401 before authentication.'
+    );
+  });
+
+  it('keeps the existing user-facing API-key message after identity admission', () => {
+    const error = new ObsidianIdentityError(
+      'authenticated',
+      200,
+      'Authentication failed.',
+      'authentication'
+    );
     expect(getErrorMessage(error)).toBe('Invalid API key. Please check your settings.');
   });
 

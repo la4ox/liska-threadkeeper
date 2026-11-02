@@ -34,6 +34,13 @@ export function extractErrorMessage(error: unknown): string {
  */
 export function getErrorMessage(error: unknown): string {
   if (isObsidianApiError(error)) {
+    if (error.name === 'ObsidianIdentityError') {
+      const failure = (error as typeof error & { failure?: unknown }).failure;
+      if (failure === 'authentication') {
+        return 'Invalid API key. Please check your settings.';
+      }
+      return error.message;
+    }
     switch (error.status) {
       case 0:
         return 'Obsidian REST API is not running. Please ensure Obsidian is open and the Local REST API plugin is enabled.';
