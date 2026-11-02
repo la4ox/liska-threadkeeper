@@ -6,13 +6,28 @@ import {
   type RawCaptureManifest,
 } from '../../src/archive/capture';
 import {
+  CHATGPT_CONTENT_MAX_BLOCKS,
+  CHATGPT_CONTENT_MAX_DEPTH,
+  CHATGPT_CONTENT_MAX_OCCURRENCES,
+  CHATGPT_CONTENT_MAX_WORK_UNITS,
+  ChatGptContentLimitError,
   ChatGptNormalizationError,
   normalizeChatGptCapture,
   type ChatGptNormalizationInput,
 } from '../../src/archive/normalizers/chatgpt';
+import {
+  createChatGptContentBudget,
+  enterChatGptContentRecord,
+  recordChatGptContentBlocks,
+  spendChatGptContentWork,
+} from '../../src/archive/normalizers/chatgpt/content-budget';
 import { validateLiskaThreadArchive } from '../../src/archive/validate';
 import { manifestAssetsById, upsertAsset } from '../../src/archive/normalizers/chatgpt/assets';
-import type { AssetContext } from '../../src/archive/normalizers/chatgpt/contracts';
+import type { AssetContext, BlockContext } from '../../src/archive/normalizers/chatgpt/contracts';
+import {
+  appendMetadataBlocks,
+  normalizeContent,
+} from '../../src/archive/normalizers/chatgpt/content';
 import {
   nullableAliasedString,
   nullableString,
@@ -232,6 +247,31 @@ function rawWithParts(parts: unknown[] = ['synthetic text']): RawRecord {
   };
 }
 
+function nestedTextContent(depth: number): RawRecord {
+  let content: RawRecord = { content_type: 'text', parts: ['deep synthetic leaf'] };
+  for (let index = 0; index < depth; index += 1) {
+    content = {
+      content_type: 'text',
+      parts: [content],
+      container_index: index,
+    };
+  }
+  return content;
+}
+
+function contentContext(): BlockContext {
+  return {
+    assets: {},
+    assetIdsByIdentity: new Map(),
+    manifestAssets: manifestAssetsById([]),
+    artifactId: 'conversation',
+    format: 'synthetic',
+    privacy: { redactions: [] },
+    observedUnknownContentTypes: new Set(),
+    contentBudget: createChatGptContentBudget(),
+  };
+}
+
 function rootNode(raw: RawRecord): RawRecord {
   return (raw.mapping as Record<string, RawRecord>)['node/root'];
 }
@@ -331,6 +371,135 @@ function synchronousErrorCode(action: () => unknown): string {
   }
   throw new Error('Expected bounded Canmore JSON parsing to fail.');
 }
+
+describe('ChatGPT nested content traversal budget', () => {
+  it('normalizes content at the inclusive depth ceiling without recursive stack failure', async () => {
+    const raw = rawWithParts();
+    rootMessage(raw).content = nestedTextContent(CHATGPT_CONTENT_MAX_DEPTH);
+
+    const { archive } = await normalizeRaw(raw);
+    const blocks = archive.graph.nodes['node/root'].message?.blocks;
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks?.[0]).toMatchObject({ type: 'text', text: 'deep synthetic leaf' });
+  });
+
+  it('rejects depth ceiling plus one with a stable typed code instead of RangeError', async () => {
+    const raw = rawWithParts();
+    rootMessage(raw).content = nestedTextContent(CHATGPT_CONTENT_MAX_DEPTH + 1);
+
+    const error = await normalizeRaw(raw).catch(value => value);
+    expect(error).toBeInstanceOf(ChatGptContentLimitError);
+    expect(error).toMatchObject({
+      code: 'content-depth-limit',
+      limit: 'depth',
+      maximum: CHATGPT_CONTENT_MAX_DEPTH,
+      observed: CHATGPT_CONTENT_MAX_DEPTH + 1,
+      counters: {
+        maxDepth: CHATGPT_CONTENT_MAX_DEPTH + 1,
+        occurrences: CHATGPT_CONTENT_MAX_DEPTH + 1,
+      },
+    });
+    expect(Object.isFrozen((error as ChatGptContentLimitError).counters)).toBe(true);
+  });
+
+  it('enforces exact aggregate occurrence, work and block ceilings', () => {
+    const occurrenceBudget = createChatGptContentBudget();
+    occurrenceBudget.occurrences = CHATGPT_CONTENT_MAX_OCCURRENCES - 1;
+    expect(() => enterChatGptContentRecord(occurrenceBudget, 0)).not.toThrow();
+    expect(() => enterChatGptContentRecord(occurrenceBudget, 0)).toThrowError(
+      expect.objectContaining({ code: 'content-occurrence-limit', observed: 250_001 })
+    );
+
+    const workBudget = createChatGptContentBudget();
+    workBudget.workUnits = CHATGPT_CONTENT_MAX_WORK_UNITS - 1;
+    expect(() => spendChatGptContentWork(workBudget)).not.toThrow();
+    expect(() => spendChatGptContentWork(workBudget)).toThrowError(
+      expect.objectContaining({ code: 'content-work-limit', observed: 1_000_001 })
+    );
+
+    const blockBudget = createChatGptContentBudget();
+    blockBudget.blocks = CHATGPT_CONTENT_MAX_BLOCKS - 1;
+    expect(() => recordChatGptContentBlocks(blockBudget, 1)).not.toThrow();
+    expect(() => recordChatGptContentBlocks(blockBudget, 1)).toThrowError(
+      expect.objectContaining({ code: 'content-block-limit', observed: 250_001 })
+    );
+  });
+
+  it('normalizes a V8 argument-limit-sized direct parts array without spread RangeError', async () => {
+    const raw = rawWithParts(Array.from({ length: 125_000 }, () => 'wide synthetic part'));
+
+    const { archive } = await normalizeRaw(raw);
+    const blocks = archive.graph.nodes['node/root'].message?.blocks;
+
+    expect(blocks).toHaveLength(125_000);
+    expect(blocks?.[0]).toMatchObject({ type: 'text', text: 'wide synthetic part' });
+    expect(blocks?.at(-1)).toMatchObject({ type: 'text', text: 'wide synthetic part' });
+  });
+
+  it('reserves typed-array blocks before reading a malformed tail beyond the ceiling', () => {
+    const context = contentContext();
+    context.contentBudget.blocks = CHATGPT_CONTENT_MAX_BLOCKS - 1;
+
+    expect(() =>
+      normalizeContent(
+        { content_type: 'reasoning', thoughts: ['admitted', null] },
+        '/content',
+        'message-limit',
+        context
+      )
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'content-block-limit',
+        observed: CHATGPT_CONTENT_MAX_BLOCKS + 1,
+      })
+    );
+    expect(context.contentBudget).toMatchObject({ blocks: 250_001, workUnits: 3 });
+  });
+
+  it('shares the remaining block budget with metadata arrays before their malformed tail', () => {
+    const context = contentContext();
+    context.contentBudget.blocks = CHATGPT_CONTENT_MAX_BLOCKS - 1;
+    const blocks: Parameters<typeof appendMetadataBlocks>[0] = [];
+
+    expect(() =>
+      appendMetadataBlocks(
+        blocks,
+        { citations: [{}, {}, null] },
+        '/metadata',
+        'message-limit',
+        context
+      )
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'content-block-limit',
+        observed: CHATGPT_CONTENT_MAX_BLOCKS + 1,
+      })
+    );
+    expect(blocks).toHaveLength(1);
+    expect(context.contentBudget).toMatchObject({ blocks: 250_001, workUnits: 2 });
+  });
+
+  it('charges typed-array work before constructing the first item', () => {
+    const context = contentContext();
+    context.contentBudget.workUnits = CHATGPT_CONTENT_MAX_WORK_UNITS - 1;
+
+    expect(() =>
+      normalizeContent(
+        { content_type: 'reasoning', thoughts: ['unreached'] },
+        '/content',
+        'message-limit',
+        context
+      )
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'content-work-limit',
+        observed: CHATGPT_CONTENT_MAX_WORK_UNITS + 1,
+      })
+    );
+    expect(context.contentBudget.blocks).toBe(0);
+  });
+});
 
 describe('bounded Canmore JSON parsing', () => {
   it('accepts the exact nesting and structural-token boundaries', () => {

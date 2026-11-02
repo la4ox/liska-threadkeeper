@@ -22,6 +22,7 @@ import {
 } from './contracts';
 import { manifestAssetsById, reconcileManifestAssets } from './assets';
 import { normalizeGraph } from './graph';
+import { createChatGptContentBudget } from './content-budget';
 import {
   assertSafeIdentifier,
   fail,
@@ -197,6 +198,7 @@ function createContext(
     format,
     privacy: { redactions: [] },
     observedUnknownContentTypes: new Set(),
+    contentBudget: createChatGptContentBudget(),
   };
 }
 
