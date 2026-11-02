@@ -1,10 +1,12 @@
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { URL as NodeURL } from 'node:url';
+import { createContext, runInContext } from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readChatGptTemporaryCaptureState } from '../../src/background/chatgpt-capture';
 import { readChatGptOpaqueProbeState } from '../../src/background/chatgpt-opaque-probe';
 import {
   readChatGptOpaqueReplayChunkState,
+  parseChatGptOpaqueReplayStateWire,
   readChatGptOpaqueReplayState,
   releaseChatGptOpaqueReplayChunkState,
 } from '../../src/background/chatgpt-opaque-replay';
@@ -149,6 +151,7 @@ class OpaqueTestRequest {
 
 type FakePage = {
   pageWindow: Window & typeof globalThis;
+  replayMode: 'legacy-inline' | 'staged-v2';
   originalFetch: ReturnType<typeof vi.fn>;
   timers: Set<ReturnType<typeof globalThis.setTimeout>>;
 };
@@ -220,6 +223,7 @@ function fakePage(
     btoa: globalThis.btoa,
     Reflect: globalThis.Reflect,
     Object: globalThis.Object,
+    JSON: globalThis.JSON,
     URL: NodeURL as unknown as typeof globalThis.URL,
     URLSearchParams: globalThis.URLSearchParams,
     Request: RequestConstructor as unknown as typeof globalThis.Request,
@@ -235,7 +239,14 @@ function fakePage(
     String: globalThis.String,
     RegExp: globalThis.RegExp,
   } as unknown as Window & typeof globalThis;
-  const page = { pageWindow, originalFetch, timers };
+  const page = {
+    pageWindow,
+    originalFetch,
+    timers,
+    replayMode: href.endsWith('liska-opaque-replay=2')
+      ? ('staged-v2' as const)
+      : ('legacy-inline' as const),
+  };
   pages.push(page);
   return page;
 }
@@ -252,7 +263,11 @@ function opaqueSnapshotOf(page: FakePage): unknown {
 
 function opaqueReplaySnapshotOf(page: FakePage): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(page.pageWindow, OPAQUE_REPLAY_STATE_KEY);
-  return descriptor?.get?.call(page.pageWindow);
+  return parseChatGptOpaqueReplayStateWire(
+    descriptor?.get?.call(page.pageWindow),
+    NONCE,
+    page.replayMode
+  );
 }
 
 function opaqueResolverSnapshotOf(page: FakePage): unknown {
@@ -314,6 +329,339 @@ afterEach(() => {
 });
 
 describe('startChatGptDocumentStartCapture', () => {
+  it('expires the staged reader with a deterministic clock without changing terminal wire', async () => {
+    const page = fakePage(
+      markedStagedOpaqueReplayUrl(),
+      async input =>
+        new Response(
+          (input as OpaqueTestRequest).url === SOURCE_RESPONSE_URL
+            ? '{}'
+            : new Uint8Array(16 * 1024 * 1024 + 1),
+          { headers: { 'content-type': 'application/json' } }
+        ),
+      OpaqueTestRequest
+    );
+    const timers = new Map<number, { callback: () => void; milliseconds: number }>();
+    let nextId = 0;
+    page.pageWindow.setTimeout = ((callback: () => void, milliseconds: number) => {
+      nextId += 1;
+      timers.set(nextId, { callback, milliseconds });
+      return nextId;
+    }) as typeof window.setTimeout;
+    page.pageWindow.clearTimeout = (id: number) => {
+      timers.delete(id);
+    };
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-secret' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(opaqueReplaySnapshotOf(page)).toMatchObject({
+        kind: 'captured',
+        capture: { transport: 'staged', chunkCount: 33 },
+      })
+    );
+    vi.stubGlobal('window', page.pageWindow);
+    const terminal = readChatGptOpaqueReplayState(NONCE);
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 32)).toContain('"byteLength":1');
+    expect(timers.size).toBe(1);
+    const expiry = [...timers.values()][0];
+    expect(expiry.milliseconds).toBe(180_000);
+    expiry.callback();
+    expect(timers.size).toBe(0);
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 32)).toBe('liska-opaque-replay-wire:missing');
+    expect(readChatGptOpaqueReplayState(NONCE)).toBe(terminal);
+    expect(releaseChatGptOpaqueReplayChunkState(NONCE)).toBe(false);
+    expect(page.originalFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails arming when safe serialization is unavailable and caches a safe terminal failure', async () => {
+    const unavailable = fakePage(markedOpaqueReplayUrl(), undefined, OpaqueTestRequest);
+    unavailable.pageWindow.JSON = {
+      stringify: () => {
+        throw new Error('unavailable');
+      },
+    } as unknown as JSON;
+    expect(startChatGptDocumentStartCapture(unavailable.pageWindow)).toEqual({
+      kind: 'error',
+      code: 'hook-state-failed',
+    });
+    expect(
+      Object.getOwnPropertyDescriptor(unavailable.pageWindow, OPAQUE_REPLAY_STATE_KEY)
+    ).toBeUndefined();
+    expect(unavailable.pageWindow.fetch).toBe(unavailable.originalFetch);
+
+    const page = fakePage(
+      markedOpaqueReplayUrl(),
+      async () =>
+        new Response('{}', {
+          headers: { 'content-type': 'application/json' },
+        }),
+      OpaqueTestRequest
+    );
+    let calls = 0;
+    page.pageWindow.JSON = {
+      stringify: value => {
+        calls += 1;
+        if (calls > 3) throw new Error('terminal serialization unavailable');
+        return JSON.stringify(value);
+      },
+    } as JSON;
+    expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+    await page.pageWindow.fetch(
+      new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+        credentials: 'include',
+        headers: { authorization: 'synthetic-secret' },
+      }) as unknown as Request
+    );
+    await vi.waitFor(() =>
+      expect(opaqueReplaySnapshotOf(page)).toEqual({
+        kind: 'error',
+        code: 'hook-state-failed',
+        singularDispatchCount: 1,
+      })
+    );
+    const descriptor = Object.getOwnPropertyDescriptor(page.pageWindow, OPAQUE_REPLAY_STATE_KEY)!;
+    const wire = descriptor.get!();
+    expect(typeof wire).toBe('string');
+    expect(descriptor.get!()).toBe(wire);
+    expect(calls).toBe(4);
+    expect(page.originalFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires captured native stringify only for opaque replay, not sibling modes', () => {
+    for (const href of [
+      markedOpaqueReplayUrl(),
+      markedStagedOpaqueReplayUrl(),
+      markedUrl(),
+      markedOpaqueProbeUrl(),
+      markedOpaqueResolverUrl(),
+      markedActiveResolverUrl(),
+      markedInterpreterResolverUrl(),
+    ]) {
+      for (const unavailable of ['absent', 'throwing-global', 'throwing-method']) {
+        const page = fakePage(href, undefined, OpaqueTestRequest);
+        page.pageWindow.JSON = undefined as unknown as JSON;
+        if (unavailable === 'throwing-global')
+          Object.defineProperty(page.pageWindow, 'JSON', {
+            get: () => {
+              throw new Error('JSON unavailable');
+            },
+          });
+        if (unavailable === 'throwing-method')
+          page.pageWindow.JSON = {
+            get stringify() {
+              throw new Error('stringify unavailable');
+            },
+          } as unknown as JSON;
+        const replay = href.includes('liska-opaque-replay=');
+        expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual(
+          replay ? { kind: 'error', code: 'hook-state-failed' } : { kind: 'ready' }
+        );
+        if (replay) expect(page.pageWindow.fetch).toBe(page.originalFetch);
+      }
+    }
+  });
+
+  it.each(['legacy-inline', 'staged-v2'] as const)(
+    'serializes owned null-prototype envelopes with early stringify in %s',
+    async mode => {
+      const bytes =
+        mode === 'staged-v2' ? new Uint8Array(16 * 1024 * 1024 + 1) : new Uint8Array([1, 2, 255]);
+      bytes[bytes.length - 1] = 255;
+      const page = fakePage(
+        mode === 'staged-v2' ? markedStagedOpaqueReplayUrl() : markedOpaqueReplayUrl(),
+        async input =>
+          (input as OpaqueTestRequest).url === SOURCE_RESPONSE_URL
+            ? new Response('{}', { headers: { 'content-type': 'application/json' } })
+            : new Response(bytes, { headers: { 'content-type': 'application/json' } }),
+        OpaqueTestRequest
+      );
+      // Separate page intrinsics so late poisoning never contaminates extension
+      // JSON/base64/Promise or the test runner's own objects.
+      const realm = createContext({ page: page.pageWindow });
+      runInContext(
+        `
+        page.Object = Object;
+        page.Reflect = Reflect;
+        page.JSON = JSON;
+        globalThis.window = page;
+        let poisonCalls = 0;
+        const poison = () => { poisonCalls += 1; throw new Error('page poison'); };
+      `,
+        realm
+      );
+      const nativeStringify = page.pageWindow.JSON.stringify;
+      const serialized: string[] = [];
+      const stringify = vi.fn((value: unknown) => {
+        const inspect = (record: unknown) => {
+          expect(Object.getPrototypeOf(record)).toBe(null);
+          for (const key of Reflect.ownKeys(record as object)) {
+            expect(typeof key).toBe('string');
+            const descriptor = Object.getOwnPropertyDescriptor(record, key)!;
+            expect(descriptor.enumerable).toBe(true);
+            expect('value' in descriptor).toBe(true);
+            if (typeof descriptor.value === 'object') inspect(descriptor.value);
+            else expect(['string', 'number', 'boolean']).toContain(typeof descriptor.value);
+          }
+        };
+        inspect(value);
+        const result = nativeStringify(value);
+        serialized.push(result);
+        return result;
+      });
+      page.pageWindow.JSON = { stringify } as unknown as JSON;
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+      runInContext(
+        `
+        Object.defineProperty(Object.prototype, 'toJSON', { get: poison });
+        Object.getPrototypeOf = poison;
+        Object.getOwnPropertyDescriptor = poison;
+        Object.create = poison;
+        Object.defineProperty = poison;
+        Reflect.ownKeys = poison;
+        Reflect.apply = poison;
+        page.JSON.stringify = poison;
+        JSON.stringify = poison;
+        page.atob = poison;
+        page.btoa = poison;
+      `,
+        realm
+      );
+      await page.pageWindow.fetch(
+        new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+          credentials: 'include',
+          headers: { authorization: 'synthetic-private-credential' },
+        }) as unknown as Request
+      );
+      await vi.waitFor(() =>
+        expect(opaqueReplaySnapshotOf(page)).toMatchObject({ kind: 'captured' })
+      );
+      const wire = Object.getOwnPropertyDescriptor(page.pageWindow, OPAQUE_REPLAY_STATE_KEY)!
+        .get!();
+      expect(typeof wire).toBe('string');
+      const calls = stringify.mock.calls.length;
+      for (let i = 0; i < 3; i += 1) {
+        expect(
+          Object.getOwnPropertyDescriptor(page.pageWindow, OPAQUE_REPLAY_STATE_KEY)!.get!()
+        ).toBe(wire);
+      }
+      expect(stringify).toHaveBeenCalledTimes(calls);
+      expect(serialized).toHaveLength(4); // ready, two safe failures, one cached terminal.
+      expect(runInContext('poisonCalls', realm)).toBe(0);
+      expect(opaqueReplaySnapshotOf(page)).toMatchObject({
+        capture: {
+          ...(mode === 'staged-v2'
+            ? { transport: 'staged', chunkCount: 33 }
+            : { bodyBase64: 'AQL/' }),
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+        singularDispatchCount: 1,
+      });
+      if (mode === 'staged-v2') {
+        const chunkWire = runInContext(
+          `(${readChatGptOpaqueReplayChunkState.toString()})('${NONCE}', 32)`,
+          realm
+        );
+        expect(typeof chunkWire).toBe('string');
+        const chunk = JSON.parse(chunkWire.slice('liska-opaque-replay-wire:1:chunk:'.length));
+        expect(chunk).toEqual({
+          kind: 'chunk',
+          nonce: NONCE,
+          index: 32,
+          offset: 16 * 1024 * 1024,
+          byteLength: 1,
+          chunkBase64: '/w==',
+        });
+        stringify.mockImplementationOnce(() => {
+          throw new Error('chunk serialization unavailable');
+        });
+        const failureWire = runInContext(
+          `(${readChatGptOpaqueReplayChunkState.toString()})('${NONCE}', 32)`,
+          realm
+        );
+        expect(parseChatGptOpaqueReplayStateWire(failureWire, NONCE, 'staged-v2')).toEqual({
+          kind: 'error',
+          code: 'hook-state-failed',
+          singularDispatchCount: 1,
+        });
+        expect(
+          Object.getOwnPropertyDescriptor(page.pageWindow, OPAQUE_REPLAY_STATE_KEY)!.get!()
+        ).toBe(wire);
+        expect(
+          runInContext(`(${readChatGptOpaqueReplayChunkState.toString()})('${NONCE}', 0)`, realm)
+        ).toBe('liska-opaque-replay-wire:missing');
+        expect(
+          runInContext(`(${releaseChatGptOpaqueReplayChunkState.toString()})('${NONCE}')`, realm)
+        ).toBe(false);
+        expect(runInContext('poisonCalls', realm)).toBe(0);
+      }
+      expect(wire).not.toContain('synthetic-private-credential');
+    }
+  );
+
+  it.each(['legacy-inline', 'staged-v2'] as const)(
+    'fails the whole %s producer closed after post-arming Promise poisoning',
+    async mode => {
+      const originalBytes = new TextEncoder().encode('{"source":"original"}');
+      const forgedBytes = new TextEncoder().encode('{"source":"forged"}');
+      const page = fakePage(
+        mode === 'staged-v2' ? markedStagedOpaqueReplayUrl() : markedOpaqueReplayUrl(),
+        async input =>
+          (input as OpaqueTestRequest).url === SOURCE_RESPONSE_URL
+            ? new Response('{}', { headers: { 'content-type': 'application/json' } })
+            : new Response(originalBytes, { headers: { 'content-type': 'application/json' } }),
+        OpaqueTestRequest
+      );
+      const realm = createContext({ page: page.pageWindow, forgedBytes });
+      runInContext('page.Promise = Promise', realm);
+
+      expect(startChatGptDocumentStartCapture(page.pageWindow)).toEqual({ kind: 'ready' });
+      runInContext(
+        `
+        const NativePromise = Promise;
+        const nativeThen = Promise.prototype.then;
+        Object.defineProperty(Promise.prototype, 'constructor', {
+          configurable: true,
+          value: { [Symbol.species]: NativePromise },
+        });
+        Object.defineProperty(Promise.prototype, 'then', {
+          configurable: true,
+          value(onFulfilled, onRejected) {
+            return Reflect.apply(nativeThen, this, [value => {
+              if (value && typeof value === 'object' && 'bytes' in value) {
+                return onFulfilled({ bytes: forgedBytes });
+              }
+              if (value instanceof ArrayBuffer) return onFulfilled(forgedBytes.buffer);
+              return onFulfilled(value);
+            }, onRejected]);
+          },
+        });
+      `,
+        realm
+      );
+
+      await page.pageWindow.fetch(
+        new OpaqueTestRequest(SOURCE_RESPONSE_URL, {
+          credentials: 'include',
+          headers: { authorization: 'synthetic-private-credential' },
+        }) as unknown as Request
+      );
+      await vi.waitFor(() =>
+        expect(opaqueReplaySnapshotOf(page)).toEqual({
+          kind: 'error',
+          code: 'response-processing-failed',
+          singularDispatchCount: 1,
+        })
+      );
+      expect(JSON.stringify(opaqueReplaySnapshotOf(page))).not.toContain(
+        Buffer.from(forgedBytes).toString('base64')
+      );
+    }
+  );
   it.each([
     ['probe', 'url', markedOpaqueProbeUrl],
     ['probe', 'redirected', markedOpaqueProbeUrl],
@@ -3775,7 +4123,13 @@ describe('startChatGptDocumentStartCapture', () => {
       expect(sourceResponse.bodyUsed).toBe(false);
       expect(clone).toHaveBeenCalledTimes(1);
       vi.stubGlobal('window', page.pageWindow);
-      expect(readChatGptOpaqueReplayState(NONCE)).toEqual(opaqueReplaySnapshotOf(page));
+      expect(
+        parseChatGptOpaqueReplayStateWire(
+          readChatGptOpaqueReplayState(NONCE),
+          NONCE,
+          'legacy-inline'
+        )
+      ).toEqual(opaqueReplaySnapshotOf(page));
       expect(JSON.stringify(opaqueReplaySnapshotOf(page))).not.toContain(
         'synthetic-authorization-sentinel'
       );
@@ -4504,12 +4858,12 @@ describe('startChatGptDocumentStartCapture', () => {
 
     vi.stubGlobal('window', staged.page.pageWindow);
     const first = readChatGptOpaqueReplayChunkState(NONCE, 0);
-    expect(first.kind).toBe('chunk');
+    expect(first.startsWith('liska-opaque-replay-wire:1:chunk:')).toBe(true);
     expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual(first);
-    expect(readChatGptOpaqueReplayChunkState(NONCE, 33)).toEqual({ kind: 'missing' });
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 33)).toBe('liska-opaque-replay-wire:missing');
     expect(releaseChatGptOpaqueReplayChunkState(NONCE)).toBe(true);
     expect(releaseChatGptOpaqueReplayChunkState(NONCE)).toBe(false);
-    expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toEqual({ kind: 'missing' });
+    expect(readChatGptOpaqueReplayChunkState(NONCE, 0)).toBe('liska-opaque-replay-wire:missing');
     expect(staged.page.originalFetch).toHaveBeenCalledTimes(2);
   });
 
@@ -5050,7 +5404,13 @@ describe('startChatGptDocumentStartCapture', () => {
       };
       expect(opaqueReplaySnapshotOf(page)).toEqual(terminal);
       vi.stubGlobal('window', page.pageWindow);
-      expect(readChatGptOpaqueReplayState(NONCE)).toEqual(terminal);
+      expect(
+        parseChatGptOpaqueReplayStateWire(
+          readChatGptOpaqueReplayState(NONCE),
+          NONCE,
+          'legacy-inline'
+        )
+      ).toEqual(terminal);
       expect(JSON.stringify(terminal)).not.toContain('sentinel');
       expect(JSON.stringify(terminal)).not.toContain(CONVERSATION_ID);
       expect(forbiddenRead).not.toHaveBeenCalled();

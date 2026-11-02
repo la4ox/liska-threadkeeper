@@ -27,7 +27,6 @@ import {
   createChatGptOpaqueReplayFailure,
   isChatGptOpaqueReplayHookResult,
   type ChatGptOpaqueReplayArtifact,
-  type ChatGptOpaqueReplayErrorCode,
   type ChatGptOpaqueReplayHookResult,
   type ChatGptOpaqueReplayResponse,
 } from '../lib/chatgpt-opaque-replay-contract';
@@ -39,6 +38,11 @@ const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 195_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const CLEANUP_STEP_TIMEOUT_MS = 500;
+const REPLAY_WIRE_PREFIX = 'liska-opaque-replay-wire:1:';
+const REPLAY_METADATA_WIRE_MAX_CHARS = 4_096;
+// Canonical base64 expansion plus bounded nonce/conversation/hash/media metadata.
+const REPLAY_INLINE_WIRE_MAX_CHARS = 4 * Math.ceil((16 * 1024 * 1024) / 3) + 4_096;
+const REPLAY_CHUNK_WIRE_MAX_CHARS = 4 * Math.ceil(ARCHIVE_STAGE_CHUNK_BYTES / 3) + 4_096;
 
 interface ReplayScriptInjection {
   target: { tabId: number; documentIds?: string[] };
@@ -83,7 +87,96 @@ export interface ChatGptOpaqueReplayDependencies {
 type HookState = ChatGptOpaqueReplayHookResult | { kind: 'missing' };
 type Readiness = 'ready' | 'waiting' | 'unexpected-origin' | 'unexpected-path';
 type PinnedDocument = { frameId: 0; documentId: string };
-type HookRead = { state: HookState; document?: PinnedDocument; documentMismatch?: true };
+type HookRead = {
+  state: HookState;
+  wire?: string;
+  document?: PinnedDocument;
+  documentMismatch?: true;
+};
+
+function exactWireKeys(
+  value: unknown,
+  expected: readonly string[]
+): value is Record<string, unknown> {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  )
+    return false;
+  const keys = Object.keys(value);
+  return keys.length === expected.length && expected.every(key => keys.includes(key));
+}
+
+function parseReplayWire(value: unknown, variant: string, limit: number): unknown {
+  const prefix = REPLAY_WIRE_PREFIX + variant + ':';
+  if (typeof value !== 'string' || value.length > limit || !value.startsWith(prefix))
+    return undefined;
+  try {
+    // Extension-realm only. No reviver, page objects, coercion or object transfer.
+    return JSON.parse(value.slice(prefix.length)) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Decode the internal primitive wire into the unchanged public hook contract. */
+export function parseChatGptOpaqueReplayStateWire(
+  value: unknown,
+  nonce: string,
+  mode: ChatGptOpaqueReplayTransportMode
+): HookState {
+  if (typeof value !== 'string' || value.length > REPLAY_INLINE_WIRE_MAX_CHARS)
+    return { kind: 'missing' };
+  for (const variant of ['ready', 'error', 'inline', 'staged']) {
+    const envelope = parseReplayWire(
+      value,
+      variant,
+      variant === 'inline' ? REPLAY_INLINE_WIRE_MAX_CHARS : REPLAY_METADATA_WIRE_MAX_CHARS
+    );
+    const keys =
+      variant === 'ready'
+        ? ['nonce', 'mode', 'kind']
+        : variant === 'error'
+          ? ['nonce', 'mode', 'kind', 'code', 'singularDispatchCount']
+          : ['nonce', 'mode', 'kind', 'conversationId', 'capture', 'singularDispatchCount'];
+    if (
+      !exactWireKeys(envelope, keys) ||
+      envelope.nonce !== nonce ||
+      envelope.mode !== mode ||
+      envelope.kind !== variant
+    )
+      continue;
+    const candidate =
+      variant === 'ready'
+        ? { kind: 'ready' }
+        : variant === 'error'
+          ? {
+              kind: 'error',
+              code: envelope.code,
+              singularDispatchCount: envelope.singularDispatchCount,
+            }
+          : {
+              kind: 'captured',
+              conversationId: envelope.conversationId,
+              capture: envelope.capture,
+              singularDispatchCount: envelope.singularDispatchCount,
+            };
+    if (!isChatGptOpaqueReplayHookResult(candidate)) return { kind: 'missing' };
+    if (candidate.kind === 'captured') {
+      const staged = 'transport' in candidate.capture;
+      if (staged !== (variant === 'staged') || (staged && mode !== 'staged-v2'))
+        return { kind: 'missing' };
+      if (
+        !('transport' in candidate.capture) &&
+        canonicalReplayBase64ByteLength(candidate.capture.bodyBase64) === undefined
+      )
+        return { kind: 'missing' };
+    }
+    return candidate;
+  }
+  return { kind: 'missing' };
+}
 
 class ReplayDeadlineError extends Error {}
 
@@ -244,6 +337,7 @@ async function readHookState(
   nonce: string,
   deadline: number,
   now: () => number,
+  mode: ChatGptOpaqueReplayTransportMode,
   pinnedDocument?: PinnedDocument
 ): Promise<HookRead> {
   try {
@@ -271,7 +365,8 @@ async function readHookState(
         : undefined;
     const result = entry?.result;
     return {
-      state: isChatGptOpaqueReplayHookResult(result) ? result : { kind: 'missing' },
+      state: parseChatGptOpaqueReplayStateWire(result, nonce, mode),
+      ...(typeof result === 'string' && { wire: result }),
       ...(document && { document }),
     };
   } catch {
@@ -279,8 +374,26 @@ async function readHookState(
   }
 }
 
+function canonicalReplayBase64ByteLength(value: string): number | undefined {
+  const length = canonicalBase64ByteLength(value);
+  if (length === undefined) return undefined;
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  if (value.endsWith('==') && alphabet.indexOf(value[value.length - 3]) % 16 !== 0)
+    return undefined;
+  if (
+    !value.endsWith('==') &&
+    value.endsWith('=') &&
+    alphabet.indexOf(value[value.length - 2]) % 4 !== 0
+  )
+    return undefined;
+  return length;
+}
+
 function strictBase64Bytes(value: string): Uint8Array | undefined {
-  if (canonicalBase64ByteLength(value) === undefined || typeof globalThis.atob !== 'function') {
+  if (
+    canonicalReplayBase64ByteLength(value) === undefined ||
+    typeof globalThis.atob !== 'function'
+  ) {
     return undefined;
   }
   try {
@@ -329,31 +442,18 @@ type ValidatedReplayChunk = { offset: number; byteLength: number; chunkBase64: s
 
 function validateReplayChunk(
   value: unknown,
+  nonce: string,
   capture: StagedHookCapture,
   index: number
 ): ValidatedReplayChunk | undefined {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  )
+  const chunk = parseReplayWire(value, 'chunk', REPLAY_CHUNK_WIRE_MAX_CHARS);
+  if (!exactWireKeys(chunk, ['kind', 'nonce', 'index', 'offset', 'byteLength', 'chunkBase64']))
     return undefined;
-  const keys = Reflect.ownKeys(value);
-  const expectedKeys = ['kind', 'index', 'offset', 'byteLength', 'chunkBase64'];
-  if (keys.length !== expectedKeys.length || !expectedKeys.every(key => keys.includes(key))) {
-    return undefined;
-  }
-  for (const key of expectedKeys) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor === undefined || !('value' in descriptor) || descriptor.enumerable !== true) {
-      return undefined;
-    }
-  }
-  const chunk = value as Record<string, unknown>;
   const expectedOffset = index * ARCHIVE_STAGE_CHUNK_BYTES;
   const expectedLength = Math.min(ARCHIVE_STAGE_CHUNK_BYTES, capture.byteLength - expectedOffset);
   if (
     chunk.kind !== 'chunk' ||
+    chunk.nonce !== nonce ||
     chunk.index !== index ||
     chunk.offset !== expectedOffset ||
     chunk.byteLength !== expectedLength ||
@@ -388,7 +488,7 @@ async function readPinnedReplayChunk(
     );
     const entry = execution.length === 1 ? execution[0] : undefined;
     if (entry?.frameId !== 0 || entry.documentId !== pinnedDocument.documentId) return undefined;
-    return validateReplayChunk(entry.result, capture, index);
+    return validateReplayChunk(entry.result, nonce, capture, index);
   } catch {
     return undefined;
   }
@@ -441,6 +541,7 @@ async function stageReplayCapture(
   nonce: string,
   target: ChatGptCaptureTarget,
   capture: StagedHookCapture,
+  initialWire: string,
   deadline: number
 ): Promise<ChatGptOpaqueReplayArtifact | undefined> {
   const descriptor: ArchiveStageDescriptor & {
@@ -548,10 +649,12 @@ async function stageReplayCapture(
       nonce,
       deadline,
       resolved.now,
+      resolved.transportMode,
       pinnedDocument
     );
     if (
       postSeal.documentMismatch ||
+      postSeal.wire !== initialWire ||
       postSeal.document?.documentId !== pinnedDocument.documentId ||
       postSeal.state.kind !== 'captured' ||
       postSeal.state.conversationId !== target.conversationId ||
@@ -597,6 +700,7 @@ async function verifiedReplayResponse(
   target: ChatGptCaptureTarget,
   state: Extract<ChatGptOpaqueReplayHookResult, { kind: 'captured' }>,
   deadline: number,
+  terminalWire: string,
   pinnedDocument?: PinnedDocument
 ): Promise<ChatGptOpaqueReplayResponse> {
   if (state.conversationId !== target.conversationId || state.singularDispatchCount !== 1) {
@@ -617,6 +721,7 @@ async function verifiedReplayResponse(
               nonce,
               target,
               state.capture,
+              terminalWire,
               deadline
             )
           : undefined
@@ -682,6 +787,7 @@ async function waitForReplayResult(
       nonce,
       deadline,
       resolved.now,
+      resolved.transportMode,
       pinnedDocument
     );
     if (read.documentMismatch) {
@@ -705,6 +811,7 @@ async function waitForReplayResult(
         target,
         state,
         deadline,
+        read.wire!,
         pinnedDocument
       );
     }
@@ -808,349 +915,41 @@ export async function captureChatGptConversationViaOpaqueReplay(
 }
 
 /**
- * Serialized MAIN-world state reader. It is deliberately self-contained: the
- * page may mutate globals, and background repeats the full strict validation.
+ * Synchronous serialized MAIN thunks. No page-realm validation/copying: even a
+ * fresh object is unsafe because Chromium Promise-assimilates script returns
+ * (including inherited thenables). Only the early immutable hook emits wire.
  */
-// eslint-disable-next-line complexity, max-lines-per-function -- This function is serialized into MAIN world and must retain its exact primitive gate.
-export function readChatGptOpaqueReplayState(nonce: string): HookState {
+export function readChatGptOpaqueReplayState(nonce: string): string {
   try {
-    const hasExactStringKeys = (value: object, expected: readonly string[]): boolean => {
-      if (Object.getPrototypeOf(value) !== Object.prototype) return false;
-      const keys = Reflect.ownKeys(value);
-      if (keys.length !== expected.length) return false;
-      for (let expectedIndex = 0; expectedIndex < expected.length; expectedIndex += 1) {
-        let found = false;
-        for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
-          if (keys[keyIndex] === expected[expectedIndex]) {
-            found = true;
-            break;
-          }
-        }
-        if (!found) return false;
-        const descriptor = Object.getOwnPropertyDescriptor(value, expected[expectedIndex]);
-        if (
-          descriptor === undefined ||
-          !('value' in descriptor) ||
-          descriptor.enumerable !== true
-        ) {
-          return false;
-        }
-      }
-      return true;
-    };
-    const codes = [
-      'invalid-conversation-id',
-      'permission-unavailable',
-      'nonce-unavailable',
-      'nonce-invalid',
-      'temporary-tab-create-failed',
-      'temporary-tab-missing-id',
-      'unexpected-origin',
-      'unexpected-path',
-      'temporary-tab-ready-timeout',
-      'replay-result-timeout',
-      'hook-state-failed',
-      'target-not-observed',
-      'target-not-observed-singular-path-seen',
-      'source-not-native-request',
-      'init-security-sensitive',
-      'init-security-sensitive-headers',
-      'init-security-sensitive-headers-distinct',
-      'init-security-sensitive-headers-native-distinct',
-      'init-security-sensitive-headers-unbranded-shape',
-      'init-security-sensitive-headers-unbranded-prototype',
-      'init-security-sensitive-headers-unbranded-inherited',
-      'init-security-sensitive-headers-unbranded-symbol',
-      'init-security-sensitive-headers-unbranded-descriptor',
-      'init-security-sensitive-headers-unbranded-accessor',
-      'init-security-sensitive-headers-unbranded-limit',
-      'init-security-sensitive-headers-unbranded-entry',
-      'init-security-sensitive-headers-unbranded-unstable',
-      'init-security-sensitive-headers-unbranded-reflection',
-      'init-security-sensitive-body',
-      'init-security-sensitive-method',
-      'init-security-sensitive-credentials',
-      'init-security-sensitive-multiple',
-      'init-unsupported',
-      'init-unsupported-prototype',
-      'init-unsupported-inherited',
-      'init-unsupported-symbol',
-      'init-unsupported-member',
-      'init-unsupported-accessor',
-      'init-unsupported-reflection',
-      'target-mismatch',
-      'document-target-mismatch',
-      'source-request-target-mismatch',
-      'source-request-method-mismatch',
-      'source-response-target-mismatch',
-      'clone-failed',
-      'authorization-absent',
-      'credentials-rejected',
-      'source-rejected',
-      'source-http-error',
-      'source-non-json',
-      'source-response-timeout',
-      'replay-construction-failed',
-      'replay-dispatch-failed',
-      'replay-rejected',
-      'replay-http-error',
-      'replay-non-json',
-      'replay-response-timeout',
-      'response-processing-failed',
-      'payload-too-large',
-      'timed-out',
-      'replay-result-invalid',
-      'response-integrity-invalid',
-      'hash-unavailable',
+    const wire = (window as unknown as Record<string, unknown>)[
+      `__liskaChatGptOpaqueReplay_${nonce}`
     ];
-    if (typeof nonce !== 'string' || !/^[a-z0-9-]{16,128}$/i.test(nonce)) {
-      return { kind: 'missing' };
-    }
-    const pageWindow = window as unknown as Record<string, unknown>;
-    const snapshot = pageWindow[`__liskaChatGptOpaqueReplay_${nonce}`];
-    if (typeof snapshot !== 'object' || snapshot === null) return { kind: 'missing' };
-    const state = snapshot as Record<string, unknown>;
-    const kindDescriptor = Object.getOwnPropertyDescriptor(state, 'kind');
-    if (kindDescriptor === undefined || !('value' in kindDescriptor)) return { kind: 'missing' };
-    const kind = kindDescriptor.value;
-    if (kind === 'ready' && hasExactStringKeys(state, ['kind'])) return { kind: 'ready' };
-    if (
-      kind === 'error' &&
-      hasExactStringKeys(state, ['kind', 'code', 'singularDispatchCount']) &&
-      typeof state.code === 'string' &&
-      codes.includes(state.code) &&
-      (state.singularDispatchCount === 0 || state.singularDispatchCount === 1)
-    ) {
-      return {
-        kind: 'error',
-        code: state.code as ChatGptOpaqueReplayErrorCode,
-        singularDispatchCount: state.singularDispatchCount,
-      };
-    }
-    if (
-      kind !== 'captured' ||
-      !hasExactStringKeys(state, ['kind', 'conversationId', 'capture', 'singularDispatchCount']) ||
-      typeof state.conversationId !== 'string' ||
-      state.singularDispatchCount !== 1 ||
-      typeof state.capture !== 'object' ||
-      state.capture === null
-    ) {
-      return { kind: 'missing' };
-    }
-    const capture = state.capture as Record<string, unknown>;
-    const transportDescriptor = Object.getOwnPropertyDescriptor(capture, 'transport');
-    const versionDescriptor = Object.getOwnPropertyDescriptor(capture, 'transportVersion');
-    if (transportDescriptor !== undefined || versionDescriptor !== undefined) {
-      if (
-        !hasExactStringKeys(capture, [
-          'transportVersion',
-          'transport',
-          'byteLength',
-          'sha256',
-          'mediaType',
-          'chunkCount',
-        ])
-      ) {
-        return { kind: 'missing' };
-      }
-      const byteLength = capture.byteLength;
-      const chunkCount = capture.chunkCount;
-      if (
-        typeof byteLength !== 'number' ||
-        byteLength !== byteLength ||
-        byteLength <= 16 * 1024 * 1024 ||
-        byteLength > 64 * 1024 * 1024 ||
-        byteLength % 1 !== 0 ||
-        typeof chunkCount !== 'number' ||
-        chunkCount !== chunkCount ||
-        chunkCount <= 0 ||
-        chunkCount > 128 ||
-        chunkCount % 1 !== 0
-      ) {
-        return { kind: 'missing' };
-      }
-      const chunkBytes = 512 * 1024;
-      const adjustedLength = byteLength + chunkBytes - 1;
-      const expectedChunkCount = (adjustedLength - (adjustedLength % chunkBytes)) / chunkBytes;
-      if (
-        capture.transportVersion !== 1 ||
-        capture.transport !== 'staged' ||
-        chunkCount !== expectedChunkCount ||
-        typeof capture.sha256 !== 'string' ||
-        !/^[a-f0-9]{64}$/.test(capture.sha256) ||
-        typeof capture.mediaType !== 'string'
-      ) {
-        return { kind: 'missing' };
-      }
-      return {
-        kind: 'captured',
-        conversationId: state.conversationId,
-        capture: {
-          transportVersion: 1,
-          transport: 'staged',
-          byteLength,
-          sha256: capture.sha256,
-          mediaType: capture.mediaType,
-          chunkCount,
-        },
-        singularDispatchCount: 1,
-      };
-    }
-    if (!hasExactStringKeys(capture, ['bodyBase64', 'byteLength', 'sha256', 'mediaType'])) {
-      return { kind: 'missing' };
-    }
-    if (
-      typeof capture.bodyBase64 !== 'string' ||
-      typeof capture.byteLength !== 'number' ||
-      typeof capture.sha256 !== 'string' ||
-      typeof capture.mediaType !== 'string'
-    ) {
-      return { kind: 'missing' };
-    }
-    return {
-      kind: 'captured',
-      conversationId: state.conversationId,
-      capture: {
-        bodyBase64: capture.bodyBase64,
-        byteLength: capture.byteLength,
-        sha256: capture.sha256,
-        mediaType: capture.mediaType,
-      },
-      singularDispatchCount: 1,
-    };
+    return typeof wire === 'string' ? wire : 'liska-opaque-replay-wire:missing';
   } catch {
-    return { kind: 'missing' };
+    return 'liska-opaque-replay-wire:missing';
   }
 }
 
-/** Serialized exact-range reader for one nonce-scoped staged replay chunk. */
-export function readChatGptOpaqueReplayChunkState(
-  nonce: string,
-  index: number
-):
-  | { kind: 'chunk'; index: number; offset: number; byteLength: number; chunkBase64: string }
-  | { kind: 'missing' } {
+/** Direct-call the early nonwritable reader; return only a primitive string. */
+export function readChatGptOpaqueReplayChunkState(nonce: string, index: number): string {
   try {
-    const exactDataKeys = (value: object, expected: readonly string[]): boolean => {
-      if (Object.getPrototypeOf(value) !== Object.prototype) return false;
-      const keys = Reflect.ownKeys(value);
-      if (keys.length !== expected.length) return false;
-      for (const key of expected) {
-        if (!keys.includes(key)) return false;
-        const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (
-          descriptor === undefined ||
-          !('value' in descriptor) ||
-          descriptor.enumerable !== true
-        ) {
-          return false;
-        }
-      }
-      return true;
-    };
-    if (
-      typeof nonce !== 'string' ||
-      !/^[a-z0-9-]{16,128}$/i.test(nonce) ||
-      typeof index !== 'number' ||
-      index !== index ||
-      index < 0 ||
-      index % 1 !== 0
-    ) {
-      return { kind: 'missing' };
-    }
-    const pageWindow = window as unknown as Record<string, unknown>;
-    const snapshot = pageWindow[`__liskaChatGptOpaqueReplay_${nonce}`];
-    if (typeof snapshot !== 'object' || snapshot === null) return { kind: 'missing' };
-    const state = snapshot as Record<string, unknown>;
-    if (
-      !exactDataKeys(state, ['kind', 'conversationId', 'capture', 'singularDispatchCount']) ||
-      state.kind !== 'captured' ||
-      state.singularDispatchCount !== 1 ||
-      typeof state.capture !== 'object' ||
-      state.capture === null
-    ) {
-      return { kind: 'missing' };
-    }
-    const capture = state.capture as Record<string, unknown>;
-    if (
-      !exactDataKeys(capture, [
-        'transportVersion',
-        'transport',
-        'byteLength',
-        'sha256',
-        'mediaType',
-        'chunkCount',
-      ]) ||
-      capture.transportVersion !== 1 ||
-      capture.transport !== 'staged' ||
-      typeof capture.byteLength !== 'number' ||
-      capture.byteLength !== capture.byteLength ||
-      capture.byteLength <= 16 * 1024 * 1024 ||
-      capture.byteLength > 64 * 1024 * 1024 ||
-      capture.byteLength % 1 !== 0 ||
-      typeof capture.chunkCount !== 'number' ||
-      capture.chunkCount !== capture.chunkCount ||
-      capture.chunkCount <= 0 ||
-      capture.chunkCount > 128 ||
-      capture.chunkCount % 1 !== 0 ||
-      index >= capture.chunkCount
-    ) {
-      return { kind: 'missing' };
-    }
-    const totalByteLength = capture.byteLength;
-    const chunkCount = capture.chunkCount;
-    const chunkBytes = 512 * 1024;
-    const adjustedLength = totalByteLength + chunkBytes - 1;
-    const expectedChunkCount = (adjustedLength - (adjustedLength % chunkBytes)) / chunkBytes;
-    if (chunkCount !== expectedChunkCount) return { kind: 'missing' };
-    const reader = pageWindow[`__liskaChatGptOpaqueReplayChunkReader_${nonce}`];
-    if (typeof reader !== 'function') return { kind: 'missing' };
-    const chunk = reader(index);
-    if (typeof chunk !== 'object' || chunk === null) return { kind: 'missing' };
-    if (!exactDataKeys(chunk, ['kind', 'index', 'offset', 'byteLength', 'chunkBase64'])) {
-      return { kind: 'missing' };
-    }
-    const record = chunk as Record<string, unknown>;
-    const offset = index * 512 * 1024;
-    const remaining = totalByteLength - offset;
-    const chunkByteLength = remaining < 512 * 1024 ? remaining : 512 * 1024;
-    const expectedBase64Length =
-      4 *
-      (chunkByteLength % 3 === 0
-        ? chunkByteLength / 3
-        : (chunkByteLength + (3 - (chunkByteLength % 3))) / 3);
-    if (
-      record.kind !== 'chunk' ||
-      record.index !== index ||
-      record.offset !== offset ||
-      record.byteLength !== chunkByteLength ||
-      typeof record.chunkBase64 !== 'string' ||
-      record.chunkBase64.length !== expectedBase64Length
-    ) {
-      return { kind: 'missing' };
-    }
-    const binary = atob(record.chunkBase64);
-    if (binary.length !== chunkByteLength || btoa(binary) !== record.chunkBase64) {
-      return { kind: 'missing' };
-    }
-    return {
-      kind: 'chunk',
-      index,
-      offset,
-      byteLength: chunkByteLength,
-      chunkBase64: record.chunkBase64,
-    };
+    const reader = (window as unknown as Record<string, unknown>)[
+      `__liskaChatGptOpaqueReplayChunkReader_${nonce}`
+    ];
+    if (typeof reader !== 'function') return 'liska-opaque-replay-wire:missing';
+    const wire = reader(index);
+    return typeof wire === 'string' ? wire : 'liska-opaque-replay-wire:missing';
   } catch {
-    return { kind: 'missing' };
+    return 'liska-opaque-replay-wire:missing';
   }
 }
 
-/** Serialized one-way release for the staged byte reader. */
+/** Serialized one-way release; primitive boolean cannot be Promise-assimilated. */
 export function releaseChatGptOpaqueReplayChunkState(nonce: string): boolean {
   try {
-    if (typeof nonce !== 'string' || !/^[a-z0-9-]{16,128}$/i.test(nonce)) return false;
-    const pageWindow = window as unknown as Record<string, unknown>;
-    const release = pageWindow[`__liskaChatGptOpaqueReplayChunkRelease_${nonce}`];
+    const release = (window as unknown as Record<string, unknown>)[
+      `__liskaChatGptOpaqueReplayChunkRelease_${nonce}`
+    ];
     return typeof release === 'function' && release() === true;
   } catch {
     return false;

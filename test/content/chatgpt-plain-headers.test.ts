@@ -3,7 +3,10 @@ import { URL as NodeURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startChatGptDocumentStartCapture } from '../../src/content/capture/chatgpt-document-start';
 import { readChatGptOpaqueProbeState } from '../../src/background/chatgpt-opaque-probe';
-import { readChatGptOpaqueReplayState } from '../../src/background/chatgpt-opaque-replay';
+import {
+  readChatGptOpaqueReplayState,
+  parseChatGptOpaqueReplayStateWire,
+} from '../../src/background/chatgpt-opaque-replay';
 
 const ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const NONCE = 'f8c1f0a5-b3dd-4d2a-9a11-8e915f6c3e72';
@@ -84,6 +87,7 @@ function setup(
     ReadableStream,
     ReadableStreamDefaultReader,
     Object: pagePrimitives.Object ?? Object,
+    JSON,
     Reflect: pagePrimitives.Reflect ?? Reflect,
     URL: NodeURL,
     URLSearchParams,
@@ -112,8 +116,12 @@ function setup(
         : mode === 'active-resolver'
           ? 'ActiveResolver'
           : 'OpaqueReplay';
-  const snapshot = () =>
-    Object.getOwnPropertyDescriptor(page, `__liskaChatGpt${key}_${NONCE}`)?.get?.();
+  const snapshot = () => {
+    const value = Object.getOwnPropertyDescriptor(page, `__liskaChatGpt${key}_${NONCE}`)?.get?.();
+    return mode === 'opaque-replay'
+      ? parseChatGptOpaqueReplayStateWire(value, NONCE, 'legacy-inline')
+      : value;
+  };
   expect(startChatGptDocumentStartCapture(page)).toEqual({ kind: 'ready' });
   return { page, base, original, constructed, requestInits, initShapes, snapshot };
 }
@@ -170,7 +178,11 @@ function expectHeaderRejection(fixture: ReturnType<typeof setup>, mode: string, 
   vi.stubGlobal('window', fixture.page);
   expect(
     mode === 'opaque-replay'
-      ? readChatGptOpaqueReplayState(NONCE)
+      ? parseChatGptOpaqueReplayStateWire(
+          readChatGptOpaqueReplayState(NONCE),
+          NONCE,
+          'legacy-inline'
+        )
       : readChatGptOpaqueProbeState(NONCE)
   ).toEqual(snapshot);
   expect(JSON.stringify(snapshot)).not.toContain(SENTINEL);
@@ -1155,7 +1167,13 @@ describe('ChatGPT replay strict plain-header snapshots', () => {
       expect(prebuilt.signal.aborted).toBe(true);
       expect(timers.size).toBe(0);
       vi.stubGlobal('window', fixture.page);
-      expect(readChatGptOpaqueReplayState(NONCE)).toEqual(fixture.snapshot());
+      expect(
+        parseChatGptOpaqueReplayStateWire(
+          readChatGptOpaqueReplayState(NONCE),
+          NONCE,
+          'legacy-inline'
+        )
+      ).toEqual(fixture.snapshot());
       const serialized = JSON.stringify(fixture.snapshot());
       expect(serialized).not.toContain(SENTINEL);
       expect(serialized).not.toContain('x-synthetic');

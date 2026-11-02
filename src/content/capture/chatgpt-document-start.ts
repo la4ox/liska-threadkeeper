@@ -142,6 +142,7 @@ type DocumentPrimordials = {
   documentReceiver: Document | undefined;
   documentBaseURI: CapturedCallable | undefined;
   objectCreate: typeof Object.create | undefined;
+  jsonStringify: typeof JSON.stringify | undefined;
   objectDefineProperty: typeof Object.defineProperty | undefined;
   objectGetOwnPropertyDescriptor: typeof Object.getOwnPropertyDescriptor | undefined;
   objectGetPrototypeOf: typeof Object.getPrototypeOf | undefined;
@@ -179,6 +180,8 @@ type DocumentPrimordials = {
   urlPathname: CapturedCallable | undefined;
   urlSearch: CapturedCallable | undefined;
   urlHash: CapturedCallable | undefined;
+  promiseConstructor: typeof Promise | undefined;
+  promisePrototype: object | undefined;
   promiseThen: CapturedCallable | undefined;
   arrayIsArray: CapturedCallable | undefined;
   arrayPush: CapturedCallable | undefined;
@@ -266,6 +269,16 @@ function getterAt(
   }
 }
 
+function snapshotJsonStringify(pageWindow: PageWindow): typeof JSON.stringify | undefined {
+  try {
+    const stringify = pageWindow.JSON?.stringify;
+    return typeof stringify === 'function' ? stringify : undefined;
+  } catch {
+    // Serialization is required only by opaque replay, not sibling hook modes.
+    return undefined;
+  }
+}
+
 /** Capture every later-used page primitive while document_start still wins the race. */
 function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordials {
   const NativeObject = pageWindow.Object;
@@ -303,6 +316,7 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     documentReceiver: pageWindow.document,
     documentBaseURI: getterAt(getOwnPropertyDescriptor, pageWindow.Node?.prototype, 'baseURI'),
     objectCreate: typeof NativeObject?.create === 'function' ? NativeObject.create : undefined,
+    jsonStringify: snapshotJsonStringify(pageWindow),
     objectDefineProperty:
       typeof NativeObject?.defineProperty === 'function' ? NativeObject.defineProperty : undefined,
     objectGetOwnPropertyDescriptor:
@@ -346,6 +360,8 @@ function snapshotDocumentPrimordials(pageWindow: PageWindow): DocumentPrimordial
     urlPathname: getterAt(getOwnPropertyDescriptor, urlPrototype, 'pathname'),
     urlSearch: getterAt(getOwnPropertyDescriptor, urlPrototype, 'search'),
     urlHash: getterAt(getOwnPropertyDescriptor, urlPrototype, 'hash'),
+    promiseConstructor: typeof NativePromise === 'function' ? NativePromise : undefined,
+    promisePrototype: NativePromise?.prototype,
     promiseThen: methodAt(NativePromise?.prototype, 'then'),
     arrayIsArray:
       typeof NativeArray?.isArray === 'function'
@@ -377,6 +393,33 @@ function applyCaptured<T>(
     throw PRIMORDIAL_UNAVAILABLE;
   }
   return primordials.document.reflectApply(callback, receiver, argumentsList) as T;
+}
+
+/** Fail closed if page code changes Promise fulfillment delivery after arming. */
+function assertPromiseIntegrity(primordials: PagePrimordials): void {
+  const document = primordials.document;
+  const getOwnPropertyDescriptor = document.objectGetOwnPropertyDescriptor;
+  const promisePrototype = document.promisePrototype;
+  if (
+    getOwnPropertyDescriptor === undefined ||
+    promisePrototype === undefined ||
+    document.promiseConstructor === undefined ||
+    document.promiseThen === undefined
+  ) {
+    throw PRIMORDIAL_UNAVAILABLE;
+  }
+  const constructorDescriptor = getOwnPropertyDescriptor(promisePrototype, 'constructor');
+  const thenDescriptor = getOwnPropertyDescriptor(promisePrototype, 'then');
+  if (
+    constructorDescriptor === undefined ||
+    !('value' in constructorDescriptor) ||
+    constructorDescriptor.value !== document.promiseConstructor ||
+    thenDescriptor === undefined ||
+    !('value' in thenDescriptor) ||
+    thenDescriptor.value !== document.promiseThen
+  ) {
+    throw PRIMORDIAL_UNAVAILABLE;
+  }
 }
 
 function markerTargetFromHref(href: string): MarkerTarget | undefined {
@@ -494,6 +537,8 @@ function hasArmingPrimordials(primordials: PagePrimordials): boolean {
     document.URL !== undefined &&
     document.objectDefineProperty !== undefined &&
     document.objectGetOwnPropertyDescriptor !== undefined &&
+    document.promiseConstructor !== undefined &&
+    document.promisePrototype !== undefined &&
     document.stringToUpperCase !== undefined &&
     document.promiseThen !== undefined &&
     primordials.setTimeout !== undefined &&
@@ -811,6 +856,7 @@ async function readBoundedClone(
   response: Response,
   maxBytes: number
 ): Promise<CapturedBytesEnvelope> {
+  assertPromiseIntegrity(primordials);
   const NativeUint8Array = primordials.document.uint8Array;
   if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
 
@@ -822,9 +868,12 @@ async function readBoundedClone(
       response,
       []
     );
+    assertPromiseIntegrity(primordials);
     const bytes = new NativeUint8Array(buffer);
     if (uint8ArrayByteLength(primordials, bytes) > maxBytes) throw PAYLOAD_TOO_LARGE;
-    return capturedBytesEnvelope(primordials, bytes);
+    const envelope = capturedBytesEnvelope(primordials, bytes);
+    assertPromiseIntegrity(primordials);
+    return envelope;
   }
 
   const reader = applyCaptured<ReadableStreamDefaultReader<Uint8Array>>(
@@ -846,6 +895,7 @@ async function readBoundedClone(
       reader,
       []
     );
+    assertPromiseIntegrity(primordials);
     if (next.done) break;
     const chunk = next.value;
     if (chunk === undefined) throw PRIMORDIAL_UNAVAILABLE;
@@ -867,7 +917,9 @@ async function readBoundedClone(
     applyCaptured<void>(primordials, primordials.document.uint8ArraySet, bytes, [chunk, offset]);
     offset += chunkLengths[index];
   }
-  return capturedBytesEnvelope(primordials, bytes);
+  const envelope = capturedBytesEnvelope(primordials, bytes);
+  assertPromiseIntegrity(primordials);
+  return envelope;
 }
 
 const BASE64_DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -921,6 +973,7 @@ function base64FromBytes(primordials: PagePrimordials, bytes: Uint8Array): strin
 }
 
 async function sha256FromBytes(primordials: PagePrimordials, bytes: Uint8Array): Promise<string> {
+  assertPromiseIntegrity(primordials);
   const exactBuffer = exactArrayBufferFromBytes(primordials, bytes);
   const digest = await applyCaptured<ArrayBuffer>(
     primordials,
@@ -928,6 +981,7 @@ async function sha256FromBytes(primordials: PagePrimordials, bytes: Uint8Array):
     primordials.subtleReceiver,
     ['SHA-256', exactBuffer]
   );
+  assertPromiseIntegrity(primordials);
   const NativeUint8Array = primordials.document.uint8Array;
   if (NativeUint8Array === undefined) throw PRIMORDIAL_UNAVAILABLE;
   const digestBytes = new NativeUint8Array(digest);
@@ -3156,13 +3210,15 @@ type OpaqueReplayPageState = {
   abortController: AbortController | undefined;
   prebuiltRequest: Request | undefined;
   stagedBytes: Uint8Array | undefined;
-  stagedCaptureReader: CaptureChunkReader | undefined;
+  stagedCaptureReader: ((index: number) => string) | undefined;
   stagedReaderExpiryTimeoutId: ReturnType<typeof window.setTimeout> | undefined;
   settled: boolean;
   claimed: boolean;
   singularPathSeen: boolean;
   singularDispatchCount: 0 | 1;
-  result: OpaqueReplayHookResult;
+  wire: string;
+  failedWireBeforeDispatch: string;
+  failedWireAfterDispatch: string;
 };
 
 type OpaqueReplayPreparation = {
@@ -3184,37 +3240,87 @@ function opaqueReplayChunkReleaseKeyFor(nonce: string): string {
   return `__liskaChatGptOpaqueReplayChunkRelease_${nonce}`;
 }
 
-function snapshotOpaqueReplayResult(result: OpaqueReplayHookResult): OpaqueReplayHookResult {
-  if (result.kind === 'ready') return { kind: 'ready' };
-  if (result.kind === 'error') {
-    return {
-      kind: 'error',
-      code: result.code,
-      singularDispatchCount: result.singularDispatchCount,
-    };
+// This internal wire version is independent of URL marker 1/2 and staged
+// transportVersion. Only closure-owned null-prototype records reach stringify:
+// neither inherited toJSON nor Chromium's Promise-like result assimilation can
+// substitute the payload. Successful early immutable installation is the root
+// of provenance; the nonce is correlation, not authentication.
+const OPAQUE_REPLAY_WIRE_PREFIX = 'liska-opaque-replay-wire:1:';
+const OPAQUE_REPLAY_WIRE_MISSING = 'liska-opaque-replay-wire:missing';
+
+function replayWireRecord(primordials: PagePrimordials): Record<string, unknown> {
+  const create = primordials.document.objectCreate;
+  if (create === undefined) throw PRIMORDIAL_UNAVAILABLE;
+  return create(null) as Record<string, unknown>;
+}
+
+function replayWireField(
+  primordials: PagePrimordials,
+  record: Record<string, unknown>,
+  key: string,
+  value: string | number | Record<string, unknown>
+): void {
+  const define = primordials.document.objectDefineProperty;
+  if (define === undefined) throw PRIMORDIAL_UNAVAILABLE;
+  if (
+    typeof value === 'number' &&
+    (value !== value || value < 0 || value > STAGED_CAPTURE_MAX_BYTES || value % 1 !== 0)
+  )
+    throw PRIMORDIAL_UNAVAILABLE;
+  // The descriptor is also null-prototype: ToPropertyDescriptor must not see
+  // page-added inherited getters/setters.
+  const descriptor = replayWireRecord(primordials);
+  descriptor.value = value;
+  descriptor.enumerable = true;
+  define(record, key, descriptor);
+}
+
+function stringifyReplayWire(
+  primordials: PagePrimordials,
+  envelope: Record<string, unknown>
+): string {
+  const stringify = primordials.document.jsonStringify;
+  if (stringify === undefined) throw PRIMORDIAL_UNAVAILABLE;
+  const json = stringify(envelope);
+  if (typeof json !== 'string') throw PRIMORDIAL_UNAVAILABLE;
+  return OPAQUE_REPLAY_WIRE_PREFIX + envelope.kind + ':' + json;
+}
+
+function opaqueReplayStateWire(
+  primordials: PagePrimordials,
+  target: MarkerTarget,
+  result: OpaqueReplayHookResult
+): string {
+  const envelope = replayWireRecord(primordials);
+  const field = (key: string, value: string | number | Record<string, unknown>): void =>
+    replayWireField(primordials, envelope, key, value);
+  field('nonce', target.nonce);
+  field('mode', target.replayTransportVersion === 1 ? 'staged-v2' : 'legacy-inline');
+  if (result.kind === 'ready') {
+    field('kind', 'ready');
+  } else if (result.kind === 'error') {
+    field('kind', 'error');
+    field('code', result.code);
+    field('singularDispatchCount', result.singularDispatchCount);
+  } else {
+    const capture = result.capture;
+    const metadata = replayWireRecord(primordials);
+    field('kind', 'transport' in capture ? 'staged' : 'inline');
+    field('conversationId', result.conversationId);
+    field('singularDispatchCount', 1);
+    replayWireField(primordials, metadata, 'byteLength', capture.byteLength);
+    replayWireField(primordials, metadata, 'sha256', capture.sha256);
+    replayWireField(primordials, metadata, 'mediaType', capture.mediaType);
+    if ('transport' in capture) {
+      replayWireField(primordials, metadata, 'transportVersion', 1);
+      replayWireField(primordials, metadata, 'transport', 'staged');
+      replayWireField(primordials, metadata, 'chunkCount', capture.chunkCount);
+    } else {
+      replayWireField(primordials, metadata, 'bodyBase64', capture.bodyBase64);
+    }
+    field('capture', metadata);
   }
-  const capture = result.capture;
-  return {
-    kind: 'captured',
-    conversationId: result.conversationId,
-    capture:
-      'transport' in capture
-        ? {
-            transportVersion: 1,
-            transport: 'staged',
-            byteLength: capture.byteLength,
-            sha256: capture.sha256,
-            mediaType: capture.mediaType,
-            chunkCount: capture.chunkCount,
-          }
-        : {
-            bodyBase64: capture.bodyBase64,
-            byteLength: capture.byteLength,
-            sha256: capture.sha256,
-            mediaType: capture.mediaType,
-          },
-    singularDispatchCount: 1,
-  };
+  return stringifyReplayWire(primordials, envelope);
 }
 
 function hasOpaqueReplayArmingPrimordials(primordials: PagePrimordials): boolean {
@@ -3443,7 +3549,7 @@ function installOpaqueReplayChunkReader(
     []
   );
   state.stagedBytes = bytes;
-  state.stagedCaptureReader = (index: number): CaptureChunk | { kind: 'missing' } => {
+  state.stagedCaptureReader = (index: number): string => {
     try {
       if (
         state.stagedBytes !== bytes ||
@@ -3454,23 +3560,31 @@ function installOpaqueReplayChunkReader(
         index < 0 ||
         index >= chunkCount
       ) {
-        return { kind: 'missing' };
+        return OPAQUE_REPLAY_WIRE_MISSING;
       }
       const offset = index * STAGED_CAPTURE_CHUNK_BYTES;
       const remaining = byteLength - offset;
       const chunkLength =
         remaining < STAGED_CAPTURE_CHUNK_BYTES ? remaining : STAGED_CAPTURE_CHUNK_BYTES;
       const chunkBytes = new NativeUint8Array(buffer, offset, chunkLength);
-      return {
-        kind: 'chunk',
-        index,
-        offset,
-        byteLength: chunkLength,
-        chunkBase64: base64FromBytes(state.primordials, chunkBytes),
-      };
+      const envelope = replayWireRecord(state.primordials);
+      replayWireField(state.primordials, envelope, 'kind', 'chunk');
+      replayWireField(state.primordials, envelope, 'nonce', state.target.nonce);
+      replayWireField(state.primordials, envelope, 'index', index);
+      replayWireField(state.primordials, envelope, 'offset', offset);
+      replayWireField(state.primordials, envelope, 'byteLength', chunkLength);
+      replayWireField(
+        state.primordials,
+        envelope,
+        'chunkBase64',
+        base64FromBytes(state.primordials, chunkBytes)
+      );
+      return stringifyReplayWire(state.primordials, envelope);
     } catch {
       clearOpaqueReplayChunkReader(pageWindow, state);
-      return { kind: 'missing' };
+      // No object fallback on serialization failure. Keep the cached terminal
+      // state stable, but return the precomputed safe failure to this reader.
+      return state.failedWireAfterDispatch;
     }
   };
   state.stagedReaderExpiryTimeoutId = applyCaptured<ReturnType<typeof pageWindow.setTimeout>>(
@@ -3488,9 +3602,18 @@ function finishOpaqueReplay(
 ): void {
   if (state.settled) return;
   state.settled = true;
-  state.result = result;
+  let serialized = false;
+  try {
+    state.wire = opaqueReplayStateWire(state.primordials, state.target, result);
+    serialized = true;
+  } catch {
+    state.wire =
+      state.singularDispatchCount === 1
+        ? state.failedWireAfterDispatch
+        : state.failedWireBeforeDispatch;
+  }
   state.prebuiltRequest = undefined;
-  if (result.kind !== 'captured' || !('transport' in result.capture)) {
+  if (!serialized || result.kind !== 'captured' || !('transport' in result.capture)) {
     clearOpaqueReplayChunkReader(pageWindow, state);
   }
   if (state.timeoutId !== undefined) {
@@ -3689,6 +3812,7 @@ async function captureOpaqueReplayResponse(
 ): Promise<void> {
   if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
   try {
+    assertPromiseIntegrity(state.primordials);
     const status = applyCaptured<number>(
       state.primordials,
       state.primordials.document.responseStatus,
@@ -3731,13 +3855,15 @@ async function captureOpaqueReplayResponse(
       []
     );
     discardOpaqueReplayOriginalBody(state.primordials, response);
-    const { bytes } = await readBoundedClone(
+    const envelope = await readBoundedClone(
       state.primordials,
       clone,
       state.target.replayTransportVersion === 1
         ? STAGED_CAPTURE_MAX_BYTES
         : INLINE_CAPTURE_MAX_BYTES
     );
+    assertPromiseIntegrity(state.primordials);
+    const { bytes } = envelope;
     if (state.target.replayTransportVersion === 1) {
       // The response body has reached network completion. V2 retains only
       // bytes while hashing and serving nonce-scoped chunks.
@@ -3745,6 +3871,7 @@ async function captureOpaqueReplayResponse(
     }
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
     const sha256 = await sha256FromBytes(state.primordials, bytes);
+    assertPromiseIntegrity(state.primordials);
     if (!opaqueReplayTargetStillExact(pageWindow, state)) return;
     const byteLength = uint8ArrayByteLength(state.primordials, bytes);
     if (state.target.replayTransportVersion === 1 && byteLength > INLINE_CAPTURE_MAX_BYTES) {
@@ -3944,10 +4071,25 @@ function armOpaqueReplay(
   windowRecord: Record<string, unknown>
 ): ChatGptDocumentStartResult {
   const originalFetch = pageWindow.fetch;
-  if (typeof originalFetch !== 'function') return { kind: 'error', code: 'hook-state-failed' };
+  if (typeof originalFetch !== 'function' || primordials.document.jsonStringify === undefined)
+    return { kind: 'error', code: 'hook-state-failed' };
   let armedHref: string;
+  let wire: string;
+  let failedWireBeforeDispatch: string;
+  let failedWireAfterDispatch: string;
   try {
     armedHref = pageWindow.location.href;
+    wire = opaqueReplayStateWire(primordials, target, { kind: 'ready' });
+    failedWireBeforeDispatch = opaqueReplayStateWire(primordials, target, {
+      kind: 'error',
+      code: 'hook-state-failed',
+      singularDispatchCount: 0,
+    });
+    failedWireAfterDispatch = opaqueReplayStateWire(primordials, target, {
+      kind: 'error',
+      code: 'hook-state-failed',
+      singularDispatchCount: 1,
+    });
   } catch {
     return { kind: 'error', code: 'hook-state-failed' };
   }
@@ -3967,7 +4109,9 @@ function armOpaqueReplay(
     claimed: false,
     singularPathSeen: false,
     singularDispatchCount: 0,
-    result: { kind: 'ready' },
+    wire,
+    failedWireBeforeDispatch,
+    failedWireAfterDispatch,
   };
   const stateKey = opaqueReplayStateKeyFor(target.nonce);
   const chunkReaderKey = opaqueReplayChunkReaderKeyFor(target.nonce);
@@ -3987,13 +4131,13 @@ function armOpaqueReplay(
     defineProperty(windowRecord, stateKey, {
       configurable: false,
       enumerable: false,
-      get: () => snapshotOpaqueReplayResult(state.result),
+      get: () => state.wire,
     });
     defineProperty(windowRecord, chunkReaderKey, {
       configurable: false,
       enumerable: false,
       writable: false,
-      value: (index: number) => state.stagedCaptureReader?.(index) ?? { kind: 'missing' },
+      value: (index: number) => state.stagedCaptureReader?.(index) ?? OPAQUE_REPLAY_WIRE_MISSING,
     });
     defineProperty(windowRecord, chunkReleaseKey, {
       configurable: false,
