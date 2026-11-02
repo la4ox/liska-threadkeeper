@@ -713,6 +713,57 @@ exited 1 only after testing because the optional JSON reporter was pointed at
 directory. Do not misclassify that reporter-path error as a failed test or claim
 the wrapper command itself exited zero.
 
+## Build-comparison ZIP-budget local checkpoint — 2026-11-02
+
+Uncommitted candidate on `codex/build-compare-zip-budgets-v2`, based on
+`ad2c693`, addresses finding `csf_df767b6997375ba3775f0f72` / occurrence
+`occ_b358ca1a1082e72e6d0b2438`: both `--ci-zip` and downloaded release assets
+previously converged on unbounded native extraction and recursive whole-file
+hashing. The candidate uses pinned `yauzl@3.4.0`, complete bounded inventory
+before writing, portable-path/type/alias admission and sequential streamed
+SHA-256/CRC-32 extraction. Excluded entries consume every archive budget.
+Local manifests now use iterative traversal and bounded chunked hashing.
+
+Independent review identified one remaining acquisition race: admitted metadata
+had still been followed by unbounded `gh release download` resolving a mutable
+tag/name again. The repaired candidate validates the exact package-repository
+API URL and numeric asset ID, then streams that pinned endpoint with `gh api`.
+A create-only destination never retains bytes beyond the advertised size or
+64 MiB ceiling. Stderr capture is bounded to 8 KiB; successful process exit,
+exact size and an advertised SHA-256 digest are required. Missing legacy
+digests remain compatible. Abort, child/pipe error and a ten-minute timeout
+kill the transfer and remove partial files without a child-close deadlock.
+
+Current local evidence: 100 focused tests pass (105 with the adjacent packaging
+suite), including independent ZIP bytes,
+exact/+1 lowered ceilings, excluded high-ratio input, path/type/Unicode/case
+conflicts, CRC/declared/runtime length failures, partial-tree cleanup, multi-chunk
+hashing, real native ASCII packaging and actual CLI 0/1/2, `--keep` and `--twice`
+precedence/build-count checks. Targeted script ESLint and the production build
+pass. A real `npm run compare-build -- --twice` completed two production builds
+and exited 0 with identical manifests. Standard UTF-8/Unicode-path names are
+supported; ambiguous unflagged
+non-ASCII legacy codepages are deliberately rejected. Windows `tar` itself lost
+an accent during a local non-ASCII round-trip, so no codepage inference was added.
+
+Transfer regressions also cover pinned repository/API identity, chunked
+over-limit replacement with early abort and incomplete producer consumption,
+exact-size/digest success, truncation, nonzero child exit, bounded stderr,
+spawn/stdout/stderr errors without a close event, finite timeout and create-only
+preservation. A bounded live read-only production CLI check against public
+`v3.0.0` asset `511567805` (117,146 bytes) completed digest validation and ZIP
+extraction, then exited 1 for ordinary content differences, not operational
+failure. The isolated temporary root was empty after cleanup; no release was
+mutated.
+
+The complete repository suite passes 249 files / 9,281 tests, with one file / 3
+tests skipped. Production build, targeted script ESLint, Prettier and diff checks
+also pass after the reviewed transfer repair and final close-error cleanup.
+
+This checkpoint is local source/test evidence, not a merge, installed-runtime
+acceptance or Security Cloud closure. Keep the exact occurrence open until the
+reviewed source head is merged and reconciled through the current-main gates.
+
 ## Earlier linear privacy-diagnostic candidate evidence
 
 Branch `codex/sec-linear-privacy-diagnostics` addresses

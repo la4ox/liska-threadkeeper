@@ -19,11 +19,25 @@
  */
 
 import { execFileSync } from 'child_process';
+import console from 'node:console';
+import process from 'node:process';
 import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { buildManifest, diffManifests, formatReport } from './lib/build-compare.mjs';
+import { fileURLToPath, pathToFileURL } from 'url';
+import {
+  buildManifest,
+  diffManifests,
+  formatReport,
+  isExcluded,
+  releaseRepository,
+  releaseAsset,
+} from './lib/build-compare.mjs';
+import {
+  admitArchive,
+  downloadReleaseAsset,
+  extractZipManifest,
+} from './lib/build-compare-zip.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -33,7 +47,7 @@ const DIST = join(ROOT, 'dist');
  * Parse argv into options.
  * @param {string[]} argv
  */
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = { twice: false, keep: false, tag: null, ciZip: null, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -62,10 +76,9 @@ function run(cmd, args, cwd = ROOT) {
   execFileSync(cmd, args, { cwd, stdio: 'inherit' });
 }
 
-/** @returns {string} the version field from package.json */
-function readVersion() {
-  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-  return pkg.version;
+/** Read product version and release authority from package.json. */
+function readPackage() {
+  return JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 }
 
 /** @returns {string} short HEAD sha, or 'unknown' */
@@ -125,47 +138,50 @@ function cleanup(keep) {
  * @param {string} tag
  * @returns {string} path to the downloaded .zip
  */
-function downloadReleaseZip(tag) {
-  const dir = makeTemp('liska-release-');
+export async function downloadReleaseZip(tag) {
+  const repository = releaseRepository(readPackage());
   console.log(`▶ downloading release ZIP for ${tag} via gh…`);
+  let asset;
   try {
-    run('gh', ['release', 'download', tag, '--pattern', 'liska-threadkeeper-*.zip', '--dir', dir]);
-  } catch {
-    // Throw (not die) so main()'s catch cleans up temp dirs and exits 2.
-    throw new Error(
-      `gh release download failed for tag '${tag}'. Is the tag published and gh authenticated?`
+    const metadata = execFileSync(
+      'gh',
+      ['release', 'view', tag, '--repo', repository, '--json', 'assets'],
+      {
+        cwd: ROOT,
+        maxBuffer: 1024 * 1024,
+        timeout: 30_000,
+      }
     );
+    asset = releaseAsset(JSON.parse(metadata.toString('utf8')), repository);
+  } catch (error) {
+    throw new Error(`release ZIP metadata admission failed for '${tag}': ${error.message}`, {
+      cause: error,
+    });
   }
-  const zips = readdirSync(dir).filter(f => f.endsWith('.zip'));
-  if (zips.length !== 1) {
-    throw new Error(
-      `expected exactly one zip for ${tag}, found ${zips.length}: ${zips.join(', ')}`
-    );
+  const dir = makeTemp('liska-release-');
+  const zipPath = join(dir, asset.name);
+  try {
+    await downloadReleaseAsset(asset, zipPath, { cwd: ROOT });
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
   }
-  return join(dir, zips[0]);
-}
-
-/**
- * Extract a zip into a fresh temp dir and return that dir.
- * @param {string} zipPath
- * @returns {string}
- */
-function extractZip(zipPath) {
-  const dir = makeTemp('liska-extract-');
-  if (process.platform === 'win32') {
-    run('tar.exe', ['-xf', zipPath, '-C', dir]);
-  } else {
-    run('unzip', ['-q', '-o', zipPath, '-d', dir]);
+  const files = readdirSync(dir);
+  if (files.length !== 1 || files[0] !== asset.name) {
+    throw new Error(`downloaded ZIP basename does not match release metadata`);
   }
-  return dir;
+  if ((await admitArchive(zipPath)) !== asset.size) {
+    throw new Error('downloaded ZIP size does not match release metadata');
+  }
+  return zipPath;
 }
 
 /** Local-vs-local determinism check. */
-function runTwice() {
-  buildLocal();
-  const first = buildManifest(DIST);
-  buildLocal();
-  const second = buildManifest(DIST);
+export async function runTwice({ build = buildLocal, dist = DIST } = {}) {
+  build();
+  const first = await buildManifest(dist);
+  build();
+  const second = await buildManifest(dist);
   const diff = diffManifests(first, second);
   console.log('\n' + formatReport(diff, { localLabel: 'build #1', ciLabel: 'build #2' }));
   if (!diff.identical) {
@@ -180,15 +196,15 @@ function runTwice() {
  * Local-vs-CI content comparison.
  * @param {{ tag: string | null, ciZip: string | null }} opts
  */
-function runCompare(opts) {
+async function runCompare(opts) {
   buildLocal();
-  const localManifest = buildManifest(DIST);
+  const localManifest = await buildManifest(DIST);
 
   const zipPath = opts.ciZip
     ? resolve(opts.ciZip)
-    : downloadReleaseZip(opts.tag ?? `v${readVersion()}`);
-  const ciDir = extractZip(zipPath);
-  const ciManifest = buildManifest(ciDir);
+    : await downloadReleaseZip(opts.tag ?? `v${readPackage().version}`);
+  const ciDir = join(makeTemp('liska-extract-'), 'contents');
+  const ciManifest = await extractZipManifest(zipPath, ciDir, { isExcluded });
 
   const diff = diffManifests(localManifest, ciManifest);
   console.log(`\nlocal HEAD: ${headSha()}  (ensure it matches the release tag's commit)`);
@@ -215,7 +231,7 @@ function printHelp() {
   );
 }
 
-function main() {
+async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
     printHelp();
@@ -223,7 +239,7 @@ function main() {
   }
 
   try {
-    const diff = opts.twice ? runTwice() : runCompare(opts);
+    const diff = await (opts.twice ? runTwice() : runCompare(opts));
     cleanup(opts.keep);
     process.exit(diff.identical ? 0 : 1);
   } catch (err) {
@@ -234,4 +250,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  await main();
+}
