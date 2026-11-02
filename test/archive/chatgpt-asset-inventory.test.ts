@@ -12,6 +12,7 @@ import {
 } from '../../src/archive/normalizers/chatgpt/assets';
 import type { AssetContext } from '../../src/archive/normalizers/chatgpt/contracts';
 import type { PrivacyTracker } from '../../src/archive/normalizers/chatgpt/privacy';
+import { CHATGPT_CONTENT_MAX_DEPTH } from '../../src/archive/normalizers/chatgpt/content-budget';
 
 type RawRecord = Record<string, unknown>;
 
@@ -31,6 +32,14 @@ function rootRaw(content: unknown, metadata: Record<string, unknown> = {}): RawR
 
 function contentWithParts(parts: unknown[]): RawRecord {
   return { content_type: 'text', parts };
+}
+
+function nestedContent(depth: number, leaf: RawRecord): RawRecord {
+  let content = leaf;
+  for (let index = 0; index < depth; index += 1) {
+    content = contentWithParts([content]);
+  }
+  return content;
 }
 
 async function inventory(raw: unknown) {
@@ -65,6 +74,21 @@ function rawMessages(...messages: RawRecord[]): RawRecord {
 }
 
 describe('ChatGPT raw attachment inventory', () => {
+  it('walks the shared depth ceiling iteratively and degrades only at ceiling plus one', async () => {
+    const leaf = { content_type: 'file', file_id: 'deep-inventory-asset' };
+    const admitted = await inventory(rootRaw(nestedContent(CHATGPT_CONTENT_MAX_DEPTH, leaf)));
+    const refused = await inventory(rootRaw(nestedContent(CHATGPT_CONTENT_MAX_DEPTH + 1, leaf)));
+
+    expect(admitted.completeness).toBe('not-attempted');
+    expect(admitted.warnings).toEqual([]);
+    expect(admitted.assets).toHaveLength(1);
+    expect(refused).toEqual({
+      assets: [],
+      completeness: 'unknown',
+      warnings: [CHATGPT_ASSET_INVENTORY_WARNING],
+    });
+  });
+
   it.each([
     ['pdf', '1'],
     ['docx', '12'],

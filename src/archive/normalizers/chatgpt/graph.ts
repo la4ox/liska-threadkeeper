@@ -27,6 +27,7 @@ import {
   requireRecord,
   sourceRef,
 } from './privacy';
+import { recordChatGptContentBlocks, spendChatGptContentWork } from './content-budget';
 
 export function normalizeGraph(envelope: RawEnvelope, context: BlockContext): NormalizedGraph {
   const mapping = requireMapping(envelope.conversation);
@@ -344,9 +345,7 @@ function normalizeMessage(
       openai: messageExtensions(message, author, metadata, pointer, context, canmoreEvent !== null),
     },
   };
-  normalized.blocks.push(
-    ...normalizeMessageContent(message, pointer, message.id, canmoreEvent, context)
-  );
+  normalized.blocks = normalizeMessageContent(message, pointer, message.id, canmoreEvent, context);
   appendMetadataBlocks(
     normalized.blocks,
     metadata,
@@ -367,6 +366,8 @@ function normalizeMessageContent(
   const contentPointer = pointerAt(messagePointer, 'content');
   if (message.content === null && !canmoreEvent) return [];
   if (!canmoreEvent) return normalizeContent(message.content, contentPointer, messageId, context);
+  spendChatGptContentWork(context.contentBudget);
+  recordChatGptContentBlocks(context.contentBudget, 1);
   return [
     normalizeCanmoreMessageContent(
       message.content,

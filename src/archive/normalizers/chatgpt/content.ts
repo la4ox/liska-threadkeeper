@@ -1,7 +1,13 @@
+/* eslint-disable max-lines -- Provider content dispatch and its iterative continuation grammar stay co-located for auditable ordering. */
 import type { ArchiveBlock, JsonValue } from '../../types';
 import type { BlockContext, JsonRecord } from './contracts';
 import { upsertAsset } from './assets';
 import { parseCanmoreJsonString } from './canmore-json';
+import {
+  enterChatGptContentRecord,
+  recordChatGptContentBlocks,
+  spendChatGptContentWork,
+} from './content-budget';
 import {
   fail,
   hasOwn,
@@ -116,7 +122,7 @@ export function normalizeContent(
 ): ArchiveBlock[] {
   const content = requireRecord(raw, pointer, 'malformed-content');
   const blocks: ArchiveBlock[] = [];
-  normalizeContentRecord(blocks, content, pointer, messageId, context, false);
+  normalizeContentIteratively(blocks, content, pointer, messageId, context);
   return blocks;
 }
 
@@ -255,23 +261,92 @@ function appendNestedContentResidual(
   firstBlock.extensions.openai.contentContainer = residual;
 }
 
-function normalizeContentRecord(
+type ContentWork =
+  | {
+      kind: 'record';
+      content: JsonRecord;
+      pointer: string;
+      nested: boolean;
+      depth: number;
+    }
+  | { kind: 'parts'; parts: unknown[]; pointer: string; index: number; depth: number }
+  | { kind: 'text'; value: unknown; pointer: string }
+  | {
+      kind: 'residual';
+      blockStart: number;
+      content: JsonRecord;
+      type: string;
+      pointer: string;
+      nested: boolean;
+    };
+
+function normalizeContentIteratively(
+  blocks: ArchiveBlock[],
+  content: JsonRecord,
+  pointer: string,
+  messageId: string,
+  context: BlockContext
+): void {
+  const stack: ContentWork[] = [{ kind: 'record', content, pointer, nested: false, depth: 0 }];
+  while (stack.length > 0) {
+    const work = stack.pop()!;
+    spendChatGptContentWork(context.contentBudget);
+    if (work.kind === 'record') {
+      enterChatGptContentRecord(context.contentBudget, work.depth);
+      scheduleContentRecord(blocks, stack, work, messageId, context);
+    } else if (work.kind === 'parts') {
+      scheduleContentPart(stack, work);
+    } else if (work.kind === 'text') {
+      recordChatGptContentBlocks(context.contentBudget, 1);
+      blocks.push(textBlock(blocks, work.value, work.pointer, messageId, context));
+    } else {
+      appendNestedContentResidual(
+        blocks,
+        work.blockStart,
+        work.content,
+        work.type,
+        work.pointer,
+        context,
+        work.nested
+      );
+    }
+  }
+}
+
+function scheduleContentRecord(
+  blocks: ArchiveBlock[],
+  stack: ContentWork[],
+  work: Extract<ContentWork, { kind: 'record' }>,
+  messageId: string,
+  context: BlockContext
+): void {
+  const { content, pointer, nested, depth } = work;
+  const type = contentType(content, pointer);
+  const blockStart = blocks.length;
+  if (type === 'text' || type === 'multimodal_text') {
+    scheduleTextContent(stack, content, pointer, type, blockStart, nested, depth);
+    return;
+  }
+  normalizeLeafContent(blocks, content, pointer, messageId, context, type);
+  appendNestedContentResidual(blocks, blockStart, content, type, pointer, context, nested);
+}
+
+function normalizeLeafContent(
   blocks: ArchiveBlock[],
   content: JsonRecord,
   pointer: string,
   messageId: string,
   context: BlockContext,
-  nested: boolean
+  type: string
 ): void {
-  const type = contentType(content, pointer);
-  const blockStart = blocks.length;
-  if (type === 'text' || type === 'multimodal_text') {
-    normalizeTextContent(blocks, content, pointer, messageId, context);
-  } else if (type === 'markdown') {
+  if (type === 'markdown') {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(markdownBlock(blocks, content, pointer, messageId, context));
   } else if (type === 'html') {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(htmlBlock(blocks, content, pointer, messageId, context));
   } else if (type === 'code') {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(codeBlock(blocks, content, pointer, messageId, context));
   } else if (REASONING_TYPES.has(type)) {
     normalizeReasoning(blocks, content, pointer, messageId, context);
@@ -280,59 +355,69 @@ function normalizeContentRecord(
   } else if (TOOL_RESULT_TYPES.has(type)) {
     normalizeToolResults(blocks, content, pointer, messageId, context);
   } else if (EXECUTION_TYPES.has(type)) {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(executionBlock(blocks, content, pointer, messageId, context));
   } else if (CITATION_TYPES.has(type)) {
     normalizeCitations(blocks, content, pointer, messageId, context);
   } else if (ASSET_TYPES.has(type)) {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(attachmentBlock(blocks, content, pointer, messageId, context));
   } else if (CANVAS_TYPES.has(type) || type.startsWith('canvas_')) {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(canvasBlock(blocks, content, pointer, messageId, context));
   } else if (ERROR_TYPES.has(type)) {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(errorBlock(blocks, content, pointer, messageId, context));
   } else {
     context.observedUnknownContentTypes.add(type);
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(unknownBlock(blocks, type, content, pointer, messageId, context));
   }
-  appendNestedContentResidual(blocks, blockStart, content, type, pointer, context, nested);
 }
 
-function normalizeTextContent(
-  blocks: ArchiveBlock[],
+function scheduleTextContent(
+  stack: ContentWork[],
   content: JsonRecord,
   pointer: string,
-  messageId: string,
-  context: BlockContext
+  type: string,
+  blockStart: number,
+  nested: boolean,
+  depth: number
 ): void {
-  if (hasOwn(content, 'parts')) appendParts(blocks, content.parts, pointer, messageId, context);
-  if (hasOwn(content, 'text'))
-    blocks.push(textBlock(blocks, content.text, pointerAt(pointer, 'text'), messageId, context));
-  if (!hasOwn(content, 'parts') && !hasOwn(content, 'text')) {
+  const hasParts = hasOwn(content, 'parts');
+  const hasText = hasOwn(content, 'text');
+  if (!hasParts && !hasText) {
     fail('malformed-content', `${pointer} text content needs parts or text.`);
+  }
+  stack.push({ kind: 'residual', blockStart, content, type, pointer, nested });
+  if (hasText)
+    stack.push({ kind: 'text', value: content.text, pointer: pointerAt(pointer, 'text') });
+  if (hasParts) {
+    if (!Array.isArray(content.parts)) {
+      fail('malformed-content-parts', `${pointerAt(pointer, 'parts')} must be an array.`);
+    }
+    stack.push({ kind: 'parts', parts: content.parts, pointer, index: 0, depth });
   }
 }
 
-function appendParts(
-  blocks: ArchiveBlock[],
-  parts: unknown,
-  pointer: string,
-  messageId: string,
-  context: BlockContext
+function scheduleContentPart(
+  stack: ContentWork[],
+  work: Extract<ContentWork, { kind: 'parts' }>
 ): void {
-  if (!Array.isArray(parts))
-    fail('malformed-content-parts', `${pointerAt(pointer, 'parts')} must be an array.`);
-  parts.forEach((part, index) => {
-    const partPointer = pointerAt(pointer, 'parts', String(index));
-    if (typeof part === 'string')
-      blocks.push(textBlock(blocks, part, partPointer, messageId, context));
-    else
-      normalizeContentRecord(
-        blocks,
-        requireRecord(part, partPointer, 'malformed-content-part'),
-        partPointer,
-        messageId,
-        context,
-        true
-      );
+  if (work.index >= work.parts.length) return;
+  stack.push({ ...work, index: work.index + 1 });
+  const part = work.parts[work.index];
+  const partPointer = pointerAt(work.pointer, 'parts', String(work.index));
+  if (typeof part === 'string') {
+    stack.push({ kind: 'text', value: part, pointer: partPointer });
+    return;
+  }
+  stack.push({
+    kind: 'record',
+    content: requireRecord(part, partPointer, 'malformed-content-part'),
+    pointer: partPointer,
+    nested: true,
+    depth: work.depth + 1,
   });
 }
 
@@ -345,6 +430,8 @@ function normalizeReasoning(
 ): void {
   if (Array.isArray(content.thoughts)) {
     content.thoughts.forEach((thought, index) => {
+      spendChatGptContentWork(context.contentBudget);
+      recordChatGptContentBlocks(context.contentBudget, 1);
       const thoughtPointer = pointerAt(pointer, 'thoughts', String(index));
       blocks.push(
         reasoningBlock(
@@ -357,10 +444,12 @@ function normalizeReasoning(
       );
     });
   } else if (typeof content.thoughts === 'string') {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(
       reasoningBlock(blocks, content.thoughts, pointerAt(pointer, 'thoughts'), messageId, context)
     );
   } else {
+    recordChatGptContentBlocks(context.contentBudget, 1);
     blocks.push(
       reasoningBlock(blocks, reasoningText(content, pointer), pointer, messageId, context)
     );
@@ -379,6 +468,8 @@ function normalizeToolCalls(
     ? { field: null, items: [content] }
     : selectedArray(content, ['tool_calls', 'calls', 'parts'], pointer, 'malformed-tool-call');
   selected.items.forEach((value, index) => {
+    spendChatGptContentWork(context.contentBudget);
+    recordChatGptContentBlocks(context.contentBudget, 1);
     const callPointer = selectedItemPointer(pointer, selected.field, index);
     const call = requireRecord(value, callPointer, 'malformed-tool-call');
     const name = requiredAlias(
@@ -420,6 +511,8 @@ function normalizeToolResults(
         'malformed-tool-result'
       );
   selected.items.forEach((value, index) => {
+    spendChatGptContentWork(context.contentBudget);
+    recordChatGptContentBlocks(context.contentBudget, 1);
     const resultPointer = selectedItemPointer(pointer, selected.field, index);
     const result = requireRecord(value, resultPointer, 'malformed-tool-result');
     const recognizedPayload = firstPresent(result, ['result', 'output', 'content']);
@@ -465,6 +558,8 @@ function normalizeCitations(
     'malformed-citation'
   );
   selected.items.forEach((value, index) => {
+    spendChatGptContentWork(context.contentBudget);
+    recordChatGptContentBlocks(context.contentBudget, 1);
     const citationPointer = selectedItemPointer(pointer, selected.field, index);
     blocks.push(
       citationBlock(
@@ -487,6 +582,8 @@ function appendCitationArray(
 ): void {
   if (!Array.isArray(values)) fail('malformed-citation', `${pointer} must be an array.`);
   values.forEach((value, index) => {
+    spendChatGptContentWork(context.contentBudget);
+    recordChatGptContentBlocks(context.contentBudget, 1);
     const citationPointer = pointerAt(pointer, String(index));
     blocks.push(
       citationBlock(
@@ -509,6 +606,8 @@ function appendAttachmentArray(
 ): void {
   if (!Array.isArray(values)) fail('malformed-attachment', `${pointer} must be an array.`);
   values.forEach((value, index) => {
+    spendChatGptContentWork(context.contentBudget);
+    recordChatGptContentBlocks(context.contentBudget, 1);
     const attachmentPointer = pointerAt(pointer, String(index));
     blocks.push(
       attachmentBlock(

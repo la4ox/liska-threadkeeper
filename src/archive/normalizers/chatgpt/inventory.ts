@@ -4,6 +4,11 @@ import {
   chatGptSandboxLinksFromAssistantTextPart,
 } from '../../chatgpt-sandbox-link';
 import type { JsonRecord } from './contracts';
+import {
+  CHATGPT_CONTENT_MAX_DEPTH,
+  CHATGPT_CONTENT_MAX_OCCURRENCES,
+  CHATGPT_CONTENT_MAX_WORK_UNITS,
+} from './content-budget';
 import { hasOwn, isPlainRecord, pointerAt } from './privacy';
 
 /**
@@ -57,7 +62,6 @@ const KNOWN_MIME_TYPES = new Set([
   'video/webm',
 ]);
 const MAX_IDENTITY_LENGTH = 8_192;
-const MAX_CONTENT_DEPTH = 64;
 const MAX_DISCOVERED_ASSETS = 50_000;
 
 export interface ChatGptAssetInventoryInput {
@@ -93,6 +97,11 @@ interface DiscoveredAsset {
   sourceRefKeys: Set<string>;
 }
 
+interface InventoryContentBudget {
+  occurrences: number;
+  workUnits: number;
+}
+
 const HASH_BATCH_SIZE = 16;
 
 /**
@@ -126,6 +135,7 @@ function collectCandidates(raw: unknown, artifactId: string): Candidate[] {
   if (!isPlainRecord(mapping) || Object.keys(mapping).length === 0) throw new Error();
 
   const candidates: Candidate[] = [];
+  const contentBudget: InventoryContentBudget = { occurrences: 0, workUnits: 0 };
   for (const nodeId of Object.keys(mapping)) {
     const node = mapping[nodeId];
     if (!isPlainRecord(node)) throw new Error();
@@ -135,7 +145,8 @@ function collectCandidates(raw: unknown, artifactId: string): Candidate[] {
       node.message,
       pointerAt(envelope.basePointer, 'mapping', nodeId, 'message'),
       artifactId,
-      candidates
+      candidates,
+      contentBudget
     );
   }
   return candidates;
@@ -156,7 +167,8 @@ function scanMessage(
   message: JsonRecord,
   pointer: string,
   artifactId: string,
-  candidates: Candidate[]
+  candidates: Candidate[],
+  contentBudget: InventoryContentBudget
 ): void {
   if (hasOwn(message, 'content') && message.content !== null) {
     scanContent(
@@ -164,8 +176,7 @@ function scanMessage(
       pointerAt(pointer, 'content'),
       artifactId,
       candidates,
-      0,
-      new WeakSet()
+      contentBudget
     );
     scanAssistantTextSandboxLinks(
       message,
@@ -229,36 +240,86 @@ function scanAssistantTextSandboxLinks(
   });
 }
 
+type InventoryContentWork =
+  | { kind: 'enter'; value: unknown; pointer: string; depth: number }
+  | { kind: 'exit'; value: object }
+  | { kind: 'parts'; parts: unknown[]; pointer: string; index: number; depth: number };
+
 function scanContent(
   value: unknown,
   pointer: string,
   artifactId: string,
   candidates: Candidate[],
-  depth: number,
-  ancestors: WeakSet<object>
+  budget: InventoryContentBudget
 ): void {
-  if (depth > MAX_CONTENT_DEPTH || !isPlainRecord(value) || ancestors.has(value)) throw new Error();
-  ancestors.add(value);
-  try {
-    if (typeof value.content_type !== 'string' || value.content_type.length === 0)
-      throw new Error();
-    if (ASSET_TYPES.has(value.content_type)) pushCandidate(value, pointer, artifactId, candidates);
-    if (!hasOwn(value, 'parts')) return;
-    if (!Array.isArray(value.parts)) throw new Error();
-    value.parts.forEach((part, index) => {
-      if (typeof part === 'string') return;
-      scanContent(
-        part,
-        pointerAt(pointer, 'parts', String(index)),
-        artifactId,
-        candidates,
-        depth + 1,
-        ancestors
-      );
-    });
-  } finally {
-    ancestors.delete(value);
+  const ancestors = new WeakSet<object>();
+  const stack: InventoryContentWork[] = [{ kind: 'enter', value, pointer, depth: 0 }];
+  while (stack.length > 0) {
+    budget.workUnits += 1;
+    if (budget.workUnits > CHATGPT_CONTENT_MAX_WORK_UNITS) throw new Error();
+    const work = stack.pop()!;
+    if (work.kind === 'exit') {
+      ancestors.delete(work.value);
+      continue;
+    }
+    if (work.kind === 'parts') {
+      scheduleInventoryPart(stack, work);
+      continue;
+    }
+    enterInventoryContent(work, stack, ancestors, artifactId, candidates, budget);
   }
+}
+
+function scheduleInventoryPart(
+  stack: InventoryContentWork[],
+  work: Extract<InventoryContentWork, { kind: 'parts' }>
+): void {
+  if (work.index >= work.parts.length) return;
+  stack.push({ ...work, index: work.index + 1 });
+  const part = work.parts[work.index];
+  if (typeof part === 'string') return;
+  stack.push({
+    kind: 'enter',
+    value: part,
+    pointer: pointerAt(work.pointer, 'parts', String(work.index)),
+    depth: work.depth + 1,
+  });
+}
+
+function enterInventoryContent(
+  work: Extract<InventoryContentWork, { kind: 'enter' }>,
+  stack: InventoryContentWork[],
+  ancestors: WeakSet<object>,
+  artifactId: string,
+  candidates: Candidate[],
+  budget: InventoryContentBudget
+): void {
+  if (
+    work.depth > CHATGPT_CONTENT_MAX_DEPTH ||
+    !isPlainRecord(work.value) ||
+    ancestors.has(work.value)
+  ) {
+    throw new Error();
+  }
+  budget.occurrences += 1;
+  if (budget.occurrences > CHATGPT_CONTENT_MAX_OCCURRENCES) throw new Error();
+  ancestors.add(work.value);
+  stack.push({ kind: 'exit', value: work.value });
+  if (typeof work.value.content_type !== 'string' || work.value.content_type.length === 0) {
+    throw new Error();
+  }
+  if (ASSET_TYPES.has(work.value.content_type)) {
+    pushCandidate(work.value, work.pointer, artifactId, candidates);
+  }
+  if (!hasOwn(work.value, 'parts')) return;
+  if (!Array.isArray(work.value.parts)) throw new Error();
+  stack.push({
+    kind: 'parts',
+    parts: work.value.parts,
+    pointer: work.pointer,
+    index: 0,
+    depth: work.depth,
+  });
 }
 
 function pushCandidate(

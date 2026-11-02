@@ -21,6 +21,44 @@ export class ChatGptNormalizationError extends Error {
   }
 }
 
+export type ChatGptContentLimitKind = 'depth' | 'occurrences' | 'work' | 'blocks';
+
+export interface ChatGptContentBudgetCounters {
+  maxDepth: number;
+  occurrences: number;
+  workUnits: number;
+  blocks: number;
+}
+
+export class ChatGptContentLimitError extends ChatGptNormalizationError {
+  readonly limit: ChatGptContentLimitKind;
+  readonly maximum: number;
+  readonly observed: number;
+  readonly counters: Readonly<ChatGptContentBudgetCounters>;
+
+  constructor(
+    limit: ChatGptContentLimitKind,
+    maximum: number,
+    observed: number,
+    counters: ChatGptContentBudgetCounters
+  ) {
+    super(
+      {
+        depth: 'content-depth-limit',
+        occurrences: 'content-occurrence-limit',
+        work: 'content-work-limit',
+        blocks: 'content-block-limit',
+      }[limit],
+      `ChatGPT nested content exceeded its ${limit} limit (${observed} > ${maximum}).`
+    );
+    this.name = 'ChatGptContentLimitError';
+    this.limit = limit;
+    this.maximum = maximum;
+    this.observed = observed;
+    this.counters = Object.freeze({ ...counters });
+  }
+}
+
 export interface ChatGptNormalizationInput {
   /** Runtime-only exact raw bytes paired with their immutable manifest records. */
   bundle: RawCaptureBundle;
@@ -82,6 +120,7 @@ export interface AssetContext {
 
 export interface BlockContext extends AssetContext {
   observedUnknownContentTypes: Set<string>;
+  contentBudget: ChatGptContentBudgetCounters;
 }
 
 export interface NormalizedGraph {

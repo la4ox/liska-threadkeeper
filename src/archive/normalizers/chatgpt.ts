@@ -8,8 +8,15 @@
 export { normalizeChatGptCapture } from './chatgpt/core';
 export {
   ChatGptNormalizationError,
+  ChatGptContentLimitError,
   OFFICIAL_EXPORT_NORMALIZER_ID,
   OFFICIAL_EXPORT_SOURCE_FORMAT,
   type ChatGptNormalizationInput,
   type ChatGptNormalizationResult,
 } from './chatgpt/contracts';
+export {
+  CHATGPT_CONTENT_MAX_BLOCKS,
+  CHATGPT_CONTENT_MAX_DEPTH,
+  CHATGPT_CONTENT_MAX_OCCURRENCES,
+  CHATGPT_CONTENT_MAX_WORK_UNITS,
+} from './chatgpt/content-budget';
