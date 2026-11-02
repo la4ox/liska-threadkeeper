@@ -807,24 +807,36 @@ change, every listener captures its exact response identity, and late old
 catalog responses are ignored. The reviewer reproduced the original race and
 then verified that the repaired retained listener sends no choice.
 
+The first published-head Code Review found two further bounded-capacity P2s.
+Retained empty terminal history could occupy all 64 operation slots for roughly
+two hours, and an initial reclamation fix did not reserve future operation slots
+for pending intents from other tabs. Admission now enforces `operations +
+intents + new intent <= 64`, reclaims only the oldest terminal records with no
+owned stages, and repairs legacy overreservation before a claim by preserving
+live/cleanup-owning records and revoking newest excess intents. The reviewer's
+delayed two-tab reproduction now transitions `62 operations + 2 intents` to 64
+claimed operations; restart preserves both authorizations. All-protected and
+32-intent controls remain fail-closed.
+
 Final local evidence after the terminal-status repair: the complete repository
-suite passes 254 files / 9,336 tests, with one file / 3 tests skipped. The earlier
+suite passes 254 files / 9,346 tests, with one file / 3 tests skipped. The earlier
 closed affected matrix passed 154 files / 6,101 tests, with one file / 2 tests
 skipped; the final reviewer-equivalent authorization/UI matrix passes 6 files /
-132 tests. Production build, emitted-worker runtime check, lint (51 warnings / 0 errors),
+132 tests, and the final controller/route cap matrix passes 2 files / 81 tests.
+Production build, emitted-worker runtime check, lint (51 warnings / 0 errors),
 formatting and diff checks pass. A synthetic 380px preview checks Export default,
 literal branch descriptors, ordinal/all selection, Stop/status, cancellation and
 preserved Settings. Completion wording is now neutral unless the worker can prove
 that selected-branch preparation ended before any extension-owned choice; that
 bounded outcome says explicitly that nothing was saved.
 
-The final 45-file / 1,257,996-byte build was copied into the existing unpacked
+The final 45-file / 1,258,731-byte build was copied into the existing unpacked
 Liska target through the verified rollback-preserving updater. Source and
 installed inventory SHA-256 are both
-`72e2c8dc355f635ce7442111e79c5695c032229d01f1c63e793a814d891d8de3`;
+`b76216293d6d0218ee096f1b563ba3fcfeabceec9264d973bf3be746ecb6c979`;
 manifest SHA-256 is
 `917e32400149125f1896fb6546b40bf1dc4f7341a6afe8024cc0b93a5db7cac9`.
-Rollback `liska-rollback-20261102T183605195Z-648012d666a64bc3bbbf6df3d5881013`
+Rollback `liska-rollback-20261102T191419130Z-822ac3ed24214ed5805db3390fc0b958`
 is retained. Comet Developer mode was enabled and only Liska was reloaded. The
 source manifest adds no permission or web-accessible-resource entry; CRXJS
 exposes one shared pure contract chunk automatically, with no tokens, controller

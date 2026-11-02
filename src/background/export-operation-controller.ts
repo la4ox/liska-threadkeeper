@@ -216,10 +216,26 @@ export class ExportOperationController {
     const result = this.queue.then(async () => {
       await this.ready;
       this.prune();
+      if (this.state.operations.length + this.state.intents.length > 64) {
+        await this.recoverOverreservedIntents();
+      }
       return work();
     });
     this.queue = result.catch(() => undefined);
     return result;
+  }
+  private oldestReclaimableOperations(count: number): Operation[] {
+    return this.state.operations.filter(op => !live(op) && op.stages.length === 0).slice(0, count);
+  }
+  /** Repair older individually valid state before any retained intent may claim. */
+  private async recoverOverreservedIntents(): Promise<void> {
+    const overflow = this.state.operations.length + this.state.intents.length - 64;
+    const reclaim = this.oldestReclaimableOperations(overflow);
+    this.state.operations = this.state.operations.filter(op => !reclaim.includes(op));
+    // Protected operations win over excess reservations. Keep the oldest intents;
+    // newer revoked intents fail closed when their delayed claims arrive.
+    this.state.intents = this.state.intents.slice(0, 64 - this.state.operations.length);
+    await this.save();
   }
   private prune(): void {
     this.state.intents = this.state.intents.filter(item => item.expires > this.now());
@@ -431,7 +447,15 @@ export class ExportOperationController {
       );
       if (existing || this.state.intents.some(intent => intent.target.tabId === source.tabId))
         return { status: await this.status(sender) };
-      if (this.state.operations.length >= 64 || this.state.intents.length >= 32) return undefined;
+      if (this.state.intents.length >= 32) return undefined;
+      // Creation order is retained across hydration. Empty terminal history is
+      // replaceable; live generations and exact cleanup capabilities are not.
+      const slotsNeeded = Math.max(
+        0,
+        this.state.operations.length + this.state.intents.length + 1 - 64
+      );
+      const reclaim = this.oldestReclaimableOperations(slotsNeeded);
+      if (reclaim.length !== slotsNeeded) return undefined;
       const settings = await this.deps.settings();
       if (
         !Array.isArray(message.expectedOutputs) ||
@@ -448,6 +472,10 @@ export class ExportOperationController {
         expires: this.now() + EXPORT_PENDING_MS,
         ...(uiSessionId ? { uiSessionId } : {}),
       };
+      // Commit reclamation and the replacement intent together, only after all
+      // admission checks succeeded; do not evict history for a rejected click.
+      if (reclaim.length > 0)
+        this.state.operations = this.state.operations.filter(op => !reclaim.includes(op));
       this.state.intents.push(intent);
       await this.save();
       return { intent };
@@ -569,7 +597,8 @@ export class ExportOperationController {
     )
       return denied();
     const settings = await this.matchingSettings(intent);
-    if (!settings) return denied();
+    if (!settings || this.state.operations.length >= 64) return denied();
+    // One reserved intent is replaced by one operation in the same locked write.
     this.state.intents = this.state.intents.filter(item => item !== intent);
     const op: Operation = {
       ...intent,

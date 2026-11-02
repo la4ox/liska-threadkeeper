@@ -114,6 +114,15 @@ function fixture() {
     settings: (update: Partial<typeof settings>) => {
       settings = { ...settings, ...update };
     },
+    complete: () =>
+      controller.handle(
+        {
+          action: 'completeExportOperation',
+          exportOperationId: latestClaim!.exportOperationId!,
+          outcome: 'ended',
+        },
+        source()
+      ),
     start: async (mode: 'current' | 'selected' = 'current') =>
       controller.handle(
         {
@@ -140,7 +149,372 @@ beforeEach(() => {
   vi.stubGlobal('crypto', webcrypto);
 });
 
+function tabSender(tabId: number): chrome.runtime.MessageSender {
+  return { ...source(), tab: { ...source().tab!, id: tabId }, documentId: `document-${tabId}` };
+}
+
+function delayClaims(f: ReturnType<typeof fixture>) {
+  let selectedTabId = 7;
+  const pending = new Map<
+    number,
+    { intentId: string; finish: (value: { accepted: boolean }) => void }
+  >();
+  f.api.tabs.get.mockImplementation(async (tabId: number) => ({ ...f.tab, id: tabId }));
+  f.api.tabs.query.mockImplementation(async () => [{ ...f.tab, id: selectedTabId }]);
+  f.api.tabs.sendMessage.mockImplementation((tabId, message) => {
+    if (message.action !== 'beginExportOperation') return Promise.resolve({ accepted: true });
+    return new Promise(resolve => {
+      pending.set(tabId, { intentId: message.intentId as string, finish: resolve });
+    });
+  });
+  return {
+    pending,
+    start(tabId: number) {
+      selectedTabId = tabId;
+      return f.controller.handle(
+        {
+          action: 'startExportOperation',
+          mode: 'current',
+          expectedTarget: { tabId, route },
+          expectedOutputs: ['file'],
+        },
+        toolbar
+      );
+    },
+    async claim(tabId: number) {
+      const wait = pending.get(tabId)!;
+      const claim = (await f.controller.handle(
+        { action: 'claimExportOperation', intentId: wait.intentId, route },
+        tabSender(tabId)
+      )) as ExportClaim;
+      wait.finish({ accepted: claim.success });
+      return claim;
+    },
+  };
+}
+
+function seedPendingIntents(f: ReturnType<typeof fixture>, tabIds: number[]) {
+  const state = structuredClone(f.stored[EXPORT_STATE_KEY]) as {
+    operations: Array<{
+      id: string;
+      target: { tabId: number };
+      mode: 'current' | 'selected';
+      snapshot: string;
+      keyHash: string;
+      stages: string[];
+    }>;
+    intents: Array<{
+      id: string;
+      target: { tabId: number };
+      mode: 'current' | 'selected';
+      snapshot: string;
+      keyHash: string;
+      expires: number;
+    }>;
+  };
+  const template = state.operations[0];
+  state.intents = tabIds.map(tabId => ({
+    id: crypto.randomUUID(),
+    target: { ...template.target, tabId },
+    mode: template.mode,
+    snapshot: template.snapshot,
+    keyHash: template.keyHash,
+    expires: 1_000 + EXPORT_PENDING_MS,
+  }));
+  f.stored = { ...f.stored, [EXPORT_STATE_KEY]: state };
+  f.api.tabs.get.mockImplementation(async (tabId: number) => ({ ...f.tab, id: tabId }));
+  return state.intents;
+}
+
 describe('worker-owned export generations', () => {
+  it('does not reserve a second delayed claim when only protected records remain', async () => {
+    const f = fixture();
+    for (let index = 0; index < 64; index++) {
+      await f.start();
+      if (index < 63)
+        await f.controller.recordResult(f.claim.exportOperationId, {
+          success: true,
+          stageId: `owned-${index}`,
+        });
+      await f.complete();
+    }
+    const delayed = delayClaims(f);
+    const first = delayed.start(7);
+    await vi.waitFor(() => expect(delayed.pending.has(7)).toBe(true));
+    expect(await delayed.start(8)).toMatchObject({ success: false });
+    expect(delayed.pending.has(8)).toBe(false);
+    expect((await delayed.claim(7)).success).toBe(true);
+    expect(await first).toMatchObject({ success: true });
+    const state = f.stored[EXPORT_STATE_KEY] as { operations: unknown[]; intents: unknown[] };
+    expect(state.operations).toHaveLength(64);
+    expect(state.intents).toHaveLength(0);
+  });
+  it('repairs an already-overreserved hydration before either retained claim is served', async () => {
+    const f = fixture();
+    const history: string[] = [];
+    for (let index = 0; index < 64; index++) {
+      await f.start();
+      history.push(f.claim.exportOperationId!);
+      await f.complete();
+    }
+    const intents = seedPendingIntents(f, [8, 9]);
+    f.restart();
+    const claims: ExportClaim[] = [];
+    for (const intent of intents) {
+      claims.push(
+        (await f.controller.handle(
+          { action: 'claimExportOperation', intentId: intent.id, route },
+          tabSender(intent.target.tabId)
+        )) as ExportClaim
+      );
+    }
+    expect(claims.every(claim => claim.success)).toBe(true);
+    const state = f.stored[EXPORT_STATE_KEY] as {
+      operations: Array<{ id: string }>;
+      intents: unknown[];
+    };
+    expect(state.operations.map(op => op.id)).toEqual([
+      ...history.slice(2),
+      ...claims.map(claim => claim.exportOperationId),
+    ]);
+    expect(state.operations).toHaveLength(64);
+    expect(state.intents).toHaveLength(0);
+    f.restart();
+    expect(
+      await f.controller.authorize(
+        { action: 'captureChatGptConversation', exportOperationId: claims[0].exportOperationId },
+        tabSender(8)
+      )
+    ).toBe(true);
+  });
+  it('revokes only the newest excess hydrated intent when protected cleanup records fill the remaining slots', async () => {
+    const f = fixture();
+    let ownerId = '';
+    for (let index = 0; index < 64; index++) {
+      await f.start();
+      if (index === 0) ownerId = f.claim.exportOperationId!;
+      if (index < 63)
+        await f.controller.recordResult(f.claim.exportOperationId, {
+          success: true,
+          stageId: `owned-${index}`,
+        });
+      await f.complete();
+    }
+    const intents = seedPendingIntents(f, [8, 9]);
+    f.restart();
+    expect(
+      await f.controller.handle(
+        { action: 'claimExportOperation', intentId: intents[1].id, route },
+        tabSender(9)
+      )
+    ).toMatchObject({ success: false });
+    const repaired = f.stored[EXPORT_STATE_KEY] as {
+      operations: unknown[];
+      intents: Array<{ id: string }>;
+    };
+    expect(repaired.operations).toHaveLength(63);
+    expect(repaired.intents.map(intent => intent.id)).toEqual([intents[0].id]);
+    expect(
+      await f.controller.handle(
+        { action: 'claimExportOperation', intentId: intents[0].id, route },
+        tabSender(8)
+      )
+    ).toMatchObject({ success: true });
+    f.restart();
+    expect(
+      await f.controller.authorize(
+        {
+          action: 'abortStagedArchiveArtifact',
+          source: 'chatgpt',
+          stageId: 'owned-0',
+          exportOperationId: ownerId,
+        },
+        source()
+      )
+    ).toBe(true);
+  });
+  it('does not evict a live generation or a cleanup owner while repairing legacy reservations', async () => {
+    const f = fixture();
+    let ownerId = '';
+    for (let index = 0; index < 63; index++) {
+      await f.start();
+      if (index === 0) ownerId = f.claim.exportOperationId!;
+      await f.controller.recordResult(f.claim.exportOperationId, {
+        success: true,
+        stageId: `owned-${index}`,
+      });
+      await f.complete();
+    }
+    await f.start();
+    const liveId = f.claim.exportOperationId!;
+    const intents = seedPendingIntents(f, [8, 9]);
+    f.restart();
+    for (const intent of intents)
+      expect(
+        await f.controller.handle(
+          { action: 'claimExportOperation', intentId: intent.id, route },
+          tabSender(intent.target.tabId)
+        )
+      ).toMatchObject({ success: false });
+    const repaired = f.stored[EXPORT_STATE_KEY] as { operations: unknown[]; intents: unknown[] };
+    expect(repaired.operations).toHaveLength(64);
+    expect(repaired.intents).toHaveLength(0);
+    f.restart();
+    expect(
+      await f.controller.authorize(
+        { action: 'captureChatGptConversation', exportOperationId: liveId },
+        source()
+      )
+    ).toBe(true);
+    expect(
+      await f.controller.authorize(
+        {
+          action: 'abortStagedArchiveArtifact',
+          source: 'chatgpt',
+          stageId: 'owned-0',
+          exportOperationId: ownerId,
+        },
+        source()
+      )
+    ).toBe(true);
+  });
+  it('preserves the independent 32-pending-intent cap', async () => {
+    const f = fixture();
+    await f.start();
+    await f.complete();
+    seedPendingIntents(
+      f,
+      Array.from({ length: 32 }, (_value, index) => index + 8)
+    );
+    const saved = structuredClone(f.stored);
+    f.restart();
+    expect(await f.start()).toMatchObject({ success: false });
+    expect(f.stored).toEqual(saved);
+  });
+  it('reserves both delayed tab claims under the combined cap and hydrates their generations', async () => {
+    const f = fixture();
+    for (let index = 0; index < 64; index++) {
+      await f.start();
+      await f.complete();
+    }
+    const delayed = delayClaims(f);
+    const first = delayed.start(7);
+    await vi.waitFor(() => expect(delayed.pending.has(7)).toBe(true));
+    const second = delayed.start(8);
+    await vi.waitFor(() => expect(delayed.pending.has(8)).toBe(true));
+    const reserved = structuredClone(f.stored[EXPORT_STATE_KEY]) as {
+      operations: unknown[];
+      intents: unknown[];
+    };
+    const claims = await Promise.all([delayed.claim(7), delayed.claim(8)]);
+    expect(await Promise.all([first, second])).toEqual([
+      expect.objectContaining({ success: true }),
+      expect.objectContaining({ success: true }),
+    ]);
+    expect(claims.every(claim => claim.success)).toBe(true);
+    const finished = f.stored[EXPORT_STATE_KEY] as { operations: unknown[]; intents: unknown[] };
+    expect(reserved.operations.length + reserved.intents.length).toBe(64);
+    expect(reserved.operations).toHaveLength(62);
+    expect(reserved.intents).toHaveLength(2);
+    expect(finished.operations).toHaveLength(64);
+    expect(finished.intents).toHaveLength(0);
+    f.restart();
+    for (const [index, claim] of claims.entries()) {
+      expect(
+        await f.controller.authorize(
+          {
+            action: 'saveToOutputs',
+            exportOperationId: claim.exportOperationId,
+            data: { frontmatter: { source: 'chatgpt' } },
+            outputs: ['file'],
+          },
+          tabSender(7 + index)
+        )
+      ).toBe(true);
+    }
+  });
+  it('reclaims the oldest empty terminal history atomically with the 65th intent', async () => {
+    const f = fixture();
+    const ids: string[] = [];
+    for (let index = 0; index < 64; index++) {
+      expect(await f.start()).toMatchObject({ success: true });
+      ids.push(f.claim.exportOperationId!);
+      expect(await f.complete()).toMatchObject({ success: true });
+    }
+    f.restart();
+    const save = f.api.storage.session.set.getMockImplementation()!;
+    f.api.storage.session.set.mockImplementationOnce(async record => {
+      const state = (
+        record as Record<string, { operations: Array<{ id: string }>; intents: unknown[] }>
+      )[EXPORT_STATE_KEY];
+      expect(state.operations).toHaveLength(63);
+      expect(state.operations.map(op => op.id)).toEqual(ids.slice(1));
+      expect(state.intents).toHaveLength(1);
+      await save(record);
+    });
+    const savesBefore = f.api.storage.session.set.mock.calls.length;
+    expect(await f.start()).toMatchObject({ success: true, operation: { phase: 'exporting' } });
+    expect(f.api.storage.session.set).toHaveBeenCalledTimes(savesBefore + 2);
+    const state = f.stored[EXPORT_STATE_KEY] as { operations: Array<{ id: string }> };
+    expect(state.operations.map(op => op.id)).toEqual([...ids.slice(1), f.claim.exportOperationId]);
+    expect(state.operations).toHaveLength(64);
+  });
+  it.each(['completed', 'cancelled'] as const)(
+    'preserves %s stage ownership while reclaiming the oldest eligible terminal',
+    async phase => {
+      const f = fixture();
+      await f.start();
+      const ownerId = f.claim.exportOperationId!;
+      await f.controller.recordResult(ownerId, { success: true, stageId: 'owned-stage' });
+      if (phase === 'completed') await f.complete();
+      else
+        await f.controller.handle(
+          { action: 'cancelExportOperation', exportOperationId: ownerId },
+          toolbar
+        );
+      let oldestEligibleId: string | undefined;
+      for (let index = 1; index < 64; index++) {
+        await f.start();
+        oldestEligibleId ??= f.claim.exportOperationId;
+        await f.complete();
+      }
+      expect(await f.start()).toMatchObject({ success: true, operation: { phase: 'exporting' } });
+      f.restart();
+      const state = f.stored[EXPORT_STATE_KEY] as {
+        operations: Array<{ id: string; stages: string[] }>;
+      };
+      expect(state.operations).toHaveLength(64);
+      expect(state.operations.find(op => op.id === ownerId)?.stages).toEqual(['owned-stage']);
+      expect(state.operations.some(op => op.id === oldestEligibleId)).toBe(false);
+      expect(
+        await f.controller.authorize(
+          {
+            action: 'abortStagedArchiveArtifact',
+            source: 'chatgpt',
+            stageId: 'owned-stage',
+            exportOperationId: ownerId,
+          },
+          source()
+        )
+      ).toBe(true);
+    }
+  );
+  it('keeps the cap closed when every retained terminal still owns cleanup', async () => {
+    const f = fixture();
+    for (let index = 0; index < 64; index++) {
+      await f.start();
+      await f.controller.recordResult(f.claim.exportOperationId, {
+        success: true,
+        stageId: `owned-${index}`,
+      });
+      await f.complete();
+    }
+    const saved = structuredClone(f.stored);
+    const sendsBefore = f.api.tabs.sendMessage.mock.calls.length;
+    expect(await f.start()).toMatchObject({ success: false });
+    expect(f.stored).toEqual(saved);
+    expect(f.api.tabs.sendMessage).toHaveBeenCalledTimes(sendsBefore);
+  });
   it.each(['preparing', 'awaiting-selection'] as const)(
     'retains an honest no-save outcome when selected %s ends before a choice',
     async phase => {

@@ -216,6 +216,13 @@ The repaired UI retires choices on either identity change, binds every listener
 to the exact catalog response and ignores late old catalogs; replaying the old
 listener now sends no choice.
 
+Published-head review then found that retained terminal history and unreserved
+pending claims could exceed the 64-operation hydration cap. The repaired
+controller counts pending intents as reserved slots, reclaims only empty terminal
+history, preserves live and cleanup-owning generations, and repairs legacy
+overreservation newest-intent-first. A delayed two-tab reproduction now remains
+at 64 claimed operations and survives worker restart.
+
 Sources: S11
 
 ### T6 — Close the installed-runtime evidence gap
