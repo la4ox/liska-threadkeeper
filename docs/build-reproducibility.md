@@ -32,21 +32,81 @@ per entry, the filesystem **order**
 zips of byte-identical `dist/` trees will therefore differ in their container
 bytes for reasons that have nothing to do with the build output.
 
-Instead, the tool extracts both archives and compares a **per-file SHA-256
-manifest**, applying the same exclusions as `build:zip` (`.vite/`,
-`*.DS_Store`) to both sides.
+Instead, the tool compares **per-file SHA-256 manifests** of the local build
+tree and the release ZIP contents, applying the same exclusions as `build:zip`
+(`.vite/`, `*.DS_Store`) to both sides.
 
 ## How it works
 
 1. **Build locally** — runs `npm run build` (`tsc --noEmit && vite build`) into
    `dist/`, exactly as the release checklist does.
-2. **Fetch the release asset** — `gh release download <tag> --pattern
-'liska-threadkeeper-*.zip'`, then extract it with the platform's built-in
-   archive tool.
-3. **Manifest + diff** — both trees become `posix-path → sha256` maps; the
+2. **Admit the release asset** — query `gh release view <tag> --json assets`,
+   require exactly one `liska-threadkeeper-*.zip` asset within the archive limit,
+   and require its numeric API identity to match the exact product repository.
+   Metadata retrieval uses an explicit `--repo` derived from `package.json`'s
+   repository (homepage fallback), not GitHub CLI's inferred upstream. Download
+   the pinned `repos/<owner>/<repo>/releases/assets/<id>` endpoint with
+   `gh api --hostname github.com -H 'Accept: application/octet-stream'`; do not
+   re-resolve a mutable tag/name. Pipe stdout to a create-only file, aborting
+   before any byte beyond the admitted size (and never beyond 64 MiB) is written.
+   Capture at most 8 KiB of stderr, require successful child exit and exact size,
+   and check the optional SHA-256 digest in that same stream. A ten-minute
+   timeout kills stalled transfers. Every transfer failure removes the partial
+   file. Older releases without a digest remain supported. `--ci-zip` skips
+   GitHub retrieval but receives the same actual-file size and ZIP admission checks.
+3. **Inventory, stream + diff** — the Node-only `yauzl` reader inventories the
+   entire central directory and validates local metadata before any extraction
+   write. It then extracts one entry at a time with backpressure, checking actual
+   byte counts and CRC-32 while computing SHA-256. The ZIP manifest is returned
+   directly, without rereading extracted files. The local tree is traversed
+   iteratively and hashed in chunks. Both become `posix-path → sha256` maps; the
    diff classifies every difference as `only-local`, `only-ci`, or
    `content-mismatch`.
 4. **Report** — prints a summary and exits non-zero on any difference.
+
+`--twice` takes precedence over `--ci-zip` and `--tag`; otherwise `--ci-zip`
+takes precedence over `--tag`. `--keep` retains temporary files on success or
+content mismatch only. Operational failures always remove partial extraction
+trees and run-owned temporary directories, even with `--keep`; a caller-supplied
+ZIP is never removed or modified.
+
+## Archive support and resource limits
+
+ZIP input is untrusted. No external `tar` or `unzip` is used for comparison.
+The production ceilings are fixed; there is no CLI bypass. Unit tests may lower
+them, but cannot raise them.
+
+| Resource                                          |     Ceiling |
+| ------------------------------------------------- | ----------: |
+| ZIP file / aggregate declared compressed bytes    |      64 MiB |
+| Explicit archive entries (including directories)  |       4,096 |
+| Expanded bytes per file                           |      32 MiB |
+| Aggregate expanded bytes                          |     128 MiB |
+| Expanded/compressed ratio per entry and aggregate |       200:1 |
+| Decoded UTF-8 path                                | 1,024 bytes |
+| Path depth                                        | 32 segments |
+| Aggregate path/central/local metadata admission   |       1 MiB |
+
+All entries count, **including excluded `.vite/` and `*.DS_Store` entries**.
+Declared sizes/ratios are checked before extraction, and actual expanded bytes,
+declared length and CRC are checked while streaming. Local manifests also bound
+entry count, per-file/aggregate bytes and path work, and continue skipping
+symlinks. Excluded ZIP files are still extracted within these budgets so retained
+diagnostic trees remain useful, but do not enter either manifest.
+
+Supported entries are ordinary files and empty directories using STORE or
+DEFLATE, including native packaging's single leading `./` and data descriptors.
+Safe Unicode names and spaces are preserved. Non-ASCII names require valid
+UTF-8 metadata (the UTF-8 flag or a CRC-bound Info-ZIP Unicode path field);
+ambiguous unflagged legacy codepages are rejected, not guessed. Windows `tar`
+can produce such legacy names and can itself lose characters on round-trip;
+the current ASCII-named build output is covered by a real native-producer test.
+
+Encryption, symlinks/special entries, traversal, absolute/drive/UNC paths,
+backslashes, controls, Windows device/stream syntax, trailing dots/spaces,
+segments over 255 UTF-8 bytes, duplicate Unicode/case-equivalent names and
+file/directory ancestor conflicts are rejected on every OS. Rejection is an
+operational error (`2`), not a content mismatch.
 
 ## When builds differ
 

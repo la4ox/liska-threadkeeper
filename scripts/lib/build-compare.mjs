@@ -16,9 +16,12 @@
  * @property {string[]} mismatch  paths present in both with differing content
  */
 
-import { readdirSync, readFileSync } from 'fs';
+import { createReadStream } from 'node:fs';
+import { Buffer } from 'node:buffer';
+import { opendir, lstat } from 'node:fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
+import { comparisonLimits, portablePath, within } from './build-compare-zip.mjs';
 
 /** Suffix marking macOS Finder metadata files excluded by build:zip. */
 const DS_STORE_SUFFIX = '.DS_Store';
@@ -41,9 +44,8 @@ export function toPosix(p) {
  * local tree and the extracted CI ZIP are compared on equal footing.
  *
  * Note: the bare directory name `.vite` is also matched (not just `.vite/*`).
- * This is intentional and slightly stricter than zip's glob: {@link buildManifest}
- * calls this on directories too, so matching `.vite` lets the walk prune that
- * subtree entirely instead of recursing into it.
+ * This is intentional and slightly stricter than zip's glob. Exclusions govern
+ * manifest membership only; excluded entries still consume admission budgets.
  *
  * @param {string} posixPath
  * @returns {boolean}
@@ -51,45 +53,112 @@ export function toPosix(p) {
 export function isExcluded(posixPath) {
   const segments = posixPath.split('/');
   if (segments.includes(VITE_DIR_SEGMENT)) return true;
-  const base = segments[segments.length - 1];
-  return base.endsWith(DS_STORE_SUFFIX);
+  // The former recursive walk pruned a matching directory as well as files.
+  // Keep that membership rule now that admission visits excluded descendants.
+  return segments.some(segment => segment.endsWith(DS_STORE_SUFFIX));
 }
 
 /**
  * Walk a directory tree and build a manifest of `posixRelativePath -> sha256`.
- * Excluded paths (see {@link isExcluded}) are skipped, including not recursing
- * into excluded directories.
+ * Hash incrementally and walk iteratively. Exclusions affect manifest membership,
+ * not admission: excluded files also consume the bounded local-tree budgets.
  *
  * @param {string} dir  root directory to scan
- * @returns {Manifest}
+ * @returns {Promise<Manifest>}
  */
-export function buildManifest(dir) {
+export async function buildManifest(dir, overrides = {}) {
+  const limits = comparisonLimits(overrides);
   /** @type {Manifest} */
   const manifest = new Map();
-  walk(dir, dir, manifest);
+  const pending = [dir];
+  let count = 0;
+  let declared = 0;
+  let total = 0;
+  let metadata = 0;
+  while (pending.length) {
+    const directory = await opendir(pending.pop());
+    for await (const entry of directory) {
+      within(++count, limits.entries, 'local entries');
+      // Preserve the old behavior: never follow symlinks or special files.
+      if (!entry.isDirectory() && !entry.isFile()) continue;
+      const full = join(directory.path, entry.name);
+      const relPosix = portablePath(toPosix(relative(dir, full)), entry.isDirectory(), limits);
+      metadata += Buffer.byteLength(relPosix, 'utf8');
+      within(metadata, limits.metadataBytes, 'local path metadata bytes');
+      if (entry.isDirectory()) {
+        pending.push(full);
+        continue;
+      }
+      const info = await lstat(full);
+      if (!info.isFile()) throw new Error('local file changed during traversal');
+      within(info.size, limits.entryBytes, 'local entry bytes');
+      declared += info.size;
+      within(declared, limits.totalBytes, 'local aggregate expanded bytes');
+      const hash = createHash('sha256');
+      let bytes = 0;
+      for await (const chunk of createReadStream(full)) {
+        bytes += chunk.length;
+        total += chunk.length;
+        within(bytes, limits.entryBytes, 'actual local entry bytes');
+        within(total, limits.totalBytes, 'actual local aggregate expanded bytes');
+        hash.update(chunk);
+      }
+      if (bytes !== info.size) throw new Error('local file size changed during hashing');
+      if (!isExcluded(relPosix)) manifest.set(relPosix, hash.digest('hex'));
+    }
+  }
   return manifest;
 }
 
-/**
- * @param {string} root
- * @param {string} current
- * @param {Manifest} manifest
- */
-function walk(root, current, manifest) {
-  const entries = readdirSync(current, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = join(current, entry.name);
-    const relPosix = toPosix(relative(root, full));
-    if (isExcluded(relPosix)) continue;
-    // Only regular files and directories are walked. Symlinks (which a Chrome
-    // extension dist/ does not contain) are intentionally skipped.
-    if (entry.isDirectory()) {
-      walk(root, full, manifest);
-    } else if (entry.isFile()) {
-      const hash = createHash('sha256').update(readFileSync(full)).digest('hex');
-      manifest.set(relPosix, hash);
-    }
+/** Product release authority, independent of gh's inferred upstream remote. */
+export function releaseRepository(pkg) {
+  const source = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url;
+  const match =
+    /^(?:git\+)?https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/u.exec(
+      source ?? pkg.homepage ?? ''
+    );
+  if (!match || match[1] === '.' || match[1] === '..' || match[2] === '.' || match[2] === '..') {
+    throw new Error('package.json must identify an HTTPS GitHub release repository');
   }
+  return `${match[1]}/${match[2]}`;
+}
+
+/** Validate untrusted release metadata before gh is allowed to download bytes. */
+export function releaseAsset(metadata, repository) {
+  const matches = Array.isArray(metadata.assets)
+    ? metadata.assets.filter(
+        asset =>
+          typeof asset.name === 'string' && /^liska-threadkeeper-[^/\\]+\.zip$/u.test(asset.name)
+      )
+    : [];
+  if (matches.length !== 1)
+    throw new Error(`expected exactly one release ZIP asset, found ${matches.length}`);
+  const asset = matches[0];
+  if (/\p{Cc}/u.test(asset.name) || ['*', '?', '[', ']'].some(char => asset.name.includes(char)))
+    throw new Error('unsafe release ZIP basename');
+  within(asset.size, comparisonLimits().archiveBytes, 'release archive bytes');
+  const prefix = `https://api.github.com/repos/${repository}/releases/assets/`;
+  const identity =
+    typeof asset.apiUrl === 'string' && asset.apiUrl.startsWith(prefix)
+      ? asset.apiUrl.slice(prefix.length)
+      : '';
+  if (!/^[1-9]/u.test(identity) || identity.length > 20 || /[^0-9]/u.test(identity)) {
+    throw new Error('release ZIP API identity must match the exact product repository');
+  }
+  const digest = asset.digest;
+  if (
+    digest != null &&
+    digest !== '' &&
+    (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(digest))
+  ) {
+    throw new Error('unsupported release ZIP digest');
+  }
+  return {
+    name: asset.name,
+    size: asset.size,
+    digest: digest || null,
+    endpoint: `repos/${repository}/releases/assets/${identity}`,
+  };
 }
 
 /**

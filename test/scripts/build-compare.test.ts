@@ -10,7 +10,8 @@
  * zipped, ignoring ZIP-container nondeterminism (entry order, timestamps, perms)."
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+// @vitest-environment node
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -22,7 +23,11 @@ import {
   buildManifest,
   diffManifests,
   formatReport,
+  releaseRepository,
+  releaseAsset,
 } from '../../scripts/lib/build-compare.mjs';
+// @ts-expect-error -- Node-only plain .mjs tooling
+import { parseArgs, runTwice } from '../../scripts/compare-build.mjs';
 
 const tmpDirs: string[] = [];
 
@@ -65,6 +70,7 @@ describe('isExcluded (build:zip parity: -x "*.DS_Store" -x ".vite/*")', () => {
   it('excludes .DS_Store files anywhere', () => {
     expect(isExcluded('.DS_Store')).toBe(true);
     expect(isExcluded('assets/.DS_Store')).toBe(true);
+    expect(isExcluded('folder.DS_Store/child.js')).toBe(true);
   });
 
   it('keeps regular build output files', () => {
@@ -75,27 +81,29 @@ describe('isExcluded (build:zip parity: -x "*.DS_Store" -x ".vite/*")', () => {
 });
 
 describe('buildManifest', () => {
-  it('produces a posix-keyed sha256 map of all files, recursively', () => {
+  it('produces a posix-keyed sha256 map of all files, recursively', async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, 'manifest.json'), '{"a":1}');
     mkdirSync(join(dir, 'assets'));
     writeFileSync(join(dir, 'assets', 'index.js'), 'console.log(1)');
 
-    const manifest = buildManifest(dir);
+    const manifest = await buildManifest(dir);
 
     expect(manifest.get('manifest.json')).toBe(sha256('{"a":1}'));
     expect(manifest.get('assets/index.js')).toBe(sha256('console.log(1)'));
     expect(manifest.size).toBe(2);
   });
 
-  it('excludes .vite/ and .DS_Store to mirror build:zip', () => {
+  it('excludes .vite/ and .DS_Store to mirror build:zip', async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, 'manifest.json'), '{}');
     writeFileSync(join(dir, '.DS_Store'), 'junk');
     mkdirSync(join(dir, '.vite'));
     writeFileSync(join(dir, '.vite', 'manifest.json'), 'internal');
+    mkdirSync(join(dir, 'folder.DS_Store'));
+    writeFileSync(join(dir, 'folder.DS_Store', 'child.js'), 'also excluded');
 
-    const manifest = buildManifest(dir);
+    const manifest = await buildManifest(dir);
 
     expect(manifest.has('manifest.json')).toBe(true);
     expect(manifest.has('.DS_Store')).toBe(false);
@@ -103,13 +111,127 @@ describe('buildManifest', () => {
     expect(manifest.size).toBe(1);
   });
 
-  it('detects content differences via differing hashes', () => {
+  it('detects content differences via differing hashes', async () => {
     const a = makeTempDir();
     const b = makeTempDir();
     writeFileSync(join(a, 'f.txt'), 'hello');
     writeFileSync(join(b, 'f.txt'), 'world');
 
-    expect(buildManifest(a).get('f.txt')).not.toBe(buildManifest(b).get('f.txt'));
+    expect((await buildManifest(a)).get('f.txt')).not.toBe((await buildManifest(b)).get('f.txt'));
+  });
+
+  it('hashes multi-chunk files and counts excluded files toward budgets', async () => {
+    const dir = makeTempDir();
+    const content = 'abc'.repeat(100_000);
+    writeFileSync(join(dir, 'large.js'), content);
+    expect((await buildManifest(dir)).get('large.js')).toBe(sha256(content));
+    await expect(buildManifest(dir, { entryBytes: content.length - 1 })).rejects.toThrow(
+      /entry bytes/
+    );
+    writeFileSync(join(dir, '.DS_Store'), 'x');
+    await expect(buildManifest(dir, { totalBytes: content.length })).rejects.toThrow(/aggregate/);
+    await expect(buildManifest(dir, { entries: 1 })).rejects.toThrow(/entries/);
+  });
+});
+
+describe('release acquisition admission', () => {
+  it('uses package release authority rather than an inferred upstream', () => {
+    expect(
+      releaseRepository({ repository: { url: 'https://github.com/la4ox/liska-threadkeeper' } })
+    ).toBe('la4ox/liska-threadkeeper');
+    expect(releaseRepository({ repository: 'git+https://github.com/fork/project.git' })).toBe(
+      'fork/project'
+    );
+    expect(releaseRepository({ homepage: 'https://github.com/fork/project/' })).toBe(
+      'fork/project'
+    );
+    for (const repository of [
+      'https://github.com.evil/a/b',
+      'https://github.com/a/b?x',
+      'a/b',
+      'https://github.com/../x',
+    ]) {
+      expect(() => releaseRepository({ repository })).toThrow();
+    }
+  });
+
+  it('requires one bounded basename and validates optional SHA-256 metadata', () => {
+    const asset = {
+      name: 'liska-threadkeeper-3.0.0.zip',
+      size: 10,
+      digest: `sha256:${'a'.repeat(64)}`,
+      apiUrl: 'https://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/123',
+    };
+    const repository = 'la4ox/liska-threadkeeper';
+    expect(releaseAsset({ assets: [asset] }, repository)).toEqual({
+      name: asset.name,
+      size: asset.size,
+      digest: asset.digest,
+      endpoint: 'repos/la4ox/liska-threadkeeper/releases/assets/123',
+    });
+    expect(releaseAsset({ assets: [{ ...asset, digest: null }] }, repository).digest).toBeNull();
+    for (const assets of [
+      [],
+      [asset, asset],
+      [{ ...asset, size: 64 * 1024 * 1024 + 1 }],
+      [{ ...asset, digest: 'sha256:BAD' }],
+      [{ ...asset, name: 'liska-threadkeeper-*.zip' }],
+    ]) {
+      expect(() => releaseAsset({ assets }, repository)).toThrow();
+    }
+    for (const apiUrl of [
+      undefined,
+      'https://api.github.com/repos/upstream/repo/releases/assets/123',
+      'https://api.github.com.evil/repos/la4ox/liska-threadkeeper/releases/assets/123',
+      'http://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/123',
+      'https://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/123?x=1',
+      'https://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/123\n',
+      'https://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/../123',
+      'https://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/0',
+      'https://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/0123',
+      'https://api.github.com/repos/la4ox/liska-threadkeeper/releases/assets/%31',
+    ])
+      expect(() => releaseAsset({ assets: [{ ...asset, apiUrl }] }, repository)).toThrow(
+        /identity/
+      );
+  });
+});
+
+describe('CLI local determinism', () => {
+  it('preserves option parsing and --twice compares awaited manifest snapshots', async () => {
+    expect(parseArgs(['--tag', 'v1', '--ci-zip', 'input.zip', '--twice', '--keep'])).toMatchObject({
+      tag: 'v1',
+      ciZip: 'input.zip',
+      twice: true,
+      keep: true,
+    });
+    const dir = makeTempDir();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(
+        (
+          await runTwice({
+            dist: dir,
+            build() {
+              writeFileSync(join(dir, 'file'), 'same');
+            },
+          })
+        ).identical
+      ).toBe(true);
+      let build = 0;
+      expect(
+        (
+          await runTwice({
+            dist: dir,
+            build() {
+              writeFileSync(join(dir, 'file'), String(++build));
+            },
+          })
+        ).mismatch
+      ).toEqual(['file']);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 
