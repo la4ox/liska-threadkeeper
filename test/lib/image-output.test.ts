@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 vi.mock(import('mdast-util-from-markdown'), { spy: true });
 import { neutralizeActiveProviderMarkdown } from '../../src/content/markdown-safety';
@@ -9,7 +9,10 @@ import {
   resolveImagesForObsidianTail,
   inspectTrustedTailImages,
   trustedTailImageIds,
+  inspectImagePlaceholders,
+  imagePlaceholderInternals,
 } from '../../src/lib/image-output';
+import { MARKDOWN_WORK_LIMITS } from '../../src/lib/markdown-work-budget';
 import type { ExtractedImage } from '../../src/lib/types';
 import {
   MESSAGE_BOUNDARY_FORMAT_MARKER,
@@ -31,6 +34,10 @@ const confirmedPaths = new Map([
   ['img-1', `Images/liska-v1/sha256-${'a'.repeat(64)}.png`],
   ['img-2', `Images/liska-v1/sha256-${'b'.repeat(64)}.jpg`],
 ]);
+
+afterEach(() => {
+  vi.mocked(fromMarkdown).mockReset();
+});
 
 interface MarkdownNode {
   type: string;
@@ -237,6 +244,19 @@ describe.each([
     expect(nodes.filter(node => node.type === 'html')).toEqual([]);
   });
 
+  it('does not delete a protected placeholder because its own alt contains a boundary marker', () => {
+    const body = [
+      '```',
+      `${neutralizedPlaceholder('missing', MESSAGE_BOUNDARY_MARKER)}\`\`\``,
+      '![remote](https://attacker.example/pixel)',
+    ].join('\n');
+    const output = removeImages(body);
+    expect(output).toBe(body.replace(MESSAGE_BOUNDARY_MARKER, '<!-- liska-message&#58;v1 -->'));
+    expect(output).toContain('g2o-image://missing)```');
+    expect(markdownNodes(output).some(node => node.type === 'image')).toBe(false);
+    expect(markdownNodes(output).filter(node => node.type === 'html')).toEqual([]);
+  });
+
   it('does not remove a marker from an opaque multiline link title', () => {
     const body = [
       MESSAGE_BOUNDARY_FORMAT_MARKER,
@@ -405,5 +425,142 @@ describe('trusted append-tail image resolution', () => {
         parserFailed: true,
       }
     );
+  });
+});
+
+describe('bounded private image parsing and scanning', () => {
+  const parseBoundary = `${'a'.repeat(MARKDOWN_WORK_LIMITS.lineLength - 1)}\n`.repeat(16);
+
+  it.each([
+    ['input length', parseBoundary],
+    ['physical line', 'a'.repeat(MARKDOWN_WORK_LIMITS.lineLength)],
+    ['structural units', '*\n'.repeat(MARKDOWN_WORK_LIMITS.structuralUnits / 2)],
+  ])('admits the exact %s boundary and rejects +1 before parsing', (_label, boundary) => {
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    parser.mockReturnValueOnce({ type: 'root', children: [] });
+    expect(inspectImagePlaceholders(boundary)).toEqual({ ids: [], parserFailed: false });
+    expect(parser).toHaveBeenCalledTimes(1);
+    parser.mockClear();
+    expect(inspectImagePlaceholders(`${boundary}*`)).toEqual({ ids: [], parserFailed: true });
+    expect(parser).not.toHaveBeenCalled();
+  });
+
+  it('rejects a wide AST before iterating or pushing its children', () => {
+    const children = new Array(MARKDOWN_WORK_LIMITS.traversalNodes);
+    const iterate = vi.fn(() => {
+      throw new Error('must not iterate oversized children');
+    });
+    Object.defineProperty(children, Symbol.iterator, { value: iterate });
+    vi.mocked(fromMarkdown).mockReturnValueOnce({ type: 'root', children });
+    expect(inspectImagePlaceholders(placeholder('img-1'))).toEqual({ ids: [], parserFailed: true });
+    expect(iterate).not.toHaveBeenCalled();
+  });
+
+  it('merges nested and overlapping intervals before half-open binary lookup', () => {
+    const ranges = imagePlaceholderInternals.merge([
+      { start: 20, end: 30 },
+      { start: 2, end: 20 },
+      { start: 4, end: 6 },
+      { start: 40, end: 50 },
+      { start: 1, end: 3 },
+    ]);
+    expect(ranges).toEqual([
+      { start: 1, end: 30 },
+      { start: 40, end: 50 },
+    ]);
+    for (const [offset, length, expected] of [
+      [0, 1, false],
+      [0, 2, true],
+      [1, 1, true],
+      [29, 1, true],
+      [30, 1, false],
+      [30, 10, false],
+      [30, 11, true],
+      [50, 1, false],
+      [2, 0, false],
+    ] as const) {
+      expect(
+        imagePlaceholderInternals.overlaps(offset, length, ranges),
+        `${offset}/${length}`
+      ).toBe(expected);
+    }
+  });
+
+  it.each([
+    ['literal', '!['],
+    ['neutralized', '&#33;&#91;'],
+  ])('inspects malformed repeated %s openers only once per forward run', (_label, opener) => {
+    const n = 10_000;
+    const first = imagePlaceholderInternals.scan(opener.repeat(n));
+    const second = imagePlaceholderInternals.scan(opener.repeat(2 * n));
+    expect(first.occurrences).toEqual([]);
+    expect(second.occurrences).toEqual([]);
+    expect(first.inspections).toBeLessThanOrEqual(opener.length * n + 3);
+    expect(second.inspections).toBeLessThanOrEqual(first.inspections * 2);
+  });
+
+  it('keeps scanner semantics for failed candidates, nested openers, barriers and adjacent markers', () => {
+    const pattern = /(!\[|&#33;&#91;)([^\]$\r\n]*)\]\(g2o-image:\/\/([^)$\r\n]*)\)/g;
+    const samples = [
+      '![broken ![still broken',
+      '![broken]wrong ![ok](g2o-image://good)',
+      '![outer ![inner](g2o-image://id)',
+      '![x](g2o-image://a![y](g2o-image://b)',
+      '![bad$![good](g2o-image://id)',
+      '![bad](g2o-image://$![good](g2o-image://id)',
+      `${placeholder('a')}${neutralizedPlaceholder('b')}`,
+      '![x\n![good](g2o-image://id)',
+    ];
+    for (const source of samples) {
+      expect(imagePlaceholderInternals.scan(source).occurrences).toEqual(
+        [...source.matchAll(pattern)].map(match => ({
+          offset: match.index,
+          end: match.index! + match[0].length,
+          match: match[0],
+          opener: match[1],
+          alt: match[2],
+          id: match[3],
+        }))
+      );
+    }
+  });
+
+  it('checks a synthesized sentinel before protected-range behavior even after admission failure', () => {
+    const malformed = '<!-- liska-message![x](g2o-image://missing):v1 -->';
+    const body = `${'a'.repeat(MARKDOWN_WORK_LIMITS.lineLength + 1)}\n${malformed}`;
+    expect(stripImagePlaceholders(body).endsWith('<!-- liska-message&#58;v1 -->')).toBe(true);
+    expect(resolveImagesToConfirmedPaths(body, [img('img-1')], confirmedPaths).files).toEqual([]);
+  });
+
+  it('streams more occurrences than the bounded test-capture seam without retaining occurrence strings', () => {
+    const source = '![](g2o-image://)'.repeat(MARKDOWN_WORK_LIMITS.edits + 1);
+    let seen = 0;
+    const scan = imagePlaceholderInternals.visit(source, span => {
+      seen += 1;
+      if (seen === 1) {
+        expect(span).not.toHaveProperty('match');
+        expect(span).not.toHaveProperty('alt');
+        expect(span).not.toHaveProperty('id');
+      }
+    });
+    expect(seen).toBe(MARKDOWN_WORK_LIMITS.edits + 1);
+    expect(scan.count).toBe(seen);
+    expect(scan.only).toBeNull();
+    expect(scan).not.toHaveProperty('occurrences');
+    expect(scan.inspections).toBeLessThanOrEqual(source.length * 2);
+  });
+
+  it('rewrites an admission-failed dense line without an occurrence array or asset authorization', () => {
+    const source = neutralizedPlaceholder('missing', 'x').repeat(10_001);
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    expect(source.length).toBeGreaterThan(MARKDOWN_WORK_LIMITS.lineLength);
+    expect(resolveImagesToConfirmedPaths(source, [img('img-1')], confirmedPaths)).toEqual({
+      body: source,
+      files: [],
+    });
+    expect(inspectImagePlaceholders(source)).toEqual({ ids: [], parserFailed: true });
+    expect(parser).not.toHaveBeenCalled();
   });
 });

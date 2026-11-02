@@ -12,6 +12,7 @@ import { neutralizeActiveProviderMarkdown, type TrustedHtmlRange } from './markd
 import { convertDeepResearchContent } from './markdown-deep-research';
 import { generateHash } from '../lib/hash';
 import { normalizeLiskaLossDiagnostics } from '../lib/loss-diagnostics';
+import { MarkdownWorkBudget } from '../lib/markdown-work-budget';
 import { MAX_FILENAME_BASE_LENGTH, FILENAME_ID_SUFFIX_LENGTH } from '../lib/constants';
 import type {
   ConversationData,
@@ -215,45 +216,63 @@ export function conversationToNote(
 
 function deepResearchBody(data: ConversationData): string {
   if (data.messages.length === 0) return '';
+  const budget = new MarkdownWorkBudget();
   // References are appended after HTML conversion, so apply the reading
   // policy only after the entire report is composed. Reports do not own
   // message sentinels, including copies preserved inside literal code.
   return neutralizeActiveProviderMarkdown(
     neutralizeMessageBoundaryMarkers(
-      convertDeepResearchContent(data.messages[0].content, data.links)
+      convertDeepResearchContent(data.messages[0].content, data.links, budget)
     ),
-    readingTrustedDestinations(data)
+    readingTrustedDestinations(data),
+    [],
+    budget
   );
 }
 
 function formatConversationMessage(
   message: ConversationMessage,
   options: TemplateOptions,
-  source: AIPlatform
+  source: AIPlatform,
+  budget: MarkdownWorkBudget
 ): string {
-  return formatMessage(message.content, message.role, options, source, message.contentFormat);
+  return formatMessage(
+    message.content,
+    message.role,
+    options,
+    source,
+    message.contentFormat,
+    budget
+  );
 }
 
 function ordinaryConversationBody(data: ConversationData, options: TemplateOptions): string {
-  let source = `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n`;
+  const budget = new MarkdownWorkBudget();
+  const chunks = [`${MESSAGE_BOUNDARY_FORMAT_MARKER}\n\n`];
+  let sourceLength = chunks[0].length;
+  const append = (chunk: string): void => {
+    chunks.push(chunk);
+    sourceLength += chunk.length;
+  };
   const trustedHtmlRanges: TrustedHtmlRange[] = [
     { start: 0, end: MESSAGE_BOUNDARY_FORMAT_MARKER.length },
   ];
   data.messages.forEach((message, index) => {
-    if (index > 0) source += '\n\n';
-    const markerStart = source.length;
-    source += MESSAGE_BOUNDARY_MARKER;
-    trustedHtmlRanges.push({ start: markerStart, end: source.length });
+    if (index > 0) append('\n\n');
+    const markerStart = sourceLength;
+    append(MESSAGE_BOUNDARY_MARKER);
+    trustedHtmlRanges.push({ start: markerStart, end: sourceLength });
 
     const messageParts: string[] = [];
     // Render tool content as a separate collapsible callout before the assistant message.
     if (message.toolContent) messageParts.push(formatToolContent(message.toolContent, options));
-    messageParts.push(formatConversationMessage(message, options, data.source));
-    source += `\n\n${messageParts.join('\n\n')}`;
+    messageParts.push(formatConversationMessage(message, options, data.source, budget));
+    append(`\n\n${messageParts.join('\n\n')}`);
   });
   return neutralizeActiveProviderMarkdown(
-    source,
+    chunks.join(''),
     readingTrustedDestinations(data),
-    trustedHtmlRanges
+    trustedHtmlRanges,
+    budget
   );
 }

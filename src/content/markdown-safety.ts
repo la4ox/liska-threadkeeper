@@ -9,6 +9,9 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Definition, Html, Image, ImageReference, Link, Root, RootContent, Text } from 'mdast';
 import type { Node } from 'unist';
 import { MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER } from '../lib/message-counter';
+import { MAX_CONTENT_SIZE } from '../lib/constants';
+import { utf8ByteLength } from '../lib/byte-size';
+import { INERT_READING_DIAGNOSTIC, MarkdownWorkBudget } from '../lib/markdown-work-budget';
 
 const LITERAL_OPEN_BRACKET = '&#91;';
 const LITERAL_IMAGE_OPEN = '&#33;&#91;';
@@ -47,16 +50,13 @@ function childNodes(node: MarkdownNode): readonly MarkdownNode[] {
   return Array.isArray(children) ? (children as MarkdownNode[]) : [];
 }
 
-function codeRanges(tree: Root): SourceRange[] {
+function codeRanges(tree: Root, budget: MarkdownWorkBudget): SourceRange[] {
   const ranges: SourceRange[] = [];
-  const pending: MarkdownNode[] = [tree];
-  while (pending.length > 0) {
-    const node = pending.pop()!;
+  for (const node of budget.walk<MarkdownNode>(tree, childNodes)) {
     if (node.type === 'code' || node.type === 'inlineCode') {
       const position = nodeOffsets(node);
       if (position) ranges.push(position);
     }
-    for (const child of childNodes(node)) pending.push(child);
   }
   return ranges.sort((left, right) => left.start - right.start);
 }
@@ -74,8 +74,9 @@ function containingRange(ranges: readonly SourceRange[], index: number): SourceR
 }
 
 /** Obsidian math is opaque to CommonMark; protect only complete delimiters outside code. */
-function mathRanges(source: string, tree: Root): SourceRange[] {
-  const protectedCode = codeRanges(tree);
+function mathRanges(source: string, tree: Root, budget: MarkdownWorkBudget): SourceRange[] {
+  const protectedCode = codeRanges(tree, budget);
+  budget.scan(source.length);
   const ranges: SourceRange[] = [];
   let state: { start: number; length: 1 | 2 } | null = null;
   let slashParity = 0;
@@ -244,20 +245,30 @@ function safeLinkDestination(
   }
 }
 
-function addEdit(edits: Map<number, SourceEdit>, edit: SourceEdit): void {
+function addEdit(
+  edits: Map<number, SourceEdit>,
+  edit: SourceEdit,
+  budget: MarkdownWorkBudget
+): void {
   const existing = edits.get(edit.start);
+  if (!existing) budget.newEdit();
   if (!existing || existing.deleteCount < edit.deleteCount) edits.set(edit.start, edit);
 }
 
 function trustedHtmlAuthority(
   source: string,
-  ranges: readonly TrustedHtmlRange[]
+  ranges: readonly TrustedHtmlRange[],
+  budget?: MarkdownWorkBudget
 ): ReadonlyMap<number, number> {
   const authority = new Map<number, number>();
   let priorEnd = -1;
   for (const range of ranges) {
     const { start, end } = range;
-    const marker = source.slice(start, end);
+    budget?.scan(end - start);
+    // Validate a small exact marker length before slicing an untrusted range.
+    const marker = TRUSTED_GENERATED_HTML.some(candidate => candidate.length === end - start)
+      ? source.slice(start, end)
+      : '';
     const startsOnLine = start === 0 || source[start - 1] === '\n' || source[start - 1] === '\r';
     const endsOnLine = end === source.length || source[end] === '\n' || source[end] === '\r';
     if (
@@ -283,14 +294,16 @@ function neutralizeHtml(
   source: string,
   node: Html,
   edits: Map<number, SourceEdit>,
-  trustedHtml: ReadonlyMap<number, number>
+  trustedHtml: ReadonlyMap<number, number>,
+  budget: MarkdownWorkBudget
 ): void {
   const position = nodeOffsets(node);
   if (!position) return;
   // Markdown inside a raw HTML node is opaque in the original parse. Keep it
   // literal when the surrounding HTML becomes text; otherwise an image, link,
   // definition, or wikilink could become active only because of this edit.
-  neutralizeBracketsInRange(source, position.start, position.end, edits);
+  neutralizeBracketsInRange(source, position.start, position.end, edits, budget);
+  budget.scan(position.end - position.start);
   for (let cursor = position.start; cursor < position.end; cursor += 1) {
     // These exact full-line comments are emitted by conversationToNote after
     // provider copies have already been made inert by
@@ -303,11 +316,15 @@ function neutralizeHtml(
     }
     const character = source[cursor];
     if (character === '<' || character === '>') {
-      addEdit(edits, {
-        start: cursor,
-        deleteCount: 1,
-        replacement: character === '<' ? LITERAL_OPEN_ANGLE : LITERAL_CLOSE_ANGLE,
-      });
+      addEdit(
+        edits,
+        {
+          start: cursor,
+          deleteCount: 1,
+          replacement: character === '<' ? LITERAL_OPEN_ANGLE : LITERAL_CLOSE_ANGLE,
+        },
+        budget
+      );
     }
   }
 }
@@ -316,8 +333,10 @@ function neutralizeBracketsInRange(
   source: string,
   start: number,
   end: number,
-  edits: Map<number, SourceEdit>
+  edits: Map<number, SourceEdit>,
+  budget: MarkdownWorkBudget
 ): void {
+  budget.scan(end - start);
   let slashParity = 0;
   for (let cursor = start; cursor < end; cursor += 1) {
     const character = source[cursor];
@@ -328,7 +347,7 @@ function neutralizeBracketsInRange(
     const escaped = slashParity === 1;
     slashParity = 0;
     if (character === '[' && !escaped) {
-      addEdit(edits, { start: cursor, deleteCount: 1, replacement: LITERAL_OPEN_BRACKET });
+      addEdit(edits, { start: cursor, deleteCount: 1, replacement: LITERAL_OPEN_BRACKET }, budget);
     }
   }
 }
@@ -336,15 +355,22 @@ function neutralizeBracketsInRange(
 function mergeShiftedEdits(
   target: Map<number, SourceEdit>,
   nested: ReadonlyMap<number, SourceEdit>,
-  offset: number
+  offset: number,
+  budget: MarkdownWorkBudget
 ): void {
   for (const edit of nested.values()) {
-    addEdit(target, { ...edit, start: edit.start + offset });
+    addEdit(target, { ...edit, start: edit.start + offset }, budget);
   }
 }
 
-function footnoteBodyStart(source: string, position: SourceRange): number | null {
-  const delimiter = source.indexOf(']:', position.start + 2);
+function footnoteBodyStart(
+  source: string,
+  position: SourceRange,
+  budget: MarkdownWorkBudget
+): number | null {
+  budget.scan(position.end - position.start);
+  const relative = source.slice(position.start + 2, position.end).indexOf(']:');
+  const delimiter = relative < 0 ? -1 : position.start + 2 + relative;
   if (delimiter < 0 || delimiter >= position.end) return null;
   let start = delimiter + 2;
   while (start < position.end && (source[start] === ' ' || source[start] === '\t')) start += 1;
@@ -355,20 +381,28 @@ function neutralizeImage(
   source: string,
   node: Image | ImageReference,
   trustedDestinations: ReadonlySet<string>,
-  edits: Map<number, SourceEdit>
+  edits: Map<number, SourceEdit>,
+  budget: MarkdownWorkBudget
 ): void {
   const position = nodeOffsets(node);
   if (!position || !source.startsWith('![', position.start)) return;
-  if (node.type === 'image' && trustedLocalDestination(node.url, trustedDestinations)) return;
-  addEdit(edits, {
-    start: position.start,
-    deleteCount: 2,
-    replacement: LITERAL_IMAGE_OPEN,
-  });
+  if (node.type === 'image') {
+    budget.scan(node.url.length);
+    if (trustedLocalDestination(node.url, trustedDestinations)) return;
+  }
+  addEdit(
+    edits,
+    {
+      start: position.start,
+      deleteCount: 2,
+      replacement: LITERAL_IMAGE_OPEN,
+    },
+    budget
+  );
   // Image descriptions are stored as one alt string rather than child nodes.
   // Once the outer opener becomes literal, nested image/link syntax inside the
   // description would otherwise become independently active on the next parse.
-  neutralizeBracketsInRange(source, position.start + 2, position.end, edits);
+  neutralizeBracketsInRange(source, position.start + 2, position.end, edits, budget);
 }
 
 function neutralizeUnsafeLink(
@@ -376,7 +410,8 @@ function neutralizeUnsafeLink(
   node: Link | Definition,
   trustedDestinations: ReadonlySet<string>,
   edits: Map<number, SourceEdit>,
-  preserveFootnotes: boolean
+  preserveFootnotes: boolean,
+  budget: MarkdownWorkBudget
 ): void {
   const position = nodeOffsets(node);
   if (!position || source[position.start] !== '[') return;
@@ -385,36 +420,52 @@ function neutralizeUnsafeLink(
   // Active syntax inside ordinary multi-token bodies remains separate mdast
   // nodes and is neutralized normally.
   if (preserveFootnotes && node.type === 'definition' && source.startsWith('[^', position.start)) {
-    const bodyStart = footnoteBodyStart(source, position);
+    const bodyStart = footnoteBodyStart(source, position, budget);
     if (bodyStart !== null && bodyStart < position.end) {
       const body = source.slice(bodyStart, position.end);
+      budget.scan(body.length);
       if (body.includes('[')) {
         mergeShiftedEdits(
           edits,
-          collectEdits(body, fromMarkdown(body), trustedDestinations, false, new Map()),
-          bodyStart
+          collectEdits(
+            body,
+            parseMarkdown(body, budget),
+            trustedDestinations,
+            budget,
+            false,
+            new Map()
+          ),
+          bodyStart,
+          budget
         );
       }
     }
     return;
   }
+  budget.scan(node.url.length);
   if (safeLinkDestination(node.url, trustedDestinations)) return;
-  addEdit(edits, {
-    start: position.start,
-    deleteCount: 1,
-    replacement: LITERAL_OPEN_BRACKET,
-  });
-  neutralizeBracketsInRange(source, position.start + 1, position.end, edits);
+  addEdit(
+    edits,
+    {
+      start: position.start,
+      deleteCount: 1,
+      replacement: LITERAL_OPEN_BRACKET,
+    },
+    budget
+  );
+  neutralizeBracketsInRange(source, position.start + 1, position.end, edits, budget);
 }
 
 function wikiEdits(
   source: string,
   node: Text,
   edits: Map<number, SourceEdit>,
-  protectedMath: readonly SourceRange[]
+  protectedMath: readonly SourceRange[],
+  budget: MarkdownWorkBudget
 ): void {
   const position = nodeOffsets(node);
   if (!position) return;
+  budget.scan(position.end - position.start);
   let slashParity = 0;
   for (let cursor = position.start; cursor < position.end; cursor += 1) {
     const math = containingRange(protectedMath, cursor);
@@ -431,10 +482,10 @@ function wikiEdits(
     const escaped = slashParity === 1;
     slashParity = 0;
     if (!escaped && source.startsWith('![', cursor)) {
-      addEdit(edits, { start: cursor, deleteCount: 2, replacement: LITERAL_IMAGE_OPEN });
+      addEdit(edits, { start: cursor, deleteCount: 2, replacement: LITERAL_IMAGE_OPEN }, budget);
       cursor += 1;
     } else if (!escaped && source.startsWith('[[', cursor)) {
-      addEdit(edits, { start: cursor, deleteCount: 1, replacement: LITERAL_OPEN_BRACKET });
+      addEdit(edits, { start: cursor, deleteCount: 1, replacement: LITERAL_OPEN_BRACKET }, budget);
     }
   }
 }
@@ -443,28 +494,26 @@ function collectEdits(
   source: string,
   tree: Root,
   trustedDestinations: ReadonlySet<string>,
+  budget: MarkdownWorkBudget,
   preserveFootnotes = true,
   trustedHtml: ReadonlyMap<number, number> = new Map()
 ): Map<number, SourceEdit> {
   const edits = new Map<number, SourceEdit>();
-  const protectedMath = mathRanges(source, tree);
-  const pending: MarkdownNode[] = [tree];
-  while (pending.length > 0) {
-    const node = pending.pop()!;
+  const protectedMath = mathRanges(source, tree, budget);
+  for (const node of budget.walk<MarkdownNode>(tree, childNodes)) {
     const position = nodeOffsets(node);
     const startsInMath =
       position !== null && containingRange(protectedMath, position.start) !== null;
     if (node.type === 'image' || node.type === 'imageReference') {
-      if (!startsInMath) neutralizeImage(source, node, trustedDestinations, edits);
+      if (!startsInMath) neutralizeImage(source, node, trustedDestinations, edits, budget);
     } else if (node.type === 'link' || node.type === 'definition') {
       if (!startsInMath)
-        neutralizeUnsafeLink(source, node, trustedDestinations, edits, preserveFootnotes);
+        neutralizeUnsafeLink(source, node, trustedDestinations, edits, preserveFootnotes, budget);
     } else if (node.type === 'text') {
-      wikiEdits(source, node, edits, protectedMath);
+      wikiEdits(source, node, edits, protectedMath, budget);
     } else if (node.type === 'html') {
-      neutralizeHtml(source, node, edits, trustedHtml);
+      neutralizeHtml(source, node, edits, trustedHtml, budget);
     }
-    for (const child of childNodes(node)) pending.push(child);
   }
   return edits;
 }
@@ -481,7 +530,12 @@ function applicableEdits(edits: ReadonlyMap<number, SourceEdit>): SourceEdit[] {
   return applicable;
 }
 
-function applyEdits(source: string, edits: ReadonlyMap<number, SourceEdit>): string {
+function applyEdits(
+  source: string,
+  edits: ReadonlyMap<number, SourceEdit>,
+  budget: MarkdownWorkBudget
+): string {
+  budget.scan(source.length);
   const chunks: string[] = [];
   let cursor = 0;
   for (const edit of applicableEdits(edits)) {
@@ -517,24 +571,56 @@ function shiftTrustedHtmlRanges(
   return shifted;
 }
 
-/** Parser failure disables bracket and raw-HTML syntax instead of preserving an active sink. */
-function failClosedMarkdown(source: string): string {
+/**
+ * Always fall back from ORIGINAL input. Bounded blocks avoid retaining one
+ * array entry per character; byte accounting stops before oversized expansion.
+ */
+function failClosedMarkdown(source: string, trustedHtml: ReadonlyMap<number, number>): string {
+  if (source.length > MAX_CONTENT_SIZE) return INERT_READING_DIAGNOSTIC;
   const chunks: string[] = [];
+  let block = '';
+  let bytes = 0;
+  const flush = (): boolean => {
+    bytes += utf8ByteLength(block);
+    if (bytes > MAX_CONTENT_SIZE) return false;
+    chunks.push(block);
+    block = '';
+    return true;
+  };
   let slashParity = 0;
-  for (const character of source) {
-    if (character === '\\') {
-      chunks.push(character);
-      slashParity ^= 1;
+  for (let cursor = 0; cursor < source.length; cursor += 1) {
+    const trustedEnd = trustedHtml.get(cursor);
+    if (trustedEnd !== undefined) {
+      block += source.slice(cursor, trustedEnd);
+      cursor = trustedEnd - 1;
+      slashParity = 0;
       continue;
     }
-    const escaped = slashParity === 1;
-    slashParity = 0;
-    if (!escaped && character === '[') chunks.push(LITERAL_OPEN_BRACKET);
-    else if (!escaped && character === '<') chunks.push(LITERAL_OPEN_ANGLE);
-    else if (!escaped && character === '>') chunks.push(LITERAL_CLOSE_ANGLE);
-    else chunks.push(character);
+    const character = source[cursor];
+    if (character === '\\') {
+      block += character;
+      slashParity ^= 1;
+    } else {
+      const escaped = slashParity === 1;
+      slashParity = 0;
+      if (!escaped && character === '[') block += LITERAL_OPEN_BRACKET;
+      else if (!escaped && character === '<') block += LITERAL_OPEN_ANGLE;
+      else if (!escaped && character === '>') block += LITERAL_CLOSE_ANGLE;
+      else block += character;
+    }
+    // Do not split a surrogate pair when measuring UTF-8 blocks.
+    const code = source.charCodeAt(cursor);
+    if (block.length >= 8192 && !(code >= 0xd800 && code <= 0xdbff) && !flush()) {
+      return INERT_READING_DIAGNOSTIC;
+    }
   }
+  if (!flush()) return INERT_READING_DIAGNOSTIC;
   return chunks.join('');
+}
+
+function parseMarkdown(source: string, budget: MarkdownWorkBudget): Root {
+  budget.admitParse(source);
+  return fromMarkdown(source);
 }
 
 /**
@@ -544,32 +630,52 @@ function failClosedMarkdown(source: string): string {
 export function neutralizeActiveProviderMarkdown(
   source: string,
   trustedDestinations: readonly string[] = [],
-  trustedHtmlRanges: readonly TrustedHtmlRange[] = []
+  trustedHtmlRanges: readonly TrustedHtmlRange[] = [],
+  budget: MarkdownWorkBudget = new MarkdownWorkBudget()
 ): string {
   if (!source.includes('[') && !source.includes('<')) return source;
-  let output = source;
+  let originalTrustedHtml: ReadonlyMap<number, number> = new Map();
   try {
     const trusted = new Set(trustedDestinations);
     let trustedRanges = [...trustedHtmlRanges];
+    // Marker authority is independently validated even when an upstream
+    // formatting parse has already exhausted this same view's budget.
     let trustedHtml = trustedHtmlAuthority(source, trustedRanges);
-    const initialEdits = collectEdits(source, fromMarkdown(source), trusted, true, trustedHtml);
+    originalTrustedHtml = trustedHtml;
+    budget.assertAvailable();
+    const initialEdits = collectEdits(
+      source,
+      parseMarkdown(source, budget),
+      trusted,
+      budget,
+      true,
+      trustedHtml
+    );
     trustedRanges = shiftTrustedHtmlRanges(trustedRanges, initialEdits);
-    output = applyEdits(source, initialEdits);
+    let output = applyEdits(source, initialEdits, budget);
     if (initialEdits.size === 0) return output;
 
     // Neutralizing an unsafe outer construct may expose syntax that was opaque
     // in the first parse. Reparse once through the complete active-resource
     // policy, then prove that no further edit remains.
-    trustedHtml = trustedHtmlAuthority(output, trustedRanges);
-    const residual = collectEdits(output, fromMarkdown(output), trusted, true, trustedHtml);
+    trustedHtml = trustedHtmlAuthority(output, trustedRanges, budget);
+    const residual = collectEdits(
+      output,
+      parseMarkdown(output, budget),
+      trusted,
+      budget,
+      true,
+      trustedHtml
+    );
     if (residual.size === 0) return output;
     trustedRanges = shiftTrustedHtmlRanges(trustedRanges, residual);
-    output = applyEdits(output, residual);
-    trustedHtml = trustedHtmlAuthority(output, trustedRanges);
-    return collectEdits(output, fromMarkdown(output), trusted, true, trustedHtml).size === 0
+    output = applyEdits(output, residual, budget);
+    trustedHtml = trustedHtmlAuthority(output, trustedRanges, budget);
+    return collectEdits(output, parseMarkdown(output, budget), trusted, budget, true, trustedHtml)
+      .size === 0
       ? output
-      : failClosedMarkdown(output);
+      : failClosedMarkdown(source, originalTrustedHtml);
   } catch {
-    return failClosedMarkdown(output);
+    return failClosedMarkdown(source, originalTrustedHtml);
   }
 }

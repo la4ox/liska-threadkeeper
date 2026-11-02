@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fromMarkdown } from 'mdast-util-from-markdown';
+vi.mock(import('mdast-util-from-markdown'), { spy: true });
 import { neutralizeActiveProviderMarkdown } from '../../src/content/markdown-safety';
+import { MARKDOWN_WORK_LIMITS, MarkdownWorkBudget } from '../../src/lib/markdown-work-budget';
+import { MAX_CONTENT_SIZE } from '../../src/lib/constants';
 import {
   MESSAGE_BOUNDARY_FORMAT_MARKER,
   MESSAGE_BOUNDARY_MARKER,
 } from '../../src/lib/message-counter';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(fromMarkdown).mockReset();
+});
 
 function activeNodeTypes(markdown: string): string[] {
   const pending: Array<{ type: string; children?: unknown[] }> = [fromMarkdown(markdown)];
@@ -369,5 +377,169 @@ describe('neutralizeActiveProviderMarkdown', () => {
       ].join('\n')
     );
     expect(activeNodeTypes(output)).toEqual([]);
+  });
+});
+
+describe('shared Markdown work budget', () => {
+  it('never resets an upstream admission failure before the composed safety pass', () => {
+    const budget = new MarkdownWorkBudget();
+    expect(() =>
+      budget.admitParse('*\n'.repeat(MARKDOWN_WORK_LIMITS.structuralUnits / 2) + '*')
+    ).toThrow('Markdown work budget exceeded');
+    expect(() => budget.admitParse('small')).toThrow('Markdown work budget exceeded');
+    const source = `${MESSAGE_BOUNDARY_FORMAT_MARKER}\n![pixel](https://example.com/pixel)`;
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    expect(
+      neutralizeActiveProviderMarkdown(
+        source,
+        [],
+        [{ start: 0, end: MESSAGE_BOUNDARY_FORMAT_MARKER.length }],
+        budget
+      )
+    ).toBe(`${MESSAGE_BOUNDARY_FORMAT_MARKER}\n!&#91;pixel](https://example.com/pixel)`);
+    expect(parser).not.toHaveBeenCalled();
+  });
+
+  it('returns an explicit inert diagnostic if original-source expansion cannot fit the output limit', () => {
+    // About 6.4 Mi code units, not a 32 Mi fixture. No parser or oversized
+    // inert output is built; block byte accounting stops the expansion.
+    const source = '['.repeat(Math.floor(MAX_CONTENT_SIZE / '&#91;'.length) + 1);
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    expect(neutralizeActiveProviderMarkdown(source)).toBe(
+      'Reading view unavailable: Markdown safety work or output limit exceeded. Raw and canonical archives are unchanged.'
+    );
+    expect(parser).not.toHaveBeenCalled();
+  });
+
+  it('keeps surrogate pairs and escape parity intact across fallback blocks', () => {
+    const source = `${'a'.repeat(8191)}😀\\[literal] <tag>`;
+    vi.mocked(fromMarkdown).mockImplementationOnce(() => {
+      throw new Error('parser failure');
+    });
+    expect(neutralizeActiveProviderMarkdown(source)).toBe(
+      `${'a'.repeat(8191)}😀\\[literal] &lt;tag&gt;`
+    );
+  });
+  it.each([
+    ['input length', `${'a'.repeat(MARKDOWN_WORK_LIMITS.lineLength - 1)}\n`.repeat(16)],
+    ['physical line', 'a'.repeat(MARKDOWN_WORK_LIMITS.lineLength)],
+    ['structural units', '*\n'.repeat(MARKDOWN_WORK_LIMITS.structuralUnits / 2)],
+  ])('admits the exact %s boundary and refuses +1 before the parser', (_label, boundary) => {
+    const source = `[${boundary.slice(1)}`;
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    parser.mockReturnValueOnce({ type: 'root', children: [] });
+    expect(neutralizeActiveProviderMarkdown(source)).toBe(source);
+    expect(parser).toHaveBeenCalledTimes(1);
+    parser.mockClear();
+    expect(neutralizeActiveProviderMarkdown(`${source}*`)).toBe(`&#91;${boundary.slice(1)}*`);
+    expect(parser).not.toHaveBeenCalled();
+  });
+
+  it('aggregates parser input across calls instead of resetting the 16 Mi allowance', () => {
+    const budget = new MarkdownWorkBudget();
+    const source = `${'a'.repeat(MARKDOWN_WORK_LIMITS.lineLength - 1)}\n`.repeat(16);
+    for (let index = 0; index < 4; index += 1) budget.admitParse(source);
+    expect(() => budget.admitParse('x')).toThrow('Markdown work budget exceeded');
+  });
+
+  it('debits each aggregate range scan and unique edit before work begins', () => {
+    const budget = new MarkdownWorkBudget();
+    budget.scan(MARKDOWN_WORK_LIMITS.rangeScan);
+    expect(() => budget.scan(1)).toThrow('Markdown work budget exceeded');
+    const editBudget = new MarkdownWorkBudget();
+    for (let index = 0; index < MARKDOWN_WORK_LIMITS.edits; index += 1) editBudget.newEdit();
+    expect(() => editBudget.newEdit()).toThrow('Markdown work budget exceeded');
+  });
+
+  it('rejects a wide parser tree before iterating or pushing any child', () => {
+    const children = new Array(MARKDOWN_WORK_LIMITS.traversalNodes);
+    const iterate = vi.fn(() => {
+      throw new Error('oversized child iterator entered');
+    });
+    Object.defineProperty(children, Symbol.iterator, { value: iterate });
+    vi.mocked(fromMarkdown).mockReturnValueOnce({ type: 'root', children });
+    expect(neutralizeActiveProviderMarkdown('[x](https://example.com)')).toBe(
+      '&#91;x](https://example.com)'
+    );
+    expect(iterate).not.toHaveBeenCalled();
+  });
+
+  it('shares one parse-call allowance with every nested footnote parse', () => {
+    const parser = vi.mocked(fromMarkdown);
+    const admissions = vi.spyOn(MarkdownWorkBudget.prototype, 'admitParse');
+    parser.mockClear();
+    const source = Array.from(
+      { length: MARKDOWN_WORK_LIMITS.parseCalls },
+      (_, index) => `[^f${index}]: [[x]]`
+    ).join('\n');
+    const output = neutralizeActiveProviderMarkdown(source);
+    expect(parser).toHaveBeenCalledTimes(MARKDOWN_WORK_LIMITS.parseCalls);
+    expect(admissions).toHaveBeenCalledTimes(MARKDOWN_WORK_LIMITS.parseCalls + 1);
+    expect(new Set(admissions.mock.contexts).size).toBe(1);
+    expect(output).toBe(source.replaceAll('[', '&#91;'));
+  });
+
+  it('shares aggregate node work across every walk and all expanded reparses', async () => {
+    const { fromMarkdown: actualParser } = await vi.importActual<
+      typeof import('mdast-util-from-markdown')
+    >('mdast-util-from-markdown');
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    const admissions = vi.spyOn(MarkdownWorkBudget.prototype, 'admitParse');
+    const padding = Array.from({ length: 89_999 }, () => ({ type: 'text' as const, value: '' }));
+    parser.mockImplementation(input => {
+      const tree = actualParser(input);
+      tree.children.push(...padding.slice(0, 40_000));
+      tree.children.push(...padding.slice(40_000));
+      return tree;
+    });
+    const source =
+      '![image](https://example.com/pixel)\n\n[blocked](file:///private "<iframe src=x></iframe>")';
+    const output = neutralizeActiveProviderMarkdown(source);
+    expect(parser).toHaveBeenCalledTimes(3);
+    expect(new Set(admissions.mock.contexts).size).toBe(1);
+    // Original-source fallback differs from retaining the first pass's image edit.
+    expect(output).toBe(
+      '!&#91;image](https://example.com/pixel)\n\n&#91;blocked](file:///private "&lt;iframe src=x&gt;&lt;/iframe&gt;")'
+    );
+  });
+
+  it('discards partial edits after a later parser failure and preserves only original owned markers', async () => {
+    const { fromMarkdown: actualParser } = await vi.importActual<
+      typeof import('mdast-util-from-markdown')
+    >('mdast-util-from-markdown');
+    const source = [
+      MESSAGE_BOUNDARY_FORMAT_MARKER,
+      MESSAGE_BOUNDARY_MARKER,
+      '![image](https://example.com/pixel)',
+      '[public](https://example.com)',
+      MESSAGE_BOUNDARY_MARKER,
+    ].join('\n');
+    vi.mocked(fromMarkdown)
+      .mockImplementationOnce(actualParser)
+      .mockImplementationOnce(() => {
+        throw new Error('private parser detail');
+      });
+    const markerStart = source.indexOf(MESSAGE_BOUNDARY_MARKER);
+    const output = neutralizeActiveProviderMarkdown(
+      source,
+      [],
+      [
+        { start: 0, end: MESSAGE_BOUNDARY_FORMAT_MARKER.length },
+        { start: markerStart, end: markerStart + MESSAGE_BOUNDARY_MARKER.length },
+      ]
+    );
+    expect(output).toBe(
+      [
+        MESSAGE_BOUNDARY_FORMAT_MARKER,
+        MESSAGE_BOUNDARY_MARKER,
+        '!&#91;image](https://example.com/pixel)',
+        '&#91;public](https://example.com)',
+        '&lt;!-- liska-message:v1 --&gt;',
+      ].join('\n')
+    );
   });
 });
