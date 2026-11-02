@@ -14,6 +14,7 @@
  */
 
 import { htmlToMarkdown } from './markdown-rules';
+import { MarkdownWorkBudget } from '../lib/markdown-work-budget';
 import { buildSourceMap } from '../lib/source-map';
 import {
   escapeMarkdownLink,
@@ -142,7 +143,11 @@ function removeSourcesCarousel(html: string): string {
  * 5. Replace placeholder spans with [^N] footnote refs
  * 6. Append References section with footnote definitions
  */
-export function convertDeepResearchContent(html: string, links?: DeepResearchLinks): string {
+export function convertDeepResearchContent(
+  html: string,
+  links?: DeepResearchLinks,
+  budget: MarkdownWorkBudget = new MarkdownWorkBudget()
+): string {
   let processed = html;
 
   // 1. Build source map (1-based index)
@@ -158,7 +163,7 @@ export function convertDeepResearchContent(html: string, links?: DeepResearchLin
   processed = removeSourcesCarousel(processed);
 
   // 4. Convert HTML to Markdown (Turndown rule converts spans to [^N])
-  const markdown = htmlToMarkdown(processed);
+  const markdown = htmlToMarkdown(processed, budget);
 
   // 5. Add References section with all sources
   if (links && links.sources.length > 0) {

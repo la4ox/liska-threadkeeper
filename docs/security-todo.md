@@ -688,7 +688,32 @@ The Obsidian response-buffering record is superseded by PR 92's bounded text,
 binary and directory readers. This is static triage only; no runtime exploit or
 new repository scan was performed.
 
-## Linear privacy-diagnostic candidate
+## Markdown work-budget local checkpoint — 2026-11-02
+
+Uncommitted candidate on `codex/markdown-image-work-budget-v2`, based on
+`34fe11a`, addresses `csf_84640545793a9181af6b7482` /
+`occ_017e9f17bfa0d7fb725f028b`. Shared sticky parser/work admission covers
+ordinary formatting, Deep Research conversion and final Markdown safety.
+Image processing uses merged intervals, binary lookup and streaming placeholder
+scanning. Original-source inert fallback preserves independently validated
+composer markers; raw/canonical inputs are not mutated.
+
+The independent candidate review found an upstream formatting parser bypass
+and a protected-placeholder marker-survival regression. Both received targeted
+repairs and regression tests. Current local evidence: 516 targeted tests pass,
+production build passes, and repository lint has zero errors (35 warnings). A
+bounded two-worker full run completed all test cases with 248 files passed / 1
+skipped and 9,196 tests passed / 3 skipped. No browser acceptance, commit, push
+or PR exists for this slice yet.
+
+The first full-suite terminal session was lost on tool reconnection; its result
+remains unknown. The replacement run's test verdict is green, but its command
+exited 1 only after testing because the optional JSON reporter was pointed at
+`.git/liska-markdown-tests.json`; `.git` is a worktree link file, not a
+directory. Do not misclassify that reporter-path error as a failed test or claim
+the wrapper command itself exited zero.
+
+## Earlier linear privacy-diagnostic candidate evidence
 
 Branch `codex/sec-linear-privacy-diagnostics` addresses
 `csf_238ec3b8127a895cabcda3a7` / `occ_0b55bd216944b6ba5eeae57e` at the two

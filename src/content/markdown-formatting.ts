@@ -10,6 +10,7 @@ import { markdownCodeFence } from './markdown-code';
 import { PLATFORM_LABELS } from '../lib/constants';
 import type { AIPlatform, TemplateOptions } from '../lib/types';
 import { neutralizeMessageBoundaryMarkers } from '../lib/message-counter';
+import { MarkdownWorkBudget } from '../lib/markdown-work-budget';
 
 /**
  * Maximum visible length of an auto-generated question header (issue #187).
@@ -70,10 +71,13 @@ export function buildQuestionHeader(content: string): string {
 function messageMarkdown(
   content: string,
   role: 'user' | 'assistant',
-  contentFormat: 'html' | 'markdown'
+  contentFormat: 'html' | 'markdown',
+  budget: MarkdownWorkBudget
 ): string {
-  if (role === 'user') return escapeUserText(content);
-  return contentFormat === 'markdown' ? escapeAngleBrackets(content) : htmlToMarkdown(content);
+  if (role === 'user') return escapeUserText(content, budget);
+  return contentFormat === 'markdown'
+    ? escapeAngleBrackets(content, budget)
+    : htmlToMarkdown(content, budget);
 }
 
 /**
@@ -84,11 +88,14 @@ export function formatMessage(
   role: 'user' | 'assistant',
   options: TemplateOptions,
   source: AIPlatform,
-  contentFormat: 'html' | 'markdown' = 'html'
+  contentFormat: 'html' | 'markdown' = 'html',
+  budget: MarkdownWorkBudget = new MarkdownWorkBudget()
 ): string {
   // Convert HTML to Markdown for assistant messages; escape angle brackets and
   // `$` (Obsidian math) for user messages, which are plain pasted text.
-  const markdown = neutralizeMessageBoundaryMarkers(messageMarkdown(content, role, contentFormat));
+  const markdown = neutralizeMessageBoundaryMarkers(
+    messageMarkdown(content, role, contentFormat, budget)
+  );
   const assistantLabel = PLATFORM_LABELS[source];
 
   let formatted: string;

@@ -7,7 +7,14 @@
 
 import TurndownService from 'turndown';
 import { fromMarkdown } from 'mdast-util-from-markdown';
-import { MAX_LANG_HINT_LENGTH, MAX_MATH_LENGTH } from '../lib/constants';
+import { MAX_CONTENT_SIZE, MAX_LANG_HINT_LENGTH, MAX_MATH_LENGTH } from '../lib/constants';
+import {
+  INERT_READING_DIAGNOSTIC,
+  MARKDOWN_WORK_LIMITS,
+  MarkdownChunks,
+  MarkdownWorkBudget,
+  markdownLines,
+} from '../lib/markdown-work-budget';
 import {
   FOOTNOTE_DEF_ATTR,
   FOOTNOTE_REF_ATTR,
@@ -128,11 +135,9 @@ interface EscapeLine {
   fenced: boolean;
 }
 
-function escapeLines(text: string): EscapeLine[] {
-  const result: EscapeLine[] = [];
-  let offset = 0;
+function* escapeLines(text: string): Generator<EscapeLine> {
   let fence: FenceState | null = null;
-  for (const line of text.split('\n')) {
+  for (const { text: line, start } of markdownLines(text)) {
     const marker = fenceMarker(line);
     const lineBlockquoteDepth = markdownBlockquotePrefix(line).depth;
     if (fence && fence.blockquoteDepth > 0 && lineBlockquoteDepth < fence.blockquoteDepth) {
@@ -157,25 +162,8 @@ function escapeLines(text: string): EscapeLine[] {
       };
       fenced = true;
     }
-    result.push({ text: line, start: offset, fenced });
-    offset += line.length + 1;
+    yield { text: line, start, fenced };
   }
-  return result;
-}
-
-function lineLocalInlineCodeRanges(lines: readonly EscapeLine[]): CodeSpanRange[] {
-  const ranges: CodeSpanRange[] = [];
-  for (const line of lines) {
-    if (line.fenced) continue;
-    const prefixLength = markdownBlockquotePrefix(line.text).length;
-    for (const range of inlineCodeRanges(line.text.slice(prefixLength))) {
-      ranges.push({
-        start: line.start + prefixLength + range.start,
-        end: line.start + prefixLength + range.end,
-      });
-    }
-  }
-  return ranges;
 }
 
 interface MarkdownNode {
@@ -204,19 +192,20 @@ function parsedNodeRange(node: MarkdownNode, textLength: number): CodeSpanRange 
   return { start: start as number, end: end as number };
 }
 
-function collectParsedCodeRanges(root: MarkdownNode, textLength: number): CodeSpanRange[] | null {
+function collectParsedCodeRanges(
+  root: MarkdownNode,
+  textLength: number,
+  budget: MarkdownWorkBudget
+): CodeSpanRange[] | null {
   const ranges: CodeSpanRange[] = [];
-  const pending = [root];
   let visited = 0;
-  while (pending.length > 0) {
+  for (const node of budget.walk(root, node => node.children ?? [])) {
     if (++visited > textLength + 1) return null;
-    const node = pending.pop()!;
     if (node.type === 'inlineCode' || node.type === 'code') {
       const range = parsedNodeRange(node, textLength);
       if (!range) return null;
       ranges.push(range);
     }
-    for (const child of node.children ?? []) pending.push(child);
   }
   return ranges;
 }
@@ -232,60 +221,72 @@ function orderedCodeRanges(ranges: CodeSpanRange[]): CodeSpanRange[] | null {
 }
 
 /** Use the installed CommonMark parser for multiline code containers and spans. */
-function parsedCodeRanges(text: string, lines: readonly EscapeLine[]): ParsedCodeRangesResult {
-  const fallback = (): CodeSpanRange[] => lineLocalInlineCodeRanges(lines);
+function parsedCodeRanges(text: string, budget: MarkdownWorkBudget): ParsedCodeRangesResult {
+  const fallback: ParsedCodeRangesResult = { ranges: [], parserConfirmed: false };
   if (text.length > MAX_MULTILINE_INLINE_PARSE_CHARS || !text.includes('\n')) {
-    return { ranges: fallback(), parserConfirmed: false };
+    return fallback;
   }
-  let root: MarkdownNode;
   try {
-    root = fromMarkdown(text) as unknown as MarkdownNode;
+    budget.admitParse(text);
+    const root = fromMarkdown(text) as unknown as MarkdownNode;
+    const ranges = collectParsedCodeRanges(root, text.length, budget);
+    const ordered = ranges ? orderedCodeRanges(ranges) : null;
+    return ordered ? { ranges: ordered, parserConfirmed: true } : fallback;
   } catch {
-    return { ranges: fallback(), parserConfirmed: false };
+    return fallback;
   }
-  const ranges = collectParsedCodeRanges(root, text.length);
-  const ordered = ranges ? orderedCodeRanges(ranges) : null;
-  return ordered
-    ? { ranges: ordered, parserConfirmed: true }
-    : { ranges: fallback(), parserConfirmed: false };
 }
 
 function escapeLinesWithRanges(
-  lines: readonly EscapeLine[],
+  lines: Iterable<EscapeLine>,
   ranges: readonly CodeSpanRange[],
   pattern: RegExp,
   parserConfirmed: boolean
 ): string {
   let rangeIndex = 0;
-  return lines
-    .map(line => {
-      const lineEnd = line.start + line.text.length;
-      while (rangeIndex < ranges.length && ranges[rangeIndex].end <= line.start) {
-        rangeIndex += 1;
+  const output = new MarkdownChunks();
+  for (const line of lines) {
+    if (line.start > 0) output.append('\n');
+    const lineEnd = line.start + line.text.length;
+    while (rangeIndex < ranges.length && ranges[rangeIndex].end <= line.start) {
+      rangeIndex += 1;
+    }
+    if (line.fenced && !parserConfirmed) {
+      output.append(line.text);
+      continue;
+    }
+    const prefixLength = markdownBlockquotePrefix(line.text).length;
+    // Conservative parser-failure fallback stays line-local. Oversized
+    // lines do not allocate a backtick-run/range array at all.
+    const currentRanges = parserConfirmed
+      ? ranges
+      : line.text.length <= MARKDOWN_WORK_LIMITS.lineLength
+        ? inlineCodeRanges(line.text.slice(prefixLength)).map(range => ({
+            start: line.start + prefixLength + range.start,
+            end: line.start + prefixLength + range.end,
+          }))
+        : [];
+    let cursor = prefixLength;
+    let escaped = line.text.slice(0, prefixLength);
+    let index = parserConfirmed ? rangeIndex : 0;
+    while (index < currentRanges.length && currentRanges[index].start < lineEnd) {
+      const range = currentRanges[index];
+      const start = Math.max(range.start, line.start + prefixLength) - line.start;
+      const end = Math.min(range.end, lineEnd) - line.start;
+      if (start < end) {
+        escaped += escapeTextSegment(line.text.slice(cursor, start), pattern);
+        escaped += line.text.slice(start, end);
+        cursor = end;
       }
-      if (line.fenced && !parserConfirmed) return line.text;
-      const prefixLength = markdownBlockquotePrefix(line.text).length;
-      let cursor = prefixLength;
-      let escaped = line.text.slice(0, prefixLength);
-      let index = rangeIndex;
-      while (index < ranges.length && ranges[index].start < lineEnd) {
-        const range = ranges[index];
-        const start = Math.max(range.start, line.start + prefixLength) - line.start;
-        const end = Math.min(range.end, lineEnd) - line.start;
-        if (start < end) {
-          escaped += escapeTextSegment(line.text.slice(cursor, start), pattern);
-          escaped += line.text.slice(start, end);
-          cursor = end;
-        }
-        index += 1;
-      }
-      escaped += escapeTextSegment(line.text.slice(cursor), pattern);
-      while (rangeIndex < ranges.length && ranges[rangeIndex].end <= lineEnd) {
-        rangeIndex += 1;
-      }
-      return escaped;
-    })
-    .join('\n');
+      index += 1;
+    }
+    escaped += escapeTextSegment(line.text.slice(cursor), pattern);
+    while (rangeIndex < ranges.length && ranges[rangeIndex].end <= lineEnd) {
+      rangeIndex += 1;
+    }
+    output.append(escaped);
+  }
+  return output.toString();
 }
 
 function fenceMarker(
@@ -304,7 +305,16 @@ function fenceMarker(
 }
 
 /** Escape text outside complete, length-matched CommonMark fenced blocks. */
-function escapeByLine(text: string, pattern: RegExp): string {
+function escapeByLine(text: string, pattern: RegExp, budget: MarkdownWorkBudget): string {
+  try {
+    // Reserve the bounded linear normalization, line/fence, inline-code and
+    // replacement scans before allocating their output. Once the shared view
+    // budget is exhausted, do not keep processing later messages outside it.
+    budget.scan(text.length * 8);
+  } catch {
+    return INERT_READING_DIAGNOSTIC;
+  }
+  if (text.length > MAX_CONTENT_SIZE) return INERT_READING_DIAGNOSTIC;
   // CommonMark treats LF, CRLF, and lone CR as line endings. Normalize before
   // fence tracking so a page-supplied lone CR cannot hide later active HTML
   // inside what this scanner misreads as one long opening-fence line.
@@ -312,9 +322,16 @@ function escapeByLine(text: string, pattern: RegExp): string {
   const containsEscapable =
     pattern === ANGLE_BRACKET_PATTERN ? /[<>]/u.test(normalized) : /[<>$]/u.test(normalized);
   if (!containsEscapable) return normalized;
-  const lines = escapeLines(normalized);
-  const protectedCode = parsedCodeRanges(normalized, lines);
-  return escapeLinesWithRanges(lines, protectedCode.ranges, pattern, protectedCode.parserConfirmed);
+  const protectedCode = parsedCodeRanges(normalized, budget);
+  // The linear fallback for this message was reserved before parser admission.
+  // If admission exhausts the parser budget, this pass may finish safely; the
+  // sticky budget makes every later message stop at the reservation above.
+  return escapeLinesWithRanges(
+    escapeLines(normalized),
+    protectedCode.ranges,
+    pattern,
+    protectedCode.parserConfirmed
+  );
 }
 
 /**
@@ -324,8 +341,11 @@ function escapeByLine(text: string, pattern: RegExp): string {
  *
  * CommonMark §2.4: \< and \> are valid backslash escapes.
  */
-export function escapeAngleBrackets(text: string): string {
-  return escapeByLine(text, ANGLE_BRACKET_PATTERN);
+export function escapeAngleBrackets(
+  text: string,
+  budget: MarkdownWorkBudget = new MarkdownWorkBudget()
+): string {
+  return escapeByLine(text, ANGLE_BRACKET_PATTERN, budget);
 }
 
 /**
@@ -333,8 +353,11 @@ export function escapeAngleBrackets(text: string): string {
  * `$`. User prompts are plain text that frequently contains pasted shell/YAML
  * `$`, which must not be interpreted as math. Fenced/inline code is preserved.
  */
-export function escapeUserText(text: string): string {
-  return escapeByLine(text, ANGLE_BRACKET_DOLLAR_PATTERN);
+export function escapeUserText(
+  text: string,
+  budget: MarkdownWorkBudget = new MarkdownWorkBudget()
+): string {
+  return escapeByLine(text, ANGLE_BRACKET_DOLLAR_PATTERN, budget);
 }
 
 // ============================================================
@@ -733,6 +756,9 @@ export function htmlToMarkdownRaw(html: string): string {
  * Obsidian rendering. Use this when the result is the final markdown and
  * no further escaping will be applied.
  */
-export function htmlToMarkdown(html: string): string {
-  return escapeAngleBrackets(htmlToMarkdownRaw(html));
+export function htmlToMarkdown(
+  html: string,
+  budget: MarkdownWorkBudget = new MarkdownWorkBudget()
+): string {
+  return escapeAngleBrackets(htmlToMarkdownRaw(html), budget);
 }

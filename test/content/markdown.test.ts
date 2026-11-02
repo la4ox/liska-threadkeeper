@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { fromMarkdown } from 'mdast-util-from-markdown';
+vi.mock(import('mdast-util-from-markdown'), { spy: true });
 import {
   htmlToMarkdown,
   escapeAngleBrackets,
@@ -11,6 +12,11 @@ import {
 } from '../../src/content/markdown';
 import { sanitizeHtml } from '../../src/lib/sanitize';
 import { MAX_MATH_LENGTH } from '../../src/lib/constants';
+import {
+  INERT_READING_DIAGNOSTIC,
+  MARKDOWN_WORK_LIMITS,
+  MarkdownWorkBudget,
+} from '../../src/lib/markdown-work-budget';
 import { stripImagePlaceholders } from '../../src/lib/image-output';
 import type { ConversationData, TemplateOptions, DeepResearchLinks } from '../../src/lib/types';
 import {
@@ -18,6 +24,11 @@ import {
   MESSAGE_BOUNDARY_FORMAT_MARKER,
   MESSAGE_BOUNDARY_MARKER,
 } from '../../src/lib/message-counter';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(fromMarkdown).mockReset();
+});
 
 describe('escapeUserText — math dollar escaping (Obsidian hang fix)', () => {
   it('escapes $ so shell/YAML text is not parsed as math', () => {
@@ -1606,6 +1617,101 @@ describe('conversationToNote', () => {
     }
   });
 
+  it('budgets the complete composition without mutating provider records or losing owned boundaries', () => {
+    // Each message is individually below line/structural admission. Together
+    // their delimiter density must trigger original-source inert fallback.
+    const content = `![pixel](https://attacker.example/pixel) ${'*a'.repeat(65_000)}`;
+    expect(content.length).toBeLessThan(MARKDOWN_WORK_LIMITS.lineLength);
+    const data: ConversationData = {
+      ...mockData,
+      source: 'deepseek',
+      messages: [0, 1].map(index => ({
+        id: `message-${index}`,
+        role: 'assistant' as const,
+        content,
+        contentFormat: 'markdown' as const,
+        index,
+      })),
+    };
+    const before = JSON.stringify(data);
+    const note = conversationToNote(data, { ...defaultOptions, messageFormat: 'plain' });
+    expect(JSON.stringify(data)).toBe(before);
+    expect(countExistingMessages(note.body)).toBe(2);
+    expect(
+      note.body.split('\n').filter(line => line === MESSAGE_BOUNDARY_FORMAT_MARKER)
+    ).toHaveLength(1);
+    expect(note.body.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(2);
+    expect(note.body.match(/!&#91;pixel]/g)).toHaveLength(2);
+    expect(note.body).not.toContain('&#33;&#91;pixel]');
+  });
+
+  it.each(['user', 'assistant'] as const)(
+    'rejects dense %s text before any formatting or whole-view parser call',
+    role => {
+      const content = `${'x\\\n'.repeat(100_001)}<`;
+      const parser = vi.mocked(fromMarkdown);
+      parser.mockClear();
+      const note = conversationToNote(
+        {
+          ...mockData,
+          source: 'deepseek',
+          messages: [
+            { id: 'dense', role, content, contentFormat: 'markdown', index: 0 },
+            {
+              id: 'later',
+              role: 'assistant',
+              content: '`a\n<T>`\n![pixel](https://attacker.example/pixel)',
+              contentFormat: 'markdown',
+              index: 1,
+            },
+          ],
+        },
+        { ...defaultOptions, messageFormat: 'plain' }
+      );
+      expect(parser).not.toHaveBeenCalled();
+      expect(countExistingMessages(note.body)).toBe(2);
+      expect(
+        note.body.split('\n').filter(line => line === MESSAGE_BOUNDARY_FORMAT_MARKER)
+      ).toHaveLength(1);
+      expect(note.body.split('\n').filter(line => line === MESSAGE_BOUNDARY_MARKER)).toHaveLength(
+        2
+      );
+      expect(note.body.split(INERT_READING_DIAGNOSTIC)).toHaveLength(2);
+      expect(note.body).not.toContain('attacker.example');
+      expect(note.body).not.toContain('<T>');
+    }
+  );
+
+  it('shares upstream code-context parsing and every final-view walk on one budget', () => {
+    const admissions = vi.spyOn(MarkdownWorkBudget.prototype, 'admitParse');
+    const walks = vi.spyOn(MarkdownWorkBudget.prototype, 'walk');
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    const note = conversationToNote(
+      {
+        ...mockData,
+        source: 'deepseek',
+        messages: [
+          { id: 'one', role: 'user', content: '`a\n<T>`', index: 0 },
+          {
+            id: 'two',
+            role: 'assistant',
+            content: '`b\n<U>`',
+            contentFormat: 'markdown',
+            index: 1,
+          },
+        ],
+      },
+      { ...defaultOptions, messageFormat: 'plain' }
+    );
+    expect(parser).toHaveBeenCalledTimes(3);
+    expect(admissions).toHaveBeenCalledTimes(3);
+    expect(new Set([...admissions.mock.contexts, ...walks.mock.contexts]).size).toBe(1);
+    expect(walks).toHaveBeenCalledTimes(4);
+    expect(note.body).toContain('`a\n<T>`');
+    expect(note.body).toContain('`b\n<U>`');
+  });
+
   it('rechecks code-fence state after separate Markdown messages are composed', () => {
     const note = conversationToNote(
       {
@@ -2218,6 +2324,40 @@ describe('conversationToNote with Deep Research links', () => {
     expect(note.body).toContain('[^1]');
     expect(note.body).toContain('# References');
     expect(note.body).toContain('[^1]: [Source](https://example.com/)');
+  });
+
+  it('shares one work budget between Deep Research conversion and final safety parsing', () => {
+    const admissions = vi.spyOn(MarkdownWorkBudget.prototype, 'admitParse');
+    const walks = vi.spyOn(MarkdownWorkBudget.prototype, 'walk');
+    const note = conversationToNote(
+      {
+        id: 'dr-budget',
+        title: 'Budgeted Research Report',
+        url: 'https://gemini.google.com/app/dr-budget',
+        source: 'gemini',
+        type: 'deep-research',
+        messages: [
+          {
+            id: 'report-0',
+            role: 'assistant',
+            content: '<pre><code>&lt;T&gt;\nX</code></pre>',
+            index: 0,
+          },
+        ],
+        extractedAt: new Date('2024-01-01'),
+        metadata: {
+          messageCount: 1,
+          userMessageCount: 0,
+          assistantMessageCount: 1,
+          hasCodeBlocks: true,
+        },
+      },
+      defaultOptions
+    );
+
+    expect(admissions).toHaveBeenCalledTimes(2);
+    expect(new Set([...admissions.mock.contexts, ...walks.mock.contexts]).size).toBe(1);
+    expect(note.body).toContain('<T>');
   });
 });
 

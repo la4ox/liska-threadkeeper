@@ -1,12 +1,77 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { fromMarkdown } from 'mdast-util-from-markdown';
+vi.mock(import('mdast-util-from-markdown'), { spy: true });
 import {
   buildQuestionHeader,
   formatToolContent,
   stripMarkdownChars,
+  formatMessage,
 } from '../../src/content/markdown-formatting';
+import {
+  INERT_READING_DIAGNOSTIC,
+  MARKDOWN_WORK_LIMITS,
+  MarkdownWorkBudget,
+} from '../../src/lib/markdown-work-budget';
 import { flattenLargeCallouts } from '../../src/lib/callout-flatten';
 import { countExistingMessages } from '../../src/lib/message-counter';
 import type { TemplateOptions } from '../../src/lib/types';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(fromMarkdown).mockReset();
+});
+
+describe('formatMessage shared work allowance', () => {
+  const options: TemplateOptions = {
+    includeId: true,
+    includeTitle: true,
+    includeSource: true,
+    includeTags: true,
+    includeDates: true,
+    includeMessageCount: true,
+    messageFormat: 'plain',
+    userCalloutType: 'QUESTION',
+    assistantCalloutType: 'NOTE',
+  };
+
+  it('uses the supplied allowance for both user text and HTML-converted Markdown', () => {
+    const budget = new MarkdownWorkBudget();
+    const admissions = vi.spyOn(MarkdownWorkBudget.prototype, 'admitParse');
+    expect(formatMessage('`a\n<U>`', 'user', options, 'deepseek', 'markdown', budget)).toContain(
+      '`a\n<U>`'
+    );
+    expect(
+      formatMessage(
+        '<p>first <code>&lt;T&gt;</code></p><p>last</p>',
+        'assistant',
+        options,
+        'deepseek',
+        'html',
+        budget
+      )
+    ).toContain('`<T>`');
+    expect(admissions).toHaveBeenCalledTimes(2);
+    expect(admissions.mock.contexts).toEqual([budget, budget]);
+  });
+
+  it('stops with an explicit inert diagnostic without parsing after exhaustion', () => {
+    const budget = new MarkdownWorkBudget();
+    budget.scan(MARKDOWN_WORK_LIMITS.rangeScan);
+    const parser = vi.mocked(fromMarkdown);
+    parser.mockClear();
+    const result = formatMessage(
+      '`<T>`\n<U>',
+      'assistant',
+      options,
+      'deepseek',
+      'markdown',
+      budget
+    );
+    expect(result).toBe(`**DeepSeek:**\n\n${INERT_READING_DIAGNOSTIC}`);
+    expect(parser).not.toHaveBeenCalled();
+    expect(() => budget.assertAvailable()).toThrow('Markdown work budget exceeded');
+  });
+});
 
 /**
  * Unit tests for buildQuestionHeader (issue #187).
