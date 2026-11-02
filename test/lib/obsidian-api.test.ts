@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   ObsidianApiClient,
   ObsidianApiError,
+  ObsidianIdentityError,
   ObsidianResponseLimitError,
   isObsidianApiError,
   classifyNetworkError,
@@ -46,6 +47,35 @@ function sizedBody(size: number, headers?: HeadersInit) {
   return { response: new Response(body, { headers }), body, cancel, sent: () => sent };
 }
 
+const TEST_SERVER_VERSIONS = Object.freeze({ self: '5.5.0', obsidian: '1.14.4' });
+
+function serverInfo(
+  authenticated: boolean,
+  versions: { self: string; obsidian: string } = TEST_SERVER_VERSIONS,
+  successField: 'status' | 'ok' = 'status'
+) {
+  return {
+    [successField]: 'OK',
+    service: 'Obsidian Local REST API',
+    authenticated,
+    versions,
+  };
+}
+
+function serverInfoResponse(
+  authenticated: boolean,
+  versions: { self: string; obsidian: string } = TEST_SERVER_VERSIONS,
+  successField: 'status' | 'ok' = 'status'
+): Response {
+  return new Response(JSON.stringify(serverInfo(authenticated, versions, successField)));
+}
+
+function queueValidIdentity(mockFetch: ReturnType<typeof vi.fn>): void {
+  mockFetch
+    .mockResolvedValueOnce(serverInfoResponse(false))
+    .mockResolvedValueOnce(serverInfoResponse(true));
+}
+
 /**
  * Local REST API 4.1.3+ (GHSA-62gx-5q78-wrvx) splits the request path on
  * literal `/` and only then decodes each segment, so `%2F` is no longer a
@@ -88,10 +118,13 @@ describe('ObsidianApiClient', () => {
   let client: ObsidianApiClient;
   let mockFetch: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
     client = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+    queueValidIdentity(mockFetch);
+    await client.getServerVersions();
+    mockFetch.mockReset();
   });
 
   afterEach(() => {
@@ -99,54 +132,58 @@ describe('ObsidianApiClient', () => {
   });
 
   describe('constructor', () => {
-    it('constructs with base URL and API key', () => {
-      const client = new ObsidianApiClient('http://127.0.0.1:28000', 'my-key');
-      mockFetch.mockResolvedValue({ ok: true, status: 200 });
-      void client.testConnection();
-      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:28000/vault/', expect.any(Object));
+    it('constructs with base URL and API key', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:28000', 'my-key');
+      queueValidIdentity(mockFetch);
+      await freshClient.testConnection();
+      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:28000/', expect.any(Object));
     });
 
-    it('strips trailing slash from base URL', () => {
-      const client = new ObsidianApiClient('https://192.168.1.5:27123/', 'my-key');
-      mockFetch.mockResolvedValue({ ok: true, status: 200 });
-      void client.testConnection();
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://192.168.1.5:27123/vault/',
-        expect.any(Object)
-      );
+    it('strips trailing slash from base URL', async () => {
+      const freshClient = new ObsidianApiClient('https://192.168.1.5:27123/', 'my-key');
+      queueValidIdentity(mockFetch);
+      await freshClient.testConnection();
+      expect(mockFetch).toHaveBeenCalledWith('https://192.168.1.5:27123/', expect.any(Object));
     });
 
-    it('works with https URL', () => {
-      const client = new ObsidianApiClient('https://127.0.0.1:27123', 'my-key');
-      mockFetch.mockResolvedValue({ ok: true, status: 200 });
-      void client.testConnection();
-      expect(mockFetch).toHaveBeenCalledWith('https://127.0.0.1:27123/vault/', expect.any(Object));
+    it('works with https URL', async () => {
+      const freshClient = new ObsidianApiClient('https://127.0.0.1:27123', 'my-key');
+      queueValidIdentity(mockFetch);
+      await freshClient.testConnection();
+      expect(mockFetch).toHaveBeenCalledWith('https://127.0.0.1:27123/', expect.any(Object));
     });
   });
 
   describe('testConnection', () => {
     it('returns success when connection and authentication succeed', async () => {
-      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      queueValidIdentity(mockFetch);
 
-      const result = await client.testConnection();
+      const result = await freshClient.testConnection();
 
       expect(result).toEqual({
         reachable: true,
         authenticated: true,
       });
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://127.0.0.1:27123/vault/',
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0]?.[1]).toEqual(
+        expect.objectContaining({ method: 'GET', headers: { Accept: 'application/json' } })
+      );
+      expect(mockFetch.mock.calls[1]?.[1]).toEqual(
         expect.objectContaining({
           method: 'GET',
-          headers: { Authorization: 'Bearer test-api-key' },
+          headers: { Authorization: 'Bearer test-api-key', Accept: 'application/json' },
         })
       );
     });
 
     it('returns authenticated:false when API key is invalid (401)', async () => {
-      mockFetch.mockResolvedValue({ ok: false, status: 401 });
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch
+        .mockResolvedValueOnce(serverInfoResponse(false))
+        .mockResolvedValueOnce(new Response(null, { status: 401 }));
 
-      const result = await client.testConnection();
+      const result = await freshClient.testConnection();
 
       expect(result).toEqual({
         reachable: true,
@@ -156,9 +193,12 @@ describe('ObsidianApiClient', () => {
     });
 
     it('returns authenticated:false when API key is forbidden (403)', async () => {
-      mockFetch.mockResolvedValue({ ok: false, status: 403 });
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch
+        .mockResolvedValueOnce(serverInfoResponse(false))
+        .mockResolvedValueOnce(new Response(null, { status: 403 }));
 
-      const result = await client.testConnection();
+      const result = await freshClient.testConnection();
 
       expect(result).toEqual({
         reachable: true,
@@ -167,10 +207,35 @@ describe('ObsidianApiClient', () => {
       });
     });
 
-    it('returns authenticated:false for other server errors', async () => {
-      mockFetch.mockResolvedValue({ ok: false, status: 500 });
+    it.each(['status', 'ok'] as const)(
+      'returns invalid API key for the %s-root HTTP 200 authenticated:false response',
+      async successField => {
+        const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'wrong-key');
+        mockFetch
+          .mockResolvedValueOnce(serverInfoResponse(false, TEST_SERVER_VERSIONS, successField))
+          .mockResolvedValueOnce(serverInfoResponse(false, TEST_SERVER_VERSIONS, successField));
 
-      const result = await client.testConnection();
+        await expect(freshClient.testConnection()).resolves.toEqual({
+          reachable: true,
+          authenticated: false,
+          error: 'Invalid API key',
+        });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(
+          new Headers((mockFetch.mock.calls[1]?.[1] as RequestInit | undefined)?.headers).get(
+            'Authorization'
+          )
+        ).toBe('Bearer wrong-key');
+      }
+    );
+
+    it('returns authenticated:false for other server errors', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch
+        .mockResolvedValueOnce(serverInfoResponse(false))
+        .mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+      const result = await freshClient.testConnection();
 
       expect(result).toEqual({
         reachable: true,
@@ -180,9 +245,10 @@ describe('ObsidianApiClient', () => {
     });
 
     it('returns reachable:false when network error occurs', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
       mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
 
-      const result = await client.testConnection();
+      const result = await freshClient.testConnection();
 
       expect(result).toEqual({
         reachable: false,
@@ -192,10 +258,11 @@ describe('ObsidianApiClient', () => {
     });
 
     it('returns timeout error when request times out', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
       const timeoutError = new DOMException('The operation timed out', 'TimeoutError');
       mockFetch.mockRejectedValue(timeoutError);
 
-      const result = await client.testConnection();
+      const result = await freshClient.testConnection();
 
       expect(result).toEqual({
         reachable: false,
@@ -206,66 +273,307 @@ describe('ObsidianApiClient', () => {
   });
 
   describe('getServerVersions', () => {
-    const info = {
-      status: 'OK',
-      service: 'Obsidian Local REST API',
-      authenticated: true,
-      versions: { self: '5.5.0', obsidian: '1.14.4' },
-    };
+    it('returns only strict matched versions and admits additional root fields', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      const extendedVersions = { ...TEST_SERVER_VERSIONS, extensionApi: '4' };
+      mockFetch
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              ...serverInfo(false, extendedVersions),
+              state: { public: true },
+            })
+          )
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              ...serverInfo(true, extendedVersions),
+              state: { private: true },
+            })
+          )
+        );
 
-    it('returns only strict authenticated versions from the root endpoint', async () => {
-      mockFetch.mockResolvedValue(
-        new Response(JSON.stringify({ ...info, state: { private: true } }))
-      );
-      await expect(client.getServerVersions(60_000)).resolves.toEqual(info.versions);
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://127.0.0.1:27123/',
+      await expect(freshClient.getServerVersions(60_000)).resolves.toEqual(TEST_SERVER_VERSIONS);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0]?.[1]).toEqual(
         expect.objectContaining({
           method: 'GET',
           redirect: 'error',
           credentials: 'omit',
+          headers: { Accept: 'application/json' },
+        })
+      );
+      expect(mockFetch.mock.calls[1]?.[1]).toEqual(
+        expect.objectContaining({
           headers: { Authorization: 'Bearer test-api-key', Accept: 'application/json' },
         })
       );
     });
 
+    it('admits the official legacy ok marker used by Local REST API 4.1.7 through 5.3', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch
+        .mockResolvedValueOnce(serverInfoResponse(false, TEST_SERVER_VERSIONS, 'ok'))
+        .mockResolvedValueOnce(serverInfoResponse(true, TEST_SERVER_VERSIONS, 'ok'));
+
+      await expect(freshClient.getServerVersions()).resolves.toEqual(TEST_SERVER_VERSIONS);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
     it.each([
-      { ...info, authenticated: false },
-      { ...info, status: 'NOT-OK' },
-      { ...info, service: 'Other' },
-      { ...info, versions: { self: '5.5.0' } },
-      { ...info, versions: { self: '5.5.0', obsidian: '1.14.4', extra: 'private' } },
-      { ...info, versions: { self: {}, obsidian: '1.14.4' } },
-    ])('rejects invalid capability facts without returning server data', async value => {
-      mockFetch.mockResolvedValue(new Response(JSON.stringify(value)));
-      await expect(client.getServerVersions()).rejects.toMatchObject({
-        status: 0,
-        message: 'Obsidian server information is invalid.',
-      });
+      { ...serverInfo(true), authenticated: false },
+      { ...serverInfo(true), status: 'NOT-OK' },
+      { ...serverInfo(true, TEST_SERVER_VERSIONS, 'ok'), ok: 'NOT-OK' },
+      { ...serverInfo(true), ok: 'NOT-OK' },
+      { ...serverInfo(true), service: 'Other' },
+      { ...serverInfo(true), versions: { self: '5.5.0' } },
+      { ...serverInfo(true), versions: { self: {}, obsidian: '1.14.4' } },
+    ])('rejects invalid authenticated identity facts without vault access', async value => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch
+        .mockResolvedValueOnce(serverInfoResponse(false))
+        .mockResolvedValueOnce(new Response(JSON.stringify(value)));
+      await expect(freshClient.getServerVersions()).rejects.toBeInstanceOf(ObsidianIdentityError);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
     it('bounds root bytes and rejects invalid UTF-8 or non-200 responses', async () => {
+      const oversized = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
       mockFetch.mockResolvedValueOnce(new Response(new Uint8Array(65_537)));
-      await expect(client.getServerVersions()).rejects.toMatchObject({
-        message: 'Obsidian response body exceeds its limit.',
+      await expect(oversized.getServerVersions()).rejects.toMatchObject({
+        message: expect.stringContaining('did not return a valid Obsidian Local REST API response'),
       });
+
+      mockFetch.mockReset();
+      const malformed = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
       mockFetch.mockResolvedValueOnce(new Response(new Uint8Array([255])));
-      await expect(client.getServerVersions()).rejects.toMatchObject({
-        message: 'Obsidian server information is invalid.',
+      await expect(malformed.getServerVersions()).rejects.toMatchObject({
+        message: expect.stringContaining('did not return a valid Obsidian Local REST API response'),
       });
+
+      mockFetch.mockReset();
+      const rejected = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
       mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
-      await expect(client.getServerVersions()).rejects.toMatchObject({ status: 401 });
+      await expect(rejected.getServerVersions()).rejects.toMatchObject({
+        phase: 'anonymous',
+        status: 401,
+      });
+      expect(mockFetch).toHaveBeenCalledOnce();
+    });
+
+    it('accepts exactly 64 KiB of root JSON and rejects the next byte', async () => {
+      const anonymousJson = JSON.stringify(serverInfo(false));
+      const exactBody = anonymousJson + ' '.repeat(64 * 1024 - anonymousJson.length);
+      const exactClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch
+        .mockResolvedValueOnce(new Response(exactBody, { headers: { 'Content-Length': '1' } }))
+        .mockResolvedValueOnce(serverInfoResponse(true));
+      await expect(exactClient.getServerVersions()).resolves.toEqual(TEST_SERVER_VERSIONS);
+
+      mockFetch.mockReset();
+      const overflowClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch.mockResolvedValueOnce(new Response(`${exactBody} `));
+      await expect(overflowClient.getServerVersions()).rejects.toBeInstanceOf(
+        ObsidianIdentityError
+      );
+      expect(mockFetch).toHaveBeenCalledOnce();
     });
 
     it('keeps a caller timeout and normalizes connection failure', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
       const timeout = vi.spyOn(AbortSignal, 'timeout');
       mockFetch.mockRejectedValue(new TypeError('private network error'));
-      await expect(client.getServerVersions(4321)).rejects.toMatchObject({
+      await expect(freshClient.getServerVersions(4321)).rejects.toMatchObject({
         status: 0,
         message: 'Cannot reach Obsidian. Is it running?',
       });
       expect(timeout).toHaveBeenCalledWith(4321);
       timeout.mockRestore();
+    });
+
+    it('returns copies without repeating the admitted handshake', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      queueValidIdentity(mockFetch);
+      const first = await freshClient.getServerVersions();
+      first.self = 'mutated';
+      await expect(freshClient.getServerVersions()).resolves.toEqual(TEST_SERVER_VERSIONS);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('identity admission boundary', () => {
+    const firstCalls = [
+      ['server versions', (value: ObsidianApiClient) => value.getServerVersions(), undefined],
+      ['connection test', (value: ObsidianApiClient) => value.testConnection(), undefined],
+      [
+        'bounded binary read',
+        (value: ObsidianApiClient) => value.getBinaryFileBounded('a.bin', 1),
+        () => new Response(new Uint8Array([1])),
+      ],
+      [
+        'binary existence',
+        (value: ObsidianApiClient) => value.binaryFileExists('a.bin'),
+        () => new Response(null),
+      ],
+      [
+        'create-only binary write',
+        (value: ObsidianApiClient) =>
+          value.putBinaryFileIfAbsent('a.bin', new Uint8Array([1]), 'application/octet-stream'),
+        () => new Response(null, { status: 204 }),
+      ],
+      ['text read', (value: ObsidianApiClient) => value.getFile('a.md'), () => new Response('x')],
+      [
+        'binary read',
+        (value: ObsidianApiClient) => value.getBinaryFile('a.bin'),
+        () => new Response(new Uint8Array([1])),
+      ],
+      [
+        'text write',
+        (value: ObsidianApiClient) => value.putFile('a.md', 'x'),
+        () => new Response(null, { status: 204 }),
+      ],
+      [
+        'binary write',
+        (value: ObsidianApiClient) =>
+          value.putBinaryFile('a.bin', new Uint8Array([1]), 'application/octet-stream'),
+        () => new Response(null, { status: 204 }),
+      ],
+      [
+        'directory entries',
+        (value: ObsidianApiClient) => value.listEntries('AI'),
+        () => new Response('{"files":[]}'),
+      ],
+      [
+        'filtered file list',
+        (value: ObsidianApiClient) => value.listFiles('AI'),
+        () => new Response('{"files":[]}'),
+      ],
+    ] as const;
+
+    it.each(firstCalls)(
+      'admits anonymous then authenticated identity before the first %s',
+      async (_name, request, endpointResponse) => {
+        const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'first-request-key');
+        queueValidIdentity(mockFetch);
+        if (endpointResponse) mockFetch.mockResolvedValueOnce(endpointResponse());
+
+        await request(freshClient);
+
+        const anonymousHeaders = new Headers(
+          (mockFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.headers
+        );
+        expect(anonymousHeaders.has('Authorization')).toBe(false);
+        expect(anonymousHeaders.get('Accept')).toBe('application/json');
+
+        const authenticatedHeaders = new Headers(
+          (mockFetch.mock.calls[1]?.[1] as RequestInit | undefined)?.headers
+        );
+        expect(authenticatedHeaders.get('Authorization')).toBe('Bearer first-request-key');
+        if (endpointResponse) {
+          const vaultHeaders = new Headers(
+            (mockFetch.mock.calls[2]?.[1] as RequestInit | undefined)?.headers
+          );
+          expect(vaultHeaders.get('Authorization')).toBe('Bearer first-request-key');
+        }
+      }
+    );
+
+    it('sends no bearer or vault request when the anonymous identity is wrong', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'secret-key');
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...serverInfo(false), service: 'Unrelated service' }))
+      );
+
+      await expect(freshClient.getFile('private.md')).rejects.toMatchObject({
+        phase: 'anonymous',
+        message: expect.stringContaining('did not return a valid Obsidian Local REST API response'),
+      });
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const headers = new Headers(
+        (mockFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.headers
+      );
+      expect(headers.has('Authorization')).toBe(false);
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('http://127.0.0.1:27123/');
+    });
+
+    it('sends no bearer when the anonymous identity body is absent or its stream fails', async () => {
+      const absentClient = new ObsidianApiClient('http://127.0.0.1:27123', 'secret-key');
+      mockFetch.mockResolvedValueOnce(new Response(null));
+      await expect(absentClient.getFile('private.md')).rejects.toBeInstanceOf(
+        ObsidianIdentityError
+      );
+      expect(mockFetch).toHaveBeenCalledOnce();
+
+      mockFetch.mockReset();
+      const failedClient = new ObsidianApiClient('http://127.0.0.1:27123', 'secret-key');
+      mockFetch.mockResolvedValueOnce(failedBody(new TypeError('stream failed')));
+      await expect(failedClient.getFile('private.md')).rejects.toMatchObject({
+        status: 0,
+        message: 'Cannot reach Obsidian. Is it running?',
+      });
+      expect(mockFetch).toHaveBeenCalledOnce();
+      for (const call of mockFetch.mock.calls) {
+        expect(
+          new Headers((call[1] as RequestInit | undefined)?.headers).has('Authorization')
+        ).toBe(false);
+      }
+    });
+
+    it('never reaches the vault when authenticated identity facts or versions differ', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'secret-key');
+      mockFetch
+        .mockResolvedValueOnce(serverInfoResponse(false))
+        .mockResolvedValueOnce(serverInfoResponse(true, { self: '5.5.1', obsidian: '1.14.4' }));
+
+      await expect(freshClient.getFile('private.md')).rejects.toMatchObject({
+        phase: 'authenticated',
+        message: 'Obsidian Local REST API changed between connection checks. Please try again.',
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls.some(call => String(call[0]).includes('/vault/'))).toBe(false);
+    });
+
+    it('shares one in-flight handshake across concurrent first calls', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'secret-key');
+      queueValidIdentity(mockFetch);
+      mockFetch
+        .mockResolvedValueOnce(new Response('note'))
+        .mockResolvedValueOnce(new Response(new Uint8Array([1])));
+
+      await expect(
+        Promise.all([freshClient.getFile('a.md'), freshClient.getBinaryFile('b.bin')])
+      ).resolves.toEqual(['note', new Uint8Array([1])]);
+      expect(
+        mockFetch.mock.calls.filter(call => String(call[0]) === 'http://127.0.0.1:27123/')
+      ).toHaveLength(2);
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('retains a rejected admission and does not share admission across clients', async () => {
+      const rejectedClient = new ObsidianApiClient('http://127.0.0.1:27123', 'secret-key');
+      mockFetch.mockResolvedValueOnce(new Response('{}'));
+      await expect(rejectedClient.getFile('a.md')).rejects.toBeInstanceOf(ObsidianIdentityError);
+      await expect(rejectedClient.getFile('b.md')).rejects.toBeInstanceOf(ObsidianIdentityError);
+      expect(mockFetch).toHaveBeenCalledOnce();
+
+      mockFetch.mockReset();
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'other-key');
+      queueValidIdentity(mockFetch);
+      mockFetch.mockResolvedValueOnce(new Response('fresh'));
+      await expect(freshClient.getFile('fresh.md')).resolves.toBe('fresh');
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not describe an anonymous 401 as an invalid API key', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'secret-key');
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 401 }));
+      await expect(freshClient.testConnection()).resolves.toEqual({
+        reachable: true,
+        authenticated: false,
+        error: 'The configured Obsidian API address returned HTTP 401 before authentication.',
+      });
+      expect(mockFetch).toHaveBeenCalledOnce();
     });
   });
 
@@ -351,8 +659,10 @@ describe('ObsidianApiClient', () => {
 
     it('rejects redirected root, binary preflight, create and readback responses', async () => {
       const response = { status: 200, ok: true, redirected: true, body: { cancel: vi.fn() } };
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
+      mockFetch.mockResolvedValueOnce(response);
+      await expect(freshClient.getServerVersions()).rejects.toBeInstanceOf(ObsidianIdentityError);
       mockFetch.mockResolvedValue(response);
-      await expect(client.getServerVersions()).rejects.toBeInstanceOf(ObsidianApiError);
       await expect(client.binaryFileExists('a.json')).rejects.toBeInstanceOf(ObsidianApiError);
       await expect(
         client.putBinaryFileIfAbsent('a.json', new Uint8Array(), 'application/octet-stream')
@@ -819,13 +1129,14 @@ describe('ObsidianApiClient', () => {
     );
 
     it('does not authenticate a redirected connection probe', async () => {
+      const freshClient = new ObsidianApiClient('http://127.0.0.1:27123', 'test-api-key');
       const response = new Response(null);
       Object.defineProperty(response, 'redirected', { value: true });
       mockFetch.mockResolvedValue(response);
-      await expect(client.testConnection()).resolves.toEqual({
+      await expect(freshClient.testConnection()).resolves.toEqual({
         reachable: true,
         authenticated: false,
-        error: 'Obsidian response was redirected.',
+        error: 'The configured Obsidian API address redirected the connection check.',
       });
       expect(mockFetch).toHaveBeenCalledWith(
         expect.any(String),
@@ -1161,19 +1472,23 @@ describe('ObsidianApiClient', () => {
       vi.resetModules();
       const { ObsidianApiClient: FreshClient } = await import('../../src/lib/obsidian-api');
 
-      const freshMockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      const freshMockFetch = vi
+        .fn()
+        .mockResolvedValueOnce(serverInfoResponse(false))
+        .mockResolvedValueOnce(serverInfoResponse(true));
       vi.stubGlobal('fetch', freshMockFetch);
 
       const freshClient = new FreshClient('http://127.0.0.1:27123', 'test-key');
       await freshClient.testConnection();
 
-      // Verify fetch was called with an AbortSignal to /vault/ endpoint
+      // Verify both root identity requests use the fallback AbortSignal.
       expect(freshMockFetch).toHaveBeenCalledWith(
-        'http://127.0.0.1:27123/vault/',
+        'http://127.0.0.1:27123/',
         expect.objectContaining({
           signal: expect.any(AbortSignal),
         })
       );
+      expect(freshMockFetch).toHaveBeenCalledTimes(2);
 
       // Restore AbortSignal.timeout
       AbortSignal.timeout = originalTimeout;

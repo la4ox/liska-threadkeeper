@@ -93,6 +93,31 @@ export class ObsidianApiError extends Error {
   }
 }
 
+export type ObsidianIdentityPhase = 'anonymous' | 'authenticated';
+export type ObsidianIdentityFailure = 'identity' | 'authentication';
+
+/**
+ * A root response was received, but it did not establish the expected Local
+ * REST API identity. Keeping this distinct from transport status 0 prevents a
+ * malformed or unrelated loopback service from being reported as "not running".
+ */
+export class ObsidianIdentityError extends ObsidianApiError {
+  readonly phase: ObsidianIdentityPhase;
+  readonly failure: ObsidianIdentityFailure;
+
+  constructor(
+    phase: ObsidianIdentityPhase,
+    status: number,
+    message: string,
+    failure: ObsidianIdentityFailure = 'identity'
+  ) {
+    super(status, message);
+    this.name = 'ObsidianIdentityError';
+    this.phase = phase;
+    this.failure = failure;
+  }
+}
+
 /** Allows exact-byte readback callers to retain their size-mismatch diagnostic. */
 export class ObsidianResponseLimitError extends ObsidianApiError {
   constructor() {
@@ -122,27 +147,42 @@ const DIRECTORY_MAX_ENTRIES = 100_000;
 const DIRECTORY_MAX_ENTRY_CODE_UNITS = 1024;
 const DIRECTORY_MAX_STRING_CODE_UNITS = DIRECTORY_MAX_BYTES;
 
-function serverVersions(value: unknown): ObsidianServerVersions | undefined {
+interface ObsidianServerIdentity {
+  authenticated: boolean;
+  versions: ObsidianServerVersions;
+}
+
+/** Local REST API 4.1.7–5.3 used `ok`; 5.4+ renamed it to `status`. */
+function hasSuccessfulRootMarker(root: Record<string, unknown>): boolean {
+  const hasLegacy = Object.prototype.hasOwnProperty.call(root, 'ok');
+  const hasCurrent = Object.prototype.hasOwnProperty.call(root, 'status');
+  if (!hasLegacy && !hasCurrent) return false;
+  return (!hasLegacy || root.ok === 'OK') && (!hasCurrent || root.status === 'OK');
+}
+
+function serverIdentity(value: unknown): ObsidianServerIdentity | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const root = value as Record<string, unknown>;
   if (
-    !['status', 'service', 'authenticated', 'versions'].every(key =>
+    !['service', 'authenticated', 'versions'].every(key =>
       Object.prototype.hasOwnProperty.call(root, key)
     ) ||
-    root.status !== 'OK' ||
+    !hasSuccessfulRootMarker(root) ||
     root.service !== 'Obsidian Local REST API' ||
-    root.authenticated !== true ||
+    typeof root.authenticated !== 'boolean' ||
     typeof root.versions !== 'object' ||
     root.versions === null ||
     Array.isArray(root.versions)
   )
     return undefined;
-  return versionPair(root.versions as Record<string, unknown>);
+  const versions = versionPair(root.versions as Record<string, unknown>);
+  if (!versions) return undefined;
+  return { authenticated: root.authenticated, versions };
 }
 
 function versionPair(versions: Record<string, unknown>): ObsidianServerVersions | undefined {
   if (
-    Object.keys(versions).sort().join(',') !== 'obsidian,self' ||
+    !['self', 'obsidian'].every(key => Object.prototype.hasOwnProperty.call(versions, key)) ||
     typeof versions.self !== 'string' ||
     typeof versions.obsidian !== 'string' ||
     !/^[0-9A-Za-z.+-]{1,64}$/.test(versions.self) ||
@@ -152,9 +192,31 @@ function versionPair(versions: Record<string, unknown>): ObsidianServerVersions 
   return { self: versions.self, obsidian: versions.obsidian };
 }
 
+const IDENTITY_INVALID_MESSAGE =
+  'The configured API address did not return a valid Obsidian Local REST API response. Check the address and make sure Obsidian and the Local REST API plugin are running.';
+
+function identityHttpError(phase: ObsidianIdentityPhase, status: number): ObsidianIdentityError {
+  return new ObsidianIdentityError(
+    phase,
+    status,
+    phase === 'anonymous'
+      ? `The configured Obsidian API address returned HTTP ${status} before authentication.`
+      : `Obsidian Local REST API returned HTTP ${status} while checking the API key.`,
+    phase === 'authenticated' && (status === 401 || status === 403) ? 'authentication' : 'identity'
+  );
+}
+
+function invalidIdentityError(
+  phase: ObsidianIdentityPhase,
+  message = IDENTITY_INVALID_MESSAGE
+): ObsidianIdentityError {
+  return new ObsidianIdentityError(phase, 0, message);
+}
+
 export class ObsidianApiClient {
   private baseUrl: string;
   private apiKey: string;
+  private identityAdmission?: Promise<ObsidianServerVersions>;
 
   constructor(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -197,11 +259,10 @@ export class ObsidianApiClient {
   /**
    * Fetch with timeout and unified network error handling.
    * Wraps fetch() with AbortSignal.timeout and converts network errors
-   * to ObsidianApiError. Used by getFile, putFile, listFiles.
-   *
-   * Not used by testConnection (which returns a result object instead of throwing).
+   * to ObsidianApiError. Identity probes use it directly; credential-bound
+   * methods use the admitted wrapper below.
    */
-  private async fetchWithTimeout(
+  private async fetchRawWithTimeout(
     url: string,
     options: RequestInit,
     timeoutMs = DEFAULT_API_TIMEOUT
@@ -219,6 +280,16 @@ export class ObsidianApiClient {
     } catch (error) {
       this.rethrowNetworkError(error);
     }
+  }
+
+  /** Every credential-bound request waits for one endpoint-and-key-bound admission. */
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+    timeoutMs = DEFAULT_API_TIMEOUT
+  ): Promise<Response> {
+    await this.ensureServerIdentity(timeoutMs);
+    return this.fetchRawWithTimeout(url, options, timeoutMs);
   }
 
   /** Retain only admitted stream bytes; never trust Content-Length for the cap. */
@@ -263,31 +334,115 @@ export class ObsidianApiClient {
     }
   }
 
-  /** Authenticated root capability snapshot; no account/plugin state is returned. */
-  async getServerVersions(timeoutMs = DEFAULT_API_TIMEOUT): Promise<ObsidianServerVersions> {
-    const response = await this.fetchWithTimeout(
-      `${this.baseUrl}/`,
-      {
-        method: 'GET',
-        headers: { ...this.getHeaders(), Accept: 'application/json' },
-        credentials: 'omit',
-        redirect: 'error',
-        cache: 'no-store',
-      },
-      timeoutMs
-    );
-    if (response.status !== 200 || !response.ok || response.redirected)
-      throw this.createError(response.status, 'Obsidian server information is unavailable.');
-    const bytes = await this.readBoundedBytes(response, SERVER_INFO_MAX_BYTES);
+  /** Parse one already-received root response without retaining server prose. */
+  private async readServerIdentityResponse(
+    response: Response,
+    phase: ObsidianIdentityPhase,
+    expectedAuthenticated: boolean
+  ): Promise<ObsidianServerVersions> {
+    if (response.status !== 200 || !response.ok || response.redirected) {
+      try {
+        await response.body?.cancel();
+      } catch {
+        // Status alone is authoritative; never retain or surface an error body.
+      }
+      throw identityHttpError(phase, response.status);
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = await this.readBoundedBytes(response, SERVER_INFO_MAX_BYTES);
+    } catch (error) {
+      if (
+        error instanceof ObsidianResponseLimitError ||
+        (error instanceof ObsidianApiError &&
+          error.message === 'Obsidian response body is unavailable.')
+      ) {
+        throw invalidIdentityError(phase);
+      }
+      throw error;
+    }
+
     let parsed: unknown;
     try {
       parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     } catch {
-      throw this.createError(0, 'Obsidian server information is invalid.');
+      throw invalidIdentityError(phase);
     }
-    const versions = serverVersions(parsed);
-    if (!versions) throw this.createError(0, 'Obsidian server information is invalid.');
-    return versions;
+    const identity = serverIdentity(parsed);
+    if (!identity) throw invalidIdentityError(phase);
+    if (identity.authenticated !== expectedAuthenticated) {
+      if (phase === 'authenticated' && !identity.authenticated) {
+        throw new ObsidianIdentityError(
+          phase,
+          response.status,
+          'Obsidian Local REST API rejected the API key.',
+          'authentication'
+        );
+      }
+      throw invalidIdentityError(phase);
+    }
+    return identity.versions;
+  }
+
+  /** Read and strictly validate one bounded root identity response. */
+  private async probeServerIdentity(
+    phase: ObsidianIdentityPhase,
+    timeoutMs: number
+  ): Promise<ObsidianServerVersions> {
+    const expectedAuthenticated = phase === 'authenticated';
+    try {
+      const response = await this.fetchRawWithTimeout(
+        `${this.baseUrl}/`,
+        {
+          method: 'GET',
+          headers: expectedAuthenticated
+            ? { ...this.getHeaders(), Accept: 'application/json' }
+            : { Accept: 'application/json' },
+        },
+        timeoutMs
+      );
+      return await this.readServerIdentityResponse(response, phase, expectedAuthenticated);
+    } catch (error) {
+      if (
+        error instanceof ObsidianApiError &&
+        error.message === 'Obsidian response was redirected.'
+      ) {
+        throw invalidIdentityError(
+          phase,
+          'The configured Obsidian API address redirected the connection check.'
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Admit this immutable endpoint/key pair once. A rejected admission remains
+   * rejected for the client's lifetime so no sibling path can bypass it.
+   */
+  private async ensureServerIdentity(
+    timeoutMs = DEFAULT_API_TIMEOUT
+  ): Promise<ObsidianServerVersions> {
+    this.identityAdmission ??= (async () => {
+      const anonymous = await this.probeServerIdentity('anonymous', timeoutMs);
+      const authenticated = await this.probeServerIdentity('authenticated', timeoutMs);
+      if (anonymous.self !== authenticated.self || anonymous.obsidian !== authenticated.obsidian) {
+        throw new ObsidianIdentityError(
+          'authenticated',
+          0,
+          'Obsidian Local REST API changed between connection checks. Please try again.'
+        );
+      }
+      return Object.freeze({ ...authenticated });
+    })();
+    const versions = await this.identityAdmission;
+    return { ...versions };
+  }
+
+  /** Authenticated root capability snapshot; no account/plugin state is returned. */
+  async getServerVersions(timeoutMs = DEFAULT_API_TIMEOUT): Promise<ObsidianServerVersions> {
+    return this.ensureServerIdentity(timeoutMs);
   }
 
   /** Credential-bound, redirect-refusing read with an explicit retained-byte cap. */
@@ -377,8 +532,8 @@ export class ObsidianApiClient {
   /**
    * Test API connection with authentication verification
    *
-   * Uses /vault/ endpoint which requires authentication.
-   * This ensures the API key is validated, not just server reachability.
+   * Verifies the unauthenticated and authenticated root identities before any
+   * vault request can carry the API key.
    */
   async testConnection(): Promise<{
     /** Server is reachable */
@@ -389,55 +544,43 @@ export class ObsidianApiClient {
     error?: string;
   }> {
     try {
-      const response = await fetch(`${this.baseUrl}/vault/`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-        credentials: 'omit',
-        redirect: 'error',
-        cache: 'no-store',
-        signal: createTimeoutSignal(DEFAULT_API_TIMEOUT),
-      });
-
-      if (response.redirected)
-        return {
-          reachable: true,
-          authenticated: false,
-          error: 'Obsidian response was redirected.',
-        };
-
-      // Authentication error
-      if (response.status === 401 || response.status === 403) {
-        return {
-          reachable: true,
-          authenticated: false,
-          error: 'Invalid API key',
-        };
-      }
-
-      // Other server errors
-      if (!response.ok) {
-        return {
-          reachable: true,
-          authenticated: false,
-          error: `Server error: ${response.status}`,
-        };
-      }
-
-      // Success
+      await this.ensureServerIdentity(DEFAULT_API_TIMEOUT);
       return {
         reachable: true,
         authenticated: true,
       };
     } catch (error) {
+      if (error instanceof ObsidianIdentityError) {
+        if (error.failure === 'authentication') {
+          return {
+            reachable: true,
+            authenticated: false,
+            error: 'Invalid API key',
+          };
+        }
+        if (error.status > 0 && !(error.status === 401 || error.status === 403)) {
+          return {
+            reachable: true,
+            authenticated: false,
+            error: `Server error: ${error.status}`,
+          };
+        }
+        return {
+          reachable: true,
+          authenticated: false,
+          error: error.message,
+        };
+      }
       // Network error
       const errorType = classifyNetworkError(error);
+      const timedOut =
+        errorType === 'timeout' ||
+        (error instanceof ObsidianApiError &&
+          error.message === 'Request timed out. Please check your connection.');
       return {
         reachable: false,
         authenticated: false,
-        error:
-          errorType === 'timeout'
-            ? 'Connection timed out'
-            : 'Cannot reach Obsidian. Is it running?',
+        error: timedOut ? 'Connection timed out' : 'Cannot reach Obsidian. Is it running?',
       };
     }
   }
