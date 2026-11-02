@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
 import * as deepSeekApi from '../../src/content/extractors/deepseek-api';
+import { BaseExtractor } from '../../src/content/extractors/base';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../src/lib/constants';
 import { clearFixture, loadFixture, resetLocation } from '../fixtures/dom-helpers';
-import type { ArchiveCompanionBundle, SyncSettings } from '../../src/lib/types';
+import type { ArchiveCompanionBundle, ExtractionResult, SyncSettings } from '../../src/lib/types';
 
 interface DeepSeekMessage {
   role: 'user' | 'assistant';
@@ -111,6 +112,47 @@ function historyResponse(title: string): Response {
   );
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, resolve, reject };
+}
+
+function stagedNavigationCompanion(): ArchiveCompanionBundle {
+  return {
+    captureId: 'capture-deepseek-staged-navigation',
+    conversationKey: 'a'.repeat(64),
+    artifacts: [
+      {
+        transport: 'staged',
+        kind: 'raw',
+        stageId: `archive-stage-${'A'.repeat(32)}`,
+        relativePath: 'responses/conversation.json',
+        mediaType: 'application/json',
+        byteLength: 20 * 1024 * 1024,
+        sha256: 'b'.repeat(64),
+      },
+      {
+        transport: 'inline',
+        kind: 'manifest',
+        relativePath: 'manifest.json',
+        mediaType: 'application/json',
+        byteLength: 2,
+        sha256: 'c'.repeat(64),
+        bodyBase64: 'e30=',
+      },
+    ],
+  };
+}
+
 describe('DeepSeekExtractor', () => {
   let extractor: DeepSeekExtractor;
 
@@ -119,6 +161,11 @@ describe('DeepSeekExtractor', () => {
     clearFixture();
     localStorage.clear();
     document.title = '';
+    vi.mocked(chrome.runtime.sendMessage).mockReset();
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((_message, callback) => {
+      if (typeof callback === 'function') callback({ success: true });
+      return Promise.resolve({ success: true });
+    });
   });
 
   afterEach(() => {
@@ -611,6 +658,121 @@ describe('DeepSeekExtractor', () => {
       ]);
       expect(result.data).toBeUndefined();
       expect(result.deepSeekAssetExportContext).toBeUndefined();
+    });
+
+    it('cancels a successful structured result when SPA navigation changes the conversation', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);
+      localStorage.setItem('userToken', JSON.stringify({ value: 'local-test-token' }));
+      const pending = deferred<Response>();
+      vi.spyOn(globalThis, 'fetch').mockReturnValue(pending.promise);
+
+      const extraction = extractor.extract();
+      setDeepSeekLocation('chat-456');
+      pending.resolve(historyResponse('Structured A'));
+
+      await expect(extraction).resolves.toEqual({
+        success: false,
+        error: 'Conversation changed during extraction. No output was created.',
+      });
+    });
+
+    it('releases staged A evidence when navigation changes to a share route with the same id', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);
+      const retained = stagedNavigationCompanion();
+      const pending = deferred<Awaited<ReturnType<typeof deepSeekApi.fetchDeepSeekConversation>>>();
+      vi.spyOn(deepSeekApi, 'fetchDeepSeekConversation').mockReturnValue(pending.promise);
+
+      const extraction = extractor.extract();
+      setDeepSeekLocation('chat-123', 'share');
+      pending.reject(
+        new deepSeekApi.DeepSeekStructuredCaptureError('normalization-failed', retained)
+      );
+
+      await expect(extraction).resolves.toEqual({
+        success: false,
+        error: 'Conversation changed during extraction. No output was created.',
+      });
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+        {
+          action: 'abortStagedArchiveArtifact',
+          source: 'deepseek',
+          stageId:
+            retained.artifacts[0].transport === 'staged' ? retained.artifacts[0].stageId : '',
+        },
+        expect.any(Function)
+      );
+    });
+
+    it('does not attach A evidence when navigation happens during DOM fallback', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);
+      const retained = stagedNavigationCompanion();
+      vi.spyOn(deepSeekApi, 'fetchDeepSeekConversation').mockRejectedValue(
+        new deepSeekApi.DeepSeekStructuredCaptureError('normalization-failed', retained)
+      );
+      const fallback = deferred<ExtractionResult>();
+      const domExtract = vi
+        .spyOn(BaseExtractor.prototype, 'extract')
+        .mockReturnValue(fallback.promise);
+
+      const extraction = extractor.extract();
+      await vi.waitFor(() => expect(domExtract).toHaveBeenCalledOnce());
+      setDeepSeekLocation('chat-456');
+      fallback.resolve({ success: false, error: 'No messages found in conversation' });
+
+      await expect(extraction).resolves.toEqual({
+        success: false,
+        error: 'Conversation changed during extraction. No output was created.',
+      });
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+        {
+          action: 'abortStagedArchiveArtifact',
+          source: 'deepseek',
+          stageId:
+            retained.artifacts[0].transport === 'staged' ? retained.artifacts[0].stageId : '',
+        },
+        expect.any(Function)
+      );
+    });
+
+    it('latches A to B to A navigation before any virtualized B window can be harvested', async () => {
+      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);
+      const retained = stagedNavigationCompanion();
+      vi.spyOn(deepSeekApi, 'fetchDeepSeekConversation').mockRejectedValue(
+        new deepSeekApi.DeepSeekStructuredCaptureError('normalization-failed', retained)
+      );
+      vi.spyOn(BaseExtractor.prototype, 'extract').mockImplementation(async () => {
+        const config = extractor['getScrollConfig']();
+        const container = document.querySelector<HTMLElement>('.ds-scroll-area')!;
+
+        setDeepSeekLocation('chat-456');
+        container.innerHTML = renderMessage(
+          { role: 'assistant', content: '<p>Rendered B must never be harvested</p>' },
+          0
+        );
+        expect(() => config.harvest(container)).toThrow(
+          'Conversation changed during extraction. No output was created.'
+        );
+
+        setDeepSeekLocation('chat-123');
+        expect(() => config.harvest(container)).toThrow(
+          'Conversation changed during extraction. No output was created.'
+        );
+        return { success: false, error: 'No messages found in conversation' };
+      });
+
+      await expect(extractor.extract()).resolves.toEqual({
+        success: false,
+        error: 'Conversation changed during extraction. No output was created.',
+      });
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+        {
+          action: 'abortStagedArchiveArtifact',
+          source: 'deepseek',
+          stageId:
+            retained.artifacts[0].transport === 'staged' ? retained.artifacts[0].stageId : '',
+        },
+        expect.any(Function)
+      );
     });
 
     it('does not abort staged evidence when both structured normalization and DOM fail', async () => {

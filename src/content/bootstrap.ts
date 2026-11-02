@@ -39,7 +39,10 @@ import type { ChatGptAssetExportResult } from './chatgpt-asset-export';
 import { decorateChatGptArchiveNote } from './chatgpt-archive-links';
 import { snapshotChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
 import { localizeChatGptSandboxLinks } from './chatgpt-sandbox-localization';
-import { persistDeepSeekDestinationHonestAttachments } from './deepseek-asset-export';
+import {
+  DeepSeekNavigationChangedError,
+  persistDeepSeekDestinationHonestAttachments,
+} from './deepseek-asset-export';
 import type {
   FinalizedFileArchivePresentationEvidence,
   FinalizedFilePresentationEvidence,
@@ -565,7 +568,8 @@ export async function persistArchiveCompanionArtifacts(
   outputs: OutputDestination[],
   artifactKinds?: readonly ArchiveCompanionKind[],
   expectedSyncSettingsSnapshot?: string,
-  writeLedger?: OperationWriteLedger
+  writeLedger?: OperationWriteLedger,
+  isOperationCurrent?: () => boolean
 ): Promise<ArchiveCompanionPersistenceOutcome> {
   if (!companion) return { activeOutputs: [], warnings: [] };
   const unclaimedStages = new Set(
@@ -582,6 +586,13 @@ export async function persistArchiveCompanionArtifacts(
     }
     unclaimedStages.clear();
   };
+  const requireCurrentOperation = async (): Promise<void> => {
+    if (isOperationCurrent && !isOperationCurrent()) {
+      await abortUnclaimedStages();
+      throw new DeepSeekNavigationChangedError();
+    }
+  };
+  await requireCurrentOperation();
   // The caller still owns every stage here. Reject malformed local metadata
   // before any commit can relinquish that claim to the worker.
   if (
@@ -619,6 +630,7 @@ export async function persistArchiveCompanionArtifacts(
   }
   for (const artifact of selected) {
     if (activeOutputs.length === 0) break;
+    await requireCurrentOperation();
     if (artifact.transport === 'staged' && !stageSource) {
       warnings.push(
         ...archiveDestinationWarnings(
@@ -667,6 +679,7 @@ export async function persistArchiveCompanionArtifacts(
           : undefined;
         attempt?.observe(durableWriteOutcomeFromResult(result));
       }
+      await requireCurrentOperation();
       const outcome = archiveWriteOutcome(
         response,
         label,
@@ -676,8 +689,12 @@ export async function persistArchiveCompanionArtifacts(
       warnings.push(...outcome.warnings);
       // A destination commits its snapshot in raw -> manifest -> canonical order.
       activeOutputs = outcome.activeOutputs;
-    } catch {
+    } catch (error) {
       attempts.forEach(({ attempt }) => attempt?.observe());
+      if (error instanceof DeepSeekNavigationChangedError) {
+        await abortUnclaimedStages();
+        throw error;
+      }
       warnings.push(
         ...archiveDestinationWarnings(label, activeOutputs, 'the extension write failed')
       );
@@ -759,7 +776,8 @@ async function persistExtractedNote(
   structuredPresentationContext: ExtractionResult['structuredPresentationContext'],
   settings: ContentScriptSettings,
   outputs: OutputDestination[],
-  extractionWarnings: string[] | undefined
+  extractionWarnings: string[] | undefined,
+  isOperationCurrent?: () => boolean
 ): Promise<void> {
   const note = conversationToNote(data, settings.templateOptions);
   const expectedSyncSettingsSnapshot = archiveCompanion
@@ -771,8 +789,11 @@ async function persistExtractedNote(
     data.source,
     outputs,
     undefined,
-    expectedSyncSettingsSnapshot
+    expectedSyncSettingsSnapshot,
+    undefined,
+    isOperationCurrent
   );
+  if (isOperationCurrent && !isOperationCurrent()) throw new DeepSeekNavigationChangedError();
   const htmlWarnings = await derivedHtmlWarnings(
     data.source,
     settings,
@@ -781,6 +802,7 @@ async function persistExtractedNote(
     structuredPresentationContext,
     expectedSyncSettingsSnapshot
   );
+  if (isOperationCurrent && !isOperationCurrent()) throw new DeepSeekNavigationChangedError();
   const warnings = [...(extractionWarnings ?? []), ...archiveOutcome.warnings, ...htmlWarnings];
   await persistNote(
     note,
@@ -1485,6 +1507,58 @@ const chatGptAttachmentDependencies = (
     : {}),
 });
 
+interface DeepSeekOperationIdentity {
+  readonly conversationId: string;
+  readonly route: string;
+}
+
+const CONVERSATION_CHANGED_ERROR = 'Conversation changed during extraction. No output was created.';
+
+function captureDeepSeekOperationIdentity(
+  extractor: IConversationExtractor
+): DeepSeekOperationIdentity | undefined {
+  if (!(extractor instanceof DeepSeekExtractor)) return undefined;
+  const route = window.location.pathname.replace(/\/$/, '');
+  const conversationId = extractor.getConversationId();
+  return conversationId && /^\/a\/chat\/s\/[a-z0-9-]+$/i.test(route)
+    ? { conversationId, route }
+    : undefined;
+}
+
+function isDeepSeekOperationCurrent(
+  extractor: IConversationExtractor,
+  identity: DeepSeekOperationIdentity | undefined
+): boolean {
+  if (!identity) return true;
+  return (
+    extractor instanceof DeepSeekExtractor &&
+    window.location.origin === 'https://chat.deepseek.com' &&
+    extractor.getConversationId() === identity.conversationId &&
+    window.location.pathname.replace(/\/$/, '') === identity.route
+  );
+}
+
+async function abortChangedDeepSeekEvidence(result: ExtractionResult): Promise<void> {
+  await Promise.all(
+    (result.archiveCompanion?.artifacts ?? []).map(artifact =>
+      artifact.transport === 'staged'
+        ? abortStagedArchiveArtifact(artifact.stageId, 'deepseek')
+        : Promise.resolve()
+    )
+  );
+}
+
+async function rejectChangedDeepSeekOperation(
+  extractor: IConversationExtractor,
+  identity: DeepSeekOperationIdentity | undefined,
+  result: ExtractionResult
+): Promise<boolean> {
+  if (isDeepSeekOperationCurrent(extractor, identity)) return false;
+  await abortChangedDeepSeekEvidence(result);
+  showErrorToast(CONVERSATION_CHANGED_ERROR);
+  return true;
+}
+
 /**
  * Handle sync button click
  */
@@ -1523,8 +1597,10 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
     if (extractor instanceof ChatGPTExtractor) extractor.setBranchExportMode(branchMode);
     showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
     extractor.applySettings(settings);
+    const deepSeekOperationIdentity = captureDeepSeekOperationIdentity(extractor);
     stage = 'extracting the conversation';
     const result = await extractor.extract();
+    if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result)) return;
     if (result.cancelled) return;
     if (result.allBranches) {
       allBranchesAbortController = new AbortController();
@@ -1626,6 +1702,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           expectedSyncSettingsSnapshot
         )
       : undefined;
+    if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result)) return;
     stage = 'validating the extracted conversation';
     const validation = extractor.validate(result);
     if (!validation.isValid) {
@@ -1696,11 +1773,16 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         {
           persistArtifacts: persistArchiveCompanionArtifacts,
           expectedSyncSettingsSnapshot,
+          isConversationCurrent: () =>
+            deepSeekOperationIdentity !== undefined &&
+            isDeepSeekOperationCurrent(extractor, deepSeekOperationIdentity),
           ...(settings.enableHtmlExport === true && enabledOutputs.includes('file')
             ? { presentationContext: result.structuredPresentationContext }
             : {}),
         }
       );
+      if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result))
+        return;
       stage = 'saving the DeepSeek canonical HTML reading view';
       const htmlWarnings = await finalizedAttachmentDerivedHtmlWarnings(
         settings,
@@ -1709,6 +1791,8 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         attachmentExport.filePresentation,
         expectedSyncSettingsSnapshot
       );
+      if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result))
+        return;
       stage = 'saving the DeepSeek note';
       const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings, ...htmlWarnings];
       await persistNote(
@@ -1728,7 +1812,10 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       result.structuredPresentationContext,
       settings,
       enabledOutputs,
-      result.warnings
+      result.warnings,
+      deepSeekOperationIdentity
+        ? () => isDeepSeekOperationCurrent(extractor, deepSeekOperationIdentity)
+        : undefined
     );
   } catch (error) {
     console.error(`[G2O] Sync error while ${stage}:`, error);

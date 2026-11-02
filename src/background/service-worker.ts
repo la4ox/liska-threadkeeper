@@ -10,6 +10,7 @@ import {
   validateChatGptStandardConversationSender,
   validateArchiveStageSender,
   validateClaudeArchiveStageAbortSender,
+  validateDeepSeekArchiveStageAbortSender,
   validateMessageContent,
   validateSender,
   validateStagedBinaryAssetSender,
@@ -431,6 +432,8 @@ function isAuthorizedArchiveStageRequest(
 ): boolean {
   if (message.action === 'abortStagedArchiveArtifact' && message.source === 'claude')
     return validateClaudeArchiveStageAbortSender(sender, message.source);
+  if (message.action === 'abortStagedArchiveArtifact' && message.source === 'deepseek')
+    return validateDeepSeekArchiveStageAbortSender(sender, message.source);
   return !isArchiveStageMessage(message) || validateArchiveStageSender(sender, message.source);
 }
 

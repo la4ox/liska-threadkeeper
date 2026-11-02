@@ -38,6 +38,7 @@ import {
   stagedBinaryCleanupWarnings,
 } from './staged-binary-persistence';
 import { DEEPSEEK_ASSETS_NOT_ATTEMPTED_WARNING } from './extractors/deepseek-api';
+import { abortStagedArchiveArtifact } from './archive-stage';
 import {
   buildFinalizedFilePresentationEvidence,
   type FinalizedFilePresentationEvidence,
@@ -58,6 +59,13 @@ export const DEEPSEEK_ASSET_FINALIZATION_FAILED_WARNING =
   'DeepSeek attachment archive finalization failed; the original raw capture remains available.';
 export const DEEPSEEK_ASSET_DESTINATION_WRITE_FAILED_DETAIL = 'deepseek-destination-write-failed';
 
+export class DeepSeekNavigationChangedError extends Error {
+  constructor() {
+    super('DeepSeek conversation changed during export. No data from the new page was used.');
+    this.name = 'DeepSeekNavigationChangedError';
+  }
+}
+
 export interface ArchiveCompanionPersistenceOutcome {
   activeOutputs: PersistentOutputDestination[];
   warnings: string[];
@@ -74,7 +82,8 @@ export interface DeepSeekAssetExportDependencies {
     outputs: OutputDestination[],
     artifactKinds: readonly ArchiveCompanionKind[],
     expectedSyncSettingsSnapshot?: string,
-    writeLedger?: import('../lib/operation-write-ledger').OperationWriteLedger
+    writeLedger?: import('../lib/operation-write-ledger').OperationWriteLedger,
+    isOperationCurrent?: () => boolean
   ) => Promise<ArchiveCompanionPersistenceOutcome>;
   deriveCandidates?: typeof deriveDeepSeekAssetCandidates;
   acquireAssets?: typeof acquireDeepSeekSignedAssets;
@@ -82,6 +91,8 @@ export interface DeepSeekAssetExportDependencies {
   buildDestinationCompanion?: typeof buildDeepSeekBinaryAwareArchiveCompanion;
   buildDestinationArchive?: typeof buildDeepSeekBinaryAwareDestinationArchive;
   buildFilePresentationEvidence?: typeof buildFinalizedFilePresentationEvidence;
+  /** Runtime-only page binding; checked between every asynchronous acquisition/write phase. */
+  isConversationCurrent?: () => boolean;
   /** Present only for an opt-in File HTML run; never authorizes another destination. */
   presentationContext?: StructuredPresentationContext;
 }
@@ -91,6 +102,31 @@ export interface DeepSeekAssetExportResult {
   completeDestinations: PersistentOutputDestination[];
   filePresentation?: FinalizedFilePresentationEvidence;
   warnings: string[];
+}
+
+async function abortOwnedStages(companions: readonly ArchiveCompanionBundle[]): Promise<void> {
+  const stageIds = new Set(
+    companions.flatMap(companion =>
+      companion.artifacts.flatMap(artifact =>
+        artifact.transport === 'staged' ? [artifact.stageId] : []
+      )
+    )
+  );
+  await Promise.all([...stageIds].map(stageId => abortStagedArchiveArtifact(stageId, 'deepseek')));
+}
+
+async function requireCurrentConversation(
+  dependencies: DeepSeekAssetExportDependencies,
+  ...ownedCompanions: ArchiveCompanionBundle[]
+): Promise<void> {
+  if (dependencies.isConversationCurrent && !dependencies.isConversationCurrent()) {
+    await abortOwnedStages(ownedCompanions);
+    throw new DeepSeekNavigationChangedError();
+  }
+}
+
+function rethrowNavigationChange(error: unknown): void {
+  if (error instanceof DeepSeekNavigationChangedError) throw error;
 }
 
 function cloneRecord(record: RawCaptureAssetRecord): RawCaptureAssetRecord {
@@ -442,7 +478,10 @@ export async function persistDeepSeekDestinationHonestAttachments(
   if (requested.length === 0) {
     return { rawSuccessfulDestinations: [], completeDestinations: [], warnings: [] };
   }
-  if (!(await validateDeepSeekAssetExportBinding(context, companion))) {
+  await requireCurrentConversation(dependencies, companion);
+  const bindingValid = await validateDeepSeekAssetExportBinding(context, companion);
+  await requireCurrentConversation(dependencies, companion);
+  if (!bindingValid) {
     return {
       rawSuccessfulDestinations: [],
       completeDestinations: [],
@@ -459,15 +498,18 @@ export async function persistDeepSeekDestinationHonestAttachments(
       requested,
       ['raw'],
       dependencies.expectedSyncSettingsSnapshot,
-      ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
+      dependencies.writeLedger,
+      dependencies.isConversationCurrent
     );
-  } catch {
+  } catch (error) {
+    rethrowNavigationChange(error);
     return {
       rawSuccessfulDestinations: [],
       completeDestinations: [],
       warnings: [DEEPSEEK_ASSET_RAW_PERSISTENCE_FAILED_WARNING],
     };
   }
+  await requireCurrentConversation(dependencies, companion);
   const rawSuccessfulDestinations = rawOutcome.activeOutputs;
   const warnings = [...rawOutcome.warnings];
   if (rawSuccessfulDestinations.length === 0) {
@@ -477,7 +519,8 @@ export async function persistDeepSeekDestinationHonestAttachments(
   let acquisition: DeepSeekAssetAcquisition;
   try {
     acquisition = await acquireAssets(context, dependencies);
-  } catch {
+  } catch (error) {
+    rethrowNavigationChange(error);
     acquisition = {
       records: context.rawCaptureBundle.manifest.assets.map(cloneRecord),
       runtimeAssets: [],
@@ -485,6 +528,7 @@ export async function persistDeepSeekDestinationHonestAttachments(
     };
     warnings.push(DEEPSEEK_ASSET_FETCH_FAILURE_WARNING);
   }
+  await requireCurrentConversation(dependencies, companion);
   if (acquisition.records.some(record => record.state === 'failed')) {
     warnings.push(DEEPSEEK_ASSET_FETCH_FAILURE_WARNING);
   }
@@ -499,14 +543,17 @@ export async function persistDeepSeekDestinationHonestAttachments(
       rawSuccessfulDestinations,
       dependencies
     );
-  } catch {
+  } catch (error) {
+    rethrowNavigationChange(error);
     // Destination finalization below converts every fetched claim to a failed write.
   }
+  await requireCurrentConversation(dependencies, companion);
   warnings.push(...stagedBinaryCleanupWarnings(binaryResults));
 
   const completeDestinations: PersistentOutputDestination[] = [];
   let filePresentation: FinalizedFilePresentationEvidence | undefined;
   for (const destination of rawSuccessfulDestinations) {
+    await requireCurrentConversation(dependencies, companion);
     const destinationState = destinationAssets(acquisition, binaryResults, destination);
     if (destinationState.binaryFailed) {
       warnings.push(
@@ -534,6 +581,7 @@ export async function persistDeepSeekDestinationHonestAttachments(
             destinationState.records,
             destinationState.runtimeAssets
           );
+      await requireCurrentConversation(dependencies, companion, destinationCompanion);
       const outcome = await dependencies.persistArtifacts(
         destinationCompanion,
         noteFileName,
@@ -541,8 +589,10 @@ export async function persistDeepSeekDestinationHonestAttachments(
         [destination],
         ['manifest', 'canonical'],
         dependencies.expectedSyncSettingsSnapshot,
-        ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
+        dependencies.writeLedger,
+        dependencies.isConversationCurrent
       );
+      await requireCurrentConversation(dependencies, companion, destinationCompanion);
       warnings.push(...outcome.warnings);
       const complete = outcome.activeOutputs.includes(destination);
       if (complete) completeDestinations.push(destination);
@@ -561,14 +611,18 @@ export async function persistDeepSeekDestinationHonestAttachments(
             destinationCompanion,
             destinationState.records.filter(record => record.state === 'fetched')
           );
-        } catch {
+          await requireCurrentConversation(dependencies, companion, destinationCompanion);
+        } catch (error) {
+          rethrowNavigationChange(error);
           // Archive completion remains authoritative; HTML receives no weaker evidence.
         }
       }
-    } catch {
+    } catch (error) {
+      rethrowNavigationChange(error);
       warnings.push(DEEPSEEK_ASSET_FINALIZATION_FAILED_WARNING);
     }
   }
+  await requireCurrentConversation(dependencies, companion);
   return {
     rawSuccessfulDestinations,
     completeDestinations,

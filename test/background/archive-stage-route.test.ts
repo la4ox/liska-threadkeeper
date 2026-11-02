@@ -129,4 +129,94 @@ describe('archive-stage service-worker route', () => {
     expect(returned).toBe(false);
     expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
   });
+
+  it('allows only DeepSeek cleanup after navigation leaves the exact conversation route', async () => {
+    const afterNavigation = {
+      tab: { url: 'https://chat.deepseek.com/' },
+      frameId: 0,
+      url: 'https://chat.deepseek.com/a/chat/s/chat-a',
+    } as chrome.runtime.MessageSender;
+    const abortMessage = {
+      action: 'abortStagedArchiveArtifact' as const,
+      source: 'deepseek' as const,
+      stageId,
+    };
+    const abortResponse = vi.fn();
+
+    expect(capturedListener(abortMessage, afterNavigation, abortResponse)).toBe(true);
+    await vi.waitFor(() => expect(abortResponse).toHaveBeenCalledWith({ success: true, stageId }));
+    expect(mocks.handleArchiveStageMessage).toHaveBeenCalledWith(abortMessage);
+
+    mocks.handleArchiveStageMessage.mockClear();
+    const commitResponse = vi.fn();
+    capturedListener(
+      {
+        action: 'commitStagedArchiveCompanion',
+        source: 'deepseek',
+        noteFileName: 'deepseek.md',
+        captureId: 'capture-deepseek-navigation',
+        conversationKey: 'a'.repeat(64),
+        artifact: {
+          transport: 'staged',
+          kind: 'raw',
+          stageId,
+          relativePath: ARCHIVE_STAGE_RELATIVE_PATHS.raw,
+          mediaType: 'application/json',
+          byteLength: 0,
+          sha256: 'a'.repeat(64),
+        },
+        outputs: ['file'],
+      },
+      afterNavigation,
+      commitResponse
+    );
+    expect(commitResponse).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
+    expect(mocks.handleArchiveStageMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'lookalike tab host',
+      {
+        tab: { url: 'https://chat.deepseek.com.attacker.example/' },
+        frameId: 0,
+        url: 'https://chat.deepseek.com/a/chat/s/chat-a',
+      },
+    ],
+    [
+      'explicit default port',
+      {
+        tab: { url: 'https://chat.deepseek.com:443/' },
+        frameId: 0,
+        url: 'https://chat.deepseek.com/a/chat/s/chat-a',
+      },
+    ],
+    [
+      'subframe',
+      {
+        tab: { url: 'https://chat.deepseek.com/' },
+        frameId: 1,
+        url: 'https://chat.deepseek.com/a/chat/s/chat-a',
+      },
+    ],
+    [
+      'foreign injection document',
+      {
+        tab: { url: 'https://chat.deepseek.com/' },
+        frameId: 0,
+        url: 'https://example.test/a/chat/s/chat-a',
+      },
+    ],
+  ])('rejects DeepSeek cleanup from a hostile %s', (_label, sender) => {
+    const response = vi.fn();
+    expect(
+      capturedListener(
+        { action: 'abortStagedArchiveArtifact', source: 'deepseek', stageId },
+        sender as chrome.runtime.MessageSender,
+        response
+      )
+    ).toBe(false);
+    expect(response).toHaveBeenCalledWith({ success: false, error: 'Unauthorized' });
+    expect(mocks.handleArchiveStageMessage).not.toHaveBeenCalled();
+  });
 });

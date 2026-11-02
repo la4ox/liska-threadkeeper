@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { DEFAULT_SYNC_SETTINGS } from '../../src/lib/settings-schema';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildCaptureManifest,
   inventoryDeepSeekRawAssets,
@@ -22,6 +22,7 @@ import {
   DEEPSEEK_ASSET_FETCH_FAILURE_WARNING,
   DEEPSEEK_ASSET_FINALIZATION_FAILED_WARNING,
   DEEPSEEK_ASSET_RAW_PERSISTENCE_FAILED_WARNING,
+  DeepSeekNavigationChangedError,
   persistDeepSeekDestinationHonestAttachments,
   validateDeepSeekAssetExportBinding,
   verifyDeepSeekAssetExportContext,
@@ -31,6 +32,7 @@ import type {
   ArchiveCompanionArtifact,
   ArchiveCompanionBundle,
   DeepSeekAssetExportContext,
+  StagedArchiveCompanionArtifact,
   StagedBinaryAssetResult,
   StructuredPresentationContext,
 } from '../../src/lib/types';
@@ -127,7 +129,179 @@ async function capture(options: { signedPath?: boolean } = {}): Promise<{
   };
 }
 
+function withStagedRaw(
+  captured: Awaited<ReturnType<typeof capture>>,
+  stageId = `archive-stage-${'R'.repeat(32)}`
+): Awaited<ReturnType<typeof capture>> {
+  const raw = captured.companion.artifacts.find(artifact => artifact.kind === 'raw');
+  if (!raw) throw new Error('missing synthetic raw artifact');
+  const staged: StagedArchiveCompanionArtifact = {
+    transport: 'staged',
+    stageId,
+    kind: 'raw',
+    relativePath: raw.relativePath,
+    mediaType: raw.mediaType,
+    byteLength: raw.byteLength,
+    sha256: raw.sha256,
+  };
+  return {
+    context: { ...captured.context, rawArtifact: staged },
+    companion: {
+      ...captured.companion,
+      artifacts: captured.companion.artifacts.map(artifact =>
+        artifact.kind === 'raw' ? staged : artifact
+      ),
+    },
+  };
+}
+
+function withStagedCanonical(
+  companion: ArchiveCompanionBundle,
+  stageId = `archive-stage-${'C'.repeat(32)}`
+): ArchiveCompanionBundle {
+  return {
+    ...companion,
+    artifacts: companion.artifacts.map(artifact => {
+      if (artifact.kind !== 'canonical') return artifact;
+      return {
+        transport: 'staged',
+        stageId,
+        kind: artifact.kind,
+        relativePath: artifact.relativePath,
+        mediaType: artifact.mediaType,
+        byteLength: artifact.byteLength,
+        sha256: artifact.sha256,
+      } satisfies StagedArchiveCompanionArtifact;
+    }),
+  };
+}
+
 describe('DeepSeek destination-honest asset export', () => {
+  beforeEach(() => {
+    vi.mocked(chrome.runtime.sendMessage).mockReset();
+    vi.mocked(chrome.runtime.sendMessage).mockImplementation((_message, callback) => {
+      if (typeof callback === 'function') callback({ success: true });
+      return Promise.resolve({ success: true });
+    });
+  });
+
+  it('aborts an owned staged raw when navigation happens during binding', async () => {
+    const captured = withStagedRaw(await capture());
+    const persistArtifacts = vi.fn();
+    let checks = 0;
+
+    await expect(
+      persistDeepSeekDestinationHonestAttachments(
+        captured.context,
+        captured.companion,
+        'synthetic.md',
+        ['file'],
+        {
+          persistArtifacts,
+          isConversationCurrent: () => ++checks === 1,
+        }
+      )
+    ).rejects.toBeInstanceOf(DeepSeekNavigationChangedError);
+
+    expect(persistArtifacts).not.toHaveBeenCalled();
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      {
+        action: 'abortStagedArchiveArtifact',
+        source: 'deepseek',
+        stageId:
+          captured.context.rawArtifact.transport === 'staged'
+            ? captured.context.rawArtifact.stageId
+            : '',
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('aborts a newly built staged canonical when navigation happens before finalization', async () => {
+    const captured = await capture();
+    const destinationCompanion = withStagedCanonical(captured.companion);
+    let current = true;
+    const persistArtifacts = vi.fn(async (_value, _name, _source, outputs) => ({
+      activeOutputs: [...outputs] as Array<'file' | 'obsidian'>,
+      warnings: [],
+    }));
+
+    await expect(
+      persistDeepSeekDestinationHonestAttachments(
+        captured.context,
+        captured.companion,
+        'synthetic.md',
+        ['file'],
+        {
+          persistArtifacts,
+          deriveCandidates: async () => [],
+          acquireAssets: async () => ({
+            records: captured.context.rawCaptureBundle.manifest.assets.map(record => ({
+              ...record,
+              sourceRefs: record.sourceRefs.map(sourceRef => ({ ...sourceRef })),
+            })),
+            runtimeAssets: [],
+            completeness: 'not-attempted',
+          }),
+          persistBinaryAssets: async () => [],
+          buildDestinationArchive: async () => {
+            current = false;
+            return { companion: destinationCompanion, archive: {} as LiskaThreadArchive };
+          },
+          isConversationCurrent: () => current,
+        }
+      )
+    ).rejects.toBeInstanceOf(DeepSeekNavigationChangedError);
+
+    expect(persistArtifacts).toHaveBeenCalledOnce();
+    const stagedCanonical = destinationCompanion.artifacts.find(
+      artifact => artifact.kind === 'canonical'
+    );
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      {
+        action: 'abortStagedArchiveArtifact',
+        source: 'deepseek',
+        stageId: stagedCanonical?.transport === 'staged' ? stagedCanonical.stageId : '',
+      },
+      expect.any(Function)
+    );
+  });
+
+  it('stops after page navigation during candidate derivation before mixed finalization', async () => {
+    const captured = await capture();
+    let current = true;
+    const persistArtifacts = vi.fn(async (_value, _name, _source, outputs) => ({
+      activeOutputs: [...outputs] as Array<'file' | 'obsidian'>,
+      warnings: [],
+    }));
+    const persistBinaryAssets = vi.fn();
+    const buildDestinationCompanion = vi.fn();
+
+    await expect(
+      persistDeepSeekDestinationHonestAttachments(
+        captured.context,
+        captured.companion,
+        'synthetic.md',
+        ['file'],
+        {
+          persistArtifacts,
+          deriveCandidates: async () => {
+            current = false;
+            return [];
+          },
+          persistBinaryAssets,
+          buildDestinationCompanion,
+          isConversationCurrent: () => current,
+        }
+      )
+    ).rejects.toBeInstanceOf(DeepSeekNavigationChangedError);
+
+    expect(persistArtifacts).toHaveBeenCalledOnce();
+    expect(persistArtifacts.mock.calls[0]?.[4]).toEqual(['raw']);
+    expect(persistBinaryAssets).not.toHaveBeenCalled();
+    expect(buildDestinationCompanion).not.toHaveBeenCalled();
+  });
+
   it('exposes finalized presentation evidence only after the File trio is confirmed', async () => {
     const captured = await capture();
     const finalCompanion = captured.companion;
