@@ -7,9 +7,10 @@ reconciled with source and verification evidence.
 ## Repository-scan reconciliation — 2026-11-03
 
 Current source baseline: `main` at
-`707fbaa34b3c5e29a4151968ed4922c2e8fd76b8` (PR 106). Repository workflow
+`acccd3b47af7b321aa5f9d105cb8e785f234ca5f` (PR 107). Repository workflow
 `wfr_2fb83850c5a62f2fe37cc2e9027a22fd468892181394444e89a66e64426dfc66`
-completed against that exact revision with partial coverage and three medium
+completed against its earlier exact revision
+`707fbaa34b3c5e29a4151968ed4922c2e8fd76b8` with partial coverage and three medium
 findings. A completed scan is evidence for those three occurrences, not proof
 that every repository surface was exhausted.
 
@@ -33,8 +34,8 @@ Current-main reconciliation of the older scan is source-backed as follows:
 
 The newer scan's three findings remain distinct:
 
-1. **Claude/DeepSeek aggregate provider work** — branch
-   `codex/provider-block-work-budget-v2` has a reviewed local candidate. Every
+1. **Claude/DeepSeek aggregate provider work** — PR 107 merged reviewed head
+   `dbab233` as `acccd3b`. Every
    public preflight, inventory and normalizer path now fails closed with a typed
    provider-content limit. Per-artifact bytes are capped at 32 MiB; each
    traversal admits at most 250,000 visited occurrences and 250,000 emitted
@@ -47,10 +48,18 @@ The newer scan's three findings remain distinct:
    services but does not cryptographically authenticate the process or remove
    the narrow inter-request race. Treat stronger pairing, certificate or native
    process identity as a separate product/trust-boundary decision.
-3. **Provider-controlled Obsidian code-block processors** — execution depends on
-   installed third-party render plugins such as Dataview. Research prevalence,
-   vault policy and safe reading/export representation separately; do not fold
-   a speculative plugin redesign into the provider-budget patch.
+3. **Provider-controlled Obsidian code-block processors** — branch
+   `codex/inert-reading-code-blocks` contains a default-on local candidate for
+   `occ_c2c12fb6b7545bfbdde03e63`. All File, Clipboard and Obsidian reading
+   Markdown wraps CommonMark language-tagged fences behind an unlabelled,
+   collision-safe literal fence. A separate physical-source invariant refuses
+   any remaining tagged-fence candidate outside a source-visible literal fence,
+   including Obsidian footnote/comment reinterpretations; ambiguous syntax
+   fails closed. Append neutralizes only the new tail and refuses a tagged old
+   prefix rather than rewriting it. Exact raw/manifest/canonical companions and
+   canonical-derived HTML remain unchanged. The setting is reversible and does
+   not claim to sandbox inline syntax, raw HTML, general postprocessors or
+   plugins that read files directly.
 
 The provider-budget candidate passes its 16-file, 685-test affected matrix,
 TypeScript/Vite/runtime build, formatting, lint with warning-only repository

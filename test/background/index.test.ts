@@ -57,6 +57,7 @@ const defaultSettings = {
   },
   enableImageExport: true,
   enableHtmlExport: false,
+  enableInertCodeBlocks: true,
   imageVaultPath: 'AI/{platform}/images',
   flattenLargeCallouts: true,
   maxCalloutLines: 200,
@@ -244,6 +245,7 @@ describe('background/index', () => {
       enableToolContent: false,
       enableImageExport: true,
       enableHtmlExport: false,
+      enableInertCodeBlocks: true,
       enableChatGptOpaqueProbe: false,
       enableChatGptOpaqueReplay: false,
       flattenLargeCallouts: true,
@@ -1960,6 +1962,127 @@ describe('background/index', () => {
       };
       expect(response.results).toHaveLength(3);
       expect(response.allSuccessful).toBe(true);
+    });
+
+    it('serializes one inert tagged-fence reading note identically to File, Clipboard, and fresh Obsidian', async () => {
+      const taggedNote: ObsidianNote = {
+        ...validNote,
+        body: '```dataviewjs\ndv.pages()\n```',
+      };
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveToOutputs',
+          data: taggedNote,
+          outputs: ['obsidian', 'file', 'clipboard'],
+        },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const obsidian = mockClient.putFile.mock.calls[0][1] as string;
+      const fileCall = vi
+        .mocked(chrome.downloads.download)
+        .mock.calls.find(([options]) => options.url?.startsWith('data:text/markdown'));
+      const encoded = fileCall?.[0].url?.split(',')[1];
+      if (!encoded) throw new Error('Expected Markdown data URL');
+      const file = new TextDecoder().decode(
+        Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+      );
+      const clipboardCall = vi
+        .mocked(chrome.runtime.sendMessage)
+        .mock.calls.find(
+          ([message]) => (message as { action?: string }).action === 'clipboardWrite'
+        );
+      const clipboard = (clipboardCall?.[0] as { content?: string }).content;
+
+      expect(file).toBe(obsidian);
+      expect(clipboard).toBe(obsidian);
+      expect(obsidian).toContain('~~~\n```dataviewjs\ndv.pages()\n```\n~~~');
+    });
+
+    it.each([
+      [
+        'Obsidian footnote deindentation',
+        ['a[^x]', '', '[^x]:', '    ```dataviewjs', '    dv.pages()', '    ```'].join('\n'),
+      ],
+      [
+        'Obsidian block-comment close remainder',
+        ['%%', 'ignored', '%%```dataviewjs', 'dv.pages()', '```'].join('\n'),
+      ],
+      [
+        'same-line Obsidian footnote body',
+        ['a[^x]', '', '[^x]: ```dataviewjs', '    dv.pages()', '    ```'].join('\n'),
+      ],
+      [
+        'Obsidian block-comment opener text',
+        ['%% ignored', 'more', '%%```dataviewjs', 'dv.pages()', '```'].join('\n'),
+      ],
+      [
+        'quoted Obsidian block-comment container',
+        ['> %%', '> ignored', '> %%```dataviewjs', '> dv.pages()', '> ```'].join('\n'),
+      ],
+      [
+        'footnote colon plus four spaces',
+        ['a[^x]', '', '[^x]:    ```dataviewjs', '    dv.pages()', '    ```'].join('\n'),
+      ],
+      [
+        'footnote colon plus tab',
+        ['a[^x]', '', '[^x]:\t```dataviewjs', '\tdv.pages()', '\t```'].join('\n'),
+      ],
+      [
+        'list-contained block comment',
+        ['- %% ignored', '  more', '  %%```dataviewjs', '  dv.pages()', '  ```'].join('\n'),
+      ],
+      [
+        'escaped-looking comment close',
+        ['%% ignored', 'more', '\\%%```dataviewjs', 'dv.pages()', '```'].join('\n'),
+      ],
+      [
+        'multiline-inline CommonMark footnote',
+        ['a[^x]', '', '[^x]: ```dataviewjs option', '    dv.pages()', '    ```'].join('\n'),
+      ],
+    ])('fails every fresh reading destination closed on %s', async (_label, body) => {
+      const sendResponse = vi.fn();
+      capturedListener(
+        {
+          action: 'saveToOutputs',
+          data: { ...validNote, body },
+          outputs: ['obsidian', 'file', 'clipboard'],
+        },
+        validSender as chrome.runtime.MessageSender,
+        sendResponse
+      );
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+      const response = sendResponse.mock.calls[0][0] as MultiOutputResponse;
+      expect(response.results).toEqual([
+        {
+          destination: 'obsidian',
+          success: false,
+          error: 'inert-code-block-finalization-failed',
+        },
+        {
+          destination: 'file',
+          success: false,
+          error: 'inert-code-block-finalization-failed',
+        },
+        {
+          destination: 'clipboard',
+          success: false,
+          error: 'inert-code-block-finalization-failed',
+        },
+      ]);
+      expect(mockClient.putFile).not.toHaveBeenCalled();
+      expect(chrome.downloads.download).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(chrome.runtime.sendMessage)
+          .mock.calls.some(
+            ([message]) => (message as { action?: string }).action === 'clipboardWrite'
+          )
+      ).toBe(false);
     });
 
     it('keeps File and clipboard outputs when a partial DOM overwrite is refused', async () => {

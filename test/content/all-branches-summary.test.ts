@@ -121,12 +121,13 @@ describe('all-branches user summary', () => {
         tags: [],
         message_count: 1,
       },
-      body: '> [!NOTE] Привет\n> мир\n\n![кот](g2o-image://asset)',
+      body: '> [!NOTE] Привет\n> мир\n\n![кот](g2o-image://asset)\n\n```dataviewjs\ndv.pages()\n```',
       contentHash: 'a'.repeat(64),
     } as ObsidianNote;
     const exactSettings = {
       flattenLargeCallouts: true,
       maxCalloutLines: 1,
+      enableInertCodeBlocks: true,
       templateOptions: {
         includeId: true,
         includeTitle: true,
@@ -167,6 +168,7 @@ describe('all-branches user summary', () => {
           ? stripImagePlaceholders(note.body)
           : flattenLargeCallouts(stripImagePlaceholders(note.body), 1);
       const expected = generateNoteContent({ ...note, body }, generationSettings);
+      expect(expected).toContain('~~~\n```dataviewjs\ndv.pages()\n```\n~~~');
       expect(await fingerprintAllBranchesNote(note, destination, exactSettings)).toEqual({
         byteLength: new TextEncoder().encode(expected).byteLength,
         sha256: createHash('sha256').update(expected).digest('hex'),

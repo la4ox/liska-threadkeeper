@@ -536,6 +536,12 @@
   "settings_htmlExportHelp": {
     "message": "構造化された ChatGPT / DeepSeek のファイル保存時に、Markdown と併せてオフラインで読める HTML ファイルを追加します。PDF・Obsidian・クリップボードには適用されません。"
   },
+  "settings_enableInertCodeBlocks": {
+    "message": "タグ付きコードブロックをリテラルなソースとして表示"
+  },
+  "settings_inertCodeBlocksHelp": {
+    "message": "出力されたファイル、クリップボード、Obsidian の閲覧用ノートでは、言語タグ付き Markdown フェンスをすべてプレーンなリテラルソースとして表示し、元のフェンス、情報文字列、内容、閉じフェンスを見える状態にします。曖昧なフェンス状の構文は保存せず拒否します。構文強調と特殊レンダリングは無効になります。raw/canonical アーカイブと canonical 由来の HTML は変更しません。追記時は既存のタグ付きブロックがあるノートを拒否します。インライン構文、raw HTML、一般的なポストプロセッサ、ファイルを読むプラグインから保護する機能ではありません。"
+  },
   "settings_imageVaultPath": {
     "message": "画像フォルダ"
   },

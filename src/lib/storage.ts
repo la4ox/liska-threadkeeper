@@ -32,6 +32,7 @@ const SYNC_PASS_THROUGH_KEYS = [
   'enableToolContent',
   'enableImageExport',
   'enableHtmlExport',
+  'enableInertCodeBlocks',
   'enableChatGptOpaqueProbe',
   'enableChatGptOpaqueReplay',
   'flattenLargeCallouts',

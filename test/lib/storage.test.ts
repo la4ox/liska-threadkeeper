@@ -284,6 +284,13 @@ describe('storage', () => {
     });
   });
 
+  it('persists the non-sensitive inert tagged-code switch via saveSettings', async () => {
+    await saveSettings({ enableInertCodeBlocks: false });
+    expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ enableInertCodeBlocks: false }),
+    });
+  });
+
   describe('saveSettings', () => {
     it('saves API key to local storage', async () => {
       await saveSettings({ obsidianApiKey: 'new-api-key' });

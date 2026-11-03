@@ -347,4 +347,85 @@ describe('generateNoteContent', () => {
     expect(content).toContain('  - "? topic"');
     expect(content).toContain('  - ",topic"');
   });
+
+  it('neutralizes tagged code only in the serialized reading body without mutating inputs', () => {
+    const tagged = createTestNote({ body: '```dataviewjs\ndv.pages()\n```' });
+    const before = structuredClone(tagged);
+    const settings = { ...createTestSettings(), enableInertCodeBlocks: true };
+
+    const content = generateNoteContent(tagged, settings);
+
+    expect(tagged).toEqual(before);
+    expect(content).toContain('```dataviewjs\ndv.pages()\n```');
+    expect(content).toContain('\n~~~\n```dataviewjs\ndv.pages()\n```\n~~~');
+  });
+
+  it('preserves legacy tagged-fence serialization when the setting is explicitly false', () => {
+    const tagged = createTestNote({ body: '```custom\nvalue\n```' });
+    const content = generateNoteContent(tagged, {
+      ...createTestSettings(),
+      enableInertCodeBlocks: false,
+    });
+
+    expect(content).toContain('\n```custom\nvalue\n```');
+  });
+
+  it.each([
+    [
+      'Obsidian footnote deindentation',
+      ['a[^x]', '', '[^x]:', '    ```dataviewjs', '    dv.pages()', '    ```'].join('\n'),
+    ],
+    [
+      'Obsidian block-comment close remainder',
+      ['%%', 'ignored', '%%```dataviewjs', 'dv.pages()', '```'].join('\n'),
+    ],
+    [
+      'same-line Obsidian footnote body',
+      ['a[^x]', '', '[^x]: ```dataviewjs', '    dv.pages()', '    ```'].join('\n'),
+    ],
+    [
+      'Obsidian block-comment opener text',
+      ['%% ignored', 'more', '%%```dataviewjs', 'dv.pages()', '```'].join('\n'),
+    ],
+    [
+      'quoted Obsidian block-comment container',
+      ['> %%', '> ignored', '> %%```dataviewjs', '> dv.pages()', '> ```'].join('\n'),
+    ],
+    [
+      'footnote colon plus four spaces',
+      ['a[^x]', '', '[^x]:    ```dataviewjs', '    dv.pages()', '    ```'].join('\n'),
+    ],
+    [
+      'footnote colon plus tab',
+      ['a[^x]', '', '[^x]:\t```dataviewjs', '\tdv.pages()', '\t```'].join('\n'),
+    ],
+    [
+      'list-contained block comment',
+      ['- %% ignored', '  more', '  %%```dataviewjs', '  dv.pages()', '  ```'].join('\n'),
+    ],
+    [
+      'escaped-looking comment close',
+      ['%% ignored', 'more', '\\%%```dataviewjs', 'dv.pages()', '```'].join('\n'),
+    ],
+    [
+      'multiline-inline CommonMark footnote',
+      ['a[^x]', '', '[^x]: ```dataviewjs option', '    dv.pages()', '    ```'].join('\n'),
+    ],
+  ])('fails closed on %s without mutating the note', (_label, body) => {
+    const note = createTestNote({ body });
+    const before = structuredClone(note);
+    expect(() =>
+      generateNoteContent(note, { ...createTestSettings(), enableInertCodeBlocks: true })
+    ).toThrow('inert-code-block-finalization-failed');
+    expect(note).toEqual(before);
+  });
+
+  it('preserves Obsidian dialect source when inert tagged blocks are explicitly disabled', () => {
+    const body = ['%%', 'ignored', '%%```dataviewjs', 'dv.pages()', '```'].join('\n');
+    const content = generateNoteContent(createTestNote({ body }), {
+      ...createTestSettings(),
+      enableInertCodeBlocks: false,
+    });
+    expect(content).toContain(body);
+  });
 });

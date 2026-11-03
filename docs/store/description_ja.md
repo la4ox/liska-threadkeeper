@@ -11,6 +11,7 @@ Liska は Google Gemini（gemini.google.com）、Claude AI（claude.ai）、Chat
 ✨ 主な機能
 • Gemini、Claude、ChatGPT、Perplexity、DeepSeek、Gemini Notebook の会話を拡張機能の Export 画面からエクスポート
 • YAML フロントマター付きの整形された Markdown
+• ファイル、クリップボード、Obsidian の閲覧用ノートで言語タグ付きコードブロックを既定でリテラル表示。正確な raw／canonical archive は変更しません
 • Q&A ブロックに Obsidian コールアウト構文（正しい AI 名を表示）
 • Deep Research（Gemini、Perplexity）と Extended Thinking / Artifacts（Claude）に対応
 • ソース引用 - Gemini Notebook のチャット引用を footnote 形式でエクスポート

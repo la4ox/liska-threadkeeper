@@ -107,6 +107,7 @@ function queryElements() {
     enableToolContent: getElement<HTMLInputElement>('enableToolContent'),
     enableImageExport: getElement<HTMLInputElement>('enableImageExport'),
     enableHtmlExport: getElement<HTMLInputElement>('enableHtmlExport'),
+    enableInertCodeBlocks: getElement<HTMLInputElement>('enableInertCodeBlocks'),
     htmlExportRow: getElement<HTMLElement>('htmlExportRow'),
     enableChatGptOpaqueProbe: getElement<HTMLInputElement>('enableChatGptOpaqueProbe'),
     enableChatGptOpaqueReplay: getElement<HTMLInputElement>('enableChatGptOpaqueReplay'),
@@ -179,6 +180,7 @@ function populateForm(settings: ExtensionSettings): void {
   elements.enableToolContent.checked = settings.enableToolContent ?? false;
   elements.enableImageExport.checked = settings.enableImageExport ?? true;
   elements.enableHtmlExport.checked = settings.enableHtmlExport ?? false;
+  elements.enableInertCodeBlocks.checked = settings.enableInertCodeBlocks ?? true;
   updateHtmlExportAvailability();
   const enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe === true;
   elements.enableChatGptOpaqueProbe.checked = enableChatGptOpaqueProbe;
@@ -502,6 +504,7 @@ function collectSettings(): ExtensionSettings {
     enableToolContent: elements.enableToolContent.checked,
     enableImageExport: elements.enableImageExport.checked,
     enableHtmlExport: elements.enableHtmlExport.checked,
+    enableInertCodeBlocks: elements.enableInertCodeBlocks.checked,
     enableChatGptOpaqueProbe: elements.enableChatGptOpaqueProbe.checked,
     enableChatGptOpaqueReplay: elements.enableChatGptOpaqueReplay.checked,
     imageVaultPath: elements.imageVaultPath.value.trim() || 'AI/{platform}/images',

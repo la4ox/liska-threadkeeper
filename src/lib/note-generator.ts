@@ -7,6 +7,7 @@
 
 import { escapeYamlValue } from './yaml-utils';
 import { LISKA_LOSS_DIAGNOSTICS_SCHEMA, normalizeLiskaLossDiagnostics } from './loss-diagnostics';
+import { makeTaggedCodeBlocksInert } from './inert-code-blocks';
 import type { ObsidianNote, ExtensionSettings, NoteFrontmatter } from './types';
 
 /** Evidence fields are always emitted, independent from optional note fields. */
@@ -90,7 +91,7 @@ export function generateNoteContent(note: ObsidianNote, settings: ExtensionSetti
   lines.push('');
 
   // Add body
-  lines.push(note.body);
+  lines.push(settings.enableInertCodeBlocks ? makeTaggedCodeBlocksInert(note.body) : note.body);
 
   return lines.join('\n');
 }

@@ -14,6 +14,7 @@ Liska は、AI との会話を読みやすい Markdown としてローカルに�
 - **ローカル出力:** Markdown ダウンロード、クリップボード、Obsidian に対応。解析、テレメトリ、Liska 独自のサーバーはありません。
 - **長い会話:** 最大 32 MiB（UTF-8）のテキストノートを処理し、他の対応サイトでは仮想化された会話を制限付き自動スクロールで収集します。
 - **整理された記録:** YAML フロントマター、引用、数式、コールアウト、Thinking／ツール内容、質問見出し、衝突しないファイル名。
+- **タグ付きコードを既定で無害化:** ファイル、クリップボード、Obsidian の閲覧用 Markdown では、言語タグ付き fenced block を元の fence・info string・内容が見えるリテラルソースとして表示します。言語別 code-block processor への dispatch を防ぎ、raw／canonical archive と canonical HTML は正確なままです。この解除可能な設定は、プラグイン、inline 構文、raw HTML、一般的な postprocessor 全体を sandbox 化するものではありません。
 - **添付画像（オプション）:** 対応している生成画像を Markdown と同じ場所に保存できます。
 - **意図した操作だけ:** ページのスクリプトによる自動クリックでは書き出せず、実際のユーザー操作が必要です。
 
@@ -71,6 +72,7 @@ API キーは `chrome.storage.local` にのみ保存され、対応 AI ページ
 - DeepSeek の構造化書き出しは、永続的な Markdown 出力の横に raw／manifest／canonical companion を保存します。テキスト、Markdown、現在の分岐、任意の Thinking に対応します。**画像と添付ファイルをエクスポート**を有効にし、出力先に File または Obsidian を選ぶと、Liska は検証済み履歴内の現在の正確な `signed_path`、または最新の上限付き ResourceTiming tail にページが記録した file-service fetch のうち現在の raw file ID に一意に対応するものから、最大 20 件の passive file を取得できます。履歴内の情報を優先します。Liska は file card をクリックせず、`fetch_files` も呼び出しません。preview がない場合は未解決として正確に残します。raw を最初に保存し、書き込みは出力先ごとに管理され、provider ID と signed URL は manifest／canonical に残りません。
 - ChatGPT の構造化アーカイブは、添付ファイルの参照とメタデータを常に保持します。**画像と添付ファイルをエクスポート**を有効にすると、raw アーカイブの保存後に、通常チャットの image/file-ID asset と interpreter/sandbox document のうち対応するものを上限付きで取得できます。各 asset は `fetched`、`not-attempted`、または失敗として正確に記録されます。custom-GPT、Library-ID、Calpico fallback はまだ対応していません。
 - 16 MiB 以下の ChatGPT graph response は検証済みの inline path を使用します。16 MiB を超え 64 MiB 以下の response は extension-owned staging を使って分割転送されます。この staged path は synthetic live test 済みですが、16 MiB を超える実際の provider response はまだ明示的な検証課題です。
+- **タグ付きコードブロックをリテラルソースとして表示**は、すべての閲覧用 Markdown 出力で既定で有効です。通常のタグ付き block は言語タグのない衝突回避 fence の内側に置かれ、曖昧な fence 風構文は active なまま保存せず書き出しを拒否します。追記では既存ノートを書き換えず、古い本文にタグ付きまたは曖昧な fence 候補がある場合は拒否します。信頼済み内容で syntax highlighting や plugin rendering を意図する場合だけ無効にしてください。
 - 画像の書き出しは 20 枚まで、1 枚あたり 10 MiB、1 ノートあたり base64 データ合計 48 MiB に制限されます。
 - 追記モードは、boundary 検証済みの新しい message tail だけを追加します。画像エクスポートが有効で Local REST API 5.5.0 以降の場合、その新しい tail にある standalone の active placeholder だけを、full SHA の content-addressed／create-only asset として Obsidian に保存し、note を変更する前に exact readback で検証します。過去メッセージの画像は backfill しません。必要な画像が欠落、曖昧、衝突、または未検証なら、壊れた link を書かず note append 全体を拒否します。画像エクスポート無効時は従来どおり text-only で placeholder を除去します。note PUT 前の失敗では再試行用の content-addressed asset が未参照のまま残る場合があります。不確実な PUT の後は既に参照済みの可能性があり、exact readback が最終 body を証明しない限り note は outcome-unknown のままです。Liska は retained asset を自動削除せず、外部 writer に対する compare-and-swap 安全性も主張しません。
 - DOM ベースの自動スクロールは最大 5 分です。

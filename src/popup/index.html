@@ -270,6 +270,33 @@
                   </span>
                 </label>
                 <label class="toggle-row">
+                  <span class="toggle-icon">🧾</span>
+                  <span class="toggle-label">
+                    <span data-i18n="settings_enableInertCodeBlocks"
+                      >Show tagged code blocks as literal source</span
+                    >
+                    <span class="toggle-sublabel" data-i18n="settings_inertCodeBlocksHelp">
+                      In emitted File, Clipboard, and Obsidian reading notes, every language-tagged
+                      Markdown fence is shown as plain literal source with its original fence, info
+                      string, content, and closing fence visible. Ambiguous fence-like syntax is
+                      refused instead of saved. This disables syntax highlighting and special
+                      rendering. Raw/canonical archives and canonical HTML stay unchanged. Append
+                      refuses a pre-existing tagged block. This does not protect inline syntax, raw
+                      HTML, general postprocessors, or plugins that read files.
+                    </span>
+                  </span>
+                  <span class="toggle-switch">
+                    <input
+                      type="checkbox"
+                      id="enableInertCodeBlocks"
+                      role="switch"
+                      aria-checked="true"
+                      checked
+                    />
+                    <span class="slider" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <label class="toggle-row">
                   <span class="toggle-icon">🧪</span>
                   <span class="toggle-label">
                     <span data-i18n="settings_enableChatGptOpaqueProbe"

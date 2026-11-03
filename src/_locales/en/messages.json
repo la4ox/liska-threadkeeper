@@ -631,6 +631,14 @@
     "message": "Add an offline HTML companion alongside Markdown for structured ChatGPT and DeepSeek File snapshots only. Not PDF, Obsidian, or Clipboard.",
     "description": "Explains the scope and destinations of the optional canonical HTML output"
   },
+  "settings_enableInertCodeBlocks": {
+    "message": "Show tagged code blocks as literal source",
+    "description": "Label for the default-on reading Markdown tagged-fence neutralization"
+  },
+  "settings_inertCodeBlocksHelp": {
+    "message": "In emitted File, Clipboard, and Obsidian reading notes, every language-tagged Markdown fence is shown as plain literal source with its original fence, info string, content, and closing fence visible. Ambiguous fence-like syntax is refused instead of saved. This disables syntax highlighting and special rendering. Raw/canonical archives and canonical HTML stay unchanged. Append refuses a pre-existing tagged block. This does not protect inline syntax, raw HTML, general postprocessors, or plugins that read files.",
+    "description": "Explains the exact scope and limits of inert language-tagged code blocks"
+  },
   "settings_imageVaultPath": {
     "message": "Image Folder",
     "description": "Label for image vault folder input"

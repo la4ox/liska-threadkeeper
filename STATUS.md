@@ -1,8 +1,43 @@
 # Project status
 
-## Claude/DeepSeek aggregate provider budget — reviewed local candidate
+## Inert language-tagged reading blocks — reviewed local candidate
 
-Branch `codex/provider-block-work-budget-v2` addresses the current-main
+Branch `codex/inert-reading-code-blocks` addresses Security Cloud occurrence
+`occ_c2c12fb6b7545bfbdde03e63` without pretending to sandbox Obsidian plugins.
+The new synced `enableInertCodeBlocks` option is default-on and applies at the
+shared final reading-Markdown boundary for File, Clipboard, fresh Obsidian and
+all-branches measurement; exact raw/manifest/canonical companions and
+canonical-derived HTML bypass it unchanged.
+
+Actual CommonMark tagged fences are wrapped as visibly preserved source behind
+one unlabelled collision-safe outer fence. A bounded physical-source invariant
+then refuses any remaining run of three or more backticks/tildes with a
+non-empty same-line suffix unless it is already inside a source-visible fenced
+code node. This closes Obsidian reinterpretations through footnotes, block
+comments, list/quote containers and multiline-inline ambiguity without copying
+the proprietary parser or maintaining a language denylist. Candidate-free
+notes return byte-identically before parser admission, preserving full 32 MiB
+reading output compatibility.
+
+Append never rewrites the old body: it neutralizes only the new tail, recomputes
+trusted marker ranges and refuses a tagged/ambiguous old prefix or diagnostics
+update. Explicit opt-out preserves legacy syntax highlighting and intended
+plugin rendering. The fixed failure is
+`inert-code-block-finalization-failed`; it never falls back to active Markdown.
+
+The implementation's focused matrix passes 15 files / 672 tests; the parent's
+final high-signal matrix passes 6 files / 353 tests, including the full-size
+candidate-free persistence case. TypeScript/production build, lint with zero
+errors, formatting and diff checks pass. Independent review found successive
+Obsidian-dialect bypasses and drove the final parser-independent physical
+invariant; the last reviewer recheck was blocked by the external model's policy,
+so exact mechanical verification was completed locally. No live vault write or
+third-party processor execution was performed. The source claim is deliberately
+limited to language-specific fenced-code dispatch.
+
+## Claude/DeepSeek aggregate provider budget — merged
+
+PR 107 merged reviewed head `dbab233` as `acccd3b` and addresses the current-main
 Security Cloud finding that Claude and DeepSeek could repeatedly traverse
 provider-controlled block, attachment and metadata collections without one
 aggregate work boundary. The candidate adds a shared typed
