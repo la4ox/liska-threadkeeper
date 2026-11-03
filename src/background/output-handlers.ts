@@ -28,6 +28,13 @@ import {
   type DerivedOutputIdentity,
 } from '../lib/derived-presentation-contract';
 import {
+  buildDerivedTextOutputReceipt,
+  buildDerivedTextOutputReceiptBytes,
+  DERIVED_TEXT_RECEIPT_RELATIVE_PATH,
+  verifyDerivedTextArtifact,
+  type DerivedTextArtifact,
+} from '../lib/derived-text-presentation-contract';
+import {
   buildDerivedBranchOutputReceipt,
   buildDerivedBranchOutputReceiptBytes,
   deriveBranchHtmlReceiptRelativePath,
@@ -649,7 +656,7 @@ export function downloadArchiveBlob(
 interface InlineDownloadArtifact {
   transport: 'inline';
   bodyBase64: string;
-  mediaType: 'application/json' | 'text/html';
+  mediaType: 'application/json' | 'text/html' | 'text/plain';
 }
 
 function archiveCompanionDownloadPath(
@@ -824,6 +831,87 @@ export async function handlePersistDerivedHtmlPresentation(
         ...(!receipt.success && {
           error: 'derived-html-receipt-unconfirmed',
           warning: 'HTML may exist without a confirmed receipt; no retry was attempted.',
+        }),
+        ...(receipt.success && cleanupDeferred && { warning: 'archive-stage-cleanup-deferred' }),
+      },
+      'confirmed',
+      true,
+      cleanupDeferred
+    )
+  );
+}
+
+function derivedTextResponse(result: OutputResult): MultiOutputResponse {
+  return { results: [result], allSuccessful: result.success, anySuccessful: result.success };
+}
+
+function derivedTextFailure(error: string): MultiOutputResponse {
+  return derivedTextResponse(
+    withDurableWriteOutcome({ destination: 'file', success: false, error }, 'not-dispatched', true)
+  );
+}
+
+async function persistDerivedTextReceipt(
+  message: Extract<ExtensionMessage, { action: 'persistDerivedTextPresentation' }>,
+  artifact: DerivedTextArtifact,
+  prefix: string
+): Promise<OutputResult> {
+  try {
+    const bytes = buildDerivedTextOutputReceiptBytes(
+      buildDerivedTextOutputReceipt(
+        {
+          source: message.source,
+          captureId: message.captureId,
+          conversationKey: message.conversationKey,
+        },
+        artifact
+      )
+    );
+    const bodyBase64 = bytesToBase64(bytes);
+    const sha256 = await sha256Hex(bytes);
+    const decoded = decodeCanonicalBase64(bodyBase64);
+    if (
+      !decoded ||
+      decoded.byteLength !== bytes.byteLength ||
+      (await sha256Hex(decoded)) !== sha256
+    )
+      throw new Error();
+    return await handleVerifiedInlineDownload(
+      { transport: 'inline', bodyBase64, mediaType: 'application/json' },
+      `${prefix}${DERIVED_TEXT_RECEIPT_RELATIVE_PATH}`,
+      true
+    );
+  } catch {
+    return { destination: 'file', success: false };
+  }
+}
+
+/** Only an exact terminal .txt write authorizes its deterministic provenance receipt. */
+export async function handlePersistDerivedTextPresentation(
+  message: Extract<ExtensionMessage, { action: 'persistDerivedTextPresentation' }>
+): Promise<MultiOutputResponse> {
+  const verified = await verifyDerivedTextArtifact(message.artifact, sha256Hex);
+  if (!verified) return derivedTextFailure('derived-text-integrity-verification-failed');
+  const prefix = `_liska-archive/${message.conversationKey}/${message.captureId}/`;
+  const text = await handleVerifiedInlineDownload(
+    verified.artifact,
+    `${prefix}${verified.artifact.relativePath}`,
+    true
+  );
+  if (!text.success)
+    return derivedTextResponse({ ...text, error: 'derived-text-download-unconfirmed' });
+  const receipt = await persistDerivedTextReceipt(message, verified.artifact, prefix);
+  const cleanupDeferred =
+    durableWriteOutcomeFromResult(text)?.cleanupDeferred === true ||
+    durableWriteOutcomeFromResult(receipt)?.cleanupDeferred === true;
+  return derivedTextResponse(
+    withDurableWriteOutcome(
+      {
+        destination: 'file',
+        success: receipt.success,
+        ...(!receipt.success && {
+          error: 'derived-text-receipt-unconfirmed',
+          warning: 'Plain text may exist without a confirmed receipt; no retry was attempted.',
         }),
         ...(receipt.success && cleanupDeferred && { warning: 'archive-stage-cleanup-deferred' }),
       },

@@ -107,8 +107,10 @@ function queryElements() {
     enableToolContent: getElement<HTMLInputElement>('enableToolContent'),
     enableImageExport: getElement<HTMLInputElement>('enableImageExport'),
     enableHtmlExport: getElement<HTMLInputElement>('enableHtmlExport'),
+    enableTextExport: getElement<HTMLInputElement>('enableTextExport'),
     enableInertCodeBlocks: getElement<HTMLInputElement>('enableInertCodeBlocks'),
     htmlExportRow: getElement<HTMLElement>('htmlExportRow'),
+    textExportRow: getElement<HTMLElement>('textExportRow'),
     enableChatGptOpaqueProbe: getElement<HTMLInputElement>('enableChatGptOpaqueProbe'),
     enableChatGptOpaqueReplay: getElement<HTMLInputElement>('enableChatGptOpaqueReplay'),
     imageVaultPath: getElement<HTMLInputElement>('imageVaultPath'),
@@ -180,8 +182,9 @@ function populateForm(settings: ExtensionSettings): void {
   elements.enableToolContent.checked = settings.enableToolContent ?? false;
   elements.enableImageExport.checked = settings.enableImageExport ?? true;
   elements.enableHtmlExport.checked = settings.enableHtmlExport ?? false;
+  elements.enableTextExport.checked = settings.enableTextExport === true;
   elements.enableInertCodeBlocks.checked = settings.enableInertCodeBlocks ?? true;
-  updateHtmlExportAvailability();
+  updateDerivedExportAvailability();
   const enableChatGptOpaqueProbe = settings.enableChatGptOpaqueProbe === true;
   elements.enableChatGptOpaqueProbe.checked = enableChatGptOpaqueProbe;
   elements.enableChatGptOpaqueReplay.checked = isOpaqueReplaySettingActive(settings);
@@ -237,13 +240,18 @@ function updateObsidianSettingsVisibility(): void {
   }
 }
 
-/** Keep the HTML companion switch available only when file output is selected. */
-function updateHtmlExportAvailability(): void {
+/** Keep canonical-derived companion switches available only for File output. */
+function updateDerivedExportAvailability(): void {
   const disabled = !elements.outputFile.checked;
-  elements.enableHtmlExport.disabled = disabled;
-  elements.enableHtmlExport.setAttribute('aria-disabled', String(disabled));
-  elements.htmlExportRow.style.opacity = disabled ? '0.5' : '';
-  elements.htmlExportRow.style.cursor = disabled ? 'not-allowed' : '';
+  for (const [toggle, row] of [
+    [elements.enableHtmlExport, elements.htmlExportRow],
+    [elements.enableTextExport, elements.textExportRow],
+  ] as const) {
+    toggle.disabled = disabled;
+    toggle.setAttribute('aria-disabled', String(disabled));
+    row.style.opacity = disabled ? '0.5' : '';
+    row.style.cursor = disabled ? 'not-allowed' : '';
+  }
 }
 
 /**
@@ -268,7 +276,7 @@ function setupEventListeners(): void {
     queueOutputOptionsSave();
   });
   elements.outputFile.addEventListener('change', () => {
-    updateHtmlExportAvailability();
+    updateDerivedExportAvailability();
     queueOutputOptionsSave();
   });
   elements.outputClipboard.addEventListener('change', queueOutputOptionsSave);
@@ -504,6 +512,7 @@ function collectSettings(): ExtensionSettings {
     enableToolContent: elements.enableToolContent.checked,
     enableImageExport: elements.enableImageExport.checked,
     enableHtmlExport: elements.enableHtmlExport.checked,
+    enableTextExport: elements.enableTextExport.checked,
     enableInertCodeBlocks: elements.enableInertCodeBlocks.checked,
     enableChatGptOpaqueProbe: elements.enableChatGptOpaqueProbe.checked,
     enableChatGptOpaqueReplay: elements.enableChatGptOpaqueReplay.checked,

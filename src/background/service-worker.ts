@@ -28,6 +28,7 @@ import {
   handleMultiOutput,
   handlePersistArchiveCompanion,
   handlePersistDerivedHtmlPresentation,
+  handlePersistDerivedTextPresentation,
   handlePersistDerivedBranchHtmlPresentation,
 } from './output-handlers';
 import { handleStagedBinaryAssetMessage } from './binary-asset-handlers';
@@ -127,6 +128,7 @@ type DurableOutputMessage = Extract<
       | 'saveToOutputs'
       | 'persistArchiveCompanion'
       | 'persistDerivedHtmlPresentation'
+      | 'persistDerivedTextPresentation'
       | 'commitStagedArchiveCompanion'
       | 'commitStagedBinaryAsset';
   }
@@ -576,6 +578,7 @@ function isAuthorizedArchiveCompanionRequest(
   }
   if (
     message.action !== 'persistDerivedHtmlPresentation' &&
+    message.action !== 'persistDerivedTextPresentation' &&
     message.action !== 'persistDerivedBranchHtmlPresentation'
   )
     return true;
@@ -1043,7 +1046,8 @@ async function handleMessage(
       message.outputs.some(destination => !settings.outputOptions[destination]) ||
       ((message.action === 'persistDerivedHtmlPresentation' ||
         message.action === 'persistDerivedBranchHtmlPresentation') &&
-        settings.enableHtmlExport !== true))
+        settings.enableHtmlExport !== true) ||
+      (message.action === 'persistDerivedTextPresentation' && settings.enableTextExport !== true))
   ) {
     // Admission only: do not dispatch outputs, adopt new settings, or retry
     // without the guard. A relinquished stage still needs its exact abort.
@@ -1083,6 +1087,9 @@ async function handleMessage(
 
     case 'persistDerivedHtmlPresentation':
       return handlePersistDerivedHtmlPresentation(message);
+
+    case 'persistDerivedTextPresentation':
+      return handlePersistDerivedTextPresentation(message);
 
     case 'persistDerivedBranchHtmlPresentation':
       if (!branchHtmlAdmitted) return { success: false, error: 'Invalid message content' };

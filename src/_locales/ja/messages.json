@@ -536,6 +536,12 @@
   "settings_htmlExportHelp": {
     "message": "構造化された ChatGPT / DeepSeek のファイル保存時に、Markdown と併せてオフラインで読める HTML ファイルを追加します。PDF・Obsidian・クリップボードには適用されません。"
   },
+  "settings_enableTextExport": {
+    "message": "Canonical プレーンテキスト閲覧ビュー"
+  },
+  "settings_textExportHelp": {
+    "message": "構造化された ChatGPT / DeepSeek の現在または選択した単一ブランチをファイル保存するとき、canonical から派生した置換可能な .txt ファイルを追加します。全ブランチ・Obsidian・クリップボードには適用されません。"
+  },
   "settings_enableInertCodeBlocks": {
     "message": "タグ付きコードブロックをリテラルなソースとして表示"
   },

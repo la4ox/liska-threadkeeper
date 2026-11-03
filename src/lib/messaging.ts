@@ -37,6 +37,7 @@ interface MessageResponseMap {
   saveToOutputs: MultiOutputResponse;
   persistArchiveCompanion: MultiOutputResponse;
   persistDerivedHtmlPresentation: MultiOutputResponse;
+  persistDerivedTextPresentation: MultiOutputResponse;
   beginStagedArchiveArtifact: ArchiveStageResponse;
   appendStagedArchiveArtifact: ArchiveStageResponse;
   sealStagedArchiveArtifact: ArchiveStageResponse;

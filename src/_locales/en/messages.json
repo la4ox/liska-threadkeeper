@@ -631,6 +631,14 @@
     "message": "Add an offline HTML companion alongside Markdown for structured ChatGPT and DeepSeek File snapshots only. Not PDF, Obsidian, or Clipboard.",
     "description": "Explains the scope and destinations of the optional canonical HTML output"
   },
+  "settings_enableTextExport": {
+    "message": "Canonical plain-text reading view",
+    "description": "Label for the optional canonical-derived plain-text file"
+  },
+  "settings_textExportHelp": {
+    "message": "Add a replaceable canonical-derived .txt companion for current or selected structured ChatGPT and DeepSeek File snapshots only. Not all branches, Obsidian, or Clipboard.",
+    "description": "Explains the scope and destinations of the optional plain-text output"
+  },
   "settings_enableInertCodeBlocks": {
     "message": "Show tagged code blocks as literal source",
     "description": "Label for the default-on reading Markdown tagged-fence neutralization"

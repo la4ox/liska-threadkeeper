@@ -228,6 +228,7 @@ export const VALID_MESSAGE_ACTIONS = [
   'updateOutputOptions',
   'persistArchiveCompanion',
   'persistDerivedHtmlPresentation',
+  'persistDerivedTextPresentation',
   'persistDerivedBranchHtmlPresentation',
   'beginStagedArchiveArtifact',
   'appendStagedArchiveArtifact',

@@ -46,6 +46,12 @@ describe('normalizeSyncSettings', () => {
     expect(normalizeSyncSettings({ enableHtmlExport: 'yes' }).enableHtmlExport).toBe(false);
   });
 
+  it('keeps canonical plain-text delivery opt-in and preserves only an explicit boolean', () => {
+    expect(DEFAULT_SYNC_SETTINGS.enableTextExport).toBe(false);
+    expect(normalizeSyncSettings({ enableTextExport: true }).enableTextExport).toBe(true);
+    expect(normalizeSyncSettings({ enableTextExport: 'yes' }).enableTextExport).toBe(false);
+  });
+
   it('defaults tagged code blocks to inert unless an explicit boolean false is stored', () => {
     expect(DEFAULT_SYNC_SETTINGS.enableInertCodeBlocks).toBe(true);
     expect(normalizeSyncSettings({}).enableInertCodeBlocks).toBe(true);

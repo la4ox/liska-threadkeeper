@@ -8,6 +8,10 @@ import type { LiskaThreadArchive } from '../archive/types';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
 import type { ChatGptRouteFamily } from './chatgpt-owner-context';
 import type { DerivedHtmlArtifact, DerivedOutputSource } from './derived-presentation-contract';
+import type {
+  DerivedTextArtifact,
+  DerivedTextOutputSource,
+} from './derived-text-presentation-contract';
 import type { DerivedBranchHtmlArtifact } from './derived-branch-presentation-contract';
 
 /**
@@ -471,6 +475,8 @@ export interface SyncSettings {
   enableImageExport: boolean;
   /** Add a canonical-derived offline HTML reading view to File archive snapshots. */
   enableHtmlExport: boolean;
+  /** Add a canonical-derived plain-text reading view to File archive snapshots. */
+  enableTextExport: boolean;
   /** Show every language-tagged fenced block as literal source in reading Markdown. */
   enableInertCodeBlocks: boolean;
   /**
@@ -609,6 +615,17 @@ type ExtensionActionMessage =
       expectedSyncSettingsSnapshot: string;
       artifact: DerivedHtmlArtifact;
       /** HTML delivery is File-only in version 1. */
+      outputs: ['file'];
+    }
+  | {
+      action: 'persistDerivedTextPresentation';
+      reportDurableWriteOutcome: true;
+      source: DerivedTextOutputSource;
+      captureId: string;
+      conversationKey: string;
+      expectedSyncSettingsSnapshot: string;
+      artifact: DerivedTextArtifact;
+      /** Plain-text delivery is File-only in version 1. */
       outputs: ['file'];
     }
   | {

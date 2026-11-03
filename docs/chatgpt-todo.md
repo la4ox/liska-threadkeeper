@@ -281,6 +281,26 @@ terminal states, and the existing no-credential-export boundary.
 
 ### 7. User-facing derived outputs
 
+- Multi-format presentation work was explicitly reopened on 2026-11-03 after a
+  read-only comparison with an installed exporter preview. The useful reference
+  was not merely its PDF/Markdown/Text buttons: it placed local search,
+  per-message/range/all selection and visual inspection before format actions.
+  Liska will preserve that separation without copying its remote-conversion or
+  privacy model.
+- The first reviewed vertical slice is implemented and installed-live-verified:
+  an opt-in canonical-derived `.txt` reading view for eligible structured
+  ChatGPT/DeepSeek single-branch File captures. It renders from validated
+  canonical meaning, stays local and bounded, carries its own provenance and
+  terminal receipt, and leaves Markdown plus raw/manifest/canonical/HTML
+  behavior unchanged when disabled.
+- Follow with one immutable selection/profile contract and extension-owned
+  preview for Markdown, text and HTML download/copy. A future `view.json` is a
+  versioned selected presentation, never a renamed canonical archive. Local PDF
+  and DOCX remain separate renderer slices with their own pagination, structure,
+  font, asset and output-size evidence. Conversation-to-image is not active work:
+  ordinary browser screenshots cover the present need, and the idea returns only
+  for a concrete scenario screenshots cannot solve.
+
 - The pure `liska-html/1` renderer and opt-in current/selected File delivery are
   implemented. HTML is derived only from a hash-verified canonical archive and
   carries a deterministic provenance receipt; it is never reconstructed from

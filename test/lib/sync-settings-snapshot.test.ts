@@ -12,6 +12,7 @@ describe('sync settings snapshot', () => {
     expect(second).toBe(first);
     expect(isSerializedSyncSettingsSnapshot(first)).toBe(true);
     expect(JSON.parse(first)).toHaveProperty('enableInertCodeBlocks', true);
+    expect(JSON.parse(first)).toHaveProperty('enableTextExport', false);
     expect(first).not.toContain('obsidianApiKey');
     expect(
       serializeSyncSettingsSnapshot({
@@ -20,6 +21,17 @@ describe('sync settings snapshot', () => {
       } as never)
     ).toBe(first);
     expect(first).not.toContain('secret-marker');
+  });
+
+  it('binds canonical plain-text authorization to the synchronized toggle', () => {
+    const disabled = serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS);
+    const enabled = serializeSyncSettingsSnapshot({
+      ...DEFAULT_SYNC_SETTINGS,
+      enableTextExport: true,
+    });
+    expect(enabled).not.toBe(disabled);
+    expect(JSON.parse(enabled)).toHaveProperty('enableTextExport', true);
+    expect(isSerializedSyncSettingsSnapshot(enabled)).toBe(true);
   });
 
   it.each(['', 'not-json', '[]', '{}', '"text"'])('rejects a noncanonical value: %s', value => {
