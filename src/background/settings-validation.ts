@@ -13,6 +13,7 @@ const REQUIRED_SETTINGS_UPDATE_KEYS = [
   'enableToolContent',
   'enableImageExport',
   'enableHtmlExport',
+  'enableTextExport',
   'enableInertCodeBlocks',
   'enableChatGptOpaqueProbe',
   'enableChatGptOpaqueReplay',
@@ -132,6 +133,7 @@ export function validateSettingsUpdate(value: unknown): value is PopupSettingsUp
     typeof settings.enableToolContent === 'boolean' &&
     typeof settings.enableImageExport === 'boolean' &&
     typeof settings.enableHtmlExport === 'boolean' &&
+    typeof settings.enableTextExport === 'boolean' &&
     typeof settings.enableInertCodeBlocks === 'boolean' &&
     typeof settings.enableChatGptOpaqueProbe === 'boolean' &&
     typeof settings.enableChatGptOpaqueReplay === 'boolean' &&

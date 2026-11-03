@@ -23,6 +23,7 @@ const validSettings: ExtensionSettings = {
   enableToolContent: false,
   enableImageExport: true,
   enableHtmlExport: false,
+  enableTextExport: false,
   enableInertCodeBlocks: true,
   enableChatGptOpaqueProbe: false,
   enableChatGptOpaqueReplay: false,
@@ -55,6 +56,10 @@ describe('popup settings transport validation', () => {
 
   it('accepts an explicit HTML opt-in', () => {
     expect(validateSettingsUpdate({ ...validSettings, enableHtmlExport: true })).toBe(true);
+  });
+
+  it('accepts an explicit plain-text opt-in', () => {
+    expect(validateSettingsUpdate({ ...validSettings, enableTextExport: true })).toBe(true);
   });
 
   it.each([null, undefined, false, [], 'settings'])('rejects a non-record root: %s', value => {

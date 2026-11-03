@@ -88,6 +88,7 @@ export const EXPORT_DURABLE_ACTIONS = new Set<string>([
   'saveToOutputs',
   'persistArchiveCompanion',
   'persistDerivedHtmlPresentation',
+  'persistDerivedTextPresentation',
   'persistDerivedBranchHtmlPresentation',
   'commitStagedArchiveCompanion',
   'commitStagedBinaryAsset',

@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: dormant
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-10-31
+last_turn: 2026-11-03
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -50,6 +50,20 @@ the existing readable archive/reader layer and a later separate living-memory
 project. “Selected chats” was explicitly corrected to “chats where updates
 appeared.”
 
+### H2 — Canonical archive organization can precede account-wide automation
+
+The local archive can first gain a deterministic catalog, provider/conversation
+identity map and append-only snapshot layout without yet polling a provider or
+opening any conversation. That separates recovery and inventory design from
+network authority.
+
+### E4 — Rapidly reopening many chats is already an observed product constraint
+
+The user explicitly retained the concern that ChatGPT does not tolerate many
+conversation pages being opened and exported in a short interval. This does not
+establish an exact rate limit, but it rules out an unbounded all-chats loop as a
+safe default and reinforces the need for cooldown, budgets and resumability.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -78,6 +92,17 @@ is explicitly opened.
 
 Evidence: E1, E2, E3
 
+### D2 — Sequence backup as catalog, slow baseline, then update discovery
+
+The next backup design starts with a read-only local catalog of existing
+snapshots. A later opt-in baseline may enumerate and capture accessible chats
+over multiple days under explicit per-provider budgets. Only after that may a
+daily service poll bounded provider index/history metadata and capture chats
+with observed changes. Providers without a trustworthy marker remain deferred
+or manual rather than producing a false no-change claim.
+
+Evidence: E1, E2, E4
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -96,17 +121,40 @@ must index stable evidence and remain rebuildable.
 Trigger: the first three layers have reliable recovery and reconciliation, and
 the user separately defines the memory product's privacy and interaction scope.
 
+### T3 — Design the local canonical snapshot catalog
+
+Define stable provider/conversation keys, immutable capture identities,
+directory and index rules, recovery receipts and rebuild-from-files behavior
+without granting network or mutation authority.
+
+Trigger: the current multi-format presentation checkpoint is complete, or the
+user explicitly chooses backup organization as the next active slice.
+
+### T4 — Run a resumable baseline before any daily scheduler
+
+Inventory and export all accessible conversations slowly, with a durable cursor,
+daily request/page budget, cooldown, pause, retry and honest deferred/error
+states. The baseline may intentionally take several days.
+
+Trigger: one provider's discovery/enumeration contract is reviewed and its
+account-wide authority is explicitly enabled.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
 - [evidence] E1: manual archive, reconciliation, presentation and analysis now have distinct authority boundaries
 - [evidence] E2: reliable change discovery is provider-specific and cannot be inferred from title, order or elapsed time
 - [evidence] E3: the desired ecosystem separates periodic official evidence, update-driven captures, reading views and later living memory #local-only
+- [hypothesis] H2: local canonical cataloging can be designed before account-wide provider polling
+- [evidence] E4: rapid bulk conversation reopening is an observed constraint, though no exact rate limit is claimed #local-only
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [decision] D1: preserve four separate layers and pause automation until explicit discovery design
+- [decision] D2: sequence future backup as local catalog, slow resumable baseline and provider-specific update polling
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
+- [tail] T3: design a rebuildable local catalog without network authority
+- [tail] T4: run a multi-day budgeted baseline before enabling a daily scheduler
 
 ## Relations
 
@@ -122,3 +170,4 @@ the user separately defines the memory product's privacy and interaction scope.
 - S2 — [ADR-031: Separate Capture, Canonical Archive, and Presentation](../adr/031-loss-aware-archive-pipeline.md)
 - S3 — [ADR-043: Exact-byte snapshot analysis with no mutation authority](../adr/043-snapshot-analysis-only.md)
 - S4 — local receipt `LISKA-CHAT-SYNTHESIS-20261031-BACKUP`; visibility: local-only; safe aggregate only
+- S5 — local receipt `LISKA-BACKUP-SEQUENCING-20261103`; visibility: local-only; safe aggregate only

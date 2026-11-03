@@ -39,6 +39,7 @@ const storedSettings: ExtensionSettings = {
   enableToolContent: false,
   enableImageExport: true,
   enableHtmlExport: false,
+  enableTextExport: false,
   enableInertCodeBlocks: true,
   enableChatGptOpaqueProbe: false,
   enableChatGptOpaqueReplay: false,
@@ -105,6 +106,15 @@ function buildPopupDom(): void {
       <span class="toggle-switch">
         <input type="checkbox" id="enableHtmlExport" role="switch" aria-checked="false" aria-disabled="true" disabled />
         <span class="slider" aria-hidden="true"></span>
+      </span>
+    </label>
+    <label class="toggle-row" id="textExportRow">
+      <span class="toggle-label">
+        <span data-i18n="settings_enableTextExport">Canonical plain-text reading view</span>
+        <span class="toggle-sublabel" data-i18n="settings_textExportHelp">Plain-text help</span>
+      </span>
+      <span class="toggle-switch">
+        <input type="checkbox" id="enableTextExport" role="switch" aria-checked="false" aria-disabled="true" disabled />
       </span>
     </label>
     <span data-i18n="settings_enableInertCodeBlocks">Show tagged code blocks as literal source</span>
@@ -185,6 +195,15 @@ describe('canonical HTML popup setting markup', () => {
     expect(japanese.settings_htmlExportHelp.message).toContain('ChatGPT / DeepSeek');
     expect(japanese.settings_htmlExportHelp.message).toContain('PDF');
     expect(japanese.settings_htmlExportHelp.message).toContain('クリップボード');
+
+    const textToggle = popup.getElementById('enableTextExport');
+    expect(textToggle?.getAttribute('role')).toBe('switch');
+    expect(textToggle?.hasAttribute('checked')).toBe(false);
+    expect(popup.querySelector('[data-i18n="settings_enableTextExport"]')).not.toBeNull();
+    expect(english.settings_enableTextExport.message).toContain('plain-text');
+    expect(english.settings_textExportHelp.message).toContain('current or selected');
+    expect(english.settings_textExportHelp.message).toContain('Not all branches');
+    expect(japanese.settings_textExportHelp.message).toContain('全ブランチ');
   });
 
   it('provides an always-available default-on tagged-fence switch with honest limits', () => {
@@ -265,6 +284,8 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('outputFile').checked).toBe(false);
       expect(el<HTMLInputElement>('enableHtmlExport').checked).toBe(false);
       expect(el<HTMLInputElement>('enableHtmlExport').disabled).toBe(true);
+      expect(el<HTMLInputElement>('enableTextExport').checked).toBe(false);
+      expect(el<HTMLInputElement>('enableTextExport').disabled).toBe(true);
       expect(el<HTMLInputElement>('enableInertCodeBlocks').checked).toBe(true);
       expect(el<HTMLInputElement>('enableInertCodeBlocks').disabled).toBe(false);
       expect(el<HTMLInputElement>('enableAutoScroll').checked).toBe(true);
@@ -448,6 +469,16 @@ describe('popup/app', () => {
       expect(el<HTMLSelectElement>('timezone').value).toBe('UTC');
     });
 
+    it('keeps an injected invalid truthy plain-text setting unchecked', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        enableTextExport: 'true' as unknown as boolean,
+      });
+      const toggle = el<HTMLInputElement>('enableTextExport');
+      expect(toggle.checked).toBe(false);
+      expect(toggle.getAttribute('aria-checked')).toBe('false');
+    });
+
     it('translates data-i18n elements when a translation exists', async () => {
       buildPopupDom();
       document.body.insertAdjacentHTML(
@@ -621,6 +652,23 @@ describe('popup/app', () => {
       );
     });
 
+    it('keeps the plain-text opt-in selected while File availability changes', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        enableTextExport: true,
+        outputOptions: { obsidian: true, file: false, clipboard: true },
+      });
+      const textExport = el<HTMLInputElement>('enableTextExport');
+      const fileOutput = el<HTMLInputElement>('outputFile');
+      expect(textExport.checked).toBe(true);
+      expect(textExport.disabled).toBe(true);
+      fileOutput.checked = true;
+      fileOutput.dispatchEvent(new Event('change'));
+      expect(textExport.checked).toBe(true);
+      expect(textExport.disabled).toBe(false);
+      expect(textExport.getAttribute('aria-disabled')).toBe('false');
+    });
+
     it('disables the Obsidian section when Obsidian output is off', async () => {
       buildPopupDom();
       vi.mocked(getSettingsOrThrow).mockResolvedValue({
@@ -724,6 +772,26 @@ describe('popup/app', () => {
 
       await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
       expect(settingsSaveAt(0)).toHaveProperty('enableHtmlExport', true);
+    });
+
+    it('collects and saves the selected plain-text option', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        outputOptions: { obsidian: true, file: true, clipboard: true },
+      });
+      const textExport = el<HTMLInputElement>('enableTextExport');
+      textExport.checked = true;
+      textExport.dispatchEvent(new Event('change'));
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({ enableTextExport: true }),
+        })
+      );
+      expect(
+        validateMessageContent(structuredClone(vi.mocked(sendMessage).mock.calls.at(-1)?.[0]))
+      ).toBe(true);
     });
 
     it('populates, exposes, and saves the tagged-fence setting independently of destinations', async () => {

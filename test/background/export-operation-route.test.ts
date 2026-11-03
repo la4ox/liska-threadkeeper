@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { htmlMessage, htmlSettings } from './derived-html-fixture';
+import { textMessage } from './derived-text-fixture';
 import { branchHtmlMessage } from './derived-branch-html-fixture';
 import { validateMessageContent } from '../../src/background/validation';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
@@ -32,6 +33,7 @@ vi.mock('../../src/background/output-handlers', () => ({
   handleMultiOutput: mocks.output,
   handlePersistArchiveCompanion: mocks.output,
   handlePersistDerivedHtmlPresentation: mocks.output,
+  handlePersistDerivedTextPresentation: mocks.output,
   handlePersistDerivedBranchHtmlPresentation: mocks.output,
 }));
 vi.mock('../../src/background/archive-stage-handlers', () => ({
@@ -117,6 +119,7 @@ async function messages() {
       artifact: { ...artifact, transport: 'inline', bodyBase64: 'e30=' },
     },
     await htmlMessage(),
+    await textMessage(),
     await branchHtmlMessage(),
     {
       action: 'commitStagedArchiveCompanion',
@@ -194,7 +197,7 @@ describe('export authority at actual worker dispatch', () => {
         },
         popup()
       );
-      const commit = (await messages())[kind === 'archive' ? 4 : 5] as unknown as {
+      const commit = (await messages())[kind === 'archive' ? 5 : 6] as unknown as {
         artifact: { stageId: string; transport: string };
         descriptor: object;
       };
@@ -308,7 +311,7 @@ describe('export authority at actual worker dispatch', () => {
         popup()
       );
       const commit = {
-        ...(await messages())[kind === 'archive' ? 4 : 5],
+        ...(await messages())[kind === 'archive' ? 5 : 6],
         reportDurableWriteOutcome: true,
         exportOperationId: operationId,
       };
@@ -357,7 +360,7 @@ describe('export authority at actual worker dispatch', () => {
       popup()
     );
     const commit = {
-      ...(await messages())[5],
+      ...(await messages())[6],
       reportDurableWriteOutcome: true,
       exportOperationId: operationId,
     };

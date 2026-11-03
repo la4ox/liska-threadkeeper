@@ -52,6 +52,7 @@ describe('storage', () => {
       expect(settings.templateOptions.messageFormat).toBe('callout');
       expect(settings.enableImageExport).toBe(true);
       expect(settings.enableHtmlExport).toBe(false);
+      expect(settings.enableTextExport).toBe(false);
       expect(settings.enableChatGptOpaqueProbe).toBe(false);
       expect(settings.enableChatGptOpaqueReplay).toBe(false);
       expect(settings.imageVaultPath).toBe('AI/{platform}/images');
@@ -76,6 +77,14 @@ describe('storage', () => {
         settings: expect.objectContaining({ enableHtmlExport: true }),
       });
       await expect(getSettings()).resolves.toMatchObject({ enableHtmlExport: true });
+    });
+
+    it('persists the canonical plain-text opt-in via saveSettings', async () => {
+      await saveSettings({ enableTextExport: true });
+      expect(chrome.storage.sync.set).toHaveBeenCalledWith({
+        settings: expect.objectContaining({ enableTextExport: true }),
+      });
+      await expect(getSettings()).resolves.toMatchObject({ enableTextExport: true });
     });
 
     it('returns stored secure settings from local storage', async () => {

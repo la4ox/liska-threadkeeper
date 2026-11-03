@@ -4367,3 +4367,46 @@ suites pass 354 tests; TypeScript, the production build, targeted lint,
 formatting and diff checks pass. Independent review found the partial-push seam
 and rechecked its fix; no other material finding remains in this candidate. It
 is not yet committed, published or CI-reviewed.
+
+## Canonical-derived text installed acceptance checkpoint — 2026-11-04
+
+Branch `codex/derived-export-formats-v1` implements the first new presentation
+format from ADR-047: a default-off, canonical-derived `liska-text/1` reading
+view for current or explicitly selected single-branch ChatGPT/DeepSeek File
+captures. It renders deterministic UTF-8 `index.txt` from independently
+validated canonical meaning, never from compatibility Markdown, and writes a
+separate `liska-derived-text-output-receipt/1` only after the browser confirms
+the exact final path, byte length and digest. Raw, manifest, canonical,
+Markdown and HTML contracts remain unchanged; all-branches, Clipboard,
+Obsidian text, Claude/DOM fallback, preview selection, PDF, DOCX and image are
+outside this slice.
+
+Independent review found and the implementation closed two P2 seams: unframed
+provider text could impersonate structural roles, and an unknown delivery state
+was described as a confirmed failure. Every provider-controlled physical line
+is now visibly framed, while confirmed, unknown and not-dispatched outcomes stay
+distinct. The installed smoke then exposed one real transport omission:
+offscreen Blob URLs admitted JSON and HTML but rejected exact `text/plain`.
+The allowlist now admits only exact `text/plain`; parameterized, case-variant,
+image and script types remain rejected, with an actual derived-text artifact
+regression covering bytes, Blob type and revocation.
+
+The final complete suite passed 266 test files and 9,605 tests, with one file
+and three tests skipped and zero failures. Production build, TypeScript,
+formatting and lint passed; lint retained 55 existing warnings. The verified
+installed package contained 45 files, 1,299,373 bytes and source/installed
+SHA-256 `e87f904f5c0e28856bc367e2e668cdc1d7f0838441e395a35ff81134c3228550`.
+
+One trusted installed-Comet File capture persisted the ordinary archive trio,
+Markdown, canonical-derived HTML, a 46,165-byte `index.txt` and its 518-byte
+receipt. The text contained 822 lines with 821 LF and zero CRLF separators, 311
+framed source lines and 40 message boundaries. Actual artifact length/digest
+matched the receipt, and the receipt's source digest matched the exact canonical
+artifact. This is content-free acceptance evidence; no title, message body,
+conversation identifier, local path or provider URL is recorded here.
+
+The smoke-only destination change was rolled back through the real authorized
+popup. Obsidian and File are enabled, Clipboard and append remain disabled, and
+the UI confirmed `Settings saved successfully!`. Canonical text remains enabled
+as the user's explicit choice. Conversation-to-image is not an active format:
+an ordinary screenshot covers the current visual-snapshot need.

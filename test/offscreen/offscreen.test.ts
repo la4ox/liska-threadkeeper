@@ -4,9 +4,10 @@
  * Tests sender validation and clipboard operations
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { bytesToBase64 } from '../../src/lib/image-utils';
+import { base64ToBytes, bytesToBase64 } from '../../src/lib/image-utils';
 import { BINARY_STAGE_CHUNK_BYTES } from '../../src/lib/constants';
 import type { BinaryStageStore } from '../../src/offscreen/binary-stage-store';
+import { textMessage } from '../background/derived-text-fixture';
 
 // Capture the message listener
 let capturedListener: (
@@ -221,28 +222,87 @@ describe('offscreen/offscreen', () => {
     }
   });
 
-  it.each(['text/plain', 'text/html;charset=utf-8', 'image/png', 'application/javascript'])(
-    'rejects archive Blob creation for media type %s',
-    mediaType => {
-      const sendResponse = vi.fn();
+  it.each([
+    'text/plain;charset=utf-8',
+    'text/html;charset=utf-8',
+    'Text/Plain',
+    'image/png',
+    'application/javascript',
+  ])('rejects archive Blob creation for media type %s', mediaType => {
+    const sendResponse = vi.fn();
 
-      capturedListener(
-        {
-          action: 'archiveBlobCreate',
-          target: 'offscreen',
-          bodyBase64: 'e30=',
-          mediaType,
-        },
-        { id: chrome.runtime.id } as chrome.runtime.MessageSender,
-        sendResponse
-      );
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: 'e30=',
+        mediaType,
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      sendResponse
+    );
 
-      expect(sendResponse).toHaveBeenCalledWith({
-        success: false,
-        error: 'Could not prepare archive download',
-      });
-    }
-  );
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      error: 'Could not prepare archive download',
+    });
+  });
+
+  it('creates exact derived-text bytes as text/plain and revokes the owned Blob URL', async () => {
+    const message = await textMessage();
+    const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/derived-text');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      writable: true,
+      configurable: true,
+    });
+    const response = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobCreate',
+        target: 'offscreen',
+        bodyBase64: message.artifact.bodyBase64,
+        mediaType: message.artifact.mediaType,
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      response
+    );
+    expect(response).toHaveBeenCalledWith({
+      success: true,
+      url: 'blob:chrome-extension://test/derived-text',
+    });
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(blob.type).toBe('text/plain');
+    expect(blob.size).toBe(message.artifact.byteLength);
+    const exactBytes = await new Promise<Uint8Array>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+      reader.readAsArrayBuffer(blob);
+    });
+    expect(exactBytes).toEqual(base64ToBytes(message.artifact.bodyBase64));
+
+    const released = vi.fn();
+    capturedListener(
+      {
+        action: 'archiveBlobRevoke',
+        target: 'offscreen',
+        url: 'blob:chrome-extension://test/derived-text',
+      },
+      { id: chrome.runtime.id } as chrome.runtime.MessageSender,
+      released
+    );
+    expect(released).toHaveBeenCalledWith({ success: true });
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(
+      'blob:chrome-extension://test/derived-text'
+    );
+  });
 
   it('creates and revokes exact HTML bytes through the same private Blob ownership', () => {
     const createObjectURL = vi.fn(() => 'blob:chrome-extension://test/html');

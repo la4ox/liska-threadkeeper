@@ -66,6 +66,11 @@ import {
   persistDerivedHtmlForFile,
 } from './derived-html-persistence';
 import {
+  DERIVED_TEXT_ALL_BRANCHES_PENDING_WARNING,
+  DERIVED_TEXT_UNAVAILABLE_WARNING,
+  persistDerivedTextForFile,
+} from './derived-text-persistence';
+import {
   injectExportLauncher,
   removeExportControls,
   setButtonLoading,
@@ -773,6 +778,7 @@ export async function persistFailedExtractionArchive(
     : `Verified raw capture evidence was only partially saved: ${warnings.join('. ')}`;
 }
 
+// eslint-disable-next-line max-lines-per-function -- Archive and optional derived views must visibly precede the independent Markdown write.
 async function persistExtractedNote(
   data: ConversationData,
   archiveCompanion: ArchiveCompanionBundle | undefined,
@@ -806,7 +812,21 @@ async function persistExtractedNote(
     expectedSyncSettingsSnapshot
   );
   if (isOperationCurrent && !isOperationCurrent()) throw new DeepSeekNavigationChangedError();
-  const warnings = [...(extractionWarnings ?? []), ...archiveOutcome.warnings, ...htmlWarnings];
+  const textWarnings = await derivedTextWarnings(
+    data.source,
+    settings,
+    outputs,
+    archiveOutcome,
+    structuredPresentationContext,
+    expectedSyncSettingsSnapshot
+  );
+  if (isOperationCurrent && !isOperationCurrent()) throw new DeepSeekNavigationChangedError();
+  const warnings = [
+    ...(extractionWarnings ?? []),
+    ...archiveOutcome.warnings,
+    ...htmlWarnings,
+    ...textWarnings,
+  ];
   await persistNote(
     note,
     outputs,
@@ -836,6 +856,25 @@ async function derivedHtmlWarnings(
   return (await persistDerivedHtmlForFile(context, expectedSyncSettingsSnapshot)).warnings;
 }
 
+async function derivedTextWarnings(
+  source: AIPlatform,
+  settings: ContentScriptSettings,
+  outputs: readonly OutputDestination[],
+  archiveOutcome: ArchiveCompanionPersistenceOutcome,
+  context: ExtractionResult['structuredPresentationContext'],
+  expectedSyncSettingsSnapshot: string | undefined
+): Promise<string[]> {
+  if (
+    settings.enableTextExport !== true ||
+    !outputs.includes('file') ||
+    (source !== 'chatgpt' && source !== 'deepseek')
+  )
+    return [];
+  if (!context) return [DERIVED_TEXT_UNAVAILABLE_WARNING];
+  if (!expectedSyncSettingsSnapshot || !archiveOutcome.activeOutputs.includes('file')) return [];
+  return (await persistDerivedTextForFile(context, expectedSyncSettingsSnapshot)).warnings;
+}
+
 async function finalizedAttachmentDerivedHtmlWarnings(
   settings: ContentScriptSettings,
   outputs: readonly OutputDestination[],
@@ -852,6 +891,19 @@ async function finalizedAttachmentDerivedHtmlWarnings(
       presentation?.assetBindings
     )
   ).warnings;
+}
+
+async function finalizedAttachmentDerivedTextWarnings(
+  settings: ContentScriptSettings,
+  outputs: readonly OutputDestination[],
+  fileArchiveConfirmed: boolean,
+  presentation: FinalizedFilePresentationEvidence | undefined,
+  expectedSyncSettingsSnapshot: string
+): Promise<string[]> {
+  if (settings.enableTextExport !== true || !outputs.includes('file') || !fileArchiveConfirmed)
+    return [];
+  return (await persistDerivedTextForFile(presentation?.context, expectedSyncSettingsSnapshot))
+    .warnings;
 }
 
 /** Runtime guard: the worker can return a generic error envelope on rejection. */
@@ -1267,7 +1319,12 @@ export async function persistAllBranchesBundle(
       fileHtml,
     })
   );
-  displayAllBranchesSummary(summary, archiveWarnings);
+  displayAllBranchesSummary(summary, [
+    ...archiveWarnings,
+    ...(settings.enableTextExport === true && outputs.includes('file')
+      ? [DERIVED_TEXT_ALL_BRANCHES_PENDING_WARNING]
+      : []),
+  ]);
 }
 
 function freezeSettingsSnapshot(settings: ContentScriptSettings): ContentScriptSettings {
@@ -1761,7 +1818,8 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           settings.enableChatGptOpaqueReplay === true,
           expectedSyncSettingsSnapshot,
           undefined,
-          settings.enableHtmlExport === true && enabledOutputs.includes('file')
+          (settings.enableHtmlExport === true || settings.enableTextExport === true) &&
+            enabledOutputs.includes('file')
             ? result.structuredPresentationContext
             : undefined
         )
@@ -1774,8 +1832,21 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         attachmentExport.filePresentation,
         expectedSyncSettingsSnapshot
       );
+      stage = 'saving the ChatGPT canonical plain-text reading view';
+      const textWarnings = await finalizedAttachmentDerivedTextWarnings(
+        settings,
+        enabledOutputs,
+        attachmentExport.completeDestinations.includes('file'),
+        attachmentExport.filePresentation,
+        expectedSyncSettingsSnapshot
+      );
       stage = 'saving the ChatGPT note';
-      const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings, ...htmlWarnings];
+      const warnings = [
+        ...(result.warnings ?? []),
+        ...attachmentExport.warnings,
+        ...htmlWarnings,
+        ...textWarnings,
+      ];
       await persistDestinationHonestChatGptNote(
         note,
         enabledOutputs,
@@ -1807,7 +1878,8 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           isConversationCurrent: () =>
             deepSeekOperationIdentity !== undefined &&
             isDeepSeekOperationCurrent(extractor, deepSeekOperationIdentity),
-          ...(settings.enableHtmlExport === true && enabledOutputs.includes('file')
+          ...((settings.enableHtmlExport === true || settings.enableTextExport === true) &&
+          enabledOutputs.includes('file')
             ? { presentationContext: result.structuredPresentationContext }
             : {}),
         }
@@ -1822,10 +1894,23 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
         attachmentExport.filePresentation,
         expectedSyncSettingsSnapshot
       );
+      stage = 'saving the DeepSeek canonical plain-text reading view';
+      const textWarnings = await finalizedAttachmentDerivedTextWarnings(
+        settings,
+        enabledOutputs,
+        attachmentExport.completeDestinations.includes('file'),
+        attachmentExport.filePresentation,
+        expectedSyncSettingsSnapshot
+      );
       if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result))
         return;
       stage = 'saving the DeepSeek note';
-      const warnings = [...(result.warnings ?? []), ...attachmentExport.warnings, ...htmlWarnings];
+      const warnings = [
+        ...(result.warnings ?? []),
+        ...attachmentExport.warnings,
+        ...htmlWarnings,
+        ...textWarnings,
+      ];
       await persistNote(
         note,
         enabledOutputs,

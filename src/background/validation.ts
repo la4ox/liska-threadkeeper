@@ -56,6 +56,7 @@ import { platformOrigins } from '../lib/platform-registry';
 import { validateSettingsUpdate } from './settings-validation';
 import { deriveChatGptCaptureTarget, isExactChatGptDocumentUrl } from './chatgpt-route-target';
 import { validatePersistDerivedHtmlMessage } from './derived-html-validation';
+import { validatePersistDerivedTextMessage } from './derived-text-validation';
 import { snapshotPersistDerivedBranchHtmlMessage } from './derived-branch-html-validation';
 import { validateNoteCaptureMetadata } from './note-capture-validation';
 
@@ -779,6 +780,13 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     )
   )
     return false;
+  if (
+    action.value === 'persistDerivedTextPresentation' &&
+    !validatePersistDerivedTextMessage(
+      extensionMessage as Extract<ExtensionMessage, { action: 'persistDerivedTextPresentation' }>
+    )
+  )
+    return false;
   if (action.value === 'persistDerivedBranchHtmlPresentation') {
     const snapshot = snapshotPersistDerivedBranchHtmlMessage(message);
     return snapshot !== undefined && jsonUtf8ByteLength(snapshot) <= MAX_EXTENSION_MESSAGE_SIZE;
@@ -794,6 +802,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
       ![
         'persistArchiveCompanion',
         'persistDerivedHtmlPresentation',
+        'persistDerivedTextPresentation',
         'persistDerivedBranchHtmlPresentation',
         'commitStagedArchiveCompanion',
         'commitStagedBinaryAsset',
@@ -844,6 +853,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   }
 
   if (extensionMessage.action === 'persistDerivedHtmlPresentation') return true;
+  if (extensionMessage.action === 'persistDerivedTextPresentation') return true;
 
   if (
     extensionMessage.action === 'beginStagedArchiveArtifact' ||
