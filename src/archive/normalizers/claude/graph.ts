@@ -35,6 +35,7 @@ export function parseClaudeTopology(
   const messages: ParsedClaudeMessage[] = [];
   const byId = new Map<string, ParsedClaudeMessage>();
   let previousIndex = -1;
+  context.contentBudget.admitOccurrences(detail.chat_messages.length);
   detail.chat_messages.forEach((value, arrayIndex) => {
     const pointer = at('/chat_messages', String(arrayIndex));
     if (!isRecord(value)) fail('malformed-message', `${pointer} must be an object.`);

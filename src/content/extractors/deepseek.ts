@@ -19,6 +19,7 @@ import type {
 } from '../../lib/types';
 import { SELECTORS } from './selectors/deepseek';
 import { abortStagedArchiveArtifact } from '../archive-stage';
+import { getProviderContentLimitEvidence } from './provider-content-limit-evidence';
 import {
   DEEPSEEK_DOM_FALLBACK_WARNING,
   DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
@@ -91,7 +92,9 @@ export class DeepSeekExtractor extends BaseExtractor {
         return this.extractDomFallback(undefined, initialIdentity);
       } catch (error) {
         const archiveCompanion =
-          error instanceof DeepSeekStructuredCaptureError ? error.archiveCompanion : undefined;
+          error instanceof DeepSeekStructuredCaptureError
+            ? error.archiveCompanion
+            : getProviderContentLimitEvidence(error);
         if (!this.isSignedConversationIdentityCurrent(initialIdentity)) {
           return this.conversationChanged(archiveCompanion);
         }

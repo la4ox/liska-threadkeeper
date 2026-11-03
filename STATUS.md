@@ -1,5 +1,55 @@
 # Project status
 
+## Claude/DeepSeek aggregate provider budget — reviewed local candidate
+
+Branch `codex/provider-block-work-budget-v2` addresses the current-main
+Security Cloud finding that Claude and DeepSeek could repeatedly traverse
+provider-controlled block, attachment and metadata collections without one
+aggregate work boundary. The candidate adds a shared typed
+`ProviderContentLimitError` and keeps public preflight, inventory and normalizer
+calls safe when invoked independently.
+
+Each exact raw artifact is limited to 32 MiB. A traversal admits at most 250,000
+visited occurrences and 250,000 emitted blocks; one capture operation shares
+2,000,000 auxiliary work units through repeated phases and up to two DeepSeek
+destination rebuilds. Items are charged before filtering, deduplication or
+copying, including malformed/nonasset entries, empty FILE fragments, Claude
+tool-result evidence, nested provider metadata and privacy sanitization.
+DeepSeek best-effort inventory, resolver, binding and finalization catches
+rethrow the typed limit instead of degrading it into apparent success. The
+existing 20,000-node graph and 50,000-asset inventory contracts remain intact,
+and ordinary provider failures may still produce the existing honestly marked
+DOM-partial fallback.
+
+The affected matrix passes 16 files / 685 tests. TypeScript, Vite and generated
+runtime build checks pass; lint has zero errors and only the repository's
+warning-level size/complexity notices; formatting and diff checks pass. An
+independent reviewer reproduced 19,999 messages across capture plus two
+reconstructions at 1,139,952 shared work units, the accepted 16-level metadata
+boundary, linear repeated-attachment source-ref handling and fail-closed
+conflicting metadata. It reported no remaining concrete bypass or regression.
+
+Published-head Code Review subsequently found one P2 in evidence retention. A
+limit raised during normalization already had a verified raw/manifest companion,
+but rethrowing the exact limit error prevented the outer provider extractor from
+recovering that pair for DOM fallback or staged navigation cleanup. The narrow
+follow-up stores only that exact error-to-companion association in a content-layer
+WeakMap, rethrows the same typed error and leaves early limits companion-free.
+Claude and DeepSeek now retain raw evidence through successful and failed DOM
+fallback and abort staged evidence after navigation; Claude also reports the
+stable limit code instead of `unknown-error`. The four focused suites pass 113
+tests and the full production build passes. No browser or durable
+destination-write acceptance is claimed yet.
+
+The exact Security Cloud detail UI currently cannot administratively close the
+older repository-scan rows: `STATUS` is read-only, `Fix with Codex` opens a chat,
+and the only list action is CSV export. The connector close endpoint is limited
+to versioned commit-scan findings. Nine older categories are source-remediated
+on current `main`; the default-port item is an intentional compatibility policy
+and must not be mislabeled `Fixed`. The other two current findings—stronger
+Obsidian process identity and third-party executable code-block processors—stay
+separate from this patch.
+
 ## Durable capture-loss diagnostics — installed candidate
 
 Branch `codex/durable-loss-diagnostics` adds a privacy-bounded historical loss

@@ -5,6 +5,13 @@ import type { ArchiveCompanionBundle, InlineArchiveCompanionArtifact } from '../
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../src/lib/constants';
 import * as archiveProjection from '../../src/content/archive-projection';
 import {
+  PROVIDER_CONTENT_MAX_WORK_UNITS,
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
+} from '../../src/archive/normalizers/provider-block-work-budget';
+import { preflightClaudeDetailArtifact } from '../../src/archive/normalizers/claude';
+import { getProviderContentLimitEvidence } from '../../src/content/extractors/provider-content-limit-evidence';
+import {
   CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING,
   CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING,
   CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING,
@@ -138,8 +145,11 @@ function manifestOf(companion: ArchiveCompanionBundle): RawCaptureManifest {
 }
 
 function expectVerifiedRawPair(error: unknown, expectedBytes: Uint8Array): void {
-  expect(error).toBeInstanceOf(ClaudeStructuredCaptureError);
-  const companion = (error as ClaudeStructuredCaptureError).archiveCompanion!;
+  const companion =
+    error instanceof ClaudeStructuredCaptureError
+      ? error.archiveCompanion!
+      : getProviderContentLimitEvidence(error)!;
+  expect(companion).toBeDefined();
   const artifacts = inlineArtifacts(companion);
   expect(artifacts.map(artifact => artifact.kind)).toEqual(['raw', 'manifest']);
   expect(Buffer.from(inlineBytes(artifacts[0])).equals(Buffer.from(expectedBytes))).toBe(true);
@@ -192,6 +202,33 @@ describe('Claude exact-detail capture and archive composition', () => {
     expect(setItem).not.toHaveBeenCalled();
     expect(enumerate).not.toHaveBeenCalled();
   });
+
+  it.each(['preflight', 'inventory'])(
+    'keeps %s exhaustion companion-free in the shared work scope',
+    async phase => {
+      const bytes = detailBytes();
+      const probe = new ProviderBlockWorkBudget('claude');
+      preflightClaudeDetailArtifact(bytes, CONVERSATION_ID, probe);
+      const contentBudget = new ProviderBlockWorkBudget('claude');
+      contentBudget.spendWork(
+        PROVIDER_CONTENT_MAX_WORK_UNITS - (phase === 'inventory' ? probe.counters.workUnits : 0)
+      );
+      const normalizeCapture = vi.fn();
+      resourceEntries(detailUrl());
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(detailResponse(bytes));
+
+      const error = await fetchClaudeConversation(CONVERSATION_ID, false, {
+        ...FIXED_DEPENDENCIES,
+        contentBudget,
+        normalizeCapture,
+      }).catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ProviderContentLimitError);
+      expect(getProviderContentLimitEvidence(error)).toBeUndefined();
+      expect(normalizeCapture).not.toHaveBeenCalled();
+      expect(contentBudget.counters.workUnits).toBeGreaterThan(PROVIDER_CONTENT_MAX_WORK_UNITS);
+    }
+  );
 
   it('ignores mismatched resources and reads only the exact named organization hint', async () => {
     resourceEntries(
@@ -677,6 +714,57 @@ describe('Claude exact-detail capture and archive composition', () => {
     expect(error).toMatchObject({ code: 'normalization-failed' });
     expect(String(error)).not.toContain('untrusted');
     expectVerifiedRawPair(error, bytes);
+  });
+
+  it('retains verified evidence on the exact late limit error without reclassifying it', async () => {
+    const bytes = detailBytes();
+    const counters = { occurrences: 12, blocks: 5, workUnits: PROVIDER_CONTENT_MAX_WORK_UNITS + 1 };
+    const limitError = new ProviderContentLimitError(
+      'claude',
+      'work',
+      PROVIDER_CONTENT_MAX_WORK_UNITS,
+      counters.workUnits,
+      counters
+    );
+    const originalCounters = limitError.counters;
+    const normalizeCapture = vi.fn().mockRejectedValue(limitError);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(detailResponse(bytes));
+
+    const error = await fetchClaudeConversation(CONVERSATION_ID, false, {
+      ...RESOLVED_DEPENDENCIES,
+      normalizeCapture,
+    }).catch((reason: unknown) => reason);
+
+    expect(normalizeCapture).toHaveBeenCalledOnce();
+    expect(error).toBe(limitError);
+    expect(error).not.toBeInstanceOf(ClaudeStructuredCaptureError);
+    expect(error).toMatchObject({
+      code: 'provider-content-limit-exceeded',
+      provider: 'claude',
+      limit: 'work',
+      maximum: PROVIDER_CONTENT_MAX_WORK_UNITS,
+      observed: counters.workUnits,
+      counters,
+    });
+    expect(limitError.counters).toBe(originalCounters);
+    expect(error).not.toHaveProperty('archiveCompanion');
+    expectVerifiedRawPair(error, bytes);
+    for (const other of [
+      undefined,
+      null,
+      'provider-content-limit-exceeded',
+      new Error(limitError.message),
+      { ...limitError },
+      new ProviderContentLimitError(
+        'claude',
+        'work',
+        limitError.maximum,
+        limitError.observed,
+        counters
+      ),
+    ]) {
+      expect(getProviderContentLimitEvidence(other)).toBeUndefined();
+    }
   });
 
   it('preserves verified raw and manifest when a matching detail has no current leaf', async () => {

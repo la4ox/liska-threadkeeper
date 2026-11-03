@@ -15,3 +15,15 @@ export {
   type DeepSeekNormalizationInput,
   type DeepSeekNormalizationResult,
 } from './deepseek/contracts';
+export {
+  PROVIDER_CONTENT_MAX_BLOCKS,
+  PROVIDER_CONTENT_MAX_BYTES,
+  PROVIDER_CONTENT_MAX_OCCURRENCES,
+  PROVIDER_CONTENT_MAX_WORK_UNITS,
+  ProviderBlockTraversalBudget,
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
+  providerBlockWorkBudget,
+  type ProviderBlockWorkCounters,
+  type ProviderContentLimitKind,
+} from './provider-block-work-budget';

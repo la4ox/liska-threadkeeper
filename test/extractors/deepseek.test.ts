@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
 import * as deepSeekApi from '../../src/content/extractors/deepseek-api';
 import { BaseExtractor } from '../../src/content/extractors/base';
+import { ProviderContentLimitError } from '../../src/archive/normalizers/provider-block-work-budget';
+import { registerProviderContentLimitEvidence } from '../../src/content/extractors/provider-content-limit-evidence';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../src/lib/constants';
 import { clearFixture, loadFixture, resetLocation } from '../fixtures/dom-helpers';
 import type { ArchiveCompanionBundle, ExtractionResult, SyncSettings } from '../../src/lib/types';
@@ -151,6 +153,22 @@ function stagedNavigationCompanion(): ArchiveCompanionBundle {
       },
     ],
   };
+}
+
+function postCaptureFailure(
+  kind: 'structured' | 'content-limit',
+  retained: ArchiveCompanionBundle
+): Error {
+  return kind === 'structured'
+    ? new deepSeekApi.DeepSeekStructuredCaptureError('normalization-failed', retained)
+    : registerProviderContentLimitEvidence(
+        new ProviderContentLimitError('deepseek', 'work', 2_000_000, 2_000_001, {
+          occurrences: 18,
+          blocks: 7,
+          workUnits: 2_000_001,
+        }),
+        retained
+      );
 }
 
 describe('DeepSeekExtractor', () => {
@@ -660,6 +678,47 @@ describe('DeepSeekExtractor', () => {
       expect(result.deepSeekAssetExportContext).toBeUndefined();
     });
 
+    it.each([true, false])(
+      'retains sidecar evidence after a content limit (DOM succeeds: %s)',
+      async domSucceeds => {
+        createDeepSeekPage(
+          'chat-123',
+          domSucceeds
+            ? [
+                { role: 'user', content: 'Fallback question' },
+                { role: 'assistant', content: '<p>Fallback answer</p>' },
+              ]
+            : []
+        );
+        const retained = stagedNavigationCompanion();
+        vi.spyOn(deepSeekApi, 'fetchDeepSeekConversation').mockRejectedValue(
+          postCaptureFailure('content-limit', retained)
+        );
+
+        const result = await extractor.extract();
+
+        expect(result.success).toBe(domSucceeds);
+        expect(result.archiveCompanion).toBe(retained);
+        expect(result.archiveCompanion?.artifacts.map(artifact => artifact.kind)).toEqual([
+          'raw',
+          'manifest',
+        ]);
+        expect(result.deepSeekAssetExportContext).toBeUndefined();
+        expect(result.structuredPresentationContext).toBeUndefined();
+        expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+        if (domSucceeds) {
+          expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+          expect(result.warnings).toContain(
+            deepSeekApi.DEEPSEEK_STRUCTURED_EVIDENCE_FALLBACK_WARNING
+          );
+          expect(result.warnings).not.toContain(deepSeekApi.DEEPSEEK_DOM_FALLBACK_WARNING);
+        } else {
+          expect(result.error).toBe('No messages found in conversation');
+          expect(result.data).toBeUndefined();
+        }
+      }
+    );
+
     it('cancels a successful structured result when SPA navigation changes the conversation', async () => {
       createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);
       localStorage.setItem('userToken', JSON.stringify({ value: 'local-test-token' }));
@@ -676,32 +735,34 @@ describe('DeepSeekExtractor', () => {
       });
     });
 
-    it('releases staged A evidence when navigation changes to a share route with the same id', async () => {
-      createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);
-      const retained = stagedNavigationCompanion();
-      const pending = deferred<Awaited<ReturnType<typeof deepSeekApi.fetchDeepSeekConversation>>>();
-      vi.spyOn(deepSeekApi, 'fetchDeepSeekConversation').mockReturnValue(pending.promise);
+    it.each(['structured', 'content-limit'] as const)(
+      'releases staged A evidence after %s when navigating to a share route with the same id',
+      async kind => {
+        createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);
+        const retained = stagedNavigationCompanion();
+        const pending =
+          deferred<Awaited<ReturnType<typeof deepSeekApi.fetchDeepSeekConversation>>>();
+        vi.spyOn(deepSeekApi, 'fetchDeepSeekConversation').mockReturnValue(pending.promise);
 
-      const extraction = extractor.extract();
-      setDeepSeekLocation('chat-123', 'share');
-      pending.reject(
-        new deepSeekApi.DeepSeekStructuredCaptureError('normalization-failed', retained)
-      );
+        const extraction = extractor.extract();
+        setDeepSeekLocation('chat-123', 'share');
+        pending.reject(postCaptureFailure(kind, retained));
 
-      await expect(extraction).resolves.toEqual({
-        success: false,
-        error: 'Conversation changed during extraction. No output was created.',
-      });
-      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
-        {
-          action: 'abortStagedArchiveArtifact',
-          source: 'deepseek',
-          stageId:
-            retained.artifacts[0].transport === 'staged' ? retained.artifacts[0].stageId : '',
-        },
-        expect.any(Function)
-      );
-    });
+        await expect(extraction).resolves.toEqual({
+          success: false,
+          error: 'Conversation changed during extraction. No output was created.',
+        });
+        expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+          {
+            action: 'abortStagedArchiveArtifact',
+            source: 'deepseek',
+            stageId:
+              retained.artifacts[0].transport === 'staged' ? retained.artifacts[0].stageId : '',
+          },
+          expect.any(Function)
+        );
+      }
+    );
 
     it('does not attach A evidence when navigation happens during DOM fallback', async () => {
       createDeepSeekPage('chat-123', [{ role: 'user', content: 'Rendered A' }]);

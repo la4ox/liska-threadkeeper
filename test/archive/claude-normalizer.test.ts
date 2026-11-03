@@ -7,6 +7,9 @@ import {
   CLAUDE_NORMALIZER_ID,
   CLAUDE_SOURCE_FORMAT,
   ClaudeNormalizationError,
+  PROVIDER_CONTENT_MAX_WORK_UNITS,
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
   inventoryClaudeRawAssets,
   normalizeClaudeCapture,
   preflightClaudeDetailArtifact,
@@ -97,6 +100,30 @@ async function rejects(bytes: Uint8Array, code: string) {
 }
 
 describe('Claude web-detail liska-thread/1 normalizer', () => {
+  it('keeps the normalizer public boundary typed at exact and exceeded aggregate work', async () => {
+    const bundle = await bundleFor();
+    const input = {
+      bundle,
+      artifactId: 'conversation',
+      manifestSha256: manifestHash(bundle),
+      sha256,
+    };
+    const probe = new ProviderBlockWorkBudget('claude');
+    const expected = await normalizeClaudeCapture({ ...input, contentBudget: probe });
+    const exact = new ProviderBlockWorkBudget('claude');
+    exact.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits);
+    await expect(normalizeClaudeCapture({ ...input, contentBudget: exact })).resolves.toEqual(
+      expected
+    );
+    expect(exact.counters.workUnits).toBe(PROVIDER_CONTENT_MAX_WORK_UNITS);
+
+    const over = new ProviderBlockWorkBudget('claude');
+    over.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits + 1);
+    await expect(normalizeClaudeCapture({ ...input, contentBudget: over })).rejects.toBeInstanceOf(
+      ProviderContentLimitError
+    );
+  });
+
   it('verifies exact provenance, retains deterministic topology and does not upgrade completeness', async () => {
     const first = await normalize();
     expect(await normalize()).toEqual(first);

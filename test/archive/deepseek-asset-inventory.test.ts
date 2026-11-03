@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DEEPSEEK_ATTACHMENT_INVENTORY_WARNING,
   inventoryDeepSeekRawAssets,
@@ -12,6 +12,7 @@ import {
   verifyDeepSeekAssetInventory,
   type DeepSeekAttachmentContext,
 } from '../../src/archive/normalizers/deepseek/assets';
+import { ProviderBlockWorkBudget } from '../../src/archive/normalizers/provider-block-work-budget';
 
 const fixture = JSON.parse(
   new TextDecoder().decode(
@@ -24,12 +25,15 @@ function sha256(bytes: Uint8Array): Promise<string> {
 }
 
 function attachmentContext(): DeepSeekAttachmentContext {
+  const contentBudget = new ProviderBlockWorkBudget('deepseek').beginTraversal();
   return {
     artifactId: 'conversation',
     format: 'deepseek.web.history',
-    privacy: { redactions: [] },
+    privacy: { redactions: [], contentBudget },
     manifestAssetsBySourceRef: new Map(),
     assets: {},
+    assetMetadataKeys: new Map(),
+    contentBudget,
   };
 }
 
@@ -66,6 +70,40 @@ function liveFragmentFile(): Record<string, unknown> {
 }
 
 describe('DeepSeek metadata-only attachment inventory', () => {
+  it('materializes a repeated asset source-ref list once while preserving metadata checks', () => {
+    const context = attachmentContext();
+    const count = 400;
+    const sourceRefs = Array.from({ length: count }, (_, index) => ({
+      artifactId: 'conversation',
+      rawPointer: `/files/${index}`,
+    }));
+    const mapSourceRefs = vi.spyOn(sourceRefs, 'map');
+    const manifestAsset = {
+      id: 'deepseek-asset-repeated',
+      state: 'not-attempted' as const,
+      attemptedAt: null,
+      relativePath: null,
+      mediaType: null,
+      byteLength: null,
+      sha256: null,
+      detail: 'metadata-only',
+      sourceRefs,
+    };
+    for (const sourceRef of sourceRefs) {
+      context.manifestAssetsBySourceRef.set(
+        `${sourceRef.artifactId}\u0000${sourceRef.rawPointer}`,
+        manifestAsset
+      );
+    }
+
+    for (let index = 0; index < count; index += 1) {
+      deepSeekAttachmentBlock(validFile(), 'message', index, `/files/${index}`, context);
+    }
+
+    expect(mapSourceRefs).toHaveBeenCalledOnce();
+    expect(Object.keys(context.assets)).toEqual(['deepseek-asset-repeated']);
+  });
+
   it('inventories the current FILE fragment shape at its exact nested raw pointer', async () => {
     const raw = {
       data: {
@@ -362,6 +400,25 @@ describe('DeepSeek metadata-only attachment inventory', () => {
     await expect(
       inventoryDeepSeekRawAssets({ raw, artifactId: 'conversation', sha256 })
     ).resolves.toMatchObject({ completeness: 'unknown' });
+  });
+
+  it('preserves the existing 16-level provider metadata depth boundary', async () => {
+    let auditResult: unknown = true;
+    for (let depth = 0; depth < 16; depth += 1) auditResult = [auditResult];
+    const inventory = await inventoryDeepSeekRawAssets({
+      raw: {
+        data: {
+          biz_data: {
+            chat_messages: [{ files: [{ id: 'depth-boundary-file', audit_result: auditResult }] }],
+          },
+        },
+      },
+      artifactId: 'conversation',
+      sha256,
+    });
+
+    expect(inventory.completeness).toBe('not-attempted');
+    expect(inventory.assets).toHaveLength(1);
   });
 
   it('degrades a recursively over-deep metadata value without preserving it', async () => {

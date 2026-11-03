@@ -12,7 +12,9 @@ export function deepSeekResidualFields(
   providerIds: readonly string[] = []
 ): Record<string, JsonValue> {
   const selected: DeepSeekJsonRecord = {};
-  for (const key of Object.keys(record)) {
+  const keys = Object.keys(record);
+  privacy.contentBudget?.spendWork(keys.length);
+  for (const key of keys) {
     if (excluded.has(key)) continue;
     Object.defineProperty(selected, key, {
       configurable: true,
@@ -20,7 +22,7 @@ export function deepSeekResidualFields(
       writable: true,
       value:
         key === 'files' && degradeFiles
-          ? degradedDeepSeekFilesExtension(record[key], providerIds)
+          ? degradedDeepSeekFilesExtension(record[key], providerIds, privacy.contentBudget)
           : record[key],
     });
   }

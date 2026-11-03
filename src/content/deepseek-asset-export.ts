@@ -27,6 +27,11 @@ import {
   type StructuredPresentationContext,
 } from '../lib/types';
 import {
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
+  providerBlockWorkBudget,
+} from '../archive/normalizers/provider-block-work-budget';
+import {
   acquireDeepSeekSignedAssets,
   type DeepSeekAssetAcquisition,
 } from './capture/deepseek-asset-acquisition';
@@ -125,8 +130,21 @@ async function requireCurrentConversation(
   }
 }
 
-function rethrowNavigationChange(error: unknown): void {
+function rethrowExportControlFlow(error: unknown): void {
   if (error instanceof DeepSeekNavigationChangedError) throw error;
+  if (error instanceof ProviderContentLimitError) throw error;
+}
+
+function exportContentBudget(
+  context: DeepSeekAssetExportContext,
+  supplied?: ProviderBlockWorkBudget
+): ProviderBlockWorkBudget {
+  const retained = (
+    context as DeepSeekAssetExportContext & {
+      contentBudget?: ProviderBlockWorkBudget;
+    }
+  ).contentBudget;
+  return providerBlockWorkBudget('deepseek', supplied ?? retained);
 }
 
 function cloneRecord(record: RawCaptureAssetRecord): RawCaptureAssetRecord {
@@ -160,7 +178,8 @@ function sameArchiveTransport(
 /** Verify the immutable runtime context before any durable write. */
 // eslint-disable-next-line complexity -- Raw identity, endpoint, descriptor, transport, and byte integrity are one indivisible trust check.
 export async function verifyDeepSeekAssetExportContext(
-  context: DeepSeekAssetExportContext
+  context: DeepSeekAssetExportContext,
+  contentBudget?: ProviderBlockWorkBudget
 ): Promise<RawCaptureArtifact> {
   const bundle = context.rawCaptureBundle;
   if (
@@ -192,7 +211,11 @@ export async function verifyDeepSeekAssetExportContext(
   ) {
     throw new Error('deepseek asset context raw binding');
   }
-  preflightDeepSeekHistoryArtifact(raw.bytes, bundle.manifest.conversationId);
+  preflightDeepSeekHistoryArtifact(
+    raw.bytes,
+    bundle.manifest.conversationId,
+    exportContentBudget(context, contentBudget)
+  );
   return raw;
 }
 
@@ -200,10 +223,11 @@ export async function verifyDeepSeekAssetExportContext(
 // eslint-disable-next-line complexity -- The pre-write companion binding intentionally checks every immutable field in one boundary.
 export async function validateDeepSeekAssetExportBinding(
   context: DeepSeekAssetExportContext,
-  companion: ArchiveCompanionBundle
+  companion: ArchiveCompanionBundle,
+  contentBudget?: ProviderBlockWorkBudget
 ): Promise<boolean> {
   try {
-    const raw = await verifyDeepSeekAssetExportContext(context);
+    const raw = await verifyDeepSeekAssetExportContext(context, contentBudget);
     const expectedConversationKey = await sha256Hex(
       new TextEncoder().encode(context.rawCaptureBundle.manifest.conversationId)
     );
@@ -240,7 +264,8 @@ export async function validateDeepSeekAssetExportBinding(
         Uint8Array.from(atob(manifest.bodyBase64), char => char.charCodeAt(0))
       )
     );
-  } catch {
+  } catch (error) {
+    rethrowExportControlFlow(error);
     return false;
   }
 }
@@ -275,10 +300,17 @@ async function inlineJsonArtifact(
 export async function buildDeepSeekBinaryAwareArchiveCompanion(
   context: DeepSeekAssetExportContext,
   assetRecords: readonly RawCaptureAssetRecord[],
-  runtimeAssets: readonly RawCaptureAsset[]
+  runtimeAssets: readonly RawCaptureAsset[],
+  contentBudget?: ProviderBlockWorkBudget
 ): Promise<ArchiveCompanionBundle> {
-  return (await buildDeepSeekBinaryAwareDestinationArchive(context, assetRecords, runtimeAssets))
-    .companion;
+  return (
+    await buildDeepSeekBinaryAwareDestinationArchive(
+      context,
+      assetRecords,
+      runtimeAssets,
+      contentBudget
+    )
+  ).companion;
 }
 
 export interface DeepSeekBuiltDestinationArchive {
@@ -291,9 +323,11 @@ export interface DeepSeekBuiltDestinationArchive {
 export async function buildDeepSeekBinaryAwareDestinationArchive(
   context: DeepSeekAssetExportContext,
   assetRecords: readonly RawCaptureAssetRecord[],
-  runtimeAssets: readonly RawCaptureAsset[]
+  runtimeAssets: readonly RawCaptureAsset[],
+  contentBudget?: ProviderBlockWorkBudget
 ): Promise<DeepSeekBuiltDestinationArchive> {
-  const originalRaw = await verifyDeepSeekAssetExportContext(context);
+  const budget = exportContentBudget(context, contentBudget);
+  const originalRaw = await verifyDeepSeekAssetExportContext(context, budget);
   const originalManifest = context.rawCaptureBundle.manifest;
   const warnings = originalManifest.warnings.filter(
     warning =>
@@ -338,6 +372,7 @@ export async function buildDeepSeekBinaryAwareDestinationArchive(
     artifactId: ARTIFACT_ID,
     manifestSha256: await hashCaptureManifest(manifest),
     sha256: sha256Hex,
+    contentBudget: budget,
   });
   const rawManifest: ArchiveCompanionBundle = {
     captureId: manifest.captureId,
@@ -433,11 +468,18 @@ function destinationAssets(
 
 async function acquireAssets(
   context: DeepSeekAssetExportContext,
-  dependencies: DeepSeekAssetExportDependencies
+  dependencies: DeepSeekAssetExportDependencies,
+  contentBudget: ProviderBlockWorkBudget
 ): Promise<DeepSeekAssetAcquisition> {
-  const candidates = await (dependencies.deriveCandidates ?? deriveDeepSeekAssetCandidates)(
-    context.rawCaptureBundle
-  );
+  const candidates = dependencies.deriveCandidates
+    ? await dependencies.deriveCandidates(context.rawCaptureBundle)
+    : await deriveDeepSeekAssetCandidates(
+        context.rawCaptureBundle,
+        'conversation',
+        sha256Hex,
+        undefined,
+        contentBudget
+      );
   return (dependencies.acquireAssets ?? acquireDeepSeekSignedAssets)({
     assets: context.rawCaptureBundle.manifest.assets,
     candidates,
@@ -478,8 +520,9 @@ export async function persistDeepSeekDestinationHonestAttachments(
   if (requested.length === 0) {
     return { rawSuccessfulDestinations: [], completeDestinations: [], warnings: [] };
   }
+  const contentBudget = exportContentBudget(context);
   await requireCurrentConversation(dependencies, companion);
-  const bindingValid = await validateDeepSeekAssetExportBinding(context, companion);
+  const bindingValid = await validateDeepSeekAssetExportBinding(context, companion, contentBudget);
   await requireCurrentConversation(dependencies, companion);
   if (!bindingValid) {
     return {
@@ -502,7 +545,7 @@ export async function persistDeepSeekDestinationHonestAttachments(
       dependencies.isConversationCurrent
     );
   } catch (error) {
-    rethrowNavigationChange(error);
+    rethrowExportControlFlow(error);
     return {
       rawSuccessfulDestinations: [],
       completeDestinations: [],
@@ -518,9 +561,9 @@ export async function persistDeepSeekDestinationHonestAttachments(
 
   let acquisition: DeepSeekAssetAcquisition;
   try {
-    acquisition = await acquireAssets(context, dependencies);
+    acquisition = await acquireAssets(context, dependencies, contentBudget);
   } catch (error) {
-    rethrowNavigationChange(error);
+    rethrowExportControlFlow(error);
     acquisition = {
       records: context.rawCaptureBundle.manifest.assets.map(cloneRecord),
       runtimeAssets: [],
@@ -544,7 +587,7 @@ export async function persistDeepSeekDestinationHonestAttachments(
       dependencies
     );
   } catch (error) {
-    rethrowNavigationChange(error);
+    rethrowExportControlFlow(error);
     // Destination finalization below converts every fetched claim to a failed write.
   }
   await requireCurrentConversation(dependencies, companion);
@@ -572,7 +615,8 @@ export async function persistDeepSeekDestinationHonestAttachments(
           : await buildDeepSeekBinaryAwareDestinationArchive(
               context,
               destinationState.records,
-              destinationState.runtimeAssets
+              destinationState.runtimeAssets,
+              contentBudget
             );
       const destinationCompanion = builtDestination
         ? builtDestination.companion
@@ -613,12 +657,12 @@ export async function persistDeepSeekDestinationHonestAttachments(
           );
           await requireCurrentConversation(dependencies, companion, destinationCompanion);
         } catch (error) {
-          rethrowNavigationChange(error);
+          rethrowExportControlFlow(error);
           // Archive completion remains authoritative; HTML receives no weaker evidence.
         }
       }
     } catch (error) {
-      rethrowNavigationChange(error);
+      rethrowExportControlFlow(error);
       warnings.push(DEEPSEEK_ASSET_FINALIZATION_FAILED_WARNING);
     }
   }

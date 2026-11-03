@@ -1,5 +1,9 @@
 import type { RawCaptureBundle } from '../../capture';
 import type { ArchiveDiagnostic, LiskaThreadArchive } from '../../types';
+import type {
+  ProviderBlockTraversalBudget,
+  ProviderBlockWorkBudget,
+} from '../provider-block-work-budget';
 
 export const CLAUDE_SOURCE_FORMAT = 'claude.web.detail' as const;
 export const CLAUDE_NORMALIZER_ID = 'claude-web/1' as const;
@@ -24,6 +28,7 @@ export interface ClaudeNormalizationInput {
   manifestSha256: string;
   artifactId: string;
   sha256: (bytes: Uint8Array) => Promise<string>;
+  contentBudget?: ProviderBlockWorkBudget;
 }
 
 export interface ClaudeNormalizationResult {
@@ -36,4 +41,5 @@ export interface ClaudeContext {
   diagnostics: ArchiveDiagnostic[];
   diagnosticKeys: Set<string>;
   unknownTypes: Set<string>;
+  contentBudget: ProviderBlockTraversalBudget;
 }

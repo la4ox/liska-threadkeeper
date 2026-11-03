@@ -179,6 +179,7 @@ export function sanitize(value: unknown, context: ClaudeContext, pointer: string
       return '[truncated]';
     }
     if (Array.isArray(current)) {
+      context.contentBudget.spendWork(current.length);
       const items: JsonValue[] = [];
       for (let index = 0; index < current.length && state.entries < 512; index += 1) {
         state.entries += 1;
@@ -190,6 +191,7 @@ export function sanitize(value: unknown, context: ClaudeContext, pointer: string
     if (!isRecord(current)) return null;
     const result: Record<string, JsonValue> = {};
     const keys = Object.keys(current);
+    context.contentBudget.spendWork(keys.length);
     for (const key of keys) {
       if (state.entries >= 512) {
         state.truncated = true;
@@ -224,6 +226,7 @@ export function residual(
   context: ClaudeContext,
   pointer: string
 ): NamespacedExtensions {
+  context.contentBudget.spendWork(Object.keys(record).length);
   const selected = Object.fromEntries(
     Object.entries(record).filter(([key]) => !excluded.includes(key))
   );

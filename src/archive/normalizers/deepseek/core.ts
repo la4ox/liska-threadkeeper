@@ -14,6 +14,13 @@ import {
 } from '../../types';
 import { validateLiskaThreadArchive } from '../../validate';
 import {
+  assertProviderContentBytes,
+  ProviderContentLimitError,
+  providerBlockWorkBudget,
+  type ProviderBlockTraversalBudget,
+  type ProviderBlockWorkBudget,
+} from '../provider-block-work-budget';
+import {
   DEEPSEEK_NORMALIZER_ID,
   DEEPSEEK_SOURCE_FORMAT,
   DeepSeekNormalizationError,
@@ -95,30 +102,37 @@ interface NormalizationContext extends DeepSeekAttachmentContext {
  */
 export function preflightDeepSeekHistoryArtifact(
   bytes: Uint8Array,
-  expectedConversationId: string
+  expectedConversationId: string,
+  contentBudget?: ProviderBlockWorkBudget
 ): string[] {
+  const operation = assertProviderContentBytes('deepseek', bytes, contentBudget);
   const raw = parseArtifactJson(bytes);
   const envelope = extractEnvelope(raw);
   const conversationId = sessionConversationId(envelope.session);
   if (conversationId !== expectedConversationId) {
     deepSeekFail('conversation-id-mismatch', 'DeepSeek response session does not match the route.');
   }
-  return observedUnknownFragmentTypes(envelope);
+  return observedUnknownFragmentTypes(envelope, operation.beginTraversal());
 }
 
 export async function normalizeDeepSeekCapture(
   input: DeepSeekNormalizationInput
 ): Promise<DeepSeekNormalizationResult> {
   try {
-    const { manifest, artifact } = await verifyInputProvenance(input);
+    const operation = providerBlockWorkBudget('deepseek', input?.contentBudget);
+    const { manifest, artifact } = await verifyInputProvenance(input, operation);
+    const traversal = operation.beginTraversal();
     const raw = parseArtifactJson(artifact.bytes);
     const envelope = extractEnvelope(raw);
-    const assetInventory = await inventoryDeepSeekRawAssets({
-      raw,
-      artifactId: input.artifactId,
-      sha256: input.sha256,
-    });
-    verifyDeepSeekAssetInventory(manifest, assetInventory);
+    const assetInventory = await inventoryDeepSeekRawAssets(
+      {
+        raw,
+        artifactId: input.artifactId,
+        sha256: input.sha256,
+      },
+      traversal
+    );
+    verifyDeepSeekAssetInventory(manifest, assetInventory, traversal);
     const conversationId = sessionConversationId(envelope.session);
     if (conversationId !== manifest.conversationId) {
       deepSeekFail(
@@ -126,7 +140,7 @@ export async function normalizeDeepSeekCapture(
         'DeepSeek response session does not match the capture manifest.'
       );
     }
-    const context = createContext(input, assetInventory, manifest);
+    const context = createContext(input, assetInventory, manifest, traversal);
     const archive = buildArchive(input, manifest, envelope, conversationId, context);
     const observedUnknownContentTypes = [...context.unknownTypes].sort();
     if (
@@ -141,7 +155,8 @@ export async function normalizeDeepSeekCapture(
     assertArchiveValidity(archive);
     return { archive, observedUnknownContentTypes };
   } catch (error) {
-    if (error instanceof DeepSeekNormalizationError) throw error;
+    if (error instanceof DeepSeekNormalizationError || error instanceof ProviderContentLimitError)
+      throw error;
     throw new DeepSeekNormalizationError(
       'invalid-manifest',
       'DeepSeek capture manifest or runtime bundle is malformed.'
@@ -150,7 +165,8 @@ export async function normalizeDeepSeekCapture(
 }
 
 async function verifyInputProvenance(
-  input: DeepSeekNormalizationInput
+  input: DeepSeekNormalizationInput,
+  contentBudget: ProviderBlockWorkBudget
 ): Promise<{ manifest: RawCaptureManifest; artifact: RawCaptureArtifact }> {
   if (!isPlainRecord(input) || !isPlainRecord(input.bundle)) {
     deepSeekFail('invalid-manifest', 'A raw DeepSeek capture bundle is required.');
@@ -166,6 +182,11 @@ async function verifyInputProvenance(
   if (!HASH_PATTERN.test(input.manifestSha256)) {
     deepSeekFail('invalid-manifest-hash', 'manifestSha256 must be lowercase SHA-256.');
   }
+  const selected = Array.isArray(input.bundle.artifacts)
+    ? input.bundle.artifacts.find(candidate => candidate?.record?.id === input.artifactId)
+    : undefined;
+  if (selected?.bytes instanceof Uint8Array)
+    assertProviderContentBytes('deepseek', selected.bytes, contentBudget);
   const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest, null, 2));
   if (
     (await safeHash(input.sha256, manifestBytes, 'manifest-integrity-failed')) !==
@@ -260,20 +281,30 @@ function extractEnvelope(raw: unknown): DeepSeekEnvelope {
   return { session, messages: bizData.chat_messages };
 }
 
-function observedUnknownFragmentTypes(envelope: DeepSeekEnvelope): string[] {
+function observedUnknownFragmentTypes(
+  envelope: DeepSeekEnvelope,
+  budget: ProviderBlockTraversalBudget
+): string[] {
   const observed = new Set<string>();
+  budget.admitOccurrences(envelope.messages.length);
   envelope.messages.forEach(message => {
     if (!isPlainRecord(message)) return;
-    classifyUnknownBlockTypes(message).forEach(type => observed.add(type));
+    classifyUnknownBlockTypes(message, undefined, budget).forEach(type => observed.add(type));
   });
   return [...observed].sort();
 }
 
-function classifyUnknownBlockTypes(message: DeepSeekJsonRecord, normalizedRole?: string): string[] {
+function classifyUnknownBlockTypes(
+  message: DeepSeekJsonRecord,
+  normalizedRole?: string,
+  budget: ProviderBlockTraversalBudget = providerBlockWorkBudget('deepseek').beginTraversal()
+): string[] {
   const unknown = new Set<string>();
   let hasVisibleFragment = false;
   let hasReasoningFragment = false;
+  if (Array.isArray(message.files)) budget.admitOccurrences(message.files.length);
   if (Array.isArray(message.fragments)) {
+    budget.admitOccurrences(message.fragments.length);
     message.fragments.forEach(fragment => {
       if (!isPlainRecord(fragment) || typeof fragment.type !== 'string') return;
       const type = fragment.type.trim().toUpperCase();
@@ -290,8 +321,9 @@ function classifyUnknownBlockTypes(message: DeepSeekJsonRecord, normalizedRole?:
       }
       if (!KNOWN_FRAGMENT_TYPES.has(type)) unknown.add(type);
       else if (type === 'FILE') {
+        if (Array.isArray(fragment.files)) budget.admitOccurrences(fragment.files.length);
         if (!Array.isArray(fragment.files)) unknown.add('FILE:malformed-files');
-        else if (hasDeepSeekFileFragmentMetadata(fragment)) {
+        else if (hasDeepSeekFileFragmentMetadata(fragment, budget)) {
           unknown.add(DEEPSEEK_FILE_METADATA_PROVIDER_TYPE);
         }
       } else if (typeof fragment.content !== 'string') unknown.add(`${type}:non-text`);
@@ -345,7 +377,8 @@ function sessionConversationId(session: DeepSeekJsonRecord): string {
 function createContext(
   input: DeepSeekNormalizationInput,
   assetInventory: DeepSeekAssetInventory,
-  manifest: RawCaptureManifest
+  manifest: RawCaptureManifest,
+  contentBudget: ProviderBlockTraversalBudget
 ): NormalizationContext {
   const format = input.sourceFormat ?? DEEPSEEK_SOURCE_FORMAT;
   if (typeof format !== 'string' || !format || format.length > 255) {
@@ -354,11 +387,13 @@ function createContext(
   return {
     artifactId: input.artifactId,
     format,
-    privacy: { redactions: [] },
+    privacy: { redactions: [], contentBudget },
+    contentBudget,
     unknownTypes: new Set(),
     assetInventory,
     manifestAssetsBySourceRef: deepSeekManifestAssetsBySourceRef(manifest.assets),
     assets: {},
+    assetMetadataKeys: new Map(),
   };
 }
 
@@ -452,6 +487,7 @@ function normalizeGraph(
   }
   const parsed: ParsedMessage[] = [];
   const byId = new Map<string, ParsedMessage>();
+  context.contentBudget.admitOccurrences(envelope.messages.length);
   envelope.messages.forEach((value, index) => {
     const pointer = pointerAt(MESSAGES_POINTER, String(index));
     const record = requireRecord(value, pointer, 'malformed-message');
@@ -572,7 +608,9 @@ function normalizeBlocks(
   pointer: string,
   context: NormalizationContext
 ): ArchiveBlock[] {
-  classifyUnknownBlockTypes(message, role).forEach(type => context.unknownTypes.add(type));
+  classifyUnknownBlockTypes(message, role, context.contentBudget).forEach(type =>
+    context.unknownTypes.add(type)
+  );
   const blocks: ArchiveBlock[] = [];
   let hasVisibleFragment = false;
   let hasReasoningFragment = false;
@@ -580,6 +618,7 @@ function normalizeBlocks(
     if (!Array.isArray(message.fragments)) {
       deepSeekFail('malformed-fragments', `${pointerAt(pointer, 'fragments')} must be an array.`);
     }
+    context.contentBudget.admitOccurrences(message.fragments.length);
     message.fragments.forEach((value, index) => {
       const fragmentPointer = pointerAt(pointer, 'fragments', String(index));
       const fragment = requireRecord(value, fragmentPointer, 'malformed-fragment');
@@ -654,11 +693,13 @@ function normalizeBlocks(
         'DeepSeek attachment inventory changed during normalization.'
       );
     }
+    context.contentBudget.admitOccurrences(message.files.length);
     message.files.forEach((value, fileIndex) => {
       const filePointer = pointerAt(pointer, 'files', String(fileIndex));
       blocks.push(deepSeekAttachmentBlock(value, messageId, blocks.length, filePointer, context));
     });
   }
+  context.contentBudget.recordBlocks(blocks.length);
   return blocks;
 }
 
