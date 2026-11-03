@@ -5,6 +5,12 @@ import type { ArchiveCompanionBundle, InlineArchiveCompanionArtifact } from '../
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../src/lib/constants';
 import * as archiveProjection from '../../src/content/archive-projection';
 import {
+  PROVIDER_CONTENT_MAX_WORK_UNITS,
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
+} from '../../src/archive/normalizers/provider-block-work-budget';
+import { preflightClaudeDetailArtifact } from '../../src/archive/normalizers/claude';
+import {
   CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING,
   CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING,
   CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING,
@@ -191,6 +197,24 @@ describe('Claude exact-detail capture and archive composition', () => {
     expect(getItem).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
     expect(enumerate).not.toHaveBeenCalled();
+  });
+
+  it('shares one aggregate work scope across preflight and raw inventory', async () => {
+    const bytes = detailBytes();
+    const probe = new ProviderBlockWorkBudget('claude');
+    preflightClaudeDetailArtifact(bytes, CONVERSATION_ID, probe);
+    const contentBudget = new ProviderBlockWorkBudget('claude');
+    contentBudget.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits);
+    resourceEntries(detailUrl());
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(detailResponse(bytes));
+
+    await expect(
+      fetchClaudeConversation(CONVERSATION_ID, false, {
+        ...FIXED_DEPENDENCIES,
+        contentBudget,
+      })
+    ).rejects.toBeInstanceOf(ProviderContentLimitError);
+    expect(contentBudget.counters.workUnits).toBeGreaterThan(PROVIDER_CONTENT_MAX_WORK_UNITS);
   });
 
   it('ignores mismatched resources and reads only the exact named organization hint', async () => {

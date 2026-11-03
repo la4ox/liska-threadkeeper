@@ -13,6 +13,12 @@ import {
 } from '../../types';
 import { validateLiskaThreadArchive } from '../../validate';
 import {
+  assertProviderContentBytes,
+  ProviderContentLimitError,
+  providerBlockWorkBudget,
+  type ProviderBlockWorkBudget,
+} from '../provider-block-work-budget';
+import {
   CLAUDE_NORMALIZER_ID,
   ClaudeNormalizationError,
   fail,
@@ -45,14 +51,17 @@ import {
 /** Pre-manifest identity/type inventory only; malformed topology must remain capturable as raw evidence. */
 export function preflightClaudeDetailArtifact(
   bytes: Uint8Array,
-  expectedConversationId: string
+  expectedConversationId: string,
+  contentBudget?: ProviderBlockWorkBudget
 ): string[] {
+  const operation = assertProviderContentBytes('claude', bytes, contentBudget);
   const detail = parseJson(bytes);
   if (!isRecord(detail)) fail('malformed-raw-artifact', 'Claude detail must be a plain object.');
   if (identifier(detail.uuid, '/uuid') !== expectedConversationId)
     fail('conversation-id-mismatch', 'Claude detail UUID does not match the capture conversation.');
+  const traversal = operation.beginTraversal();
   return Array.isArray(detail.chat_messages)
-    ? observedClaudeUnknownTypes(detail.chat_messages)
+    ? observedClaudeUnknownTypes(detail.chat_messages, traversal)
     : [];
 }
 
@@ -60,7 +69,9 @@ export async function normalizeClaudeCapture(
   input: ClaudeNormalizationInput
 ): Promise<ClaudeNormalizationResult> {
   try {
-    const { manifest, artifact } = await verifyProvenance(input);
+    const operation = providerBlockWorkBudget('claude', input?.contentBudget);
+    const { manifest, artifact } = await verifyProvenance(input, operation);
+    const traversal = operation.beginTraversal();
     const raw = parseJson(artifact.bytes);
     const detail = parseClaudeDetail(raw, manifest.conversationId);
     const context: ClaudeContext = {
@@ -68,19 +79,23 @@ export async function normalizeClaudeCapture(
       diagnostics: [],
       diagnosticKeys: new Set(),
       unknownTypes: new Set(),
+      contentBudget: traversal,
     };
     const topology = parseClaudeTopology(detail, context);
-    const inventory = await inventoryClaudeRawAssets({
-      raw,
-      artifactId: input.artifactId,
-      sha256: input.sha256,
-    });
+    const inventory = await inventoryClaudeRawAssets(
+      {
+        raw,
+        artifactId: input.artifactId,
+        sha256: input.sha256,
+      },
+      traversal
+    );
     if (JSON.stringify(manifest.assets) !== JSON.stringify(inventory.assets))
       fail(
         'asset-inventory-mismatch',
         'Claude metadata-only asset inventory does not match the verified artifact.'
       );
-    const unknownTypes = observedClaudeUnknownTypes(detail.chat_messages);
+    const unknownTypes = observedClaudeUnknownTypes(detail.chat_messages, traversal);
     if (JSON.stringify(unknownTypes) !== JSON.stringify(manifest.observedUnknownContentTypes))
       fail(
         'unknown-content-types-mismatch',
@@ -100,7 +115,8 @@ export async function normalizeClaudeCapture(
       );
     return { archive, observedUnknownContentTypes: unknownTypes };
   } catch (error) {
-    if (error instanceof ClaudeNormalizationError) throw error;
+    if (error instanceof ClaudeNormalizationError || error instanceof ProviderContentLimitError)
+      throw error;
     throw new ClaudeNormalizationError(
       'invalid-manifest',
       'Claude capture manifest or runtime bundle is malformed.'
@@ -109,7 +125,8 @@ export async function normalizeClaudeCapture(
 }
 
 async function verifyProvenance(
-  input: ClaudeNormalizationInput
+  input: ClaudeNormalizationInput,
+  contentBudget: ProviderBlockWorkBudget
 ): Promise<{ manifest: RawCaptureManifest; artifact: RawCaptureArtifact }> {
   if (!isRecord(input) || !isRecord(input.bundle) || typeof input.sha256 !== 'function')
     fail('invalid-manifest', 'A Claude raw capture bundle and SHA-256 verifier are required.');
@@ -117,6 +134,11 @@ async function verifyProvenance(
   identifier(input.artifactId, 'artifactId');
   if (typeof input.manifestSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(input.manifestSha256))
     fail('invalid-manifest-hash', 'manifestSha256 must be lowercase SHA-256.');
+  const selected = Array.isArray(input.bundle.artifacts)
+    ? input.bundle.artifacts.find(item => item?.record?.id === input.artifactId)
+    : undefined;
+  if (selected?.bytes instanceof Uint8Array)
+    assertProviderContentBytes('claude', selected.bytes, contentBudget);
   let actualManifestHash: string;
   try {
     actualManifestHash = await input.sha256(
@@ -175,16 +197,19 @@ function buildArchive(
   context: ClaudeContext
 ): LiskaThreadArchive {
   const assets = canonicalAssets(inventory, context);
+  context.contentBudget.spendWork(inventory.assets.length);
   const assetIdsByPointer = new Map(
     inventory.assets.flatMap(asset =>
       asset.sourceRefs.map(source => [source.rawPointer, asset.id] as const)
     )
   );
-  for (const parsed of topology.messages)
+  for (const parsed of topology.messages) {
+    context.contentBudget.spendWork();
     topology.graph.nodes[parsed.id].message = normalizeMessage(parsed, {
       ...context,
       assetIdsByPointer,
     });
+  }
   const conversationSource = ref(context, 'conversation', '', manifest.conversationId);
   const conversation = {
     id: manifest.conversationId,
@@ -297,6 +322,7 @@ function canonicalAssets(
 ): Record<string, ArchiveAsset> {
   const assets: Record<string, ArchiveAsset> = {};
   for (const { record, metadata } of inventory.discovered) {
+    context.contentBudget.spendWork(metadata.length + 1);
     const first = metadata[0];
     const value = first.value;
     const filename = firstString(value, ['file_name', 'filename', 'name']);

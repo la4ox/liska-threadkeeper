@@ -1,4 +1,9 @@
 import type { RawCaptureAssetRecord } from '../../capture';
+import {
+  providerBlockWorkBudget,
+  type ProviderBlockTraversalBudget,
+  type ProviderBlockWorkBudget,
+} from '../provider-block-work-budget';
 import type { ClaudeRecord } from './contracts';
 import { fail } from './contracts';
 import { at, identifier, isRecord } from './privacy';
@@ -7,6 +12,7 @@ export interface ClaudeAssetInventoryInput {
   raw: unknown;
   artifactId: string;
   sha256: (bytes: Uint8Array) => Promise<string>;
+  contentBudget?: ProviderBlockWorkBudget;
 }
 
 export interface ClaudeAssetMetadata {
@@ -31,12 +37,16 @@ const ASSET_TYPES = new Set(['image', 'document', 'attachment']);
 
 /** Only exact durable provider IDs coalesce. Missing/ambiguous identity stays pointer-local. */
 export async function inventoryClaudeRawAssets(
-  input: ClaudeAssetInventoryInput
+  input: ClaudeAssetInventoryInput,
+  traversal?: ProviderBlockTraversalBudget
 ): Promise<ClaudeAssetInventory> {
+  const budget =
+    traversal ?? providerBlockWorkBudget('claude', input?.contentBudget).beginTraversal();
   identifier(input.artifactId, 'artifactId');
-  const candidates = discover(input.raw);
+  const candidates = discover(input.raw, budget);
   const groups = new Map<string, ClaudeAssetMetadata[]>();
   for (const candidate of candidates) {
+    budget.spendWork();
     const providerId = durableId(candidate.value);
     const key =
       providerId === null
@@ -48,6 +58,7 @@ export async function inventoryClaudeRawAssets(
   }
   const discovered: ClaudeInventoriedAsset[] = [];
   for (const [key, metadata] of groups) {
+    budget.spendWork(metadata.length + 1);
     const digest = await input.sha256(
       new TextEncoder().encode(`liska.claude.asset-id/v1\u0000${key}`)
     );
@@ -81,11 +92,12 @@ export async function inventoryClaudeRawAssets(
   };
 }
 
-function discover(raw: unknown): ClaudeAssetMetadata[] {
+function discover(raw: unknown, budget: ProviderBlockTraversalBudget): ClaudeAssetMetadata[] {
   if (!isRecord(raw) || !Array.isArray(raw.chat_messages)) return [];
   const candidates: ClaudeAssetMetadata[] = [];
   const seen = new Set<string>();
   function add(value: unknown, pointer: string): void {
+    budget.spendWork();
     if (!isRecord(value) || seen.has(pointer)) return;
     if (candidates.length >= 50_000)
       fail(
@@ -99,25 +111,31 @@ function discover(raw: unknown): ClaudeAssetMetadata[] {
     if (!Array.isArray(value)) return;
     if (depth >= 16)
       fail('content-depth-limit-exceeded', 'Claude content nesting exceeds its inventory limit.');
+    budget.admitOccurrences(value.length);
     value.forEach((block, index) => {
       if (!isRecord(block)) return;
       const blockPointer = at(pointer, String(index));
       if (typeof block.type === 'string' && ASSET_TYPES.has(block.type)) add(block, blockPointer);
       for (const field of ['attachments', 'files']) {
         const entries = block[field];
-        if (Array.isArray(entries))
+        if (Array.isArray(entries)) {
+          budget.admitOccurrences(entries.length);
           entries.forEach((item, i) => add(item, at(blockPointer, field, String(i))));
+        }
       }
       walkContent(block.content, at(blockPointer, 'content'), depth + 1);
     });
   }
+  budget.admitOccurrences(raw.chat_messages.length);
   raw.chat_messages.forEach((message, index) => {
     if (!isRecord(message)) return;
     const pointer = at('/chat_messages', String(index));
     for (const field of ['attachments', 'files']) {
       const entries = message[field];
-      if (Array.isArray(entries))
+      if (Array.isArray(entries)) {
+        budget.admitOccurrences(entries.length);
         entries.forEach((item, i) => add(item, at(pointer, field, String(i))));
+      }
     }
     walkContent(message.content, at(pointer, 'content'), 0);
   });

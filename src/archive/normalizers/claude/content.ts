@@ -1,4 +1,8 @@
 import type { ArchiveBlock } from '../../types';
+import {
+  providerBlockWorkBudget,
+  type ProviderBlockTraversalBudget,
+} from '../provider-block-work-budget';
 import type { ClaudeContext, ClaudeRecord } from './contracts';
 import {
   at,
@@ -26,7 +30,11 @@ export interface ClaudeContentContext extends ClaudeContext {
   assetIdsByPointer: ReadonlyMap<string, string>;
 }
 
-export function observedClaudeUnknownTypes(messages: unknown[]): string[] {
+export function observedClaudeUnknownTypes(
+  messages: unknown[],
+  traversal?: ProviderBlockTraversalBudget
+): string[] {
+  const budget = traversal ?? providerBlockWorkBudget('claude').beginTraversal();
   const observed = new Set<string>();
   function scan(value: unknown, depth: number, isMessage = false): void {
     if (depth > 16 || !isRecord(value)) return;
@@ -35,6 +43,7 @@ export function observedClaudeUnknownTypes(messages: unknown[]): string[] {
       Array.isArray(value.content) &&
       value.content.length
     ) {
+      budget.admitOccurrences(value.content.length);
       for (const block of value.content) {
         const unknown = unknownType(block);
         if (unknown !== null) observed.add(unknown);
@@ -54,12 +63,14 @@ export function observedClaudeUnknownTypes(messages: unknown[]): string[] {
         observed.add(`message.${field}`);
         continue;
       }
+      budget.admitOccurrences(entries.length);
       for (const entry of entries) {
         if (field === 'artifacts') observed.add('artifact');
         else if (!isRecord(entry)) observed.add(`${field}:malformed`);
       }
     }
   }
+  budget.admitOccurrences(messages.length);
   messages.forEach(message => {
     scan(message, 0, true);
     if (
@@ -83,6 +94,10 @@ export function claudeMessageBlocks(
   context: ClaudeContentContext
 ): ArchiveBlock[] {
   const blocks: ArchiveBlock[] = [];
+  const push = (block: ArchiveBlock): void => {
+    context.contentBudget.recordBlocks();
+    blocks.push(block);
+  };
   const addUnknown = (type: string, value: unknown, location: string): void => {
     context.unknownTypes.add(type);
     diagnostic(
@@ -92,7 +107,7 @@ export function claudeMessageBlocks(
       'Unmapped Claude content was retained as a bounded unknown block.',
       'info'
     );
-    blocks.push({
+    push({
       ...base(location),
       type: 'unknown',
       providerType: type,
@@ -110,11 +125,11 @@ export function claudeMessageBlocks(
       addUnknown(malformedType, value, location);
       return;
     }
-    blocks.push({ ...base(location), type: 'attachment', assetId });
+    push({ ...base(location), type: 'attachment', assetId });
   }
   function citation(value: ClaudeRecord, location: string): void {
     const label = value.title ?? value.label ?? value.source;
-    blocks.push({
+    push({
       ...base(location),
       type: 'citation',
       label: typeof label === 'string' ? text(label, context, location) : null,
@@ -130,6 +145,7 @@ export function claudeMessageBlocks(
         addUnknown(`message.${field}`, entries, at(location, field));
         continue;
       }
+      context.contentBudget.admitOccurrences(entries.length);
       entries.forEach((value, index) => {
         const itemPointer = at(location, field, String(index));
         if (field === 'artifacts') addUnknown('artifact', value, itemPointer);
@@ -153,27 +169,27 @@ export function claudeMessageBlocks(
     };
     if (type === 'text') {
       const content = text(value.text as string, context, at(location, 'text'));
-      blocks.push(
+      push(
         role === 'assistant'
           ? { ...common, type: 'markdown', markdown: content }
           : { ...common, type: 'text', text: content }
       );
     } else if (type === 'thinking') {
       const field = typeof value.thinking === 'string' ? 'thinking' : 'text';
-      blocks.push({
+      push({
         ...common,
         type: 'reasoning',
         text: text(value[field] as string, context, at(location, field)),
       });
     } else if (type === 'tool_use') {
-      blocks.push({
+      push({
         ...common,
         type: 'tool_call',
         toolName: text(value.name as string, context, at(location, 'name')),
         arguments: sanitize(value.input, context, at(location, 'input')),
       });
     } else if (type === 'tool_result') {
-      blocks.push({
+      push({
         ...common,
         type: 'tool_result',
         toolName: nullableText(value.name, context, at(location, 'name')),
@@ -187,6 +203,7 @@ export function claudeMessageBlocks(
   }
   function nestedEvidence(entries: unknown, location: string, depth: number): void {
     if (!Array.isArray(entries) || depth > 16) return;
+    context.contentBudget.admitOccurrences(entries.length);
     entries.forEach((nested, index) => {
       const nestedPointer = at(location, String(index));
       const nestedUnknown = unknownType(nested);
@@ -202,6 +219,7 @@ export function claudeMessageBlocks(
     });
   }
   if (Array.isArray(message.content) && message.content.length) {
+    context.contentBudget.admitOccurrences(message.content.length);
     message.content.forEach((value, index) =>
       structured(value, at(pointer, 'content', String(index)))
     );
@@ -222,7 +240,7 @@ export function claudeMessageBlocks(
           'info'
         );
       const value = text(message.text, context, at(pointer, 'text'));
-      blocks.push(
+      push(
         role === 'assistant'
           ? { ...base(at(pointer, 'text')), type: 'markdown', markdown: value }
           : { ...base(at(pointer, 'text')), type: 'text', text: value }

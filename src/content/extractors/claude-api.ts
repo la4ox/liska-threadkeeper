@@ -8,8 +8,11 @@ import {
   normalizeClaudeCapture,
   preflightClaudeDetailArtifact,
   ClaudeNormalizationError,
+  ProviderContentLimitError,
+  providerBlockWorkBudget,
   type ClaudeAssetInventory,
   type ClaudeNormalizationInput,
+  type ProviderBlockWorkBudget,
 } from '../../archive/normalizers/claude';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import type { ArchiveCompanionBundle, ConversationData } from '../../lib/types';
@@ -69,6 +72,7 @@ export interface ClaudeApiDependencies {
   normalizeCapture?: (input: ClaudeNormalizationInput) => ReturnType<typeof normalizeClaudeCapture>;
   /** Test seam only; resolved organization IDs are still validated and never persisted. */
   resolveOrganizationId?: (conversationId: string) => string | null;
+  contentBudget?: ProviderBlockWorkBudget;
 }
 
 /** One exact same-origin detail read; successful transport never implies complete coverage. */
@@ -84,16 +88,23 @@ export async function fetchClaudeConversation(
   const organizationId = resolveOrganizationId(conversationId, dependencies);
   if (organizationId === null) return null;
 
+  const contentBudget = providerBlockWorkBudget('claude', dependencies.contentBudget);
   const artifact = await captureClaudeDetail(conversationId, organizationId);
-  const { raw, observedUnknownContentTypes } = preflightDetail(artifact.bytes, conversationId);
+  const { raw, observedUnknownContentTypes } = preflightDetail(
+    artifact.bytes,
+    conversationId,
+    contentBudget
+  );
   let inventory: ClaudeAssetInventory | null;
   try {
     inventory = await inventoryClaudeRawAssets({
       raw,
       artifactId: ARTIFACT_ID,
       sha256: sha256Hex,
+      contentBudget,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProviderContentLimitError) throw error;
     // Inventory failure must not discard identity-checked exact raw evidence.
     inventory = null;
   }
@@ -129,9 +140,11 @@ export async function fetchClaudeConversation(
       artifactId: ARTIFACT_ID,
       manifestSha256: await hashCaptureManifest(bundle.manifest),
       sha256: sha256Hex,
+      contentBudget,
     });
     archive = normalized.archive;
-  } catch {
+  } catch (error) {
+    if (error instanceof ProviderContentLimitError) throw error;
     throw new ClaudeStructuredCaptureError('normalization-failed', archiveCompanion);
   }
 
@@ -256,12 +269,18 @@ async function captureDetailResponse(
 
 function preflightDetail(
   bytes: Uint8Array,
-  conversationId: string
+  conversationId: string,
+  contentBudget: ProviderBlockWorkBudget
 ): { raw: unknown; observedUnknownContentTypes: string[] } {
   try {
-    const observedUnknownContentTypes = preflightClaudeDetailArtifact(bytes, conversationId);
+    const observedUnknownContentTypes = preflightClaudeDetailArtifact(
+      bytes,
+      conversationId,
+      contentBudget
+    );
     return { raw: parseJsonArtifact(bytes), observedUnknownContentTypes };
   } catch (error) {
+    if (error instanceof ProviderContentLimitError) throw error;
     const identityMismatch =
       error instanceof ClaudeNormalizationError && error.code === 'conversation-id-mismatch';
     throw new ClaudeStructuredCaptureError(

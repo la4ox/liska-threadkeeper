@@ -10,6 +10,11 @@ import {
   type LiskaThreadArchive,
   type RawCaptureBundle,
 } from '../../src/archive';
+import {
+  PROVIDER_CONTENT_MAX_WORK_UNITS,
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
+} from '../../src/archive/normalizers/provider-block-work-budget';
 import { acquireDeepSeekSignedAssets } from '../../src/content/capture/deepseek-asset-acquisition';
 import { deriveDeepSeekAssetCandidates } from '../../src/content/capture/deepseek-asset-resolver';
 import {
@@ -23,6 +28,7 @@ import {
   DEEPSEEK_ASSET_FINALIZATION_FAILED_WARNING,
   DEEPSEEK_ASSET_RAW_PERSISTENCE_FAILED_WARNING,
   DeepSeekNavigationChangedError,
+  buildDeepSeekBinaryAwareDestinationArchive,
   persistDeepSeekDestinationHonestAttachments,
   validateDeepSeekAssetExportBinding,
   verifyDeepSeekAssetExportContext,
@@ -183,6 +189,26 @@ describe('DeepSeek destination-honest asset export', () => {
       if (typeof callback === 'function') callback({ success: true });
       return Promise.resolve({ success: true });
     });
+  });
+
+  it('retains one work scope through export preflight and destination reconstruction', async () => {
+    const { context } = await capture();
+    const probe = new ProviderBlockWorkBudget('deepseek');
+    await verifyDeepSeekAssetExportContext(context, probe);
+    const contentBudget = new ProviderBlockWorkBudget('deepseek');
+    contentBudget.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits);
+    (
+      context as DeepSeekAssetExportContext & { contentBudget: ProviderBlockWorkBudget }
+    ).contentBudget = contentBudget;
+
+    await expect(
+      buildDeepSeekBinaryAwareDestinationArchive(
+        context,
+        context.rawCaptureBundle.manifest.assets,
+        []
+      )
+    ).rejects.toBeInstanceOf(ProviderContentLimitError);
+    expect(contentBudget.counters.workUnits).toBeGreaterThan(PROVIDER_CONTENT_MAX_WORK_UNITS);
   });
 
   it('aborts an owned staged raw when navigation happens during binding', async () => {

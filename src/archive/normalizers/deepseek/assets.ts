@@ -6,6 +6,11 @@ import type {
   JsonValue,
   SourceReference,
 } from '../../types';
+import {
+  providerBlockWorkBudget,
+  rethrowProviderContentLimit,
+  type ProviderBlockTraversalBudget,
+} from '../provider-block-work-budget';
 import { deepSeekFail, type DeepSeekJsonRecord } from './contracts';
 import {
   DEEPSEEK_ATTACHMENT_INVENTORY_WARNING,
@@ -44,18 +49,24 @@ export interface DeepSeekAttachmentContext {
   privacy: DeepSeekPrivacyTracker;
   manifestAssetsBySourceRef: Map<string, RawCaptureAssetRecord>;
   assets: Record<string, ArchiveAsset>;
+  assetMetadataKeys: Map<string, string>;
+  contentBudget: ProviderBlockTraversalBudget;
 }
 
 /** Rebuild the ledger from exact bytes before trusting any manifest asset pointer or ID. */
 export function verifyDeepSeekAssetInventory(
   manifest: RawCaptureManifest,
-  inventory: DeepSeekAssetInventory
+  inventory: DeepSeekAssetInventory,
+  traversal?: ProviderBlockTraversalBudget
 ): void {
+  const budget = traversal ?? providerBlockWorkBudget('deepseek').beginTraversal();
+  budget.spendWork(manifest.assets.length + inventory.assets.length);
   const manifestAssets = new Map(manifest.assets.map(asset => [asset.id, asset]));
   const sourceInventoryMatches =
     manifestAssets.size === manifest.assets.length &&
     manifest.assets.length === inventory.assets.length &&
     inventory.assets.every(expected => {
+      budget.spendWork(expected.sourceRefs.length + 1);
       const actual = manifestAssets.get(expected.id);
       return actual && JSON.stringify(actual.sourceRefs) === JSON.stringify(expected.sourceRefs);
     });
@@ -105,8 +116,9 @@ export function deepSeekAttachmentBlock(
 ): ArchiveBlock {
   let file: ReturnType<typeof readDeepSeekRawFileRecord>;
   try {
-    file = readDeepSeekRawFileRecord(value);
-  } catch {
+    file = readDeepSeekRawFileRecord(value, context.contentBudget);
+  } catch (error) {
+    rethrowProviderContentLimit(error);
     deepSeekFail(
       'asset-inventory-mismatch',
       'DeepSeek attachment inventory changed during normalization.'
@@ -133,9 +145,11 @@ export function deepSeekAttachmentBlock(
 
 export function degradedDeepSeekFilesExtension(
   value: unknown,
-  providerIds: readonly string[]
+  providerIds: readonly string[],
+  traversal?: ProviderBlockTraversalBudget
 ): unknown {
-  return omitProviderIds(value, 0, new Set(providerIds));
+  const budget = traversal ?? providerBlockWorkBudget('deepseek').beginTraversal();
+  return omitProviderIds(value, 0, new Set(providerIds), budget);
 }
 
 export function deepSeekAssetInventoryDiagnostics(
@@ -172,7 +186,7 @@ export function deepSeekFileFragmentBlocks(
         type: 'unknown',
         providerType: 'FILE',
         raw: sanitizeJson(
-          degradedDeepSeekFilesExtension(fragment, inventory.providerIds),
+          degradedDeepSeekFilesExtension(fragment, inventory.providerIds, context.contentBudget),
           context.privacy,
           pointer
         ),
@@ -201,11 +215,12 @@ function successfulFileFragmentBlocks(
     );
   }
   const blocks: ArchiveBlock[] = [];
-  if (hasDeepSeekFileFragmentMetadata(fragment)) {
+  if (hasDeepSeekFileFragmentMetadata(fragment, context.contentBudget)) {
     blocks.push(
       fileFragmentMetadataBlock(fragment, messageId, startIndex, pointer, context, inventory)
     );
   }
+  context.contentBudget.admitOccurrences(fragment.files.length);
   fragment.files.forEach((value, fileIndex) => {
     blocks.push(
       deepSeekAttachmentBlock(
@@ -220,10 +235,16 @@ function successfulFileFragmentBlocks(
   return blocks;
 }
 
-export function hasDeepSeekFileFragmentMetadata(fragment: DeepSeekJsonRecord): boolean {
+export function hasDeepSeekFileFragmentMetadata(
+  fragment: DeepSeekJsonRecord,
+  traversal?: ProviderBlockTraversalBudget
+): boolean {
+  const budget = traversal ?? providerBlockWorkBudget('deepseek').beginTraversal();
+  const keys = Object.keys(fragment);
+  budget.spendWork(keys.length);
   return (
     (Array.isArray(fragment.files) && fragment.files.length === 0) ||
-    Object.keys(fragment).some(key => !FILE_FRAGMENT_MAPPED_FIELDS.has(key))
+    keys.some(key => !FILE_FRAGMENT_MAPPED_FIELDS.has(key))
   );
 }
 
@@ -236,7 +257,9 @@ function fileFragmentMetadataBlock(
   inventory: DeepSeekAssetInventory
 ): ArchiveBlock {
   const residual: DeepSeekJsonRecord = {};
-  for (const key of Object.keys(fragment)) {
+  const keys = Object.keys(fragment);
+  context.contentBudget.spendWork(keys.length);
+  for (const key of keys) {
     if (FILE_FRAGMENT_MAPPED_FIELDS.has(key)) continue;
     Object.defineProperty(residual, key, {
       configurable: true,
@@ -273,7 +296,14 @@ function successfulFileFragmentMetadata(
     redacted: false,
     exhausted: false,
   };
-  const scrubbed = scrubProviderMetadata(residual as JsonValue, matcher, state, 0, true);
+  const scrubbed = scrubProviderMetadata(
+    residual as JsonValue,
+    matcher,
+    state,
+    context.contentBudget,
+    0,
+    true
+  );
   const marked = providerMetadataResult(scrubbed, state.redacted);
   return sanitizeJson(marked, context.privacy, pointer);
 }
@@ -297,6 +327,7 @@ function scrubProviderMetadata(
   value: JsonValue,
   matcher: RegExp | null,
   state: ProviderMetadataScrubState,
+  budget: ProviderBlockTraversalBudget,
   depth: number,
   root: boolean
 ): JsonValue {
@@ -312,23 +343,25 @@ function scrubProviderMetadata(
     state.redacted = true;
     return providerMetadataMarker();
   }
-  if (Array.isArray(value)) return scrubProviderMetadataArray(value, matcher, state, depth);
-  return scrubProviderMetadataRecord(value, matcher, state, depth, root);
+  if (Array.isArray(value)) return scrubProviderMetadataArray(value, matcher, state, budget, depth);
+  return scrubProviderMetadataRecord(value, matcher, state, budget, depth, root);
 }
 
 function scrubProviderMetadataArray(
   value: JsonValue[],
   matcher: RegExp | null,
   state: ProviderMetadataScrubState,
+  budget: ProviderBlockTraversalBudget,
   depth: number
 ): JsonValue[] {
+  budget.spendWork(value.length);
   const result: JsonValue[] = [];
   for (const entry of value) {
     if (!inspectProviderMetadataEntry(state)) {
       result.push(providerMetadataMarker());
       break;
     }
-    result.push(scrubProviderMetadata(entry, matcher, state, depth + 1, false));
+    result.push(scrubProviderMetadata(entry, matcher, state, budget, depth + 1, false));
     if (state.exhausted) break;
   }
   return result;
@@ -338,11 +371,14 @@ function scrubProviderMetadataRecord(
   value: DeepSeekJsonRecord,
   matcher: RegExp | null,
   state: ProviderMetadataScrubState,
+  budget: ProviderBlockTraversalBudget,
   depth: number,
   root: boolean
 ): Record<string, JsonValue> {
   const result: Record<string, JsonValue> = {};
-  for (const key of Object.keys(value)) {
+  const keys = Object.keys(value);
+  budget.spendWork(keys.length);
+  for (const key of keys) {
     if (!inspectProviderMetadataKey(key, state)) {
       result[FILE_PROVIDER_METADATA_MARKER_KEY] = true;
       break;
@@ -364,7 +400,7 @@ function scrubProviderMetadataRecord(
       configurable: true,
       enumerable: true,
       writable: true,
-      value: scrubProviderMetadata(entry, matcher, state, depth + 1, false),
+      value: scrubProviderMetadata(entry, matcher, state, budget, depth + 1, false),
     });
     if (state.exhausted) break;
   }
@@ -410,15 +446,47 @@ function upsertAttachmentAsset(
   pointer: string,
   context: DeepSeekAttachmentContext
 ): void {
-  const candidate = attachmentAsset(manifestAsset, file, pointer, context);
-  const existing = context.assets[manifestAsset.id];
-  if (existing) {
-    if (JSON.stringify(existing) !== JSON.stringify(candidate)) {
+  const existingMetadataKey = context.assetMetadataKeys.get(manifestAsset.id);
+  if (existingMetadataKey !== undefined) {
+    const existing = context.assets[manifestAsset.id];
+    if (
+      existingMetadataKey !== file.metadataKey ||
+      !existing ||
+      !attachmentAssetMatches(existing, manifestAsset, file, pointer, context)
+    ) {
       deepSeekFail('asset-inventory-mismatch', 'Repeated DeepSeek attachment metadata disagrees.');
     }
     return;
   }
-  context.assets[manifestAsset.id] = candidate;
+  context.contentBudget.spendWork(manifestAsset.sourceRefs.length + 1);
+  context.assets[manifestAsset.id] = attachmentAsset(manifestAsset, file, pointer, context);
+  context.assetMetadataKeys.set(manifestAsset.id, file.metadataKey);
+}
+
+/** Recheck mutable scalar/metadata state without remapping or serializing the full source-ref ledger. */
+function attachmentAssetMatches(
+  existing: ArchiveAsset,
+  manifestAsset: RawCaptureAssetRecord,
+  file: ReturnType<typeof readDeepSeekRawFileRecord>,
+  pointer: string,
+  context: DeepSeekAttachmentContext
+): boolean {
+  const byteLength = manifestAsset.state === 'fetched' ? manifestAsset.byteLength : file.byteLength;
+  return (
+    existing.id === manifestAsset.id &&
+    existing.filename === sanitizedAttachmentFilename(file, pointer, context) &&
+    existing.mimeType === manifestAsset.mediaType &&
+    existing.byteLength === byteLength &&
+    existing.dimensions === null &&
+    existing.sha256 === manifestAsset.sha256 &&
+    existing.localArtifactRef === manifestAsset.relativePath &&
+    existing.acquisition.state === manifestAsset.state &&
+    existing.acquisition.attemptedAt === manifestAsset.attemptedAt &&
+    existing.acquisition.detail === manifestAsset.detail &&
+    existing.sourceRefs.length === manifestAsset.sourceRefs.length &&
+    JSON.stringify(existing.extensions.deepseek) ===
+      JSON.stringify(sanitizeJson(file.extensionMetadata, context.privacy, pointer))
+  );
 }
 
 function attachmentAsset(
@@ -462,15 +530,23 @@ function sanitizedAttachmentFilename(
   return value;
 }
 
-function omitProviderIds(value: unknown, depth: number, providerIds: ReadonlySet<string>): unknown {
+function omitProviderIds(
+  value: unknown,
+  depth: number,
+  providerIds: ReadonlySet<string>,
+  budget: ProviderBlockTraversalBudget
+): unknown {
   if (depth >= 16) return '[truncated-provider-file-metadata]';
   if (typeof value === 'string' && providerIds.has(value)) return '[redacted-provider-id]';
   if (Array.isArray(value)) {
-    return value.map(entry => omitProviderIds(entry, depth + 1, providerIds));
+    budget.spendWork(value.length);
+    return value.map(entry => omitProviderIds(entry, depth + 1, providerIds, budget));
   }
   if (!isPlainRecord(value)) return value;
   const result: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
+  const keys = Object.keys(value);
+  budget.spendWork(keys.length);
+  for (const key of keys) {
     if (PROVIDER_IDENTIFIER_FIELD.test(key)) {
       continue;
     }
@@ -478,7 +554,7 @@ function omitProviderIds(value: unknown, depth: number, providerIds: ReadonlySet
       configurable: true,
       enumerable: true,
       writable: true,
-      value: omitProviderIds(value[key], depth + 1, providerIds),
+      value: omitProviderIds(value[key], depth + 1, providerIds, budget),
     });
   }
   return result;

@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCaptureManifest,
   DeepSeekNormalizationError,
+  PROVIDER_CONTENT_MAX_WORK_UNITS,
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
   inventoryDeepSeekRawAssets,
   normalizeDeepSeekCapture,
   preflightDeepSeekHistoryArtifact,
@@ -459,6 +462,29 @@ async function expectCode(bytes: Uint8Array, code: string): Promise<void> {
 }
 
 describe('DeepSeek liska-thread/1 normalizer', () => {
+  it('keeps the normalizer public boundary typed at exact and exceeded aggregate work', async () => {
+    const bundle = await bundleFor(fixtureBytes);
+    const input = {
+      bundle,
+      artifactId: 'conversation',
+      manifestSha256: hash(new TextEncoder().encode(JSON.stringify(bundle.manifest, null, 2))),
+      sha256,
+    };
+    const probe = new ProviderBlockWorkBudget('deepseek');
+    const expected = await normalizeDeepSeekCapture({ ...input, contentBudget: probe });
+    const exact = new ProviderBlockWorkBudget('deepseek');
+    exact.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits);
+    await expect(normalizeDeepSeekCapture({ ...input, contentBudget: exact })).resolves.toEqual(
+      expected
+    );
+    expect(exact.counters.workUnits).toBe(PROVIDER_CONTENT_MAX_WORK_UNITS);
+
+    const over = new ProviderBlockWorkBudget('deepseek');
+    over.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits + 1);
+    await expect(
+      normalizeDeepSeekCapture({ ...input, contentBudget: over })
+    ).rejects.toBeInstanceOf(ProviderContentLimitError);
+  });
   it('preserves the complete branching graph and exact current branch deterministically', async () => {
     const first = await normalizeBytes();
     const second = await normalizeBytes();

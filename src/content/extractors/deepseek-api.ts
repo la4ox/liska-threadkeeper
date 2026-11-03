@@ -3,10 +3,13 @@ import {
   inventoryDeepSeekRawAssets,
   normalizeDeepSeekCapture,
   preflightDeepSeekHistoryArtifact,
+  ProviderContentLimitError,
+  providerBlockWorkBudget,
   type DeepSeekAssetInventory,
   type DeepSeekNormalizationInput,
   type LiskaThreadArchive,
   type RawCaptureBundle,
+  type ProviderBlockWorkBudget,
 } from '../../archive';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
 import type {
@@ -41,9 +44,13 @@ export interface DeepSeekApiConversation {
   data: ConversationData;
   archive: LiskaThreadArchive;
   archiveCompanion: ArchiveCompanionBundle;
-  assetExportContext: DeepSeekAssetExportContext;
+  assetExportContext: DeepSeekBudgetedAssetExportContext;
   structuredPresentationContext: StructuredPresentationContext;
   warnings: string[];
+}
+
+export interface DeepSeekBudgetedAssetExportContext extends DeepSeekAssetExportContext {
+  contentBudget: ProviderBlockWorkBudget;
 }
 
 export interface DeepSeekApiDependencies {
@@ -52,6 +59,7 @@ export interface DeepSeekApiDependencies {
   normalizeCapture?: (
     input: DeepSeekNormalizationInput
   ) => ReturnType<typeof normalizeDeepSeekCapture>;
+  contentBudget?: ProviderBlockWorkBudget;
 }
 
 export class DeepSeekStructuredCaptureError extends Error {
@@ -79,6 +87,7 @@ export async function fetchDeepSeekConversation(
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), HISTORY_TIMEOUT_MS);
   try {
+    const contentBudget = providerBlockWorkBudget('deepseek', dependencies.contentBudget);
     const response = await requestHistory(conversationId, token, controller.signal);
     const artifact = await captureResponseArtifact(response, {
       artifactId: ARTIFACT_ID,
@@ -89,7 +98,8 @@ export async function fetchDeepSeekConversation(
     });
     const observedUnknownContentTypes = preflightDeepSeekHistoryArtifact(
       artifact.bytes,
-      conversationId
+      conversationId,
+      contentBudget
     );
     const raw = JSON.parse(
       new TextDecoder('utf-8', { fatal: true }).decode(artifact.bytes)
@@ -98,6 +108,7 @@ export async function fetchDeepSeekConversation(
       raw,
       artifactId: ARTIFACT_ID,
       sha256: sha256Hex,
+      contentBudget,
     });
     const bundle = buildCaptureBundle(
       conversationId,
@@ -121,9 +132,11 @@ export async function fetchDeepSeekConversation(
         artifactId: ARTIFACT_ID,
         manifestSha256,
         sha256: sha256Hex,
+        contentBudget,
       });
       archive = normalized.archive;
-    } catch {
+    } catch (error) {
+      if (error instanceof ProviderContentLimitError) throw error;
       throw new DeepSeekStructuredCaptureError('normalization-failed', archiveCompanion);
     }
 
@@ -154,7 +167,7 @@ export async function fetchDeepSeekConversation(
       return {
         archive,
         archiveCompanion,
-        assetExportContext: { rawCaptureBundle: bundle, rawArtifact },
+        assetExportContext: { rawCaptureBundle: bundle, rawArtifact, contentBudget },
         structuredPresentationContext,
         warnings: projected.warnings,
         data: {

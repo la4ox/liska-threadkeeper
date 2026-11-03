@@ -3,6 +3,12 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InlineArchiveCompanionArtifact } from '../../src/lib/types';
 import * as archiveProjection from '../../src/content/archive-projection';
+import { preflightDeepSeekHistoryArtifact } from '../../src/archive';
+import {
+  PROVIDER_CONTENT_MAX_WORK_UNITS,
+  ProviderBlockWorkBudget,
+  ProviderContentLimitError,
+} from '../../src/archive/normalizers/provider-block-work-budget';
 import { conversationToNote } from '../../src/content/markdown';
 import {
   DeepSeekStructuredCaptureError,
@@ -232,6 +238,19 @@ describe('DeepSeek structured archive composition', () => {
         'Legacy Markdown omitted 3 attachment block(s); the canonical archive retains their references and metadata. Binary files are preserved only for assets marked fetched when their selected output write succeeds.',
       ])
     );
+  });
+
+  it('shares one aggregate work scope across preflight and raw inventory', async () => {
+    const probe = new ProviderBlockWorkBudget('deepseek');
+    preflightDeepSeekHistoryArtifact(fixtureBytes, 'deepseek-branching-1', probe);
+    const contentBudget = new ProviderBlockWorkBudget('deepseek');
+    contentBudget.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fixtureResponse());
+
+    await expect(
+      fetchDeepSeekConversation('deepseek-branching-1', false, { contentBudget })
+    ).rejects.toBeInstanceOf(ProviderContentLimitError);
+    expect(contentBudget.counters.workUnits).toBeGreaterThan(PROVIDER_CONTENT_MAX_WORK_UNITS);
   });
 
   it('keeps hostile provider Markdown in archives but neutralizes the reading export', async () => {

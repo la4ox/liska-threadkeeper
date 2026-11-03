@@ -1,5 +1,11 @@
 import type { RawCaptureAssetRecord } from '../../capture';
 import type { JsonValue } from '../../types';
+import {
+  providerBlockWorkBudget,
+  rethrowProviderContentLimit,
+  type ProviderBlockTraversalBudget,
+  type ProviderBlockWorkBudget,
+} from '../provider-block-work-budget';
 import type { DeepSeekJsonRecord } from './contracts';
 import { hasOwn, isPlainRecord, pointerAt } from './privacy';
 
@@ -43,6 +49,7 @@ export interface DeepSeekAssetInventoryInput {
   artifactId: string;
   /** Injected so inventory remains pure and independent of browser/Node crypto APIs. */
   sha256: (bytes: Uint8Array) => Promise<string>;
+  contentBudget?: ProviderBlockWorkBudget;
 }
 
 export interface DeepSeekAssetInventory {
@@ -78,15 +85,22 @@ interface DiscoveredFile extends DeepSeekRawFileRecord {
  * a manifest ID or path.
  */
 export async function inventoryDeepSeekRawAssets(
-  input: DeepSeekAssetInventoryInput
+  input: DeepSeekAssetInventoryInput,
+  traversal?: ProviderBlockTraversalBudget
 ): Promise<DeepSeekAssetInventory> {
-  const providerIds = collectPotentialProviderIds(input?.raw);
+  const budget =
+    traversal ?? providerBlockWorkBudget('deepseek', input?.contentBudget).beginTraversal();
+  const providerIds = collectPotentialProviderIds(input?.raw, budget);
   try {
     if (!isInventoryInput(input)) throw new Error();
-    const discovered = deduplicateCandidates(collectCandidates(input.raw, input.artifactId));
-    const assets = await recordsForDiscoveredFiles(discovered, input.sha256);
+    const discovered = deduplicateCandidates(
+      collectCandidates(input.raw, input.artifactId, budget),
+      budget
+    );
+    const assets = await recordsForDiscoveredFiles(discovered, input.sha256, budget);
     return { assets, completeness: 'not-attempted', warnings: [], providerIds };
-  } catch {
+  } catch (error) {
+    rethrowProviderContentLimit(error);
     return {
       assets: [],
       completeness: 'unknown',
@@ -96,25 +110,34 @@ export async function inventoryDeepSeekRawAssets(
   }
 }
 
-function collectPotentialProviderIds(raw: unknown): string[] {
+function collectPotentialProviderIds(raw: unknown, budget: ProviderBlockTraversalBudget): string[] {
   const collected = new Set<string>();
   try {
     const messages = messagesFromRaw(raw);
+    budget.admitOccurrences(messages.length);
     for (const message of messages) {
       if (!isPlainRecord(message)) continue;
-      for (const file of potentialFileArrays(message).flat())
-        addPotentialProviderId(file, collected);
+      for (const files of potentialFileArrays(message, budget)) {
+        budget.admitOccurrences(files.length);
+        for (const file of files) addPotentialProviderId(file, collected);
+      }
     }
-  } catch {
+  } catch (error) {
+    rethrowProviderContentLimit(error);
     // Best-effort privacy inventory must never replace the stable degraded result.
   }
+  budget.spendWork(collected.size);
   return [...collected].sort(compareStrings);
 }
 
-function potentialFileArrays(message: DeepSeekJsonRecord): unknown[][] {
+function potentialFileArrays(
+  message: DeepSeekJsonRecord,
+  budget: ProviderBlockTraversalBudget
+): unknown[][] {
   const arrays: unknown[][] = [];
   if (Array.isArray(message.files)) arrays.push(message.files);
   if (!Array.isArray(message.fragments)) return arrays;
+  budget.admitOccurrences(message.fragments.length);
   for (const fragment of message.fragments) {
     if (
       isPlainRecord(fragment) &&
@@ -140,7 +163,11 @@ function addPotentialProviderId(file: unknown, collected: Set<string>): void {
 }
 
 /** Parse one provider file record without persisting the provider ID as metadata. */
-export function readDeepSeekRawFileRecord(value: unknown): DeepSeekRawFileRecord {
+export function readDeepSeekRawFileRecord(
+  value: unknown,
+  traversal?: ProviderBlockTraversalBudget
+): DeepSeekRawFileRecord {
+  const budget = traversal ?? providerBlockWorkBudget('deepseek').beginTraversal();
   if (!isPlainRecord(value)) throw new Error();
   const providerId = safeProviderId(value.id);
   const filename = nullableString(value, 'file_name');
@@ -149,13 +176,14 @@ export function readDeepSeekRawFileRecord(value: unknown): DeepSeekRawFileRecord
   const comparison: Record<string, JsonValue | null> = {};
 
   for (const field of FILE_METADATA_FIELDS) {
-    const fieldValue = nullableJsonValue(value, field);
+    const fieldValue = nullableJsonValue(value, field, budget);
     comparison[field] = fieldValue;
     if (ASSET_EXTENSION_FIELDS.includes(field as (typeof ASSET_EXTENSION_FIELDS)[number])) {
       metadata[field] = fieldValue;
     }
   }
 
+  spendJsonSerializationWork(comparison, budget);
   return {
     providerId,
     filename,
@@ -179,9 +207,14 @@ function safeArtifactId(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value);
 }
 
-function collectCandidates(raw: unknown, artifactId: string): Candidate[] {
+function collectCandidates(
+  raw: unknown,
+  artifactId: string,
+  budget: ProviderBlockTraversalBudget
+): Candidate[] {
   const messages = messagesFromRaw(raw);
   const candidates: Candidate[] = [];
+  budget.admitOccurrences(messages.length);
   messages.forEach((message, messageIndex) => {
     if (!isPlainRecord(message)) throw new Error();
     const messagePointer = pointerAt('/data/biz_data/chat_messages', String(messageIndex));
@@ -191,11 +224,13 @@ function collectCandidates(raw: unknown, artifactId: string): Candidate[] {
         message.files,
         pointerAt(messagePointer, 'files'),
         artifactId,
-        candidates
+        candidates,
+        budget
       );
     }
     if (!hasOwn(message, 'fragments')) return;
     if (!Array.isArray(message.fragments)) throw new Error();
+    budget.admitOccurrences(message.fragments.length);
     message.fragments.forEach((fragment, fragmentIndex) => {
       if (!isPlainRecord(fragment) || typeof fragment.type !== 'string') return;
       if (fragment.type.trim().toUpperCase() !== 'FILE') return;
@@ -204,7 +239,8 @@ function collectCandidates(raw: unknown, artifactId: string): Candidate[] {
         fragment.files,
         pointerAt(messagePointer, 'fragments', String(fragmentIndex), 'files'),
         artifactId,
-        candidates
+        candidates,
+        budget
       );
     });
   });
@@ -215,13 +251,15 @@ function collectFileCandidates(
   files: unknown[],
   pointer: string,
   artifactId: string,
-  candidates: Candidate[]
+  candidates: Candidate[],
+  budget: ProviderBlockTraversalBudget
 ): void {
+  budget.admitOccurrences(files.length);
   files.forEach((file, fileIndex) => {
     if (candidates.length >= MAX_DISCOVERED_FILES) throw new Error();
     const rawPointer = pointerAt(pointer, String(fileIndex));
     candidates.push({
-      ...readDeepSeekRawFileRecord(file),
+      ...readDeepSeekRawFileRecord(file, budget),
       sourceRef: { artifactId, rawPointer },
     });
   });
@@ -236,9 +274,13 @@ function messagesFromRaw(raw: unknown): unknown[] {
   return messages;
 }
 
-function deduplicateCandidates(candidates: Candidate[]): DiscoveredFile[] {
+function deduplicateCandidates(
+  candidates: Candidate[],
+  budget: ProviderBlockTraversalBudget
+): DiscoveredFile[] {
   const discovered = new Map<string, DiscoveredFile>();
   for (const candidate of candidates) {
+    budget.spendWork();
     const existing = discovered.get(candidate.providerId);
     if (!existing) {
       discovered.set(candidate.providerId, {
@@ -259,6 +301,7 @@ function deduplicateCandidates(candidates: Candidate[]): DiscoveredFile[] {
       existing.sourceRefKeys.add(key);
     }
   }
+  budget.spendWork(discovered.size);
   return [...discovered.values()].sort((left, right) =>
     compareStrings(left.providerId, right.providerId)
   );
@@ -266,7 +309,8 @@ function deduplicateCandidates(candidates: Candidate[]): DiscoveredFile[] {
 
 async function recordsForDiscoveredFiles(
   files: DiscoveredFile[],
-  sha256: DeepSeekAssetInventoryInput['sha256']
+  sha256: DeepSeekAssetInventoryInput['sha256'],
+  budget: ProviderBlockTraversalBudget
 ): Promise<RawCaptureAssetRecord[]> {
   const records: RawCaptureAssetRecord[] = [];
   for (let offset = 0; offset < files.length; offset += ATTACHMENT_HASH_BATCH_SIZE) {
@@ -285,6 +329,7 @@ async function recordsForDiscoveredFiles(
       }))
     );
     for (const result of settled) {
+      budget.spendWork();
       if (result.status === 'rejected') throw result.reason;
       records.push(result.value);
     }
@@ -328,22 +373,57 @@ function nullableByteLength(record: Record<string, unknown>, field: string): num
   return value as number;
 }
 
-function nullableJsonValue(record: Record<string, unknown>, field: string): JsonValue | null {
+function nullableJsonValue(
+  record: Record<string, unknown>,
+  field: string,
+  budget: ProviderBlockTraversalBudget
+): JsonValue | null {
   if (!hasOwn(record, field) || record[field] === null) return null;
-  if (!isJsonValue(record[field])) throw new Error();
+  if (!isJsonValue(record[field], budget)) throw new Error();
   return record[field];
 }
 
-function isJsonValue(value: unknown, depth = 0): value is JsonValue {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+function isJsonValue(
+  value: unknown,
+  budget: ProviderBlockTraversalBudget,
+  depth = 0
+): value is JsonValue {
+  if (value === null || typeof value === 'boolean') return true;
+  if (typeof value === 'string') {
+    budget.spendWork(Math.max(1, Math.ceil(value.length / 1_024)));
+    return true;
+  }
   if (typeof value === 'number') return Number.isFinite(value);
   if (depth >= 16) return false;
-  if (Array.isArray(value)) return value.every(entry => isJsonValue(entry, depth + 1));
+  if (Array.isArray(value)) {
+    budget.spendWork(value.length);
+    return value.every(entry => isJsonValue(entry, budget, depth + 1));
+  }
   if (!isPlainRecord(value)) return false;
-  return Object.keys(value).every(
+  const keys = Object.keys(value);
+  budget.spendWork(keys.length);
+  return keys.every(
     key =>
-      !['__proto__', 'constructor', 'prototype'].includes(key) && isJsonValue(value[key], depth + 1)
+      !['__proto__', 'constructor', 'prototype'].includes(key) &&
+      isJsonValue(value[key], budget, depth + 1)
   );
+}
+
+/** Meter JSON.stringify's second walk without changing the accepted provider depth contract. */
+function spendJsonSerializationWork(value: JsonValue, budget: ProviderBlockTraversalBudget): void {
+  if (typeof value === 'string') {
+    budget.spendWork(Math.max(1, Math.ceil(value.length / 1_024)));
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    budget.spendWork(value.length);
+    value.forEach(entry => spendJsonSerializationWork(entry, budget));
+    return;
+  }
+  const keys = Object.keys(value);
+  budget.spendWork(keys.length);
+  keys.forEach(key => spendJsonSerializationWork(value[key], budget));
 }
 
 function sourceRefKey(sourceRef: Candidate['sourceRef']): string {

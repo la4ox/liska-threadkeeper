@@ -1,4 +1,8 @@
 import type { JsonValue, SourceReference } from '../../types';
+import {
+  providerBlockWorkBudget,
+  type ProviderBlockTraversalBudget,
+} from '../provider-block-work-budget';
 import { DEEPSEEK_SOURCE_FORMAT, deepSeekFail, type DeepSeekJsonRecord } from './contracts';
 
 const MAX_IDENTIFIER_LENGTH = 512;
@@ -27,6 +31,7 @@ export interface DeepSeekPrivacyRedaction {
 
 export interface DeepSeekPrivacyTracker {
   redactions: DeepSeekPrivacyRedaction[];
+  contentBudget?: ProviderBlockTraversalBudget;
 }
 
 // Runtime-only membership follows array replacements without changing serialized trackers.
@@ -106,8 +111,9 @@ export function sanitizeJson(
   tracker: DeepSeekPrivacyTracker,
   pointer: string
 ): JsonValue {
+  const budget = tracker.contentBudget ?? providerBlockWorkBudget('deepseek').beginTraversal();
   const state: CloneState = { entries: 0, redacted: false, truncated: false };
-  const sanitized = cloneJson(value, tracker, pointer, state, 0);
+  const sanitized = cloneJson(value, tracker, pointer, state, budget, 0);
   if (!state.redacted && !state.truncated) return sanitized;
   if (isPlainRecord(sanitized)) {
     if (state.redacted) sanitized._liskaRedactedSensitiveValue = true;
@@ -127,6 +133,7 @@ function cloneJson(
   tracker: DeepSeekPrivacyTracker,
   pointer: string,
   state: CloneState,
+  budget: ProviderBlockTraversalBudget,
   depth: number
 ): JsonValue {
   if (value === null || typeof value === 'boolean') return value;
@@ -140,11 +147,19 @@ function cloneJson(
     return '[truncated-depth]';
   }
   if (Array.isArray(value)) {
+    budget.spendWork(value.length);
     const result: JsonValue[] = [];
     for (let index = 0; index < value.length && state.entries < MAX_ENTRIES; index += 1) {
       state.entries += 1;
       result.push(
-        cloneJson(value[index], tracker, pointerAt(pointer, String(index)), state, depth + 1)
+        cloneJson(
+          value[index],
+          tracker,
+          pointerAt(pointer, String(index)),
+          state,
+          budget,
+          depth + 1
+        )
       );
     }
     if (result.length < value.length) state.truncated = true;
@@ -153,6 +168,7 @@ function cloneJson(
   if (!isPlainRecord(value)) deepSeekFail('malformed-json', 'Provider data is not JSON-safe.');
   const result: Record<string, JsonValue> = {};
   const keys = Object.keys(value);
+  budget.spendWork(keys.length);
   for (const key of keys) {
     if (state.entries >= MAX_ENTRIES) break;
     state.entries += 1;
@@ -166,7 +182,7 @@ function cloneJson(
       recordRedaction(tracker, pointerAt(pointer, key));
       continue;
     }
-    result[key] = cloneJson(value[key], tracker, pointerAt(pointer, key), state, depth + 1);
+    result[key] = cloneJson(value[key], tracker, pointerAt(pointer, key), state, budget, depth + 1);
   }
   if (Object.keys(result).length < keys.length && state.entries >= MAX_ENTRIES) {
     state.truncated = true;

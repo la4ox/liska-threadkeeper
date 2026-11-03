@@ -1,5 +1,6 @@
 import type { RawCaptureBundle } from '../../capture';
 import type { LiskaThreadArchive } from '../../types';
+import type { ProviderBlockWorkBudget } from '../provider-block-work-budget';
 
 export const DEEPSEEK_SOURCE_FORMAT = 'deepseek.web.history' as const;
 export const DEEPSEEK_NORMALIZER_ID = 'deepseek-web/1' as const;
@@ -23,6 +24,7 @@ export interface DeepSeekNormalizationInput {
   artifactId: string;
   sha256: (bytes: Uint8Array) => Promise<string>;
   sourceFormat?: string;
+  contentBudget?: ProviderBlockWorkBudget;
 }
 
 export interface DeepSeekNormalizationResult {

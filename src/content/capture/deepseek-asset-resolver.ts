@@ -5,6 +5,12 @@ import {
   deepSeekAttachmentIdForProviderId,
   readDeepSeekRawFileRecord,
 } from '../../archive/normalizers/deepseek/inventory';
+import {
+  providerBlockWorkBudget,
+  rethrowProviderContentLimit,
+  type ProviderBlockTraversalBudget,
+  type ProviderBlockWorkBudget,
+} from '../../archive/normalizers/provider-block-work-budget';
 import { sha256Hex } from './response';
 
 const FILE_SERVICE_ORIGIN = 'https://files.deepseeksvc.com';
@@ -203,7 +209,8 @@ async function rawAssetBinding(
   raw: unknown,
   asset: RawCaptureBundle['manifest']['assets'][number],
   artifactId: string,
-  sha256: (bytes: Uint8Array) => Promise<string>
+  sha256: (bytes: Uint8Array) => Promise<string>,
+  budget: ProviderBlockTraversalBudget
 ): Promise<DeepSeekRawAssetBinding | undefined> {
   let binding: DeepSeekRawAssetBinding | undefined;
   for (const sourceRef of asset.sourceRefs) {
@@ -212,8 +219,9 @@ async function rawAssetBinding(
     if (recordStatus(value) !== 'SUCCESS') return undefined;
     let file: ReturnType<typeof readDeepSeekRawFileRecord>;
     try {
-      file = readDeepSeekRawFileRecord(value);
-    } catch {
+      file = readDeepSeekRawFileRecord(value, budget);
+    } catch (error) {
+      rethrowProviderContentLimit(error);
       return undefined;
     }
     const expectedAssetId = await deepSeekAttachmentIdForProviderId(file.providerId, sha256);
@@ -236,8 +244,10 @@ async function rawAssetBinding(
 async function rawAssetBindings(
   bundle: RawCaptureBundle,
   artifactId: string,
-  sha256: (bytes: Uint8Array) => Promise<string>
+  sha256: (bytes: Uint8Array) => Promise<string>,
+  contentBudget?: ProviderBlockWorkBudget
 ): Promise<DeepSeekRawAssetBindings> {
+  const budget = providerBlockWorkBudget('deepseek', contentBudget).beginTraversal();
   const assets = boundedAssetPrefix(bundle.manifest.assets);
   const result: DeepSeekRawAssetBindings = {
     bindings: [],
@@ -247,7 +257,7 @@ async function rawAssetBindings(
   const raw = parseRawArtifact(bundle, artifactId);
   if (raw === undefined) return result;
   for (const asset of assets) {
-    const binding = await rawAssetBinding(raw, asset, artifactId, sha256);
+    const binding = await rawAssetBinding(raw, asset, artifactId, sha256, budget);
     if (binding) result.bindings.push(binding);
   }
   return result;
@@ -261,9 +271,11 @@ async function rawAssetBindings(
 export async function deriveDeepSeekSignedAssetCandidates(
   bundle: RawCaptureBundle,
   artifactId = 'conversation',
-  sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex
+  sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex,
+  _readResourceEntries?: () => readonly unknown[],
+  contentBudget?: ProviderBlockWorkBudget
 ): Promise<DeepSeekSignedAssetCandidate[]> {
-  const { bindings } = await rawAssetBindings(bundle, artifactId, sha256);
+  const { bindings } = await rawAssetBindings(bundle, artifactId, sha256, contentBudget);
   return signedCandidatesFromBindings(bindings);
 }
 
@@ -392,9 +404,10 @@ export async function deriveDeepSeekAssetCandidates(
   bundle: RawCaptureBundle,
   artifactId = 'conversation',
   sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex,
-  readResourceEntries: () => readonly unknown[] = defaultResourceEntries
+  readResourceEntries: () => readonly unknown[] = defaultResourceEntries,
+  contentBudget?: ProviderBlockWorkBudget
 ): Promise<DeepSeekSignedAssetCandidate[]> {
-  const derived = await rawAssetBindings(bundle, artifactId, sha256);
+  const derived = await rawAssetBindings(bundle, artifactId, sha256, contentBudget);
   const pageOwned = pageOwnedCandidatesFromBindings(derived, readResourceEntries);
   const inBand = signedCandidatesFromBindings(derived.bindings);
   const merged = new Map(pageOwned.map(candidate => [candidate.assetId, candidate]));

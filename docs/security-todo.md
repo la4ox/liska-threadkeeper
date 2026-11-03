@@ -4,6 +4,62 @@ This plan keeps repository-wide Security Cloud work separate from provider
 feature development. Findings remain open until their exact current revision is
 reconciled with source and verification evidence.
 
+## Repository-scan reconciliation — 2026-11-03
+
+Current source baseline: `main` at
+`707fbaa34b3c5e29a4151968ed4922c2e8fd76b8` (PR 106). Repository workflow
+`wfr_2fb83850c5a62f2fe37cc2e9027a22fd468892181394444e89a66e64426dfc66`
+completed against that exact revision with partial coverage and three medium
+findings. A completed scan is evidence for those three occurrences, not proof
+that every repository surface was exhausted.
+
+The earlier ten-finding repository workflow
+`wfr_c294dc0cd6f299d087315e0f99ec41d66f098d39a4abf0dfdf55e9fca9aab721`
+still exposes all occurrences as `New`. Current Security Cloud detail pages show
+only a read-only status badge and `Fix with Codex`; the list action menu exposes
+only CSV export. The connector close operation accepts commit-scan findings
+with `commit_detail.id` and `version`, which these repository-scan occurrences
+do not provide. Therefore Cloud administration remains unavailable: do not
+launch duplicate source fixes or claim that the rows were remotely closed.
+
+Current-main reconciliation of the older scan is source-backed as follows:
+
+- nine categories are remediated by merged PRs 92, 96, 97, 99, 102, 103, 104,
+  105 and 106;
+- the default-port occurrence remains an intentional exact-loopback
+  compatibility policy, hardened by PR 101's unauthenticated/authenticated
+  Local REST API identity preflight. It is not honestly `Fixed`; use accepted
+  risk or not actionable if a future administrative surface offers that state.
+
+The newer scan's three findings remain distinct:
+
+1. **Claude/DeepSeek aggregate provider work** — branch
+   `codex/provider-block-work-budget-v2` has a reviewed local candidate. Every
+   public preflight, inventory and normalizer path now fails closed with a typed
+   provider-content limit. Per-artifact bytes are capped at 32 MiB; each
+   traversal admits at most 250,000 visited occurrences and 250,000 emitted
+   blocks; one operation shares 2,000,000 auxiliary work units through capture
+   and up to two DeepSeek destination rebuilds. Malformed/nonasset entries,
+   empty FILE fragments, nested metadata, sanitization and repeated attachment
+   handling consume the budget before filtering or copying. Existing graph,
+   asset and honest DOM-partial fallback semantics remain separate.
+2. **Obsidian loopback service identity** — PR 101 detects accidental unrelated
+   services but does not cryptographically authenticate the process or remove
+   the narrow inter-request race. Treat stronger pairing, certificate or native
+   process identity as a separate product/trust-boundary decision.
+3. **Provider-controlled Obsidian code-block processors** — execution depends on
+   installed third-party render plugins such as Dataview. Research prevalence,
+   vault policy and safe reading/export representation separately; do not fold
+   a speculative plugin redesign into the provider-budget patch.
+
+The provider-budget candidate passes its 16-file, 685-test affected matrix,
+TypeScript/Vite/runtime build, formatting, lint with warning-only repository
+notices and diff checks. Independent review reproduced a 19,999-message capture
+plus two destination reconstructions at 1,139,952 shared work units, retained
+the accepted 16-level metadata boundary, and found no concrete bypass or
+regression. Browser and durable destination-write acceptance remain unclaimed;
+publish and current-head CI/reviews are still required before source closure.
+
 ## Current-main security roadmap — 2026-11-02
 
 Baseline: `main` at `2ac32ec58af29742ac4646440ed64582a9d84c67`.
