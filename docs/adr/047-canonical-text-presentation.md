@@ -108,9 +108,16 @@ canonical archive.
 The production package and complete repository suite passed after the File
 transport admitted exact `text/plain` artifacts without widening the accepted
 MIME boundary to parameterized, case-variant, image or script content. The final
-suite passed 266 test files and 9,605 tests, with one file and three tests
-skipped; production build, TypeScript, formatting and lint completed with only
-the repository's existing lint warnings.
+suite passed 266 test files and 9,719 tests, with one file and three tests
+skipped. Global coverage passed at 95% statements, 91.75% branches, 98.09%
+functions and 97.28% lines. Production build/package, TypeScript, formatting and
+lint completed with only the repository's existing lint warnings.
+
+Every emitted fragment is accounted against the existing character and UTF-8
+byte ceilings before retention. Nonempty fragments are then coalesced through a
+bounded 8,192-character pending buffer into coarse output chunks. Physical-line
+framing remains byte-for-byte deterministic, while separator count can no
+longer create an independently unbounded retained-parts array.
 
 An installed Comet capture then persisted the ordinary archive companions,
 compatibility Markdown, canonical-derived HTML and the new `index.txt` plus its

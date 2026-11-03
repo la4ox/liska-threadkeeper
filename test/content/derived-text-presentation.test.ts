@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getNodePath, type LiskaThreadArchive } from '../../src/archive';
+import { renderArchiveText } from '../../src/archive/presentation';
 import { retainStructuredPresentation } from '../../src/content/structured-presentation';
 import { prepareDerivedTextArtifact } from '../../src/content/derived-text-presentation';
 import { base64ToBytes } from '../../src/lib/image-utils';
@@ -10,6 +11,16 @@ import type {
   StructuredPresentationContext,
 } from '../../src/lib/types';
 import branchingFixture from '../fixtures/archive/branching-chatgpt-thread.json';
+
+vi.mock('../../src/archive/presentation', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/archive/presentation')>();
+  return { ...actual, renderArchiveText: vi.fn(actual.renderArchiveText) };
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(renderArchiveText).mockClear();
+});
 
 async function context(): Promise<StructuredPresentationContext> {
   const archive = structuredClone(branchingFixture) as LiskaThreadArchive;
@@ -79,5 +90,43 @@ describe('derived text exact-canonical integration', () => {
     await expect(prepareDerivedTextArtifact(changed)).rejects.toMatchObject({
       code: 'derived-text-canonical-hash-mismatch',
     });
+    expect(renderArchiveText).not.toHaveBeenCalled();
+  });
+
+  it.each(['too-small', 'off-by-one'] as const)(
+    'rejects a %s canonical byte length without rendering',
+    async mode => {
+      const value = await context();
+      const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+      const changed = {
+        ...value,
+        canonical: {
+          ...value.canonical,
+          byteLength: mode === 'too-small' ? 1 : value.canonical.byteLength + 1,
+        },
+      } as StructuredPresentationContext;
+      await expect(prepareDerivedTextArtifact(changed)).rejects.toMatchObject({
+        code: 'derived-text-canonical-length-mismatch',
+        message: 'derived-text-canonical-length-mismatch',
+      });
+      expect(renderArchiveText).not.toHaveBeenCalled();
+      if (mode === 'too-small') expect(encode).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    ['capture identity', { captureId: 'capture-chatgpt-other' }],
+    ['target node', { targetNodeId: 'missing' }],
+    ['selected path', { selectedNodeIds: ['node-current'] }],
+    ['tool profile', { includeToolContent: 'true' }],
+  ])('rejects inconsistent %s without rendering', async (_label, overrides) => {
+    const value = await context();
+    await expect(
+      prepareDerivedTextArtifact({ ...value, ...overrides } as StructuredPresentationContext)
+    ).rejects.toMatchObject({
+      code: 'derived-text-context-invalid',
+      message: 'derived-text-context-invalid',
+    });
+    expect(renderArchiveText).not.toHaveBeenCalled();
   });
 });

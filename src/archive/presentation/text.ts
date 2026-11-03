@@ -16,6 +16,7 @@ import {
 } from './text-contracts';
 
 const SHA256 = /^[a-f0-9]{64}$/;
+const OUTPUT_CHUNK_CHARS = 8192;
 
 function fail(code: TextPresentationErrorCode): never {
   throw new TextPresentationError(code);
@@ -196,7 +197,9 @@ function hiddenMessage(message: ArchiveMessage): boolean {
 }
 
 class TextRenderer {
-  readonly parts: string[] = [];
+  private readonly parts: string[] = [];
+  private readonly pending: string[] = [];
+  private pendingChars = 0;
   private outputChars = 0;
   private outputBytes = 0;
   private sourceChars = 0;
@@ -210,11 +213,27 @@ class TextRenderer {
   ) {}
 
   emit(value: string): void {
+    if (value.length === 0) return;
     this.outputChars += value.length;
     this.outputBytes += utf8ByteLength(value);
     if (this.outputChars > this.limits.maxTextChars || this.outputBytes > this.limits.maxTextBytes)
       fail('text-output-limit');
-    this.parts.push(value);
+    this.pending.push(value);
+    this.pendingChars += value.length;
+    if (this.pendingChars >= OUTPUT_CHUNK_CHARS) this.flush();
+  }
+
+  private flush(): void {
+    if (this.pending.length === 0) return;
+    // Nonempty fragments bound this array by chunk size, not physical line count.
+    this.parts.push(this.pending.join(''));
+    this.pending.length = 0;
+    this.pendingChars = 0;
+  }
+
+  text(): string {
+    this.flush();
+    return this.parts.join('');
   }
 
   source(value: string): void {
@@ -514,7 +533,7 @@ export function renderArchiveText(value: TextPresentationInput): TextPresentatio
     return {
       schema: LISKA_TEXT_SCHEMA,
       rendererVersion: LISKA_TEXT_RENDERER_VERSION,
-      text: renderer.parts.join(''),
+      text: renderer.text(),
       selectedNodeCount: messages.length,
       renderedMessageCount,
       diagnostics: renderer.diagnostics(),

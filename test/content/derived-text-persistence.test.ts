@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  DERIVED_TEXT_CLEANUP_WARNING,
   DERIVED_TEXT_PARTIAL_RECEIPT_WARNING,
   DERIVED_TEXT_PREPARATION_WARNING,
   DERIVED_TEXT_UNKNOWN_DELIVERY_WARNING,
@@ -101,6 +102,25 @@ describe('derived text File persistence orchestration', () => {
     expect(send).toHaveBeenCalledOnce();
   });
 
+  it('reports deferred cleanup without changing a confirmed paired delivery into failure', async () => {
+    const send = vi.fn(async () => ({
+      results: [
+        {
+          destination: 'file',
+          success: true,
+          warning: 'archive-stage-cleanup-deferred',
+          writeOutcome: { state: 'confirmed', cleanupDeferred: true },
+        },
+      ],
+      allSuccessful: true,
+      anySuccessful: true,
+    }));
+    await expect(
+      persistDerivedTextForFile(context(), snapshot, { prepare: artifact, send })
+    ).resolves.toEqual({ success: true, warnings: [DERIVED_TEXT_CLEANUP_WARNING] });
+    expect(send).toHaveBeenCalledOnce();
+  });
+
   it('reports a valid unknown terminal outcome without retrying', async () => {
     const send = vi.fn(async () => ({
       results: [
@@ -126,6 +146,17 @@ describe('derived text File persistence orchestration', () => {
   it('treats malformed and throwing post-dispatch responses as unknown without retrying', async () => {
     for (const send of [
       vi.fn(async () => ({})),
+      vi.fn(async () => ({
+        results: [
+          {
+            destination: 'obsidian',
+            success: true,
+            writeOutcome: { state: 'confirmed' },
+          },
+        ],
+        allSuccessful: true,
+        anySuccessful: true,
+      })),
       vi.fn(async () => {
         throw new Error('runtime response unavailable');
       }),

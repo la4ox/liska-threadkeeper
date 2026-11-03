@@ -4410,3 +4410,32 @@ popup. Obsidian and File are enabled, Clipboard and append remain disabled, and
 the UI confirmed `Settings saved successfully!`. Canonical text remains enabled
 as the user's explicit choice. Conversation-to-image is not an active format:
 an ordinary screenshot covers the current visual-snapshot need.
+
+## Canonical-derived text current-head review fix — 2026-11-04
+
+PR 109's first reviewed head `1f5af3a` passed Code Review but exposed one P2 in
+Security Review and one CI-only coverage failure. The renderer's byte ceilings
+bounded final output size but not the number of retained array fragments:
+newline-dense source could create two entries per separator before the final
+join. CI otherwise passed every test and failed only because global statement
+coverage was 94.79% against the unchanged 95% threshold.
+
+The follow-up candidate keeps the exact `liska-text/1` output and all existing
+source, character and UTF-8 byte ceilings. `TextRenderer.emit()` now ignores
+empty fragments after accounting and coalesces nonempty fragments through a
+bounded 8,192-character pending buffer into coarse chunks. The final text flush
+preserves empty/trailing physical lines and CRLF, CR, LF, U+2028 and U+2029
+normalization without a new line rejection contract or Markdown dependency.
+Five deterministic 25,000-separator cases verify exact output and cap every
+observed join receiver at 8,192 elements; no large-memory runtime reproducer was
+performed.
+
+Meaningful contract coverage now includes absent/empty metadata, hidden and
+non-user messages, every public renderer limit, invalid/trap-bearing transport
+envelopes, canonical identity drift, cleanup deferral and the real partial
+delivery where TXT is confirmed but its receipt is not. The complete local CI
+test step passes 266 files and 9,719 tests, with one file and three tests skipped.
+Coverage passes at 95% statements (`27,157 / 28,585`), 91.75% branches, 98.09%
+functions and 97.28% lines. Lint passes with the same 55 existing warnings;
+formatting and `build:zip` pass. Exact-current-head GitHub CI, Code Review and
+Security Review remain required before merge.
