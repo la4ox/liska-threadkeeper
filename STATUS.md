@@ -4439,3 +4439,36 @@ Coverage passes at 95% statements (`27,157 / 28,585`), 91.75% branches, 98.09%
 functions and 97.28% lines. Lint passes with the same 55 existing warnings;
 formatting and `build:zip` pass. Exact-current-head GitHub CI, Code Review and
 Security Review remain required before merge.
+
+## Canonical-derived text merge result — 2026-11-04
+
+PR 109 merged reviewed head `8fc4a3f` into `main` as merge commit `65b8d59`.
+Fetched `origin/main` contains that exact head as an ancestor. Current-head CI
+passed; Code Review and Security Review completed without findings, and the one
+earlier allocation-amplification thread was answered and resolved. The merged
+CI restored the unchanged statement threshold after meaningful boundary tests;
+no threshold, exclusion or archive/output contract was weakened.
+
+## Selected-preview capture seam candidate — 2026-11-04
+
+Branch `codex/export-preview-selection-v1` begins at merged main `65b8d59`.
+ADR-048 records the next product boundary: canonical remains one complete
+append-only graph, while a selected reading view binds its exact digest, one
+branch target, ordered message IDs and one reading profile. It never rewrites a
+canonical graph or silently attaches raw/manifest/canonical sidecars.
+
+The first preliminary candidate is behavior-preserving only. Existing ChatGPT
+branch-mode selection, extraction toast/settings application, DeepSeek identity
+snapshot and the original extraction promise now pass through one synchronous
+`startConversationCapture` seam. A callback preserves the exact historical
+diagnostic-stage transition immediately before `extract()`; no async boundary,
+output preflight, cancellation/navigation check, failed-evidence path,
+attachment acquisition or persistence ordering changed.
+
+Stage-cleanup helpers remain separate intentionally: stopped extraction,
+changed DeepSeek identity and partial persistence use different predicates,
+source gates and ownership of unclaimed staged artifacts. The focused capture,
+attachment, derived-output and stage-ownership matrix passes 190 tests across
+eight files; TypeScript, production build, scoped lint/format and diff checks
+pass. The candidate adds no preview UI, capture-only authority or new provider
+capability yet.

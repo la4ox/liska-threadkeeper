@@ -985,6 +985,11 @@ describe('content/bootstrap', () => {
 
       await handleSync();
 
+      expect(vi.mocked(sendMessage).mock.calls.map(([message]) => message.action)).toEqual([
+        'getSettings',
+        'testConnection',
+        'saveToOutputs',
+      ]);
       expect(sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'saveToOutputs',
