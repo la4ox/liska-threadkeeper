@@ -3,6 +3,8 @@ import { ClaudeExtractor } from '../../src/content/extractors/claude';
 import * as claudeApi from '../../src/content/extractors/claude-api';
 import * as claudeRoute from '../../src/content/extractors/claude-detail-route';
 import { BaseExtractor } from '../../src/content/extractors/base';
+import { ProviderContentLimitError } from '../../src/archive/normalizers/provider-block-work-budget';
+import { registerProviderContentLimitEvidence } from '../../src/content/extractors/provider-content-limit-evidence';
 import type {
   ArchiveCompanionBundle,
   ConversationData,
@@ -83,6 +85,22 @@ function stagedCompanion(): ArchiveCompanionBundle {
       },
     ],
   };
+}
+
+function postCaptureFailure(
+  kind: 'structured' | 'content-limit',
+  retained: ArchiveCompanionBundle
+): Error {
+  return kind === 'structured'
+    ? new claudeApi.ClaudeStructuredCaptureError('normalization-failed', retained)
+    : registerProviderContentLimitEvidence(
+        new ProviderContentLimitError('claude', 'work', 2_000_000, 2_000_001, {
+          occurrences: 12,
+          blocks: 5,
+          workUnits: 2_000_001,
+        }),
+        retained
+      );
 }
 
 function deferred<T>(): {
@@ -227,34 +245,50 @@ describe('Claude structured detail preference', () => {
     expect(result.archiveCompanion).toBeUndefined();
   });
 
-  it('retains verified raw and manifest evidence after post-capture failure', async () => {
-    renderConversation();
-    const retained = companion();
-    vi.spyOn(claudeApi, 'fetchClaudeConversation').mockRejectedValue(
-      new claudeApi.ClaudeStructuredCaptureError('normalization-failed', retained)
-    );
+  it.each(['structured', 'content-limit'] as const)(
+    'retains verified raw and manifest evidence after %s failure',
+    async kind => {
+      renderConversation();
+      const retained = { ...companion(), artifacts: companion().artifacts.slice(0, 2) };
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.spyOn(claudeApi, 'fetchClaudeConversation').mockRejectedValue(
+        postCaptureFailure(kind, retained)
+      );
 
-    const result = await extractor.extract();
+      const result = await extractor.extract();
 
-    expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
-    expect(result.archiveCompanion).toBe(retained);
-    expect(result.warnings).toContain(claudeApi.CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING);
-    expect(result.warnings).not.toContain(claudeApi.CLAUDE_DOM_FALLBACK_WARNING);
-  });
+      expect(result.data?.capture).toEqual({ mode: 'dom-fallback', completeness: 'partial' });
+      expect(result.archiveCompanion).toBe(retained);
+      expect(result.archiveCompanion?.artifacts.map(artifact => artifact.kind)).toEqual([
+        'raw',
+        'manifest',
+      ]);
+      expect(result.warnings).toContain(claudeApi.CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING);
+      expect(result.warnings).not.toContain(claudeApi.CLAUDE_DOM_FALLBACK_WARNING);
+      expect(warn).toHaveBeenCalledWith(
+        '[G2O] Claude detail API unavailable; falling back to rendered conversation:',
+        kind === 'content-limit' ? 'provider-content-limit-exceeded' : 'normalization-failed'
+      );
+    }
+  );
 
-  it('retains raw evidence even when both structured and rendered extraction fail', async () => {
-    setClaudeLocation(CONVERSATION_ID);
-    loadFixture('<main></main>');
-    const retained = companion();
-    vi.spyOn(claudeApi, 'fetchClaudeConversation').mockRejectedValue(
-      new claudeApi.ClaudeStructuredCaptureError('normalization-failed', retained)
-    );
+  it.each(['structured', 'content-limit'] as const)(
+    'retains raw evidence when %s and rendered extraction both fail',
+    async kind => {
+      setClaudeLocation(CONVERSATION_ID);
+      loadFixture('<main></main>');
+      const retained = { ...companion(), artifacts: companion().artifacts.slice(0, 2) };
+      vi.spyOn(claudeApi, 'fetchClaudeConversation').mockRejectedValue(
+        postCaptureFailure(kind, retained)
+      );
 
-    const result: ExtractionResult = await extractor.extract();
+      const result: ExtractionResult = await extractor.extract();
 
-    expect(result.success).toBe(false);
-    expect(result.archiveCompanion).toBe(retained);
-  });
+      expect(result.success).toBe(false);
+      expect(result.archiveCompanion).toBe(retained);
+      expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+    }
+  );
 
   it('cancels a successful structured result when SPA navigation changes the conversation', async () => {
     renderConversation();
@@ -271,29 +305,33 @@ describe('Claude structured detail preference', () => {
     });
   });
 
-  it('cancels fallback after navigation and releases a staged raw companion', async () => {
-    renderConversation();
-    const pending = deferred<Awaited<ReturnType<typeof claudeApi.fetchClaudeConversation>>>();
-    vi.spyOn(claudeApi, 'fetchClaudeConversation').mockReturnValue(pending.promise);
-    const retained = stagedCompanion();
+  it.each(['structured', 'content-limit'] as const)(
+    'releases a staged raw companion after navigation during %s failure',
+    async kind => {
+      renderConversation();
+      const pending = deferred<Awaited<ReturnType<typeof claudeApi.fetchClaudeConversation>>>();
+      vi.spyOn(claudeApi, 'fetchClaudeConversation').mockReturnValue(pending.promise);
+      const retained = stagedCompanion();
 
-    const extraction = extractor.extract();
-    setClaudeLocation('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
-    pending.reject(new claudeApi.ClaudeStructuredCaptureError('normalization-failed', retained));
+      const extraction = extractor.extract();
+      setClaudeLocation('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+      pending.reject(postCaptureFailure(kind, retained));
 
-    await expect(extraction).resolves.toEqual({
-      success: false,
-      error: 'Conversation changed during extraction. No output was created.',
-    });
-    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      {
-        action: 'abortStagedArchiveArtifact',
-        source: 'claude',
-        stageId: retained.artifacts[0].transport === 'staged' ? retained.artifacts[0].stageId : '',
-      },
-      expect.any(Function)
-    );
-  });
+      await expect(extraction).resolves.toEqual({
+        success: false,
+        error: 'Conversation changed during extraction. No output was created.',
+      });
+      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+        {
+          action: 'abortStagedArchiveArtifact',
+          source: 'claude',
+          stageId:
+            retained.artifacts[0].transport === 'staged' ? retained.artifacts[0].stageId : '',
+        },
+        expect.any(Function)
+      );
+    }
+  );
 
   it('does not reattach A evidence when navigation happens during DOM fallback', async () => {
     renderConversation();

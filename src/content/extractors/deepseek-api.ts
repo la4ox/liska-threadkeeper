@@ -25,6 +25,7 @@ import {
 } from '../capture/json-archive-companion';
 import { captureResponseArtifact, hashCaptureManifest, sha256Hex } from '../capture/response';
 import { retainStructuredPresentation } from '../structured-presentation';
+import { registerProviderContentLimitEvidence } from './provider-content-limit-evidence';
 
 const HISTORY_ENDPOINT = 'https://chat.deepseek.com/api/v0/chat/history_messages';
 const HISTORY_PATH_PATTERN = '/api/v0/chat/history_messages';
@@ -136,7 +137,8 @@ export async function fetchDeepSeekConversation(
       });
       archive = normalized.archive;
     } catch (error) {
-      if (error instanceof ProviderContentLimitError) throw error;
+      if (error instanceof ProviderContentLimitError)
+        throw registerProviderContentLimitEvidence(error, archiveCompanion);
       throw new DeepSeekStructuredCaptureError('normalization-failed', archiveCompanion);
     }
 

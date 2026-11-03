@@ -57,8 +57,17 @@ TypeScript/Vite/runtime build, formatting, lint with warning-only repository
 notices and diff checks. Independent review reproduced a 19,999-message capture
 plus two destination reconstructions at 1,139,952 shared work units, retained
 the accepted 16-level metadata boundary, and found no concrete bypass or
-regression. Browser and durable destination-write acceptance remain unclaimed;
-publish and current-head CI/reviews are still required before source closure.
+regression. The first published-head Code Review then found one evidence-lifetime
+P2: a limit reached during normalization was rethrown after the verified raw and
+manifest pair existed, but the outer DOM fallback could recover companions only
+from provider structured-capture errors. A content-layer WeakMap sidecar now
+binds that already-verified pair to the exact typed limit error without wrapping,
+serializing or extending its lifetime. Early preflight/inventory limits remain
+companion-free; late limits retain the pair through successful or failed DOM
+fallback and staged navigation cleanup. The follow-up's four provider suites
+pass 113 tests and the production build, formatting and diff checks pass.
+Browser and durable destination-write acceptance remain unclaimed; current-head
+CI/reviews are still required before source closure.
 
 ## Current-main security roadmap — 2026-11-02
 

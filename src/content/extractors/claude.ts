@@ -7,6 +7,7 @@
  */
 
 import { BaseExtractor, type ScrollConfig } from './base';
+import { ProviderContentLimitError } from '../../archive/normalizers/provider-block-work-budget';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { htmlToMarkdownRaw } from '../markdown-rules';
 import {
@@ -33,6 +34,7 @@ import {
   ClaudeStructuredCaptureError,
 } from './claude-detail-contract';
 import { resolveClaudeOrganizationId } from './claude-detail-route';
+import { getProviderContentLimitEvidence } from './provider-content-limit-evidence';
 import {
   SELECTORS,
   DEEP_RESEARCH_SELECTORS,
@@ -245,13 +247,17 @@ export class ClaudeExtractor extends BaseExtractor {
       };
     } catch (error) {
       const archiveCompanion =
-        error instanceof ClaudeStructuredCaptureError ? error.archiveCompanion : undefined;
+        error instanceof ClaudeStructuredCaptureError
+          ? error.archiveCompanion
+          : getProviderContentLimitEvidence(error);
       if (!this.isConversationIdentityCurrent(initialIdentity)) {
         return this.conversationChanged(archiveCompanion);
       }
       console.warn(
         '[G2O] Claude detail API unavailable; falling back to rendered conversation:',
-        error instanceof ClaudeStructuredCaptureError ? error.code : 'unknown-error'
+        error instanceof ClaudeStructuredCaptureError || error instanceof ProviderContentLimitError
+          ? error.code
+          : 'unknown-error'
       );
       return this.extractDomFallback(archiveCompanion, conversationId);
     }

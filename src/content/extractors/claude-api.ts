@@ -40,6 +40,7 @@ import {
   CLAUDE_UUID_PATTERN,
   resolveClaudeOrganizationId,
 } from './claude-detail-route';
+import { registerProviderContentLimitEvidence } from './provider-content-limit-evidence';
 
 const ARTIFACT_ID = 'conversation';
 const REASONING_LABEL = 'Claude reasoning';
@@ -144,7 +145,8 @@ export async function fetchClaudeConversation(
     });
     archive = normalized.archive;
   } catch (error) {
-    if (error instanceof ProviderContentLimitError) throw error;
+    if (error instanceof ProviderContentLimitError)
+      throw registerProviderContentLimitEvidence(error, archiveCompanion);
     throw new ClaudeStructuredCaptureError('normalization-failed', archiveCompanion);
   }
 

@@ -28,7 +28,18 @@ independent reviewer reproduced 19,999 messages across capture plus two
 reconstructions at 1,139,952 shared work units, the accepted 16-level metadata
 boundary, linear repeated-attachment source-ref handling and fail-closed
 conflicting metadata. It reported no remaining concrete bypass or regression.
-No browser or durable destination-write acceptance is claimed yet.
+
+Published-head Code Review subsequently found one P2 in evidence retention. A
+limit raised during normalization already had a verified raw/manifest companion,
+but rethrowing the exact limit error prevented the outer provider extractor from
+recovering that pair for DOM fallback or staged navigation cleanup. The narrow
+follow-up stores only that exact error-to-companion association in a content-layer
+WeakMap, rethrows the same typed error and leaves early limits companion-free.
+Claude and DeepSeek now retain raw evidence through successful and failed DOM
+fallback and abort staged evidence after navigation; Claude also reports the
+stable limit code instead of `unknown-error`. The four focused suites pass 113
+tests and the full production build passes. No browser or durable
+destination-write acceptance is claimed yet.
 
 The exact Security Cloud detail UI currently cannot administratively close the
 older repository-scan rows: `STATUS` is read-only, `Fix with Codex` opens a chat,

@@ -10,6 +10,7 @@ import {
   ProviderContentLimitError,
 } from '../../src/archive/normalizers/provider-block-work-budget';
 import { conversationToNote } from '../../src/content/markdown';
+import { getProviderContentLimitEvidence } from '../../src/content/extractors/provider-content-limit-evidence';
 import {
   DeepSeekStructuredCaptureError,
   fetchDeepSeekConversation,
@@ -240,18 +241,29 @@ describe('DeepSeek structured archive composition', () => {
     );
   });
 
-  it('shares one aggregate work scope across preflight and raw inventory', async () => {
-    const probe = new ProviderBlockWorkBudget('deepseek');
-    preflightDeepSeekHistoryArtifact(fixtureBytes, 'deepseek-branching-1', probe);
-    const contentBudget = new ProviderBlockWorkBudget('deepseek');
-    contentBudget.spendWork(PROVIDER_CONTENT_MAX_WORK_UNITS - probe.counters.workUnits);
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fixtureResponse());
+  it.each(['preflight', 'inventory'])(
+    'keeps %s exhaustion companion-free in the shared work scope',
+    async phase => {
+      const probe = new ProviderBlockWorkBudget('deepseek');
+      preflightDeepSeekHistoryArtifact(fixtureBytes, 'deepseek-branching-1', probe);
+      const contentBudget = new ProviderBlockWorkBudget('deepseek');
+      contentBudget.spendWork(
+        PROVIDER_CONTENT_MAX_WORK_UNITS - (phase === 'inventory' ? probe.counters.workUnits : 0)
+      );
+      const normalizeCapture = vi.fn();
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(fixtureResponse());
 
-    await expect(
-      fetchDeepSeekConversation('deepseek-branching-1', false, { contentBudget })
-    ).rejects.toBeInstanceOf(ProviderContentLimitError);
-    expect(contentBudget.counters.workUnits).toBeGreaterThan(PROVIDER_CONTENT_MAX_WORK_UNITS);
-  });
+      const error = await fetchDeepSeekConversation('deepseek-branching-1', false, {
+        contentBudget,
+        normalizeCapture,
+      }).catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ProviderContentLimitError);
+      expect(getProviderContentLimitEvidence(error)).toBeUndefined();
+      expect(normalizeCapture).not.toHaveBeenCalled();
+      expect(contentBudget.counters.workUnits).toBeGreaterThan(PROVIDER_CONTENT_MAX_WORK_UNITS);
+    }
+  );
 
   it('keeps hostile provider Markdown in archives but neutralizes the reading export', async () => {
     const fixture = mutableFixture();
@@ -474,6 +486,55 @@ describe('DeepSeek structured archive composition', () => {
           expect.objectContaining({ kind: 'manifest' }),
         ],
       },
+    });
+  });
+
+  it('retains verified evidence on the exact late limit error without reclassifying it', async () => {
+    const counters = { occurrences: 18, blocks: 7, workUnits: PROVIDER_CONTENT_MAX_WORK_UNITS + 1 };
+    const limitError = new ProviderContentLimitError(
+      'deepseek',
+      'work',
+      PROVIDER_CONTENT_MAX_WORK_UNITS,
+      counters.workUnits,
+      counters
+    );
+    const originalCounters = limitError.counters;
+    const normalizeCapture = vi.fn().mockRejectedValue(limitError);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fixtureResponse());
+
+    const error = await fetchDeepSeekConversation('deepseek-branching-1', false, {
+      normalizeCapture,
+    }).catch((reason: unknown) => reason);
+
+    expect(normalizeCapture).toHaveBeenCalledOnce();
+    expect(error).toBe(limitError);
+    expect(error).not.toBeInstanceOf(DeepSeekStructuredCaptureError);
+    expect(error).toMatchObject({
+      code: 'provider-content-limit-exceeded',
+      provider: 'deepseek',
+      limit: 'work',
+      maximum: PROVIDER_CONTENT_MAX_WORK_UNITS,
+      observed: counters.workUnits,
+      counters,
+    });
+    expect(limitError.counters).toBe(originalCounters);
+    expect(error).not.toHaveProperty('archiveCompanion');
+    const companion = getProviderContentLimitEvidence(error)!;
+    expect(companion).toBeDefined();
+    expect(companion.artifacts.every(artifact => artifact.transport === 'inline')).toBe(true);
+    const artifacts = companion.artifacts as readonly InlineArchiveCompanionArtifact[];
+    expect(artifacts.map(artifact => artifact.kind)).toEqual(['raw', 'manifest']);
+    expect(inlineBytes(artifacts[0])).toEqual(fixtureBytes);
+    for (const artifact of artifacts) {
+      expect(artifact.sha256).toBe(hash(inlineBytes(artifact)));
+      expect(artifact.byteLength).toBe(inlineBytes(artifact).byteLength);
+    }
+    const manifest = JSON.parse(new TextDecoder().decode(inlineBytes(artifacts[1]))) as {
+      artifacts: Array<{ sha256: string; byteLength: number }>;
+    };
+    expect(manifest.artifacts[0]).toMatchObject({
+      sha256: hash(fixtureBytes),
+      byteLength: fixtureBytes.byteLength,
     });
   });
 
