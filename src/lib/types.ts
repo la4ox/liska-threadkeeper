@@ -471,6 +471,8 @@ export interface SyncSettings {
   enableImageExport: boolean;
   /** Add a canonical-derived offline HTML reading view to File archive snapshots. */
   enableHtmlExport: boolean;
+  /** Show every language-tagged fenced block as literal source in reading Markdown. */
+  enableInertCodeBlocks: boolean;
   /**
    * Experimental ChatGPT metadata-only opaque request probe. While enabled a
    * ChatGPT export stops before capture, DOM fallback, or persistence.

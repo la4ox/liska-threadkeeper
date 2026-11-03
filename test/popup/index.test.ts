@@ -39,6 +39,7 @@ const storedSettings: ExtensionSettings = {
   enableToolContent: false,
   enableImageExport: true,
   enableHtmlExport: false,
+  enableInertCodeBlocks: true,
   enableChatGptOpaqueProbe: false,
   enableChatGptOpaqueReplay: false,
   flattenLargeCallouts: true,
@@ -73,6 +74,7 @@ const SWITCH_IDS = [
   'enableAppendMode',
   'enableToolContent',
   'enableImageExport',
+  'enableInertCodeBlocks',
   'enableChatGptOpaqueProbe',
   'enableChatGptOpaqueReplay',
   'flattenLargeCallouts',
@@ -105,6 +107,8 @@ function buildPopupDom(): void {
         <span class="slider" aria-hidden="true"></span>
       </span>
     </label>
+    <span data-i18n="settings_enableInertCodeBlocks">Show tagged code blocks as literal source</span>
+    <span data-i18n="settings_inertCodeBlocksHelp">Tagged fence help</span>
     ${switches}
     <select id="messageFormat">
       <option value="callout">callout</option>
@@ -182,6 +186,35 @@ describe('canonical HTML popup setting markup', () => {
     expect(japanese.settings_htmlExportHelp.message).toContain('PDF');
     expect(japanese.settings_htmlExportHelp.message).toContain('クリップボード');
   });
+
+  it('provides an always-available default-on tagged-fence switch with honest limits', () => {
+    const html = readFileSync('src/popup/index.html', 'utf8');
+    const popup = new DOMParser().parseFromString(html, 'text/html');
+    const english = JSON.parse(readFileSync('src/_locales/en/messages.json', 'utf8')) as Record<
+      string,
+      { message: string }
+    >;
+    const toggle = popup.getElementById('enableInertCodeBlocks');
+
+    expect(toggle?.getAttribute('role')).toBe('switch');
+    expect(toggle?.hasAttribute('checked')).toBe(true);
+    expect(toggle?.hasAttribute('disabled')).toBe(false);
+    expect(toggle?.getAttribute('aria-checked')).toBe('true');
+    expect(english.settings_enableInertCodeBlocks.message).toBe(
+      'Show tagged code blocks as literal source'
+    );
+    for (const phrase of [
+      'every language-tagged Markdown fence',
+      'original fence, info string, content, and closing fence visible',
+      'Ambiguous fence-like syntax is refused instead of saved',
+      'syntax highlighting and special rendering',
+      'Raw/canonical archives and canonical HTML stay unchanged',
+      'Append refuses a pre-existing tagged block',
+      'inline syntax, raw HTML, general postprocessors, or plugins that read files',
+    ]) {
+      expect(english.settings_inertCodeBlocksHelp.message).toContain(phrase);
+    }
+  });
 });
 
 describe('popup/app', () => {
@@ -232,6 +265,8 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('outputFile').checked).toBe(false);
       expect(el<HTMLInputElement>('enableHtmlExport').checked).toBe(false);
       expect(el<HTMLInputElement>('enableHtmlExport').disabled).toBe(true);
+      expect(el<HTMLInputElement>('enableInertCodeBlocks').checked).toBe(true);
+      expect(el<HTMLInputElement>('enableInertCodeBlocks').disabled).toBe(false);
       expect(el<HTMLInputElement>('enableAutoScroll').checked).toBe(true);
       expect(el<HTMLInputElement>('enableChatGptOpaqueProbe').checked).toBe(false);
       expect(el<HTMLInputElement>('enableChatGptOpaqueReplay').checked).toBe(false);
@@ -393,6 +428,7 @@ describe('popup/app', () => {
         enableAppendMode: undefined,
         enableToolContent: undefined,
         enableHtmlExport: undefined,
+        enableInertCodeBlocks: undefined,
         templateOptions: { messageFormat: '', userCalloutType: '', assistantCalloutType: '' },
       } as unknown as ExtensionSettings;
       vi.mocked(getSettingsOrThrow).mockResolvedValue(partial);
@@ -403,6 +439,7 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('outputFile').checked).toBe(false);
       expect(el<HTMLInputElement>('enableAutoScroll').checked).toBe(false);
       expect(el<HTMLInputElement>('enableHtmlExport').checked).toBe(false);
+      expect(el<HTMLInputElement>('enableInertCodeBlocks').checked).toBe(true);
       expect(el<HTMLInputElement>('obsidianUrl').value).toBe('http://127.0.0.1:27123');
       expect(el<HTMLSelectElement>('messageFormat').value).toBe('callout');
       expect(el<HTMLInputElement>('userCallout').value).toBe('QUESTION');
@@ -437,6 +474,12 @@ describe('popup/app', () => {
         expect(document.querySelector('[data-i18n="settings_htmlExportHelp"]')!.textContent).toBe(
           'T_settings_htmlExportHelp'
         );
+        expect(
+          document.querySelector('[data-i18n="settings_enableInertCodeBlocks"]')!.textContent
+        ).toBe('T_settings_enableInertCodeBlocks');
+        expect(
+          document.querySelector('[data-i18n="settings_inertCodeBlocksHelp"]')!.textContent
+        ).toBe('T_settings_inertCodeBlocksHelp');
         expect(document.title).toBe('T_extName');
       } finally {
         vi.mocked(chrome.i18n.getMessage).mockImplementation((key: string) => key);
@@ -681,6 +724,28 @@ describe('popup/app', () => {
 
       await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
       expect(settingsSaveAt(0)).toHaveProperty('enableHtmlExport', true);
+    });
+
+    it('populates, exposes, and saves the tagged-fence setting independently of destinations', async () => {
+      await initWithDefaults({
+        ...storedSettings,
+        enableInertCodeBlocks: false,
+        outputOptions: { obsidian: false, file: false, clipboard: true },
+      });
+      const inert = el<HTMLInputElement>('enableInertCodeBlocks');
+      expect(inert.checked).toBe(false);
+      expect(inert.disabled).toBe(false);
+      inert.checked = true;
+      inert.dispatchEvent(new Event('change'));
+      expect(inert.getAttribute('aria-checked')).toBe('true');
+      el<HTMLButtonElement>('saveBtn').click();
+
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'saveSettings',
+          settings: expect.objectContaining({ enableInertCodeBlocks: true }),
+        })
+      );
     });
 
     it('saves the experimental opaque-probe switch with an explicit default-off value', async () => {

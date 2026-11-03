@@ -457,7 +457,10 @@ describe('persistence seam evidence: append recontextualization', () => {
 
     const response = await handleSave(settings, note);
 
-    expect(response).toMatchObject({ success: false, error: 'markdown-finalization-failed' });
+    expect(response).toMatchObject({
+      success: false,
+      error: 'inert-code-block-finalization-failed',
+    });
     expect(mockClient.putFile).not.toHaveBeenCalled();
     expect(mockClient.putBinaryFile).not.toHaveBeenCalled();
   });
@@ -654,7 +657,7 @@ describe('persistence seam evidence: serialized bytes and side-effect order', ()
     mockClient.listEntries.mockResolvedValue([]);
   });
 
-  it('currently admits a full-size UTF-8 body and writes additional frontmatter bytes', async () => {
+  it('admits a full-size candidate-free UTF-8 body without parser work', async () => {
     // This exercises the real exported worker-content validator, not a mocked
     // cap. The service-worker dispatcher adds sender/settings routing only.
     const body = '猫'.repeat(Math.floor(MAX_CONTENT_SIZE / 3)) + 'x'.repeat(MAX_CONTENT_SIZE % 3);

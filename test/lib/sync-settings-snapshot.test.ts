@@ -11,6 +11,7 @@ describe('sync settings snapshot', () => {
     const second = serializeSyncSettingsSnapshot(structuredClone(DEFAULT_SYNC_SETTINGS));
     expect(second).toBe(first);
     expect(isSerializedSyncSettingsSnapshot(first)).toBe(true);
+    expect(JSON.parse(first)).toHaveProperty('enableInertCodeBlocks', true);
     expect(first).not.toContain('obsidianApiKey');
     expect(
       serializeSyncSettingsSnapshot({

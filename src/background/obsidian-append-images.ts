@@ -22,6 +22,11 @@ import {
 } from '../lib/final-markdown-gate';
 import { MESSAGE_BOUNDARY_FORMAT_MARKER, MESSAGE_BOUNDARY_MARKER } from '../lib/message-counter';
 import { AppendBoundaryError } from '../lib/append-utils';
+import {
+  assertNoTaggedCodeBlocksBeforeOffset,
+  InertCodeBlocksError,
+  makeTaggedCodeBlocksInert,
+} from '../lib/inert-code-blocks';
 
 export type AppendImageErrorCode =
   | 'append-image-reference-invalid'
@@ -111,18 +116,37 @@ export function prepareAppendTailWrite(
   settings: ExtensionSettings,
   newMessages = appendResult.newMessages
 ) {
-  if (appendResult.diagnosticsOnly) return { ok: true as const, content: appendResult.content };
-  const tail = settings.flattenLargeCallouts
-    ? flattenLargeCallouts(newMessages, settings.maxCalloutLines)
-    : newMessages;
-  const prefix = `${appendResult.existingBody}\n\n`;
-  const finalized = finalizeAppendReadingMarkdown(prefix + tail, {
-    appendFrom: prefix.length,
-    requiredMarkerRanges: appendMarkerRanges(tail, prefix.length, appendResult.messagesAppended),
-  });
-  return finalized.ok
-    ? { ok: true as const, content: `${appendResult.updatedFrontmatter}\n${finalized.body}` }
-    : finalized;
+  try {
+    if (appendResult.diagnosticsOnly) {
+      if (settings.enableInertCodeBlocks) {
+        assertNoTaggedCodeBlocksBeforeOffset(
+          appendResult.existingBody,
+          appendResult.existingBody.length
+        );
+      }
+      return { ok: true as const, content: appendResult.content };
+    }
+    const transformedTail = settings.flattenLargeCallouts
+      ? flattenLargeCallouts(newMessages, settings.maxCalloutLines)
+      : newMessages;
+    const prefix = `${appendResult.existingBody}\n\n`;
+    if (settings.enableInertCodeBlocks) {
+      assertNoTaggedCodeBlocksBeforeOffset(prefix + transformedTail, prefix.length);
+    }
+    const tail = settings.enableInertCodeBlocks
+      ? makeTaggedCodeBlocksInert(transformedTail)
+      : transformedTail;
+    const finalized = finalizeAppendReadingMarkdown(prefix + tail, {
+      appendFrom: prefix.length,
+      requiredMarkerRanges: appendMarkerRanges(tail, prefix.length, appendResult.messagesAppended),
+    });
+    return finalized.ok
+      ? { ok: true as const, content: `${appendResult.updatedFrontmatter}\n${finalized.body}` }
+      : finalized;
+  } catch (error) {
+    if (error instanceof InertCodeBlocksError) return { ok: false as const, code: error.code };
+    throw error;
+  }
 }
 
 function validateResolvedAssetNames(

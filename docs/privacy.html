@@ -244,6 +244,17 @@
     <p>
       All output operations occur locally on your device. No conversation data leaves your computer.
     </p>
+    <p>
+      By default, Liska shows every language-tagged fenced code block as literal source in File,
+      Clipboard, and Obsidian reading Markdown. The original fence, info string, and contents remain
+      visible, but the reading note no longer exposes that block to language-specific Markdown code
+      processors. Raw and canonical archive companions and canonical-derived HTML remain unchanged.
+      You can disable this setting for trusted content when syntax highlighting or plugin rendering
+      is intentional. This control does not sandbox plugins or cover inline syntax, raw HTML,
+      general Markdown postprocessors, or plugins that read files directly. Ambiguous fence-shaped
+      syntax is refused rather than saved active; append also refuses a pre-existing tagged block
+      instead of rewriting the old note.
+    </p>
 
     <h2>Permissions Explained</h2>
     <table>

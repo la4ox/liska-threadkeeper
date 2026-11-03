@@ -46,6 +46,17 @@ describe('normalizeSyncSettings', () => {
     expect(normalizeSyncSettings({ enableHtmlExport: 'yes' }).enableHtmlExport).toBe(false);
   });
 
+  it('defaults tagged code blocks to inert unless an explicit boolean false is stored', () => {
+    expect(DEFAULT_SYNC_SETTINGS.enableInertCodeBlocks).toBe(true);
+    expect(normalizeSyncSettings({}).enableInertCodeBlocks).toBe(true);
+    expect(normalizeSyncSettings({ enableInertCodeBlocks: 'false' }).enableInertCodeBlocks).toBe(
+      true
+    );
+    expect(normalizeSyncSettings({ enableInertCodeBlocks: false }).enableInertCodeBlocks).toBe(
+      false
+    );
+  });
+
   it('keeps the opaque probe disabled by default and preserves an explicit boolean opt-in', () => {
     expect(DEFAULT_SYNC_SETTINGS.enableChatGptOpaqueProbe).toBe(false);
     expect(normalizeSyncSettings({ enableChatGptOpaqueProbe: true }).enableChatGptOpaqueProbe).toBe(

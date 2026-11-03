@@ -11,6 +11,7 @@ Liska extracts conversations from Google Gemini (gemini.google.com), Claude AI (
 ✨ KEY FEATURES
 • Explicit extension-owned export controls for Gemini, Claude, ChatGPT, Perplexity, DeepSeek, and Gemini Notebook conversations
 • Clean Markdown formatting with YAML frontmatter
+• Default-on literal-source mode for language-tagged code blocks in File, Clipboard, and Obsidian reading notes; exact raw/canonical archives remain unchanged
 • Obsidian callout syntax for Q&A blocks (shows correct AI name)
 • Deep Research support (Gemini, Perplexity) and Extended Thinking/Artifacts (Claude)
 • Source citations - Gemini Notebook chat citations exported as footnotes
