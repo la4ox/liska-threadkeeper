@@ -1,0 +1,140 @@
+# ADR-048: Selected presentation preview without a second canonical archive
+
+- Status: Accepted; staged implementation
+- Date: 2026-11-04
+- Related: ADR-031, ADR-036, ADR-042, ADR-047, ITH-002, ITH-009
+
+## Context
+
+Liska now has one append-only archive authority and several replaceable reading
+views. A local preview needs search, explicit message/range selection and
+Text/HTML/Markdown copy or download, but a selected excerpt is not another
+capture and must not become a reduced canonical graph.
+
+The existing `StructuredPresentationContext.selectedNodeIds` already proves a
+complete canonical root-to-target path. Reusing that field for an arbitrary
+message subset would destroy its current invariant. Existing output orchestration
+is also unsuitable: `handleSync()` validates configured destinations and
+`persistExtractedNote()` starts archive-companion persistence before the reading
+output. Preview must neither contact Obsidian nor save raw, manifest or canonical
+companions merely because the user wants to inspect an excerpt.
+
+Legacy Markdown and canonical-derived HTML/Text currently differ in omission
+semantics. HTML and Text omit hidden, technical-channel and non-user recipients;
+legacy Markdown does not apply the same gate. Search and selection therefore
+cannot use legacy Markdown as their shared source without exposing content that
+the other reading profiles intentionally omit.
+
+## Decision
+
+Canonical remains singular and unchanged. Preview creates an immutable
+presentation-selection snapshot bound to the exact authorized canonical bytes:
+
+```ts
+interface PresentationSelectionV1 {
+  readonly schema: 'liska-presentation-selection/1';
+  readonly sourceCanonicalSha256: string;
+  readonly branchTargetNodeId: string;
+  readonly messageNodeIds: readonly string[];
+  readonly profile: Readonly<{
+    schema: 'liska-reading-profile/1';
+    includeToolContent: boolean;
+  }>;
+}
+```
+
+`branchTargetNodeId` identifies one complete canonical path. `messageNodeIds`
+is a detached, unique, canonically ordered, nonempty subset of selectable
+message-bearing nodes on that path. It never contains DOM ranges, search text,
+display ordinals, destination settings or raw/provider authority. Inclusive
+range gestures are UI conveniences which resolve to this same explicit ID list.
+
+The snapshot does not rewrite parents, roots, `currentNodeId`, diagnostics or
+assets and is never called a canonical archive. A later `view.json`, if useful,
+is only a versioned presentation manifest/receipt for the excerpt.
+
+## Shared visibility and search
+
+Preview rows are bounded structured values such as `{ nodeId, role,
+presentedText }`, prepared from canonical message/block meaning under the same
+reading profile used by the selected renderer.
+
+- Structural nodes and wholly omitted messages are not selectable.
+- Hidden, technical-channel and non-user-recipient messages remain omitted even
+  when tool content is enabled.
+- Tool/reasoning content follows the explicit `includeToolContent` profile.
+- Search indexes only the presented row content. It filters/highlights but never
+  mutates selection.
+- An empty UI selection is allowed; Copy and Download are disabled until a
+  nonempty snapshot is committed.
+- Changing capture, branch target or reading profile creates a new state and
+  invalidates older asynchronous results instead of migrating selection.
+
+The first implementation is Text-only. HTML and a new canonical-derived
+Markdown excerpt renderer will consume the same resolved selection later.
+Legacy full-note Markdown behavior remains unchanged.
+
+## Capture-only boundary
+
+Preview receives an explicitly authorized capture-only capability. It may use
+the current structured capture machinery, but it must not validate configured
+outputs, contact Obsidian, persist archive companions, acquire attachments,
+write Clipboard/File automatically or enter all-branches delivery.
+
+Supported first routes are ChatGPT current/selected branch and DeepSeek current.
+DeepSeek selected branch is not implemented today and remains unavailable
+rather than silently falling back.
+
+Structured capture may create temporary staged raw/canonical bytes before the
+context is retained. Capture-only orchestration therefore owns best-effort stage
+cleanup on success, cancellation, navigation change, missing/invalid context,
+all-branches refusal and error. It authorizes the exact canonical length/hash
+and path before preparing rows, then keeps only the bounded selected-branch
+presentation in memory.
+
+## Surface and lifecycle
+
+The real trusted popup opens one dedicated extension-owned preview surface.
+Authority is registered to the exact surface URL, window/tab, source tab/route,
+operation generation and settings/profile snapshot; arbitrary extension pages
+are not admitted.
+
+Private preview content is transferred once through a bounded in-memory session.
+It is never placed in URL parameters, session/local storage, logs or ordinary
+status polling. Close, Clear, Stop, expiry, source navigation, identity loss and
+worker/session loss invalidate the session and release references. Loss is shown
+honestly; content is not reconstructed from storage.
+
+Copy and Download are separate explicit trusted actions over the same frozen
+selection. They are labeled as selected excerpts/reading views, include no
+archive sidecars or automatic attachment acquisition, and never retry an
+uncertain external write. Selection-specific receipts must bind the selection
+digest, renderer/version, exact byte length/hash and source canonical digest;
+existing whole-capture receipt paths are not reused.
+
+## Implementation sequence
+
+1. Extract the existing capture seam without changing export behavior or
+   persistence order.
+2. Add one Text vertical slice: capture-only session, bounded rows, local search,
+   checkbox/range selection, immutable snapshot, Copy and `.txt` Download.
+3. Add selection-aware HTML on the same snapshot without attachment acquisition.
+4. Add canonical-derived Markdown on the same snapshot. Do not retrofit the
+   selection onto rendered legacy Markdown.
+
+PDF and DOCX start only after this selection/profile contract is stable.
+Conversation-to-image stays outside the roadmap while an ordinary browser
+screenshot meets the visual-snapshot need.
+
+## Consequences
+
+The first preview PR is larger than a contract-only change, but it proves the
+schema against a real interface and delivery path before freezing it for every
+format. The preliminary capture-seam refactor is allowed as a separate
+behavior-preserving PR because capture and output persistence are currently
+interleaved inside `handleSync()`.
+
+No excerpt can claim archival completeness, and no UI choice can silently cause
+full raw/canonical evidence to be shared. The cost is an explicit capture-only
+capability, bounded ephemeral session lifecycle and new selection-aware
+renderers rather than a shortcut through existing Markdown.

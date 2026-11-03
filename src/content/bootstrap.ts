@@ -1585,6 +1585,27 @@ function captureDeepSeekOperationIdentity(
     : undefined;
 }
 
+interface ConversationCapture {
+  readonly deepSeekOperationIdentity: DeepSeekOperationIdentity | undefined;
+  readonly result: Promise<ExtractionResult>;
+}
+
+/** Start extraction without taking ownership of preflight, cancellation or persistence. */
+function startConversationCapture(
+  extractor: IConversationExtractor,
+  settings: ContentScriptSettings,
+  branchMode: 'current' | 'selected',
+  onBeforeExtract: () => void
+): ConversationCapture {
+  if (extractor instanceof ChatGPTExtractor) extractor.setBranchExportMode(branchMode);
+  showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
+  extractor.applySettings(settings);
+  const deepSeekOperationIdentity = captureDeepSeekOperationIdentity(extractor);
+  // Keep preparation failures in the caller's preceding diagnostic stage.
+  onBeforeExtract();
+  return { deepSeekOperationIdentity, result: extractor.extract() };
+}
+
 function isDeepSeekOperationCurrent(
   extractor: IConversationExtractor,
   identity: DeepSeekOperationIdentity | undefined
@@ -1673,12 +1694,15 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       showErrorToast('Not on a valid conversation page');
       return;
     }
-    if (extractor instanceof ChatGPTExtractor) extractor.setBranchExportMode(branchMode);
-    showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
-    extractor.applySettings(settings);
-    const deepSeekOperationIdentity = captureDeepSeekOperationIdentity(extractor);
-    stage = 'extracting the conversation';
-    const result = await extractor.extract();
+    const { deepSeekOperationIdentity, result: extraction } = startConversationCapture(
+      extractor,
+      settings,
+      branchMode,
+      () => {
+        stage = 'extracting the conversation';
+      }
+    );
+    const result = await extraction;
     if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result)) return;
     if (
       result.cancelled ||

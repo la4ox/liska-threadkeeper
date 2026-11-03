@@ -135,6 +135,23 @@ silently generalize all-branches, Clipboard or Obsidian behavior.
 
 Evidence: E3, E4, E5, E6
 
+### D3 — A selected view points to canonical truth; it never becomes another canonical
+
+The preview selection binds one exact canonical digest, one branch target, an
+ordered subset of message node IDs and one reading profile. It does not rewrite
+the graph or create a reduced archive. Search queries and UI ranges are not
+authority: ranges resolve to explicit IDs, while search only filters the visible
+rows and never changes selection.
+
+The first vertical slice is Text preview/search/selection plus explicit Copy and
+Download. HTML and canonical-derived Markdown follow on the same snapshot;
+legacy Markdown is not reused as shared search text because its hidden-message
+semantics differ from HTML/Text.
+
+Evidence: E1, E4, E5, E6
+
+Decision record: ADR-048
+
 ### T1 — Add richer reading formats without enlarging archive authority
 
 PDF, new HTML profiles or other reading views may be useful, but each needs its
@@ -166,13 +183,15 @@ bounded identity, rendering and terminal-delivery contract.
 
 ### T4 — Add one local preview and immutable message selection contract
 
-After the first new renderer has a stable delivery seam, design one extension-
-owned preview for search, branch/message/range selection and Markdown/text/HTML
-copy or download. Search must never alter selection implicitly, and a partial
-selection must not silently cause the full archive to be shared as a view.
+Implementation is staged as a behavior-preserving capture-seam refactor, then
+one Text vertical slice with an extension-owned preview, bounded in-memory rows,
+search, checkbox/range selection and explicit Copy/Download. HTML and
+canonical-derived Markdown then consume that same frozen selection. Search must
+never alter selection implicitly, and a partial selection must not silently
+cause the full archive to be shared as a view.
 
-Trigger: the text slice is verified and the preview lifecycle can be bounded
-without retaining private conversation content indefinitely.
+Trigger: met on 2026-11-04 after the Text slice merged and the capture-only
+lifecycle, stage cleanup and no-second-canonical boundary were specified.
 
 ### T5 — Add document and image renderers separately
 
@@ -201,6 +220,7 @@ scenario that an ordinary screenshot cannot solve.
 - [rejected] X3: third-party button parity, remote conversion and unlimited image capture do not meet Liska's privacy or boundedness contract
 - [decision] D1: keep raw and canonical evidence append-only and derive replaceable views from it
 - [decision] D2: add local canonical-derived formats through reviewed selection, renderer and receipt slices
+- [decision] D3: bind selected views to one exact canonical digest without creating or rewriting a canonical graph
 - [tail] T1: add richer reading formats only with separate bounded rendering and persistence evidence
 - [tail] T2: allow future living memory to index but never silently rewrite archive truth
 - [tail] T3: extend text beyond the completed single-branch File view only through a separately bounded contract
@@ -228,3 +248,4 @@ scenario that an ordinary screenshot cannot solve.
 - S8 — local receipt `LISKA-MULTIFORMAT-REFERENCE-20261103`; visibility: local-only; safe aggregate only
 - S9 — [ADR-047: Canonical-derived plain-text presentation](../adr/047-canonical-text-presentation.md)
 - S10 — installed Comet text/receipt acceptance artifacts; retained locally; repository visibility: safe aggregate only
+- S11 — [ADR-048: Selected presentation preview without a second canonical archive](../adr/048-selected-presentation-preview.md)
