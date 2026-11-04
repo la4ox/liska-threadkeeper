@@ -8,6 +8,7 @@ import {
 import { renderPresentationSelection } from '../../src/archive/presentation/selected';
 import { createTextPresentationSelection } from '../../src/archive/presentation/text-preview-selection';
 import { renderTextSelection } from '../../src/archive/presentation/text';
+import type { SelectedDocxArtifact } from '../../src/text-preview/docx-contract';
 import {
   captureTrustedActions,
   checkboxes,
@@ -24,6 +25,48 @@ import {
 import type { PreviewRequest } from '../../src/text-preview/protocol';
 
 let dispose: (() => void) | undefined;
+function docxArtifact(ids: readonly string[] = ['row-1', 'row-3']): SelectedDocxArtifact {
+  const preview = adoptArchivePresentationPreview(wirePreview());
+  const selection = createPresentationSelection(preview, ids);
+  const counts = Object.freeze({
+    messageCount: ids.length,
+    htmlChars: 100,
+    tokens: 20,
+    maxDepth: 3,
+    maxListDepth: 1,
+    blocks: 8,
+    runs: 12,
+    numberingDefinitions: 1,
+    links: 0,
+    placeholders: 0,
+  });
+  return Object.freeze({
+    schema: 'liska-selected-docx/1',
+    format: 'docx',
+    mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    extension: 'docx',
+    bytes: new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer,
+    selection,
+    availableMessageCount: preview.rows.length,
+    renderedMessageCount: ids.length,
+    receipt: Object.freeze({
+      schema: 'liska-docx-render-receipt/1',
+      rendererVersion: 'liska-selected-docx/1',
+      requestSchema: 'liska-docx-request/1',
+      sourceCanonicalSha256: preview.sourceCanonicalSha256,
+      branchTargetNodeId: preview.branchTargetNodeId,
+      profile: preview.profile,
+      selectionSha256: 'a'.repeat(64),
+      availableMessageCount: preview.rows.length,
+      renderedMessageCount: ids.length,
+      counts,
+      diagnostics: Object.freeze([]),
+      sourceDiagnostics: Object.freeze([]),
+      byteLength: 4,
+      sha256: 'b'.repeat(64),
+    }),
+  });
+}
 beforeEach(() => {
   vi.useFakeTimers();
   loadPage();
@@ -253,6 +296,135 @@ describe('one-shot Text-only preview delivery', () => {
 });
 
 describe('local selection and outputs', () => {
+  it('renders and downloads one frozen DOCX selection with a visible exact receipt', async () => {
+    const trusted = captureTrustedActions();
+    const artifact = docxArtifact();
+    const renderDocx = vi.fn(async () => artifact);
+    const requireDocx = vi.fn();
+    const downloadBinary = vi.fn(() => ({
+      result: Promise.resolve({ outcome: 'success' as const, downloadId: 51 }),
+      dispose: vi.fn(),
+    }));
+    const f = fixture({ renderDocx, requireDocx, downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    const boxes = checkboxes();
+    for (const index of [2, 0]) {
+      boxes[index].checked = true;
+      trusted(boxes[index]);
+    }
+    expect(el<HTMLButtonElement>('previewDownloadDocx').disabled).toBe(false);
+    trusted(el('previewDownloadDocx'));
+    await flush();
+    expect(renderDocx).toHaveBeenCalledOnce();
+    expect(renderDocx.mock.calls[0][1]).toEqual(artifact.selection);
+    expect(renderDocx.mock.calls[0][2]?.signal).toBeInstanceOf(AbortSignal);
+    expect(requireDocx).toHaveBeenCalledExactlyOnceWith(artifact);
+    expect(downloadBinary).toHaveBeenCalledExactlyOnceWith(artifact, wirePreview().title);
+    expect(el('previewStatus').textContent).toContain('DOCX download completed');
+    expect(el('previewStatus').textContent).toContain(artifact.receipt.sha256);
+    expect(el<HTMLDetailsElement>('previewDocxReceiptPanel').hidden).toBe(false);
+    expect(JSON.parse(el('previewDocxReceipt').textContent!)).toEqual({
+      schema: 'liska-selected-docx-delivery-receipt/1',
+      render: Object.fromEntries(
+        Object.entries(artifact.receipt).filter(([key]) => key !== 'branchTargetNodeId')
+      ),
+      delivery: { outcome: 'success', downloadId: 51 },
+    });
+    expect(el('previewDocxReceipt').textContent).not.toContain(wirePreview().branchTargetNodeId);
+  });
+
+  it('aborts a live DOCX worker on Clear and ignores its late artifact', async () => {
+    const trusted = captureTrustedActions();
+    const pending = deferred<SelectedDocxArtifact>();
+    let signal: AbortSignal | undefined;
+    const renderDocx = vi.fn((_preview, _selection, options) => {
+      signal = options?.signal;
+      return pending.promise;
+    });
+    const downloadBinary = vi.fn();
+    const f = fixture({ renderDocx, requireDocx: vi.fn(), downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadDocx'));
+    await flush();
+    expect(renderDocx).toHaveBeenCalledOnce();
+    expect(signal?.aborted).toBe(false);
+    expect(el<HTMLButtonElement>('previewCopy').disabled).toBe(true);
+    trusted(el('previewClear'));
+    expect(signal?.aborted).toBe(true);
+    pending.resolve(docxArtifact(['row-1', 'row-2', 'row-3', 'row-4']));
+    await flush();
+    expect(downloadBinary).not.toHaveBeenCalled();
+    expect(el('previewStatus').textContent).toContain('Preview cleared');
+    expect(el<HTMLDetailsElement>('previewDocxReceiptPanel').hidden).toBe(true);
+  });
+
+  it('rechecks the lease after DOCX rendering and refuses stale bytes', async () => {
+    const trusted = captureTrustedActions();
+    const pending = deferred<SelectedDocxArtifact>();
+    const renderDocx = vi.fn(() => pending.promise);
+    const downloadBinary = vi.fn();
+    const f = fixture({ renderDocx, requireDocx: vi.fn(), downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadDocx'));
+    await flush();
+    expect(renderDocx).toHaveBeenCalledOnce();
+    f.request.mockResolvedValue({ success: true, state: 'expired', expiresAt: Date.now() });
+    pending.resolve(docxArtifact(['row-1', 'row-2', 'row-3', 'row-4']));
+    await flush();
+    expect(downloadBinary).not.toHaveBeenCalled();
+    expect(checkboxes()).toHaveLength(0);
+    expect(el('previewStatus').textContent).toContain('unavailable or expired');
+  });
+
+  it('rejects an unowned DOCX artifact before browser delivery and releases the lock', async () => {
+    const trusted = captureTrustedActions();
+    const artifact = docxArtifact();
+    const downloadBinary = vi.fn();
+    const requireDocx = vi.fn(() => {
+      throw new Error('unowned');
+    });
+    const f = fixture({ renderDocx: vi.fn(async () => artifact), requireDocx, downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadDocx'));
+    await flush();
+    expect(requireDocx).toHaveBeenCalledExactlyOnceWith(artifact);
+    expect(downloadBinary).not.toHaveBeenCalled();
+    expect(el('previewStatus').textContent).toBe('DOCX rendering failed. Nothing was retried.');
+    expect(el<HTMLButtonElement>('previewDownloadDocx').disabled).toBe(false);
+  });
+
+  it('disposes an active DOCX download on Clear and ignores its late receipt', async () => {
+    const trusted = captureTrustedActions();
+    const pending = deferred<{ outcome: 'success'; downloadId: number }>();
+    const cleanup = vi.fn();
+    const artifact = docxArtifact(['row-1', 'row-2', 'row-3', 'row-4']);
+    const downloadBinary = vi.fn(() => ({ result: pending.promise, dispose: cleanup }));
+    const f = fixture({
+      renderDocx: vi.fn(async () => artifact),
+      requireDocx: vi.fn(),
+      downloadBinary,
+    });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadDocx'));
+    await flush();
+    expect(downloadBinary).toHaveBeenCalledOnce();
+    trusted(el('previewClear'));
+    expect(cleanup).toHaveBeenCalledOnce();
+    pending.resolve({ outcome: 'success', downloadId: 71 });
+    await flush();
+    expect(el('previewStatus').textContent).toContain('Preview cleared');
+    expect(el<HTMLDetailsElement>('previewDocxReceiptPanel').hidden).toBe(true);
+  });
+
   it.each([
     ['text', 'Text', 'txt'],
     ['markdown', 'Markdown source', 'md'],

@@ -9,7 +9,16 @@ import {
 } from '../archive/presentation/preview';
 import { renderPresentationSelection } from '../archive/presentation/selected';
 import { TEXT_PREVIEW_PENDING_MS } from '../lib/text-preview-contract';
-import { downloadSelectedPresentation, type DownloadAttempt, type OutputOutcome } from './download';
+import {
+  downloadSelectedBinary,
+  downloadSelectedPresentation,
+  type BinaryDownloadAttempt,
+  type BinaryDownloadReceipt,
+  type DownloadAttempt,
+  type OutputOutcome,
+} from './download';
+import type { SelectedDocxArtifact } from './docx-contract';
+import { renderSelectedDocx, requireSelectedDocxArtifact } from './docx-renderer';
 import {
   isPreviewUuid,
   parsePreviewSession,
@@ -25,6 +34,9 @@ interface PreviewOptions {
   request?: PreviewRequest;
   copy?: (text: string) => Promise<void>;
   download?: typeof downloadSelectedPresentation;
+  downloadBinary?: typeof downloadSelectedBinary;
+  requireDocx?: typeof requireSelectedDocxArtifact;
+  renderDocx?: typeof renderSelectedDocx;
 }
 
 const UNAVAILABLE = 'Preview unavailable or expired. Reopen Liska to start again.';
@@ -69,6 +81,9 @@ class TextPreviewPage {
   private readonly deselect = element<HTMLButtonElement>('previewDeselect');
   private readonly copy = element<HTMLButtonElement>('previewCopy');
   private readonly download = element<HTMLButtonElement>('previewDownload');
+  private readonly downloadDocx = element<HTMLButtonElement>('previewDownloadDocx');
+  private readonly docxReceiptPanel = element<HTMLDetailsElement>('previewDocxReceiptPanel');
+  private readonly docxReceipt = element<HTMLPreElement>('previewDocxReceipt');
   private readonly formatControl = element<HTMLSelectElement>('previewFormat');
   private epoch = 0;
   private closed = false;
@@ -79,6 +94,8 @@ class TextPreviewPage {
   private leaseTimer: ReturnType<typeof setTimeout> | undefined;
   private expiryTimer: ReturnType<typeof setTimeout> | undefined;
   private downloadAttempt: DownloadAttempt | undefined;
+  private binaryDownloadAttempt: BinaryDownloadAttempt | undefined;
+  private docxAbort: AbortController | undefined;
   private readonly registrationDeadline = Date.now() + TEXT_PREVIEW_PENDING_MS;
 
   constructor(private readonly options: PreviewOptions) {
@@ -138,6 +155,11 @@ class TextPreviewPage {
         void this.output('download');
       })
     );
+    this.downloadDocx.addEventListener('click', event =>
+      trustedPreviewAction(event, () => {
+        void this.outputDocx();
+      })
+    );
     window.addEventListener('pagehide', this.dispose, { once: true });
   }
 
@@ -165,6 +187,10 @@ class TextPreviewPage {
     clearTimeout(this.expiryTimer);
     this.downloadAttempt?.dispose();
     this.downloadAttempt = undefined;
+    this.binaryDownloadAttempt?.dispose();
+    this.binaryDownloadAttempt = undefined;
+    this.docxAbort?.abort();
+    this.docxAbort = undefined;
     this.preview = undefined;
     this.selected.clear();
     this.anchor = undefined;
@@ -172,6 +198,9 @@ class TextPreviewPage {
     this.rows.replaceChildren();
     element('previewTitle').textContent = '';
     this.status.textContent = message;
+    this.docxReceipt.textContent = '';
+    this.docxReceiptPanel.hidden = true;
+    this.docxReceiptPanel.open = false;
     this.clear.disabled = true;
     this.outputBusy = false;
     this.renderSelection();
@@ -380,6 +409,7 @@ class TextPreviewPage {
     this.deselect.disabled = !this.selected.size || this.outputBusy;
     this.copy.disabled = this.download.disabled =
       !this.preview || !this.selected.size || this.outputBusy;
+    this.downloadDocx.disabled = !this.preview || !this.selected.size || this.outputBusy;
   }
 
   private async copyText(text: string): Promise<OutputOutcome> {
@@ -434,6 +464,79 @@ class TextPreviewPage {
         this.outputBusy = false;
         this.renderSelection();
       }
+    }
+  }
+
+  private async outputDocx(): Promise<void> {
+    if (!this.preview || !this.selected.size || this.outputBusy) return;
+    const epoch = this.epoch;
+    const preview = this.preview;
+    const ids = preview.rows.filter(row => this.selected.has(row.nodeId)).map(row => row.nodeId);
+    const selection = createPresentationSelection(preview, ids);
+    const controller = new AbortController();
+    this.docxAbort = controller;
+    this.outputBusy = true;
+    this.status.textContent = 'Checking preview lease before local DOCX rendering…';
+    this.renderSelection();
+    try {
+      if (!(await this.checkLease(epoch)) || !this.active(epoch)) return;
+      this.status.textContent = 'Rendering selected DOCX locally…';
+      const artifact = await (this.options.renderDocx ?? renderSelectedDocx)(preview, selection, {
+        signal: controller.signal,
+      });
+      if (!this.active(epoch) || controller.signal.aborted) return;
+      this.status.textContent = 'Checking preview lease before DOCX download…';
+      if (!(await this.checkLease(epoch)) || !this.active(epoch)) return;
+      await this.deliverDocx(artifact, preview.title, epoch);
+    } catch {
+      if (this.active(epoch) && !controller.signal.aborted)
+        this.status.textContent = 'DOCX rendering failed. Nothing was retried.';
+    } finally {
+      this.finishDocxOutput(controller, epoch);
+    }
+  }
+
+  private async deliverDocx(
+    artifact: SelectedDocxArtifact,
+    title: string | null,
+    epoch: number
+  ): Promise<void> {
+    (this.options.requireDocx ?? requireSelectedDocxArtifact)(artifact);
+    this.binaryDownloadAttempt = (this.options.downloadBinary ?? downloadSelectedBinary)(
+      artifact,
+      title
+    );
+    this.status.textContent = 'Waiting for the browser DOCX download outcome…';
+    const delivery = await this.binaryDownloadAttempt.result;
+    this.binaryDownloadAttempt = undefined;
+    if (this.active(epoch)) this.showDocxReceipt(artifact, delivery);
+  }
+
+  private showDocxReceipt(artifact: SelectedDocxArtifact, delivery: BinaryDownloadReceipt): void {
+    const { branchTargetNodeId: _privateBranchTargetNodeId, ...safeRenderReceipt } =
+      artifact.receipt;
+    void _privateBranchTargetNodeId;
+    const receipt = Object.freeze({
+      schema: 'liska-selected-docx-delivery-receipt/1',
+      render: safeRenderReceipt,
+      delivery,
+    });
+    this.docxReceipt.textContent = JSON.stringify(receipt, null, 2);
+    this.docxReceiptPanel.hidden = false;
+    const size = artifact.receipt.byteLength.toLocaleString('en-US');
+    this.status.textContent =
+      delivery.outcome === 'success'
+        ? `Selected DOCX download completed. ${size} bytes · SHA-256 ${artifact.receipt.sha256}.`
+        : delivery.outcome === 'failure'
+          ? 'DOCX download failed. Nothing was retried.'
+          : 'DOCX download outcome unknown. Check the browser; nothing was retried.';
+  }
+
+  private finishDocxOutput(controller: AbortController, epoch: number): void {
+    if (this.docxAbort === controller) this.docxAbort = undefined;
+    if (this.active(epoch)) {
+      this.outputBusy = false;
+      this.renderSelection();
     }
   }
 }

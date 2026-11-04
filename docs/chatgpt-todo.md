@@ -306,9 +306,19 @@ terminal states, and the existing no-credential-export boundary.
   settings. One format selector freezes format plus explicit message IDs before
   Copy/Download; search remains selection-neutral and HTML never enters the page
   DOM.
+- A DOCX-only candidate now consumes that adopted projection through the same
+  frozen ordered selection, maps only selected safe HTML bodies into bounded
+  editable semantics in a dedicated local worker, and returns exact bytes plus
+  a selection/canonical-bound render receipt. It is a separate Download action,
+  not a fourth textual format and not an archive, Obsidian or attachment path.
+  Automated OOXML/worker/build/package checks are green. Installed Comet then
+  selected one of 48 rows, completed an exact browser download, matched its
+  physical-file hash and opened the file in Word without a repair warning.
+  Edit/save/reopen remains the final live gate before acceptance.
 - A future `view.json` is a versioned selected presentation, never a renamed
-  canonical archive. Local PDF and DOCX remain separate renderer slices with
-  their own pagination, structure, font, asset and output-size evidence.
+  canonical archive. Local PDF remains a separate renderer slice with its own
+  pagination, font, math, table, asset and output-size evidence; DOCX evidence
+  cannot be used to infer PDF readiness.
   Conversation-to-image is not active work: ordinary browser screenshots cover
   the present need, and the idea returns only for a concrete scenario
   screenshots cannot solve.

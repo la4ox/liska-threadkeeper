@@ -74,6 +74,14 @@ describe('Selected reading preview page isolation and build registration', () =>
     expect(files).toContain('src/archive/presentation/text.ts');
     expect(files).toContain('src/archive/presentation/preview.ts');
     expect(files).toContain('src/archive/presentation/selected.ts');
+    expect(files).toContain('src/text-preview/docx-contract.ts');
+    expect(files).toContain('src/text-preview/docx-renderer.ts');
+    expect(files).not.toContain('src/text-preview/docx-core.ts');
+    expect(files).not.toContain('src/text-preview/docx-worker.ts');
+    expect(read('src/text-preview/docx-renderer.ts')).toContain(
+      "new Worker(new URL('./docx-worker.ts', import.meta.url)"
+    );
+    expect(files.every(file => !read(file).includes("from 'docx'"))).toBe(true);
     for (const file of files)
       expect(read(file)).not.toMatch(
         /\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|console)\b|chrome\.storage|data:text|innerHTML|outerHTML|insertAdjacentHTML/

@@ -4705,3 +4705,96 @@ globs makes the non-vacuity assertion fail. The focused cycle test passes 2/2,
 the full architecture directory passes 44 files / 1,576 tests, the shared/facade
 matrix passes 485 tests, and the complete current-input coverage run above is
 green with the real cycle rule active.
+
+## Selected Text/Markdown/HTML preview merge result — 2026-11-04
+
+PR 112 merged exact reviewed head `2b4db7a` into `main` as merge commit
+`b06f542`. Fetched `origin/main` contains that reviewed head as an ancestor.
+Current-head CI, Code Review and Security Review completed without unresolved
+findings. The merge includes the neutral shared-helper extraction and the
+non-vacuous root-anchored cycle fitness rule above; no archive, destination or
+selected-presentation contract was weakened to make CI pass.
+
+The final merged build was installed in the stable Comet target as 54 files /
+1,388,348 bytes with matching source/installed aggregate SHA-256
+`2494a616cb5651f2c30da584873f177077f15dfb1ce54c0a52715d87946e3743`
+and manifest SHA-256
+`acb2c0e15490640a8e2dc91f66077eb3c94f875c900012d7ffea14a04068d229`.
+Rollback `liska-rollback-20261104T101753141Z-e3f136801aaf4893a6cc9af9f59dd029`
+is retained. Reloading the exact installed extension exposed `Selected reading
+preview` and the Text/Markdown/HTML help on a known ChatGPT page; the temporary
+verification tab was then closed and user tabs were preserved.
+
+## Selected DOCX preview candidate — 2026-11-04
+
+Branch `codex/selected-pdf-docx-v1` begins at merged main `b06f542`, but this
+slice is deliberately DOCX-only. The page snapshots the adopted detached
+preview and ordered selection before the first await, sends only selected safe
+HTML bodies, roles, title and independent limits to a one-shot module worker,
+and receives exact binary bytes plus a render receipt. The action is a separate
+`Download .docx`; it does not enter the Text/Markdown/HTML selector, Copy,
+Obsidian, archive companions, attachment acquisition, all-branches delivery or
+remote conversion. PDF remains a later independent renderer.
+
+The pinned runtime is `docx@9.15.2`. Independent refusal ceilings are 1,000
+rows, 1 Mi UTF-16 HTML characters, 50,000 tokens, depth 64, list depth 8,
+10,000 blocks, 30,000 runs, 256 numbering definitions, 8 MiB output and a
+30-second packing-plus-hashing lifetime. The iterative grammar maps headings,
+paragraphs, editable runs, native lists, quotes, code and placeholders; links
+are literalized. `liska-docx-render-receipt/1` binds canonical/profile/selection
+identity, counts and diagnostics to exact output length and SHA-256 without
+claiming delivery. The page adds the exact browser download ID/outcome and omits
+the private branch target from the displayed receipt. Clear, close, expiry and
+lease loss abort owned work; an unknown outcome is never retried.
+
+Focused current-input verification passes 12 files / 230 tests. The complete
+coverage run passes 283 files and 10,250 tests, with one file and three tests
+skipped and zero failures. Statements are 95.10% (`29,655 / 31,180`), branches
+91.76%, functions 98.30% and lines 97.36%. Full lint has zero errors and the
+unchanged 55 warnings; format and diff checks pass. Production build/package
+creates one isolated 229,135-byte DOCX worker, keeps the service worker free of
+the DOCX runtime, and includes byte-identical third-party notices in `dist` and
+the ZIP. The final current-input 515,330-byte candidate ZIP has SHA-256
+`d789c3644cb568407e15ca63525730fe125111bdccad24bcf15a944dc915a66f`.
+All nine idea threads validate with 37 relations. Independent functional review
+is `ready` with no actionable findings.
+
+Automated tests parse generated OOXML ZIP/XML and verify editable runs, native
+numbering, whitespace, placeholders, aggregate limits, worker lifecycle and
+exact SHA-256; this is stronger than checking only the `PK` signature. It is not
+installed acceptance. Remaining gates are one installed Comet download, an
+independent physical-file hash, and Microsoft Word open without a repair prompt
+followed by edit/save/reopen. Google Docs/LibreOffice, PDF behavior and broader
+provider live coverage are not inferred.
+
+The current candidate was then installed into the stable Comet target as 56
+files / 1,631,046 bytes with matching source/installed aggregate SHA-256
+`14cc8a04b77e63010673842f33eecafebc6d3f3ad4a5b62bf0d6c38ab58eaa6c`
+and manifest SHA-256
+`5c8c79bd549ed23b98fb12bbf078fccc5523fbd16eaa67990ede0bff8091d177`.
+Rollback `liska-rollback-20261104T112828270Z-06ac666b086a414aa44dbe3a3f082acf`
+is retained. Reloaded Comet reports the service worker active and the popup
+exposes the new local-DOCX wording. CUA started the preview flow and observed
+its bounded ChatGPT marker capture, but Comet did not expose the separate
+unfocused preview popup as a targetable window. No DOCX download or archive
+action ran, so the three live gates above remain open rather than inferred.
+
+## Selected DOCX installed download and Word-open checkpoint — 2026-11-04
+
+The separate preview popup was recoverable through the native Windows window
+inventory after `Alt+Tab`; no fallback capture or approximate desktop click was
+needed. The installed current-branch preview adopted 48 rows with zero initial
+selection. Selecting the first user row enabled only the explicit reading-view
+actions. `Download .docx` completed once with no retry and reported 9,934 bytes /
+SHA-256
+`6c8d94283d8df0d1c4e01fdfadbe2c3afd769dce0922dff810aff037671323a5`.
+
+The physical file at the configured Downloads location independently matches
+both facts. Its OOXML container has 17 entries including content types,
+`word/document.xml`, native numbering and core properties. Microsoft Word opened
+that exact file in Protected View without a repair warning and rendered one
+editable page with the expected title, explicit selected-view disclaimer, role
+heading and source text. Protected View is a user-controlled security prompt;
+CUA did not bypass it. Edit/save/reopen therefore remains the only open DOCX
+live gate. The two earlier unfocused preview windows are expired empty surfaces,
+not additional captures or downloads.

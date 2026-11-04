@@ -8,3 +8,6 @@ copyright notice and license are preserved in `LICENSE`.
 
 Liska's own name, product direction, DeepSeek integration, and later modifications
 are developed in this repository. No endorsement by the original author is implied.
+
+The packaged extension also includes exact third-party notices for bundled runtime
+dependencies in `public/THIRD_PARTY_NOTICES.txt`.

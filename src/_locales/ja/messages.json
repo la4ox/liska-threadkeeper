@@ -849,7 +849,7 @@
   },
   "preview_heading": { "message": "選択したメッセージの閲覧プレビュー" },
   "preview_help": {
-    "message": "メッセージをローカルで選択し、Text、Markdown、HTML のソースをコピーまたはダウンロードします。出力先や設定は変更しません。"
+    "message": "メッセージをローカルで選択し、Text、Markdown、HTML のソースをコピーまたはダウンロードするか、ローカルで DOCX を生成します。出力先や設定は変更しません。"
   },
   "preview_current": { "message": "現在の会話をプレビュー" },
   "preview_selected": { "message": "ブランチを選んでプレビュー…" },

@@ -120,6 +120,24 @@ article, CSP and no script element. This separates physical-file evidence from
 the browser terminal receipt and does not claim selected-branch, DeepSeek, PDF
 or DOCX acceptance.
 
+### E9 — DOCX can remain a bounded selected view without joining archive delivery
+
+The first DOCX candidate snapshots the already adopted preview and ordered
+selection, then gives a dedicated local worker only selected safe HTML bodies,
+roles, title and independent limits. The worker produces editable OOXML through
+pinned `docx@9.15.2`; the returned artifact binds exact byte length and SHA-256
+to the canonical digest, complete reading profile, selection digest and renderer
+version. It does not receive canonical/provider objects, destination settings,
+attachments or storage authority.
+
+Automated tests inspect ZIP/XML structure, editable runs, native numbering,
+whitespace and aggregate refusal boundaries, while the production build keeps
+the DOCX runtime in a separate worker asset. An installed Comet run then selected
+one of 48 rows, completed a 9,934-byte browser download, matched its receipt to
+the physical SHA-256 and opened the exact file in Word without a repair warning.
+Edit/save/reopen remains unproven, and none of this says anything about PDF
+readiness.
+
 ### X1 — Treat readable Markdown or convenient JSON as archival authority
 
 This path looked attractive because those files are easy to inspect and move.
@@ -187,6 +205,18 @@ Evidence: E1, E4, E5, E6, E7, E8
 
 Decision record: ADR-048
 
+### D4 — Keep DOCX a local binary renderer with its own acceptance proof
+
+DOCX is an explicit download-only action downstream of the frozen selection,
+not another textual selector value and not an archive or destination product.
+Its worker, semantic limits, exact-byte render receipt and browser delivery
+outcome stay distinct. PDF remains a separate future renderer because DOCX
+editability evidence cannot prove pagination, fonts, math or table layout.
+
+Evidence: E8, E9
+
+Decision record: ADR-048
+
 ### T1 — Add richer reading formats without enlarging archive authority
 
 PDF, new HTML profiles or other reading views may be useful, but each needs its
@@ -236,10 +266,12 @@ Conversation-to-image is not on the active roadmap: an ordinary browser
 screenshot already covers the current user need without adding a canvas,
 pagination or memory-heavy rendering subsystem.
 
-Trigger: met for PDF/DOCX on 2026-11-04 when the shared multiformat
-selection/profile contract passed installed current-branch evidence. Each format
-still needs its own enforceable renderer/output budget. Reopen image only for a
-concrete scenario that an ordinary screenshot cannot solve.
+Trigger: met for DOCX implementation on 2026-11-04 when the shared multiformat
+selection/profile contract passed installed current-branch evidence. Exact
+download/hash and repair-free Word open now pass; edit/save/reopen is still
+pending. PDF retains a separate trigger for a bounded
+pagination/font/math/table design. Reopen image only for a concrete scenario
+that an ordinary screenshot cannot solve.
 
 ## Observations
 
@@ -253,17 +285,19 @@ concrete scenario that an ordinary screenshot cannot solve.
 - [evidence] E6: installed Comet persisted deterministic canonical-derived text and a matching terminal receipt without changing older products #live
 - [evidence] E7: installed Comet kept bounded preview selection local and separate from canonical archive authority #live
 - [evidence] E8: one detached bounded projection now renders selected Text, Markdown and HTML without retaining canonical authority #live
+- [evidence] E9: the DOCX candidate maps selected safe HTML to bounded editable OOXML; exact installed download/hash and repair-free Word open pass, while edit/save/reopen remains open #live
 - [rejected] X1: readability and a JSON extension do not establish archival completeness
 - [rejected] X2: deriving later views from lossy Markdown would compound earlier omissions
 - [rejected] X3: third-party button parity, remote conversion and unlimited image capture do not meet Liska's privacy or boundedness contract
 - [decision] D1: keep raw and canonical evidence append-only and derive replaceable views from it
 - [decision] D2: add local canonical-derived formats through reviewed selection, renderer and receipt slices
 - [decision] D3: bind selected views to one exact canonical digest without creating or rewriting a canonical graph
+- [decision] D4: keep DOCX download-only with separate limits and proof; do not infer PDF readiness
 - [tail] T1: add richer reading formats only with separate bounded rendering and persistence evidence
 - [tail] T2: allow future living memory to index but never silently rewrite archive truth
 - [tail] T3: extend text beyond the completed single-branch File view only through a separately bounded contract
 - [tail] T4: bounded local Text/Markdown/HTML preview and immutable message selection are complete
-- [tail] T5: treat PDF and DOCX as separate budgeted renderers; leave image dormant unless screenshots prove insufficient
+- [tail] T5: DOCX still needs edit/save/reopen; PDF and image retain independent triggers
 
 ## Relations
 
@@ -289,3 +323,4 @@ concrete scenario that an ordinary screenshot cannot solve.
 - S11 — [ADR-048: Selected presentation preview without a second canonical archive](../adr/048-selected-presentation-preview.md)
 - S12 — local receipt `LISKA-TEXT-PREVIEW-20261104`; visibility: local-only; safe aggregate only
 - S13 — local receipt `LISKA-MULTIFORMAT-PREVIEW-20261104`; visibility: local-only; safe aggregate only
+- S14 — DOCX candidate contract and tests: `src/text-preview/docx-contract.ts`, `src/text-preview/docx-renderer.ts`, `test/text-preview/docx-core.test.ts`
