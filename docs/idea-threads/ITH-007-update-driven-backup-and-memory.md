@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-04
+last_turn: 2026-11-05
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -64,9 +64,9 @@ conversation pages being opened and exported in a short interval. This does not
 establish an exact rate limit, but it rules out an unbounded all-chats loop as a
 safe default and reinforces the need for cooldown, budgets and resumability.
 
-### E5 — Existing manifests support a catalog, but no current runtime supports a baseline
+### E5 — The pre-catalog audit found manifests but no baseline runtime
 
-Current source inspection found one stable immutable directory shape and a
+Source inspection before ADR-050 found one stable immutable directory shape and a
 provider-neutral capture manifest, but no durable conversation inventory,
 account-wide list adapter, provider cursor, daily budget or scheduler. Existing
 24-hour staging/recovery records and session export controllers own transient
@@ -102,16 +102,18 @@ This proves durable local bookkeeping and restart recovery for one explicit
 catalog. It does not enumerate an account, contact a provider, capture a chat,
 schedule work or prove that any conversation is still accessible.
 
-### E8 — Current ChatGPT and Claude evidence stops at conversation detail
+### E8 — Before the list experiment, ChatGPT and Claude evidence stopped at detail
 
-A source-only audit found exact single-conversation capture paths and
+The ADR-052 source-only audit found exact single-conversation capture paths and
 timestamp-shaped detail fields for ChatGPT and Claude, but no repository-safe
 account-list schema, account/workspace binding, pagination checkpoint, list-level
 marker semantics, archive/deletion visibility or rate-limit contract for either
 provider.
 
 This absence does not prove that a provider lacks those surfaces. It proves only
-that Liska cannot encode them as a trustworthy contract yet.
+that Liska could not yet encode them as a trustworthy contract. E10 and ADR-053
+later admitted only Claude's observed terminal structural subset, not a complete
+discovery or marker contract.
 
 ### E9 — The current account topology has one active personal target per provider
 
@@ -137,6 +139,20 @@ No real values were retained. The pass did not observe pagination, archived
 visibility, response equality, marker semantics, deletion behavior or rate
 limits. It therefore supports only terminal structural admission and opaque
 token equality.
+
+### E11 — The post-PR #118 audit separates verification from new capture work
+
+Exact merged main `4c3ba7e`, containing reviewed head `ee2e34a`, has the accepted
+manifest catalog, transactional inert journal and pure unwired Claude terminal
+contract. Journal admission collapses existing captures into one
+provider/conversation/key item with the original catalog digest. A new attempt
+reserves its own capture identity; settling it `confirmed` makes the item
+`recorded` and ineligible for another attempt in the same run.
+
+Verifying an existing selected snapshot through begin/settle would therefore
+mark capture work done without making a new capture. Typed evidence references
+do not correct that semantic mismatch. The audit establishes this boundary, not
+a baseline driver, account completeness or further Claude behavior.
 
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
@@ -178,9 +194,10 @@ Evidence: E1, E2, E3
 
 ### D2 — Sequence backup as catalog, slow baseline, then update discovery
 
-The next backup design starts with a read-only local catalog of existing
-snapshots. A later opt-in baseline may enumerate and capture accessible chats
-over multiple days under explicit per-provider budgets. Only after that may a
+The backup sequence starts with the now-accepted read-only local catalog of
+existing snapshots and inert journal. A later opt-in baseline may enumerate and
+capture accessible chats over multiple days under explicit per-provider budgets.
+Only after that may a
 daily service poll bounded provider index/history metadata and capture chats
 with observed changes. Providers without a trustworthy marker remain deferred
 or manual rather than producing a false no-change claim.
@@ -196,9 +213,10 @@ presence facts and fixed issues. It retains no source locator in the exported
 JSON, performs no persistent cache write and grants no recapture authority.
 
 Exact raw/canonical/asset verification remains a separate stronger operation.
-The next resumability slice is an inert work journal, not a claim that an
-account baseline already exists. Provider enumeration and update markers wait
-for one separately evidenced provider contract.
+The accepted second slice is an inert work journal, not a claim that an account
+baseline already exists. Provider enumeration and update markers still require
+sufficient separately evidenced provider contracts; local verification remains
+outside that capture journal under D8.
 
 Evidence: E2, E5, E6
 
@@ -230,9 +248,9 @@ Decision record: ADR-052
 
 ### D7 — Admit one Claude terminal list page without sync conclusions
 
-Liska may add a pure unwired Claude contract for the exact observed terminal
-active-list shape. It may project only scope-qualified conversation identity and
-an optional opaque `updated_at` token. Outcomes distinguish rejected,
+Liska now has an accepted pure unwired Claude contract for the exact observed
+terminal active-list shape. It projects only scope-qualified conversation
+identity and an optional opaque `updated_at` token. Outcomes distinguish rejected,
 unsupported and observed structure; marker comparison is limited to
 `same_token`, `different_token` or `incomparable` and never authorizes skipping
 capture.
@@ -252,6 +270,25 @@ private registry. Existing captures without account binding remain
 Evidence: E3, E8, E9
 
 Decision record: ADR-052
+
+### D8 — Keep selected-snapshot verification outside capture journal v1
+
+Do not add an offline one-item journal begin/settle driver or provider wiring.
+Any future pure reattachment requires the exact original catalog digest,
+provider/conversation/key, exact manifest length/digest and existing capture
+identity. It must separate `matched`/`mismatch` from independent
+`verified`/`partial`/`unverifiable`/`unsupported` assessments and have no journal,
+provider, network or archive mutation authority.
+
+A production baseline needs separately reviewed persisted operation purpose and
+capture semantics so verification cannot consume capture work, sufficient
+provider evidence and explicit account-wide authority. ADR-053's opaque-token
+limitations remain unchanged. The full backup goal is not complete, and semantic
+memory remains a later independent layer.
+
+Evidence: E6, E7, E10, E11
+
+Decision record: ADR-054
 
 ### T1 — Design provider-specific update discovery
 
@@ -278,9 +315,10 @@ directory and index rules, recovery receipts and rebuild-from-files behavior
 without granting network or mutation authority.
 
 Trigger: the current multi-format presentation checkpoint is complete, or the
-user explicitly chooses backup organization as the next active slice. Met on
-2026-11-04 after the bounded PDF checkpoint merged; the manifest-only catalog
-is now active work.
+user explicitly chooses backup organization as the next active slice. Fulfilled
+on 2026-11-04 after the bounded PDF checkpoint merged: the manifest-only catalog
+is accepted and installed-live verified, followed by the accepted inert journal.
+Their non-authorizing boundaries remain in force.
 
 ### T4 — Run a resumable baseline before any daily scheduler
 
@@ -288,8 +326,9 @@ Inventory and export all accessible conversations slowly, with a durable cursor,
 daily request/page budget, cooldown, pause, retry and honest deferred/error
 states. The baseline may intentionally take several days.
 
-Trigger: one provider's discovery/enumeration contract is reviewed and its
-account-wide authority is explicitly enabled.
+Trigger: persisted operation purpose/capture semantics and one provider's
+discovery/enumeration contract are reviewed, then account-wide authority is
+explicitly enabled. Local verification cannot satisfy this trigger.
 
 ### T5 — Run one bounded read-only provider-list evidence pass
 
@@ -302,8 +341,10 @@ the current sample; any later sample for the other scope gets its own cap and
 checkpoint.
 
 Trigger: the user explicitly names the provider, signed-in account and exact
-workspace/organization or personal scope allowed for the experiment. ChatGPT is
-recommended first but is not pre-authorized.
+workspace/organization or personal scope allowed for the experiment. The first
+Claude pass was authorized and fulfilled on 2026-11-05 (E10); the initial ChatGPT
+recommendation was not authorization. Any future pass is separate and must count
+actual emitted requests, including refetches, within its own cap.
 
 ### T6 — Implement a scope-aware canonical directory layout
 
@@ -324,6 +365,19 @@ changes without expanding the terminal observation contract by analogy.
 Trigger: the user explicitly authorizes a new bounded experiment whose
 request-level cap can account for client/provider refetches.
 
+### T8 — Choose further Claude evidence or a later account-wide baseline gate
+
+Continue, if separately authorized, with bounded Claude pagination, archived
+visibility, controlled marker/scope behavior or rate-behavior evidence using
+actual emitted-request accounting. The alternative later branch is an explicit
+account-wide baseline decision after persisted purpose/capture semantics and
+sufficient provider contracts are reviewed, not an offline verification driver.
+
+Trigger: the user chooses and authorizes one bounded evidence experiment or,
+after the required reviews, explicitly grants account-wide baseline authority.
+Until then the journal stays inert, the backup goal stays unfinished and living
+semantic memory stays later.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -332,12 +386,13 @@ request-level cap can account for client/provider refetches.
 - [evidence] E3: the desired ecosystem separates periodic official evidence, update-driven captures, reading views and later living memory #local-only
 - [hypothesis] H2: local canonical cataloging can be designed before account-wide provider polling
 - [evidence] E4: rapid bulk conversation reopening is an observed constraint, though no exact rate limit is claimed #local-only
-- [evidence] E5: current code has immutable provider-neutral manifests but no durable baseline cursor, list adapter or scheduler #code
+- [evidence] E5: the pre-catalog audit found immutable provider-neutral manifests but no durable baseline cursor, list adapter or scheduler #code
 - [evidence] E6: installed manifest-only catalog rebuilt 121 real entries deterministically while all 495 selected source files remained byte-identical #live
 - [evidence] E7: installed inert journal recovered the same 24 paused items after an extension reload and round-tripped its physical export byte for byte #live
-- [evidence] E8: current ChatGPT and Claude code proves detail capture but no repository-safe account-list or update-marker contract #code
+- [evidence] E8: the pre-experiment audit proved detail capture but no account-list contract; E10 later admitted only Claude's terminal structural subset #code
 - [evidence] E9: the current default is each provider's visibly active main personal account; dormant backups stay out of scope #local-only
 - [evidence] E10: one Claude reload emitted three active-list requests and proved only a 12-record terminal envelope with opaque markers #live
+- [evidence] E11: exact post-PR118 main makes confirmed attempts recorded/ineligible, so verifying an existing snapshot is not new capture work #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -348,13 +403,15 @@ request-level cap can account for client/provider refetches.
 - [decision] D5: require bounded provider-list evidence before writing provider discovery code
 - [decision] D6: namespace future captures by a verified provider scope while leaving unbound legacy evidence unassigned
 - [decision] D7: admit the exact Claude terminal list shape and compare opaque tokens without sync authority
+- [decision] D8: keep local verification outside journal v1; future reattachment is pure and exact, while a baseline needs purpose/capture semantics and explicit authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
-- [tail] T3: manifest-only local catalog is accepted; preserve its non-authorizing boundary when the resumability journal begins
+- [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
 - [tail] T4: run a multi-day budgeted baseline before enabling a daily scheduler
-- [tail] T5: run a capped read-only provider-list evidence pass only after explicit provider/account/workspace authorization
+- [tail] T5: the first authorized Claude evidence pass is fulfilled; future passes need separate scope/caps and actual emitted-request accounting
 - [tail] T6: add a scope-aware canonical directory layout only after stable binding and migration rules are reviewed
 - [tail] T7: prove Claude pagination, archived visibility, marker semantics and request-level budgeting in later bounded experiments
+- [tail] T8: choose separately authorized Claude evidence or a later explicitly authorized account-wide baseline after semantic/provider review; backup remains unfinished
 
 ## Relations
 
@@ -380,3 +437,5 @@ request-level cap can account for client/provider refetches.
 - S12 — local receipt `LISKA-SCOPE-DEFAULT-20261104`; visibility: local-only; safe aggregate only
 - S13 — [ADR-053: Claude terminal active-list observation without sync authority](../adr/053-claude-terminal-list-observation.md)
 - S14 — local receipt `LISKA-CLAUDE-LIST-EVIDENCE-20261105`; visibility: local-only; safe aggregate only
+- S15 — [ADR-054: Keep local snapshot verification outside capture journal v1](../adr/054-local-verification-outside-capture-journal.md)
+- S16 — [PR #118](https://github.com/la4ox/liska-threadkeeper/pull/118), merged main `4c3ba7e`, exact reviewed head `ee2e34a`

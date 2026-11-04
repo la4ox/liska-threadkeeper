@@ -454,21 +454,23 @@ terminal states, and the existing no-credential-export boundary.
   same journal. Its physical 7,366-byte JSON export decoded and re-encoded byte
   for byte through the production core. This establishes inert resumability,
   not provider enumeration, capture, account completeness or scheduling. The
-  next slice must prove one provider-specific list/update-marker contract before
-  any execution authority is considered; account-wide baseline and scheduler
+  remaining provider work must prove a sufficient list/update-marker contract
+  before execution authority is considered; account-wide baseline and scheduler
   remain separate explicit choices.
-- A source-only audit now confirms that current ChatGPT and Claude adapters stop
-  at exact single-conversation detail capture. Timestamp-shaped detail fields do
-  not establish an account list, durable cursor or trustworthy change marker.
-  ADR-052 therefore admits no comparator or synthetic list parser. The next
-  evidence step requires an explicit provider, signed-in account and exact
-  workspace/organization choice, or `personal/no-workspace`, then at most three
+- The pre-experiment source-only audit found that the ChatGPT and Claude capture
+  adapters stop at exact single-conversation detail capture. Timestamp-shaped
+  detail fields do not establish an account list, durable cursor or trustworthy
+  change marker. ADR-052 therefore admitted no guessed comparator or synthetic
+  list parser; ADR-053 later admitted only the observed Claude subset below.
+  A provider evidence pass requires an explicit provider, signed-in account and
+  exact workspace/organization choice, or `personal/no-workspace`, then at most three
   foreground read-only list requests with no detail/body fetches, mutation,
   automatic retry, background traversal or retention of real titles, IDs,
   cursors, account identifiers or response bodies. Any ambiguous or mismatched
   scope stops the pass. A confirmed account/workspace switch closes the current
   sample; the other scope may later receive its own capped pass and checkpoint.
-  ChatGPT is recommended first but is not authorized by this note.
+  The initial ChatGPT recommendation was not authorization; the first Claude
+  pass below is fulfilled, and any later pass needs its own scope and cap.
 - Default future work targets the visibly active main account in
   `personal/no-workspace`; normally dormant backup accounts remain untouched
   unless explicitly selected. After a provider proves stable scope identity, a
@@ -483,11 +485,30 @@ terminal states, and the existing no-credential-export boundary.
   exhausting the cap. The observed active-list query used limit 30, offset 0,
   `archived=false` and strong consistency; its envelope contained `data` and
   `has_more`, with 12 records and `has_more=false` in the sampled personal scope.
-  No real values were retained. ADR-053 admits only a pure unwired terminal-page
-  parser and opaque `updated_at` equality. Pagination, archived visibility,
+  No real values were retained. The ADR-053 terminal-page admission and opaque
+  `updated_at` comparator are now implemented and accepted in merged PR #118;
+  they remain pure and unwired. Pagination, archived visibility,
   repeat-body equality, marker monotonicity/material coverage, deletion semantics
   and rate limits remain unproven; no result may skip capture or authorize a
   baseline.
+- The post-PR #118 audit on exact main `4c3ba7e` records
+  [ADR-054](adr/054-local-verification-outside-capture-journal.md): verification of
+  an existing selected snapshot stays outside capture journal v1. A confirmed
+  attempt marks its item `recorded` and ineligible for another capture attempt
+  in that run, while attempts reserve capture identities for intended new work.
+  An offline one-item begin/settle driver would therefore confuse verification
+  with baseline capture. Do not add that driver or provider wiring yet. Any
+  future pure reattachment must bind the exact original catalog digest,
+  provider/conversation/key, manifest length/digest and existing capture
+  identity, distinguish `matched`/`mismatch` from verification/support outcomes,
+  and mutate neither journal nor archive. A production baseline requires
+  separately reviewed persisted purpose/capture semantics, provider evidence
+  and explicit account-wide authority.
+- The full update-driven backup goal remains unfinished. The next choice is a
+  separately authorized Claude evidence pass for pagination, archived visibility,
+  marker/scope behavior or rate behavior with actual emitted-request accounting,
+  versus a later explicit account-wide baseline choice after those contracts
+  are reviewed. Neither is authorized here; semantic memory remains later.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
