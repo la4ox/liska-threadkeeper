@@ -4625,6 +4625,16 @@ cover root and nested containers, soft/hard heading breaks and CR-only payloads;
 independent re-review checked 120 additional EOL/nesting combinations and is
 `ready`.
 
+The following code-review pass exposed two parser-level seams outside headings.
+Every non-space Unicode whitespace character in Markdown text is now an
+identity-safe numeric reference, preventing decoded tabs/newlines from becoming
+code blocks or paragraph boundaries; paragraph-edge ordinary spaces receive one
+boundary reference. VT (`U+000B`) and NEL (`U+0085`) stay raw because CommonMark
+numeric references would corrupt them to `U+FFFD`. Thematic breaks retain their
+parser-validated source marker (`*`, `_` or `-`), so they cannot collide with an
+enclosing list bullet. Focused middle/start/end whitespace and three list-marker
+regressions pass; independent re-review is `ready`.
+
 The first security review found one distinct P2: literal provider/user `$` and
 `$$` text could become active Obsidian math even though the canonical block did
 not distinguish trusted math. `markdownLiteral()` now backslash-escapes dollar
@@ -4654,9 +4664,9 @@ No archive output or settings changed. Selected-branch ChatGPT, DeepSeek and a
 browser-observed terminal-success Save As remain later live evidence; PDF and
 DOCX are still separate renderer slices.
 
-The final complete coverage run passes 279 test files and 10,157 tests, with one
+The final complete coverage run passes 279 test files and 10,171 tests, with one
 file and three tests skipped and zero failures. Statements are 95.08%
-(`29,150 / 30,657`), branches 91.77%, functions 98.28% and lines 97.33%.
+(`29,168 / 30,676`), branches 91.77%, functions 98.29% and lines 97.33%.
 Full lint passes with zero errors and 55 existing warnings; format, production
 build/package, diff checks and the nine-thread/37-relation idea-thread validator
 pass.

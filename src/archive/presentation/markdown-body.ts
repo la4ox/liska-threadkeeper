@@ -66,7 +66,12 @@ class MarkdownSourceRenderer {
     );
   }
   protectedBoundaryParent(node: Parent): boolean {
-    return node.type === 'strong' || node.type === 'emphasis' || node.type === 'heading';
+    return (
+      node.type === 'paragraph' ||
+      node.type === 'strong' ||
+      node.type === 'emphasis' ||
+      node.type === 'heading'
+    );
   }
   textBoundaryStart(
     node: Parent,
@@ -113,31 +118,44 @@ class MarkdownSourceRenderer {
     return this.emphasisMarker(node)[0] === '_';
   }
   boundaryWhitespace(value: string, start: boolean): boolean {
-    const characters = Array.from(value.replace(/\r\n?/g, '\n'));
+    const characters = Array.from(value);
     const character = start ? characters[0] : characters[characters.length - 1];
     return character !== undefined && /\p{White_Space}/u.test(character);
+  }
+  characterReference(character: string): string {
+    if (character === '\u000b' || character === '\u0085') return character;
+    return `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`;
+  }
+  literalText(value: string): string {
+    let result = '';
+    let literal = '';
+    for (const character of value) {
+      if (character !== ' ' && /\p{White_Space}/u.test(character)) {
+        result += markdownLiteral(literal) + this.characterReference(character);
+        literal = '';
+      } else literal += character;
+    }
+    return result + markdownLiteral(literal);
   }
   encodedNewlines(value: string, enabled: boolean): string {
     return enabled ? value.replace(/\n/g, '&#xA;') : value;
   }
   text(value: string, encodeStart = false, encodeEnd = false, encodeNewlines = false): string {
-    const characters = Array.from(value.replace(/\r\n?/g, '\n'));
+    const characters = Array.from(value);
     let start = 0;
     let end = characters.length;
     let prefix = '';
     let suffix = '';
-    const reference = (character: string): string =>
-      `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`;
     if (encodeStart && start < end) {
-      prefix = reference(characters[start]);
+      prefix = this.characterReference(characters[start]);
       start++;
     }
     if (encodeEnd && start < end) {
       end--;
-      suffix = reference(characters[end]);
+      suffix = this.characterReference(characters[end]);
     }
     return this.encodedNewlines(
-      prefix + markdownLiteral(characters.slice(start, end).join('')) + suffix,
+      prefix + this.literalText(characters.slice(start, end).join('')) + suffix,
       encodeNewlines
     );
   }
@@ -195,6 +213,17 @@ class MarkdownSourceRenderer {
     if (node.depth <= 2) return `${body}\n${node.depth === 1 ? '===' : '---'}`;
     return '#'.repeat(node.depth) + ' ' + body.replace(/\n/g, '&#xA;');
   }
+  thematicBreak(node: Extract<Nodes, { type: 'thematicBreak' }>): string {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined) presentationFail('presentation-markdown-invalid');
+    const markers = Array.from(this.source.slice(start, end)).filter(character =>
+      ['*', '_', '-'].includes(character)
+    );
+    if (markers.length < 3 || markers.some(marker => marker !== markers[0]))
+      presentationFail('presentation-markdown-invalid');
+    return markers[0].repeat(3);
+  }
   node(node: Nodes, encodeTextNewlines = false): string {
     switch (node.type) {
       case 'root':
@@ -222,7 +251,7 @@ class MarkdownSourceRenderer {
       case 'break':
         return '  \n';
       case 'thematicBreak':
-        return '---';
+        return this.thematicBreak(node);
       default:
         return this.structure(node, encodeTextNewlines);
     }

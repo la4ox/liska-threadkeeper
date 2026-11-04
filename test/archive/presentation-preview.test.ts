@@ -393,6 +393,47 @@ describe('detached multiformat presentation preview', () => {
     expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
   });
 
+  it.each([
+    '&#9;hello',
+    'foo&#10;&#10;bar',
+    '&#32;&#32;&#32;&#32;hello',
+    'hello&#32;&#32;',
+    'foo\nbar',
+    'a\u000bb',
+    'a\u0085b',
+    '\u000bhello',
+    '\u0085hello',
+    'hello\u000b',
+    'hello\u0085',
+  ])('preserves decoded paragraph whitespace for %s', source => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+  });
+
+  it.each([
+    { source: '- item\n- ***\n- next', marker: '- ***' },
+    { source: '* item\n* ___\n* next', marker: '* ___' },
+    { source: '+ item\n+ ---\n+ next', marker: '+ ---' },
+  ])('preserves thematic-break markers inside lists for $source', ({ source, marker }) => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    const root = fromMarkdown(body);
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0]).toMatchObject({
+      type: 'list',
+      children: [{ type: 'listItem' }, { type: 'listItem' }, { type: 'listItem' }],
+    });
+    expect(nodesOf(body).some(node => node.type === 'thematicBreak')).toBe(true);
+    expect(body).toContain(marker);
+  });
+
   it('keeps entity-decoded newlines inside ATX h3-h6', () => {
     const source = '### first&#10;second';
     const candidate = input();
