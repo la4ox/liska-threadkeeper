@@ -4798,3 +4798,29 @@ heading and source text. Protected View is a user-controlled security prompt;
 CUA did not bypass it. Edit/save/reopen therefore remains the only open DOCX
 live gate. The two earlier unfocused preview windows are expired empty surfaces,
 not additional captures or downloads.
+
+## Selected DOCX Word round-trip acceptance — 2026-11-04
+
+After the user explicitly left Protected View, a separate QA copy exercised the
+installed Microsoft Word engine without changing the receipt-bound original.
+Word opened the copy read-write, inserted one temporary character, observed the
+edit, deleted it, proved exact text restoration before save, saved, closed and
+reopened read-only with identical text. The reopened document remained one page.
+The 15,736-byte round-trip copy has SHA-256
+`a6eca861e28c2c09b22a98c1e033ea47eead80078e3502e72998be47e0eee459`;
+the original remains 9,934 bytes with its receipt-matching digest.
+
+The strict packaged DOCX renderer could not run because the Codex dependency
+bundle exposes Python and Poppler but no bundled LibreOffice. A system
+LibreOffice installation exists, but the document skill forbids silently
+substituting that unpinned desktop runtime. Word therefore exported the
+round-trip copy to a 105,829-byte PDF, and bundled Poppler rendered one
+42,097-byte PNG. Full-page inspection found the expected title, disclaimer,
+role heading and source text with no clipping, overlap, missing glyphs or broken
+spacing. Temporary PDF/PNG and helper scripts were removed; only the exact
+download and the explicit Word-round-trip DOCX remain in Downloads.
+
+This closes the DOCX-only renderer slice. It does not establish Google Docs or
+LibreOffice compatibility and grants no PDF renderer, provider, archive,
+attachment or destination authority. PDF remains the next separate renderer
+slice.

@@ -1,6 +1,6 @@
 # ADR-048: Selected presentation preview without a second canonical archive
 
-- Status: Accepted; Text/Markdown/HTML installed-live-verified; DOCX candidate implemented with live gates pending
+- Status: Accepted; Text/Markdown/HTML and DOCX installed-live-verified; PDF remains separate
 - Date: 2026-11-04
 - Related: ADR-031, ADR-036, ADR-042, ADR-047, ITH-002, ITH-009
 
@@ -242,7 +242,11 @@ the production build isolates the `docx` runtime in its own worker asset. One
 installed Comet run selected one of 48 rows, completed a 9,934-byte browser
 download and matched its render receipt to the physical file SHA-256. Microsoft
 Word opened that exact file without a repair warning and rendered its editable
-structure; an edit/save/reopen round trip remains the final DOCX live gate.
+structure. A separate Word-driven round-trip copy inserted and removed one
+temporary character, restored the exact source text before save, saved, closed
+and reopened with identical text. Word exported that result to one page and the
+page PNG passed visual inspection without clipping, overlap or missing glyphs.
+This closes the bounded DOCX slice; PDF remains independent.
 
 ## Consequences
 

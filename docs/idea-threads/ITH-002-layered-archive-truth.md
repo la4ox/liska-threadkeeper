@@ -135,8 +135,10 @@ whitespace and aggregate refusal boundaries, while the production build keeps
 the DOCX runtime in a separate worker asset. An installed Comet run then selected
 one of 48 rows, completed a 9,934-byte browser download, matched its receipt to
 the physical SHA-256 and opened the exact file in Word without a repair warning.
-Edit/save/reopen remains unproven, and none of this says anything about PDF
-readiness.
+A separate Word-driven copy then inserted and removed one temporary character,
+restored the exact source text before save, saved, closed and reopened with
+identical text. Its one-page Word render passed visual inspection. This closes
+the measured DOCX slice and still says nothing about PDF readiness.
 
 ### X1 — Treat readable Markdown or convenient JSON as archival authority
 
@@ -268,10 +270,9 @@ pagination or memory-heavy rendering subsystem.
 
 Trigger: met for DOCX implementation on 2026-11-04 when the shared multiformat
 selection/profile contract passed installed current-branch evidence. Exact
-download/hash and repair-free Word open now pass; edit/save/reopen is still
-pending. PDF retains a separate trigger for a bounded
-pagination/font/math/table design. Reopen image only for a concrete scenario
-that an ordinary screenshot cannot solve.
+download/hash, repair-free Word open and edit/save/reopen now pass. PDF retains
+a separate trigger for a bounded pagination/font/math/table design. Reopen image
+only for a concrete scenario that an ordinary screenshot cannot solve.
 
 ## Observations
 
@@ -285,7 +286,7 @@ that an ordinary screenshot cannot solve.
 - [evidence] E6: installed Comet persisted deterministic canonical-derived text and a matching terminal receipt without changing older products #live
 - [evidence] E7: installed Comet kept bounded preview selection local and separate from canonical archive authority #live
 - [evidence] E8: one detached bounded projection now renders selected Text, Markdown and HTML without retaining canonical authority #live
-- [evidence] E9: the DOCX candidate maps selected safe HTML to bounded editable OOXML; exact installed download/hash and repair-free Word open pass, while edit/save/reopen remains open #live
+- [evidence] E9: bounded selected DOCX passed exact installed download/hash, repair-free Word open, edit/save/reopen and one-page visual QA #live
 - [rejected] X1: readability and a JSON extension do not establish archival completeness
 - [rejected] X2: deriving later views from lossy Markdown would compound earlier omissions
 - [rejected] X3: third-party button parity, remote conversion and unlimited image capture do not meet Liska's privacy or boundedness contract
@@ -297,7 +298,7 @@ that an ordinary screenshot cannot solve.
 - [tail] T2: allow future living memory to index but never silently rewrite archive truth
 - [tail] T3: extend text beyond the completed single-branch File view only through a separately bounded contract
 - [tail] T4: bounded local Text/Markdown/HTML preview and immutable message selection are complete
-- [tail] T5: DOCX still needs edit/save/reopen; PDF and image retain independent triggers
+- [tail] T5: DOCX is accepted; PDF and image retain independent triggers
 
 ## Relations
 
