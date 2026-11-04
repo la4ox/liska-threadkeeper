@@ -76,6 +76,35 @@
         </div>
         <p id="exportStatus" role="status" aria-live="polite"></p>
         <div id="exportBranches" class="export-branches"></div>
+        <section class="preview-section" aria-labelledby="previewHeading">
+          <h3 id="previewHeading" data-i18n="preview_heading">Text-only preview</h3>
+          <p data-i18n="preview_help">
+            Choose messages locally, then copy or download Text. No export destinations or settings
+            are changed.
+          </p>
+          <div class="export-actions">
+            <button
+              id="previewCurrent"
+              class="btn secondary"
+              type="button"
+              disabled
+              data-i18n="preview_current"
+            >
+              Preview current
+            </button>
+            <button
+              id="previewSelected"
+              class="btn secondary"
+              type="button"
+              disabled
+              data-i18n="preview_selected"
+            >
+              Preview chosen branch…
+            </button>
+          </div>
+          <p id="previewStatus" role="status" aria-live="polite"></p>
+          <div id="previewBranches" class="export-branches"></div>
+        </section>
       </section>
       <main
         id="settingsPanel"

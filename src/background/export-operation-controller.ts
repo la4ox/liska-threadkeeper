@@ -198,6 +198,8 @@ export class ExportOperationController {
   private queue: Promise<unknown> = Promise.resolve();
   private revocationSequence = 0;
   private readonly tabRevocations = new Map<number, number>();
+  /** Preview leases are deliberately memory-only; ordinary export state remains durable. */
+  private readonly previewReservations = new Set<number>();
   private readonly ready: Promise<void>;
   constructor(private readonly deps: ExportControllerDependencies) {
     this.api = deps.chrome;
@@ -445,7 +447,11 @@ export class ExportOperationController {
       const existing = this.state.operations.find(
         op => op.target.tabId === source.tabId && live(op)
       );
-      if (existing || this.state.intents.some(intent => intent.target.tabId === source.tabId))
+      if (
+        existing ||
+        this.state.intents.some(intent => intent.target.tabId === source.tabId) ||
+        this.previewReservations.has(source.tabId)
+      )
         return { status: await this.status(sender) };
       if (this.state.intents.length >= 32) return undefined;
       // Creation order is retained across hydration. Empty terminal history is
@@ -502,6 +508,27 @@ export class ExportOperationController {
       return denied();
     }
     return this.locked(() => this.status(sender));
+  }
+
+  /** Atomically reserve one source tab against both hydrated and newly-started exports. */
+  async reservePreviewSource(tabId: number): Promise<boolean> {
+    if (!Number.isSafeInteger(tabId) || tabId < 0) return false;
+    return this.locked(async () => {
+      if (
+        this.previewReservations.has(tabId) ||
+        this.state.intents.some(intent => intent.target.tabId === tabId) ||
+        this.state.operations.some(op => op.target.tabId === tabId && live(op))
+      )
+        return false;
+      this.previewReservations.add(tabId);
+      return true;
+    });
+  }
+
+  async releasePreviewSource(tabId: number): Promise<void> {
+    await this.locked(async () => {
+      this.previewReservations.delete(tabId);
+    });
   }
   private async control(
     message: ExportControlMessage,

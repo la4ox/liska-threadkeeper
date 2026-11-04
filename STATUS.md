@@ -4472,3 +4472,77 @@ attachment, derived-output and stage-ownership matrix passes 190 tests across
 eight files; TypeScript, production build, scoped lint/format and diff checks
 pass. The candidate adds no preview UI, capture-only authority or new provider
 capability yet.
+
+## Selected-preview capture seam merge result — 2026-11-04
+
+PR 110 merged reviewed head `8533873` into `main` as merge commit `542822c`.
+Fetched `origin/main` contains that exact head as an ancestor. Current-head CI,
+Code Review and Security Review completed without findings. The merged seam is
+behavior-preserving: existing ChatGPT/DeepSeek capture, diagnostics, attachment
+and persistence ordering remain unchanged, while later preview work receives one
+named synchronous capture boundary.
+
+## Extension-owned Text preview installed checkpoint — 2026-11-04
+
+Branch `codex/text-preview-selection-v1` begins at merged main `542822c` and
+implements the first ADR-048 vertical. `liska-presentation-selection/1` binds an
+exact canonical digest, one branch target, ordered unique canonical message IDs
+and one reading profile. Detached `liska-text-preview/1` retains only bounded
+canonical-derived rows needed for local inspection. Neither object is a reduced
+canonical archive; raw, manifest, canonical, assets, provider authority and
+destination settings do not enter the page.
+
+The trusted popup can open ChatGPT current/selected and DeepSeek current Text
+preview. One in-memory controller binds popup, source and preview identities,
+separates pending/capture/delivery/page leases, permits only the exact temporary
+capture-stage action set, and transfers a payload once before exact ACK. Search
+filters only presented rows. Initial selection is empty; checkbox, inclusive
+range and Select all resolve to an immutable ordered ID selection. Copy and
+Download are separate explicit actions and no ordinary archive/output sink is
+reachable from the preview capability.
+
+The first installed attempts exposed a Comet-specific navigation edge. Comet
+aliases the extension page as `comet-extension://`, while `tabs.update()` may
+return the prior ChatGPT URL before the requested local navigation commits.
+Liska now accepts only the explicit Chrome/Comet scheme alias with exact
+extension ID/path/UUID query, treats the update response as tab/window identity
+only, and waits at most five seconds for a completed exact read-back before
+contacting the source. Failure stages are fixed and value-free; no native error,
+URL or conversation detail crosses into the popup, and no uncertain start is
+retried.
+
+The installed live candidate contained 53 files / 1,359,439 bytes with matching
+source/installed aggregate SHA-256
+`cf0bef867086399aeaaa1ad748ebfc4bc76a8ae92b24b569090f209bc94ffc7f`.
+One current ChatGPT branch opened as 40 rows with zero initially selected.
+Selecting one row enabled local actions; filtering to assistant showed 32 rows
+and retained one selected row hidden by the filter. Clear reduced the page to
+zero rows and disabled outputs; the cleared window was then closed. No Copy,
+Download, archive write or settings change was performed. This is a content-free
+installed-current-branch checkpoint, not selected-branch or later-format proof.
+
+Independent functional review found one lifecycle P2 before commit: Clear
+invalidated a still-open page against its absolute 15-minute lease, and a later
+window close did not shorten that already-invalidated deadline. Four repeated
+Clear/close cycles could therefore occupy every preview slot. Every closed page
+now narrows its existing deadline to the 30-second terminal window even after a
+prior invalidation. The exact-boundary regression observes the invalidated lease
+at 29,999 ms, its removal at 30,000 ms and a successful fresh start afterward;
+the re-review is clean.
+
+The final complete coverage run passed 278 test files and 10,037 tests, with one
+file and three tests skipped and zero failures. Statements are 95.12%
+(`28,572 / 30,036`), branches 91.87%, functions 98.25% and lines 97.35%.
+Installed live coverage remains deliberately scoped: current ChatGPT selection,
+filtering and Clear are confirmed; selected ChatGPT, DeepSeek and actual
+Clipboard/File actions remain later live evidence rather than inferred claims.
+
+After the reviewed lifecycle fix and localized value-free failure messages, the
+final candidate was rebuilt and installed as 53 files / 1,361,409 bytes with
+matching source/installed aggregate SHA-256
+`5fcd2c409dbc24848fcedd1ed6d248d56808cd79d4e0ef1eb3b65ff554e3af18`
+and manifest SHA-256
+`d46a0aeb0458e02b24e431afd9d3ea14e9197f654f13f153f78f11c77dc507f5`.
+Rollback `liska-rollback-20261104T025904092Z-aa077acd262145fa8cf571ed6cfaf3c0`
+is retained. Only Liska and the existing test ChatGPT tab were reloaded; no
+browser restart or destination write occurred.

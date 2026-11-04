@@ -121,6 +121,18 @@ import type {
 import { platformForHost } from '../lib/platform-registry';
 import { abortStagedArchiveArtifact } from './archive-stage';
 import { buildArchivePersistenceMessage, buildSaveToOutputsMessage } from './capture-routing';
+import { prepareArchiveTextPreview } from '../archive/presentation';
+import { authorizeDerivedHtmlContext } from './derived-html-authorization';
+import {
+  checkTextPreviewCaptureLease,
+  installTextPreviewClient,
+  publishTextPreview,
+  selectTextPreviewBranch,
+} from './text-preview-client';
+import type {
+  TextPreviewBranchMode,
+  TextPreviewCaptureSettings,
+} from '../lib/text-preview-contract';
 
 /**
  * Platform-specific main content container selectors for optimized observation.
@@ -305,6 +317,7 @@ export function getExtractor(): IConversationExtractor | null {
  */
 export function startContentScript(): void {
   installExportOperationClient(handleSync);
+  installTextPreviewClient(handleTextPreviewCapture);
   const startInit = () => {
     initialize().catch(error => {
       console.error('[G2O] Content script initialization failed:', error);
@@ -1591,19 +1604,88 @@ interface ConversationCapture {
 }
 
 /** Start extraction without taking ownership of preflight, cancellation or persistence. */
-function startConversationCapture(
+export function startConversationCapture(
   extractor: IConversationExtractor,
-  settings: ContentScriptSettings,
+  settings:
+    | ContentScriptSettings
+    | (TextPreviewCaptureSettings & { readonly enableChatGptOpaqueProbe?: false }),
   branchMode: 'current' | 'selected',
-  onBeforeExtract: () => void
+  onBeforeExtract: () => void,
+  showProgress = true
 ): ConversationCapture {
   if (extractor instanceof ChatGPTExtractor) extractor.setBranchExportMode(branchMode);
-  showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
-  extractor.applySettings(settings);
+  if (showProgress) showToast('Extracting conversation...', 'info', INFO_TOAST_DURATION);
+  // Every extractor reads only its capture settings. Preview deliberately supplies
+  // no destination, credential, append, image, or output-enable facts.
+  extractor.applySettings(settings as ContentScriptSettings);
   const deepSeekOperationIdentity = captureDeepSeekOperationIdentity(extractor);
   // Keep preparation failures in the caller's preceding diagnostic stage.
   onBeforeExtract();
   return { deepSeekOperationIdentity, result: extractor.extract() };
+}
+
+function getTextPreviewExtractor(mode: TextPreviewBranchMode): IConversationExtractor | null {
+  const platform = platformForHost(window.location.hostname);
+  if (platform === 'chatgpt') {
+    const extractor = new ChatGPTExtractor({ selectBranch: selectTextPreviewBranch });
+    return extractor.canExtract() ? extractor : null;
+  }
+  if (platform === 'deepseek' && mode === 'current') {
+    const extractor = new DeepSeekExtractor();
+    return extractor.canExtract() ? extractor : null;
+  }
+  return null;
+}
+
+/** Capture and publish one detached canonical text preview without any output preflight or sink. */
+export async function handleTextPreviewCapture(
+  branchMode: TextPreviewBranchMode,
+  settings: TextPreviewCaptureSettings
+): Promise<boolean> {
+  const extractor = getTextPreviewExtractor(branchMode);
+  if (!extractor || (branchMode === 'selected' && extractor instanceof DeepSeekExtractor))
+    return false;
+  let result: ExtractionResult | undefined;
+  let cleaned = false;
+  try {
+    const capture = startConversationCapture(
+      extractor,
+      { ...settings, enableChatGptOpaqueProbe: false },
+      branchMode,
+      () => undefined,
+      false
+    );
+    result = await capture.result;
+    if (
+      !(await checkTextPreviewCaptureLease()) ||
+      !isDeepSeekOperationCurrent(extractor, capture.deepSeekOperationIdentity) ||
+      result.cancelled ||
+      result.allBranches ||
+      !result.success ||
+      !result.archiveCompanion ||
+      !result.structuredPresentationContext
+    )
+      return false;
+    const context = result.structuredPresentationContext;
+    const authorized = await authorizeDerivedHtmlContext(context, undefined, 'selected');
+    if (
+      !(await checkTextPreviewCaptureLease()) ||
+      !isDeepSeekOperationCurrent(extractor, capture.deepSeekOperationIdentity)
+    )
+      return false;
+    const preview = prepareArchiveTextPreview({
+      archive: authorized.context.archive,
+      canonicalSha256: authorized.canonicalSha256,
+      targetNodeId: authorized.context.targetNodeId,
+      profile: { includeToolContent: authorized.context.includeToolContent },
+    });
+    await discardStoppedExtractionStages(result, extractor.platform);
+    cleaned = true;
+    result = undefined;
+    return publishTextPreview(preview);
+  } finally {
+    if (result && !cleaned) await discardStoppedExtractionStages(result, extractor.platform);
+  }
 }
 
 function isDeepSeekOperationCurrent(

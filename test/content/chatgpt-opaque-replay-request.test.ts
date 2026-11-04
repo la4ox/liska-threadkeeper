@@ -39,6 +39,11 @@ import {
   requestChatGptOpaqueReplayCapture,
 } from '../../src/content/capture/chatgpt-opaque-replay-request';
 import { ChatGptCurrentBranchError } from '../../src/content/capture/chatgpt-current-branch';
+import {
+  clearTextPreviewScope,
+  installTextPreviewScope,
+  type ContentTextPreviewScope,
+} from '../../src/lib/export-operation-scope';
 
 const CONVERSATION_ID = '01234567-89ab-4cde-8f01-23456789abcd';
 const STAGE_ID = `archive-stage-${'A'.repeat(32)}`;
@@ -360,6 +365,39 @@ describe('ChatGPT opaque replay content bridge', () => {
         expect(vi.getTimerCount()).toBe(0);
       }
     );
+
+    it('keeps a snapshotted preview generation on late staged cleanup after client scope release', async () => {
+      const scope: ContentTextPreviewScope = {
+        id: '11111111-1111-4111-8111-111111111111',
+        route: window.location.href,
+        abort: new AbortController(),
+        closed: false,
+      };
+      installTextPreviewScope(scope);
+      try {
+        const message = pendingMessage();
+        mocks.sendMessage.mockReturnValueOnce(message.promise);
+        const result = requestChatGptOpaqueReplayCapture(CONVERSATION_ID).catch(
+          (error: unknown) => error
+        );
+        await vi.advanceTimersByTimeAsync(205_000);
+        await result;
+        clearTextPreviewScope(scope);
+
+        message.resolve(stagedReplaySuccess());
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+          action: 'abortStagedArchiveArtifact',
+          source: 'chatgpt',
+          stageId: STAGE_ID,
+          textPreviewCaptureId: scope.id,
+        });
+        expect(mocks.abortStage).not.toHaveBeenCalled();
+      } finally {
+        if (!scope.closed) clearTextPreviewScope(scope);
+      }
+    });
 
     it.each(
       capturePaths.flatMap(path =>

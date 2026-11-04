@@ -86,6 +86,22 @@ plain text did not become archive authority or change the older projections.
 The live evidence closes the measured File/single-branch seam only. It does not
 claim all branches, Clipboard, Obsidian text, preview selection, PDF or DOCX.
 
+### E7 — Installed Text preview stayed a selected view, not a second archive
+
+The installed Comet path opened one extension-owned current-branch preview as
+40 bounded canonical-derived rows with no initial selection. Selecting one row,
+then filtering to the assistant role, retained that row as one hidden selection
+while 32 rows remained visible. Clear removed every row and disabled Copy and
+Download. No output action ran and no raw, manifest, canonical, asset or
+destination setting entered the page.
+
+The live run also showed that Comet aliases extension URLs and can return a
+stale page from `tabs.update()` while navigation is pending. The final protocol
+keeps exact extension ID/path/session identity and waits for completed read-back
+before source capture. This proves the measured installed current-branch Text
+slice; it does not yet prove selected-branch interaction, HTML/Markdown excerpts,
+PDF or DOCX.
+
 ### X1 — Treat readable Markdown or convenient JSON as archival authority
 
 This path looked attractive because those files are easy to inspect and move.
@@ -148,7 +164,7 @@ Download. HTML and canonical-derived Markdown follow on the same snapshot;
 legacy Markdown is not reused as shared search text because its hidden-message
 semantics differ from HTML/Text.
 
-Evidence: E1, E4, E5, E6
+Evidence: E1, E4, E5, E6, E7
 
 Decision record: ADR-048
 
@@ -183,12 +199,12 @@ bounded identity, rendering and terminal-delivery contract.
 
 ### T4 — Add one local preview and immutable message selection contract
 
-Implementation is staged as a behavior-preserving capture-seam refactor, then
-one Text vertical slice with an extension-owned preview, bounded in-memory rows,
-search, checkbox/range selection and explicit Copy/Download. HTML and
-canonical-derived Markdown then consume that same frozen selection. Search must
-never alter selection implicitly, and a partial selection must not silently
-cause the full archive to be shared as a view.
+Completed on 2026-11-04 as a behavior-preserving capture-seam refactor followed
+by one Text vertical slice with an extension-owned preview, bounded in-memory
+rows, search, checkbox/range selection and explicit Copy/Download. Search does
+not alter selection implicitly, and a partial selection cannot silently cause
+the full archive to be shared as a view. HTML and canonical-derived Markdown
+remain the next consumers of the same frozen selection.
 
 Trigger: met on 2026-11-04 after the Text slice merged and the capture-only
 lifecycle, stage cleanup and no-second-canonical boundary were specified.
@@ -215,6 +231,7 @@ scenario that an ordinary screenshot cannot solve.
 - [evidence] E4: the inspected exporter places search and explicit message selection before format rendering #local-only
 - [evidence] E5: Liska already separates Markdown, archive JSON and canonical-derived HTML in current source
 - [evidence] E6: installed Comet persisted deterministic canonical-derived text and a matching terminal receipt without changing older products #live
+- [evidence] E7: installed Comet kept bounded preview selection local and separate from canonical archive authority #live
 - [rejected] X1: readability and a JSON extension do not establish archival completeness
 - [rejected] X2: deriving later views from lossy Markdown would compound earlier omissions
 - [rejected] X3: third-party button parity, remote conversion and unlimited image capture do not meet Liska's privacy or boundedness contract
@@ -224,7 +241,7 @@ scenario that an ordinary screenshot cannot solve.
 - [tail] T1: add richer reading formats only with separate bounded rendering and persistence evidence
 - [tail] T2: allow future living memory to index but never silently rewrite archive truth
 - [tail] T3: extend text beyond the completed single-branch File view only through a separately bounded contract
-- [tail] T4: then add a bounded local preview and immutable message-selection contract
+- [tail] T4: bounded local Text preview and immutable message selection are complete; HTML/Markdown reuse remains
 - [tail] T5: treat PDF and DOCX as separate budgeted renderers; leave image dormant unless screenshots prove insufficient
 
 ## Relations
@@ -249,3 +266,4 @@ scenario that an ordinary screenshot cannot solve.
 - S9 — [ADR-047: Canonical-derived plain-text presentation](../adr/047-canonical-text-presentation.md)
 - S10 — installed Comet text/receipt acceptance artifacts; retained locally; repository visibility: safe aggregate only
 - S11 — [ADR-048: Selected presentation preview without a second canonical archive](../adr/048-selected-presentation-preview.md)
+- S12 — local receipt `LISKA-TEXT-PREVIEW-20261104`; visibility: local-only; safe aggregate only

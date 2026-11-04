@@ -1,6 +1,6 @@
 # ADR-048: Selected presentation preview without a second canonical archive
 
-- Status: Accepted; staged implementation
+- Status: Accepted; Text vertical implemented and installed-live-verified; HTML/Markdown pending
 - Date: 2026-11-04
 - Related: ADR-031, ADR-036, ADR-042, ADR-047, ITH-002, ITH-009
 
@@ -125,6 +125,40 @@ existing whole-capture receipt paths are not reused.
 PDF and DOCX start only after this selection/profile contract is stable.
 Conversation-to-image stays outside the roadmap while an ordinary browser
 screenshot meets the visual-snapshot need.
+
+## Text vertical implementation evidence
+
+The first vertical now implements `liska-presentation-selection/1` and a
+detached `liska-text-preview/1`. The preview retains only the source canonical
+digest, one branch target, title, reading profile and bounded ordered rows. It
+does not retain a canonical object, raw/manifest companions, asset bytes,
+provider transport or destination settings. Selection resolves to immutable
+canonical node IDs before the selected Text renderer runs.
+
+One extension-owned in-memory protocol binds the initiating popup, exact source
+tab/route/document generation and exact preview tab/window/document. The page
+gets one bounded payload take and acknowledgement; pending, capture, delivery
+and absolute page leases remain distinct. Clear, close, expiry, source change,
+worker loss and terminal delivery release the capability and best-effort clean
+owned capture stages. The capability allowlist excludes provider probes,
+attachment acquisition and every durable output sink.
+
+Installed Comet exposed two browser-specific facts without weakening that
+identity boundary. It aliases the same extension page as `comet-extension://`,
+and `tabs.update()` may return the previous page while its requested navigation
+is still pending. Liska admits only the explicit Chrome/Comet scheme alias with
+every byte after the scheme unchanged, then waits at most five seconds for a
+fresh read-back of the exact extension ID, fixed path, UUID query and completed
+tab. Source capture starts only after that proof. A fixed value-free startup
+stage distinguishes window, navigation, registration and source-accept failures
+without forwarding native browser details or retrying.
+
+The installed live check opened one current ChatGPT branch as 40 bounded rows
+with an empty initial selection. Selecting one row enabled local output actions;
+filtering to the assistant role showed 32 rows while preserving the hidden
+selected row; Clear reduced the page to zero rows and disabled output. No
+Clipboard or File action was invoked, no archive or destination setting changed,
+and no private title, message body, conversation ID or path is recorded here.
 
 ## Consequences
 

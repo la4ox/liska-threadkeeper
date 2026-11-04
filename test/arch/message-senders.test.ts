@@ -19,6 +19,13 @@ import {
   EXPORT_DURABLE_ACTIONS,
   EXPORT_PREPARATION_ACTIONS,
 } from '../../src/lib/export-operation-contract';
+import {
+  TEXT_PREVIEW_CAPTURE_ACTIONS,
+  TEXT_PREVIEW_CONTENT_ACTIONS,
+  TEXT_PREVIEW_CONTROL_ACTIONS,
+  TEXT_PREVIEW_PAGE_ACTIONS,
+  TEXT_PREVIEW_UI_ACTIONS,
+} from '../../src/lib/text-preview-contract';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -85,5 +92,33 @@ describe('architecture: message actions have live senders', () => {
       `"${action}" is whitelisted in VALID_MESSAGE_ACTIONS but no client in ` +
         `src/content/ or src/popup/ sends it — remove the action or its whitelist entry`
     ).toBe(true);
+  });
+
+  it.each([...TEXT_PREVIEW_CONTENT_ACTIONS])(
+    'preview content action "%s" has a live content sender',
+    action => {
+      expect(
+        collectSources('src/content').some(source =>
+          new RegExp(`action:\\s*'${action}'`).test(source)
+        )
+      ).toBe(true);
+    }
+  );
+
+  it('keeps the preview capability inventory disjoint from durable export actions', () => {
+    expect(
+      [...TEXT_PREVIEW_CAPTURE_ACTIONS].filter(action => EXPORT_DURABLE_ACTIONS.has(action))
+    ).toEqual([]);
+  });
+
+  it('assigns every preview control action to an explicit sender role', () => {
+    const inventoried = new Set([
+      ...TEXT_PREVIEW_CONTENT_ACTIONS,
+      ...TEXT_PREVIEW_UI_ACTIONS,
+      ...TEXT_PREVIEW_PAGE_ACTIONS,
+    ]);
+    expect([...TEXT_PREVIEW_CONTROL_ACTIONS].filter(action => !inventoried.has(action))).toEqual(
+      []
+    );
   });
 });

@@ -1,7 +1,7 @@
 import {
-  captureExportScope,
-  withExportGeneration,
-  type ContentExportScope,
+  captureOperationGeneration,
+  withOperationGeneration,
+  type ContentOperationGeneration,
 } from '../../lib/export-operation-scope';
 import {
   createChatGptOpaqueReplayFailure,
@@ -27,16 +27,19 @@ const STAGE_CLEANUP_TIMEOUT_MS = 500;
 const runtimeMessageTimeouts = new WeakSet<object>();
 
 /** Cleanup is exact, bounded, and never replaces the replay/pipeline outcome. */
-async function abortReplayStage(stageId: string, scope = captureExportScope()): Promise<void> {
+async function abortReplayStage(
+  stageId: string,
+  generation = captureOperationGeneration()
+): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       Promise.resolve().then(() => {
-        if (!scope) return abortStagedArchiveArtifact(stageId);
+        if (!generation) return abortStagedArchiveArtifact(stageId);
         return chrome.runtime.sendMessage(
-          withExportGeneration(
+          withOperationGeneration(
             { action: 'abortStagedArchiveArtifact', source: 'chatgpt', stageId },
-            scope
+            generation
           )
         );
       }),
@@ -51,7 +54,10 @@ async function abortReplayStage(stageId: string, scope = captureExportScope()): 
   }
 }
 
-function abortLateStagedReplay(response: unknown, scope: ContentExportScope | undefined): void {
+function abortLateStagedReplay(
+  response: unknown,
+  generation: ContentOperationGeneration | undefined
+): void {
   try {
     if (
       isChatGptOpaqueReplayResponse(response) &&
@@ -59,7 +65,7 @@ function abortLateStagedReplay(response: unknown, scope: ContentExportScope | un
       'transport' in response.data &&
       response.data.transport === 'staged'
     ) {
-      void abortReplayStage(response.data.stageId, scope);
+      void abortReplayStage(response.data.stageId, generation);
     }
   } catch {
     // Late malformed responses and validator exceptions cannot revive the request.
@@ -70,7 +76,7 @@ function abortLateStagedReplay(response: unknown, scope: ContentExportScope | un
 export async function requestChatGptOpaqueReplayCapture(
   conversationId: string
 ): Promise<ChatGptOpaqueReplayResponse> {
-  const scope = captureExportScope();
+  const generation = captureOperationGeneration();
   const response: unknown = await new Promise((resolve, reject) => {
     let state: 'pending' | 'settled' | 'timed-out' = 'pending';
     const message = sendMessage({
@@ -87,7 +93,7 @@ export async function requestChatGptOpaqueReplayCapture(
     void message.then(
       response => {
         if (state === 'timed-out') {
-          abortLateStagedReplay(response, scope);
+          abortLateStagedReplay(response, generation);
           return;
         }
         state = 'settled';

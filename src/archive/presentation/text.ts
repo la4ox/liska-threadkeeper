@@ -4,6 +4,9 @@ import { validateLiskaThreadArchive } from '../validate';
 import {
   LISKA_TEXT_RENDERER_VERSION,
   LISKA_TEXT_SCHEMA,
+  LISKA_TEXT_PREVIEW_SCHEMA,
+  LISKA_READING_PROFILE_SCHEMA,
+  LISKA_TEXT_SELECTION_SCHEMA,
   TEXT_DIAGNOSTIC_LABELS,
   TEXT_PRESENTATION_LIMITS,
   TextPresentationError,
@@ -13,7 +16,19 @@ import {
   type TextPresentationInput,
   type TextPresentationLimits,
   type TextPresentationResult,
+  type TextPresentationSelection,
+  type ArchiveTextPreview,
+  type TextPreviewInput,
+  type TextPreviewLimits,
+  type TextPreviewRow,
+  type TextSelectionResult,
 } from './text-contracts';
+import {
+  adoptArchiveTextPreview,
+  resolveTextPreviewLimits,
+  resolveTextPresentationSelection,
+  snapshotTextPresentationSelection,
+} from './text-preview-selection';
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const OUTPUT_CHUNK_CHARS = 8192;
@@ -208,8 +223,9 @@ class TextRenderer {
 
   constructor(
     readonly limits: TextPresentationLimits,
-    readonly archive: LiskaThreadArchive,
-    readonly includeToolContent: boolean
+    readonly archive: LiskaThreadArchive | undefined,
+    readonly includeToolContent: boolean,
+    private readonly onEmit?: (value: string) => void
   ) {}
 
   emit(value: string): void {
@@ -218,6 +234,7 @@ class TextRenderer {
     this.outputBytes += utf8ByteLength(value);
     if (this.outputChars > this.limits.maxTextChars || this.outputBytes > this.limits.maxTextBytes)
       fail('text-output-limit');
+    this.onEmit?.(value);
     this.pending.push(value);
     this.pendingChars += value.length;
     if (this.pendingChars >= OUTPUT_CHUNK_CHARS) this.flush();
@@ -234,6 +251,13 @@ class TextRenderer {
   text(): string {
     this.flush();
     return this.parts.join('');
+  }
+
+  /** Drain a detached row while preserving aggregate output/source/JSON budgets. */
+  takeText(): string {
+    const result = this.text();
+    this.parts.length = 0;
+    return result;
   }
 
   source(value: string): void {
@@ -406,7 +430,7 @@ class TextRenderer {
         break;
       }
       case 'attachment': {
-        const filename = this.archive.assets[block.assetId]?.filename;
+        const filename = this.archive?.assets[block.assetId]?.filename;
         if (filename === null || filename === undefined) this.diagnostic('attachment-name-absent');
         else if (filename === '') this.diagnostic('attachment-name-empty');
         this.openSection('ATTACHMENT REFERENCE');
@@ -490,13 +514,35 @@ function renderMessages(
     rendered += 1;
     visibleOrdinal += 1;
     renderer.emit(`--- MESSAGE ${visibleOrdinal}: ${message.author.role.toUpperCase()} ---\n\n`);
-    if (message.blocks.length === 0) {
-      renderer.diagnostic('message-empty');
-      renderer.placeholder('EMPTY MESSAGE | NO CONTENT BLOCKS');
-    }
-    for (const block of message.blocks) renderer.block(block);
+    renderMessageBody(message, renderer);
   }
   return rendered;
+}
+
+function renderMessageBody(message: ArchiveMessage, renderer: TextRenderer): void {
+  if (message.blocks.length === 0) {
+    renderer.diagnostic('message-empty');
+    renderer.placeholder('EMPTY MESSAGE | NO CONTENT BLOCKS');
+  }
+  for (const block of message.blocks) renderer.block(block);
+}
+
+function accountMessages(
+  input: TextPresentationInput,
+  messages: readonly (ArchiveMessage | undefined)[],
+  renderer: TextRenderer
+): void {
+  let blocks = 0;
+  accountSource(input.archive.conversation.title, renderer);
+  for (const message of messages) {
+    if (!message) continue;
+    blocks += message.blocks.length;
+    if (blocks > renderer.limits.maxSelectedBlocks) fail('text-selected-block-limit');
+    accountSource(message.blocks, renderer);
+    for (const block of message.blocks)
+      if (block.type === 'attachment')
+        accountSource(input.archive.assets[block.assetId]?.filename, renderer);
+  }
 }
 
 function renderDiagnostics(renderer: TextRenderer): void {
@@ -515,18 +561,8 @@ export function renderArchiveText(value: TextPresentationInput): TextPresentatio
     const path = selectedPath(input);
     if (path.length > limits.maxSelectedNodes) fail('text-selected-node-limit');
     const messages = path.map(id => input.archive.graph.nodes[id].message);
-    let blocks = 0;
     const renderer = new TextRenderer(limits, input.archive, input.profile.includeToolContent);
-    accountSource(input.archive.conversation.title, renderer);
-    for (const message of messages) {
-      if (!message) continue;
-      blocks += message.blocks.length;
-      if (blocks > limits.maxSelectedBlocks) fail('text-selected-block-limit');
-      accountSource(message.blocks, renderer);
-      for (const block of message.blocks)
-        if (block.type === 'attachment')
-          accountSource(input.archive.assets[block.assetId]?.filename, renderer);
-    }
+    accountMessages(input, messages, renderer);
     renderHeader(input, renderer);
     const renderedMessageCount = renderMessages(messages, renderer);
     renderDiagnostics(renderer);
@@ -539,6 +575,150 @@ export function renderArchiveText(value: TextPresentationInput): TextPresentatio
       diagnostics: renderer.diagnostics(),
       canonicalSha256: input.canonicalSha256,
     };
+  } catch (error) {
+    if (error instanceof TextPresentationError) throw error;
+    fail('text-input-invalid');
+  }
+}
+
+function prepareTextRows(
+  input: TextPresentationInput,
+  limits: TextPresentationLimits,
+  path: readonly string[],
+  previewLimits: TextPreviewLimits
+): TextPreviewRow[] {
+  const title = input.archive.conversation.title;
+  let totalChars =
+    path[path.length - 1].length + input.canonicalSha256.length + (title?.length ?? 0);
+  if (totalChars > previewLimits.maxTotalChars) fail('text-preview-total-char-limit');
+  let rowChars = 0;
+  const renderer = new TextRenderer(
+    limits,
+    input.archive,
+    input.profile.includeToolContent,
+    part => {
+      rowChars += part.length;
+      totalChars += part.length;
+      if (rowChars > previewLimits.maxRowChars) fail('text-preview-row-char-limit');
+      if (totalChars > previewLimits.maxTotalChars) fail('text-preview-total-char-limit');
+    }
+  );
+  const messages = path.map(id => input.archive.graph.nodes[id].message);
+  accountMessages(input, messages, renderer);
+  const rows: TextPreviewRow[] = [];
+  for (let index = 0; index < path.length; index += 1) {
+    const message = messages[index];
+    if (
+      !message ||
+      (message.author.role !== 'user' && message.author.role !== 'assistant') ||
+      hiddenMessage(message)
+    )
+      continue;
+    if (rows.length >= previewLimits.maxRows) fail('text-preview-row-limit');
+    totalChars += path[index].length;
+    if (totalChars > previewLimits.maxTotalChars) fail('text-preview-total-char-limit');
+    rowChars = 0;
+    renderMessageBody(message, renderer);
+    rows.push({
+      nodeId: path[index],
+      role: message.author.role,
+      presentedText: renderer.takeText(),
+    });
+  }
+  return rows;
+}
+
+/** Prepare one validated branch without retaining any canonical objects. */
+export function prepareArchiveTextPreview(value: TextPreviewInput): ArchiveTextPreview {
+  try {
+    const snapshot = snapshotRecord(value);
+    const previewLimits = resolveTextPreviewLimits(snapshot.previewLimits);
+    delete snapshot.previewLimits;
+    const { input, limits } = requireInput(snapshot as unknown as TextPresentationInput);
+    const path = selectedPath(input);
+    if (path.length > limits.maxSelectedNodes) fail('text-selected-node-limit');
+    const title = input.archive.conversation.title;
+    if (title !== null && title.length > previewLimits.maxTitleChars)
+      fail('text-preview-title-char-limit');
+    const rows = prepareTextRows(input, limits, path, previewLimits);
+    return adoptArchiveTextPreview(
+      {
+        schema: LISKA_TEXT_PREVIEW_SCHEMA,
+        sourceCanonicalSha256: input.canonicalSha256,
+        branchTargetNodeId: path[path.length - 1],
+        title,
+        profile: {
+          schema: LISKA_READING_PROFILE_SCHEMA,
+          includeToolContent: input.profile.includeToolContent,
+        },
+        rows,
+      },
+      previewLimits
+    );
+  } catch (error) {
+    if (error instanceof TextPresentationError) throw error;
+    fail('text-input-invalid');
+  }
+}
+
+function renderTextSelectionHeader(
+  preview: ArchiveTextPreview,
+  selection: TextPresentationSelection,
+  renderer: TextRenderer
+): void {
+  renderer.emit('LISKA SELECTED TEXT READING VIEW\n================================\n\n');
+  if (preview.title === null) renderer.emit('[TITLE ABSENT]\n');
+  else renderer.sourceField('TITLE', preview.title);
+  renderer.emit(`Renderer: ${LISKA_TEXT_RENDERER_VERSION}\n`);
+  renderer.emit(`Selection schema: ${selection.schema}\n`);
+  renderer.emit(`Canonical SHA-256: ${selection.sourceCanonicalSha256}\n`);
+  renderer.sourceField('BRANCH TARGET NODE ID', selection.branchTargetNodeId);
+  renderer.emit(`Reading profile: ${selection.profile.schema}\n`);
+  renderer.emit(`Include tool content: ${selection.profile.includeToolContent}\n`);
+  renderer.emit(
+    `Selected messages: ${selection.messageNodeIds.length} of ${preview.rows.length}\n`
+  );
+  renderer.emit(
+    'Notice: This selected reading view is an explicit excerpt, not a complete branch or archive authority.\n'
+  );
+  renderer.emit(
+    'Framing note: Canonical-controlled source and metadata lines are prefixed with "│ "; line separators are normalized to LF. Unprefixed labels are structural reading aids, not an authenticity boundary.\n\n'
+  );
+}
+
+/** Render only the explicit selected rows, never the original archive or a search result. */
+export function renderTextSelection(
+  preview: ArchiveTextPreview,
+  value: unknown,
+  limitOverrides?: Partial<TextPresentationLimits>
+): TextSelectionResult {
+  try {
+    const selection = snapshotTextPresentationSelection(preview, value);
+    const rows = resolveTextPresentationSelection(preview, selection);
+    const limits = resolveLimits(
+      limitOverrides === undefined ? undefined : snapshotRecord(limitOverrides)
+    );
+    const renderer = new TextRenderer(limits, undefined, selection.profile.includeToolContent);
+    accountSource(preview.title, renderer);
+    renderer.source(selection.branchTargetNodeId);
+    for (const row of rows) {
+      renderer.source(row.nodeId);
+      renderer.source(row.presentedText);
+    }
+    renderTextSelectionHeader(preview, selection, renderer);
+    rows.forEach((row, index) => {
+      renderer.emit(`--- SELECTED MESSAGE ${index + 1}: ${row.role.toUpperCase()} ---\n\n`);
+      renderer.sourceField('MESSAGE NODE ID', row.nodeId);
+      renderer.emit(row.presentedText);
+    });
+    return Object.freeze({
+      schema: LISKA_TEXT_SELECTION_SCHEMA,
+      rendererVersion: LISKA_TEXT_RENDERER_VERSION,
+      text: renderer.text(),
+      selection,
+      availableMessageCount: preview.rows.length,
+      renderedMessageCount: rows.length,
+    });
   } catch (error) {
     if (error instanceof TextPresentationError) throw error;
     fail('text-input-invalid');

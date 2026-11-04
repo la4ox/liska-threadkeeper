@@ -1,5 +1,23 @@
 /* Popup Settings Styles */
 
+.preview-section {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.preview-section h3 {
+  font-size: 14px;
+  color: var(--accent-primary);
+}
+.preview-section p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 7px 0;
+}
+.preview-section .btn {
+  padding: 8px 10px;
+}
+
 /* Light theme (default) */
 :root {
   /* Background colors */

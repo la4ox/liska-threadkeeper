@@ -46,6 +46,30 @@ function expectFailure(candidate: unknown, code: TextPresentationErrorCode): voi
 }
 
 describe('canonical-derived liska-text/1 presentation', () => {
+  it('preserves the established whole-branch output byte for byte', () => {
+    const candidate = withBlocks([block('text', { text: 'Exact 🦊\r\nbody.' })]);
+    candidate.archive.conversation.title = null;
+    candidate.targetNodeId = 'node-current';
+    candidate.archive.graph.nodes['node-root'].childIds = ['node-current'];
+    candidate.archive.graph.nodes['node-current'].parentId = 'node-root';
+    delete candidate.archive.graph.nodes['node-user'];
+    delete candidate.archive.graph.nodes['node-alternate'];
+    expect(renderArchiveText(candidate).text).toBe(
+      'LISKA CANONICAL TEXT READING VIEW\n=================================\n\n' +
+        '[TITLE ABSENT]\n' +
+        'Renderer: liska-text/1\n' +
+        `Canonical SHA-256: ${canonicalSha256}\n` +
+        'Notice: This is a replaceable reading view, not archive authority. Raw, manifest, and canonical artifacts retain the archival evidence for this capture.\n' +
+        'Framing note: Every canonical-controlled source and metadata line is prefixed with "│ ". CRLF, lone CR, LF, U+2028, and U+2029 separators are normalized to LF in this replaceable reading view; the canonical archive retains the exact strings. Unprefixed labels and delimiters are structural reading aids, not a machine-readable format or authenticity boundary.\n\n' +
+        '[STRUCTURAL NODE | NO MESSAGE]\n[END STRUCTURAL NODE | NO MESSAGE]\n\n' +
+        '--- MESSAGE 1: ASSISTANT ---\n\n' +
+        '[TEXT]\n│ Exact 🦊\n│ body.\n[END TEXT]\n\n' +
+        '=== PRESENTATION DIAGNOSTICS ===\n' +
+        '- Structural node has no message. Count: 1.\n' +
+        '- Conversation title is absent. Count: 1.\n'
+    );
+  });
+
   it('renders only the exact current branch with deterministic provenance', () => {
     const result = renderArchiveText(input());
     expect(result).toMatchObject({
