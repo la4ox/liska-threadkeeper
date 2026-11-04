@@ -102,6 +102,28 @@ This proves durable local bookkeeping and restart recovery for one explicit
 catalog. It does not enumerate an account, contact a provider, capture a chat,
 schedule work or prove that any conversation is still accessible.
 
+### E8 — Current ChatGPT and Claude evidence stops at conversation detail
+
+A source-only audit found exact single-conversation capture paths and
+timestamp-shaped detail fields for ChatGPT and Claude, but no repository-safe
+account-list schema, account/workspace binding, pagination checkpoint, list-level
+marker semantics, archive/deletion visibility or rate-limit contract for either
+provider.
+
+This absence does not prove that a provider lacks those surfaces. It proves only
+that Liska cannot encode them as a trustworthy contract yet.
+
+### E9 — The current account topology has one active personal target per provider
+
+The user described one routinely used main account and one normally dormant
+backup account per provider, with personal scopes and no workspaces. The chosen
+default is the visibly active main account in `personal/no-workspace`; backup
+accounts remain out of scope unless explicitly selected.
+
+This is a local operating preference, not provider account-binding evidence.
+If a backup account is later used, it may own a separate sibling scope rather
+than being rejected or merged into the main account.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -119,6 +141,16 @@ for reading or recovering the archive.
 
 Revisit when: never for ownership; layers may integrate through references and
 rebuildable indexes while retaining separate authority.
+
+### X3 — Promote detail timestamps into discovery watermarks
+
+Building an unwired comparator over `updated_at` would be easy, but detail-field
+presence does not prove list availability, marker monotonicity, material-change
+coverage or account completeness. A synthetic list parser would preserve the
+same guess in a more authoritative form.
+
+Revisit when: one bounded provider-list experiment establishes the exact source,
+scope and semantics of the compared marker.
 
 ### D1 — Keep the four layers separate and defer automation
 
@@ -170,6 +202,30 @@ Evidence: E5, E7
 
 Decision record: ADR-051
 
+### D5 — Require provider-list evidence before discovery code
+
+Enumeration observations, detail observations and update-discovery markers are
+separate contracts. No executable provider discovery module is added until one
+provider's list surface is observed under an explicit request cap and the proven
+subset is recorded. Unknown properties remain unknown; equal markers never mean
+that a conversation is fully unchanged or backed up.
+
+Evidence: E2, E5, E8
+
+Decision record: ADR-052
+
+### D6 — Namespace future captures by a verified provider scope
+
+After stable provider/account/workspace binding is evidenced, a future canonical
+layout may use a versioned scope key between provider and conversation. Display
+names or emails do not own identity; optional human aliases stay in a separate
+private registry. Existing captures without account binding remain
+`unbound/legacy` and are not silently reassigned.
+
+Evidence: E3, E8, E9
+
+Decision record: ADR-052
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -208,6 +264,30 @@ states. The baseline may intentionally take several days.
 Trigger: one provider's discovery/enumeration contract is reviewed and its
 account-wide authority is explicitly enabled.
 
+### T5 — Run one bounded read-only provider-list evidence pass
+
+Inspect at most three foreground list requests for one explicitly chosen
+provider, signed-in account and workspace/organization scope, or explicitly
+`personal/no-workspace`. Retain only repository-safe schema aggregates, never
+real titles, IDs, cursors, account identifiers or response bodies. Stop if the
+visible account or scope is ambiguous or mismatched. A confirmed switch closes
+the current sample; any later sample for the other scope gets its own cap and
+checkpoint.
+
+Trigger: the user explicitly names the provider, signed-in account and exact
+workspace/organization or personal scope allowed for the experiment. ChatGPT is
+recommended first but is not pre-authorized.
+
+### T6 — Implement a scope-aware canonical directory layout
+
+Introduce `provider/scope-key/conversation-key/capture-id` only after the chosen
+provider supplies a proven stable scope identity and migration/rollback rules
+for legacy evidence are separately reviewed. Multiple accounts/workspaces may
+live as sibling scope roots without sharing cursors or histories.
+
+Trigger: one provider-specific scope binding is accepted and a non-destructive
+layout/migration ADR is approved.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -219,16 +299,23 @@ account-wide authority is explicitly enabled.
 - [evidence] E5: current code has immutable provider-neutral manifests but no durable baseline cursor, list adapter or scheduler #code
 - [evidence] E6: installed manifest-only catalog rebuilt 121 real entries deterministically while all 495 selected source files remained byte-identical #live
 - [evidence] E7: installed inert journal recovered the same 24 paused items after an extension reload and round-tripped its physical export byte for byte #live
+- [evidence] E8: current ChatGPT and Claude code proves detail capture but no repository-safe account-list or update-marker contract #code
+- [evidence] E9: the current default is each provider's visibly active main personal account; dormant backups stay out of scope #local-only
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
+- [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
 - [decision] D1: preserve four separate layers and pause automation until explicit discovery design
 - [decision] D2: sequence future backup as local catalog, slow resumable baseline and provider-specific update polling
 - [decision] D3: start with a rebuildable manifest-only catalog that grants no provider, persistence or mutation authority
 - [decision] D4: place a paused, restart-safe journal between catalog evidence and any future provider execution
+- [decision] D5: require bounded provider-list evidence before writing provider discovery code
+- [decision] D6: namespace future captures by a verified provider scope while leaving unbound legacy evidence unassigned
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: manifest-only local catalog is accepted; preserve its non-authorizing boundary when the resumability journal begins
 - [tail] T4: run a multi-day budgeted baseline before enabling a daily scheduler
+- [tail] T5: run a capped read-only provider-list evidence pass only after explicit provider/account/workspace authorization
+- [tail] T6: add a scope-aware canonical directory layout only after stable binding and migration rules are reviewed
 
 ## Relations
 
@@ -249,3 +336,6 @@ account-wide authority is explicitly enabled.
 - S7 — local receipt `LISKA-SNAPSHOT-CATALOG-LIVE-20261104`; visibility: local-only; safe aggregate only
 - S8 — [ADR-051: Durable inert resumability journal before provider execution](../adr/051-inert-resumability-journal.md)
 - S9 — local receipt `LISKA-RESUMABILITY-JOURNAL-LIVE-20261104`; visibility: local-only; safe aggregate only
+- S10 — [ADR-052: Observe provider-list evidence before update-discovery code](../adr/052-provider-discovery-evidence-gate.md)
+- S11 — local receipt `LISKA-PROVIDER-DISCOVERY-GATE-20261104`; visibility: local-only; safe aggregate only
+- S12 — local receipt `LISKA-SCOPE-DEFAULT-20261104`; visibility: local-only; safe aggregate only

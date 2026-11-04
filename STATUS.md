@@ -5026,3 +5026,34 @@ execution still requires an explicit decision. The final 2,789,703-byte
 candidate ZIP has SHA-256
 `3eb923d22a19eba18c90f804e899affc615463320fa62cbe6cae070ee479fc87`;
 its rebuilt `dist` inventory SHA-256 exactly matches the installed-live receipt.
+
+## Provider discovery evidence gate — 2026-11-04
+
+Branch `codex/provider-discovery-evidence-gate` starts from merged journal main
+`a17f057` and records ADR-052 without adding runtime code. A source-only audit of
+the current ChatGPT and Claude paths found exact single-conversation detail
+capture and timestamp-shaped detail fields, but no repository-safe account-list
+schema, account/workspace binding, pagination checkpoint, list-level marker
+semantics, archive/deletion visibility or rate-limit contract for either
+provider. Existing detail timestamps and capture times therefore remain
+non-authorizing observations rather than discovery watermarks.
+
+The next proposed evidence pass is bounded to at most three foreground,
+read-only list requests for one explicitly chosen provider, signed-in account
+and exact workspace/organization, or `personal/no-workspace`. It excludes
+conversation detail/body reads, mutations, account-wide traversal, automatic
+retries, background work and retention of real titles, IDs, cursors, account
+identifiers or response bodies. Ambiguous, mismatched or changed scope stops the
+pass. A confirmed switch closes only the current scoped sample; a later sample
+for the other scope uses a separate cap and checkpoint. ChatGPT was the initial
+recommendation, not a pre-authorized target. No provider page, endpoint or
+account was accessed for this documentation slice.
+
+The current operating default is each provider's visibly active main account in
+`personal/no-workspace`; normally dormant backup accounts remain untouched until
+explicitly selected. A future scope-aware layout may use
+`provider/scope-key/conversation-key/capture-id` only after stable provider scope
+binding is evidenced. Display names and emails do not own identity, and existing
+unbound captures remain `unbound/legacy`; this slice performs no move or
+migration. Multiple accounts or workspaces may live as sibling scope roots
+without sharing cursors or histories.
