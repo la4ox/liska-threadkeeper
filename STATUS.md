@@ -4638,6 +4638,14 @@ Focused middle/start/end whitespace and list-marker regressions pass; exhaustive
 decoder-range comparison plus 4,350 extra emphasis/strong combinations found no
 remaining mismatch, and independent re-review is `ready`.
 
+A final code-review pass found two block-structure edges. Markdown HTML nodes now
+use the same whitespace-safe literal renderer, so blank lines, indentation and
+setext-looking text remain inert rather than becoming code or headings. Ordered
+lists emit their exact bounded start only for the first item and use marker `1`
+for later items; this preserves CommonMark's nine-digit marker limit without
+changing displayed numbering, item count or nesting. Focused regressions and
+independent re-review are `ready`.
+
 The first security review found one distinct P2: literal provider/user `$` and
 `$$` text could become active Obsidian math even though the canonical block did
 not distinguish trusted math. `markdownLiteral()` now backslash-escapes dollar
@@ -4667,7 +4675,7 @@ No archive output or settings changed. Selected-branch ChatGPT, DeepSeek and a
 browser-observed terminal-success Save As remain later live evidence; PDF and
 DOCX are still separate renderer slices.
 
-The final complete coverage run passes 279 test files and 10,183 tests, with one
+The final complete coverage run passes 279 test files and 10,187 tests, with one
 file and three tests skipped and zero failures. Statements are 95.08%
 (`29,170 / 30,677`), branches 91.78%, functions 98.29% and lines 97.34%.
 Full lint passes with zero errors and 55 existing warnings; format, production

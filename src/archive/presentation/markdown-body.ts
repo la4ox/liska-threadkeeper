@@ -214,7 +214,9 @@ class MarkdownSourceRenderer {
     if (delimiter === undefined) presentationFail('presentation-markdown-invalid');
     return node.children
       .map((item, index) => {
-        const marker = node.ordered ? `${(node.start ?? 1) + index}${delimiter} ` : `${delimiter} `;
+        const marker = node.ordered
+          ? `${index === 0 ? (node.start ?? 1) : 1}${delimiter} `
+          : `${delimiter} `;
         const body = this.children(item, '\n\n');
         const indentation = ' '.repeat(marker.length);
         return marker + body.replace(/\r\n|\r|\n/g, lineEnding => `${lineEnding}${indentation}`);
@@ -279,7 +281,12 @@ class MarkdownSourceRenderer {
       }
       case 'html':
         this.context.diagnostic('provider-html-inert');
-        return this.encodedNewlines(markdownLiteral(node.value), encodeTextNewlines);
+        return this.text(
+          node.value,
+          this.boundaryWhitespace(node.value, true),
+          this.boundaryWhitespace(node.value, false),
+          encodeTextNewlines
+        );
       case 'link':
         return this.link(node.url, this.children(node, '', encodeTextNewlines), encodeTextNewlines);
       case 'image':

@@ -293,6 +293,21 @@ describe('detached multiformat presentation preview', () => {
     }
   });
 
+  it.each(['<script>\n\n    secret\n\n</script>', '<section>\na\n===\n</section>'])(
+    'keeps inert Markdown HTML whitespace literal for %s',
+    source => {
+      const candidate = input();
+      candidate.archive.graph.nodes['node-user'].message!.blocks = [
+        block('markdown', { markdown: source }),
+      ];
+      const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+      const nodes = nodesOf(body);
+      expect(nodes.some(node => node.type === 'html' || node.type === 'code')).toBe(false);
+      expect(nodes.filter(node => node.type === 'heading')).toHaveLength(0);
+      expect(nodes.some(node => node.type === 'text' && node.value === source)).toBe(true);
+    }
+  );
+
   it.each([
     '*a&nbsp;*',
     '*&#32;a*',
@@ -330,9 +345,30 @@ describe('detached multiformat presentation preview', () => {
     for (const marker of markers) expect(body).toContain(marker);
   });
 
+  it.each(['999999999. First\n1. Second', '999999998) First\n1) Second\n1) Third'])(
+    'keeps ordered-list markers within nine digits for %s',
+    source => {
+      const candidate = input();
+      candidate.archive.graph.nodes['node-user'].message!.blocks = [
+        block('markdown', { markdown: source }),
+      ];
+      const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+      const lists = fromMarkdown(body).children.filter(node => node.type === 'list');
+      expect(lists).toHaveLength(1);
+      expect(lists[0]).toMatchObject({
+        ordered: true,
+        start: Number.parseInt(source, 10),
+        children: Array.from({ length: source.split(/\r?\n/).length }, () => ({
+          type: 'listItem',
+        })),
+      });
+      expect(body).not.toMatch(/\d{10,}[.)]/);
+    }
+  );
+
   it.each([
     { source: '-\n- next', marker: '- next' },
-    { source: '1)\n2) next', marker: '2) next' },
+    { source: '1)\n2) next', marker: '1) next' },
     { source: '> -\n>\n> paragraph', marker: '> - ' },
   ])('accepts a physical EOL after an empty list marker for $source', ({ source, marker }) => {
     const candidate = input();
