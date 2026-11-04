@@ -260,6 +260,57 @@ describe('detached multiformat presentation preview', () => {
     }
   );
 
+  it.each([
+    '*a&nbsp;*',
+    '*&#32;a*',
+    '**a&nbsp;**',
+    '**&#32;a**',
+    '_a&nbsp;_',
+    '__&#32;a__',
+    '*&#32;*',
+  ])('preserves entity-decoded boundary whitespace inside emphasis for %s', source => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+  });
+
+  it.each([
+    {
+      source: '1. First\n2. Finish\n\n1) Restart\n2) Finish',
+      ordered: true,
+      markers: ['1. First', '1) Restart'],
+    },
+    { source: '- First\n\n+ Restart', ordered: false, markers: ['- First', '+ Restart'] },
+  ])('preserves adjacent list delimiters for $source', ({ source, ordered, markers }) => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    const lists = fromMarkdown(body).children.filter(node => node.type === 'list');
+    expect(lists).toHaveLength(2);
+    expect(lists.map(node => node.ordered)).toEqual([ordered, ordered]);
+    if (ordered) expect(lists.map(node => node.start)).toEqual([1, 1]);
+    for (const marker of markers) expect(body).toContain(marker);
+  });
+
+  it.each([
+    { source: '-\n- next', marker: '- next' },
+    { source: '1)\n2) next', marker: '2) next' },
+    { source: '> -\n>\n> paragraph', marker: '> - ' },
+  ])('accepts a physical EOL after an empty list marker for $source', ({ source, marker }) => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(body).toContain(marker);
+    expect(nodesOf(body).some(node => node.type === 'list')).toBe(true);
+  });
+
   it('keeps dollar math inert in literal text but preserves code payloads', () => {
     const candidate = input();
     candidate.archive.graph.nodes['node-user'].message!.blocks = [

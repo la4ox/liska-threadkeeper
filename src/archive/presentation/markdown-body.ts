@@ -51,10 +51,15 @@ class MarkdownSourceRenderer {
     return node.children
       .map((child, index) => {
         if (separator !== '' || child.type !== 'text') return this.node(child);
+        const formattingParent = node.type === 'strong' || node.type === 'emphasis';
         return this.text(
           child.value,
-          this.hasUnderscoreMarker(node.children[index - 1]),
-          this.hasUnderscoreMarker(node.children[index + 1])
+          this.hasUnderscoreMarker(node.children[index - 1]) ||
+            (formattingParent && index === 0 && this.boundaryWhitespace(child.value, true)),
+          this.hasUnderscoreMarker(node.children[index + 1]) ||
+            (formattingParent &&
+              index === node.children.length - 1 &&
+              this.boundaryWhitespace(child.value, false))
         );
       })
       .join(separator);
@@ -75,6 +80,11 @@ class MarkdownSourceRenderer {
     if (node?.type !== 'strong' && node?.type !== 'emphasis') return false;
     return this.emphasisMarker(node)[0] === '_';
   }
+  boundaryWhitespace(value: string, start: boolean): boolean {
+    const characters = Array.from(value.replace(/\r\n?/g, '\n'));
+    const character = start ? characters[0] : characters[characters.length - 1];
+    return character !== undefined && /\p{White_Space}/u.test(character);
+  }
   text(value: string, encodeStart = false, encodeEnd = false): string {
     const characters = Array.from(value.replace(/\r\n?/g, '\n'));
     let start = 0;
@@ -83,11 +93,11 @@ class MarkdownSourceRenderer {
     let suffix = '';
     const reference = (character: string): string =>
       `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`;
-    if (encodeStart && start < end && !/\p{White_Space}/u.test(characters[start])) {
+    if (encodeStart && start < end) {
       prefix = reference(characters[start]);
       start++;
     }
-    if (encodeEnd && start < end && !/\p{White_Space}/u.test(characters[end - 1])) {
+    if (encodeEnd && start < end) {
       end--;
       suffix = reference(characters[end]);
     }
@@ -118,9 +128,16 @@ class MarkdownSourceRenderer {
       : markdownLiteral(`[Unresolved link reference: ${node.label ?? node.identifier}]`);
   }
   list(node: Extract<Nodes, { type: 'list' }>): string {
+    const start = node.position?.start.offset;
+    if (start === undefined) presentationFail('presentation-markdown-invalid');
+    const source = this.source.slice(start);
+    const delimiter = node.ordered
+      ? /^ {0,3}\d{1,9}([.)])(?:[ \t\r\n]|$)/.exec(source)?.[1]
+      : /^ {0,3}([-+*])(?:[ \t\r\n]|$)/.exec(source)?.[1];
+    if (delimiter === undefined) presentationFail('presentation-markdown-invalid');
     return node.children
       .map((item, index) => {
-        const marker = node.ordered ? `${(node.start ?? 1) + index}. ` : '- ';
+        const marker = node.ordered ? `${(node.start ?? 1) + index}${delimiter} ` : `${delimiter} `;
         const body = this.children(item, '\n\n');
         return marker + body.replace(/\n/g, `\n${' '.repeat(marker.length)}`);
       })
