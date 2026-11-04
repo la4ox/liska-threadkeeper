@@ -1054,6 +1054,61 @@ describe('journal independent lowering-only ceilings', () => {
     );
   });
 
+  it('reserves exact encoded space for every running interruption before issuing a token', () => {
+    const items = Array.from({ length: 3 }, (_, index) => ({
+      ...input.items[0],
+      itemId: `item-${index}`,
+      conversationId: `conversation-${index}`,
+      conversationKey: `liska-conversation-key/1:${index.toString(16).padStart(64, '0')}`,
+    }));
+    const active = control(createJournal({ ...input, items }), 'activate');
+    const command = {
+      type: 'begin-attempt' as const,
+      expectedRunRevision: active.revision,
+      itemId: 'item-0',
+      expectedItemRevision: 0,
+      attemptId: 'attempt-reserved',
+      captureId: 'capture-reserved',
+    };
+    const candidate = transitionJournal(active, command) as ReturnType<typeof running>;
+    const interruptionTypes = ['pause', 'cancel', 'recover-after-restart'] as const;
+    const interruptionBytes = interruptionTypes.map(
+      type =>
+        encodeJournal(
+          transitionJournal(candidate.journal, {
+            type,
+            expectedRunRevision: candidate.journal.revision,
+          }).journal
+        ).byteLength
+    );
+    const exactCeiling = Math.max(...interruptionBytes);
+
+    expect(encodeJournal(active).byteLength).toBeLessThan(exactCeiling);
+    expect(encodeJournal(candidate.journal).byteLength).toBeLessThan(exactCeiling);
+    expect(snapshotJournal(candidate.journal, { maxOutputBytes: exactCeiling - 1 })).toEqual(
+      candidate.journal
+    );
+    code(
+      () => transitionJournal(active, command, { maxOutputBytes: exactCeiling - 1 }),
+      'limit-exceeded'
+    );
+    expect(active.items.every(item => item.state === 'pending')).toBe(true);
+
+    const admitted = transitionJournal(active, command, {
+      maxOutputBytes: exactCeiling,
+    }) as ReturnType<typeof running>;
+    for (const type of interruptionTypes) {
+      const stopped = transitionJournal(
+        admitted.journal,
+        { type, expectedRunRevision: admitted.journal.revision },
+        { maxOutputBytes: exactCeiling }
+      ).journal;
+      const encoded = encodeJournal(stopped, { maxOutputBytes: exactCeiling });
+      expect(encoded.byteLength).toBeLessThanOrEqual(exactCeiling);
+      expect(decodeJournal(encoded, { maxOutputBytes: exactCeiling })).toEqual(stopped);
+    }
+  });
+
   it('enforces item, per-item attempts and total attempt boundaries without issuing a token', () => {
     let journal = control(createJournal(input), 'activate');
     for (let index = 0; index < 8; index += 1)

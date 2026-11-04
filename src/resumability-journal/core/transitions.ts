@@ -191,6 +191,11 @@ function controlTransition(
   return changed(journal, { control: 'completed' }, limits);
 }
 
+function assertRunningInterruptionsFit(journal: ResumabilityJournal, limits: JournalLimits): void {
+  for (const type of ['pause', 'cancel', 'recover-after-restart'] as const)
+    controlTransition(journal, { type, expectedRunRevision: journal.revision }, limits);
+}
+
 function begin(
   journal: ResumabilityJournal,
   command: Record<string, unknown>,
@@ -234,6 +239,9 @@ function begin(
     { items: journal.items.map(item => (item.itemId === itemId ? nextItem : item)) },
     limits
   );
+  // A persisted running attempt must always retain enough exact encoded space
+  // for every immediate stop path before its dispatch token can escape.
+  assertRunningInterruptionsFit(next, limits);
   return Object.freeze({ journal: next, dispatchToken: dispatchToken(next, nextItem, attempt) });
 }
 

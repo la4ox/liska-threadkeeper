@@ -176,6 +176,13 @@ place when the file input is reset. The page now owns the selected `File`
 references before resetting the input; a live-list regression and installed
 chooser acceptance close that production-only ordering defect.
 
+PR review then found that a running record could satisfy the current byte limit
+without leaving room for a mandatory interruption outcome. Before returning a
+dispatch token, `begin-attempt` now projects pause, cancellation and restart
+from the exact canonical next state under the unchanged limit. One byte below
+the largest projection is rejected; the exact boundary admits and round-trips
+all three. This reserves no speculative field or fixed padding.
+
 ## Deferred provider execution
 
 This decision implements durable resumability mechanics only. A separate ADR
