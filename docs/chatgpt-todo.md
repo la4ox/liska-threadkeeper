@@ -299,13 +299,19 @@ terminal states, and the existing no-credential-export boundary.
   rows/ranges/all, and exposes Copy/Download only for selected canonical-derived
   Text. It is an expiring reading view bound to one canonical digest, never a
   reduced canonical archive or an automatic destination write.
-- Follow with selection-aware HTML and canonical-derived Markdown on that same
-  frozen snapshot. A future `view.json` is a versioned selected presentation,
-  never a renamed canonical archive. Local PDF and DOCX remain separate renderer
-  slices with their own pagination, structure, font, asset and output-size
-  evidence. Conversation-to-image is not active work: ordinary browser
-  screenshots cover the present need, and the idea returns only for a concrete
-  scenario screenshots cannot solve.
+- Selection-aware HTML and canonical-derived Markdown now share a new detached
+  `liska-presentation-preview/1` with Text. Rich bodies are prepared from typed
+  canonical blocks before capture cleanup, but the page receives no graph,
+  canonical messages, raw/source references, asset authority or destination
+  settings. One format selector freezes format plus explicit message IDs before
+  Copy/Download; search remains selection-neutral and HTML never enters the page
+  DOM.
+- A future `view.json` is a versioned selected presentation, never a renamed
+  canonical archive. Local PDF and DOCX remain separate renderer slices with
+  their own pagination, structure, font, asset and output-size evidence.
+  Conversation-to-image is not active work: ordinary browser screenshots cover
+  the present need, and the idea returns only for a concrete scenario
+  screenshots cannot solve.
 
 - The pure `liska-html/1` renderer and opt-in current/selected File delivery are
   implemented. HTML is derived only from a hash-verified canonical archive and

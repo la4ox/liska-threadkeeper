@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { htmlSettings } from './derived-html-fixture';
+import { PRESENTATION_RENDERER_VERSIONS } from '../../src/archive/presentation/presentation-contracts';
 
 const mocks = vi.hoisted(() => ({
   output: vi.fn(),
@@ -292,12 +293,26 @@ describe('text preview authority at the actual worker route', () => {
       popup()
     )) as { success: boolean; sessionId: string };
     const payload = {
-      schema: 'liska-text-preview/1',
+      schema: 'liska-presentation-preview/1',
       sourceCanonicalSha256: 'c'.repeat(64),
       branchTargetNodeId: 'assistant-1',
       title: 'Detached',
-      profile: { schema: 'liska-reading-profile/1', includeToolContent: false },
-      rows: [{ nodeId: 'assistant-1', role: 'assistant', presentedText: 'Answer' }],
+      profile: {
+        schema: 'liska-presentation-profile/1',
+        includeToolContent: false,
+        inertTaggedCodeBlocks: true,
+      },
+      rendererVersions: PRESENTATION_RENDERER_VERSIONS,
+      rows: [
+        {
+          nodeId: 'assistant-1',
+          role: 'assistant',
+          presentedText: 'Answer',
+          markdownBody: 'Answer\n\n',
+          htmlBody: '<p>Answer</p>',
+          diagnostics: { text: [], markdown: [], html: [] },
+        },
+      ],
     };
     await expect(
       dispatch({ action: 'publishTextPreview', sessionId: started.sessionId, payload })

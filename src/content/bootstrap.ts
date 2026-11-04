@@ -121,7 +121,7 @@ import type {
 import { platformForHost } from '../lib/platform-registry';
 import { abortStagedArchiveArtifact } from './archive-stage';
 import { buildArchivePersistenceMessage, buildSaveToOutputsMessage } from './capture-routing';
-import { prepareArchiveTextPreview } from '../archive/presentation';
+import { prepareArchivePresentationPreview } from '../archive/presentation';
 import { authorizeDerivedHtmlContext } from './derived-html-authorization';
 import {
   checkTextPreviewCaptureLease,
@@ -1637,7 +1637,7 @@ function getTextPreviewExtractor(mode: TextPreviewBranchMode): IConversationExtr
   return null;
 }
 
-/** Capture and publish one detached canonical text preview without any output preflight or sink. */
+/** Capture and publish one detached reading preview without any output preflight or sink. */
 export async function handleTextPreviewCapture(
   branchMode: TextPreviewBranchMode,
   settings: TextPreviewCaptureSettings
@@ -1646,7 +1646,6 @@ export async function handleTextPreviewCapture(
   if (!extractor || (branchMode === 'selected' && extractor instanceof DeepSeekExtractor))
     return false;
   let result: ExtractionResult | undefined;
-  let cleaned = false;
   try {
     const capture = startConversationCapture(
       extractor,
@@ -1673,18 +1672,20 @@ export async function handleTextPreviewCapture(
       !isDeepSeekOperationCurrent(extractor, capture.deepSeekOperationIdentity)
     )
       return false;
-    const preview = prepareArchiveTextPreview({
+    const preview = prepareArchivePresentationPreview({
       archive: authorized.context.archive,
       canonicalSha256: authorized.canonicalSha256,
       targetNodeId: authorized.context.targetNodeId,
-      profile: { includeToolContent: authorized.context.includeToolContent },
+      profile: {
+        includeToolContent: authorized.context.includeToolContent,
+        inertTaggedCodeBlocks: settings.enableInertCodeBlocks,
+      },
     });
     await discardStoppedExtractionStages(result, extractor.platform);
-    cleaned = true;
     result = undefined;
     return publishTextPreview(preview);
   } finally {
-    if (result && !cleaned) await discardStoppedExtractionStages(result, extractor.platform);
+    if (result) await discardStoppedExtractionStages(result, extractor.platform);
   }
 }
 

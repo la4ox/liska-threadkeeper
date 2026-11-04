@@ -39,6 +39,7 @@ export type TextPreviewPhase =
 export interface TextPreviewCaptureSettings {
   readonly enableAutoScroll: boolean;
   readonly enableToolContent: boolean;
+  readonly enableInertCodeBlocks: boolean;
   readonly enableChatGptOpaqueReplay: boolean;
 }
 

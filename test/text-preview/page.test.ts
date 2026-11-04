@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initTextPreview } from '../../src/text-preview/page';
 import {
-  adoptArchiveTextPreview,
-  createTextPresentationSelection,
-} from '../../src/archive/presentation/text-preview-selection';
+  adoptArchivePresentationPreview,
+  createPresentationSelection,
+  presentationPreviewAsTextPreview,
+} from '../../src/archive/presentation/preview';
+import { renderPresentationSelection } from '../../src/archive/presentation/selected';
+import { createTextPresentationSelection } from '../../src/archive/presentation/text-preview-selection';
 import { renderTextSelection } from '../../src/archive/presentation/text';
 import {
   captureTrustedActions,
@@ -250,6 +253,141 @@ describe('one-shot Text-only preview delivery', () => {
 });
 
 describe('local selection and outputs', () => {
+  it.each([
+    ['text', 'Text', 'txt'],
+    ['markdown', 'Markdown source', 'md'],
+    ['html', 'HTML source', 'html'],
+  ] as const)(
+    'copies and downloads the same noncontiguous selection in %s without rendering source',
+    async (format, label, extension) => {
+      const trusted = captureTrustedActions();
+      const download = vi.fn(() => ({
+        result: Promise.resolve('success' as const),
+        dispose: vi.fn(),
+      }));
+      const f = fixture({ download });
+      dispose = f.dispose;
+      await flush();
+      const selector = el<HTMLSelectElement>('previewFormat');
+      expect(selector.value).toBe('text');
+      expect([...selector.options].map(option => [option.value, option.textContent])).toEqual([
+        ['text', 'Text'],
+        ['markdown', 'Markdown'],
+        ['html', 'HTML'],
+      ]);
+      expect(document.querySelector('label[for="previewFormat"]')?.textContent).toContain(
+        'Output format'
+      );
+      const boxes = checkboxes();
+      for (const index of [2, 0]) {
+        boxes[index].checked = true;
+        trusted(boxes[index]);
+      }
+      el<HTMLInputElement>('previewSearch').value = 'fox';
+      trusted(el('previewSearch'), {}, 'input');
+      selector.value = format;
+      trusted(selector, {}, 'change');
+      expect(el('previewCopy').textContent).toBe(`Copy ${label}`);
+      expect(el('previewDownload').textContent).toBe(`Download .${extension}`);
+      expect(boxes.map(box => box.checked)).toEqual([true, false, true, false]);
+      expect(el<HTMLInputElement>('previewSearch').value).toBe('fox');
+      expect(el('previewFiltered').textContent).toBe('2');
+      expect(
+        [...document.querySelectorAll('#previewRows pre')].map(row => row.textContent)
+      ).toEqual(wirePreview().rows.map(row => row.presentedText));
+      expect(document.querySelector('#previewRows strong')).toBeNull();
+      expect(el('previewRows').textContent).not.toContain('literal source');
+      const preview = adoptArchivePresentationPreview(wirePreview());
+      const ids = ['row-1', 'row-3'];
+      const artifact = renderPresentationSelection(
+        preview,
+        createPresentationSelection(preview, ids),
+        format
+      );
+      expect(artifact.selection.messageNodeIds).toEqual(ids);
+      if (format === 'text') {
+        const textPreview = presentationPreviewAsTextPreview(preview);
+        expect(artifact.content).toBe(
+          renderTextSelection(textPreview, createTextPresentationSelection(textPreview, ids)).text
+        );
+      }
+      trusted(el('previewCopy'));
+      await flush();
+      expect(f.copy).toHaveBeenCalledExactlyOnceWith(artifact.content);
+      expect(el('previewStatus').textContent).toBe(`Selected ${label} copied.`);
+      trusted(el('previewDownload'));
+      await flush();
+      expect(download).toHaveBeenCalledExactlyOnceWith(artifact, preview.title);
+      expect(el('previewStatus').textContent).toBe(`Selected ${label} download completed.`);
+      expect(checkboxes()).toEqual(boxes);
+      expect(selector.disabled).toBe(false);
+      trusted(el('previewClear'));
+      expect(selector.disabled).toBe(true);
+    }
+  );
+
+  it.each(['copy', 'download'] as const)(
+    'freezes the %s artifact before awaiting a lease or output',
+    async kind => {
+      const trusted = captureTrustedActions();
+      const copying = deferred<void>();
+      const downloading = deferred<'success'>();
+      const copy = vi.fn(() => copying.promise);
+      const download = vi.fn(() => ({ result: downloading.promise, dispose: vi.fn() }));
+      const f = fixture({ copy, download });
+      dispose = f.dispose;
+      await flush();
+      const boxes = checkboxes();
+      for (const index of [2, 0]) {
+        boxes[index].checked = true;
+        trusted(boxes[index]);
+      }
+      const selector = el<HTMLSelectElement>('previewFormat');
+      selector.value = 'markdown';
+      trusted(selector, {}, 'change');
+      const lease = deferred<unknown>();
+      f.request.mockImplementationOnce(() => lease.promise);
+      trusted(el(kind === 'copy' ? 'previewCopy' : 'previewDownload'));
+      expect(selector.disabled).toBe(true);
+      selector.value = 'html';
+      trusted(selector, {}, 'change');
+      trusted(el('previewDeselect'));
+      el<HTMLInputElement>('previewSearch').value = 'hidden';
+      trusted(el('previewSearch'), {}, 'input');
+      expect(selector.value).toBe('markdown');
+      expect(boxes.map(box => box.checked)).toEqual([true, false, true, false]);
+      expect(copy).not.toHaveBeenCalled();
+      expect(download).not.toHaveBeenCalled();
+      lease.resolve({ success: true, state: 'delivered', expiresAt: f.expiresAt });
+      await flush();
+      const preview = adoptArchivePresentationPreview(wirePreview());
+      const artifact = renderPresentationSelection(
+        preview,
+        createPresentationSelection(preview, ['row-1', 'row-3']),
+        'markdown'
+      );
+      if (kind === 'copy') expect(copy).toHaveBeenCalledExactlyOnceWith(artifact.content);
+      else {
+        expect(download).toHaveBeenCalledExactlyOnceWith(artifact, preview.title);
+        expect(Object.isFrozen(download.mock.calls[0][0])).toBe(true);
+      }
+      selector.value = 'text';
+      trusted(selector, {}, 'change');
+      expect(selector.value).toBe('markdown');
+      expect(selector.disabled).toBe(true);
+      copying.resolve();
+      downloading.resolve('success');
+      await flush();
+      expect(selector.disabled).toBe(false);
+      expect(el('previewStatus').textContent).toContain('Selected Markdown source');
+      expect(el<HTMLInputElement>('previewSearch').value).toBe('hidden');
+      expect(boxes.map(box => box.checked)).toEqual([true, false, true, false]);
+      selector.value = 'html';
+      trusted(selector, {}, 'change');
+      expect(el('previewCopy').textContent).toBe('Copy HTML source');
+    }
+  );
+
   it('keeps search isolated from selection, counts hidden selections, and shifts over complete order', async () => {
     const trusted = captureTrustedActions();
     const f = fixture();
@@ -296,11 +434,12 @@ describe('local selection and outputs', () => {
     trusted(boxes[0]);
     trusted(el('previewCopy'));
     await flush();
-    const preview = adoptArchiveTextPreview(wirePreview());
-    const expected = renderTextSelection(
+    const preview = adoptArchivePresentationPreview(wirePreview());
+    const expected = renderPresentationSelection(
       preview,
-      createTextPresentationSelection(preview, ['row-1'])
-    ).text;
+      createPresentationSelection(preview, ['row-1']),
+      'text'
+    ).content;
     expect(f.copy).toHaveBeenCalledExactlyOnceWith(expected);
     expect(el('previewStatus').textContent).toBe('Selected Text copied.');
     expect(f.request.mock.calls.map(([m]) => m.action)).toEqual([
@@ -315,12 +454,13 @@ describe('local selection and outputs', () => {
     trusted(boxes[2]);
     trusted(el('previewDownload'));
     await flush();
-    const next = renderTextSelection(
+    const next = renderPresentationSelection(
       preview,
-      createTextPresentationSelection(preview, ['row-3'])
-    ).text;
+      createPresentationSelection(preview, ['row-3']),
+      'text'
+    );
     expect(download).toHaveBeenCalledExactlyOnceWith(next, preview.title);
-    expect(next).not.toContain('│ First fox');
+    expect(next.content).not.toContain('│ First fox');
     expect(el('previewStatus').textContent).toContain('download completed');
   });
   it.each(['failure', 'unknown'] as const)('reports download %s without retry', async outcome => {
@@ -413,7 +553,7 @@ describe('local selection and outputs', () => {
     trusted(el('previewSelectAll'));
     trusted(el('previewCopy'));
     await flush();
-    expect(el('previewStatus').textContent).toBe('Copy failed. Nothing was retried.');
+    expect(el('previewStatus').textContent).toBe('Copy Text failed. Nothing was retried.');
     expect(copy).toHaveBeenCalledOnce();
   });
   it('reports a synchronous clipboard failure without retrying', async () => {
@@ -427,7 +567,7 @@ describe('local selection and outputs', () => {
     trusted(el('previewSelectAll'));
     trusted(el('previewCopy'));
     await flush();
-    expect(el('previewStatus').textContent).toBe('Copy failed. Nothing was retried.');
+    expect(el('previewStatus').textContent).toBe('Copy Text failed. Nothing was retried.');
     expect(copy).toHaveBeenCalledOnce();
   });
   it('reports a synchronous download-start failure and releases the output lock', async () => {

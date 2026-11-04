@@ -1,12 +1,15 @@
-import { type ArchiveTextPreview } from '../archive/presentation/text-contracts';
+import type {
+  ArchivePresentationPreview,
+  PresentationFormat,
+} from '../archive/presentation/presentation-contracts';
 import {
-  adoptArchiveTextPreview,
-  createTextPresentationSelection,
-  resolveTextPreviewRange,
-} from '../archive/presentation/text-preview-selection';
-import { renderTextSelection } from '../archive/presentation/text';
+  adoptArchivePresentationPreview,
+  createPresentationSelection,
+  resolvePresentationPreviewRange,
+} from '../archive/presentation/preview';
+import { renderPresentationSelection } from '../archive/presentation/selected';
 import { TEXT_PREVIEW_PENDING_MS } from '../lib/text-preview-contract';
-import { downloadSelectedText, type DownloadAttempt, type OutputOutcome } from './download';
+import { downloadSelectedPresentation, type DownloadAttempt, type OutputOutcome } from './download';
 import {
   isPreviewUuid,
   parsePreviewSession,
@@ -21,11 +24,31 @@ interface PreviewOptions {
   href?: string;
   request?: PreviewRequest;
   copy?: (text: string) => Promise<void>;
-  download?: typeof downloadSelectedText;
+  download?: typeof downloadSelectedPresentation;
 }
 
 const UNAVAILABLE = 'Preview unavailable or expired. Reopen Liska to start again.';
 const CONTINUE = 'Choose messages to copy or download. This preview expires automatically.';
+const FORMAT_LABELS = { text: 'Text', markdown: 'Markdown source', html: 'HTML source' } as const;
+const FORMAT_EXTENSIONS = { text: 'txt', markdown: 'md', html: 'html' } as const;
+
+function presentationFormat(value: string): PresentationFormat | undefined {
+  return value === 'text' || value === 'markdown' || value === 'html' ? value : undefined;
+}
+
+function outputStatus(
+  kind: 'copy' | 'download',
+  format: PresentationFormat,
+  outcome: OutputOutcome
+): string {
+  const source = FORMAT_LABELS[format];
+  const label = `${kind === 'copy' ? 'Copy' : 'Download'} ${source}`;
+  if (outcome === 'success')
+    return `Selected ${source} ${kind === 'copy' ? 'copied.' : 'download completed.'}`;
+  return outcome === 'failure'
+    ? `${label} failed. Nothing was retried.`
+    : `${label} outcome unknown. Check the browser; nothing was retried.`;
+}
 
 function element<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
@@ -35,7 +58,8 @@ function element<T extends HTMLElement>(id: string): T {
 class TextPreviewPage {
   private readonly request: PreviewRequest;
   private readonly sessionId: string | undefined;
-  private preview: ArchiveTextPreview | undefined;
+  private preview: ArchivePresentationPreview | undefined;
+  private format: PresentationFormat = 'text';
   private readonly selected = new Set<string>();
   private readonly search = element<HTMLInputElement>('previewSearch');
   private readonly rows = element('previewRows');
@@ -45,6 +69,7 @@ class TextPreviewPage {
   private readonly deselect = element<HTMLButtonElement>('previewDeselect');
   private readonly copy = element<HTMLButtonElement>('previewCopy');
   private readonly download = element<HTMLButtonElement>('previewDownload');
+  private readonly formatControl = element<HTMLSelectElement>('previewFormat');
   private epoch = 0;
   private closed = false;
   private taken = false;
@@ -61,7 +86,8 @@ class TextPreviewPage {
     this.sessionId = parsePreviewSession(options.href ?? window.location.href);
     this.bind();
     this.renderSelection();
-    if (!this.sessionId) this.erase('Invalid preview link. Open Text-only preview from Liska.');
+    if (!this.sessionId)
+      this.erase('Invalid preview link. Open Selected reading preview from Liska.');
     else {
       this.clear.disabled = false;
       void this.poll(this.epoch);
@@ -74,14 +100,23 @@ class TextPreviewPage {
 
   private bind(): void {
     this.search.addEventListener('input', () => this.renderSelection());
+    this.formatControl.addEventListener('change', event =>
+      trustedPreviewAction(event, () => {
+        const format = presentationFormat(this.formatControl.value);
+        if (this.preview && !this.outputBusy && format) this.format = format;
+        this.renderSelection();
+      })
+    );
     this.selectAll.addEventListener('click', event =>
       trustedPreviewAction(event, () => {
+        if (!this.preview || this.outputBusy) return;
         for (const row of this.preview?.rows ?? []) this.selected.add(row.nodeId);
         this.renderSelection();
       })
     );
     this.deselect.addEventListener('click', event =>
       trustedPreviewAction(event, () => {
+        if (!this.preview || this.outputBusy) return;
         this.selected.clear();
         this.anchor = undefined;
         this.renderSelection();
@@ -174,7 +209,7 @@ class TextPreviewPage {
         metadata.state === 'awaiting-selection'
           ? 'Choose a branch in the Liska popup to continue.'
           : metadata.state === 'capturing'
-            ? 'Capturing the text reading view…'
+            ? 'Capturing the reading view…'
             : 'Preparing preview…';
       this.pollTimer = setTimeout(() => void this.poll(epoch), 1_000);
     } catch {
@@ -202,7 +237,7 @@ class TextPreviewPage {
       );
       if (!this.active(epoch)) return;
       if (response?.success !== true || !isPreviewUuid(response.deliveryId)) throw new Error();
-      const adopted = adoptArchiveTextPreview(response.payload);
+      const adopted = adoptArchivePresentationPreview(response.payload);
       const acknowledged = await this.acknowledge(response.deliveryId, epoch);
       if (!this.active(epoch)) return;
       if (!acknowledged) throw new Error();
@@ -285,7 +320,7 @@ class TextPreviewPage {
           if (!this.preview || this.outputBusy) return;
           const ids =
             event.shiftKey && this.anchor !== undefined
-              ? resolveTextPreviewRange(
+              ? resolvePresentationPreviewRange(
                   this.preview,
                   Math.min(this.anchor, index + 1),
                   Math.max(this.anchor, index + 1)
@@ -337,6 +372,10 @@ class TextPreviewPage {
     ] as const)
       element(id).textContent = String(count);
     this.search.disabled = !this.preview;
+    this.formatControl.value = this.format;
+    this.formatControl.disabled = !this.preview || this.outputBusy;
+    this.copy.textContent = `Copy ${FORMAT_LABELS[this.format]}`;
+    this.download.textContent = `Download .${FORMAT_EXTENSIONS[this.format]}`;
     this.selectAll.disabled = !this.preview || this.outputBusy;
     this.deselect.disabled = !this.selected.size || this.outputBusy;
     this.copy.disabled = this.download.disabled =
@@ -366,32 +405,28 @@ class TextPreviewPage {
     if (!this.preview || !this.selected.size || this.outputBusy) return;
     const epoch = this.epoch;
     const preview = this.preview;
+    const format = this.format;
+    const ids = preview.rows.filter(row => this.selected.has(row.nodeId)).map(row => row.nodeId);
     this.outputBusy = true;
     this.status.textContent = 'Checking preview lease…';
     this.renderSelection();
     try {
-      const ids = preview.rows.filter(row => this.selected.has(row.nodeId)).map(row => row.nodeId);
-      const snapshot = createTextPresentationSelection(preview, ids);
-      const { text } = renderTextSelection(preview, snapshot);
+      const snapshot = createPresentationSelection(preview, ids);
+      const artifact = renderPresentationSelection(preview, snapshot, format);
       if (!(await this.checkLease(epoch)) || !this.active(epoch)) return;
       let outcome: OutputOutcome;
-      if (kind === 'copy') outcome = await this.copyText(text);
+      if (kind === 'copy') outcome = await this.copyText(artifact.content);
       else {
-        this.downloadAttempt = (this.options.download ?? downloadSelectedText)(text, preview.title);
+        this.downloadAttempt = (this.options.download ?? downloadSelectedPresentation)(
+          artifact,
+          preview.title
+        );
         this.status.textContent = 'Waiting for the browser download outcome…';
         outcome = await this.downloadAttempt.result;
         this.downloadAttempt = undefined;
       }
       if (!this.active(epoch)) return;
-      const label = kind === 'copy' ? 'Copy' : 'Download';
-      this.status.textContent =
-        outcome === 'success'
-          ? kind === 'copy'
-            ? 'Selected Text copied.'
-            : 'Selected Text download completed.'
-          : outcome === 'failure'
-            ? `${label} failed. Nothing was retried.`
-            : `${label} outcome unknown. Check the browser; nothing was retried.`;
+      this.status.textContent = outputStatus(kind, format, outcome);
     } catch {
       if (this.active(epoch)) this.status.textContent = 'Output failed. Nothing was retried.';
     } finally {

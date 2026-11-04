@@ -111,7 +111,7 @@ export const ARCHIVE_COMPANION_API_TIMEOUT_MS = 60_000;
  * 619-message DeepSeek export measured 1.2 MB. This remains a hard worker-memory
  * bound; image payloads are governed by the separate limits below.
  */
-export const MAX_CONTENT_SIZE = 32 * 1024 * 1024;
+export { MAX_CONTENT_SIZE } from '../shared/content-limits';
 
 /**
  * Maximum serialized content-script message size.

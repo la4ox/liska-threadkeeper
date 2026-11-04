@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TextPreviewController } from '../../src/background/text-preview-controller';
-import { textPreviewPageUrl } from '../../src/lib/text-preview-contract';
+import {
+  TEXT_PREVIEW_MAX_ENVELOPE_BYTES,
+  textPreviewPageUrl,
+} from '../../src/lib/text-preview-contract';
 import type { ExportTarget } from '../../src/lib/export-operation-contract';
 import type { ExtensionSettings } from '../../src/lib/types';
+import { PRESENTATION_RENDERER_VERSIONS } from '../../src/archive/presentation/presentation-contracts';
 
 const SESSION = '11111111-1111-4111-8111-111111111111';
 const DELIVERY = '22222222-2222-4222-8222-222222222222';
@@ -16,15 +20,25 @@ const PAGE_DOCUMENT = 'preview-document-1';
 const STAGE_ID = `archive-stage-${'A'.repeat(32)}`;
 
 const payload = () => ({
-  schema: 'liska-text-preview/1',
+  schema: 'liska-presentation-preview/1',
   sourceCanonicalSha256: 'a'.repeat(64),
   branchTargetNodeId: 'assistant-1',
   title: 'Detached title',
-  profile: { schema: 'liska-reading-profile/1', includeToolContent: false },
+  profile: {
+    schema: 'liska-presentation-profile/1',
+    includeToolContent: false,
+    inertTaggedCodeBlocks: true,
+  },
+  rendererVersions: PRESENTATION_RENDERER_VERSIONS,
   rows: [
     { nodeId: 'user-1', role: 'user', presentedText: 'Question' },
     { nodeId: 'assistant-1', role: 'assistant', presentedText: 'Answer' },
-  ],
+  ].map(row => ({
+    ...row,
+    markdownBody: `${row.presentedText}\n\n`,
+    htmlBody: `<p>${row.presentedText}</p>`,
+    diagnostics: { text: [], markdown: [], html: [] },
+  })),
 });
 
 function sourceSender(route = ROUTE, documentId = DOCUMENT): chrome.runtime.MessageSender {
@@ -146,6 +160,7 @@ function harness(
         ({
           enableAutoScroll: true,
           enableToolContent: false,
+          enableInertCodeBlocks: true,
           enableChatGptOpaqueReplay: true,
           obsidianApiKey: 'must-not-cross',
           obsidianUrl: 'http://127.0.0.1:27123',
@@ -257,6 +272,7 @@ describe('TextPreviewController', () => {
         ({
           enableAutoScroll: false,
           enableToolContent: false,
+          enableInertCodeBlocks: true,
           enableChatGptOpaqueReplay: false,
         }) as ExtensionSettings,
       isUi: async () => true,
@@ -493,7 +509,7 @@ describe('TextPreviewController', () => {
     expect(h.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('returns only the three required booleans in the capture claim', async () => {
+  it('returns only the four required booleans in the capture claim', async () => {
     const h = harness({ claim: false });
     await h.start();
     const claim = await h.controller.handle(
@@ -508,6 +524,7 @@ describe('TextPreviewController', () => {
       settings: {
         enableAutoScroll: true,
         enableToolContent: false,
+        enableInertCodeBlocks: true,
         enableChatGptOpaqueReplay: true,
       },
     });
@@ -731,6 +748,41 @@ describe('TextPreviewController', () => {
     ).resolves.toEqual({ success: true, state: 'capturing', expiresAt: 901_000 });
   });
 
+  it('rejects an oversized UTF-8 envelope even when its character count is below the byte ceiling', async () => {
+    const h = harness();
+    await h.start();
+    const large = {
+      ...payload(),
+      branchTargetNodeId: 'utf8-4',
+      rows: Array.from({ length: 5 }, (_, index) => ({
+        nodeId: `utf8-${index}`,
+        role: 'assistant',
+        presentedText: '界'.repeat(900_000),
+        markdownBody: '\n\n',
+        htmlBody: '',
+        diagnostics: { text: [], markdown: [], html: [] },
+      })),
+    };
+    const envelope = JSON.stringify({
+      action: 'publishTextPreview',
+      sessionId: SESSION,
+      payload: large,
+    });
+    expect(envelope.length).toBeLessThan(TEXT_PREVIEW_MAX_ENVELOPE_BYTES);
+    expect(new TextEncoder().encode(envelope).byteLength).toBeGreaterThan(
+      TEXT_PREVIEW_MAX_ENVELOPE_BYTES
+    );
+    await expect(
+      h.controller.handle(
+        { action: 'publishTextPreview', sessionId: SESSION, payload: large },
+        h.source
+      )
+    ).resolves.toEqual({ success: false, error: 'text-preview-unavailable' });
+    await expect(
+      h.controller.handle({ action: 'getTextPreviewStatus', sessionId: SESSION }, h.page())
+    ).resolves.toMatchObject({ success: true, state: 'capturing' });
+  });
+
   it('fails closed after a lost take and after the absolute page lease', async () => {
     const h = harness();
     await h.start();
@@ -803,6 +855,7 @@ describe('TextPreviewController', () => {
     resolveSettings({
       enableAutoScroll: true,
       enableToolContent: false,
+      enableInertCodeBlocks: true,
       enableChatGptOpaqueReplay: false,
     } as ExtensionSettings);
     await expect(claim).resolves.toEqual({

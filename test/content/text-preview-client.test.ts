@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ArchiveTextPreview } from '../../src/archive/presentation';
+import {
+  PRESENTATION_RENDERER_VERSIONS,
+  type ArchivePresentationPreview,
+} from '../../src/archive/presentation';
 import { resetLocation, setChatGPTLocation } from '../fixtures/dom-helpers';
 
 const route = 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd';
@@ -16,13 +19,27 @@ const worker = () => ({ id: chrome.runtime.id, url: chrome.runtime.getURL('servi
 const begin = () =>
   command({ action: 'beginTextPreviewCapture', sessionId: id, route, branchMode: 'selected' });
 const options = () => [{ ordinal: 2, messageCount: 3, uniqueMessageCount: 2, isCurrent: false }];
-const payload = (): ArchiveTextPreview => ({
-  schema: 'liska-text-preview/1',
+const payload = (): ArchivePresentationPreview => ({
+  schema: 'liska-presentation-preview/1',
   sourceCanonicalSha256: 'a'.repeat(64),
   branchTargetNodeId: 'assistant-1',
   title: 'Detached',
-  profile: { schema: 'liska-reading-profile/1', includeToolContent: false },
-  rows: [{ nodeId: 'assistant-1', role: 'assistant', presentedText: 'Answer' }],
+  profile: {
+    schema: 'liska-presentation-profile/1',
+    includeToolContent: false,
+    inertTaggedCodeBlocks: true,
+  },
+  rendererVersions: PRESENTATION_RENDERER_VERSIONS,
+  rows: [
+    {
+      nodeId: 'assistant-1',
+      role: 'assistant',
+      presentedText: 'Answer',
+      markdownBody: 'Answer\n\n',
+      htmlBody: '<p>Answer</p>',
+      diagnostics: { text: [], markdown: [], html: [] },
+    },
+  ],
 });
 function command(message: object, sender = worker()): Promise<unknown> {
   return new Promise(resolve => {
@@ -50,6 +67,7 @@ beforeEach(async () => {
             settings: {
               enableAutoScroll: true,
               enableToolContent: false,
+              enableInertCodeBlocks: true,
               enableChatGptOpaqueReplay: true,
             },
           }
@@ -78,7 +96,7 @@ afterEach(async () => {
 });
 
 describe('text preview content client', () => {
-  it('claims only a trusted worker start and passes exactly three capture booleans', async () => {
+  it('claims only a trusted worker start and passes exactly four capture booleans', async () => {
     const begin = {
       action: 'beginTextPreviewCapture',
       sessionId: id,
@@ -95,6 +113,7 @@ describe('text preview content client', () => {
     expect(run).toHaveBeenCalledWith('selected', {
       enableAutoScroll: true,
       enableToolContent: false,
+      enableInertCodeBlocks: true,
       enableChatGptOpaqueReplay: true,
     });
     expect(JSON.stringify(run.mock.calls[0][1])).not.toContain('obsidian');
@@ -111,6 +130,7 @@ describe('text preview content client', () => {
         settings: {
           enableAutoScroll: true,
           enableToolContent: false,
+          enableInertCodeBlocks: true,
           enableChatGptOpaqueReplay: true,
           isApiKeyConfigured: true,
         },
@@ -123,6 +143,37 @@ describe('text preview content client', () => {
     ).resolves.toEqual({ accepted: false });
     expect(run).not.toHaveBeenCalled();
   });
+
+  it.each([undefined, 'true'])(
+    'refuses a missing or non-boolean inert-code value: %s',
+    async value => {
+      vi.mocked(chrome.runtime.sendMessage).mockImplementationOnce((_message, callback) => {
+        const valid = {
+          enableAutoScroll: true,
+          enableToolContent: false,
+          enableInertCodeBlocks: true,
+          enableChatGptOpaqueReplay: true,
+        };
+        const settings =
+          value === undefined
+            ? Object.fromEntries(
+                Object.entries(valid).filter(([key]) => key !== 'enableInertCodeBlocks')
+              )
+            : { ...valid, enableInertCodeBlocks: value };
+        const response = {
+          success: true,
+          sessionId: id,
+          branchMode: 'selected',
+          expiresAt: Date.now() + 300_000,
+          settings,
+        };
+        callback?.(response);
+        return Promise.resolve(response);
+      });
+      await expect(begin()).resolves.toEqual({ accepted: false });
+      expect(run).not.toHaveBeenCalled();
+    }
+  );
 
   it('resolves only an exact ordinal and never admits the all-branches value', async () => {
     await command({
@@ -242,8 +293,17 @@ describe('text preview content client', () => {
     const { TEXT_PREVIEW_MAX_ENVELOPE_BYTES } = await import('../../src/lib/text-preview-contract');
     const tooLarge = {
       ...payload(),
-      rows: [{ ...payload().rows[0], presentedText: 'x'.repeat(TEXT_PREVIEW_MAX_ENVELOPE_BYTES) }],
+      rows: [
+        {
+          ...payload().rows[0],
+          presentedText: '界'.repeat(Math.ceil(TEXT_PREVIEW_MAX_ENVELOPE_BYTES / 3)),
+        },
+      ],
     };
+    expect(JSON.stringify(tooLarge).length).toBeLessThan(TEXT_PREVIEW_MAX_ENVELOPE_BYTES);
+    expect(new TextEncoder().encode(JSON.stringify(tooLarge)).byteLength).toBeGreaterThan(
+      TEXT_PREVIEW_MAX_ENVELOPE_BYTES
+    );
     const callsBefore = vi.mocked(chrome.runtime.sendMessage).mock.calls.length;
     await expect(client.publishTextPreview(tooLarge)).resolves.toBe(false);
     expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(callsBefore);
@@ -270,6 +330,7 @@ describe('text preview content client', () => {
         settings: {
           enableAutoScroll: true,
           enableToolContent: false,
+          enableInertCodeBlocks: true,
           enableChatGptOpaqueReplay: true,
         },
         ...overrides,
@@ -298,6 +359,7 @@ describe('text preview content client', () => {
       settings: {
         enableAutoScroll: true,
         enableToolContent: false,
+        enableInertCodeBlocks: true,
         enableChatGptOpaqueReplay: true,
       },
     });
@@ -373,6 +435,7 @@ describe('text preview content client', () => {
           settings: {
             enableAutoScroll: true,
             enableToolContent: false,
+            enableInertCodeBlocks: true,
             enableChatGptOpaqueReplay: true,
           },
         };

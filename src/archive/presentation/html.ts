@@ -15,6 +15,7 @@ import {
   type HtmlPresentationInput,
   type HtmlPresentationLimits,
   type HtmlPresentationResult,
+  type HtmlPresentationDiagnostic,
 } from './contracts';
 import { renderSafeMarkdown } from './markdown';
 import {
@@ -33,6 +34,10 @@ import {
 const CSS = `:root{color-scheme:light dark;font-family:system-ui,sans-serif;line-height:1.55}body{margin:auto;padding:1.5rem;max-width:58rem;overflow-wrap:anywhere}article{border-top:1px solid #8887;padding:1rem 0}h1,h2,h3{line-height:1.25}h2{font-size:1.15rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#8881;padding:.8rem;border-radius:.4rem}code{font-family:ui-monospace,monospace}blockquote{border-left:3px solid #8887;margin-left:0;padding-left:1rem}img{max-width:100%;height:auto}.text{white-space:pre-wrap}.placeholder,.inert-html,.diagnostics{color:inherit;background:#8881;padding:.3rem}.inert-html{white-space:pre-wrap}header small{display:block;overflow-wrap:anywhere}figure{margin:1rem 0}figcaption{font-size:.9rem}@media print{body{max-width:none;padding:0}article,figure,pre{break-inside:avoid}a{color:inherit}header small{font-size:8pt}}`;
 const CSP =
   "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
+
+/** Shared static offline shell for detached selected views; no source interpolation here. */
+export const SELECTED_HTML_STYLE = CSS;
+export const SELECTED_HTML_CSP = CSP.replace("img-src 'self'", "img-src 'none'");
 
 /** Count all selected source, including hidden/unsupported payloads, before rendering any block. */
 function accountSource(value: unknown, context: PresentationContext): void {
@@ -461,14 +466,71 @@ function renderMessages(
     }
     renderedMessageCount++;
     renderer.emit(`<article><h2>${message.author.role === 'user' ? 'User' : 'Assistant'}</h2>`);
-    if (message.blocks.length === 0) {
-      context.diagnostic('message-empty');
-      renderer.placeholder('Empty message: no content blocks.');
-    }
-    for (const block of message.blocks) renderer.block(block);
+    renderMessageBody(message, renderer);
     renderer.emit('</article>');
   }
   return renderedMessageCount;
+}
+
+function renderMessageBody(message: ArchiveMessage, renderer: BlockRenderer): void {
+  if (message.blocks.length === 0) {
+    renderer.context.diagnostic('message-empty');
+    renderer.placeholder('Empty message: no content blocks.');
+  }
+  for (const block of message.blocks) renderer.block(block);
+}
+
+/**
+ * @internal Synchronous canonical-authorized visitor. No reduced archive or per-row
+ * branch render: one preflight, one source accounting pass, one shared work budget.
+ * The visitor may derive another body, but must not retain canonical arguments.
+ */
+export function visitArchiveHtmlPreviewRows(
+  value: HtmlPresentationInput,
+  visitor: (
+    nodeId: string,
+    message: ArchiveMessage,
+    filenames: ReadonlyMap<string, string | null>,
+    context: PresentationContext,
+    htmlBody: string,
+    diagnostics: HtmlPresentationDiagnostic[]
+  ) => void,
+  onEmit?: (value: string) => void
+): PresentationContext {
+  const { input, limits } = requireInput(value);
+  const path = requireSelectedPath(input);
+  if (path.length > limits.maxSelectedNodes) fail('html-selected-node-limit');
+  const prepared = snapshotPresentation(input, limits);
+  if (prepared.bindings.size !== 0) fail('html-bindings-invalid');
+  const context = new PresentationContext(limits, onEmit);
+  accountSelectedSource(
+    prepared.source,
+    path.map(id => input.archive.graph.nodes[id].message),
+    context
+  );
+  for (const nodeId of path) {
+    const message = input.archive.graph.nodes[nodeId].message;
+    if (!message || !['user', 'assistant'].includes(message.author.role) || hiddenMessage(message))
+      continue;
+    const renderer = new BlockRenderer(
+      context,
+      [],
+      prepared.source,
+      prepared.bindings,
+      prepared.includeToolContent
+    );
+    renderMessageBody(message, renderer);
+    visitor(
+      nodeId,
+      message,
+      prepared.source.assetFilenames,
+      context,
+      renderer.parts.join(''),
+      context.takeDiagnostics()
+    );
+    context.takeDiagnostics();
+  }
+  return context;
 }
 
 function renderDiagnostics(renderer: BlockRenderer): void {

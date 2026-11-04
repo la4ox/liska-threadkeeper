@@ -279,13 +279,15 @@ function preflightMarkdownNesting(source: string, context: PresentationContext):
   }
 }
 
-/** Render a strict CommonMark allowlist; no provider HTML or image URL is loaded. */
-export function renderSafeMarkdown(
+function prepareBoundedMarkdown(
   source: string,
   context: PresentationContext,
-  parts: string[]
-): void {
-  if (source.length > context.limits.maxMarkdownChars) fail('html-markdown-char-limit');
+  maxSourceChars = context.limits.maxMarkdownChars
+): {
+  root: Root;
+  definitions: Map<string, Definition>;
+} {
+  if (source.length > maxSourceChars) fail('html-markdown-char-limit');
   preflightMarkdownNesting(source, context);
   let root: Root;
   try {
@@ -293,6 +295,24 @@ export function renderSafeMarkdown(
   } catch {
     fail('html-markdown-invalid');
   }
-  const definitions = collectDefinitions(root, context);
+  return { root, definitions: collectDefinitions(root, context) };
+}
+
+/** Shared bounded parser only; Markdown output has its own source renderer. */
+export function parseBoundedMarkdown(
+  source: string,
+  context: PresentationContext,
+  maxSourceChars?: number
+): Root {
+  return prepareBoundedMarkdown(source, context, maxSourceChars).root;
+}
+
+/** Render a strict CommonMark allowlist; no provider HTML or image URL is loaded. */
+export function renderSafeMarkdown(
+  source: string,
+  context: PresentationContext,
+  parts: string[]
+): void {
+  const { root, definitions } = prepareBoundedMarkdown(source, context);
   new MarkdownRenderer(source, context, parts, definitions).node(root);
 }

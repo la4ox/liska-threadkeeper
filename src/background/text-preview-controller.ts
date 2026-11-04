@@ -1,6 +1,9 @@
 /* eslint-disable complexity, max-lines, max-lines-per-function -- Keep each lease transition, cleanup receipt, and recheck in one auditable state-machine surface. */
 /* In-memory capture and one-shot delivery authority for the detached text preview page. */
-import { adoptArchiveTextPreview, type ArchiveTextPreview } from '../archive/presentation';
+import {
+  adoptArchivePresentationPreview,
+  type ArchivePresentationPreview,
+} from '../archive/presentation';
 import { isSafeArchiveStageId } from '../lib/archive-stage-contract';
 import {
   exportRoute,
@@ -61,7 +64,7 @@ interface PreviewSession {
   page?: PreviewPage;
   selectionId?: string;
   options?: readonly ExportBranchOption[];
-  payload?: ArchiveTextPreview;
+  payload?: ArchivePresentationPreview;
   deliveryId?: string;
   ackedDocumentId?: string;
   stages: string[];
@@ -590,6 +593,7 @@ export class TextPreviewController {
     const captureSettings: TextPreviewCaptureSettings = Object.freeze({
       enableAutoScroll: settings.enableAutoScroll === true,
       enableToolContent: settings.enableToolContent === true,
+      enableInertCodeBlocks: settings.enableInertCodeBlocks === true,
       enableChatGptOpaqueReplay: settings.enableChatGptOpaqueReplay === true,
     });
     session.source = {
@@ -765,9 +769,9 @@ export class TextPreviewController {
       generation !== this.tabEpoch(session.target.tabId)
     )
       return unavailable();
-    let payload: ArchiveTextPreview;
+    let payload: ArchivePresentationPreview;
     try {
-      payload = adoptArchiveTextPreview(command.payload);
+      payload = adoptArchivePresentationPreview(command.payload);
       const envelope = JSON.stringify({
         action: 'publishTextPreview',
         sessionId: session.id,
