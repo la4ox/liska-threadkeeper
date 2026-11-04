@@ -457,6 +457,17 @@ terminal states, and the existing no-credential-export boundary.
   next slice must prove one provider-specific list/update-marker contract before
   any execution authority is considered; account-wide baseline and scheduler
   remain separate explicit choices.
+- A source-only audit now confirms that current ChatGPT and Claude adapters stop
+  at exact single-conversation detail capture. Timestamp-shaped detail fields do
+  not establish an account list, durable cursor or trustworthy change marker.
+  ADR-052 therefore admits no comparator or synthetic list parser. The next
+  evidence step requires an explicit provider, signed-in account and exact
+  workspace/organization choice, or `personal/no-workspace`, then at most three
+  foreground read-only list requests with no detail/body fetches, mutation,
+  automatic retry, background traversal or retention of real titles, IDs,
+  cursors, account identifiers or response bodies. Any ambiguous, mismatched or
+  changed scope stops the pass. ChatGPT is recommended first but is not
+  authorized by this note.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
