@@ -4916,3 +4916,51 @@ opened `Название канала-selection (1).pdf` in Save As; cancelling 
 reported `PDF download failed. Nothing was retried.` and no second physical file
 existed. Installed worker/CSP execution, exact delivery, visible open and
 cancel-without-retry gates therefore pass for the bounded PDF slice.
+
+## Read-only snapshot catalog installed acceptance — 2026-11-04
+
+Branch `codex/snapshot-catalog-v1` starts from merged PDF main `3288eea` and
+implements ADR-050's first backup-foundation slice. A dedicated private page
+accepts one trusted directory selection, snapshots metadata for every selected
+file and reads bodies only for exact lowercase `manifest.json`. It has no
+provider capture, network, settings/storage, runtime messaging, Obsidian,
+source-file write or mutation path. Its deterministic catalog records manifest
+validity, declared completeness, metadata-only artifact/asset/canonical
+presence, provider/capture identity, occurrence/conflict facts and fixed issues;
+it does not export locators, titles, messages, endpoints, URLs, source pointers
+or free-form warnings.
+
+The page lowers the pure core boundary to 4,096 files, 128 manifests, 256 KiB
+per manifest, 8 MiB manifest bytes, 512-character paths, 8 TiB selected metadata
+and 1 MiB JSON. The core independently validates/detaches plain own data and
+native bytes, strict-parses duplicate/unsafe-key-free JSON, isolates the trusted
+hash capability, namespaces provider identities, preserves duplicate occurrence
+counts and capture conflicts, and revalidates exact selected-file/aggregate
+invariants before encoding. The existing exact-byte snapshot analyzer remains
+unchanged.
+
+Current automated evidence passes 77 core catalog tests / 219 adjacent archive
+tests, a current integrated 173-test catalog/page/architecture subset and the
+full repository run: 295 files / 10,500 tests passed with one file / three tests
+intentionally skipped (95.06% statements, 97.35% lines). Full lint has zero
+errors and the unchanged 55 warnings; format, TypeScript, Idea-Threads
+validation, production build, private-page capability checker and service-worker
+runtime guard pass. The final 2,770,516-byte candidate ZIP has SHA-256
+`9cf6563b9481da899524f2d41c8e8d8dafb2ee356b5f9f98e4a47c5aa4fa9d87`.
+Independent functional reviews found and closed the strict encoder's
+selected-file and byte-feasibility gaps; final core review and UI review are
+ready. Security review remains for the PR.
+
+Installed Comet selected `D:\Downloads\_liska-archive`: 495 files / 858,148,168
+bytes, including 121 manifests / 1,360,745 manifest bytes. The page rendered
+121 unique valid entries and four unassociated selected files, then saved
+`liska-snapshot-catalog.json` at 128,309 bytes / SHA-256
+`f3dc0fe282bc8957bb8a8c2c24d42e925a7323b47f266fbdc4405e97707b1f64`.
+An independent production-core oracle rebuilt the same bytes while reading only
+manifest bodies and confirmed no forbidden locator/content keys in the encoded
+schema. A complete hash inventory of all 495 source files before and after the
+run retained count, total bytes and aggregate SHA-256
+`f5faaab3c0521655d09d770685447f78711e3b4dd3edd86539979b8766a26006`.
+This closes the selected-root catalog, not raw/canonical/asset integrity,
+account completeness, a provider enumeration adapter, a baseline runner or a
+daily scheduler.
