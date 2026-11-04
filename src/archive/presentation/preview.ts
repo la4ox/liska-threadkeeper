@@ -1,4 +1,4 @@
-import { utf8ByteLength } from '../../lib/byte-size';
+import { utf8ByteLength } from '../../shared/byte-size';
 import {
   HTML_DIAGNOSTIC_LABELS,
   HTML_PRESENTATION_LIMITS,

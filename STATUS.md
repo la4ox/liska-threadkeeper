@@ -4675,9 +4675,33 @@ No archive output or settings changed. Selected-branch ChatGPT, DeepSeek and a
 browser-observed terminal-success Save As remain later live evidence; PDF and
 DOCX are still separate renderer slices.
 
-The final complete coverage run passes 279 test files and 10,187 tests, with one
-file and three tests skipped and zero failures. Statements are 95.08%
-(`29,170 / 30,677`), branches 91.78%, functions 98.29% and lines 97.34%.
+The final complete coverage run passes 279 test files and 10,190 tests, with one
+file and three tests skipped and zero failures. Statements are 95.09%
+(`29,173 / 30,679`), branches 91.78%, functions 98.29% and lines 97.34%.
 Full lint passes with zero errors and 55 existing warnings; format, production
 build/package, diff checks and the nine-thread/37-relation idea-thread validator
 pass.
+
+## Exact CI architecture repair candidate — 2026-11-04
+
+Every published preview head initially failed Linux CI on the architecture
+fitness rule with `Cycle detected: lib -> archive -> lib`. The local Windows
+suite had reported green because the broad `**/subsystem/**` globs matched zero
+files beneath the hidden `/.codex/` worktree ancestor; cycle detection therefore
+passed vacuously.
+
+Pure byte-size, Markdown work-budget and inert-code-block helpers now live in a
+neutral `src/shared` subsystem. Existing `src/lib` paths remain compatibility
+re-exports, `MAX_CONTENT_SIZE` is re-exported from one shared definition, and
+archive presentation imports shared helpers directly. This removes the reverse
+`archive -> lib` edge without changing exports, function/class identity or the
+32 MiB limit.
+
+The cycle fitness rule now uses project-root-anchored absolute globs, includes a
+`shared` slice and inspects the exact slices resolved by the pinned ts-archunit
+`assignedFrom()` matcher. Every one of the seven declared subsystems must contain
+at least one file before cycle evaluation can pass. Restoring the old hidden-path
+globs makes the non-vacuity assertion fail. The focused cycle test passes 2/2,
+the full architecture directory passes 44 files / 1,576 tests, the shared/facade
+matrix passes 485 tests, and the complete current-input coverage run above is
+green with the real cycle rule active.

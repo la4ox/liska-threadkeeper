@@ -1,5 +1,5 @@
-import { utf8ByteLength } from '../../lib/byte-size';
-import { makeTaggedCodeBlocksInert } from '../../lib/inert-code-blocks';
+import { utf8ByteLength } from '../../shared/byte-size';
+import { makeTaggedCodeBlocksInert } from '../../shared/inert-code-blocks';
 import { HTML_DIAGNOSTIC_LABELS } from './contracts';
 import { SELECTED_HTML_CSP, SELECTED_HTML_STYLE } from './html';
 import { markdownFence } from './markdown-body';
