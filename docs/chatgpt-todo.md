@@ -478,6 +478,16 @@ terminal states, and the existing no-credential-export boundary.
   `unbound/legacy` until a separate non-destructive migration design exists.
   Multiple accounts or workspaces may live as sibling scope roots without
   sharing cursors, histories or overwrite authority.
+- A bounded Claude evidence pass is now complete. One foreground reload emitted
+  three actual organization/workspace-bound `chat_conversations_v2` requests,
+  exhausting the cap. The observed active-list query used limit 30, offset 0,
+  `archived=false` and strong consistency; its envelope contained `data` and
+  `has_more`, with 12 records and `has_more=false` in the sampled personal scope.
+  No real values were retained. ADR-053 admits only a pure unwired terminal-page
+  parser and opaque `updated_at` equality. Pagination, archived visibility,
+  repeat-body equality, marker monotonicity/material coverage, deletion semantics
+  and rate limits remain unproven; no result may skip capture or authorize a
+  baseline.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
