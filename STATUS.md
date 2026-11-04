@@ -4593,7 +4593,16 @@ code; and ASCII-space-padded NBSP inline code could lose its boundary spaces.
 Destination entity escaping, indentation-sensitive literal fencing and the
 ASCII-space-specific padding rule close them. Round-trip regressions cover
 inline/reference/citation URLs plus Text/quote/citation and whitespace variants;
-the final re-review is `ready` with no other material finding.
+the final re-review was `ready`. The first PR code review then found one adjacent
+emphasis collision: normalizing every parsed `_` delimiter to `*` could merge
+neighboring emphasis/strong nodes and introduce literal punctuation. The source
+renderer now retains only the parser-validated original `*` or `_` delimiter for
+each emphasis/strong node while continuing to rebuild and sanitize its children.
+Where decoded text would make an adjacent underscore delimiter intraword, only
+that visible boundary code point is emitted as a numeric reference; visible text
+and parsed structure remain unchanged. Symmetric, mixed-weight, nested and
+character-reference AST round-trip regressions cover that boundary. Independent
+re-review is `ready`, including 1,936 additional parser combinations.
 
 The corrected installed candidate contains 52 files / 1,384,752 bytes with
 matching source/installed aggregate SHA-256
@@ -4618,9 +4627,9 @@ No archive output or settings changed. Selected-branch ChatGPT, DeepSeek and a
 browser-observed terminal-success Save As remain later live evidence; PDF and
 DOCX are still separate renderer slices.
 
-The final complete coverage run passes 279 test files and 10,099 tests, with one
+The final complete coverage run passes 279 test files and 10,113 tests, with one
 file and three tests skipped and zero failures. Statements are 95.08%
-(`29,096 / 30,600`), branches 91.72%, functions 98.28% and lines 97.33%.
+(`29,125 / 30,631`), branches 91.72%, functions 98.28% and lines 97.32%.
 Full lint passes with zero errors and 55 existing warnings; format, production
 build/package, diff checks and the nine-thread/37-relation idea-thread validator
 pass.

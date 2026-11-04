@@ -110,6 +110,11 @@ function nodesOf(source: string): Nodes[] {
   }
   return result;
 }
+function syntaxWithoutPositions(source: string): unknown {
+  return JSON.parse(
+    JSON.stringify(fromMarkdown(source), (key, value) => (key === 'position' ? undefined : value))
+  );
+}
 function objects(value: unknown, result = new Set<object>()): Set<object> {
   if (value !== null && typeof value === 'object' && !result.has(value)) {
     result.add(value);
@@ -217,6 +222,43 @@ describe('detached multiformat presentation preview', () => {
     }
     expect(last.htmlBody).toContain('&lt;script&gt;providerActive()&lt;/script&gt;');
   });
+
+  it.each([
+    '*a*_b_',
+    '_a_*b*',
+    '**a**__b__',
+    '__a__**b**',
+    '*a*__b__',
+    '**a**_b_',
+    '*a*_b_*c*',
+    '**_a_**__*b*__',
+  ])('preserves adjacent emphasis syntax for %s', source => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const preview = prepareArchivePresentationPreview(candidate);
+    const body = preview.rows[0].markdownBody;
+    expect(body).toContain(source);
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+    const selected = renderSelectedMarkdown(
+      preview,
+      createPresentationSelection(preview, ['node-user'])
+    ).content;
+    expect(selected).toContain(source);
+  });
+
+  it.each(['&#65;_b_', '_a_&#65;', '&#x61;__b__', '__a__&#x61;', '&#65;_b_*c*', '*c*_b_&#65;'])(
+    'keeps underscore flanking after character-reference decoding for %s',
+    source => {
+      const candidate = input();
+      candidate.archive.graph.nodes['node-user'].message!.blocks = [
+        block('markdown', { markdown: source }),
+      ];
+      const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+      expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+    }
+  );
 
   it('round-trips entity-looking URLs, indented literal paths and all-space inline code', () => {
     const candidate = input();

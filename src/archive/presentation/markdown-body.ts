@@ -48,7 +48,50 @@ class MarkdownSourceRenderer {
   ) {}
 
   children(node: Parent, separator = ''): string {
-    return node.children.map(child => this.node(child)).join(separator);
+    return node.children
+      .map((child, index) => {
+        if (separator !== '' || child.type !== 'text') return this.node(child);
+        return this.text(
+          child.value,
+          this.hasUnderscoreMarker(node.children[index - 1]),
+          this.hasUnderscoreMarker(node.children[index + 1])
+        );
+      })
+      .join(separator);
+  }
+  emphasisMarker(node: Extract<Nodes, { type: 'strong' | 'emphasis' }>): string {
+    const width = node.type === 'strong' ? 2 : 1;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined || end - start < width * 2)
+      presentationFail('presentation-markdown-invalid');
+    const opening = this.source.slice(start, start + width);
+    const closing = this.source.slice(end - width, end);
+    if (opening !== closing || (opening !== '*'.repeat(width) && opening !== '_'.repeat(width)))
+      presentationFail('presentation-markdown-invalid');
+    return opening;
+  }
+  hasUnderscoreMarker(node: Nodes | undefined): boolean {
+    if (node?.type !== 'strong' && node?.type !== 'emphasis') return false;
+    return this.emphasisMarker(node)[0] === '_';
+  }
+  text(value: string, encodeStart = false, encodeEnd = false): string {
+    const characters = Array.from(value.replace(/\r\n?/g, '\n'));
+    let start = 0;
+    let end = characters.length;
+    let prefix = '';
+    let suffix = '';
+    const reference = (character: string): string =>
+      `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`;
+    if (encodeStart && start < end && !/\p{White_Space}/u.test(characters[start])) {
+      prefix = reference(characters[start]);
+      start++;
+    }
+    if (encodeEnd && start < end && !/\p{White_Space}/u.test(characters[end - 1])) {
+      end--;
+      suffix = reference(characters[end]);
+    }
+    return prefix + markdownLiteral(characters.slice(start, end).join('')) + suffix;
   }
   link(url: string, label: string): string {
     if (isSafeUserLink(url)) return `[${label}](${destination(url)})`;
@@ -92,11 +135,15 @@ class MarkdownSourceRenderer {
       case 'heading':
         return '#'.repeat(node.depth) + ' ' + this.children(node);
       case 'text':
-        return markdownLiteral(node.value);
-      case 'strong':
-        return `**${this.children(node)}**`;
-      case 'emphasis':
-        return `*${this.children(node)}*`;
+        return this.text(node.value);
+      case 'strong': {
+        const marker = this.emphasisMarker(node);
+        return `${marker}${this.children(node)}${marker}`;
+      }
+      case 'emphasis': {
+        const marker = this.emphasisMarker(node);
+        return `${marker}${this.children(node)}${marker}`;
+      }
       case 'blockquote':
         return quote(this.children(node, '\n\n'));
       case 'list':
