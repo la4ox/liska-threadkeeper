@@ -140,6 +140,37 @@ restored the exact source text before save, saved, closed and reopened with
 identical text. Its one-page Word render passed visual inspection. This closes
 the measured DOCX slice and still says nothing about PDF readiness.
 
+### E10 — PDF needs a packaged layout and font policy, not browser print
+
+The first PDF candidate maps only the selected safe-HTML grammar into a fixed
+A4 document definition inside a one-shot `pdfmake@0.3.13` worker. The artifact
+and receipt bind canonical/profile/selection/input identity, independent limits,
+layout and font-policy versions, page count and exact bytes/hash without claiming
+delivery. Browser print, remote conversion, DOCX-to-PDF and general HTML
+conversion remain outside this boundary.
+
+Pinned Roboto fonts cover tested Latin and Cyrillic; one exact Google Fonts Noto
+Emoji TTF handles tested hearts, fox, family ZWJ and flag clusters. Exact cmap
+preflight refuses missing glyphs and unsupported CJK atomically. The implementation
+also caught a real WOFF2/fontkit subset failure and pdfmake UTF-16 `break-all`
+corruption before UI acceptance, then retained TTF grapheme routing instead of
+patching dependencies.
+
+Automated PDF.js tests independently confirm selectable text, embedded fonts,
+deterministic bytes, multi-page counts, long-token bounds and refusal ceilings.
+Vite emits one isolated 4.29 MiB worker. Its prebuilt pdfmake closure retains
+dormant browser/network/global-discovery helpers; the fixed renderer supplies no
+resource URLs, installs a deny-all URL policy and invokes only `getBuffer()`,
+with a regression proving that successful rendering never calls `fetch`. A
+four-page raster fixture has continuous pagination and no visual defects.
+
+Installed Comet then completed the same bounded path under its real CSP. One
+selected real ChatGPT message produced a 13,735-byte one-page PDF; the render
+receipt and physical SHA-256 matched, and the built-in viewer visibly rendered
+Cyrillic plus the heart glyph. Cancelling a second Save As created no second
+file and produced the explicit no-retry failure. This closes the measured PDF
+slice without broadening archive, asset or provider authority.
+
 ### X1 — Treat readable Markdown or convenient JSON as archival authority
 
 This path looked attractive because those files are easy to inspect and move.
@@ -219,6 +250,19 @@ Evidence: E8, E9
 
 Decision record: ADR-048
 
+### D5 — Keep PDF local, byte-owned and font-bounded
+
+PDF is a separate explicit download action over the frozen selected projection.
+It owns one fixed A4 layout, packaged font coverage, independent work/page/output
+limits and exact render/delivery receipts. Unsupported glyphs or absent upstream
+table/math/image semantics refuse or remain explicit placeholders; they do not
+authorize system fonts, assets, browser print, remote conversion or a wider
+capture.
+
+Evidence: E8, E10
+
+Decision record: ADR-049
+
 ### T1 — Add richer reading formats without enlarging archive authority
 
 PDF, new HTML profiles or other reading views may be useful, but each needs its
@@ -270,9 +314,10 @@ pagination or memory-heavy rendering subsystem.
 
 Trigger: met for DOCX implementation on 2026-11-04 when the shared multiformat
 selection/profile contract passed installed current-branch evidence. Exact
-download/hash, repair-free Word open and edit/save/reopen now pass. PDF retains
-a separate trigger for a bounded pagination/font/math/table design. Reopen image
-only for a concrete scenario that an ordinary screenshot cannot solve.
+download/hash, repair-free Word open and edit/save/reopen now pass. The separate
+PDF slice now also passes automated layout/font/worker evidence plus installed
+download/hash/viewer and cancelled-Save-As acceptance. Reopen image only for a
+concrete scenario that an ordinary screenshot cannot solve.
 
 ## Observations
 
@@ -287,6 +332,7 @@ only for a concrete scenario that an ordinary screenshot cannot solve.
 - [evidence] E7: installed Comet kept bounded preview selection local and separate from canonical archive authority #live
 - [evidence] E8: one detached bounded projection now renders selected Text, Markdown and HTML without retaining canonical authority #live
 - [evidence] E9: bounded selected DOCX passed exact installed download/hash, repair-free Word open, edit/save/reopen and one-page visual QA #live
+- [evidence] E10: bounded PDF has packaged-worker/font/parser evidence, four-page synthetic visual QA and exact installed Comet download/hash/viewer/cancel-without-retry proof #live
 - [rejected] X1: readability and a JSON extension do not establish archival completeness
 - [rejected] X2: deriving later views from lossy Markdown would compound earlier omissions
 - [rejected] X3: third-party button parity, remote conversion and unlimited image capture do not meet Liska's privacy or boundedness contract
@@ -294,11 +340,12 @@ only for a concrete scenario that an ordinary screenshot cannot solve.
 - [decision] D2: add local canonical-derived formats through reviewed selection, renderer and receipt slices
 - [decision] D3: bind selected views to one exact canonical digest without creating or rewriting a canonical graph
 - [decision] D4: keep DOCX download-only with separate limits and proof; do not infer PDF readiness
+- [decision] D5: keep PDF download-only with fixed local layout/fonts and no inferred table/math/image authority
 - [tail] T1: add richer reading formats only with separate bounded rendering and persistence evidence
 - [tail] T2: allow future living memory to index but never silently rewrite archive truth
 - [tail] T3: extend text beyond the completed single-branch File view only through a separately bounded contract
 - [tail] T4: bounded local Text/Markdown/HTML preview and immutable message selection are complete
-- [tail] T5: DOCX is accepted; PDF and image retain independent triggers
+- [tail] T5: DOCX and PDF are accepted; image retains an independent trigger
 
 ## Relations
 
@@ -325,3 +372,5 @@ only for a concrete scenario that an ordinary screenshot cannot solve.
 - S12 — local receipt `LISKA-TEXT-PREVIEW-20261104`; visibility: local-only; safe aggregate only
 - S13 — local receipt `LISKA-MULTIFORMAT-PREVIEW-20261104`; visibility: local-only; safe aggregate only
 - S14 — DOCX candidate contract and tests: `src/text-preview/docx-contract.ts`, `src/text-preview/docx-renderer.ts`, `test/text-preview/docx-core.test.ts`
+- S15 — [ADR-049: Bounded selected PDF as a separate local renderer](../adr/049-selected-pdf-presentation.md)
+- S16 — PDF candidate contract and tests: `src/text-preview/pdf-contract.ts`, `src/text-preview/pdf-renderer.ts`, `test/text-preview/pdf-core.test.ts`
