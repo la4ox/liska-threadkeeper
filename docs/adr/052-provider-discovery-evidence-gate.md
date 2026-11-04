@@ -87,6 +87,13 @@ first request but are not retained. ChatGPT is the recommended first candidate
 because its existing single-conversation identity and capture path are already
 mature; this recommendation is not authorization.
 
+The current operating default is the visibly active main account in its
+`personal/no-workspace` scope. A dormant backup account is out of scope unless
+the user explicitly switches the target. A later used backup account may own a
+separate sibling scope; it never shares the main account's cursor or checkpoint.
+This default does not choose a provider; each first provider experiment still
+names its provider explicitly.
+
 The proposed first pass is limited to at most three foreground, read-only list
 requests:
 
@@ -107,6 +114,11 @@ continue in the background. It stops on an authentication boundary, permission
 prompt, ambiguous account/workspace identity, any account/workspace switch,
 throttling/429, unexpected mutation, transport ambiguity or an envelope that
 cannot be inspected without retaining private content.
+
+A confirmed account/workspace switch ends the current scoped sample rather than
+invalidating the other account. A future pass may inspect the switched scope
+under its own authorization, request cap, checkpoint and namespace; page/cursor
+state from different scopes is never concatenated.
 
 This small pass can establish a candidate schema. It cannot by itself certify
 marker monotonicity, complete ordering stability, cursor durability or
@@ -132,6 +144,24 @@ archive/deletion coverage; those require separately bounded evidence.
   user decision.
 - The next implementation PR, if admitted, must remain provider-specific and
   pure before any transport, persistence or scheduler wiring is considered.
+
+## Future scope-aware archive layout
+
+Once a provider exposes a verified stable account/workspace identity, a future
+canonical layout may namespace immutable captures as
+`provider/scope-key/conversation-key/capture-id`. The versioned `scope-key` must
+derive from the proven provider/account/workspace identity, not a title, email or
+display name. Hashing provides filesystem namespacing, not anonymity.
+
+Multiple accounts or workspaces may therefore live as sibling scope directories
+on the same private machine. A switch creates or selects another scope boundary;
+it does not merge histories or overwrite the current scope.
+
+A human-readable alias may live in a separate private local registry and must
+not become archive identity. Existing captures without account binding remain
+explicitly `unbound/legacy`; they are not silently moved or attributed to the
+currently active account. This ADR authorizes no directory creation, move or
+migration.
 
 ## Verification for this slice
 

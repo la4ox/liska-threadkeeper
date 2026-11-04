@@ -465,9 +465,19 @@ terminal states, and the existing no-credential-export boundary.
   workspace/organization choice, or `personal/no-workspace`, then at most three
   foreground read-only list requests with no detail/body fetches, mutation,
   automatic retry, background traversal or retention of real titles, IDs,
-  cursors, account identifiers or response bodies. Any ambiguous, mismatched or
-  changed scope stops the pass. ChatGPT is recommended first but is not
-  authorized by this note.
+  cursors, account identifiers or response bodies. Any ambiguous or mismatched
+  scope stops the pass. A confirmed account/workspace switch closes the current
+  sample; the other scope may later receive its own capped pass and checkpoint.
+  ChatGPT is recommended first but is not authorized by this note.
+- Default future work targets the visibly active main account in
+  `personal/no-workspace`; normally dormant backup accounts remain untouched
+  unless explicitly selected. After a provider proves stable scope identity, a
+  future canonical layout may use
+  `provider/scope-key/conversation-key/capture-id`. Display names/emails remain
+  aliases, not identity, and legacy captures without account binding stay
+  `unbound/legacy` until a separate non-destructive migration design exists.
+  Multiple accounts or workspaces may live as sibling scope roots without
+  sharing cursors, histories or overwrite authority.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

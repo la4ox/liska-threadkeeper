@@ -5044,5 +5044,16 @@ and exact workspace/organization, or `personal/no-workspace`. It excludes
 conversation detail/body reads, mutations, account-wide traversal, automatic
 retries, background work and retention of real titles, IDs, cursors, account
 identifiers or response bodies. Ambiguous, mismatched or changed scope stops the
-pass. ChatGPT is the recommended first candidate, not a pre-authorized target.
-No provider page, endpoint or account was accessed for this documentation slice.
+pass. A confirmed switch closes only the current scoped sample; a later sample
+for the other scope uses a separate cap and checkpoint. ChatGPT was the initial
+recommendation, not a pre-authorized target. No provider page, endpoint or
+account was accessed for this documentation slice.
+
+The current operating default is each provider's visibly active main account in
+`personal/no-workspace`; normally dormant backup accounts remain untouched until
+explicitly selected. A future scope-aware layout may use
+`provider/scope-key/conversation-key/capture-id` only after stable provider scope
+binding is evidenced. Display names and emails do not own identity, and existing
+unbound captures remain `unbound/legacy`; this slice performs no move or
+migration. Multiple accounts or workspaces may live as sibling scope roots
+without sharing cursors or histories.
