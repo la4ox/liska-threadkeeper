@@ -90,6 +90,18 @@ This proves one explicit selected local root and current manifest schema. It
 does not prove body integrity, account completeness, recapture admission or a
 provider list/update marker.
 
+### E7 — The inert journal survives an extension restart without gaining execution authority
+
+The installed private page admitted the accepted catalog as 24 unique valid
+conversation items, created one revision-0 paused journal with zero attempts,
+and recovered the same paused journal after an extension reload closed its page.
+Its 7,366-byte private export decoded and re-encoded byte for byte through the
+production core.
+
+This proves durable local bookkeeping and restart recovery for one explicit
+catalog. It does not enumerate an account, contact a provider, capture a chat,
+schedule work or prove that any conversation is still accessible.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -146,6 +158,18 @@ Evidence: E2, E5, E6
 
 Decision record: ADR-050
 
+### D4 — Put an inert resumability ledger between the catalog and provider execution
+
+Durable state is now a separate pure journal plus dedicated extension-origin
+IndexedDB. Catalog selection can create only a paused run. Restarted running work
+would become unknown, and no transition is retried automatically. The private
+page exposes selection, paused creation, reload and export only; provider
+enumeration, execution and scheduling require a later contract.
+
+Evidence: E5, E7
+
+Decision record: ADR-051
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -194,11 +218,13 @@ account-wide authority is explicitly enabled.
 - [evidence] E4: rapid bulk conversation reopening is an observed constraint, though no exact rate limit is claimed #local-only
 - [evidence] E5: current code has immutable provider-neutral manifests but no durable baseline cursor, list adapter or scheduler #code
 - [evidence] E6: installed manifest-only catalog rebuilt 121 real entries deterministically while all 495 selected source files remained byte-identical #live
+- [evidence] E7: installed inert journal recovered the same 24 paused items after an extension reload and round-tripped its physical export byte for byte #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [decision] D1: preserve four separate layers and pause automation until explicit discovery design
 - [decision] D2: sequence future backup as local catalog, slow resumable baseline and provider-specific update polling
 - [decision] D3: start with a rebuildable manifest-only catalog that grants no provider, persistence or mutation authority
+- [decision] D4: place a paused, restart-safe journal between catalog evidence and any future provider execution
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: manifest-only local catalog is accepted; preserve its non-authorizing boundary when the resumability journal begins
@@ -221,3 +247,5 @@ account-wide authority is explicitly enabled.
 - S5 — local receipt `LISKA-BACKUP-SEQUENCING-20261103`; visibility: local-only; safe aggregate only
 - S6 — [ADR-050: Rebuildable manifest catalog before baseline automation](../adr/050-read-only-snapshot-catalog.md)
 - S7 — local receipt `LISKA-SNAPSHOT-CATALOG-LIVE-20261104`; visibility: local-only; safe aggregate only
+- S8 — [ADR-051: Durable inert resumability journal before provider execution](../adr/051-inert-resumability-journal.md)
+- S9 — local receipt `LISKA-RESUMABILITY-JOURNAL-LIVE-20261104`; visibility: local-only; safe aggregate only

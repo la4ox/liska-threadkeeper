@@ -447,9 +447,16 @@ terminal states, and the existing no-credential-export boundary.
   produced 121 unique valid entries plus four unassociated files; an independent
   core rebuild matched the 128,309-byte JSON exactly and every selected source
   file retained the same pre/post content hash. This is inventory evidence, not
-  body verification, recapture authority or an account baseline. The next slice
-  is an inert durable resumability journal; provider enumeration and scheduling
-  remain separately gated.
+  body verification, recapture authority or an account baseline.
+- The second backup-foundation slice is also installed-live. One exact catalog
+  created a dedicated IndexedDB journal with 24 paused items, revision 0 and no
+  attempts. Reloading the extension closed the page; reopening recovered the
+  same journal. Its physical 7,366-byte JSON export decoded and re-encoded byte
+  for byte through the production core. This establishes inert resumability,
+  not provider enumeration, capture, account completeness or scheduling. The
+  next slice must prove one provider-specific list/update-marker contract before
+  any execution authority is considered; account-wide baseline and scheduler
+  remain separate explicit choices.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

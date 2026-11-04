@@ -4964,3 +4964,65 @@ run retained count, total bytes and aggregate SHA-256
 This closes the selected-root catalog, not raw/canonical/asset integrity,
 account completeness, a provider enumeration adapter, a baseline runner or a
 daily scheduler.
+
+## Inert resumability journal installed acceptance — 2026-11-04
+
+Branch `codex/resumability-journal-v1` starts from merged catalog main
+`7d13b2d` and implements ADR-051's second backup-foundation slice. A pure
+`liska-resumability-journal/1` state machine, dedicated extension-origin
+IndexedDB adapter and private page own durable bookkeeping without entering
+content scripts, provider adapters, service-worker startup, runtime messaging,
+destinations, OPFS stages or existing recovery registries. The page can select
+one canonical catalog, create only a paused journal, recover/list it and export
+one deterministic private snapshot. It exposes no activate, begin, retry,
+schedule, delete, provider or network control.
+
+The core enforces exact run/item/attempt revisions, at most one running attempt,
+strict dispatch tokens, restart-to-unknown and no automatic retry. The adapter
+uses atomic expected-revision CAS and bounded dedicated storage: 16 runs, 2,048
+items per run, eight attempts per item, 8,192 total attempts and 8 MiB. Accepted
+abort waits for rollback; a too-late abort waits for commit; a missing terminal
+event reports only an unknown transaction outcome. Deterministic tests cover
+late commits after timeout/close/versionchange, accepted rollback, corrupt
+records, limits and two-store conflicts.
+
+Independent core, IndexedDB and page reviews found and closed revision-lower-
+bound, late-commit and pre-persistence error-boundary defects. Final integration
+review found one production-only Chromium ordering defect: resetting a file
+input clears its live `FileList` in place. Selection now owns the `File`
+references before reset; the live-list regression passes and the installed file
+chooser accepts the real catalog. PR #116 Code Review then found that a running
+record could fit the output ceiling without retaining space for its mandatory
+interruption outcome. `begin-attempt` now projects exact pause, cancellation and
+restart states under the unchanged limit before returning a dispatch token. A
+one-byte-below/exact-boundary regression proves rejection without capacity
+padding and successful round-trips for every stop path. The current integrated
+journal/catalog matrix passes 15 files / 415 tests; TypeScript, formatting, diff checks, production
+build, built-page capability checker and service-worker runtime guard pass. The
+full coverage run passes 303 files / 10,748 tests with one file / three tests
+intentionally skipped: 95.10% statements, 91.66% branches, 98.24% functions and
+97.37% lines. Full lint has zero errors and the unchanged 55 warnings; the
+production dependency audit reports zero vulnerabilities.
+
+Installed Comet used stable-target inventory SHA-256
+`3a652a6cbb991eb8609bd590f64dd77480ca4fa7658fd0079167fc74e0e12db6`;
+the final 37,260-byte journal bundle has SHA-256
+`de195da7687d66d381246721ddc6fd3ef01e34557564caee8a501d502202d453`.
+The page admitted the accepted catalog as 24 unique conversations from 121
+valid capture occurrences, created one revision-0 paused journal with zero
+attempts, then survived an extension reload that closed the page. Reopening the
+page recovered the same 24 paused items from IndexedDB.
+
+The browser saved `D:\Downloads\liska-resumability-journal.json`: 7,366 bytes,
+SHA-256
+`3d93db2fd8dfee4804584d02d3ef3c1982b2f3e81571ea779b5003d0d20e2c7b`.
+Its catalog digest equals the accepted catalog SHA-256
+`f3dc0fe282bc8957bb8a8c2c24d42e925a7323b47f266fbdc4405e97707b1f64`;
+the production decoder accepted the physical file and the production encoder
+reproduced every byte. No archive source, provider page, capture route,
+destination, account baseline or scheduler was touched. Provider-specific
+discovery remains the next separately evidenced contract, and account-wide
+execution still requires an explicit decision. The final 2,789,703-byte
+candidate ZIP has SHA-256
+`3eb923d22a19eba18c90f804e899affc615463320fa62cbe6cae070ee479fc87`;
+its rebuilt `dist` inventory SHA-256 exactly matches the installed-live receipt.

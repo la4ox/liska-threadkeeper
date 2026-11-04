@@ -91,6 +91,10 @@ export default defineConfig(({ command }) => {
             import.meta.dirname,
             'src/snapshot-catalog/snapshot-catalog.html'
           ),
+          resumabilityJournal: resolve(
+            import.meta.dirname,
+            'src/resumability-journal/page/journal.html'
+          ),
         },
       },
     },
