@@ -4810,15 +4810,19 @@ The 15,736-byte round-trip copy has SHA-256
 `a6eca861e28c2c09b22a98c1e033ea47eead80078e3502e72998be47e0eee459`;
 the original remains 9,934 bytes with its receipt-matching digest.
 
-The strict packaged DOCX renderer could not run because the Codex dependency
-bundle exposes Python and Poppler but no bundled LibreOffice. A system
-LibreOffice installation exists, but the document skill forbids silently
-substituting that unpinned desktop runtime. Word therefore exported the
-round-trip copy to a 105,829-byte PDF, and bundled Poppler rendered one
-42,097-byte PNG. Full-page inspection found the expected title, disclaimer,
-role heading and source text with no clipping, overlap, missing glyphs or broken
-spacing. Temporary PDF/PNG and helper scripts were removed; only the exact
-download and the explicit Word-round-trip DOCX remain in Downloads.
+The dependency bundle exposes Python and Poppler but no bundled LibreOffice.
+The current Windows document workflow explicitly permits the verified system
+`C:\Program Files\LibreOffice\program\soffice.exe` when `render_docx.py`
+discovers LibreOffice through `PATH`. Rerunning the canonical renderer with that
+exact system executable plus bundled Python/Poppler produced one 51,408-byte
+page PNG. A localized LibreOffice stdout reader raised one non-terminal UTF-8
+decode exception, but conversion completed and the page artifact is valid.
+Full-page inspection found the expected title, disclaimer, role heading and
+source text with no clipping, overlap, missing glyphs or broken spacing. An
+earlier Word-export/Poppler fallback produced the same clean one-page layout and
+is supplementary evidence, not the canonical renderer claim. Temporary
+PDF/PNGs and helper scripts were removed; only the exact download and the
+explicit Word-round-trip DOCX remain in Downloads.
 
 This closes the DOCX-only renderer slice. It does not establish Google Docs or
 LibreOffice compatibility and grants no PDF renderer, provider, archive,
