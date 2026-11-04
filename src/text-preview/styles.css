@@ -194,6 +194,24 @@ input[type='search'] {
   color: #c2cbe0;
   font-size: 12px;
 }
+.document-receipt {
+  border: 1px solid #33405d;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #c2cbe0;
+  background: #10182b;
+}
+.document-receipt pre {
+  margin: 8px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    11px/1.55 ui-monospace,
+    Consolas,
+    monospace;
+}
 @media (max-width: 680px) {
   .preview-shell {
     padding: 14px 12px;

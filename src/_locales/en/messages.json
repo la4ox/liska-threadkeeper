@@ -968,7 +968,7 @@
   },
   "preview_heading": { "message": "Selected reading preview" },
   "preview_help": {
-    "message": "Choose messages locally, then copy or download Text, Markdown, or HTML source. No export destinations or settings are changed."
+    "message": "Choose messages locally, then copy or download Text, Markdown, or HTML source, or generate a local DOCX. No export destinations or settings are changed."
   },
   "preview_current": { "message": "Preview current" },
   "preview_selected": { "message": "Preview chosen branch…" },

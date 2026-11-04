@@ -1,7 +1,4 @@
-import type {
-  PresentationFormat,
-  SelectedPresentationArtifact,
-} from '../archive/presentation/presentation-contracts';
+import type { SelectedPresentationArtifact } from '../archive/presentation/presentation-contracts';
 
 export type OutputOutcome = 'success' | 'failure' | 'unknown';
 
@@ -12,8 +9,8 @@ type DownloadArtifact = Pick<
 
 export function presentationPreviewFilename(
   title: string | null,
-  format: PresentationFormat,
-  extension: SelectedPresentationArtifact['extension']
+  format: string,
+  extension: string
 ): string {
   const stem = (title ?? '')
     .normalize('NFKC')
@@ -38,15 +35,26 @@ export interface DownloadAttempt {
   dispose(): void;
 }
 
-/** One attempt; private Blob ownership ends at a terminal or unknown outcome. */
-// eslint-disable-next-line max-lines-per-function -- Blob ownership, exact-ID terminal reconciliation and disposal share one attempt boundary.
-export function downloadSelectedPresentation(
-  artifact: DownloadArtifact,
-  title: string | null
-): DownloadAttempt {
-  const url = URL.createObjectURL(
-    new Blob([artifact.content], { type: `${artifact.mediaType};charset=utf-8` })
-  );
+export interface BinaryDownloadArtifact {
+  readonly bytes: ArrayBuffer | Uint8Array;
+  readonly format: string;
+  readonly mediaType: string;
+  readonly extension: string;
+}
+
+export interface BinaryDownloadReceipt {
+  readonly outcome: OutputOutcome;
+  readonly downloadId: number | null;
+}
+
+export interface BinaryDownloadAttempt {
+  readonly result: Promise<BinaryDownloadReceipt>;
+  dispose(): void;
+}
+
+/** Exact-ID browser observation for one privately owned Blob. */
+function observeBlobDownload(blob: Blob, filename: string): BinaryDownloadAttempt {
+  const url = URL.createObjectURL(blob);
   let finish!: (outcome: OutputOutcome) => void;
   let downloadId: number | undefined;
   let settled = false;
@@ -58,49 +66,69 @@ export function downloadSelectedPresentation(
     if (delta.id === downloadId) terminal(delta.state?.current);
   };
   let timer: ReturnType<typeof setTimeout>;
-  const result = new Promise<OutputOutcome>(resolve => {
+  const result = new Promise<BinaryDownloadReceipt>(resolve => {
     finish = outcome => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       chrome.downloads.onChanged.removeListener(changed);
       URL.revokeObjectURL(url);
-      resolve(outcome);
+      resolve({ outcome, downloadId: downloadId ?? null });
     };
     timer = setTimeout(() => finish('unknown'), 120_000);
     try {
       chrome.downloads.onChanged.addListener(changed);
-      chrome.downloads.download(
-        {
-          url,
-          filename: presentationPreviewFilename(title, artifact.format, artifact.extension),
-          saveAs: true,
-        },
-        id => {
-          if (settled) return;
-          if (chrome.runtime.lastError || !Number.isSafeInteger(id) || (id as number) < 0) {
-            finish('unknown');
-            return;
-          }
-          downloadId = id;
-          // A terminal event can precede the callback. Read back this one ID only.
-          void Promise.resolve()
-            .then(() => (settled ? [] : chrome.downloads.search({ id })))
-            .then(
-              items => {
-                if (!settled) terminal(items.find(item => item.id === id)?.state);
-              },
-              () => {
-                if (!settled) finish('unknown');
-              }
-            );
+      chrome.downloads.download({ url, filename, saveAs: true }, id => {
+        if (settled) return;
+        if (chrome.runtime.lastError || !Number.isSafeInteger(id) || (id as number) < 0) {
+          finish('unknown');
+          return;
         }
-      );
+        downloadId = id;
+        // A terminal event can precede the callback. Read back this one ID only.
+        void Promise.resolve()
+          .then(() => (settled ? [] : chrome.downloads.search({ id })))
+          .then(
+            items => {
+              if (!settled) terminal(items.find(item => item.id === id)?.state);
+            },
+            () => {
+              if (!settled) finish('unknown');
+            }
+          );
+      });
     } catch {
       finish('unknown');
     }
   });
   return { result, dispose: () => finish('unknown') };
+}
+
+/** One attempt; private Blob ownership ends at a terminal or unknown outcome. */
+export function downloadSelectedPresentation(
+  artifact: DownloadArtifact,
+  title: string | null
+): DownloadAttempt {
+  const attempt = observeBlobDownload(
+    new Blob([artifact.content], { type: `${artifact.mediaType};charset=utf-8` }),
+    presentationPreviewFilename(title, artifact.format, artifact.extension)
+  );
+  return { result: attempt.result.then(receipt => receipt.outcome), dispose: attempt.dispose };
+}
+
+/** One exact-byte binary attempt; MIME is never rewritten with a text charset. */
+export function downloadSelectedBinary(
+  artifact: BinaryDownloadArtifact,
+  title: string | null
+): BinaryDownloadAttempt {
+  const ownedBytes =
+    artifact.bytes instanceof Uint8Array
+      ? Uint8Array.from(artifact.bytes).buffer
+      : artifact.bytes.slice(0);
+  return observeBlobDownload(
+    new Blob([ownedBytes], { type: artifact.mediaType }),
+    presentationPreviewFilename(title, artifact.format, artifact.extension)
+  );
 }
 
 /** Compatibility adapter for callers that already hold the exact selected Text bytes. */

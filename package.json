@@ -21,6 +21,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "docx": "9.15.2",
     "dompurify": "^3.4.17",
     "mdast-util-from-markdown": "2.1.0",
     "turndown": "^7.1.2"

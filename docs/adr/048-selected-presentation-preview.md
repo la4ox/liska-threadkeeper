@@ -1,6 +1,6 @@
 # ADR-048: Selected presentation preview without a second canonical archive
 
-- Status: Accepted; Text/Markdown/HTML selection implemented and installed-live-verified
+- Status: Accepted; Text/Markdown/HTML and DOCX installed-live-verified; PDF remains separate
 - Date: 2026-11-04
 - Related: ADR-031, ADR-036, ADR-042, ADR-047, ITH-002, ITH-009
 
@@ -123,9 +123,9 @@ source canonical digest; existing whole-capture receipt paths are not reused.
 4. Add canonical-derived Markdown on the same snapshot. Do not retrofit the
    selection onto rendered legacy Markdown.
 
-Steps 1–4 are complete. PDF and DOCX start only after this selection/profile
-contract is stable; this implementation closes that precondition but does not
-combine the two document renderers into the preview contract.
+Steps 1–4 are complete. A fifth reviewed slice adds DOCX as a separate binary
+Download action over the same frozen selection. PDF remains a later independent
+renderer; neither document format is added to the Text/Markdown/HTML selector.
 Conversation-to-image stays outside the roadmap while an ordinary browser
 screenshot meets the visual-snapshot need.
 
@@ -207,6 +207,46 @@ dialog later wrote a separately verified 2,412-byte offline file with DOCTYPE,
 CSP, one selected article and no script element. The physical file proves local
 bytes, not a retroactive browser terminal receipt. No second download attempt,
 archive write or settings change occurred.
+
+## DOCX-only renderer contract and candidate evidence
+
+DOCX consumes the already adopted `liska-presentation-preview/1` and snapshots
+the ordered selection before the first await. Only the selected safe `htmlBody`
+values, title, roles and independent renderer limits enter a short-lived module
+worker. The worker iteratively maps that bounded grammar into headings,
+paragraphs, editable text runs, native lists, quotes, code and placeholders;
+links are retained as literal text. It receives no canonical object, provider
+transport, attachment authority, storage API or destination configuration.
+
+The renderer pins local `docx@9.15.2`. Its independent ceilings are 1,000 rows,
+1 Mi UTF-16 HTML characters in aggregate, 50,000 tokens, depth 64, list depth 8,
+10,000 blocks, 30,000 runs, 256 numbering definitions, 8 MiB output bytes and a
+30-second lifetime covering packing and hashing. Any exceeded dimension,
+invalid worker reply, cancellation, deadline or packing failure refuses the
+whole result; there is no truncation, textual fallback, recapture or retry.
+
+`liska-selected-docx/1` owns exact DOCX bytes and
+`liska-docx-render-receipt/1` binds their byte length and SHA-256 to the source
+canonical digest, branch target, complete reading profile, selection digest,
+renderer/request versions, semantic counts and finite diagnostics. The page
+exposes a separate `Download .docx` action with the existing exact-download-ID
+terminal observation. Its displayed delivery receipt omits the private branch
+target. Clear, close, expiry and lease loss abort the worker or owned download;
+an unknown browser outcome is reported without retry.
+
+This is download-only presentation authority. It does not add DOCX Copy,
+Obsidian delivery, archive companions, attachment acquisition, all-branches
+rendering, remote conversion or PDF behavior. Automated tests inspect the
+generated OOXML ZIP/XML for editable runs, numbering, whitespace and limits;
+the production build isolates the `docx` runtime in its own worker asset. One
+installed Comet run selected one of 48 rows, completed a 9,934-byte browser
+download and matched its render receipt to the physical file SHA-256. Microsoft
+Word opened that exact file without a repair warning and rendered its editable
+structure. A separate Word-driven round-trip copy inserted and removed one
+temporary character, restored the exact source text before save, saved, closed
+and reopened with identical text. Word exported that result to one page and the
+page PNG passed visual inspection without clipping, overlap or missing glyphs.
+This closes the bounded DOCX slice; PDF remains independent.
 
 ## Consequences
 

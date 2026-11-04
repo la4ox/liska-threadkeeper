@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Blob as NodeBlob } from 'node:buffer';
 import {
+  downloadSelectedBinary,
   downloadSelectedPresentation,
   downloadSelectedText,
   presentationPreviewFilename,
@@ -41,6 +42,38 @@ function terminal(id: number, state: 'complete' | 'interrupted') {
 }
 
 describe('selected Text Blob downloads', () => {
+  it('retains exact owned binary bytes, MIME and download ID without a charset', async () => {
+    const source = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff]);
+    const attempt = downloadSelectedBinary(
+      {
+        bytes: source,
+        format: 'docx',
+        mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        extension: 'docx',
+      },
+      'Editable / view'
+    );
+    source.fill(0);
+    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    expect(blob.type).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    );
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+      0x50, 0x4b, 0x03, 0x04, 0xff,
+    ]);
+    expect(chrome.downloads.download).toHaveBeenCalledExactlyOnceWith(
+      {
+        url: 'blob:private-preview',
+        filename: 'Editable _ view-selection.docx',
+        saveAs: true,
+      },
+      expect.any(Function)
+    );
+    callback(41);
+    terminal(41, 'complete');
+    await expect(attempt.result).resolves.toEqual({ outcome: 'success', downloadId: 41 });
+  });
+
   it.each([
     ['text', 'text/plain', 'txt'],
     ['markdown', 'text/markdown', 'md'],
