@@ -5106,3 +5106,29 @@ contains zero Claude observation-contract markers and retains the exact installe
 `3a652a6cbb991eb8609bd590f64dd77480ca4fa7658fd0079167fc74e0e12db6`.
 The current 2,789,703-byte candidate ZIP has SHA-256
 `d3dea7ebd421bea992e4da25dbba1fed7668076ce51e65900de163a5e720ebeb`.
+
+## Post-PR #118 verification/capture boundary — 2026-11-05
+
+PR #118 merged as exact main `4c3ba7e28bcf50a2c011f4024beabfa41d3386e6`
+from reviewed head `ee2e34adc2d125cba38a3e98c14e3e314f12b85c`. The catalog,
+transactional inert journal and pure unwired Claude terminal-list contract are
+accepted foundations, not an account-wide baseline. The source audit confirms
+that attempts reserve capture identities and `confirmed` makes an item
+`recorded`, preventing another capture attempt in that run. Existing-snapshot
+verification therefore stays outside journal v1 under
+[ADR-054](docs/adr/054-local-verification-outside-capture-journal.md); no offline
+begin/settle driver or provider wiring is added. A future pure reattachment must
+bind the exact original catalog digest, provider/conversation/key, manifest
+length/digest and existing capture identity, with matching separate from
+verification/support and no journal, provider, network or archive mutation.
+
+The full update-driven backup goal remains unfinished. The next choice is
+separately authorized Claude pagination/archived/marker/scope/rate evidence with
+actual emitted-request accounting, versus a later explicit account-wide
+baseline choice after persisted purpose/capture semantics and provider contracts
+are reviewed. ADR-053's opaque-token limits remain unchanged; semantic memory
+stays later. ITH-007 records E11/D8/T8 and keeps fulfilled catalog/journal/first
+Claude evidence separate from future authority. Idea-Threads validation passes
+9 threads / 37 relations and documentation-link tests pass 74/74; changed-doc
+Prettier and `git diff --check` also pass. No runtime,
+provider or archive behavior changes in this slice.
