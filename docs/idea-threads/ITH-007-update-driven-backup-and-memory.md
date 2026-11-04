@@ -4,10 +4,10 @@ type: idea-thread
 permalink: ith-007-update-driven-backup-and-memory
 tags: [idea-thread, backup, automation, discovery, memory]
 thread_id: ITH-007
-thread_state: dormant
+thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-03
+last_turn: 2026-11-04
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -64,6 +64,32 @@ conversation pages being opened and exported in a short interval. This does not
 establish an exact rate limit, but it rules out an unbounded all-chats loop as a
 safe default and reinforces the need for cooldown, budgets and resumability.
 
+### E5 — Existing manifests support a catalog, but no current runtime supports a baseline
+
+Current source inspection found one stable immutable directory shape and a
+provider-neutral capture manifest, but no durable conversation inventory,
+account-wide list adapter, provider cursor, daily budget or scheduler. Existing
+24-hour staging/recovery records and session export controllers own transient
+delivery, not multi-day backup work.
+
+The existing snapshot analyzer reads every selected byte and intentionally
+certifies only a small current-writer ChatGPT subset. Reusing it as a large
+archive database would conflate declared metadata, exact-byte verification and
+backup admission. A manifest-only catalog can instead inventory explicit local
+evidence while saying exactly which bytes it did not read.
+
+### E6 — The real manifest-only catalog is deterministic and leaves the archive unchanged
+
+The installed page admitted a real 495-file archive root containing 121
+manifests while binding body reads only for exact lowercase `manifest.json`.
+It rendered 121 unique valid entries and four unassociated files. The saved
+128,309-byte catalog matched an independent production-core rebuild byte for
+byte; all 495 source hashes/counts/bytes matched their pre-run inventory.
+
+This proves one explicit selected local root and current manifest schema. It
+does not prove body integrity, account completeness, recapture admission or a
+provider list/update marker.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -103,6 +129,23 @@ or manual rather than producing a false no-change claim.
 
 Evidence: E1, E2, E4
 
+### D3 — Make the first catalog rebuildable, manifest-only and non-authorizing
+
+The first active backup slice reads only explicitly selected `manifest.json`
+files plus file path/size metadata. It emits a deterministic private catalog
+with stable provider/capture identities, declared completeness, metadata-only
+presence facts and fixed issues. It retains no source locator in the exported
+JSON, performs no persistent cache write and grants no recapture authority.
+
+Exact raw/canonical/asset verification remains a separate stronger operation.
+The next resumability slice is an inert work journal, not a claim that an
+account baseline already exists. Provider enumeration and update markers wait
+for one separately evidenced provider contract.
+
+Evidence: E2, E5, E6
+
+Decision record: ADR-050
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -128,7 +171,9 @@ directory and index rules, recovery receipts and rebuild-from-files behavior
 without granting network or mutation authority.
 
 Trigger: the current multi-format presentation checkpoint is complete, or the
-user explicitly chooses backup organization as the next active slice.
+user explicitly chooses backup organization as the next active slice. Met on
+2026-11-04 after the bounded PDF checkpoint merged; the manifest-only catalog
+is now active work.
 
 ### T4 — Run a resumable baseline before any daily scheduler
 
@@ -147,13 +192,16 @@ account-wide authority is explicitly enabled.
 - [evidence] E3: the desired ecosystem separates periodic official evidence, update-driven captures, reading views and later living memory #local-only
 - [hypothesis] H2: local canonical cataloging can be designed before account-wide provider polling
 - [evidence] E4: rapid bulk conversation reopening is an observed constraint, though no exact rate limit is claimed #local-only
+- [evidence] E5: current code has immutable provider-neutral manifests but no durable baseline cursor, list adapter or scheduler #code
+- [evidence] E6: installed manifest-only catalog rebuilt 121 real entries deterministically while all 495 selected source files remained byte-identical #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [decision] D1: preserve four separate layers and pause automation until explicit discovery design
 - [decision] D2: sequence future backup as local catalog, slow resumable baseline and provider-specific update polling
+- [decision] D3: start with a rebuildable manifest-only catalog that grants no provider, persistence or mutation authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
-- [tail] T3: design a rebuildable local catalog without network authority
+- [tail] T3: manifest-only local catalog is accepted; preserve its non-authorizing boundary when the resumability journal begins
 - [tail] T4: run a multi-day budgeted baseline before enabling a daily scheduler
 
 ## Relations
@@ -171,3 +219,5 @@ account-wide authority is explicitly enabled.
 - S3 — [ADR-043: Exact-byte snapshot analysis with no mutation authority](../adr/043-snapshot-analysis-only.md)
 - S4 — local receipt `LISKA-CHAT-SYNTHESIS-20261031-BACKUP`; visibility: local-only; safe aggregate only
 - S5 — local receipt `LISKA-BACKUP-SEQUENCING-20261103`; visibility: local-only; safe aggregate only
+- S6 — [ADR-050: Rebuildable manifest catalog before baseline automation](../adr/050-read-only-snapshot-catalog.md)
+- S7 — local receipt `LISKA-SNAPSHOT-CATALOG-LIVE-20261104`; visibility: local-only; safe aggregate only

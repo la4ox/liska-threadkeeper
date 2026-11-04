@@ -440,6 +440,16 @@ terminal states, and the existing no-credential-export boundary.
   scheduler must not silently overwrite snapshots, invent completeness after a
   missed run, or acquire account-wide/provider network authority except through
   that explicit opt-in discovery contract.
+- The first backup-foundation slice is now implemented and installed-live:
+  `Catalog existing snapshots` explicitly selects one local archive root, reads
+  only exact lowercase `manifest.json`, retains all other files as metadata and
+  saves a deterministic private catalog. A real 495-file / 121-manifest run
+  produced 121 unique valid entries plus four unassociated files; an independent
+  core rebuild matched the 128,309-byte JSON exactly and every selected source
+  file retained the same pre/post content hash. This is inventory evidence, not
+  body verification, recapture authority or an account baseline. The next slice
+  is an inert durable resumability journal; provider enumeration and scheduling
+  remain separately gated.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

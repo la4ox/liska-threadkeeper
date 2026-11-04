@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="catalog_title">Catalog existing snapshots</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="workspace">
+      <header>
+        <p class="kicker" data-i18n="catalog_kicker">Liska · Archive tools</p>
+        <h1 data-i18n="catalog_title">Catalog existing snapshots</h1>
+        <p class="intro" data-i18n="catalog_intro">
+          Choose an archive root once to build a private, manifest-only catalog of existing
+          snapshots. Nothing is saved automatically.
+        </p>
+      </header>
+      <aside class="boundary" aria-labelledby="boundary-heading">
+        <h2 id="boundary-heading" data-i18n="catalog_boundary">
+          Read-only catalog — every selected file stays unchanged.
+        </h2>
+        <p data-i18n="catalog_boundaryHelp">
+          Raw responses, canonical content and assets are not read. Only manifest.json files are
+          read; other selected files contribute path and size metadata only. No provider access or
+          archive changes are made.
+        </p>
+        <p data-i18n="catalog_completenessHelp">
+          Completeness is declared manifest metadata, not verification of raw, canonical or asset
+          bytes. Listed artifacts are not proof that their contents are intact.
+        </p>
+      </aside>
+      <section class="panel" aria-labelledby="selection-heading">
+        <div class="section-heading">
+          <h2 id="selection-heading" data-i18n="catalog_selection">One archive root</h2>
+          <span class="step">01</span>
+        </div>
+        <p class="muted small" data-i18n="catalog_limits">
+          Up to 4,096 selected files and 128 manifests; 256 KiB per manifest and 8 MiB of manifests
+          total. Metadata limits: 1 TiB per file, 8 TiB total. Paths are limited to 512 characters.
+          Folder names and file paths are not displayed.
+        </p>
+        <input id="catalog-picker" type="file" webkitdirectory multiple hidden />
+        <div class="toolbar">
+          <button id="choose-archive" type="button" class="secondary" data-i18n="catalog_pick">
+            Choose archive root
+          </button>
+          <button id="clear-catalog" type="button" class="quiet" data-i18n="catalog_clear" disabled>
+            Clear selection
+          </button>
+        </div>
+        <p id="selection-summary" class="empty" data-i18n="catalog_empty">
+          No archive root selected.
+        </p>
+      </section>
+      <section class="panel" aria-labelledby="catalog-heading">
+        <h2 id="catalog-heading" class="sr-only" data-i18n="catalog_report">
+          Manifest-only catalog
+        </h2>
+        <div class="toolbar">
+          <button
+            id="build-catalog"
+            type="button"
+            class="primary"
+            data-i18n="catalog_build"
+            disabled
+          >
+            Build catalog
+          </button>
+          <button
+            id="cancel-catalog"
+            type="button"
+            class="quiet"
+            data-i18n="catalog_cancel"
+            disabled
+          >
+            Cancel catalog
+          </button>
+        </div>
+        <p id="catalog-status" class="status" role="status" aria-live="polite"></p>
+        <p class="muted small" data-i18n="catalog_cancellationHelp">
+          Cancel takes effect between manifest reads and discards late work. Synchronous manifest
+          parsing cannot stop instantly. Clear forgets this page’s selection and report.
+        </p>
+      </section>
+      <section id="catalog-report" class="panel" hidden></section>
+      <aside class="boundary privacy" aria-labelledby="privacy-heading">
+        <h2 id="privacy-heading" data-i18n="catalog_privacy">
+          Private identifiers, not anonymized data
+        </h2>
+        <p data-i18n="catalog_privacyHelp">
+          The downloaded JSON includes stable provider conversation identifiers. Hashing is not
+          anonymization. Keep this report private. Folder names, relative paths, titles, URLs and
+          conversation content are not exported.
+        </p>
+      </aside>
+      <footer>
+        <button id="save-catalog" type="button" class="secondary" data-i18n="catalog_save" disabled>
+          Save private JSON…
+        </button>
+        <p id="download-status" class="status" role="status" aria-live="polite"></p>
+      </footer>
+    </main>
+    <script type="module" src="snapshot-catalog-entry.ts"></script>
+  </body>
+</html>

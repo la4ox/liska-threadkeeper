@@ -87,6 +87,10 @@ export default defineConfig(({ command }) => {
             import.meta.dirname,
             'src/snapshot-analysis/snapshot-analysis.html'
           ),
+          snapshotCatalog: resolve(
+            import.meta.dirname,
+            'src/snapshot-catalog/snapshot-catalog.html'
+          ),
         },
       },
     },
