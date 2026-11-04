@@ -81,7 +81,7 @@ class MarkdownSourceRenderer {
   ): boolean {
     const previous = node.children[index - 1];
     return (
-      this.hasUnderscoreMarker(previous) ||
+      this.hasEmphasisMarker(previous) ||
       (encodeTextNewlines && previous?.type === 'break' && this.boundaryWhitespace(value, true)) ||
       (this.protectedBoundaryParent(node) && index === 0 && this.boundaryWhitespace(value, true))
     );
@@ -94,7 +94,7 @@ class MarkdownSourceRenderer {
   ): boolean {
     const next = node.children[index + 1];
     return (
-      this.hasUnderscoreMarker(next) ||
+      this.hasEmphasisMarker(next) ||
       (encodeTextNewlines && next?.type === 'break' && this.boundaryWhitespace(value, false)) ||
       (this.protectedBoundaryParent(node) &&
         index === node.children.length - 1 &&
@@ -113,18 +113,32 @@ class MarkdownSourceRenderer {
       presentationFail('presentation-markdown-invalid');
     return opening;
   }
-  hasUnderscoreMarker(node: Nodes | undefined): boolean {
-    if (node?.type !== 'strong' && node?.type !== 'emphasis') return false;
-    return this.emphasisMarker(node)[0] === '_';
+  hasEmphasisMarker(node: Nodes | undefined): boolean {
+    return node?.type === 'strong' || node?.type === 'emphasis';
   }
   boundaryWhitespace(value: string, start: boolean): boolean {
     const characters = Array.from(value);
     const character = start ? characters[0] : characters[characters.length - 1];
     return character !== undefined && /\p{White_Space}/u.test(character);
   }
+  numericReferencePreservesIdentity(code: number): boolean {
+    const low = code % 0x1_0000;
+    return !(
+      code < 0x09 ||
+      code === 0x0b ||
+      (code > 0x0d && code < 0x20) ||
+      (code > 0x7e && code < 0xa0) ||
+      (code > 0xd7ff && code < 0xe000) ||
+      (code > 0xfdcf && code < 0xfdf0) ||
+      low === 0xfffe ||
+      low === 0xffff ||
+      code > 0x10_ffff
+    );
+  }
   characterReference(character: string): string {
-    if (character === '\u000b' || character === '\u0085') return character;
-    return `&#x${character.codePointAt(0)!.toString(16).toUpperCase()};`;
+    const code = character.codePointAt(0)!;
+    if (!this.numericReferencePreservesIdentity(code)) return character;
+    return `&#x${code.toString(16).toUpperCase()};`;
   }
   literalText(value: string): string {
     let result = '';

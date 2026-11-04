@@ -248,9 +248,42 @@ describe('detached multiformat presentation preview', () => {
     expect(selected).toContain(source);
   });
 
-  it.each(['&#65;_b_', '_a_&#65;', '&#x61;__b__', '__a__&#x61;', '&#65;_b_*c*', '*c*_b_&#65;'])(
-    'keeps underscore flanking after character-reference decoding for %s',
-    source => {
+  it.each([
+    '&#65;_b_',
+    '_a_&#65;',
+    '&#x61;__b__',
+    '__a__&#x61;',
+    '&#65;_b_*c*',
+    '*c*_b_&#65;',
+    '*[a](https://example.org)*&#65;',
+    '&#65;*[a](https://example.org)*',
+    '**[a](https://example.org)**&#65;',
+    '&#65;**[a](https://example.org)**',
+  ])('keeps emphasis flanking after character-reference decoding for %s', source => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+  });
+
+  it.each([
+    { label: 'C0', character: '\u0001' },
+    { label: 'DEL', character: '\u007f' },
+    { label: 'C1', character: '\u0080' },
+    { label: 'high surrogate', character: '\ud800' },
+    { label: 'low surrogate', character: '\udfff' },
+    { label: 'BMP noncharacter range', character: '\ufdd0' },
+    { label: 'BMP terminal noncharacter', character: '\ufffe' },
+    { label: 'supplementary noncharacter', character: '\u{1fffe}' },
+  ])('keeps identity-unsafe reference class $label raw beside emphasis', ({ character }) => {
+    for (const source of [
+      `${character}*a*`,
+      `*a*${character}`,
+      `${character}**a**`,
+      `**a**${character}`,
+    ]) {
       const candidate = input();
       candidate.archive.graph.nodes['node-user'].message!.blocks = [
         block('markdown', { markdown: source }),
@@ -258,7 +291,7 @@ describe('detached multiformat presentation preview', () => {
       const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
       expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
     }
-  );
+  });
 
   it.each([
     '*a&nbsp;*',
