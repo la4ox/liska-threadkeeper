@@ -318,10 +318,27 @@ terminal states, and the existing no-credential-export boundary.
   the exact text before save, saved, closed, reopened with identical text and
   rendered one visually clean page. The DOCX slice is accepted; PDF remains a
   separate future renderer.
+- A PDF-only candidate now consumes the same frozen selection through its own
+  `pdfmake@0.3.13` worker, limits, font policy, page count and exact-byte render
+  receipt. Packaged Roboto covers tested Latin/Cyrillic; one pinned Google Fonts
+  Noto Emoji TTF covers tested monochrome symbols and emoji. Unsupported CJK or
+  missing glyphs refuse atomically rather than becoming tofu. Automated PDF.js
+  parsing confirms selectable text, pages and embedded fonts; a four-page
+  raster fixture confirms pagination without clipping, overlap, missing glyphs
+  or accidental blank pages. Vite emits one isolated 4.29 MiB worker. Its
+  prebuilt pdfmake closure retains dormant browser/network helpers, but the
+  fixed renderer supplies no resource URLs, installs a deny-all URL policy and
+  invokes only `getBuffer()`; a regression proves `fetch` is not called.
+  Installed Comet loaded the worker under its real CSP; one selected real message
+  downloaded as a 13,735-byte one-page PDF whose receipt and physical SHA-256
+  matched, and the viewer visibly rendered Cyrillic plus the heart glyph. A
+  second Save As was cancelled, created no file and reported that nothing was
+  retried. The bounded PDF slice is accepted.
 - A future `view.json` is a versioned selected presentation, never a renamed
-  canonical archive. Local PDF remains a separate renderer slice with its own
-  pagination, font, math, table, asset and output-size evidence; DOCX evidence
-  cannot be used to infer PDF readiness.
+  canonical archive. PDF does not infer native tables, typeset math or images
+  from the current safe-HTML grammar and gains no attachment or destination
+  authority. Those capabilities require separately retained input semantics and
+  evidence rather than widening this renderer silently.
   Conversation-to-image is not active work: ordinary browser screenshots cover
   the present need, and the idea returns only for a concrete scenario
   screenshots cannot solve.

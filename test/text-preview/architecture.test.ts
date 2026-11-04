@@ -82,6 +82,15 @@ describe('Selected reading preview page isolation and build registration', () =>
       "new Worker(new URL('./docx-worker.ts', import.meta.url)"
     );
     expect(files.every(file => !read(file).includes("from 'docx'"))).toBe(true);
+    expect(files).toContain('src/text-preview/pdf-contract.ts');
+    expect(files).toContain('src/text-preview/pdf-renderer.ts');
+    for (const file of ['pdf-core.ts', 'pdf-worker.ts', 'pdf-font.ts'])
+      expect(files).not.toContain(`src/text-preview/${file}`);
+    expect(files.some(file => /(?:node_modules\/pdfmake|\/fonts\/)/.test(file))).toBe(false);
+    expect(read('src/text-preview/pdf-renderer.ts')).toContain(
+      "new Worker(new URL('./pdf-worker.ts', import.meta.url)"
+    );
+    expect(files.every(file => !/from ['"]pdfmake(?:\/|['"])/.test(read(file)))).toBe(true);
     for (const file of files)
       expect(read(file)).not.toMatch(
         /\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|console)\b|chrome\.storage|data:text|innerHTML|outerHTML|insertAdjacentHTML/
@@ -93,6 +102,7 @@ describe('Selected reading preview page isolation and build registration', () =>
     expect(popup).not.toContain('getTextPreviewStatus');
     expect(popup).not.toMatch(/chrome\.storage|chrome\.tabs\.create|chrome\.windows\.create/);
     const html = read('src/popup/index.html');
+    expect(html).toContain('generate a local DOCX or PDF');
     for (const id of ['previewCurrent', 'previewSelected', 'previewBranches', 'exportBranches'])
       expect(html).toContain(`id="${id}"`);
   });

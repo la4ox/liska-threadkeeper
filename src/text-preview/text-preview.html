@@ -59,11 +59,16 @@
           <button id="previewCopy" type="button" class="primary" disabled>Copy Text</button>
           <button id="previewDownload" type="button" disabled>Download .txt</button>
           <button id="previewDownloadDocx" type="button" disabled>Download .docx</button>
+          <button id="previewDownloadPdf" type="button" disabled>Download .pdf</button>
         </div>
       </footer>
       <details id="previewDocxReceiptPanel" class="document-receipt" hidden>
         <summary>DOCX render and browser-delivery receipt</summary>
         <pre id="previewDocxReceipt"></pre>
+      </details>
+      <details id="previewPdfReceiptPanel" class="document-receipt" hidden>
+        <summary>PDF render and browser-delivery receipt</summary>
+        <pre id="previewPdfReceipt"></pre>
       </details>
     </main>
     <script type="module" src="index.ts"></script>

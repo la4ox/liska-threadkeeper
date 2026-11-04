@@ -19,6 +19,8 @@ import {
 } from './download';
 import type { SelectedDocxArtifact } from './docx-contract';
 import { renderSelectedDocx, requireSelectedDocxArtifact } from './docx-renderer';
+import type { SelectedPdfArtifact } from './pdf-contract';
+import { renderSelectedPdf, requireSelectedPdfArtifact } from './pdf-renderer';
 import {
   isPreviewUuid,
   parsePreviewSession,
@@ -37,6 +39,8 @@ interface PreviewOptions {
   downloadBinary?: typeof downloadSelectedBinary;
   requireDocx?: typeof requireSelectedDocxArtifact;
   renderDocx?: typeof renderSelectedDocx;
+  requirePdf?: typeof requireSelectedPdfArtifact;
+  renderPdf?: typeof renderSelectedPdf;
 }
 
 const UNAVAILABLE = 'Preview unavailable or expired. Reopen Liska to start again.';
@@ -84,6 +88,9 @@ class TextPreviewPage {
   private readonly downloadDocx = element<HTMLButtonElement>('previewDownloadDocx');
   private readonly docxReceiptPanel = element<HTMLDetailsElement>('previewDocxReceiptPanel');
   private readonly docxReceipt = element<HTMLPreElement>('previewDocxReceipt');
+  private readonly downloadPdf = element<HTMLButtonElement>('previewDownloadPdf');
+  private readonly pdfReceiptPanel = element<HTMLDetailsElement>('previewPdfReceiptPanel');
+  private readonly pdfReceipt = element<HTMLPreElement>('previewPdfReceipt');
   private readonly formatControl = element<HTMLSelectElement>('previewFormat');
   private epoch = 0;
   private closed = false;
@@ -96,6 +103,7 @@ class TextPreviewPage {
   private downloadAttempt: DownloadAttempt | undefined;
   private binaryDownloadAttempt: BinaryDownloadAttempt | undefined;
   private docxAbort: AbortController | undefined;
+  private pdfAbort: AbortController | undefined;
   private readonly registrationDeadline = Date.now() + TEXT_PREVIEW_PENDING_MS;
 
   constructor(private readonly options: PreviewOptions) {
@@ -160,7 +168,16 @@ class TextPreviewPage {
         void this.outputDocx();
       })
     );
+    this.bindPdfAction();
     window.addEventListener('pagehide', this.dispose, { once: true });
+  }
+
+  private bindPdfAction(): void {
+    this.downloadPdf.addEventListener('click', event =>
+      trustedPreviewAction(event, () => {
+        void this.outputPdf();
+      })
+    );
   }
 
   private invalidate(reason: 'clear' | 'close'): void {
@@ -191,6 +208,8 @@ class TextPreviewPage {
     this.binaryDownloadAttempt = undefined;
     this.docxAbort?.abort();
     this.docxAbort = undefined;
+    this.pdfAbort?.abort();
+    this.pdfAbort = undefined;
     this.preview = undefined;
     this.selected.clear();
     this.anchor = undefined;
@@ -201,6 +220,9 @@ class TextPreviewPage {
     this.docxReceipt.textContent = '';
     this.docxReceiptPanel.hidden = true;
     this.docxReceiptPanel.open = false;
+    this.pdfReceipt.textContent = '';
+    this.pdfReceiptPanel.hidden = true;
+    this.pdfReceiptPanel.open = false;
     this.clear.disabled = true;
     this.outputBusy = false;
     this.renderSelection();
@@ -410,6 +432,7 @@ class TextPreviewPage {
     this.copy.disabled = this.download.disabled =
       !this.preview || !this.selected.size || this.outputBusy;
     this.downloadDocx.disabled = !this.preview || !this.selected.size || this.outputBusy;
+    this.downloadPdf.disabled = !this.preview || !this.selected.size || this.outputBusy;
   }
 
   private async copyText(text: string): Promise<OutputOutcome> {
@@ -534,6 +557,79 @@ class TextPreviewPage {
 
   private finishDocxOutput(controller: AbortController, epoch: number): void {
     if (this.docxAbort === controller) this.docxAbort = undefined;
+    if (this.active(epoch)) {
+      this.outputBusy = false;
+      this.renderSelection();
+    }
+  }
+
+  private async outputPdf(): Promise<void> {
+    if (!this.preview || !this.selected.size || this.outputBusy) return;
+    const epoch = this.epoch;
+    const preview = this.preview;
+    const ids = preview.rows.filter(row => this.selected.has(row.nodeId)).map(row => row.nodeId);
+    const selection = createPresentationSelection(preview, ids);
+    const controller = new AbortController();
+    this.pdfAbort = controller;
+    this.outputBusy = true;
+    this.status.textContent = 'Checking preview lease before local PDF rendering…';
+    this.renderSelection();
+    try {
+      if (!(await this.checkLease(epoch)) || !this.active(epoch)) return;
+      this.status.textContent = 'Rendering selected PDF locally…';
+      const artifact = await (this.options.renderPdf ?? renderSelectedPdf)(preview, selection, {
+        signal: controller.signal,
+      });
+      if (!this.active(epoch) || controller.signal.aborted) return;
+      this.status.textContent = 'Checking preview lease before PDF download…';
+      if (!(await this.checkLease(epoch)) || !this.active(epoch)) return;
+      await this.deliverPdf(artifact, preview.title, epoch);
+    } catch {
+      if (this.active(epoch) && !controller.signal.aborted)
+        this.status.textContent = 'PDF rendering failed. Nothing was retried.';
+    } finally {
+      this.finishPdfOutput(controller, epoch);
+    }
+  }
+
+  private async deliverPdf(
+    artifact: SelectedPdfArtifact,
+    title: string | null,
+    epoch: number
+  ): Promise<void> {
+    (this.options.requirePdf ?? requireSelectedPdfArtifact)(artifact);
+    this.binaryDownloadAttempt = (this.options.downloadBinary ?? downloadSelectedBinary)(
+      artifact,
+      title
+    );
+    this.status.textContent = 'Waiting for the browser PDF download outcome…';
+    const delivery = await this.binaryDownloadAttempt.result;
+    this.binaryDownloadAttempt = undefined;
+    if (this.active(epoch)) this.showPdfReceipt(artifact, delivery);
+  }
+
+  private showPdfReceipt(artifact: SelectedPdfArtifact, delivery: BinaryDownloadReceipt): void {
+    const { branchTargetNodeId: _privateBranchTargetNodeId, ...safeRenderReceipt } =
+      artifact.receipt;
+    void _privateBranchTargetNodeId;
+    const receipt = Object.freeze({
+      schema: 'liska-selected-pdf-delivery-receipt/1',
+      render: safeRenderReceipt,
+      delivery,
+    });
+    this.pdfReceipt.textContent = JSON.stringify(receipt, null, 2);
+    this.pdfReceiptPanel.hidden = false;
+    const size = artifact.receipt.byteLength.toLocaleString('en-US');
+    this.status.textContent =
+      delivery.outcome === 'success'
+        ? `Selected PDF download completed. ${artifact.receipt.pageCount} pages · ${size} bytes · SHA-256 ${artifact.receipt.sha256}.`
+        : delivery.outcome === 'failure'
+          ? 'PDF download failed. Nothing was retried.'
+          : 'PDF download outcome unknown. Check the browser; nothing was retried.';
+  }
+
+  private finishPdfOutput(controller: AbortController, epoch: number): void {
+    if (this.pdfAbort === controller) this.pdfAbort = undefined;
     if (this.active(epoch)) {
       this.outputBusy = false;
       this.renderSelection();

@@ -4824,7 +4824,95 @@ is supplementary evidence, not the canonical renderer claim. Temporary
 PDF/PNGs and helper scripts were removed; only the exact download and the
 explicit Word-round-trip DOCX remain in Downloads.
 
-This closes the DOCX-only renderer slice. It does not establish Google Docs or
-LibreOffice compatibility and grants no PDF renderer, provider, archive,
-attachment or destination authority. PDF remains the next separate renderer
-slice.
+This closes the DOCX-only renderer slice. It proves one current system
+LibreOffice render, not Google Docs or broad LibreOffice-version compatibility,
+and grants no PDF renderer, provider, archive, attachment or destination
+authority. PDF remains the next separate renderer slice.
+
+## Selected DOCX merge result — 2026-11-04
+
+PR 113 merged exact reviewed head `aec769f` into `main` as merge commit
+`8983929`. Current-head CI, Code Review and Security Review completed without
+findings or unresolved threads; GitHub reported the PR mergeable and clean.
+Fetched `origin/main` has parents `b06f542` and the exact reviewed head, and
+`git merge-base --is-ancestor` returned success. The next branch therefore
+starts from the merged DOCX boundary rather than carrying an unreviewed local
+candidate forward.
+
+## Selected PDF packaged candidate — 2026-11-04
+
+Branch `codex/selected-pdf-v1` starts from merged DOCX main `8983929`. ADR-049
+defines PDF as a separate explicit download-only renderer over the adopted
+frozen selected projection. It does not enter the Text/Markdown/HTML selector,
+reuse DOCX bytes, call browser print or gain provider, archive, attachment,
+Obsidian, all-branches or network authority.
+
+The candidate pins `pdfmake@0.3.13` in a one-shot module worker. Independent
+lowering-only maxima are 100 rows, 1 Mi UTF-16 HTML characters, 150,000 decoded
+code points, 50,000 tokens, depth 16, list depth 8, 10,000 layout nodes, 5,000
+blocks, 15,000 runs, 16 code points per atomic emoji grapheme, 20,000 code
+points per pre block, 4,000 per pre line, 100 A4 pages, 8 MiB exact output and a
+20-second layout/pack/hash lifetime. Every refusal is atomic; there is no
+truncation, Text fallback, recapture or retry.
+
+The four exact pdfmake Roboto faces cover the tested Latin/Cyrillic intersection.
+One pinned Google Fonts `NotoEmoji[wght].ttf` from commit `023eedd` is embedded
+inline at 1,982,596 bytes / SHA-256
+`de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551`.
+Exact cmap routing accepts tested `♥`, `❤️`, `🦊`, family ZWJ and flag clusters;
+unsupported CJK refuses instead of producing tofu. An attempted WOFF2 path was
+rejected after real family/flag subset encoding failed inside fontkit. The TTF
+path parses the full strings without NUL. Ordinary Roboto long tokens remain
+inside fixed A4 margins; atomic emoji clusters use normal no-wrap and reject
+above 16 code points.
+
+The PDF core owns PDF-specific schemas, selection/input/font/layout hashes,
+effective limits, page/count/diagnostic evidence and exact output bytes/SHA-256
+without a delivery claim. The page adds a separate trusted `Download .pdf`, two
+lease gates, shared output lock, abort/epoch handling and a branch-target-free
+display receipt while preserving DOCX and textual behavior.
+
+Focused current-input verification passes 17 files / 310 tests. PDF.js and
+fontkit independently confirm pages, selectable text and embedded fonts; the
+core also proves deterministic bytes, pagination, long-token bounds, missing
+glyphs, every work/result ceiling, cancellation/deadline through hashing,
+stale/malformed replies and one-shot transfer. Full lint has zero errors and the
+unchanged 55 warnings; the full coverage run passes 288 files / 10,331 tests
+with one file and three tests intentionally skipped (95.14% statements, 97.38%
+lines). Format, TypeScript, package and the existing service-worker runtime
+guard pass. Production Vite emits one isolated 4,290,174-byte PDF
+worker / SHA-256
+`5ec98d33267395003d87d554cfcb770d4d68919e76343ca2d6dc31e6302c9e81`.
+The prebuilt pdfmake closure retains dormant URLResolver/FileSaver, open/print
+and guarded global-discovery helpers, including `fetch`, XHR,
+`window`/`document` and `Function` references. The fixed renderer supplies no
+resource URLs, installs a deny-all URL policy before layout, invokes only
+`getBuffer()` and runs in the DOM-less one-shot worker; a direct regression test
+proves that successful rendering never invokes `fetch`. This is a
+reachability/effect boundary, not a claim that the third-party closure lacks
+those primitives. `importScripts` and WebAssembly are absent, and the
+service-worker closure remains unchanged. The final 2,751,213-byte candidate
+ZIP has SHA-256
+`0fcb305f369a47d5d654b3c935c7b1104c7e4db6a5b34375f1153e47cc468a50`.
+Its 25,066-byte `THIRD_PARTY_NOTICES.txt` is byte-identical to the reconciled
+source notice (SHA-256
+`d5631ad5ebba31298d87a1eb5b1bef95d5450e5dd47465bfa9531dc13a24bb12`);
+production dependency audit reports zero vulnerabilities.
+
+A synthetic representative PDF parsed as four A4 pages. Raster inspection of
+every page confirmed continuous line numbering across page boundaries, visible
+Cyrillic/heart/fox glyphs, rich runs, lists, quote, code and placeholder output,
+with no clipping, overlap, tofu, missing content or accidental blank page.
+Temporary PDF/PNG/test artifacts were removed.
+
+Installed Comet then loaded the exact stable-target build after an extension-only
+reload and page refresh. Selecting one short real ChatGPT message produced
+`D:\Downloads\Название канала-selection.pdf`; the browser receipt and independent
+physical file both reported 13,735 bytes / SHA-256
+`3a969e796c1b0ce8fe6b29eb64a4a531231c0b0346c96b3a7ab724bb430902d9`.
+Comet's PDF viewer completed one A4 page and visibly rendered the title,
+authority disclaimer, Cyrillic text and heart glyph. A second identical render
+opened `Название канала-selection (1).pdf` in Save As; cancelling with Escape
+reported `PDF download failed. Nothing was retried.` and no second physical file
+existed. Installed worker/CSP execution, exact delivery, visible open and
+cancel-without-retry gates therefore pass for the bounded PDF slice.
