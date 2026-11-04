@@ -10,6 +10,11 @@ import { createTextPresentationSelection } from '../../src/archive/presentation/
 import { renderTextSelection } from '../../src/archive/presentation/text';
 import type { SelectedDocxArtifact } from '../../src/text-preview/docx-contract';
 import {
+  PDF_FONT_MANIFEST,
+  PDF_LIMITS,
+  type SelectedPdfArtifact,
+} from '../../src/text-preview/pdf-contract';
+import {
   captureTrustedActions,
   checkboxes,
   deferred,
@@ -64,6 +69,61 @@ function docxArtifact(ids: readonly string[] = ['row-1', 'row-3']): SelectedDocx
       sourceDiagnostics: Object.freeze([]),
       byteLength: 4,
       sha256: 'b'.repeat(64),
+    }),
+  });
+}
+function pdfArtifact(ids: readonly string[] = ['row-1', 'row-3']): SelectedPdfArtifact {
+  const preview = adoptArchivePresentationPreview(wirePreview());
+  const selection = createPresentationSelection(preview, ids);
+  return Object.freeze({
+    schema: 'liska-selected-pdf/1',
+    format: 'pdf',
+    mediaType: 'application/pdf',
+    extension: 'pdf',
+    bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]).buffer,
+    selection,
+    availableMessageCount: preview.rows.length,
+    renderedMessageCount: ids.length,
+    receipt: Object.freeze({
+      schema: 'liska-pdf-render-receipt/1',
+      rendererVersion: 'liska-selected-pdf/1',
+      dependencyVersion: 'pdfmake/0.3.13',
+      requestSchema: 'liska-pdf-request/1',
+      layoutProfile: 'liska-pdf-a4-portrait/1',
+      fontPolicy: 'liska-pdf-roboto-noto-emoji/1',
+      fontSha256: PDF_FONT_MANIFEST,
+      sourceCanonicalSha256: preview.sourceCanonicalSha256,
+      branchTargetNodeId: preview.branchTargetNodeId,
+      profile: preview.profile,
+      selectionSha256: 'c'.repeat(64),
+      inputSha256: 'd'.repeat(64),
+      presentationRendererVersions: preview.rendererVersions,
+      availableMessageCount: preview.rows.length,
+      renderedMessageCount: ids.length,
+      pageCount: 2,
+      limits: PDF_LIMITS,
+      counts: Object.freeze({
+        messageCount: ids.length,
+        htmlChars: 100,
+        codePoints: 80,
+        tokens: 20,
+        maxDepth: 3,
+        maxListDepth: 1,
+        layoutNodes: 20,
+        layoutVisits: 8,
+        blocks: 8,
+        runs: 12,
+        maxPreCodePoints: 0,
+        maxPreLineCodePoints: 0,
+        links: 0,
+        placeholders: 0,
+        tabs: 0,
+        emojiClusters: 0,
+      }),
+      diagnostics: Object.freeze([]),
+      sourceDiagnostics: Object.freeze([]),
+      byteLength: 4,
+      sha256: 'e'.repeat(64),
     }),
   });
 }
@@ -296,6 +356,251 @@ describe('one-shot Text-only preview delivery', () => {
 });
 
 describe('local selection and outputs', () => {
+  it('keeps PDF disabled for an empty selection and ignores an untrusted PDF click', async () => {
+    const trusted = captureTrustedActions();
+    const renderPdf = vi.fn(async () => pdfArtifact());
+    const downloadBinary = vi.fn();
+    const f = fixture({ renderPdf, requirePdf: vi.fn(), downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    expect(el<HTMLButtonElement>('previewDownloadPdf').disabled).toBe(true);
+    trusted(el('previewSelectAll'));
+    expect(el<HTMLButtonElement>('previewDownloadPdf').disabled).toBe(false);
+    const leaseCalls = f.request.mock.calls.length;
+    el<HTMLButtonElement>('previewDownloadPdf').click();
+    await flush();
+    expect(f.request).toHaveBeenCalledTimes(leaseCalls);
+    expect(renderPdf).not.toHaveBeenCalled();
+    expect(downloadBinary).not.toHaveBeenCalled();
+  });
+
+  it('refuses PDF rendering when the initial lease is no longer delivered', async () => {
+    const trusted = captureTrustedActions();
+    const renderPdf = vi.fn(async () => pdfArtifact());
+    const downloadBinary = vi.fn();
+    const f = fixture({ renderPdf, requirePdf: vi.fn(), downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    f.setPhase('expired');
+    trusted(el('previewDownloadPdf'));
+    await flush();
+    expect(renderPdf).not.toHaveBeenCalled();
+    expect(downloadBinary).not.toHaveBeenCalled();
+    expect(checkboxes()).toHaveLength(0);
+    expect(el('previewStatus').textContent).toContain('unavailable or expired');
+  });
+
+  it('renders and downloads one frozen PDF selection with pages and a safe exact receipt', async () => {
+    const trusted = captureTrustedActions();
+    const artifact = pdfArtifact();
+    const renderPdf = vi.fn(async () => artifact);
+    const renderDocx = vi.fn(async () => docxArtifact());
+    const requirePdf = vi.fn();
+    const downloadBinary = vi.fn(() => ({
+      result: Promise.resolve({ outcome: 'success' as const, downloadId: 52 }),
+      dispose: vi.fn(),
+    }));
+    const f = fixture({ renderPdf, renderDocx, requirePdf, downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    const boxes = checkboxes();
+    for (const index of [2, 0]) {
+      boxes[index].checked = true;
+      trusted(boxes[index]);
+    }
+    const lease = deferred<unknown>();
+    f.request.mockImplementationOnce(() => lease.promise);
+    expect(el<HTMLButtonElement>('previewDownloadPdf').disabled).toBe(false);
+    trusted(el('previewDownloadPdf'));
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadDocx'));
+    expect(el<HTMLButtonElement>('previewCopy').disabled).toBe(true);
+    expect(el<HTMLButtonElement>('previewDownloadDocx').disabled).toBe(true);
+    expect(renderPdf).not.toHaveBeenCalled();
+    lease.resolve({ success: true, state: 'delivered', expiresAt: f.expiresAt });
+    await flush();
+    expect(renderPdf).toHaveBeenCalledOnce();
+    expect(renderDocx).not.toHaveBeenCalled();
+    expect(renderPdf.mock.calls[0][1]).toEqual(artifact.selection);
+    expect(renderPdf.mock.calls[0][2]?.signal).toBeInstanceOf(AbortSignal);
+    expect(Object.isFrozen(renderPdf.mock.calls[0][1])).toBe(true);
+    expect(requirePdf).toHaveBeenCalledExactlyOnceWith(artifact);
+    expect(downloadBinary).toHaveBeenCalledExactlyOnceWith(artifact, wirePreview().title);
+    expect(el('previewStatus').textContent).toContain('PDF download completed. 2 pages · 4 bytes');
+    expect(el('previewStatus').textContent).toContain(artifact.receipt.sha256);
+    expect(el<HTMLDetailsElement>('previewPdfReceiptPanel').hidden).toBe(false);
+    expect(JSON.parse(el('previewPdfReceipt').textContent!)).toEqual({
+      schema: 'liska-selected-pdf-delivery-receipt/1',
+      render: Object.fromEntries(
+        Object.entries(artifact.receipt).filter(([key]) => key !== 'branchTargetNodeId')
+      ),
+      delivery: { outcome: 'success', downloadId: 52 },
+    });
+    expect(el('previewPdfReceipt').textContent).not.toContain(wirePreview().branchTargetNodeId);
+    expect(el('previewPdfReceipt').textContent).not.toContain(wirePreview().rows[0].htmlBody);
+    expect(el<HTMLDetailsElement>('previewDocxReceiptPanel').hidden).toBe(true);
+  });
+
+  it.each(['clear', 'close', 'expiry'] as const)(
+    'aborts a live PDF worker on %s and ignores its late artifact',
+    async reason => {
+      const trusted = captureTrustedActions();
+      const pending = deferred<SelectedPdfArtifact>();
+      let signal: AbortSignal | undefined;
+      const renderPdf = vi.fn((_preview, _selection, options) => {
+        signal = options?.signal;
+        return pending.promise;
+      });
+      const downloadBinary = vi.fn();
+      const f = fixture({ renderPdf, requirePdf: vi.fn(), downloadBinary });
+      dispose = f.dispose;
+      await flush();
+      trusted(el('previewSelectAll'));
+      trusted(el('previewDownloadPdf'));
+      await flush();
+      expect(renderPdf).toHaveBeenCalledOnce();
+      expect(signal?.aborted).toBe(false);
+      if (reason === 'clear') trusted(el('previewClear'));
+      else if (reason === 'close') window.dispatchEvent(new Event('pagehide'));
+      else await vi.advanceTimersByTimeAsync(f.expiresAt - Date.now());
+      expect(signal?.aborted).toBe(true);
+      pending.resolve(pdfArtifact(['row-1', 'row-2', 'row-3', 'row-4']));
+      await flush();
+      expect(downloadBinary).not.toHaveBeenCalled();
+      expect(checkboxes()).toHaveLength(0);
+      expect(el('previewStatus').textContent).toContain(
+        reason === 'clear' ? 'Preview cleared' : reason === 'close' ? 'Preview closed' : 'expired'
+      );
+      expect(el<HTMLDetailsElement>('previewPdfReceiptPanel').hidden).toBe(true);
+    }
+  );
+
+  it('rechecks the lease after PDF rendering and refuses stale bytes', async () => {
+    const trusted = captureTrustedActions();
+    const pending = deferred<SelectedPdfArtifact>();
+    const renderPdf = vi.fn(() => pending.promise);
+    const downloadBinary = vi.fn();
+    const f = fixture({ renderPdf, requirePdf: vi.fn(), downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadPdf'));
+    await flush();
+    expect(renderPdf).toHaveBeenCalledOnce();
+    f.request.mockResolvedValue({ success: true, state: 'expired', expiresAt: Date.now() });
+    pending.resolve(pdfArtifact(['row-1', 'row-2', 'row-3', 'row-4']));
+    await flush();
+    expect(downloadBinary).not.toHaveBeenCalled();
+    expect(checkboxes()).toHaveLength(0);
+    expect(el('previewStatus').textContent).toContain('unavailable or expired');
+  });
+
+  it('rejects an unowned PDF artifact before browser delivery and releases the lock', async () => {
+    const trusted = captureTrustedActions();
+    const artifact = pdfArtifact();
+    const downloadBinary = vi.fn();
+    const requirePdf = vi.fn(() => {
+      throw new Error('unowned');
+    });
+    const f = fixture({ renderPdf: vi.fn(async () => artifact), requirePdf, downloadBinary });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadPdf'));
+    await flush();
+    expect(requirePdf).toHaveBeenCalledExactlyOnceWith(artifact);
+    expect(downloadBinary).not.toHaveBeenCalled();
+    expect(el('previewStatus').textContent).toBe('PDF rendering failed. Nothing was retried.');
+    expect(el<HTMLButtonElement>('previewDownloadPdf').disabled).toBe(false);
+    expect(el<HTMLButtonElement>('previewDownloadDocx').disabled).toBe(false);
+  });
+
+  it('disposes an active PDF download on Clear and ignores its late receipt', async () => {
+    const trusted = captureTrustedActions();
+    const pending = deferred<{ outcome: 'success'; downloadId: number }>();
+    const cleanup = vi.fn();
+    const artifact = pdfArtifact(['row-1', 'row-2', 'row-3', 'row-4']);
+    const downloadBinary = vi.fn(() => ({ result: pending.promise, dispose: cleanup }));
+    const f = fixture({
+      renderPdf: vi.fn(async () => artifact),
+      requirePdf: vi.fn(),
+      downloadBinary,
+    });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    trusted(el('previewDownloadPdf'));
+    await flush();
+    expect(downloadBinary).toHaveBeenCalledOnce();
+    trusted(el('previewClear'));
+    expect(cleanup).toHaveBeenCalledOnce();
+    pending.resolve({ outcome: 'success', downloadId: 72 });
+    await flush();
+    expect(el('previewStatus').textContent).toContain('Preview cleared');
+    expect(el<HTMLDetailsElement>('previewPdfReceiptPanel').hidden).toBe(true);
+  });
+
+  it.each(['failure', 'unknown'] as const)(
+    'reports PDF browser outcome %s without retry',
+    async outcome => {
+      const trusted = captureTrustedActions();
+      const artifact = pdfArtifact(['row-1', 'row-2', 'row-3', 'row-4']);
+      const downloadBinary = vi.fn(() => ({
+        result: Promise.resolve({ outcome, downloadId: 53 }),
+        dispose: vi.fn(),
+      }));
+      const f = fixture({
+        renderPdf: vi.fn(async () => artifact),
+        requirePdf: vi.fn(),
+        downloadBinary,
+      });
+      dispose = f.dispose;
+      await flush();
+      trusted(el('previewSelectAll'));
+      trusted(el('previewDownloadPdf'));
+      await flush();
+      expect(downloadBinary).toHaveBeenCalledOnce();
+      expect(el('previewStatus').textContent).toBe(
+        outcome === 'failure'
+          ? 'PDF download failed. Nothing was retried.'
+          : 'PDF download outcome unknown. Check the browser; nothing was retried.'
+      );
+      expect(JSON.parse(el('previewPdfReceipt').textContent!).delivery).toEqual({
+        outcome,
+        downloadId: 53,
+      });
+    }
+  );
+
+  it('clears and closes both document receipts when the preview is erased', async () => {
+    const trusted = captureTrustedActions();
+    const f = fixture({
+      renderPdf: vi.fn(async () => pdfArtifact(['row-1', 'row-2', 'row-3', 'row-4'])),
+      renderDocx: vi.fn(async () => docxArtifact(['row-1', 'row-2', 'row-3', 'row-4'])),
+      requirePdf: vi.fn(),
+      requireDocx: vi.fn(),
+      downloadBinary: vi.fn(() => ({
+        result: Promise.resolve({ outcome: 'success' as const, downloadId: 54 }),
+        dispose: vi.fn(),
+      })),
+    });
+    dispose = f.dispose;
+    await flush();
+    trusted(el('previewSelectAll'));
+    for (const format of ['Docx', 'Pdf']) {
+      trusted(el(`previewDownload${format}`));
+      await flush();
+      el<HTMLDetailsElement>(`preview${format}ReceiptPanel`).open = true;
+    }
+    trusted(el('previewClear'));
+    for (const format of ['Docx', 'Pdf']) {
+      expect(el(`preview${format}Receipt`).textContent).toBe('');
+      expect(el<HTMLDetailsElement>(`preview${format}ReceiptPanel`).hidden).toBe(true);
+      expect(el<HTMLDetailsElement>(`preview${format}ReceiptPanel`).open).toBe(false);
+    }
+  });
+
   it('renders and downloads one frozen DOCX selection with a visible exact receipt', async () => {
     const trusted = captureTrustedActions();
     const artifact = docxArtifact();
