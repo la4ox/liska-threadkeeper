@@ -966,6 +966,39 @@
   "export_current": {
     "message": "Export current"
   },
+  "preview_heading": { "message": "Text-only preview" },
+  "preview_help": {
+    "message": "Choose messages locally, then copy or download Text. No export destinations or settings are changed."
+  },
+  "preview_current": { "message": "Preview current" },
+  "preview_selected": { "message": "Preview chosen branch…" },
+  "preview_starting": { "message": "Opening Text-only preview…" },
+  "preview_opened": {
+    "message": "Preview opened; continue in its window. Reopen Liska to start another."
+  },
+  "preview_waitingBranch": { "message": "Waiting for branch choices. Keep this Liska popup open." },
+  "preview_chooseBranch": { "message": "Choose one branch for Text-only preview." },
+  "preview_branchExpired": {
+    "message": "Branch selection expired; close the preview window and try again."
+  },
+  "preview_unavailable": {
+    "message": "Preview could not be confirmed. Check its window, then close it and reopen Liska to try again. Nothing was retried."
+  },
+  "preview_windowUnavailable": {
+    "message": "The local preview window could not be opened. Nothing was retried."
+  },
+  "preview_navigationUnavailable": {
+    "message": "The preview window did not finish opening its local page. Nothing was retried."
+  },
+  "preview_registrationUnavailable": {
+    "message": "The preview window expired before Liska could register it. Nothing was retried."
+  },
+  "preview_sourceUnavailable": {
+    "message": "The conversation page did not accept local preview capture. Reload that page before trying again."
+  },
+  "preview_startChanged": {
+    "message": "The preview changed before startup completed. Nothing was retried."
+  },
   "export_selected": {
     "message": "Choose branch…"
   },

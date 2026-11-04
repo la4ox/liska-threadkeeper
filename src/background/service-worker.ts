@@ -4,6 +4,7 @@
  */
 
 import { ExportOperationController } from './export-operation-controller';
+import { TextPreviewController } from './text-preview-controller';
 import {
   EXPORT_CONTROL_ACTIONS,
   isExportAction,
@@ -91,6 +92,11 @@ import {
   isDotsSchemaProbeResponse,
 } from '../lib/dots-schema-probe-contract';
 import { isAuthorizedDotsSchemaProbeSender, probeDotsSchemaInActiveTab } from './dots-schema-probe';
+import {
+  TEXT_PREVIEW_CAPTURE_ACTIONS,
+  TEXT_PREVIEW_CONTROL_ACTIONS,
+  isTextPreviewToken,
+} from '../lib/text-preview-contract';
 
 /** Latest popup destination intent while chrome.storage.sync is committing. */
 let outputOptionsOverride: OutputOptions | undefined;
@@ -108,6 +114,23 @@ const exportOperations = new ExportOperationController({
   settings: effectiveSettings,
   revision: () => exportSettingsRevision,
 });
+const textPreviews = new TextPreviewController({
+  chrome,
+  settings: effectiveSettings,
+  revision: () => exportSettingsRevision,
+  isUi: sender => exportOperations.isUi(sender),
+  uiSource: sender => exportOperations.uiSource(sender),
+  reserveSource: tabId => exportOperations.reservePreviewSource(tabId),
+  releaseSource: tabId => exportOperations.releasePreviewSource(tabId),
+  abortStage: async (source, stageId) => {
+    const response = await handleArchiveStageMessage({
+      action: 'abortStagedArchiveArtifact',
+      source,
+      stageId,
+    });
+    return 'success' in response && response.success === true;
+  },
+});
 chrome.storage.onChanged?.addListener((changes, area) => {
   if ((area === 'sync' && changes.settings) || (area === 'local' && changes.secureSettings)) {
     exportSettingsRevision += 1;
@@ -116,9 +139,11 @@ chrome.storage.onChanged?.addListener((changes, area) => {
 });
 chrome.tabs.onRemoved?.addListener(tabId => {
   void exportOperations.tabRemoved(tabId);
+  void textPreviews.tabRemoved(tabId);
 });
 chrome.tabs.onUpdated?.addListener((tabId, change) => {
   void exportOperations.tabChanged(tabId, change);
+  void textPreviews.tabChanged(tabId, change);
 });
 
 type DurableOutputMessage = Extract<
@@ -262,12 +287,16 @@ function dispatchMessage(
   sender: chrome.runtime.MessageSender,
   sendResponse: (response: unknown) => void,
   branchHtmlAdmitted: boolean,
-  exportOperationId?: string
+  exportOperationId?: string,
+  textPreviewCaptureId?: string
 ): void {
-  handleMessage(message, sender, branchHtmlAdmitted, exportOperationId)
+  handleMessage(message, sender, branchHtmlAdmitted, exportOperationId, textPreviewCaptureId)
     .then(async response => {
-      if (isExportAction(message.action))
+      if (textPreviewCaptureId && TEXT_PREVIEW_CAPTURE_ACTIONS.has(message.action)) {
+        await textPreviews.recordCaptureResult(textPreviewCaptureId, response, message, sender);
+      } else if (isExportAction(message.action)) {
         await exportOperations.recordResult(exportOperationId, response, message, sender);
+      }
       try {
         sendResponse(response);
       } catch {
@@ -305,23 +334,49 @@ chrome.runtime.onMessage.addListener(
     sendResponse: (response: unknown) => void
   ) => {
     let exportOperationId: string | undefined;
+    let textPreviewCaptureId: string | undefined;
     try {
-      // Read no action/data fields before the established branch snapshot.
-      const descriptor =
+      // Read no action/data fields before detaching the two transport-only generations.
+      const exportDescriptor =
         typeof message === 'object' && message !== null
           ? Object.getOwnPropertyDescriptor(message, 'exportOperationId')
           : undefined;
-      if (descriptor) {
-        if (!('value' in descriptor) || !isExportToken(descriptor.value))
-          throw new Error('Invalid generation');
-        exportOperationId = descriptor.value;
+      const previewDescriptor =
+        typeof message === 'object' && message !== null
+          ? Object.getOwnPropertyDescriptor(message, 'textPreviewCaptureId')
+          : undefined;
+      if (exportDescriptor && previewDescriptor) throw new Error('Ambiguous generation');
+      if (exportDescriptor || previewDescriptor) {
+        const descriptor = exportDescriptor ?? previewDescriptor!;
+        const valid = exportDescriptor
+          ? isExportToken(descriptor.value)
+          : isTextPreviewToken(descriptor.value);
+        if (!('value' in descriptor) || !valid) throw new Error('Invalid generation');
+        if (exportDescriptor) exportOperationId = descriptor.value;
+        else textPreviewCaptureId = descriptor.value;
         const descriptors = Object.getOwnPropertyDescriptors(message);
         delete descriptors.exportOperationId;
+        delete descriptors.textPreviewCaptureId;
         message = Object.create(Object.getPrototypeOf(message), descriptors);
       }
     } catch {
       sendResponse({ success: false, error: 'Invalid message content' });
       return false;
+    }
+    if (textPreviewCaptureId) {
+      let action: unknown;
+      try {
+        action =
+          typeof message === 'object' && message !== null
+            ? Object.getOwnPropertyDescriptor(message, 'action')?.value
+            : undefined;
+      } catch {
+        action = undefined;
+      }
+      if (typeof action !== 'string' || !TEXT_PREVIEW_CAPTURE_ACTIONS.has(action)) {
+        sendResponse({ success: false, error: 'Unauthorized' });
+        return false;
+      }
     }
     const branchSnapshot = snapshotPersistDerivedBranchHtmlMessage(message);
     const branchHtmlAdmitted = branchSnapshot !== undefined;
@@ -333,6 +388,18 @@ chrome.runtime.onMessage.addListener(
     if (typeof message === 'object' && message !== null) {
       try {
         const action = Object.getOwnPropertyDescriptor(message, 'action')?.value;
+        if (typeof action === 'string' && TEXT_PREVIEW_CONTROL_ACTIONS.has(action)) {
+          if (exportOperationId || textPreviewCaptureId) {
+            sendResponse({ success: false, error: 'text-preview-invalid-message' });
+            return false;
+          }
+          textPreviews
+            .handle(message, sender)
+            .then(sendResponse, () =>
+              sendResponse({ success: false, error: 'text-preview-unavailable' })
+            );
+          return true;
+        }
         if (typeof action === 'string' && EXPORT_CONTROL_ACTIONS.has(action)) {
           exportOperations
             .handle(
@@ -380,7 +447,7 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    if (!isAuthorizedChatGptCaptureRequest(message, sender)) {
+    if (!textPreviewCaptureId && !isAuthorizedChatGptCaptureRequest(message, sender)) {
       sendResponse(chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' }));
       return false;
     }
@@ -399,13 +466,20 @@ chrome.runtime.onMessage.addListener(
       !isAuthorizedSettingsSave(message, sender) ||
       !isAuthorizedStagedBinaryAssetRequest(message, sender) ||
       !isAuthorizedArchiveCompanionRequest(message, sender) ||
-      !isAuthorizedArchiveStageRequest(message, sender)
+      (!textPreviewCaptureId && !isAuthorizedArchiveStageRequest(message, sender))
     ) {
       sendResponse({ success: false, error: 'Unauthorized' });
       return false;
     }
 
-    dispatchMessage(message, sender, sendResponse, branchHtmlAdmitted, exportOperationId);
+    dispatchMessage(
+      message,
+      sender,
+      sendResponse,
+      branchHtmlAdmitted,
+      exportOperationId,
+      textPreviewCaptureId
+    );
     return true; // Indicates async response
   }
 );
@@ -930,15 +1004,21 @@ async function handleMessage(
   message: ExtensionMessage,
   sender: chrome.runtime.MessageSender,
   branchHtmlAdmitted: boolean,
-  exportOperationId?: string
+  exportOperationId?: string,
+  textPreviewCaptureId?: string
 ): Promise<unknown> {
+  if (textPreviewCaptureId && !TEXT_PREVIEW_CAPTURE_ACTIONS.has(message.action))
+    return unauthorizedOperationResponse(message);
   if (
     !branchHtmlAdmitted &&
     hasOwnDataProperty(message, 'action', 'persistDerivedBranchHtmlPresentation')
   )
     return { success: false, error: 'Invalid message content' };
   if (isChatGptBridgeAction(message)) {
-    if (!(await exportOperations.authorize({ ...message, exportOperationId }, sender)))
+    const authorized = textPreviewCaptureId
+      ? await textPreviews.authorizeCaptureAction(message, textPreviewCaptureId, sender)
+      : await exportOperations.authorize({ ...message, exportOperationId }, sender);
+    if (!authorized)
       return chatGptBridgeFailureOr(message, { success: false, error: 'Unauthorized' });
     return handleChatGptBridgeMessage(message, sender);
   }
@@ -997,8 +1077,10 @@ async function handleMessage(
   }
 
   if (isArchiveStageMessage(message) && message.action !== 'commitStagedArchiveCompanion') {
-    if (!(await exportOperations.authorize({ ...message, exportOperationId }, sender)))
-      return { success: false, error: 'Unauthorized' };
+    const authorized = textPreviewCaptureId
+      ? await textPreviews.authorizeCaptureAction(message, textPreviewCaptureId, sender)
+      : await exportOperations.authorize({ ...message, exportOperationId }, sender);
+    if (!authorized) return { success: false, error: 'Unauthorized' };
     return handleArchiveStageMessage(message);
   }
 
@@ -1019,7 +1101,9 @@ async function handleMessage(
     !(message.action === 'testConnection' && (await exportOperations.isUi(sender)));
   if (
     needsExportAdmission &&
-    !(await exportOperations.authorize({ ...message, exportOperationId }, sender))
+    !(textPreviewCaptureId
+      ? await textPreviews.authorizeCaptureAction(message, textPreviewCaptureId, sender)
+      : await exportOperations.authorize({ ...message, exportOperationId }, sender))
   )
     return rejectUnauthorizedOperation(message, sender, settings, exportOperationId);
   if (

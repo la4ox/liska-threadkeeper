@@ -52,11 +52,11 @@ function fixture() {
     },
     action: { openPopup: vi.fn(async () => undefined) },
     windows: {
-      create: vi.fn(async (_options: chrome.windows.CreateData) => ({ id: 9, tabs: [{ id: 10 }] })),
+      create: vi.fn(async () => ({ id: 9, tabs: [{ id: 10 }] })),
       update: vi.fn(async () => ({})),
     },
     tabs: {
-      get: vi.fn(async (_tabId: number) => ({ ...tab })),
+      get: vi.fn(async () => ({ ...tab })),
       query: vi.fn(async () => [{ ...tab }]),
       sendMessage: vi.fn(async (_id: number, message: Record<string, unknown>) => {
         if (message.action === 'beginExportOperation') {
@@ -238,6 +238,17 @@ function seedPendingIntents(f: ReturnType<typeof fixture>, tabIds: number[]) {
 }
 
 describe('worker-owned export generations', () => {
+  it('atomically excludes a preview reservation from ordinary export and vice versa', async () => {
+    const f = fixture();
+    await expect(f.controller.reservePreviewSource(7)).resolves.toBe(true);
+    await f.start();
+    expect(f.api.tabs.sendMessage).not.toHaveBeenCalled();
+    await f.controller.releasePreviewSource(7);
+    await f.start();
+    expect(f.claim.success).toBe(true);
+    await expect(f.controller.reservePreviewSource(7)).resolves.toBe(false);
+  });
+
   it('denies untrusted status reads and honestly reports a missing supported toolbar target', async () => {
     const f = fixture();
     expect(await f.controller.handle({ action: 'getExportStatus' }, source())).toMatchObject({

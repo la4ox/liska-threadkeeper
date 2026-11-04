@@ -81,6 +81,7 @@ export default defineConfig(({ command }) => {
       rollupOptions: {
         input: {
           offscreen: resolve(import.meta.dirname, 'src/offscreen/offscreen.html'),
+          textPreview: resolve(import.meta.dirname, 'src/text-preview/text-preview.html'),
           reconcile: resolve(import.meta.dirname, 'src/reconcile/index.html'),
           snapshotAnalysis: resolve(
             import.meta.dirname,

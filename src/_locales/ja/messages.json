@@ -847,6 +847,41 @@
   "export_current": {
     "message": "現在の会話をエクスポート"
   },
+  "preview_heading": { "message": "テキストのみのプレビュー" },
+  "preview_help": {
+    "message": "メッセージをローカルで選択し、テキストをコピーまたはダウンロードします。出力先や設定は変更しません。"
+  },
+  "preview_current": { "message": "現在の会話をプレビュー" },
+  "preview_selected": { "message": "ブランチを選んでプレビュー…" },
+  "preview_starting": { "message": "テキストプレビューを開いています…" },
+  "preview_opened": {
+    "message": "プレビューを開きました。そのウィンドウで続けてください。別の操作を始めるには Liska を開き直してください。"
+  },
+  "preview_waitingBranch": {
+    "message": "ブランチの候補を待っています。この Liska ポップアップを開いたままにしてください。"
+  },
+  "preview_chooseBranch": { "message": "プレビューするブランチを1つ選んでください。" },
+  "preview_branchExpired": {
+    "message": "ブランチ選択の期限が切れました。プレビューを閉じて、もう一度お試しください。"
+  },
+  "preview_unavailable": {
+    "message": "プレビューを確認できませんでした。プレビューを確認して閉じ、Liska を開き直してください。自動再試行はしていません。"
+  },
+  "preview_windowUnavailable": {
+    "message": "ローカルプレビューのウィンドウを開けませんでした。自動再試行はしていません。"
+  },
+  "preview_navigationUnavailable": {
+    "message": "プレビューウィンドウでローカルページの読み込みが完了しませんでした。自動再試行はしていません。"
+  },
+  "preview_registrationUnavailable": {
+    "message": "Liska が登録する前にプレビューウィンドウの期限が切れました。自動再試行はしていません。"
+  },
+  "preview_sourceUnavailable": {
+    "message": "会話ページがローカルプレビューの取得を受け付けませんでした。再試行する前にそのページを再読み込みしてください。"
+  },
+  "preview_startChanged": {
+    "message": "起動が完了する前にプレビューが変更されました。自動再試行はしていません。"
+  },
   "export_selected": {
     "message": "ブランチを選択…"
   },

@@ -4,6 +4,8 @@ import {
   type ExportChoice,
 } from '../lib/export-operation-contract';
 import { getMessage } from '../lib/i18n';
+import { requestPreview, type PreviewRequest } from '../text-preview/protocol';
+import { PopupTextPreview } from '../text-preview/popup';
 
 type Send = (message: ExportControlMessage) => Promise<ExportStatus>;
 interface SelectionIdentity {
@@ -21,7 +23,10 @@ export function trustedExportAction(event: Event, action: () => void): void {
   if (event.isTrusted) action();
 }
 /** The settings application remains independent. This surface never starts work on open. */
-export async function initExportSurface(request: Send = send): Promise<() => void> {
+export async function initExportSurface(
+  request: Send = send,
+  previewRequest: PreviewRequest = requestPreview
+): Promise<() => void> {
   const element = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
   const panel = element('exportPanel');
   if (!panel) return () => undefined;
@@ -39,6 +44,12 @@ export async function initExportSurface(request: Send = send): Promise<() => voi
   let disposed = false;
   let selectionRendered: SelectionIdentity | undefined;
   let actionError: string | undefined;
+  const preview = new PopupTextPreview({
+    request: previewRequest,
+    exportState: () => state,
+    exportBusy: () => busy,
+    changed: () => render(),
+  });
   const tab = (showExport: boolean) => {
     panel.hidden = !showExport;
     settings.hidden = showExport;
@@ -85,11 +96,12 @@ export async function initExportSurface(request: Send = send): Promise<() => voi
   function render(): void {
     const op = state.operation;
     const running = !!op && !['completed', 'cancelled'].includes(op.phase);
-    current.disabled = busy || !state.success || !state.target || running;
+    current.disabled = busy || preview.locked || !state.success || !state.target || running;
     selected.disabled = current.disabled || state.target?.platform !== 'chatgpt';
     selected.hidden = state.target?.platform !== 'chatgpt';
     stop.hidden = !running;
     stop.disabled = busy;
+    preview.render();
     element('exportTarget').textContent = state.target
       ? `${state.target.platform} · ${state.target.title}\n${state.target.route}`
       : getMessage('export_noTarget');
@@ -141,6 +153,7 @@ export async function initExportSurface(request: Send = send): Promise<() => voi
       if (disposed) return;
       state = next;
       render();
+      void preview.refreshOptions();
       const op = state.operation;
       if (op?.phase === 'awaiting-selection' && op.selectionId && !selectionRendered) {
         const identity = { operationId: op.id, selectionId: op.selectionId };
@@ -166,7 +179,15 @@ export async function initExportSurface(request: Send = send): Promise<() => voi
     }
   }
   const start = (mode: 'current' | 'selected') => {
-    if (!state.target || !state.outputs) return;
+    if (
+      disposed ||
+      busy ||
+      preview.locked ||
+      !state.target ||
+      !state.outputs ||
+      (state.operation && !['completed', 'cancelled'].includes(state.operation.phase))
+    )
+      return;
     void action({
       action: 'startExportOperation',
       mode,
@@ -181,6 +202,7 @@ export async function initExportSurface(request: Send = send): Promise<() => voi
       void action({ action: 'cancelExportOperation', exportOperationId: state.operation.id });
   };
   stop.addEventListener('click', event => trustedExportAction(event, cancel));
+
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && state.operation?.phase === 'awaiting-selection')
       trustedExportAction(event, cancel);
@@ -191,6 +213,7 @@ export async function initExportSurface(request: Send = send): Promise<() => voi
   const dispose = () => {
     disposed = true;
     clearInterval(timer);
+    preview.dispose();
   };
   window.addEventListener('pagehide', dispose, { once: true });
   await refresh();

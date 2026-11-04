@@ -293,13 +293,19 @@ terminal states, and the existing no-credential-export boundary.
   canonical meaning, stays local and bounded, carries its own provenance and
   terminal receipt, and leaves Markdown plus raw/manifest/canonical/HTML
   behavior unchanged when disabled.
-- Follow with one immutable selection/profile contract and extension-owned
-  preview for Markdown, text and HTML download/copy. A future `view.json` is a
-  versioned selected presentation, never a renamed canonical archive. Local PDF
-  and DOCX remain separate renderer slices with their own pagination, structure,
-  font, asset and output-size evidence. Conversation-to-image is not active work:
-  ordinary browser screenshots cover the present need, and the idea returns only
-  for a concrete scenario screenshots cannot solve.
+- The immutable selection/profile contract and first extension-owned Text
+  preview are implemented and installed-live-verified. The page starts with an
+  empty selection, keeps search independent from selection, supports explicit
+  rows/ranges/all, and exposes Copy/Download only for selected canonical-derived
+  Text. It is an expiring reading view bound to one canonical digest, never a
+  reduced canonical archive or an automatic destination write.
+- Follow with selection-aware HTML and canonical-derived Markdown on that same
+  frozen snapshot. A future `view.json` is a versioned selected presentation,
+  never a renamed canonical archive. Local PDF and DOCX remain separate renderer
+  slices with their own pagination, structure, font, asset and output-size
+  evidence. Conversation-to-image is not active work: ordinary browser
+  screenshots cover the present need, and the idea returns only for a concrete
+  scenario screenshots cannot solve.
 
 - The pure `liska-html/1` renderer and opt-in current/selected File delivery are
   implemented. HTML is derived only from a hash-verified canonical archive and

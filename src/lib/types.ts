@@ -577,8 +577,11 @@ export interface TemplateOptions {
 /**
  * Message types for chrome.runtime communication
  */
-/** Generation is transport-only: never copied into notes, archives, provider DOM or URLs. */
-export type ExtensionMessage = ExtensionActionMessage & { exportOperationId?: string };
+/** Generation IDs are transport-only: never copied into notes, archives, provider DOM or URLs. */
+export type ExtensionMessage = ExtensionActionMessage & {
+  exportOperationId?: string;
+  textPreviewCaptureId?: string;
+};
 type ExtensionActionMessage =
   | {
       action: 'saveToOutputs';

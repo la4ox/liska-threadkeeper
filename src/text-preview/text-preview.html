@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Liska — Text-only preview</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="preview-shell">
+      <header class="preview-header">
+        <div>
+          <p class="eyebrow">LISKA · LOCAL READING VIEW</p>
+          <h1>Text-only preview</h1>
+          <p id="previewTitle" class="conversation-title"></p>
+        </div>
+        <button id="previewClear" type="button" disabled>Clear preview</button>
+      </header>
+      <p id="previewStatus" role="status" aria-live="polite">Preparing preview…</p>
+      <section class="preview-toolbar" aria-label="Message selection">
+        <label class="search-label" for="previewSearch"
+          >Search messages
+          <input id="previewSearch" type="search" placeholder="Text or role…" disabled />
+        </label>
+        <div class="selection-actions">
+          <button id="previewSelectAll" type="button" disabled>Select all messages</button>
+          <button id="previewDeselect" type="button" disabled>Clear selection</button>
+        </div>
+        <p class="counts" aria-live="polite">
+          <span id="previewTotal">0</span> total · <span id="previewFiltered">0</span> shown ·
+          <span id="previewSelected">0</span> selected ·
+          <span id="previewHiddenSelected">0</span> selected hidden by filter
+        </p>
+        <p class="selection-help">
+          Nothing is selected initially. Search never changes selection. Shift-click includes the
+          complete message range, even hidden messages.
+        </p>
+      </section>
+      <div
+        id="previewRows"
+        class="message-list"
+        role="region"
+        aria-label="Conversation messages"
+        tabindex="0"
+      ></div>
+      <footer class="preview-footer">
+        <p>
+          Selected reading view only — not an archive receipt. No archive or settings are changed.
+        </p>
+        <div class="output-actions">
+          <button id="previewCopy" type="button" class="primary" disabled>
+            Copy selected Text
+          </button>
+          <button id="previewDownload" type="button" disabled>Download .txt</button>
+        </div>
+      </footer>
+    </main>
+    <script type="module" src="index.ts"></script>
+  </body>
+</html>
