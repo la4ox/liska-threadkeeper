@@ -308,6 +308,40 @@ describe('detached multiformat presentation preview', () => {
     }
   );
 
+  it('keeps canonical non-Markdown text structurally literal', () => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('text', { text: 'text\na\n===' }),
+      block('quote', { text: 'quote\na\n===', attribution: 'source\n===' }),
+      block('citation', { label: 'citation\n===', url: null, content: 'content\na\n===' }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    const nodes = nodesOf(body);
+    expect(nodes.filter(node => node.type === 'heading')).toHaveLength(0);
+    expect(nodes.filter(node => node.type === 'thematicBreak')).toHaveLength(2);
+    for (const literal of [
+      'text\na\n===',
+      'quote\na\n===',
+      'source\n===',
+      'citation\n===',
+      'content\na\n===',
+    ])
+      expect(nodes.some(node => node.type === 'text' && node.value.includes(literal))).toBe(true);
+  });
+
+  it('keeps image-reference placeholder whitespace structurally literal', () => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: '![x&#10;&#10;    y](https://example.org)' }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    const nodes = nodesOf(body);
+    expect(nodes.some(node => node.type === 'heading' || node.type === 'code')).toBe(false);
+    expect(nodes.some(node => node.type === 'text' && node.value.includes('x\n\n    y'))).toBe(
+      true
+    );
+  });
+
   it.each([
     '*a&nbsp;*',
     '*&#32;a*',

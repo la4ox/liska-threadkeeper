@@ -173,17 +173,22 @@ class MarkdownSourceRenderer {
       encodeNewlines
     );
   }
+  literal(value: string, encodeNewlines = false): string {
+    return this.text(
+      value,
+      this.boundaryWhitespace(value, true),
+      this.boundaryWhitespace(value, false),
+      encodeNewlines
+    );
+  }
   link(url: string, label: string, encodeNewlines = false): string {
     if (isSafeUserLink(url)) return `[${label}](${destination(url)})`;
     this.context.diagnostic('unsafe-link-inert');
-    return `${label} ${this.encodedNewlines(markdownLiteral(`[Link: ${url}]`), encodeNewlines)}`;
+    return `${label} ${this.literal(`[Link: ${url}]`, encodeNewlines)}`;
   }
   image(alt: string | null | undefined, url: string, encodeNewlines = false): string {
     this.context.diagnostic('markdown-image-reference');
-    return this.encodedNewlines(
-      markdownLiteral(`[Image reference: ${alt ?? ''}; ${url}]`),
-      encodeNewlines
-    );
+    return this.literal(`[Image reference: ${alt ?? ''}; ${url}]`, encodeNewlines);
   }
   reference(
     node: Extract<Nodes, { type: 'linkReference' | 'imageReference' | 'definition' }>,
@@ -191,7 +196,7 @@ class MarkdownSourceRenderer {
   ): string {
     if (node.type === 'definition') {
       this.context.diagnostic('markdown-reference-definition');
-      return markdownLiteral(`[Link definition: ${node.label ?? node.identifier}; ${node.url}]`);
+      return this.literal(`[Link definition: ${node.label ?? node.identifier}; ${node.url}]`);
     }
     const definition = this.definitions.get(node.identifier);
     if (!definition) this.context.diagnostic('markdown-reference-unresolved');
@@ -199,8 +204,8 @@ class MarkdownSourceRenderer {
       return this.image(node.alt, definition?.url ?? '[unresolved]', encodeNewlines);
     return definition
       ? this.link(definition.url, this.children(node, '', encodeNewlines), encodeNewlines)
-      : this.encodedNewlines(
-          markdownLiteral(`[Unresolved link reference: ${node.label ?? node.identifier}]`),
+      : this.literal(
+          `[Unresolved link reference: ${node.label ?? node.identifier}]`,
           encodeNewlines
         );
   }
@@ -281,12 +286,7 @@ class MarkdownSourceRenderer {
       }
       case 'html':
         this.context.diagnostic('provider-html-inert');
-        return this.text(
-          node.value,
-          this.boundaryWhitespace(node.value, true),
-          this.boundaryWhitespace(node.value, false),
-          encodeTextNewlines
-        );
+        return this.literal(node.value, encodeTextNewlines);
       case 'link':
         return this.link(node.url, this.children(node, '', encodeTextNewlines), encodeTextNewlines);
       case 'image':
@@ -316,7 +316,7 @@ class MarkdownSourceRenderer {
     const literalInfo =
       node.meta || (language !== null && !/^[a-zA-Z0-9_+.-]{1,64}$/.test(language));
     const info = literalInfo
-      ? `Code info: ${markdownLiteral([language, node.meta].filter(value => value !== null && value !== undefined).join(' '))}\n\n`
+      ? `Code info: ${this.literal([language, node.meta].filter(value => value !== null && value !== undefined).join(' '))}\n\n`
       : '';
     return info + markdownFence(node.value, language);
   }
@@ -345,20 +345,23 @@ class CanonicalMarkdownRenderer {
   emit(value: string): void {
     this.context.emit(this.parts, value);
   }
+  sourceLiteral(value: string): string {
+    return new MarkdownSourceRenderer('', this.context).literal(value);
+  }
   literal(value: string): string {
     if (value === '') this.context.diagnostic('block-empty');
     return /(?:^|[\r\n])(?: {4}| {0,3}\t)/.test(value)
       ? markdownFence(value)
-      : markdownLiteral(value);
+      : this.sourceLiteral(value);
   }
   code(label: string, value: string, language: string | null = null): string {
     if (value === '') this.context.diagnostic('block-empty');
-    return `**${markdownLiteral(label)}**\n\n${markdownFence(value, language)}`;
+    return `**${this.sourceLiteral(label)}**\n\n${markdownFence(value, language)}`;
   }
   citation(block: Extract<ArchiveBlock, { type: 'citation' }>): string {
     if (block.label === null) this.context.diagnostic('citation-label-absent');
     else if (block.label === '') this.context.diagnostic('citation-label-empty');
-    const label = markdownLiteral(
+    const label = this.sourceLiteral(
       block.label === '' ? '[Empty citation label]' : (block.label ?? 'Citation')
     );
     let result = label;
@@ -377,7 +380,7 @@ class CanonicalMarkdownRenderer {
     if (name === null || name === undefined) this.context.diagnostic('attachment-name-absent');
     else if (name === '') this.context.diagnostic('attachment-name-empty');
     this.context.diagnostic('attachment-unbound');
-    return markdownLiteral(
+    return this.sourceLiteral(
       `Attachment reference: ${name || 'Unnamed attachment'} [local bytes are not bound to this presentation]`
     );
   }
@@ -433,7 +436,7 @@ class CanonicalMarkdownRenderer {
       case 'quote':
         return quote(
           this.literal(block.text) +
-            (block.attribution === null ? '' : '\n\n— ' + markdownLiteral(block.attribution))
+            (block.attribution === null ? '' : '\n\n— ' + this.sourceLiteral(block.attribution))
         );
       case 'citation':
         return this.citation(block);
