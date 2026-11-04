@@ -1,6 +1,6 @@
 # ADR-048: Selected presentation preview without a second canonical archive
 
-- Status: Accepted; Text vertical implemented and installed-live-verified; HTML/Markdown pending
+- Status: Accepted; Text/Markdown/HTML selection implemented and installed-live-verified
 - Date: 2026-11-04
 - Related: ADR-031, ADR-036, ADR-042, ADR-047, ITH-002, ITH-009
 
@@ -108,9 +108,10 @@ honestly; content is not reconstructed from storage.
 Copy and Download are separate explicit trusted actions over the same frozen
 selection. They are labeled as selected excerpts/reading views, include no
 archive sidecars or automatic attachment acquisition, and never retry an
-uncertain external write. Selection-specific receipts must bind the selection
-digest, renderer/version, exact byte length/hash and source canonical digest;
-existing whole-capture receipt paths are not reused.
+uncertain external write. This slice records terminal browser/clipboard outcomes,
+not a durable content receipt. If a selection-specific receipt is introduced,
+it must bind the selection digest, renderer/version, exact byte length/hash and
+source canonical digest; existing whole-capture receipt paths are not reused.
 
 ## Implementation sequence
 
@@ -122,7 +123,9 @@ existing whole-capture receipt paths are not reused.
 4. Add canonical-derived Markdown on the same snapshot. Do not retrofit the
    selection onto rendered legacy Markdown.
 
-PDF and DOCX start only after this selection/profile contract is stable.
+Steps 1–4 are complete. PDF and DOCX start only after this selection/profile
+contract is stable; this implementation closes that precondition but does not
+combine the two document renderers into the preview contract.
 Conversation-to-image stays outside the roadmap while an ordinary browser
 screenshot meets the visual-snapshot need.
 
@@ -159,6 +162,51 @@ filtering to the assistant role showed 32 rows while preserving the hidden
 selected row; Clear reduced the page to zero rows and disabled output. No
 Clipboard or File action was invoked, no archive or destination setting changed,
 and no private title, message body, conversation ID or path is recorded here.
+
+## Multiformat projection implementation evidence
+
+`liska-presentation-preview/1` is a new detached presentation projection, not an
+extension of `liska-text-preview/1` and not a reduced canonical graph. While the
+authorized canonical branch is still present, Liska prepares self-contained
+Text, Markdown and HTML bodies for each selectable message, then releases the
+capture/stages before the one-shot page transfer. The wire projection retains
+only canonical digest, branch target, title, frozen profile/renderer versions,
+ordered node IDs/roles, the three bounded bodies and finite diagnostics. It
+contains no graph topology, canonical messages, source references, extensions,
+raw/provider values, asset IDs/bindings/bytes/paths or destination settings.
+
+Preparation and adoption enforce 5,000 rows, 1 Mi UTF-16 characters per row,
+8 Mi aggregate characters across every retained format and metadata, and a
+12 Mi UTF-8 serialized envelope. Selected output is built only for the chosen
+format and is independently capped at 8 Mi characters / 12 Mi UTF-8 bytes.
+Parser/source/work accounting is shared across the prepared branch rather than
+reset per row. Overflow refuses the preview atomically; it does not truncate,
+fall back to Text or recapture.
+
+HTML reuses the canonical block semantics with an empty asset-binding set,
+filename-only attachment placeholders, a no-network CSP and selected-row-only
+diagnostics. Markdown is generated from typed canonical blocks rather than the
+legacy note. Each body is parser-validated as autonomous: raw HTML,
+definitions/references/images, unsafe links and unfinished physical fences are
+rejected at wire adoption. The captured `enableInertCodeBlocks` boolean remains
+part of the immutable presentation profile and the final selected Markdown is
+transformed once over the complete document. The existing Text `/1` adapter and
+whole-archive HTML bytes remain unchanged.
+
+The page keeps Text-only cards/search in the DOM, adds one trusted Text /
+Markdown / HTML selector, and freezes format plus node IDs before the first
+await. Copy writes source text; download uses the frozen artifact's exact MIME,
+extension and bytes while preserving exact-ID terminal observation and no-retry
+semantics. HTML source is never inserted into the extension page.
+
+Installed Comet captured the same 40-row current ChatGPT branch with zero
+initial selection. One short user row was selected. Markdown clipboard completed
+with 817 UTF-8 bytes and an independently computed digest. HTML Save As remained
+honestly `unknown` after its browser-observation deadline, but the same existing
+dialog later wrote a separately verified 2,412-byte offline file with DOCTYPE,
+CSP, one selected article and no script element. The physical file proves local
+bytes, not a retroactive browser terminal receipt. No second download attempt,
+archive write or settings change occurred.
 
 ## Consequences
 

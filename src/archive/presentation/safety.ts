@@ -165,7 +165,10 @@ export class PresentationContext {
   private serializationChars = 0;
   private readonly counts = new Map<HtmlDiagnosticCode, number>();
 
-  constructor(readonly limits: HtmlPresentationLimits) {}
+  constructor(
+    readonly limits: HtmlPresentationLimits,
+    private readonly onEmit?: (value: string) => void
+  ) {}
 
   diagnostic(code: HtmlDiagnosticCode): void {
     this.counts.set(code, (this.counts.get(code) ?? 0) + 1);
@@ -175,6 +178,13 @@ export class PresentationContext {
     return [...this.counts]
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([code, count]) => ({ code, count }));
+  }
+
+  /** Drain only row diagnostics; parser/source/output/serialization budgets remain shared. */
+  takeDiagnostics(): HtmlPresentationDiagnostic[] {
+    const result = this.diagnostics();
+    this.counts.clear();
+    return result;
   }
 
   source(value: string): void {
@@ -199,6 +209,7 @@ export class PresentationContext {
     this.outputBytes += utf8ByteLength(value);
     if (this.outputChars > this.limits.maxHtmlChars) fail('html-output-limit');
     if (this.outputBytes > this.limits.maxHtmlBytes) fail('html-output-limit');
+    this.onEmit?.(value);
     parts.push(value);
   }
 

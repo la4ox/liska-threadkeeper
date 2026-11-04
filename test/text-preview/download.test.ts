@@ -1,11 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { downloadSelectedText, textPreviewFilename } from '../../src/text-preview/download';
+import { Blob as NodeBlob } from 'node:buffer';
+import {
+  downloadSelectedPresentation,
+  downloadSelectedText,
+  presentationPreviewFilename,
+  textPreviewFilename,
+} from '../../src/text-preview/download';
 
 let changed: (delta: chrome.downloads.DownloadDelta) => void;
 let callback: (id?: number) => void;
 const originalURL = URL;
+const originalBlob = Blob;
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.stubGlobal('Blob', NodeBlob);
   vi.stubGlobal(
     'URL',
     class extends URL {
@@ -25,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.stubGlobal('URL', originalURL);
+  vi.stubGlobal('Blob', originalBlob);
   vi.useRealTimers();
 });
 function terminal(id: number, state: 'complete' | 'interrupted') {
@@ -32,6 +41,47 @@ function terminal(id: number, state: 'complete' | 'interrupted') {
 }
 
 describe('selected Text Blob downloads', () => {
+  it.each([
+    ['text', 'text/plain', 'txt'],
+    ['markdown', 'text/markdown', 'md'],
+    ['html', 'text/html', 'html'],
+  ] as const)(
+    'retains exact UTF-8 %s bytes and uses its artifact MIME/extension',
+    async (format, mediaType, extension) => {
+      const content = '<p>Source 🦊 日本語</p>\r\n**not rendered**\n';
+      const attempt = downloadSelectedPresentation(
+        { content, format, mediaType, extension },
+        'A / title'
+      );
+      const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+      expect(blob.type).toBe(`${mediaType};charset=utf-8`);
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual(
+        Array.from(new TextEncoder().encode(content))
+      );
+      expect(chrome.downloads.download).toHaveBeenCalledExactlyOnceWith(
+        { url: 'blob:private-preview', filename: `A _ title-selection.${extension}`, saveAs: true },
+        expect.any(Function)
+      );
+      expect(presentationPreviewFilename(null, format, extension)).toBe(
+        `liska-selected-${format}-selection.${extension}`
+      );
+      callback(19);
+      terminal(19, 'complete');
+      await expect(attempt.result).resolves.toBe('success');
+    }
+  );
+
+  it('does not accept a terminal read-back belonging to any other download ID', async () => {
+    vi.mocked(chrome.downloads.search).mockResolvedValue([
+      { id: 10, state: 'complete' } as chrome.downloads.DownloadItem,
+    ]);
+    const attempt = downloadSelectedText('text', null);
+    callback(9);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    terminal(9, 'complete');
+    await expect(attempt.result).resolves.toBe('success');
+  });
   it('uses a private Blob, saveAs and an onChanged-confirmed terminal completion', async () => {
     const attempt = downloadSelectedText('exact text 🦊\n', 'Test / title');
     expect(URL.createObjectURL).toHaveBeenCalledOnce();
@@ -133,6 +183,7 @@ describe('selected Text Blob downloads', () => {
   it('is title-derived, deterministic, bounded and never contains path separators or controls', () => {
     const title = '../secret\\file:"<>|?*\u0000\n';
     expect(textPreviewFilename(title)).toBe(textPreviewFilename(title));
+    // eslint-disable-next-line no-control-regex -- Verify that Windows filename controls were removed.
     expect(textPreviewFilename(title)).not.toMatch(/[\\/:\u0000\n]/);
     expect(textPreviewFilename('x'.repeat(300))).toHaveLength(114);
     expect(textPreviewFilename('🦊')).toBe('🦊-selection.txt');

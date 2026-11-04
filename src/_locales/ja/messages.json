@@ -847,20 +847,20 @@
   "export_current": {
     "message": "現在の会話をエクスポート"
   },
-  "preview_heading": { "message": "テキストのみのプレビュー" },
+  "preview_heading": { "message": "選択したメッセージの閲覧プレビュー" },
   "preview_help": {
-    "message": "メッセージをローカルで選択し、テキストをコピーまたはダウンロードします。出力先や設定は変更しません。"
+    "message": "メッセージをローカルで選択し、Text、Markdown、HTML のソースをコピーまたはダウンロードします。出力先や設定は変更しません。"
   },
   "preview_current": { "message": "現在の会話をプレビュー" },
   "preview_selected": { "message": "ブランチを選んでプレビュー…" },
-  "preview_starting": { "message": "テキストプレビューを開いています…" },
+  "preview_starting": { "message": "選択したメッセージの閲覧プレビューを開いています…" },
   "preview_opened": {
     "message": "プレビューを開きました。そのウィンドウで続けてください。別の操作を始めるには Liska を開き直してください。"
   },
   "preview_waitingBranch": {
     "message": "ブランチの候補を待っています。この Liska ポップアップを開いたままにしてください。"
   },
-  "preview_chooseBranch": { "message": "プレビューするブランチを1つ選んでください。" },
+  "preview_chooseBranch": { "message": "閲覧プレビューに表示するブランチを1つ選んでください。" },
   "preview_branchExpired": {
     "message": "ブランチ選択の期限が切れました。プレビューを閉じて、もう一度お試しください。"
   },

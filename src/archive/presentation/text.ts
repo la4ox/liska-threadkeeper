@@ -275,6 +275,12 @@ class TextRenderer {
       .map(([code, count]) => ({ code, count }));
   }
 
+  takeDiagnostics(): TextPresentationDiagnostic[] {
+    const result = this.diagnostics();
+    this.counts.clear();
+    return result;
+  }
+
   openSection(label: string): void {
     this.emit(`[${label}]\n`);
   }
@@ -585,7 +591,8 @@ function prepareTextRows(
   input: TextPresentationInput,
   limits: TextPresentationLimits,
   path: readonly string[],
-  previewLimits: TextPreviewLimits
+  previewLimits: TextPreviewLimits,
+  onRow?: (nodeId: string, diagnostics: TextPresentationDiagnostic[]) => void
 ): TextPreviewRow[] {
   const title = input.archive.conversation.title;
   let totalChars =
@@ -624,12 +631,21 @@ function prepareTextRows(
       role: message.author.role,
       presentedText: renderer.takeText(),
     });
+    onRow?.(path[index], renderer.takeDiagnostics());
   }
   return rows;
 }
 
 /** Prepare one validated branch without retaining any canonical objects. */
 export function prepareArchiveTextPreview(value: TextPreviewInput): ArchiveTextPreview {
+  return prepareTextPreviewWithDiagnostics(value).preview;
+}
+
+/** @internal Same Text bytes with row-local diagnostics for the richer projection. */
+export function prepareTextPreviewWithDiagnostics(value: TextPreviewInput): {
+  preview: ArchiveTextPreview;
+  diagnostics: ReadonlyMap<string, TextPresentationDiagnostic[]>;
+} {
   try {
     const snapshot = snapshotRecord(value);
     const previewLimits = resolveTextPreviewLimits(snapshot.previewLimits);
@@ -640,8 +656,11 @@ export function prepareArchiveTextPreview(value: TextPreviewInput): ArchiveTextP
     const title = input.archive.conversation.title;
     if (title !== null && title.length > previewLimits.maxTitleChars)
       fail('text-preview-title-char-limit');
-    const rows = prepareTextRows(input, limits, path, previewLimits);
-    return adoptArchiveTextPreview(
+    const diagnostics = new Map<string, TextPresentationDiagnostic[]>();
+    const rows = prepareTextRows(input, limits, path, previewLimits, (id, items) =>
+      diagnostics.set(id, items)
+    );
+    const preview = adoptArchiveTextPreview(
       {
         schema: LISKA_TEXT_PREVIEW_SCHEMA,
         sourceCanonicalSha256: input.canonicalSha256,
@@ -655,6 +674,7 @@ export function prepareArchiveTextPreview(value: TextPreviewInput): ArchiveTextP
       },
       previewLimits
     );
+    return { preview, diagnostics };
   } catch (error) {
     if (error instanceof TextPresentationError) throw error;
     fail('text-input-invalid');

@@ -4546,3 +4546,81 @@ and manifest SHA-256
 Rollback `liska-rollback-20261104T025904092Z-aa077acd262145fa8cf571ed6cfaf3c0`
 is retained. Only Liska and the existing test ChatGPT tab were reloaded; no
 browser restart or destination write occurred.
+
+## Selected-preview merge result — 2026-11-04
+
+PR 111 merged reviewed head `b669cc8` into `main` as merge commit `43eac55`.
+Fetched `origin/main` contains the exact reviewed head as an ancestor. CI, Code
+Review and Security Review completed on that head without findings or unresolved
+threads. The merged page therefore establishes the Text selection/session
+boundary before richer formats are added.
+
+## Selected Text/Markdown/HTML preview candidate — 2026-11-04
+
+Branch `codex/selected-html-markdown-preview-v1` begins at merged main `43eac55`.
+It adds strict frozen `liska-presentation-preview/1` and
+`liska-selected-presentation/1` contracts without extending or renaming the
+legacy Text `/1` schema. Canonical remains the single semantic archive. During
+authorized capture, Liska prepares ordered self-contained Text, Markdown and
+HTML bodies plus finite diagnostics, then releases canonical/capture stages
+before the existing one-shot page transfer. The projection retains no graph,
+canonical messages, source references/extensions, raw/provider facts, asset
+IDs/bindings/bytes/paths or destination settings.
+
+The combined projection ceilings remain 5,000 rows, 1 Mi UTF-16 characters per
+row, 64 Ki title, 8 Mi aggregate characters and 12 Mi serialized UTF-8 bytes.
+Selected output has its own atomic 8 Mi character / 12 Mi byte cap. HTML and
+Markdown share preparation-wide parser/source/work accounting, so per-row
+generation cannot multiply the admitted work. HTML reuses canonical block
+semantics with no asset bindings and a no-network CSP. Markdown derives from
+typed blocks, resolves references locally, keeps provider HTML inert and honors
+the captured default-on inert tagged-code setting. Strict adoption rejects raw
+HTML, images/references/definitions, unsafe links and unfinished physical
+fences in wire Markdown.
+
+The popup/page now say `Selected reading preview`. Cards and search still use
+only bounded `presentedText`; one native Text/Markdown/HTML selector changes no
+selection. Format and ordered IDs are frozen synchronously before the first
+lease/output await. Copy always writes source text. Download derives Blob MIME,
+extension, filename and bytes from the frozen artifact and retains the prior
+exact-ID terminal/read-back, cleanup and no-retry behavior. HTML source is never
+inserted into the extension DOM.
+
+Independent functional review found three Markdown fidelity seams before live
+acceptance. Entity-looking ampersands in safe URLs could reparse as Unicode;
+four-space/mixed-tab/CR-boundary literal text could become escaped indented
+code; and ASCII-space-padded NBSP inline code could lose its boundary spaces.
+Destination entity escaping, indentation-sensitive literal fencing and the
+ASCII-space-specific padding rule close them. Round-trip regressions cover
+inline/reference/citation URLs plus Text/quote/citation and whitespace variants;
+the final re-review is `ready` with no other material finding.
+
+The corrected installed candidate contains 52 files / 1,384,752 bytes with
+matching source/installed aggregate SHA-256
+`548cc9f7964ae397a44d51df5db5f2762c2d9ee5a9240ccadfb0523055b90fd6`
+and manifest SHA-256
+`eb64ed09b3e09b1a1525dc1c625fe6c140bde4af5bd5c2f2ca91fcab2720d631`.
+Rollback `liska-rollback-20261104T040953407Z-c84cfb160eca43a19d7b2575b3b22ead`
+is retained. One current ChatGPT branch produced 40 rows and zero initial
+selection. Selecting one short user row and changing format preserved the same
+selection. Markdown clipboard completed with 817 UTF-8 bytes / SHA-256
+`a8b392a9dd9fd7a01cd9f0a88c984951e8ee026bffa6e2b80bff4c9d18ed09fe`,
+the selected-view header and `1 of 40` provenance.
+
+HTML Save As exceeded the browser-observation deadline and remained honestly
+`unknown`; Liska issued no retry. Completing that same already-open native dialog
+later produced `liska-selected-reading-live-test.html`, independently verified
+as 2,412 UTF-8 bytes / SHA-256
+`dd06d989f031268f2f83c883a18d4cbf1d75540725b0bc861bf8a4e99e76166c`,
+with DOCTYPE, CSP, one article, `1 of 40` provenance and no script tag. Physical
+file existence does not retroactively turn the browser receipt into success.
+No archive output or settings changed. Selected-branch ChatGPT, DeepSeek and a
+browser-observed terminal-success Save As remain later live evidence; PDF and
+DOCX are still separate renderer slices.
+
+The final complete coverage run passes 279 test files and 10,099 tests, with one
+file and three tests skipped and zero failures. Statements are 95.08%
+(`29,096 / 30,600`), branches 91.72%, functions 98.28% and lines 97.33%.
+Full lint passes with zero errors and 55 existing warnings; format, production
+build/package, diff checks and the nine-thread/37-relation idea-thread validator
+pass.

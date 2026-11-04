@@ -33,7 +33,7 @@ vi.mock('../../src/content/derived-html-authorization', async importOriginal => 
 }));
 vi.mock('../../src/archive/presentation', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/archive/presentation')>()),
-  prepareArchiveTextPreview: vi.fn(),
+  prepareArchivePresentationPreview: vi.fn(),
 }));
 
 import { handleTextPreviewCapture } from '../../src/content/bootstrap';
@@ -42,7 +42,10 @@ import { DeepSeekExtractor } from '../../src/content/extractors/deepseek';
 import { sendMessage } from '../../src/lib/messaging';
 import { abortStagedArchiveArtifact } from '../../src/content/archive-stage';
 import { authorizeDerivedHtmlContext } from '../../src/content/derived-html-authorization';
-import { prepareArchiveTextPreview } from '../../src/archive/presentation';
+import {
+  prepareArchivePresentationPreview,
+  PRESENTATION_RENDERER_VERSIONS,
+} from '../../src/archive/presentation';
 import {
   checkTextPreviewCaptureLease,
   publishTextPreview,
@@ -52,6 +55,7 @@ import { showErrorToast, showToast } from '../../src/content/ui';
 const settings = {
   enableAutoScroll: true,
   enableToolContent: false,
+  enableInertCodeBlocks: true,
   enableChatGptOpaqueReplay: true,
 };
 const context = {
@@ -76,11 +80,16 @@ const companion = {
   ],
 } as const;
 const preview = {
-  schema: 'liska-text-preview/1',
+  schema: 'liska-presentation-preview/1',
   sourceCanonicalSha256: 'c'.repeat(64),
   branchTargetNodeId: 'assistant-1',
   title: null,
-  profile: { schema: 'liska-reading-profile/1', includeToolContent: false },
+  profile: {
+    schema: 'liska-presentation-profile/1',
+    includeToolContent: false,
+    inertTaggedCodeBlocks: true,
+  },
+  rendererVersions: PRESENTATION_RENDERER_VERSIONS,
   rows: [],
 } as const;
 
@@ -108,7 +117,7 @@ describe('capture-only text preview handler', () => {
       canonicalSha256: 'c'.repeat(64),
       assetBindingSha256: null,
     });
-    vi.mocked(prepareArchiveTextPreview).mockReturnValue(preview);
+    vi.mocked(prepareArchivePresentationPreview).mockReturnValue(preview);
     vi.mocked(publishTextPreview).mockResolvedValue(true);
     vi.mocked(abortStagedArchiveArtifact).mockResolvedValue(undefined);
   });
@@ -132,11 +141,11 @@ describe('capture-only text preview handler', () => {
       undefined,
       'selected'
     );
-    expect(prepareArchiveTextPreview).toHaveBeenCalledExactlyOnceWith({
+    expect(prepareArchivePresentationPreview).toHaveBeenCalledExactlyOnceWith({
       archive: context.archive,
       canonicalSha256: 'c'.repeat(64),
       targetNodeId: 'assistant-1',
-      profile: { includeToolContent: false },
+      profile: { includeToolContent: false, inertTaggedCodeBlocks: true },
     });
     expect(abortStagedArchiveArtifact).toHaveBeenCalledExactlyOnceWith(
       companion.artifacts[0].stageId,
@@ -151,6 +160,38 @@ describe('capture-only text preview handler', () => {
     expect(showToast).not.toHaveBeenCalled();
     expect(showErrorToast).not.toHaveBeenCalled();
   });
+
+  it.each([true, false])(
+    'forwards the frozen inert-code choice %s into the presentation profile',
+    async enabled => {
+      await expect(
+        handleTextPreviewCapture('current', { ...settings, enableInertCodeBlocks: enabled })
+      ).resolves.toBe(true);
+      expect(prepareArchivePresentationPreview).toHaveBeenCalledExactlyOnceWith({
+        archive: context.archive,
+        canonicalSha256: 'c'.repeat(64),
+        targetNodeId: 'assistant-1',
+        profile: { includeToolContent: false, inertTaggedCodeBlocks: enabled },
+      });
+    }
+  );
+
+  it.each([1, 2])(
+    'stops before preparation when capture lease check %s expires, and cleans stages',
+    async check => {
+      vi.mocked(checkTextPreviewCaptureLease)
+        .mockReset()
+        .mockResolvedValueOnce(check !== 1)
+        .mockResolvedValueOnce(false);
+      await expect(handleTextPreviewCapture('current', settings)).resolves.toBe(false);
+      expect(prepareArchivePresentationPreview).not.toHaveBeenCalled();
+      expect(publishTextPreview).not.toHaveBeenCalled();
+      expect(abortStagedArchiveArtifact).toHaveBeenCalledExactlyOnceWith(
+        companion.artifacts[0].stageId,
+        'chatgpt'
+      );
+    }
+  );
 
   it.each([
     [
@@ -167,7 +208,7 @@ describe('capture-only text preview handler', () => {
       companion.artifacts[0].stageId,
       'chatgpt'
     );
-    expect(prepareArchiveTextPreview).not.toHaveBeenCalled();
+    expect(prepareArchivePresentationPreview).not.toHaveBeenCalled();
     expect(publishTextPreview).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
@@ -183,7 +224,7 @@ describe('capture-only text preview handler', () => {
       companion.artifacts[0].stageId,
       'chatgpt'
     );
-    expect(prepareArchiveTextPreview).not.toHaveBeenCalled();
+    expect(prepareArchivePresentationPreview).not.toHaveBeenCalled();
     expect(publishTextPreview).not.toHaveBeenCalled();
   });
 
@@ -193,7 +234,7 @@ describe('capture-only text preview handler', () => {
       .mockResolvedValueOnce(false);
     await expect(handleTextPreviewCapture('current', settings)).resolves.toBe(false);
     expect(authorizeDerivedHtmlContext).toHaveBeenCalledOnce();
-    expect(prepareArchiveTextPreview).not.toHaveBeenCalled();
+    expect(prepareArchivePresentationPreview).not.toHaveBeenCalled();
     expect(publishTextPreview).not.toHaveBeenCalled();
     expect(abortStagedArchiveArtifact).toHaveBeenCalledOnce();
   });

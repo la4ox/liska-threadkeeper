@@ -30,7 +30,7 @@ function dependencyClosure(entry: string, seen = new Set<string>()): Set<string>
   return seen;
 }
 
-describe('Text-only preview page isolation and build registration', () => {
+describe('Selected reading preview page isolation and build registration', () => {
   it('has a fixed Vite HTML entry and no content in its URL or persistence', () => {
     expect(read('vite.config.ts')).toContain(
       "textPreview: resolve(import.meta.dirname, 'src/text-preview/text-preview.html')"
@@ -46,12 +46,16 @@ describe('Text-only preview page isolation and build registration', () => {
         /URLSearchParams|\.searchParams\.(?:append|set)|window\.location\s*=/
       );
     }
-    expect(read('src/text-preview/download.ts')).toContain('URL.createObjectURL(new Blob([text]');
-    expect(read('src/text-preview/page.ts')).toContain('resolveTextPreviewRange(');
+    expect(read('src/text-preview/download.ts')).toContain('new Blob([artifact.content]');
+    expect(read('src/text-preview/page.ts')).toContain('resolvePresentationPreviewRange(');
+    expect(read('src/text-preview/page.ts')).toContain('createPresentationSelection(preview, ids)');
     expect(read('src/text-preview/page.ts')).toContain(
-      'createTextPresentationSelection(preview, ids)'
+      'renderPresentationSelection(preview, snapshot, format)'
     );
-    expect(read('src/text-preview/page.ts')).toContain('renderTextSelection(preview, snapshot)');
+    expect(read('src/text-preview/page.ts')).toContain('text.textContent = row.presentedText');
+    expect(read('src/text-preview/page.ts')).not.toMatch(
+      /\.htmlBody\b|DOMParser|createContextualFragment/
+    );
   });
   it('imports no settings, providers, persistence, background or content controllers', () => {
     const files = [...dependencyClosure('src/text-preview/index.ts')];
@@ -68,6 +72,12 @@ describe('Text-only preview page isolation and build registration', () => {
     );
     expect(files).toContain('src/archive/presentation/text-preview-selection.ts');
     expect(files).toContain('src/archive/presentation/text.ts');
+    expect(files).toContain('src/archive/presentation/preview.ts');
+    expect(files).toContain('src/archive/presentation/selected.ts');
+    for (const file of files)
+      expect(read(file)).not.toMatch(
+        /\b(?:localStorage|sessionStorage|indexedDB|fetch|XMLHttpRequest|console)\b|chrome\.storage|data:text|innerHTML|outerHTML|insertAdjacentHTML/
+      );
   });
   it('keeps the popup preview branch controls separate and does not open a page or export on its own', () => {
     const popup = read('src/text-preview/popup.ts');

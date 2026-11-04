@@ -102,6 +102,24 @@ before source capture. This proves the measured installed current-branch Text
 slice; it does not yet prove selected-branch interaction, HTML/Markdown excerpts,
 PDF or DOCX.
 
+### E8 — One detached projection now serves rich Text, Markdown and HTML selection
+
+The next installed slice prepares self-contained per-message Text, Markdown and
+HTML bodies while the authorized canonical branch exists, then discards the
+canonical/capture stages before one-shot transfer. The strict frozen projection
+contains no topology, canonical messages, raw/source references, provider
+extensions, asset IDs/bytes/paths or destination authority. Combined row,
+aggregate, parser-work and wire ceilings prevent the three representations from
+silently tripling admitted work.
+
+One current ChatGPT branch again exposed 40 rows with no initial selection. A
+single short row produced a browser-confirmed 817-byte Markdown clipboard source.
+The HTML browser outcome expired as `unknown` without retry; completing the same
+already-open Save As dialog independently produced a 2,412-byte file with one
+article, CSP and no script element. This separates physical-file evidence from
+the browser terminal receipt and does not claim selected-branch, DeepSeek, PDF
+or DOCX acceptance.
+
 ### X1 — Treat readable Markdown or convenient JSON as archival authority
 
 This path looked attractive because those files are easy to inspect and move.
@@ -159,12 +177,13 @@ the graph or create a reduced archive. Search queries and UI ranges are not
 authority: ranges resolve to explicit IDs, while search only filters the visible
 rows and never changes selection.
 
-The first vertical slice is Text preview/search/selection plus explicit Copy and
-Download. HTML and canonical-derived Markdown follow on the same snapshot;
-legacy Markdown is not reused as shared search text because its hidden-message
-semantics differ from HTML/Text.
+The completed preview/search/selection slice supports explicit Text, rich
+canonical-derived Markdown and safe offline HTML Copy/Download over the same
+ordered IDs. Legacy Markdown is not reused as shared search text or renderer
+input because its omission semantics differ from the canonical presentation
+profile.
 
-Evidence: E1, E4, E5, E6, E7
+Evidence: E1, E4, E5, E6, E7, E8
 
 Decision record: ADR-048
 
@@ -200,11 +219,11 @@ bounded identity, rendering and terminal-delivery contract.
 ### T4 — Add one local preview and immutable message selection contract
 
 Completed on 2026-11-04 as a behavior-preserving capture-seam refactor followed
-by one Text vertical slice with an extension-owned preview, bounded in-memory
-rows, search, checkbox/range selection and explicit Copy/Download. Search does
-not alter selection implicitly, and a partial selection cannot silently cause
-the full archive to be shared as a view. HTML and canonical-derived Markdown
-remain the next consumers of the same frozen selection.
+by an extension-owned preview with bounded detached Text/Markdown/HTML bodies,
+search, checkbox/range selection, one format selector and explicit
+Copy/Download. Search and format changes do not alter selection implicitly, and
+a partial selection cannot silently cause the full archive to be shared as a
+view.
 
 Trigger: met on 2026-11-04 after the Text slice merged and the capture-only
 lifecycle, stage cleanup and no-second-canonical boundary were specified.
@@ -217,9 +236,10 @@ Conversation-to-image is not on the active roadmap: an ordinary browser
 screenshot already covers the current user need without adding a canvas,
 pagination or memory-heavy rendering subsystem.
 
-Trigger: for PDF or DOCX, the shared selection/profile contract is stable and
-the format has an enforceable output budget. Reopen image only for a concrete
-scenario that an ordinary screenshot cannot solve.
+Trigger: met for PDF/DOCX on 2026-11-04 when the shared multiformat
+selection/profile contract passed installed current-branch evidence. Each format
+still needs its own enforceable renderer/output budget. Reopen image only for a
+concrete scenario that an ordinary screenshot cannot solve.
 
 ## Observations
 
@@ -232,6 +252,7 @@ scenario that an ordinary screenshot cannot solve.
 - [evidence] E5: Liska already separates Markdown, archive JSON and canonical-derived HTML in current source
 - [evidence] E6: installed Comet persisted deterministic canonical-derived text and a matching terminal receipt without changing older products #live
 - [evidence] E7: installed Comet kept bounded preview selection local and separate from canonical archive authority #live
+- [evidence] E8: one detached bounded projection now renders selected Text, Markdown and HTML without retaining canonical authority #live
 - [rejected] X1: readability and a JSON extension do not establish archival completeness
 - [rejected] X2: deriving later views from lossy Markdown would compound earlier omissions
 - [rejected] X3: third-party button parity, remote conversion and unlimited image capture do not meet Liska's privacy or boundedness contract
@@ -241,7 +262,7 @@ scenario that an ordinary screenshot cannot solve.
 - [tail] T1: add richer reading formats only with separate bounded rendering and persistence evidence
 - [tail] T2: allow future living memory to index but never silently rewrite archive truth
 - [tail] T3: extend text beyond the completed single-branch File view only through a separately bounded contract
-- [tail] T4: bounded local Text preview and immutable message selection are complete; HTML/Markdown reuse remains
+- [tail] T4: bounded local Text/Markdown/HTML preview and immutable message selection are complete
 - [tail] T5: treat PDF and DOCX as separate budgeted renderers; leave image dormant unless screenshots prove insufficient
 
 ## Relations
@@ -267,3 +288,4 @@ scenario that an ordinary screenshot cannot solve.
 - S10 — installed Comet text/receipt acceptance artifacts; retained locally; repository visibility: safe aggregate only
 - S11 — [ADR-048: Selected presentation preview without a second canonical archive](../adr/048-selected-presentation-preview.md)
 - S12 — local receipt `LISKA-TEXT-PREVIEW-20261104`; visibility: local-only; safe aggregate only
+- S13 — local receipt `LISKA-MULTIFORMAT-PREVIEW-20261104`; visibility: local-only; safe aggregate only

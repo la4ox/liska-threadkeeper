@@ -1,0 +1,363 @@
+import type { Definition, Nodes, Parent } from 'mdast';
+import type { ArchiveBlock, ArchiveMessage } from '../types';
+import { parseBoundedMarkdown } from './markdown';
+import { isSafeUserLink, type PresentationContext } from './safety';
+import { presentationFail } from './preview-safety';
+
+/** Escape source data, not Markdown structure. No metadata can open HTML or Markdown syntax. */
+export function markdownLiteral(value: string): string {
+  return value
+    .replace(/\r\n?/g, '\n')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/[\\`*_[\]{}()#+.!|~-]/g, '\\$&');
+}
+function longestRun(value: string, marker: string): number {
+  let longest = 0;
+  let run = 0;
+  for (const char of value) {
+    run = char === marker ? run + 1 : 0;
+    longest = Math.max(longest, run);
+  }
+  return longest;
+}
+export function markdownFence(value: string, language: string | null = null): string {
+  const ticks = Math.max(3, longestRun(value, '`') + 1);
+  const tildes = Math.max(3, longestRun(value, '~') + 1);
+  const fence = ticks <= tildes ? '`'.repeat(ticks) : '~'.repeat(tildes);
+  const hint = language !== null && /^[a-zA-Z0-9_+.-]{1,64}$/.test(language) ? language : '';
+  return `${fence}${hint}\n${value}${value.endsWith('\n') ? '' : '\n'}${fence}`;
+}
+function quote(value: string): string {
+  return value
+    .split('\n')
+    .map(line => `> ${line}`)
+    .join('\n');
+}
+function destination(value: string): string {
+  return `<${value.replace(/&/g, '&amp;').replace(/</g, '%3C').replace(/>/g, '%3E')}>`;
+}
+
+/** New Markdown SOURCE renderer. The HTML Markdown renderer is used only for its bounded parser. */
+class MarkdownSourceRenderer {
+  readonly definitions = new Map<string, Definition>();
+  constructor(
+    readonly source: string,
+    readonly context: PresentationContext
+  ) {}
+
+  children(node: Parent, separator = ''): string {
+    return node.children.map(child => this.node(child)).join(separator);
+  }
+  link(url: string, label: string): string {
+    if (isSafeUserLink(url)) return `[${label}](${destination(url)})`;
+    this.context.diagnostic('unsafe-link-inert');
+    return `${label} ${markdownLiteral(`[Link: ${url}]`)}`;
+  }
+  image(alt: string | null | undefined, url: string): string {
+    this.context.diagnostic('markdown-image-reference');
+    return markdownLiteral(`[Image reference: ${alt ?? ''}; ${url}]`);
+  }
+  reference(
+    node: Extract<Nodes, { type: 'linkReference' | 'imageReference' | 'definition' }>
+  ): string {
+    if (node.type === 'definition') {
+      this.context.diagnostic('markdown-reference-definition');
+      return markdownLiteral(`[Link definition: ${node.label ?? node.identifier}; ${node.url}]`);
+    }
+    const definition = this.definitions.get(node.identifier);
+    if (!definition) this.context.diagnostic('markdown-reference-unresolved');
+    if (node.type === 'imageReference')
+      return this.image(node.alt, definition?.url ?? '[unresolved]');
+    return definition
+      ? this.link(definition.url, this.children(node))
+      : markdownLiteral(`[Unresolved link reference: ${node.label ?? node.identifier}]`);
+  }
+  list(node: Extract<Nodes, { type: 'list' }>): string {
+    return node.children
+      .map((item, index) => {
+        const marker = node.ordered ? `${(node.start ?? 1) + index}. ` : '- ';
+        const body = this.children(item, '\n\n');
+        return marker + body.replace(/\n/g, `\n${' '.repeat(marker.length)}`);
+      })
+      .join('\n\n');
+  }
+  node(node: Nodes): string {
+    switch (node.type) {
+      case 'root':
+        return this.children(node, '\n\n');
+      case 'paragraph':
+        return this.children(node);
+      case 'heading':
+        return '#'.repeat(node.depth) + ' ' + this.children(node);
+      case 'text':
+        return markdownLiteral(node.value);
+      case 'strong':
+        return `**${this.children(node)}**`;
+      case 'emphasis':
+        return `*${this.children(node)}*`;
+      case 'blockquote':
+        return quote(this.children(node, '\n\n'));
+      case 'list':
+        return this.list(node);
+      case 'listItem':
+        return this.children(node, '\n\n');
+      case 'break':
+        return '  \n';
+      case 'thematicBreak':
+        return '---';
+      default:
+        return this.structure(node);
+    }
+  }
+  structure(node: Nodes): string {
+    switch (node.type) {
+      case 'code':
+        return this.code(node);
+      case 'inlineCode': {
+        return this.inlineCode(node.value);
+      }
+      case 'html':
+        this.context.diagnostic('provider-html-inert');
+        return markdownLiteral(node.value);
+      case 'link':
+        return this.link(node.url, this.children(node));
+      case 'image':
+        return this.image(node.alt, node.url);
+      case 'definition':
+      case 'linkReference':
+      case 'imageReference':
+        return this.reference(node);
+      default:
+        this.context.diagnostic('markdown-node-unsupported');
+        return markdownFence(
+          this.source.slice(
+            node.position?.start.offset ?? 0,
+            node.position?.end.offset ?? this.source.length
+          )
+        );
+    }
+  }
+  inlineCode(source: string): string {
+    const fence = '`'.repeat(Math.max(1, longestRun(source, '`') + 1));
+    const value = source.replace(/\r\n?|\n/g, ' ');
+    const pad = /[^ ]/.test(value) && /^[ `]|[ `]$/.test(value) ? ' ' : '';
+    return `${fence}${pad}${value}${pad}${fence}`;
+  }
+  code(node: Extract<Nodes, { type: 'code' }>): string {
+    const language = node.lang ?? null;
+    const literalInfo =
+      node.meta || (language !== null && !/^[a-zA-Z0-9_+.-]{1,64}$/.test(language));
+    const info = literalInfo
+      ? `Code info: ${markdownLiteral([language, node.meta].filter(value => value !== null && value !== undefined).join(' '))}\n\n`
+      : '';
+    return info + markdownFence(node.value, language);
+  }
+  render(): string {
+    const root = parseBoundedMarkdown(this.source, this.context);
+    const pending: Nodes[] = [root];
+    while (pending.length) {
+      const node = pending.pop()!;
+      if (node.type === 'definition' && !this.definitions.has(node.identifier))
+        this.definitions.set(node.identifier, node);
+      if ('children' in node)
+        for (let index = node.children.length - 1; index >= 0; index--)
+          pending.push(node.children[index]);
+    }
+    return this.node(root);
+  }
+}
+
+class CanonicalMarkdownRenderer {
+  readonly parts: string[] = [];
+  constructor(
+    readonly context: PresentationContext,
+    readonly filenames: ReadonlyMap<string, string | null>,
+    readonly includeToolContent: boolean
+  ) {}
+  emit(value: string): void {
+    this.context.emit(this.parts, value);
+  }
+  literal(value: string): string {
+    if (value === '') this.context.diagnostic('block-empty');
+    return /(?:^|[\r\n])(?: {4}| {0,3}\t)/.test(value)
+      ? markdownFence(value)
+      : markdownLiteral(value);
+  }
+  code(label: string, value: string, language: string | null = null): string {
+    if (value === '') this.context.diagnostic('block-empty');
+    return `**${markdownLiteral(label)}**\n\n${markdownFence(value, language)}`;
+  }
+  citation(block: Extract<ArchiveBlock, { type: 'citation' }>): string {
+    if (block.label === null) this.context.diagnostic('citation-label-absent');
+    else if (block.label === '') this.context.diagnostic('citation-label-empty');
+    const label = markdownLiteral(
+      block.label === '' ? '[Empty citation label]' : (block.label ?? 'Citation')
+    );
+    let result = label;
+    if (block.url === null) this.context.diagnostic('citation-url-absent');
+    else result = new MarkdownSourceRenderer('', this.context).link(block.url, label);
+    if (block.content === null) this.context.diagnostic('citation-content-absent');
+    else if (typeof block.content === 'string') result += '\n\n' + this.literal(block.content);
+    else {
+      this.context.diagnostic('citation-content-unsupported');
+      result += '\n\nStructured citation content is retained in the canonical archive.';
+    }
+    return quote(result);
+  }
+  attachment(id: string): string {
+    const name = this.filenames.get(id);
+    if (name === null || name === undefined) this.context.diagnostic('attachment-name-absent');
+    else if (name === '') this.context.diagnostic('attachment-name-empty');
+    this.context.diagnostic('attachment-unbound');
+    return markdownLiteral(
+      `Attachment reference: ${name || 'Unnamed attachment'} [local bytes are not bound to this presentation]`
+    );
+  }
+  technical(block: ArchiveBlock): string | undefined {
+    if (
+      !['reasoning', 'tool_call', 'tool_result', 'execution_output', 'error'].includes(block.type)
+    )
+      return undefined;
+    if (!this.includeToolContent) {
+      this.context.diagnostic('technical-content-omitted');
+      return 'Technical content omitted by the presentation profile.';
+    }
+    switch (block.type) {
+      case 'reasoning':
+        return this.code('Reasoning', block.text);
+      case 'tool_call':
+        return this.code(`Tool call (${block.toolName})`, this.context.json(block.arguments));
+      case 'tool_result':
+        return this.code(
+          block.toolName === null ? 'Tool result' : `Tool result (${block.toolName})`,
+          this.context.json(block.result)
+        );
+      case 'execution_output':
+        return this.code('Execution output', this.context.json(block.output));
+      case 'error':
+        return this.code(
+          block.code === null ? 'Provider error' : `Provider error (${block.code})`,
+          block.message
+        );
+    }
+  }
+  block(block: ArchiveBlock): string {
+    const technical = this.technical(block);
+    if (technical !== undefined) return technical;
+    switch (block.type) {
+      case 'markdown':
+        if (block.markdown === '') {
+          this.context.diagnostic('block-empty');
+          return 'Empty Markdown block.';
+        }
+        return new MarkdownSourceRenderer(block.markdown, this.context).render();
+      case 'text':
+        return this.literal(block.text);
+      case 'code':
+        return this.code(
+          block.language === null ? 'Code' : `Code (${block.language})`,
+          block.code,
+          block.language
+        );
+      case 'html':
+        this.context.diagnostic('provider-html-inert');
+        return this.code('Inert provider HTML source', block.html);
+      case 'quote':
+        return quote(
+          this.literal(block.text) +
+            (block.attribution === null ? '' : '\n\n— ' + markdownLiteral(block.attribution))
+        );
+      case 'citation':
+        return this.citation(block);
+      case 'attachment':
+        return this.attachment(block.assetId);
+      case 'canvas_event':
+        this.context.diagnostic('canvas-unsupported');
+        return 'Canvas event: presentation unsupported; retained in the canonical archive.';
+      case 'unknown':
+        this.context.diagnostic('unknown-unsupported');
+        return 'Unknown provider block: presentation unsupported; retained in the canonical archive.';
+      default:
+        presentationFail('presentation-input-invalid');
+    }
+  }
+}
+
+export function renderCanonicalMarkdownBody(
+  message: ArchiveMessage,
+  filenames: ReadonlyMap<string, string | null>,
+  includeToolContent: boolean,
+  context: PresentationContext
+): string {
+  const renderer = new CanonicalMarkdownRenderer(context, filenames, includeToolContent);
+  if (message.blocks.length === 0) {
+    context.diagnostic('message-empty');
+    renderer.emit('Empty message: no content blocks.');
+  }
+  message.blocks.forEach((block, index) => {
+    // The thematic break also terminates list/quote containers between canonical blocks.
+    if (index > 0) renderer.emit('\n\n---\n\n');
+    renderer.emit(renderer.block(block));
+  });
+  // Bodies always terminate in a blank line; selected assembly also inserts a thematic break.
+  renderer.emit('\n\n');
+  return renderer.parts.join('');
+}
+
+function closedFence(source: string, node: Extract<Nodes, { type: 'code' }>): boolean {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  if (start === undefined || end === undefined) return false;
+  const fragment = source.slice(start, end);
+  const opening = /^(`{3,}|~{3,})[^\r\n]*(?:\r\n|\r|\n)/.exec(fragment);
+  // Indented code is terminated by the blank-line + unindented thematic-break seam.
+  if (!opening) return !/^[`~]{3}/.test(fragment);
+  const lines = fragment.split(/\r\n|\r|\n/);
+  if (lines.length < 2) return false;
+  // Derive the actual list/quote continuation prefix. Accepting arbitrary `>`
+  // here would mistake literal quoted fence text inside an UNclosed root fence
+  // for a closer, allowing the following selected row to be consumed.
+  const physicalStart =
+    Math.max(source.lastIndexOf('\n', start - 1), source.lastIndexOf('\r', start - 1)) + 1;
+  const prefix = source.slice(physicalStart, start).replace(/[^> \t]/g, ' ');
+  const lastLine = lines[lines.length - 1];
+  if (!lastLine.startsWith(prefix)) return false;
+  const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(lastLine.slice(prefix.length));
+  return (
+    closing !== null && closing[1][0] === opening[1][0] && closing[1].length >= opening[1].length
+  );
+}
+
+/** @internal One caller-owned context spans ALL adopted rows, never a fresh parser budget per row. */
+export function requireSelfContainedMarkdownBody(
+  source: string,
+  context: PresentationContext,
+  maxSourceChars: number
+): void {
+  if (!source.endsWith('\n\n')) presentationFail('presentation-markdown-invalid');
+  try {
+    const pending: Nodes[] = [parseBoundedMarkdown(source, context, maxSourceChars)];
+    while (pending.length) {
+      const node = pending.pop()!;
+      if (
+        node.type === 'html' ||
+        node.type === 'definition' ||
+        node.type === 'linkReference' ||
+        node.type === 'imageReference' ||
+        node.type === 'image'
+      )
+        presentationFail('presentation-markdown-invalid');
+      if (node.type === 'link' && !isSafeUserLink(node.url))
+        presentationFail('presentation-markdown-invalid');
+      if (node.type === 'code' && !closedFence(source, node))
+        presentationFail('presentation-markdown-invalid');
+      if ('children' in node)
+        for (let index = node.children.length - 1; index >= 0; index--)
+          pending.push(node.children[index]);
+    }
+  } catch {
+    presentationFail('presentation-markdown-invalid');
+  }
+}

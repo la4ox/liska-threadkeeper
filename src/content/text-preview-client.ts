@@ -1,4 +1,4 @@
-import type { ArchiveTextPreview } from '../archive/presentation';
+import type { ArchivePresentationPreview } from '../archive/presentation';
 import { boundedBranchOptions, type ExportBranchOption } from '../lib/export-operation-contract';
 import {
   isTextPreviewToken,
@@ -53,15 +53,22 @@ function exactObject(value: unknown, keys: readonly string[]): value is Record<s
 
 function captureSettings(value: unknown): TextPreviewCaptureSettings | undefined {
   if (
-    !exactObject(value, ['enableAutoScroll', 'enableToolContent', 'enableChatGptOpaqueReplay']) ||
+    !exactObject(value, [
+      'enableAutoScroll',
+      'enableToolContent',
+      'enableInertCodeBlocks',
+      'enableChatGptOpaqueReplay',
+    ]) ||
     typeof value.enableAutoScroll !== 'boolean' ||
     typeof value.enableToolContent !== 'boolean' ||
+    typeof value.enableInertCodeBlocks !== 'boolean' ||
     typeof value.enableChatGptOpaqueReplay !== 'boolean'
   )
     return undefined;
   return Object.freeze({
     enableAutoScroll: value.enableAutoScroll,
     enableToolContent: value.enableToolContent,
+    enableInertCodeBlocks: value.enableInertCodeBlocks,
     enableChatGptOpaqueReplay: value.enableChatGptOpaqueReplay,
   });
 }
@@ -118,7 +125,7 @@ export async function checkTextPreviewCaptureLease(): Promise<boolean> {
   }
 }
 
-export async function publishTextPreview(payload: ArchiveTextPreview): Promise<boolean> {
+export async function publishTextPreview(payload: ArchivePresentationPreview): Promise<boolean> {
   const operation = active;
   if (!operation || operation.scope.abort.signal.aborted) return false;
   try {
