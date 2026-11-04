@@ -154,6 +154,43 @@ mark capture work done without making a new capture. Typed evidence references
 do not correct that semantic mismatch. The audit establishes this boundary, not
 a baseline driver, account completeness or further Claude behavior.
 
+### E12 — ChatGPT exposed three list names, not a route or schema contract
+
+One separately authorized observation on 2026-11-05 found exactly three Network
+list-name requests with type `Fetch`, HTTP 200 and names beginning
+`conversations?`. The fully visible name was
+`conversations?limit=5&owned_only=false`; two partial names contained
+`exclude_conversation_origin=tpp` and `conversation_origin=tpp&expand=false`.
+Their unread query suffixes are not wildcard grammar. Full URL and method were
+not inspected; `/backend-api/conversations` is only a candidate route-family
+inference from ChatGPT context.
+
+The pass began with an already-open chat and DevTools opened, without deliberate
+reload or isolated trigger causality. Recording stopped after the third matching
+request; no fourth was observed before stop. Recording stop is neither network
+stop nor terminal/completeness proof. No list row/details, response body or
+request headers was opened; no real IDs, titles, account data or header values
+are repository evidence, and no mutation or manual retry was invoked for the pass.
+HTTP 200 does not prove payload suitability. Query meanings, route relations,
+scope/account binding, ordering, ownership, completeness, identity, pagination,
+cursor, marker, deletion/archive visibility and response schema remain unknown.
+
+### E13 — Source attribution identifies an observer, not the list initiator
+
+DevTools attributed the requests to AI Exporter `inject-web.js`. Local audit of
+the exact Comet-installed version 4.6.1 found a wrapper that stores original
+`window.fetch`, observes `/backend-api/` requests and returns the original fetch.
+Its ChatGPT callback retains `Authorization` and `chatgpt-`/`oai-` headers but
+ignores URL/method/body and intercepts no response body. Those are code-level
+header names, not inspected request headers or retained real values. Recursive
+literal search found no candidate list-route or observed query constructors.
+Separate singular detail/export fetch code does not establish list causality.
+
+This proves neither extension-created list requests nor a page-native caller.
+ADR-055 records exact byte lengths and SHA-256 for the audited script and
+manifest, manifest version 3 and extension version 4.6.1, without local absolute
+paths or the extension ID. The initiating caller remains unresolved.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -290,6 +327,20 @@ Evidence: E6, E7, E10, E11
 
 Decision record: ADR-054
 
+### D9 — Keep ChatGPT list-name evidence non-executable
+
+Record ADR-055 as a docs-only route-evidence checkpoint. A request-shape
+classifier would encode lexical familiarity only: full URL/method/query grammar,
+response envelope, record types, stable identity, pagination and marker contract
+are absent, and there is no consumer. Add no classifier, parser or runtime.
+Provider-specific update discovery has not functionally advanced through E12.
+ADR-052/053/054 and their authority boundaries remain unchanged; the journal
+stays inert, baseline authority stays gated and semantic memory remains later.
+
+Evidence: E12, E13
+
+Decision record: ADR-055
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -343,8 +394,10 @@ checkpoint.
 Trigger: the user explicitly names the provider, signed-in account and exact
 workspace/organization or personal scope allowed for the experiment. The first
 Claude pass was authorized and fulfilled on 2026-11-05 (E10); the initial ChatGPT
-recommendation was not authorization. Any future pass is separate and must count
-actual emitted requests, including refetches, within its own cap.
+recommendation was not authorization. A later separately authorized ChatGPT pass
+observed names only (E12), not schema. Any future pass is separate and must count
+actual emitted requests, including refetches, within its own cap; reading safe
+aggregate response structure requires explicit body-inspection permission.
 
 ### T6 — Implement a scope-aware canonical directory layout
 
@@ -378,6 +431,20 @@ after the required reviews, explicitly grants account-wide baseline authority.
 Until then the journal stays inert, the backup goal stays unfinished and living
 semantic memory stays later.
 
+### T9 — Authorize a bounded ChatGPT schema-observation pass separately
+
+A later pass may inspect explicitly permitted request details and safe aggregate
+list response structure, without retaining real values. It must choose the
+provider, signed-in account and exact scope, count actual emitted requests
+including refetches, and define its own cap and stop conditions. Candidate path,
+method, full query, envelope/record types, identity, pagination and marker remain
+unproven until observed; no meanings follow from `tpp`, `owned_only` or `expand`.
+
+Trigger: the user explicitly authorizes that bounded scope and inspection,
+including safe aggregate response structure. The completed name-only pass
+excluded bodies and grants no permission to open them later. No further provider
+request is authorized by this thread.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -393,6 +460,8 @@ semantic memory stays later.
 - [evidence] E9: the current default is each provider's visibly active main personal account; dormant backups stay out of scope #local-only
 - [evidence] E10: one Claude reload emitted three active-list requests and proved only a 12-record terminal envelope with opaque markers #live
 - [evidence] E11: exact post-PR118 main makes confirmed attempts recorded/ineligible, so verifying an existing snapshot is not new capture work #code
+- [evidence] E12: three ChatGPT Fetch names/statuses exhausted the cap; method, full path and schema were uninspected, and recording stop proves no completeness #live
+- [evidence] E13: exact AI Exporter 4.6.1 source is a pass-through observer, so DevTools attribution identifies neither list construction nor the initiating caller #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -404,14 +473,16 @@ semantic memory stays later.
 - [decision] D6: namespace future captures by a verified provider scope while leaving unbound legacy evidence unassigned
 - [decision] D7: admit the exact Claude terminal list shape and compare opaque tokens without sync authority
 - [decision] D8: keep local verification outside journal v1; future reattachment is pure and exact, while a baseline needs purpose/capture semantics and explicit authority
+- [decision] D9: retain ChatGPT name evidence as docs only; lexical familiarity without grammar/schema or a consumer admits no classifier, parser or runtime
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
 - [tail] T4: run a multi-day budgeted baseline before enabling a daily scheduler
-- [tail] T5: the first authorized Claude evidence pass is fulfilled; future passes need separate scope/caps and actual emitted-request accounting
+- [tail] T5: first Claude schema and later ChatGPT name-only passes are fulfilled within different inspection bounds; future scope/caps and response-body inspection need explicit authority
 - [tail] T6: add a scope-aware canonical directory layout only after stable binding and migration rules are reviewed
 - [tail] T7: prove Claude pagination, archived visibility, marker semantics and request-level budgeting in later bounded experiments
 - [tail] T8: choose separately authorized Claude evidence or a later explicitly authorized account-wide baseline after semantic/provider review; backup remains unfinished
+- [tail] T9: separately authorize a capped, scope-explicit ChatGPT schema pass and safe aggregate body inspection; no further request is authorized
 
 ## Relations
 
@@ -439,3 +510,6 @@ semantic memory stays later.
 - S14 — local receipt `LISKA-CLAUDE-LIST-EVIDENCE-20261105`; visibility: local-only; safe aggregate only
 - S15 — [ADR-054: Keep local snapshot verification outside capture journal v1](../adr/054-local-verification-outside-capture-journal.md)
 - S16 — [PR #118](https://github.com/la4ox/liska-threadkeeper/pull/118), merged main `4c3ba7e`, exact reviewed head `ee2e34a`
+- S17 — [ADR-055: ChatGPT list-name evidence without an executable route contract](../adr/055-chatgpt-list-route-evidence.md), base main `070e6eb0b02f526f5d957964f6daaefebb8014f3`
+- S18 — local receipt `LISKA-CHATGPT-LIST-NAMES-20261105`; visibility: local-only; safe aggregate only
+- S19 — local receipt `LISKA-AI-EXPORTER-461-SOURCE-AUDIT-20261105`; visibility: local-only; safe code behavior and byte provenance only

@@ -505,10 +505,38 @@ terminal states, and the existing no-credential-export boundary.
   separately reviewed persisted purpose/capture semantics, provider evidence
   and explicit account-wide authority.
 - The full update-driven backup goal remains unfinished. The next choice is a
-  separately authorized Claude evidence pass for pagination, archived visibility,
-  marker/scope behavior or rate behavior with actual emitted-request accounting,
-  versus a later explicit account-wide baseline choice after those contracts
-  are reviewed. Neither is authorized here; semantic memory remains later.
+  separately authorized provider evidence pass, versus a later explicit
+  account-wide baseline choice after the required contracts are reviewed.
+  Claude pagination, archived visibility, marker/scope and rate behavior remain
+  possible bounded evidence branches. Neither branch is authorized here;
+  semantic memory remains later.
+- One separately authorized ChatGPT observation on 2026-11-05 reached its cap of
+  three actual list-name requests: the Network table showed type `Fetch`, HTTP
+  200 and names beginning `conversations?`. Only
+  `conversations?limit=5&owned_only=false` was fully visible; two partial names
+  contained `exclude_conversation_origin=tpp` and
+  `conversation_origin=tpp&expand=false`, respectively. Their unread query
+  suffixes are not wildcard grammar. Method and full URL were not inspected;
+  `/backend-api/conversations` is only a candidate route-family inference.
+  The context was an already-open chat with DevTools opened, not a deliberate
+  reload or an isolated trigger. Recording stopped after the third request;
+  no fourth was observed before stop, which proves neither network stop nor
+  completeness. No row/details, response body or request headers was opened.
+  No real values were retained, and no mutation or manual retry was invoked.
+- [ADR-055](adr/055-chatgpt-list-route-evidence.md) keeps that observation
+  docs-only. The exact installed AI Exporter 4.6.1 source audit found a
+  pass-through fetch observer, not a demonstrated list-request constructor;
+  DevTools attribution proves neither extension-created traffic nor a
+  page-native caller. Query meanings, route relations, scope, identity,
+  envelope/record types, pagination, markers, ownership, ordering and
+  deletion/archive visibility remain unknown. HTTP 200 does not establish
+  payload suitability. A request-shape classifier would encode lexical
+  familiarity without a complete grammar or consumer, so no classifier,
+  parser or runtime is added and update discovery has not functionally advanced.
+  The next ChatGPT branch is a separately authorized schema-observation pass
+  with explicit scope, actual-request counting and stop conditions. Even safe
+  aggregate list response structure needs explicit permission to inspect
+  because this pass excluded bodies. No further provider request is authorized.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

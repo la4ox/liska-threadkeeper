@@ -5132,3 +5132,53 @@ Claude evidence separate from future authority. Idea-Threads validation passes
 9 threads / 37 relations and documentation-link tests pass 74/74; changed-doc
 Prettier and `git diff --check` also pass. No runtime,
 provider or archive behavior changes in this slice.
+
+## ChatGPT list-name evidence checkpoint — 2026-11-05
+
+Branch `codex/chatgpt-list-route-evidence` starts from current merged main
+`070e6eb0b02f526f5d957964f6daaefebb8014f3` and records
+[ADR-055](docs/adr/055-chatgpt-list-route-evidence.md) as documentation only.
+One user-authorized observation reached its cap of exactly three actual
+list-name requests. On the already-open ChatGPT chat with DevTools opened, the
+Network table showed type `Fetch`, HTTP 200 and names beginning
+`conversations?`: one fully visible
+`conversations?limit=5&owned_only=false`, plus two partial names containing
+`exclude_conversation_origin=tpp` and `conversation_origin=tpp&expand=false`.
+Unread query suffixes are not wildcard grammar. Method and full URL were not
+inspected; `/backend-api/conversations` remains a candidate route-family
+inference, not an observed exact path. Trigger causality was not isolated and
+the page was not deliberately reloaded for this pass.
+
+Recording stopped after the third matching list-name request; no fourth was
+observed before stop. This is neither network-stop nor terminal/completeness
+proof. No list row/details, response body or request headers was opened. No real
+IDs, titles, account data, bodies or header values were retained, and no mutation
+or manual retry was invoked for the pass. Query meanings, route relations,
+scope/account binding, ordering, ownership, identity, envelope/record types,
+pagination, completeness, cursor, marker and deletion/archive visibility remain
+unknown. HTTP 200 does not establish payload suitability.
+
+DevTools attributed the requests to installed AI Exporter `inject-web.js`, but
+the exact Comet-installed 4.6.1 source audit found a pass-through fetch observer.
+Its ChatGPT callback retains selected header names/values in the extension,
+ignores URL/method/body and intercepts no response body; no real values are
+repository evidence. Recursive literal search found no candidate list-route or
+observed query constructors. Separate singular detail/export fetch code does not
+establish list causality. Attribution proves neither extension-created list
+requests nor a page-native caller. ADR-055 retains safe byte/hash provenance,
+not local absolute paths or the extension ID.
+
+A classifier would encode lexical familiarity without full request grammar,
+response schema, identity, pagination, marker evidence or a consumer. No
+classifier, parser, source/test/package/generated change or runtime wiring is
+added, and provider-specific update discovery has not functionally advanced.
+ITH-007 adds E12/E13/D9/T9 without removing prior nodes. ADR-052/053/054 remain
+unchanged; the journal is inert, account-wide baseline authority stays gated,
+and semantic memory remains later. A next ChatGPT schema pass needs separate
+explicit scope, actual-request counting and stop conditions. Even safe aggregate
+list response structure requires explicit permission to inspect because this
+pass excluded bodies. No further provider request is authorized here.
+
+Idea-Threads validation passes 9 threads / 37 relations; documentation-link tests
+pass 75/75. Changed-document Prettier and `git diff --check` pass. This entry is
+append-only; no provider, browser or network action was taken for the docs slice.
