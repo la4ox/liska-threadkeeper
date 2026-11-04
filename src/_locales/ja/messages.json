@@ -1,4 +1,205 @@
 {
+  "catalog_title": {
+    "message": "既存スナップショットのカタログ"
+  },
+  "catalog_kicker": {
+    "message": "Liska · アーカイブツール"
+  },
+  "catalog_linkHelp": {
+    "message": "選択した1つのアーカイブルートからマニフェストのメタデータを読み取り、ファイルは変更しません"
+  },
+  "catalog_intro": {
+    "message": "アーカイブルートを1つ選択し、既存スナップショットのマニフェストだけから非公開のカタログを作成します。自動保存は行いません。"
+  },
+  "catalog_boundary": {
+    "message": "読み取り専用のカタログ — 選択したファイルはすべて変更されません。"
+  },
+  "catalog_boundaryHelp": {
+    "message": "生のレスポンス、正規化されたコンテンツ、アセットの内容は読み取りません。読み取るのは manifest.json のみで、その他の選択ファイルはパスとサイズのメタデータだけを使用します。プロバイダーへのアクセスやアーカイブの変更は行いません。"
+  },
+  "catalog_privacy": {
+    "message": "識別子を含む非公開データです。匿名化はされません"
+  },
+  "catalog_privacyHelp": {
+    "message": "ダウンロードする JSON には、プロバイダーの安定した会話識別子が含まれます。ハッシュ化は匿名化ではありません。このレポートは非公開で保管してください。フォルダー名、相対パス、タイトル、URL、会話の内容は出力しません。"
+  },
+  "catalog_completenessHelp": {
+    "message": "完全性はマニフェストに記載されたメタデータであり、生データ、正規化データ、アセットのバイト検証ではありません。アーティファクトの記載だけでは内容の整合性を証明できません。"
+  },
+  "catalog_selection": {
+    "message": "アーカイブルートを1つ選択"
+  },
+  "catalog_pick": {
+    "message": "アーカイブルートを選択"
+  },
+  "catalog_clear": {
+    "message": "選択をクリア"
+  },
+  "catalog_build": {
+    "message": "カタログを作成"
+  },
+  "catalog_cancel": {
+    "message": "カタログ作成を取り消す"
+  },
+  "catalog_save": {
+    "message": "非公開 JSON を保存…"
+  },
+  "catalog_limits": {
+    "message": "選択できるのは最大4,096ファイル、128マニフェストです。マニフェストは1つ256 KiB、合計8 MiBまでです。メタデータ上のサイズ上限は1ファイル1 TiB、合計8 TiBです。パスは512文字までです。フォルダー名とファイルパスは表示しません。"
+  },
+  "catalog_empty": {
+    "message": "アーカイブルートは未選択です。"
+  },
+  "catalog_selected": {
+    "message": "選択したマニフェストのメタデータからカタログを作成できます。"
+  },
+  "catalog_reading": {
+    "message": "マニフェストを読み取り中…"
+  },
+  "catalog_building": {
+    "message": "マニフェストのみのカタログを作成中…"
+  },
+  "catalog_ready": {
+    "message": "カタログが完成しました。選択したファイルは変更されていません。"
+  },
+  "catalog_cancelled": {
+    "message": "カタログ作成を取り消しました。レポートは保存されていません。"
+  },
+  "catalog_cancellationHelp": {
+    "message": "取り消しはマニフェストの読み取りの間に反映され、遅れて完了した処理結果は破棄します。同期的な解析は即座には停止できません。クリアすると、このページの選択とレポートを破棄します。"
+  },
+  "catalog_error": {
+    "message": "カタログを作成できませんでした。レポートは保存されていません。"
+  },
+  "catalog_selection_invalid": {
+    "message": "安全で欠損のない相対パスを持つアーカイブルートを1つ選択してください。この選択は無効または曖昧です。"
+  },
+  "catalog_selection_limit": {
+    "message": "カタログのファイル数、マニフェスト数、パス長、またはバイト数の上限を超えています。より小さいアーカイブルートを選択してください。"
+  },
+  "catalog_selection_read_failed": {
+    "message": "選択したマニフェストを完全に読み取れませんでした。アーカイブルートを選択し直してください。"
+  },
+  "catalog_directory_unavailable": {
+    "message": "このブラウザーではフォルダーを選択できません。個別ファイルを選ぶ代替方式は使用しません。"
+  },
+  "catalog_files": {
+    "message": "選択ファイル"
+  },
+  "catalog_bytes": {
+    "message": "バイト"
+  },
+  "catalog_manifests": {
+    "message": "マニフェスト"
+  },
+  "catalog_read": {
+    "message": "読み取り済み"
+  },
+  "catalog_report": {
+    "message": "マニフェストのみのカタログ"
+  },
+  "catalog_totals": {
+    "message": "カタログの集計"
+  },
+  "catalog_entries": {
+    "message": "スナップショット項目"
+  },
+  "catalog_entry": {
+    "message": "項目"
+  },
+  "catalog_source": {
+    "message": "選択ソース"
+  },
+  "catalog_uniqueEntries": {
+    "message": "一意のマニフェスト項目"
+  },
+  "catalog_unassociated": {
+    "message": "関連付けのないファイル"
+  },
+  "catalog_occurrences": {
+    "message": "件"
+  },
+  "catalog_valid": {
+    "message": "有効なマニフェストのメタデータ"
+  },
+  "catalog_invalid": {
+    "message": "無効なマニフェスト"
+  },
+  "catalog_unsupported": {
+    "message": "未対応のマニフェスト"
+  },
+  "catalog_artifacts": {
+    "message": "生データのアーティファクト"
+  },
+  "catalog_assets": {
+    "message": "取得済みアセット"
+  },
+  "catalog_records": {
+    "message": "記載されたファイルレコード"
+  },
+  "catalog_present": {
+    "message": "メタデータ上で存在"
+  },
+  "catalog_missing": {
+    "message": "欠落"
+  },
+  "catalog_sizeMismatch": {
+    "message": "サイズ不一致"
+  },
+  "catalog_canonical": {
+    "message": "正規化ファイル"
+  },
+  "catalog_present_unverified": {
+    "message": "存在 — バイト未検証"
+  },
+  "catalog_absent": {
+    "message": "なし"
+  },
+  "catalog_extras": {
+    "message": "追加ファイル"
+  },
+  "catalog_declared": {
+    "message": "記載された完全性"
+  },
+  "catalog_graph": {
+    "message": "グラフ"
+  },
+  "catalog_messages": {
+    "message": "メッセージ"
+  },
+  "catalog_branches": {
+    "message": "ブランチ"
+  },
+  "catalog_assetCompleteness": {
+    "message": "アセット"
+  },
+  "catalog_complete": {
+    "message": "完全"
+  },
+  "catalog_partial": {
+    "message": "部分的"
+  },
+  "catalog_unknown_value": {
+    "message": "不明"
+  },
+  "catalog_not_attempted": {
+    "message": "未試行"
+  },
+  "catalog_noEntries": {
+    "message": "対応するスナップショットのマニフェストはカタログに登録されませんでした。"
+  },
+  "catalog_saving": {
+    "message": "名前を付けて保存を要求しました。ブラウザーでの完了を待っています…"
+  },
+  "catalog_confirmed": {
+    "message": "ブラウザーは JSON のダウンロード完了を報告しました。ディスク上のバイトは独立して再読み取りしていません。"
+  },
+  "catalog_failure": {
+    "message": "ブラウザーはカタログのダウンロードを完了しませんでした。再試行は行っていません。別の明示的な試行を行うには、クリアするか選択し直してください。"
+  },
+  "catalog_unknown": {
+    "message": "ダウンロード結果は不明です。ダウンロード一覧を確認してください。再試行は行っていません。別の明示的な試行を行うには、クリアするか選択し直してください。"
+  },
   "snapshot_title": {
     "message": "ローカルスナップショットを比較",
     "description": "Local analysis-only snapshot page"
