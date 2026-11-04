@@ -311,6 +311,121 @@ describe('detached multiformat presentation preview', () => {
     expect(nodesOf(body).some(node => node.type === 'list')).toBe(true);
   });
 
+  it.each(['```\na\n\n```', '```\na\n\n\n```', '~~~js\nvalue();\n\n~~~', '```\ra\r\r```'])(
+    'preserves fenced-code trailing newlines for %s',
+    source => {
+      const candidate = input();
+      candidate.archive.graph.nodes['node-user'].message!.blocks = [
+        block('markdown', { markdown: source }),
+      ];
+      const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+      expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+    }
+  );
+
+  it.each(['> ```\r> a\r> \r> ```', '> ```\r\n> a\r\n> \r\n> ```'])(
+    'preserves quoted fenced-code physical line endings for %s',
+    source => {
+      const candidate = input();
+      candidate.archive.graph.nodes['node-user'].message!.blocks = [
+        block('markdown', { markdown: source }),
+      ];
+      const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+      expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+    }
+  );
+
+  it.each(['- > ```\r  > a\r  > \r  > ```', '- > ```\r\n  > a\r\n  > \r\n  > ```'])(
+    'preserves list/quote/fence physical line endings for %s',
+    source => {
+      const candidate = input();
+      candidate.archive.graph.nodes['node-user'].message!.blocks = [
+        block('markdown', { markdown: source }),
+      ];
+      const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+      expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+    }
+  );
+
+  it('preserves trailing newlines in canonical code blocks', () => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('code', { language: 'text', code: 'value\n' }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(nodesOf(body)).toContainEqual(
+      expect.objectContaining({ type: 'code', lang: 'text', value: 'value\n' })
+    );
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('code', { language: 'text', code: 'value\r' }),
+    ];
+    const crBody = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(nodesOf(crBody)).toContainEqual(
+      expect.objectContaining({ type: 'code', lang: 'text', value: 'value\r' })
+    );
+  });
+
+  it.each([
+    'first line\nsecond line\n===========',
+    'first line\nsecond line\n-----------',
+    'first  \nsecond\n===========',
+    'first  \nsecond\n-----------',
+  ])('preserves multiline setext headings for %s', source => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+  });
+
+  it.each([
+    'first  \n&#32;&#32;&#32;&#32;second\n===========',
+    'first&#32;&#32;  \nsecond\n===========',
+    '*first&#32;&#32;  \n&#32;&#32;&#32;&#32;second*\n===========',
+    '[first&#32;&#32;  \n&#32;&#32;&#32;&#32;second](https://example.org)\n===========',
+  ])('preserves literal whitespace beside heading break nodes for %s', source => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+  });
+
+  it('keeps entity-decoded newlines inside ATX h3-h6', () => {
+    const source = '### first&#10;second';
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+  });
+
+  it.each([
+    '# first&#10;',
+    '## first&#10;',
+    '# &#10;first',
+    '## &#10;first',
+    '# first&#10;&#10;second',
+    '## first&#10;&#10;second',
+    '# first&#10; &#10;second',
+    '## first&#10;\t&#10;second',
+    '# first&#10;    second',
+    '# &#32;&#32;&#32;&#32;first&#10;second',
+    '# first&#32;&#32;',
+    '# [first&#10;second](https://example.org)',
+    'first&#10;\nsecond\n===========',
+  ])('keeps non-setext-safe entity newlines inside h1/h2 for %s', source => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('markdown', { markdown: source }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(syntaxWithoutPositions(body)).toEqual(syntaxWithoutPositions(source));
+  });
+
   it('keeps dollar math inert in literal text but preserves code payloads', () => {
     const candidate = input();
     candidate.archive.graph.nodes['node-user'].message!.blocks = [

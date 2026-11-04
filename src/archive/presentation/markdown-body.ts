@@ -27,13 +27,11 @@ export function markdownFence(value: string, language: string | null = null): st
   const tildes = Math.max(3, longestRun(value, '~') + 1);
   const fence = ticks <= tildes ? '`'.repeat(ticks) : '~'.repeat(tildes);
   const hint = language !== null && /^[a-zA-Z0-9_+.-]{1,64}$/.test(language) ? language : '';
-  return `${fence}${hint}\n${value}${value.endsWith('\n') ? '' : '\n'}${fence}`;
+  const separator = value.endsWith('\r') ? '\r\n' : '\n';
+  return `${fence}${hint}\n${value}${separator}${fence}`;
 }
 function quote(value: string): string {
-  return value
-    .split('\n')
-    .map(line => `> ${line}`)
-    .join('\n');
+  return '> ' + value.replace(/\r\n|\r|\n/g, lineEnding => `${lineEnding}> `);
 }
 function destination(value: string): string {
   return `<${value.replace(/&/g, '&amp;').replace(/</g, '%3C').replace(/>/g, '%3E')}>`;
@@ -47,22 +45,56 @@ class MarkdownSourceRenderer {
     readonly context: PresentationContext
   ) {}
 
-  children(node: Parent, separator = ''): string {
+  children(node: Parent, separator = '', encodeTextNewlines = false): string {
     return node.children
-      .map((child, index) => {
-        if (separator !== '' || child.type !== 'text') return this.node(child);
-        const formattingParent = node.type === 'strong' || node.type === 'emphasis';
-        return this.text(
-          child.value,
-          this.hasUnderscoreMarker(node.children[index - 1]) ||
-            (formattingParent && index === 0 && this.boundaryWhitespace(child.value, true)),
-          this.hasUnderscoreMarker(node.children[index + 1]) ||
-            (formattingParent &&
-              index === node.children.length - 1 &&
-              this.boundaryWhitespace(child.value, false))
-        );
-      })
+      .map((child, index) => this.child(node, child, index, separator, encodeTextNewlines))
       .join(separator);
+  }
+  child(
+    node: Parent,
+    child: Nodes,
+    index: number,
+    separator: string,
+    encodeTextNewlines: boolean
+  ): string {
+    if (separator !== '' || child.type !== 'text') return this.node(child, encodeTextNewlines);
+    return this.text(
+      child.value,
+      this.textBoundaryStart(node, index, child.value, encodeTextNewlines),
+      this.textBoundaryEnd(node, index, child.value, encodeTextNewlines),
+      encodeTextNewlines
+    );
+  }
+  protectedBoundaryParent(node: Parent): boolean {
+    return node.type === 'strong' || node.type === 'emphasis' || node.type === 'heading';
+  }
+  textBoundaryStart(
+    node: Parent,
+    index: number,
+    value: string,
+    encodeTextNewlines: boolean
+  ): boolean {
+    const previous = node.children[index - 1];
+    return (
+      this.hasUnderscoreMarker(previous) ||
+      (encodeTextNewlines && previous?.type === 'break' && this.boundaryWhitespace(value, true)) ||
+      (this.protectedBoundaryParent(node) && index === 0 && this.boundaryWhitespace(value, true))
+    );
+  }
+  textBoundaryEnd(
+    node: Parent,
+    index: number,
+    value: string,
+    encodeTextNewlines: boolean
+  ): boolean {
+    const next = node.children[index + 1];
+    return (
+      this.hasUnderscoreMarker(next) ||
+      (encodeTextNewlines && next?.type === 'break' && this.boundaryWhitespace(value, false)) ||
+      (this.protectedBoundaryParent(node) &&
+        index === node.children.length - 1 &&
+        this.boundaryWhitespace(value, false))
+    );
   }
   emphasisMarker(node: Extract<Nodes, { type: 'strong' | 'emphasis' }>): string {
     const width = node.type === 'strong' ? 2 : 1;
@@ -85,7 +117,10 @@ class MarkdownSourceRenderer {
     const character = start ? characters[0] : characters[characters.length - 1];
     return character !== undefined && /\p{White_Space}/u.test(character);
   }
-  text(value: string, encodeStart = false, encodeEnd = false): string {
+  encodedNewlines(value: string, enabled: boolean): string {
+    return enabled ? value.replace(/\n/g, '&#xA;') : value;
+  }
+  text(value: string, encodeStart = false, encodeEnd = false, encodeNewlines = false): string {
     const characters = Array.from(value.replace(/\r\n?/g, '\n'));
     let start = 0;
     let end = characters.length;
@@ -101,19 +136,26 @@ class MarkdownSourceRenderer {
       end--;
       suffix = reference(characters[end]);
     }
-    return prefix + markdownLiteral(characters.slice(start, end).join('')) + suffix;
+    return this.encodedNewlines(
+      prefix + markdownLiteral(characters.slice(start, end).join('')) + suffix,
+      encodeNewlines
+    );
   }
-  link(url: string, label: string): string {
+  link(url: string, label: string, encodeNewlines = false): string {
     if (isSafeUserLink(url)) return `[${label}](${destination(url)})`;
     this.context.diagnostic('unsafe-link-inert');
-    return `${label} ${markdownLiteral(`[Link: ${url}]`)}`;
+    return `${label} ${this.encodedNewlines(markdownLiteral(`[Link: ${url}]`), encodeNewlines)}`;
   }
-  image(alt: string | null | undefined, url: string): string {
+  image(alt: string | null | undefined, url: string, encodeNewlines = false): string {
     this.context.diagnostic('markdown-image-reference');
-    return markdownLiteral(`[Image reference: ${alt ?? ''}; ${url}]`);
+    return this.encodedNewlines(
+      markdownLiteral(`[Image reference: ${alt ?? ''}; ${url}]`),
+      encodeNewlines
+    );
   }
   reference(
-    node: Extract<Nodes, { type: 'linkReference' | 'imageReference' | 'definition' }>
+    node: Extract<Nodes, { type: 'linkReference' | 'imageReference' | 'definition' }>,
+    encodeNewlines = false
   ): string {
     if (node.type === 'definition') {
       this.context.diagnostic('markdown-reference-definition');
@@ -122,10 +164,13 @@ class MarkdownSourceRenderer {
     const definition = this.definitions.get(node.identifier);
     if (!definition) this.context.diagnostic('markdown-reference-unresolved');
     if (node.type === 'imageReference')
-      return this.image(node.alt, definition?.url ?? '[unresolved]');
+      return this.image(node.alt, definition?.url ?? '[unresolved]', encodeNewlines);
     return definition
-      ? this.link(definition.url, this.children(node))
-      : markdownLiteral(`[Unresolved link reference: ${node.label ?? node.identifier}]`);
+      ? this.link(definition.url, this.children(node, '', encodeNewlines), encodeNewlines)
+      : this.encodedNewlines(
+          markdownLiteral(`[Unresolved link reference: ${node.label ?? node.identifier}]`),
+          encodeNewlines
+        );
   }
   list(node: Extract<Nodes, { type: 'list' }>): string {
     const start = node.position?.start.offset;
@@ -139,27 +184,34 @@ class MarkdownSourceRenderer {
       .map((item, index) => {
         const marker = node.ordered ? `${(node.start ?? 1) + index}${delimiter} ` : `${delimiter} `;
         const body = this.children(item, '\n\n');
-        return marker + body.replace(/\n/g, `\n${' '.repeat(marker.length)}`);
+        const indentation = ' '.repeat(marker.length);
+        return marker + body.replace(/\r\n|\r|\n/g, lineEnding => `${lineEnding}${indentation}`);
       })
       .join('\n\n');
   }
-  node(node: Nodes): string {
+  heading(node: Extract<Nodes, { type: 'heading' }>): string {
+    const body = this.children(node, '', true);
+    if (!body.includes('\n')) return '#'.repeat(node.depth) + ' ' + body;
+    if (node.depth <= 2) return `${body}\n${node.depth === 1 ? '===' : '---'}`;
+    return '#'.repeat(node.depth) + ' ' + body.replace(/\n/g, '&#xA;');
+  }
+  node(node: Nodes, encodeTextNewlines = false): string {
     switch (node.type) {
       case 'root':
         return this.children(node, '\n\n');
       case 'paragraph':
         return this.children(node);
       case 'heading':
-        return '#'.repeat(node.depth) + ' ' + this.children(node);
+        return this.heading(node);
       case 'text':
-        return this.text(node.value);
+        return this.text(node.value, false, false, encodeTextNewlines);
       case 'strong': {
         const marker = this.emphasisMarker(node);
-        return `${marker}${this.children(node)}${marker}`;
+        return `${marker}${this.children(node, '', encodeTextNewlines)}${marker}`;
       }
       case 'emphasis': {
         const marker = this.emphasisMarker(node);
-        return `${marker}${this.children(node)}${marker}`;
+        return `${marker}${this.children(node, '', encodeTextNewlines)}${marker}`;
       }
       case 'blockquote':
         return quote(this.children(node, '\n\n'));
@@ -172,10 +224,10 @@ class MarkdownSourceRenderer {
       case 'thematicBreak':
         return '---';
       default:
-        return this.structure(node);
+        return this.structure(node, encodeTextNewlines);
     }
   }
-  structure(node: Nodes): string {
+  structure(node: Nodes, encodeTextNewlines = false): string {
     switch (node.type) {
       case 'code':
         return this.code(node);
@@ -184,15 +236,15 @@ class MarkdownSourceRenderer {
       }
       case 'html':
         this.context.diagnostic('provider-html-inert');
-        return markdownLiteral(node.value);
+        return this.encodedNewlines(markdownLiteral(node.value), encodeTextNewlines);
       case 'link':
-        return this.link(node.url, this.children(node));
+        return this.link(node.url, this.children(node, '', encodeTextNewlines), encodeTextNewlines);
       case 'image':
-        return this.image(node.alt, node.url);
+        return this.image(node.alt, node.url, encodeTextNewlines);
       case 'definition':
       case 'linkReference':
       case 'imageReference':
-        return this.reference(node);
+        return this.reference(node, encodeTextNewlines);
       default:
         this.context.diagnostic('markdown-node-unsupported');
         return markdownFence(

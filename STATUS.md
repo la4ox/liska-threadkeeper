@@ -4613,6 +4613,18 @@ LF, CR or CRLF after the marker. Focused coverage includes ordinary, nested and
 quoted lists; independent re-review checked 45 additional list sources / 60 list
 nodes and is `ready`.
 
+The next code-review pass found two remaining structural families. Fenced code
+now always receives a separate closing-fence line, with a CRLF separator after a
+terminal CR so LF, CR and CRLF payload endings retain their parsed value.
+Markdown text newlines inside headings are recursively emitted as numeric
+references, while real `break` nodes remain physical and use setext h1/h2.
+Boundary whitespace beside heading edges or breaks is protected without changing
+visible text. Quote and list container prefixes now follow every physical LF,
+CR or CRLF, preserving nested quote/list/fence structure. Focused regressions
+cover root and nested containers, soft/hard heading breaks and CR-only payloads;
+independent re-review checked 120 additional EOL/nesting combinations and is
+`ready`.
+
 The first security review found one distinct P2: literal provider/user `$` and
 `$$` text could become active Obsidian math even though the canonical block did
 not distinguish trusted math. `markdownLiteral()` now backslash-escapes dollar
@@ -4642,9 +4654,9 @@ No archive output or settings changed. Selected-branch ChatGPT, DeepSeek and a
 browser-observed terminal-success Save As remain later live evidence; PDF and
 DOCX are still separate renderer slices.
 
-The final complete coverage run passes 279 test files and 10,126 tests, with one
+The final complete coverage run passes 279 test files and 10,157 tests, with one
 file and three tests skipped and zero failures. Statements are 95.08%
-(`29,135 / 30,642`), branches 91.75%, functions 98.28% and lines 97.33%.
+(`29,150 / 30,657`), branches 91.77%, functions 98.28% and lines 97.33%.
 Full lint passes with zero errors and 55 existing warnings; format, production
 build/package, diff checks and the nine-thread/37-relation idea-thread validator
 pass.
