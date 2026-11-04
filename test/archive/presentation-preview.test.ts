@@ -260,6 +260,23 @@ describe('detached multiformat presentation preview', () => {
     }
   );
 
+  it('keeps dollar math inert in literal text but preserves code payloads', () => {
+    const candidate = input();
+    candidate.archive.graph.nodes['node-user'].message!.blocks = [
+      block('text', { text: 'shell $HOME and $$TMP' }),
+      block('markdown', {
+        markdown: 'literal $value and $$display$$\n\n`inline $value`\n\n```sh\necho $HOME\n```',
+      }),
+      block('code', { language: 'sh', code: 'printf "%s" "$HOME"' }),
+    ];
+    const body = prepareArchivePresentationPreview(candidate).rows[0].markdownBody;
+    expect(body).toContain('shell \\$HOME and \\$\\$TMP');
+    expect(body).toContain('literal \\$value and \\$\\$display\\$\\$');
+    expect(body).toContain('`inline $value`');
+    expect(body).toContain('echo $HOME');
+    expect(body).toContain('printf "%s" "$HOME"');
+  });
+
   it('round-trips entity-looking URLs, indented literal paths and all-space inline code', () => {
     const candidate = input();
     candidate.archive.graph.nodes['node-user'].message!.blocks = [

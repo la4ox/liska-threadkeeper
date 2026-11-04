@@ -11,7 +11,7 @@ export function markdownLiteral(value: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/[\\`*_[\]{}()#+.!|~-]/g, '\\$&');
+    .replace(/[\\`*_[\]{}()#+.!|~$-]/g, '\\$&');
 }
 function longestRun(value: string, marker: string): number {
   let longest = 0;

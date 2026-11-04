@@ -4604,6 +4604,12 @@ and parsed structure remain unchanged. Symmetric, mixed-weight, nested and
 character-reference AST round-trip regressions cover that boundary. Independent
 re-review is `ready`, including 1,936 additional parser combinations.
 
+The first security review found one distinct P2: literal provider/user `$` and
+`$$` text could become active Obsidian math even though the canonical block did
+not distinguish trusted math. `markdownLiteral()` now backslash-escapes dollar
+delimiters on every literal path. Inline and fenced code retain their original
+dollar bytes. A focused regression proves both halves.
+
 The corrected installed candidate contains 52 files / 1,384,752 bytes with
 matching source/installed aggregate SHA-256
 `548cc9f7964ae397a44d51df5db5f2762c2d9ee5a9240ccadfb0523055b90fd6`
@@ -4627,7 +4633,7 @@ No archive output or settings changed. Selected-branch ChatGPT, DeepSeek and a
 browser-observed terminal-success Save As remain later live evidence; PDF and
 DOCX are still separate renderer slices.
 
-The final complete coverage run passes 279 test files and 10,113 tests, with one
+The final complete coverage run passes 279 test files and 10,114 tests, with one
 file and three tests skipped and zero failures. Statements are 95.08%
 (`29,125 / 30,631`), branches 91.72%, functions 98.28% and lines 97.32%.
 Full lint passes with zero errors and 55 existing warnings; format, production
