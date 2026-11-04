@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'"
+    />
+    <title data-i18n="journal_title">Resumability journal</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="workspace" aria-labelledby="journal-heading">
+      <header>
+        <p class="kicker" data-i18n="journal_kicker">Private archive tools</p>
+        <h1 id="journal-heading" data-i18n="journal_title">Resumability journal</h1>
+        <p class="intro" data-i18n="journal_intro">
+          Durable bookkeeping only. This page cannot recapture, execute, retry or schedule work.
+        </p>
+      </header>
+      <section class="boundary" aria-labelledby="boundary-heading">
+        <h2 id="boundary-heading" data-i18n="journal_boundary">Private local persistence</h2>
+        <p data-i18n="journal_boundaryHelp">
+          Create paused journal writes private provider/conversation identities and the exact
+          catalog digest to this browser profile. They survive page and extension restarts. No
+          titles, URLs, paths or conversation content are stored. This is not a backup or
+          anonymization.
+        </p>
+        <p data-i18n="journal_scopeHelp">
+          Catalog selection is not account binding, proof of recoverability, provider completeness
+          or permission to recapture. Source archives and catalogs are never changed.
+        </p>
+        <p data-i18n="journal_recoveryHelp">
+          Opening this page explicitly recovers journals to paused. Previously running attempts
+          become unknown; nothing is dispatched or retried.
+        </p>
+      </section>
+      <section class="panel" aria-labelledby="selection-heading">
+        <h2 id="selection-heading" data-i18n="journal_selection">
+          1. Select a deterministic catalog
+        </h2>
+        <p class="muted small" data-i18n="journal_limits">
+          One canonical liska-snapshot-catalog/1 JSON, at most 1 MiB. At most 16 journals and 2,048
+          conversations per journal.
+        </p>
+        <input id="catalog-picker" type="file" accept=".json,application/json" hidden />
+        <div class="toolbar">
+          <button id="choose-catalog" class="secondary" type="button" data-i18n="journal_pick">
+            Choose catalog JSON
+          </button>
+          <button
+            id="create-journal"
+            class="primary"
+            type="button"
+            disabled
+            data-i18n="journal_create"
+          >
+            Create paused journal
+          </button>
+          <button
+            id="cancel-journal"
+            class="quiet"
+            type="button"
+            disabled
+            data-i18n="journal_cancel"
+          >
+            Cancel pending view
+          </button>
+          <button id="clear-journal" class="quiet" type="button" data-i18n="journal_clear">
+            Clear selection / reset view
+          </button>
+        </div>
+        <div id="selection-summary"></div>
+        <p id="journal-status" class="status" role="status" aria-live="polite"></p>
+        <p class="muted small" data-i18n="journal_cancellationHelp">
+          Cancel/reset discards pending results, not an already committed journal or a browser
+          download. Reload this page to reconcile uncertain persistence. No journal is deleted.
+        </p>
+      </section>
+      <section class="panel" aria-labelledby="runs-heading">
+        <h2 id="runs-heading" data-i18n="journal_runs">2. Paused journals</h2>
+        <p data-i18n="journal_privateExport">
+          Private exports contain stable provider/conversation identifiers and evidence references.
+          Save only to a location you trust.
+        </p>
+        <p id="store-status" class="status" role="status" aria-live="polite"></p>
+        <div id="journal-runs" class="report-grid"></div>
+      </section>
+    </main>
+    <script type="module" src="entry.ts"></script>
+  </body>
+</html>

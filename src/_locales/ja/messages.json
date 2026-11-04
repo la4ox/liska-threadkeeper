@@ -1,4 +1,136 @@
 {
+  "journal_title": {
+    "message": "再開管理ジャーナル"
+  },
+  "journal_kicker": {
+    "message": "プライベートなアーカイブツール"
+  },
+  "journal_linkHelp": {
+    "message": "明示的に選択したカタログから、一時停止状態のローカル管理記録を作成"
+  },
+  "journal_intro": {
+    "message": "永続的な作業管理だけを行います。このページでは再取得、実行、再試行、スケジュール設定はできません。"
+  },
+  "journal_boundary": {
+    "message": "プライベートなローカル保存"
+  },
+  "journal_boundaryHelp": {
+    "message": "「一時停止ジャーナルを作成」は、非公開のプロバイダー・会話の識別子とカタログの正確なダイジェストを、このブラウザープロファイルに保存します。ページや拡張機能を再起動しても残ります。タイトル、URL、パス、会話内容は保存しません。バックアップでも匿名化でもありません。"
+  },
+  "journal_scopeHelp": {
+    "message": "カタログの選択は、アカウントの紐付け、復元可能性やプロバイダー側の完全性の証明、再取得の許可ではありません。元のアーカイブやカタログは変更しません。"
+  },
+  "journal_recoveryHelp": {
+    "message": "このページを開くと、ジャーナルを明示的に一時停止状態へ復旧します。以前実行中だった試行は unknown になります。送信も再試行も行いません。"
+  },
+  "journal_selection": {
+    "message": "1. 決定的形式のカタログを選択"
+  },
+  "journal_limits": {
+    "message": "正規形式の liska-snapshot-catalog/1 JSON を1件、最大1 MiB。ジャーナルは最大16件、各ジャーナルの会話は最大2,048件。"
+  },
+  "journal_pick": {
+    "message": "カタログJSONを選択"
+  },
+  "journal_create": {
+    "message": "一時停止ジャーナルを作成"
+  },
+  "journal_cancel": {
+    "message": "保留中の表示処理を中止"
+  },
+  "journal_clear": {
+    "message": "選択をクリア／表示をリセット"
+  },
+  "journal_cancellationHelp": {
+    "message": "中止やリセットは保留中の結果を破棄しますが、保存済みのジャーナルやブラウザーのダウンロードは取り消しません。保存結果が不明な場合は、このページを再読み込みして確認してください。ジャーナルは削除しません。"
+  },
+  "journal_runs": {
+    "message": "2. 一時停止中のジャーナル"
+  },
+  "journal_privateExport": {
+    "message": "非公開のエクスポートには、プロバイダー・会話の固定識別子と証拠参照が含まれます。信頼できる場所にだけ保存してください。"
+  },
+  "journal_export": {
+    "message": "非公開ジャーナルJSONをエクスポート"
+  },
+  "journal_empty": {
+    "message": "カタログは選択されていません。"
+  },
+  "journal_reading": {
+    "message": "カタログの正確なバイト列を読み取り、検証しています…"
+  },
+  "journal_ready": {
+    "message": "カタログを検証しました。件数を確認し、明示的に一時停止ジャーナルを作成してください。"
+  },
+  "journal_loading": {
+    "message": "ローカルジャーナルを復旧し、一覧を読み込んでいます…"
+  },
+  "journal_loaded": {
+    "message": "ローカルジャーナルは一時停止中です。実行権限は取得していません。"
+  },
+  "journal_creating": {
+    "message": "一時停止ジャーナルをこのブラウザープロファイルに保存しています…"
+  },
+  "journal_created": {
+    "message": "一時停止ジャーナルをローカルに保存しました。取得や送信は行っていません。"
+  },
+  "journal_cancelled": {
+    "message": "保留中の表示処理を中止しました。既存のローカルジャーナルとダウンロードは変更していません。"
+  },
+  "journal_error": {
+    "message": "処理を拒否しました。再試行は行っていません。再読み込みしてローカルの状態を確認してください。"
+  },
+  "journal_selection_invalid": {
+    "message": "読み取り可能なカタログJSONを1件だけ選択してください。"
+  },
+  "journal_selection_limit": {
+    "message": "カタログが1 MiBの上限を超えています。"
+  },
+  "journal_catalog_invalid": {
+    "message": "対応するスナップショットカタログの正規バイト列ではありません。"
+  },
+  "journal_hash_failed": {
+    "message": "カタログの正確なハッシュ計算に失敗しました。"
+  },
+  "journal_noRuns": {
+    "message": "ローカルジャーナルはありません。"
+  },
+  "journal_run": {
+    "message": "ジャーナル"
+  },
+  "journal_revision": {
+    "message": "リビジョン"
+  },
+  "journal_conversations": {
+    "message": "重複しない有効な会話"
+  },
+  "journal_skipped": {
+    "message": "無効／スキップしたエントリー"
+  },
+  "journal_duplicates": {
+    "message": "重複するキャプチャー"
+  },
+  "journal_captures": {
+    "message": "有効なキャプチャーの出現数"
+  },
+  "journal_items": {
+    "message": "項目"
+  },
+  "journal_attempts": {
+    "message": "試行"
+  },
+  "journal_saving": {
+    "message": "名前を付けて保存を要求しました。ブラウザーでの正確なダウンロード完了を待っています…"
+  },
+  "journal_confirmed": {
+    "message": "ブラウザーがJSONのダウンロード完了を報告しました。ディスク上のバイト列は別途読み直していません。"
+  },
+  "journal_failure": {
+    "message": "ブラウザーがダウンロード失敗を報告しました。再試行は行っていません。"
+  },
+  "journal_unknown": {
+    "message": "ダウンロード結果は不明です。ダウンロード一覧を確認してください。再試行は行っていません。"
+  },
   "catalog_title": {
     "message": "既存スナップショットのカタログ"
   },

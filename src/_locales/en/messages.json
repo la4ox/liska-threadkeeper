@@ -1,4 +1,136 @@
 {
+  "journal_title": {
+    "message": "Resumability journal"
+  },
+  "journal_kicker": {
+    "message": "Private archive tools"
+  },
+  "journal_linkHelp": {
+    "message": "Create paused local bookkeeping from an explicitly selected catalog"
+  },
+  "journal_intro": {
+    "message": "Durable bookkeeping only. This page cannot recapture, execute, retry or schedule work."
+  },
+  "journal_boundary": {
+    "message": "Private local persistence"
+  },
+  "journal_boundaryHelp": {
+    "message": "Create paused journal writes private provider/conversation identities and the exact catalog digest to this browser profile. They survive page and extension restarts. No titles, URLs, paths or conversation content are stored. This is not a backup or anonymization."
+  },
+  "journal_scopeHelp": {
+    "message": "Catalog selection is not account binding, proof of recoverability, provider completeness or permission to recapture. Source archives and catalogs are never changed."
+  },
+  "journal_recoveryHelp": {
+    "message": "Opening this page explicitly recovers journals to paused. Previously running attempts become unknown; nothing is dispatched or retried."
+  },
+  "journal_selection": {
+    "message": "1. Select a deterministic catalog"
+  },
+  "journal_limits": {
+    "message": "One canonical liska-snapshot-catalog/1 JSON, at most 1 MiB. At most 16 journals and 2,048 conversations per journal."
+  },
+  "journal_pick": {
+    "message": "Choose catalog JSON"
+  },
+  "journal_create": {
+    "message": "Create paused journal"
+  },
+  "journal_cancel": {
+    "message": "Cancel pending view"
+  },
+  "journal_clear": {
+    "message": "Clear selection / reset view"
+  },
+  "journal_cancellationHelp": {
+    "message": "Cancel/reset discards pending results, not an already committed journal or a browser download. Reload this page to reconcile uncertain persistence. No journal is deleted."
+  },
+  "journal_runs": {
+    "message": "2. Paused journals"
+  },
+  "journal_privateExport": {
+    "message": "Private exports contain stable provider/conversation identifiers and evidence references. Save only to a location you trust."
+  },
+  "journal_export": {
+    "message": "Export private journal JSON"
+  },
+  "journal_empty": {
+    "message": "No catalog selected."
+  },
+  "journal_reading": {
+    "message": "Reading and validating exact catalog bytes…"
+  },
+  "journal_ready": {
+    "message": "Catalog validated. Review the counts, then explicitly create a paused journal."
+  },
+  "journal_loading": {
+    "message": "Recovering and listing local journals…"
+  },
+  "journal_loaded": {
+    "message": "Local journals are paused. No execution authority was acquired."
+  },
+  "journal_creating": {
+    "message": "Writing a paused journal to this browser profile…"
+  },
+  "journal_created": {
+    "message": "Paused journal committed locally. Nothing was captured or dispatched."
+  },
+  "journal_cancelled": {
+    "message": "Pending view cancelled. Existing local journals and downloads are unchanged."
+  },
+  "journal_error": {
+    "message": "Operation refused. No retry was made. Reload to reconcile local state."
+  },
+  "journal_selection_invalid": {
+    "message": "Select exactly one readable catalog JSON."
+  },
+  "journal_selection_limit": {
+    "message": "Catalog exceeds the 1 MiB limit."
+  },
+  "journal_catalog_invalid": {
+    "message": "Not an exact canonical supported snapshot catalog."
+  },
+  "journal_hash_failed": {
+    "message": "Exact catalog hashing failed."
+  },
+  "journal_noRuns": {
+    "message": "No local journals."
+  },
+  "journal_run": {
+    "message": "Journal"
+  },
+  "journal_revision": {
+    "message": "revision"
+  },
+  "journal_conversations": {
+    "message": "unique valid conversations"
+  },
+  "journal_skipped": {
+    "message": "invalid / skipped entries"
+  },
+  "journal_duplicates": {
+    "message": "duplicate captures"
+  },
+  "journal_captures": {
+    "message": "valid capture occurrences"
+  },
+  "journal_items": {
+    "message": "items"
+  },
+  "journal_attempts": {
+    "message": "attempts"
+  },
+  "journal_saving": {
+    "message": "Save As requested. Waiting for exact browser download completion…"
+  },
+  "journal_confirmed": {
+    "message": "The browser reports the JSON download completed. Disk bytes were not independently reread."
+  },
+  "journal_failure": {
+    "message": "The browser reports the download failed. No retry was made."
+  },
+  "journal_unknown": {
+    "message": "Download outcome is unknown. Check Downloads. No retry was made."
+  },
   "catalog_title": {
     "message": "Catalog existing snapshots"
   },

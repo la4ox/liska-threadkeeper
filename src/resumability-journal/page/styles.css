@@ -1,0 +1,9 @@
+@import '../../snapshot-catalog/styles.css';
+.run-counts {
+  overflow-wrap: anywhere;
+}
+.download-status {
+  min-height: 1.6em;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
