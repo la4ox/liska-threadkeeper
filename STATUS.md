@@ -5057,3 +5057,52 @@ binding is evidenced. Display names and emails do not own identity, and existing
 unbound captures remain `unbound/legacy`; this slice performs no move or
 migration. Multiple accounts or workspaces may live as sibling scope roots
 without sharing cursors or histories.
+
+## Claude terminal-list evidence checkpoint — 2026-11-05
+
+The user authorized one foreground read-only list experiment against the visibly
+active Claude main account and personal scope. A single page reload emitted
+three actual same-route list requests, exhausting the request cap without a
+pagination gesture. The observed organization/workspace-bound endpoint used
+`chat_conversations_v2` with limit 30, offset 0, `archived=false` and strong
+consistency. Responses were HTTP 200 JSON with `data` and `has_more`; one sampled
+terminal response contained 12 records and `has_more=false`.
+
+The safe retained schema contains conversation UUID, created/updated opaque
+tokens, archive/star/temporary/multiplayer flags, model/platform, nullable
+project, settings, summary and workspace-upgrade presence. No real scope value,
+conversation ID, title, summary, marker, cursor or response body was retained.
+The three response bodies were not compared, so same route/status is not claimed
+as same content. No conversation detail/body, mutation, archived page, nonzero
+offset or provider write was invoked; DevTools was closed after the cap.
+
+ADR-053 admits only an unwired structural contract for the exact observed
+terminal active-list page. `updated_at` remains an opaque token with
+`same_token`/`different_token`/`incomparable` outcomes; it cannot prove content
+change, freshness or justify skipping capture. `has_more=true`, pagination,
+archived/deleted/inaccessible visibility, scope switching, rate limits and marker
+semantics remain unsupported pending separately authorized evidence.
+
+Branch `codex/claude-list-observation-contract` implements that pure boundary in
+`src/update-discovery/claude` without runtime importers. Admission distinguishes
+malformed `rejected`, structurally unobserved `unsupported` and exact terminal
+`observed_page` outcomes; it projects only a pre-resolved versioned scope key,
+lowercase conversation UUID and optional opaque marker. Duplicate IDs reject,
+provider order is discarded through deterministic sorting, and comparison never
+returns content/freshness language or downstream authority.
+
+The focused observation/comparator/architecture matrix passes 4 files / 176
+tests. The full repository coverage run passes 306 files / 10,920 tests with one
+file / three tests intentionally skipped: 95.12% statements, 91.70% branches,
+98.25% functions and 97.38% lines. The new module reports 99.40% statements,
+98.59% branches and 100% functions/lines. Global TypeScript, full lint (zero
+errors and the unchanged 55 warnings), Prettier, diff checks, Idea-Threads
+validation, 73 documentation-link tests, production build and dependency audit
+all pass.
+
+The module is intentionally absent from the production closure: built `dist`
+contains zero Claude observation-contract markers and retains the exact installed
+65-file / 6,078,286-byte inventory SHA-256
+`3a652a6cbb991eb8609bd590f64dd77480ca4fa7658fd0079167fc74e0e12db6`.
+The current 2,789,703-byte candidate ZIP has SHA-256
+`d3dea7ebd421bea992e4da25dbba1fed7668076ce51e65900de163a5e720ebeb`.

@@ -124,6 +124,20 @@ This is a local operating preference, not provider account-binding evidence.
 If a backup account is later used, it may own a separate sibling scope rather
 than being rejected or merged into the main account.
 
+### E10 — A bounded Claude pass established one terminal active-list shape
+
+One authorized foreground reload emitted three actual same-route list requests,
+not one. The observed organization/workspace-bound active-list request used
+limit 30, offset 0 and strong consistency. Its JSON envelope contained `data`
+and `has_more`; the sampled personal scope returned 12 records and
+`has_more=false`. Records exposed stable identity and timestamp-shaped fields
+plus status/presentation metadata.
+
+No real values were retained. The pass did not observe pagination, archived
+visibility, response equality, marker semantics, deletion behavior or rate
+limits. It therefore supports only terminal structural admission and opaque
+token equality.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -214,6 +228,19 @@ Evidence: E2, E5, E8
 
 Decision record: ADR-052
 
+### D7 — Admit one Claude terminal list page without sync conclusions
+
+Liska may add a pure unwired Claude contract for the exact observed terminal
+active-list shape. It may project only scope-qualified conversation identity and
+an optional opaque `updated_at` token. Outcomes distinguish rejected,
+unsupported and observed structure; marker comparison is limited to
+`same_token`, `different_token` or `incomparable` and never authorizes skipping
+capture.
+
+Evidence: E8, E10
+
+Decision record: ADR-053
+
 ### D6 — Namespace future captures by a verified provider scope
 
 After stable provider/account/workspace binding is evidenced, a future canonical
@@ -288,6 +315,15 @@ live as sibling scope roots without sharing cursors or histories.
 Trigger: one provider-specific scope binding is accepted and a non-destructive
 layout/migration ADR is approved.
 
+### T7 — Prove Claude pagination and marker semantics separately
+
+Investigate `has_more=true`, nonzero offset, archived visibility, repeated-body
+equality, scope switching, rate limits and marker response to controlled material
+changes without expanding the terminal observation contract by analogy.
+
+Trigger: the user explicitly authorizes a new bounded experiment whose
+request-level cap can account for client/provider refetches.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -301,6 +337,7 @@ layout/migration ADR is approved.
 - [evidence] E7: installed inert journal recovered the same 24 paused items after an extension reload and round-tripped its physical export byte for byte #live
 - [evidence] E8: current ChatGPT and Claude code proves detail capture but no repository-safe account-list or update-marker contract #code
 - [evidence] E9: the current default is each provider's visibly active main personal account; dormant backups stay out of scope #local-only
+- [evidence] E10: one Claude reload emitted three active-list requests and proved only a 12-record terminal envelope with opaque markers #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -310,12 +347,14 @@ layout/migration ADR is approved.
 - [decision] D4: place a paused, restart-safe journal between catalog evidence and any future provider execution
 - [decision] D5: require bounded provider-list evidence before writing provider discovery code
 - [decision] D6: namespace future captures by a verified provider scope while leaving unbound legacy evidence unassigned
+- [decision] D7: admit the exact Claude terminal list shape and compare opaque tokens without sync authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: manifest-only local catalog is accepted; preserve its non-authorizing boundary when the resumability journal begins
 - [tail] T4: run a multi-day budgeted baseline before enabling a daily scheduler
 - [tail] T5: run a capped read-only provider-list evidence pass only after explicit provider/account/workspace authorization
 - [tail] T6: add a scope-aware canonical directory layout only after stable binding and migration rules are reviewed
+- [tail] T7: prove Claude pagination, archived visibility, marker semantics and request-level budgeting in later bounded experiments
 
 ## Relations
 
@@ -339,3 +378,5 @@ layout/migration ADR is approved.
 - S10 — [ADR-052: Observe provider-list evidence before update-discovery code](../adr/052-provider-discovery-evidence-gate.md)
 - S11 — local receipt `LISKA-PROVIDER-DISCOVERY-GATE-20261104`; visibility: local-only; safe aggregate only
 - S12 — local receipt `LISKA-SCOPE-DEFAULT-20261104`; visibility: local-only; safe aggregate only
+- S13 — [ADR-053: Claude terminal active-list observation without sync authority](../adr/053-claude-terminal-list-observation.md)
+- S14 — local receipt `LISKA-CLAUDE-LIST-EVIDENCE-20261105`; visibility: local-only; safe aggregate only
