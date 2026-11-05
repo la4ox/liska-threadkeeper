@@ -5302,3 +5302,52 @@ The production closure still contains zero matches for the new schema,
 marker-source and function-name strings. Generated `dist` remains 65 files /
 6,078,286 bytes. The 2,789,703-byte candidate ZIP has SHA-256
 `867c999fa7e8a1b4e6acf4be3e190ece62c3ab5afad9dfc7fba9892aa761ffce`.
+
+## Pure new-capture purpose/evidence contract acceptance — 2026-11-06
+
+Branch `codex/new-capture-purpose-contract` starts from merged main
+`b3ce405c74cdf03c228235fbe90350d1c9918ee4` and records
+[ADR-058](docs/adr/058-new-capture-purpose-evidence-contract.md). The source
+audit confirms that journal v1 has no persisted purpose and that no existing
+ChatGPT destination receipt alone can settle new-capture work: the receipt lacks
+operation/attempt/provider/conversation, versioned provider-aware key, exact
+catalog, purpose, completeness and assurance binding. File evidence observes a
+terminal exact requested path without byte readback; Obsidian performs exact
+byte-length/SHA-256 readback. Those assurance bases remain distinct.
+
+The new isolated `src/resumability-journal/purpose` module admits only explicit
+`liska-new-capture-operation/1` operations and assesses detached
+`liska-new-capture-evidence/1` evidence as `consistent`, `insufficient`,
+`conflict` or `rejected`. It binds immutable operation/attempt/reserved capture,
+provider/conversation/versioned key and catalog identity; canonical nonempty
+all-of destinations; destination-specific manifest/artifact commitments; and a
+strict graph/message/branch/asset-inventory policy with every asset fetched and
+delivered. Missing facts remain insufficient, contradictions are conflicts and
+malformed present identity or commitments are rejected.
+
+`consistent` means only internal relation consistency of supplied bounded data.
+It authenticates no producer, freshness, account completeness, current durable
+existence or manifest contents and grants no settlement, persistence, execution,
+dispatch or retry authority. The module has no decoder/migration, runtime,
+provider, browser, clock, storage, IndexedDB, UI, build-entry, capture, archive,
+baseline or scheduler wiring. Journal v1 is byte- and meaning-unchanged. The
+next semantic gate is a separately reviewed exact-producer adapter and
+purpose-aware persistence version after sufficient provider evidence and the
+user's explicit next-slice authority; no account-wide driver follows here.
+
+Targeted purpose, architecture, existing journal-core and IndexedDB validation
+passes 4 files / 304 tests. The full coverage run passes 310 files with one
+skipped and 11,213 tests with three skipped: 95.17% statements, 91.77% branches,
+98.27% functions and 97.41% lines. The new module reports 98.35% statements,
+96.56% branches, 100% functions and 99.66% lines. Global TypeScript, full lint
+with zero errors and the unchanged 55 warnings, full Prettier, Idea-Threads at
+9 threads / 37 relations, documentation links at 78/78, dependency audit,
+guarded production build/ZIP and independent review all pass.
+
+The production closure contains zero matches for the two new schema strings,
+the assessment function name and the strict completeness-policy string.
+Generated `dist` remains 65 files / 6,078,286 bytes. The 2,789,703-byte
+candidate ZIP has SHA-256
+`eac4275202139606a92b712aa0896561e514714985247d98cf672d8eee2ed1ff`.
+ITH-007 adds E18/E19/D12/T12 and preserves the remaining producer, persistence,
+scope, traversal, baseline and scheduler gates.

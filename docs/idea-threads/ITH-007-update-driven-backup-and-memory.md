@@ -267,6 +267,38 @@ overshoot that must remain visible. Recording stopped after the burst. One UI
 gesture or Stop button cannot enforce a request budget when it may emit several
 requests.
 
+### E18 — Existing destination receipts cannot settle new-capture purpose
+
+The accepted journal v1 has generic typed evidence references but no persisted
+purpose. Its confirmed outcome makes an item recorded, so reusing it for local
+verification or an under-specified receipt could suppress intended capture work.
+The current ChatGPT destination receipt records destination, capture ID, a legacy
+bare conversation digest, manifest digest, archive byte lengths and assets, but
+not operation/attempt/provider/conversation identity, versioned provider-aware
+key, catalog selection, purpose, completeness or assurance basis.
+
+File output confirms terminal completion and exact requested relative path
+without reading bytes back. Obsidian writes and then reads each artifact back for
+byte-length and SHA-256 comparison. Neither evidence basis may be silently
+promoted to or collapsed into the other, and no existing receipt alone proves a
+new capture settled.
+
+### E19 — A pure new-capture relation can be exact without gaining authority
+
+The isolated `liska-new-capture-operation/1` and
+`liska-new-capture-evidence/1` contracts require explicit purpose, immutable
+operation/attempt/capture and provider/conversation/catalog binding, canonical
+all-of destinations and a strict declared-inventory policy. Each destination
+independently binds its manifest and artifacts under either File path-confirmed
+delivery or Obsidian byte readback.
+
+The pure assessor returns only `consistent`, `insufficient`, `conflict` or
+`rejected` over bounded detached data. `consistent` deliberately means internal
+relation consistency only: it authenticates no producer, current durability,
+freshness or account completeness and performs no settlement, persistence,
+execution, dispatch or retry. Journal v1, runtime, storage, UI and build wiring
+remain unchanged.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -457,6 +489,24 @@ Evidence: E16, E17
 
 Decision record: ADR-057
 
+### D12 — Isolate new-capture semantics before persistence or execution
+
+Adopt the pure unwired operation/evidence relation in ADR-058 as the semantic
+boundary for one future `new-capture` purpose. Require all requested destinations
+and preserve the exact distinction between File terminal-path confirmation and
+Obsidian byte readback. Missing evidence is insufficient, present contradictions
+are conflicts and malformed present identity or commitments are rejected.
+
+Do not reinterpret existing receipts as sufficient, change journal v1, add a
+decoder/migration, persist the new contract or wire any producer, provider,
+capture, archive, UI, baseline or scheduler. This resolves contract meaning but
+not the persisted-purpose requirement from ADR-054; production authority remains
+gated.
+
+Evidence: E11, E18, E19
+
+Decision record: ADR-058
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -603,6 +653,20 @@ Trigger: a separately authorized bounded experiment establishes these
 provider-specific facts and request-level budgeting. Until then, no comparator,
 skip decision, account baseline or scheduler is authorized.
 
+### T12 — Adapt exact producers and persistence without changing journal v1
+
+Design a separately reviewed producer/admission adapter that derives the
+provider-aware conversation key and maps current destination receipts into the
+new evidence contract without overstating File assurance. Then design a new
+persistence version that stores purpose and assessment evidence while keeping
+journal v1 byte- and meaning-stable and preventing one purpose from consuming
+another purpose's work.
+
+Trigger: exact current producers can emit every required binding and assurance,
+one provider has sufficient authenticated scope/traversal evidence, and the user
+explicitly chooses the next persistence or account-wide baseline slice. No
+driver or scheduler follows from the pure contract alone.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -624,6 +688,8 @@ skip decision, account baseline or scheduler is authorized.
 - [evidence] E15: one expanded gizmo wrapper exposed only keys/types; gizmo and organization strings establish neither conversation identity nor scope binding, while nested empty conversations under an explicit zero setting prove no absence #live
 - [evidence] E16: native ordinary ChatGPT pages exposed an exact bounded nonterminal envelope and one record's field/types; reported totals are uninterpreted and scope/termination remain unknown #live
 - [evidence] E17: two ordinary requests preceded a six-route UI burst, totaling eight against a self-imposed soft cap of six and showing gestures cannot enforce request budgets #live
+- [evidence] E18: journal v1 and current ChatGPT destination receipts lack purpose-complete new-capture settlement evidence, and File path confirmation is not Obsidian byte readback #code
+- [evidence] E19: pure versioned new-capture operation/evidence relations now classify detached supplied facts without persistence, settlement or execution authority #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -638,6 +704,7 @@ skip decision, account baseline or scheduler is authorized.
 - [decision] D9: retain ChatGPT name evidence as docs only; lexical familiarity without grammar/schema or a consumer admits no classifier, parser or runtime
 - [decision] D10: retain exact native sidebar container evidence as docs only; no unused parser/classifier/runtime, and conversation discovery plus baseline/scheduler authority remain gated
 - [decision] D11: admit a pure unbound projector for exact inspected nonterminal ordinary pages only; no comparator, scope binding, terminal traversal or sync authority
+- [decision] D12: adopt a pure all-of new-capture purpose/evidence relation while leaving journal v1, persistence, producers and production authority unchanged
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -649,6 +716,7 @@ skip decision, account baseline or scheduler is authorized.
 - [tail] T9: a separately authorized schema pass was fulfilled only for native sidebar/gizmo containers on 2026-11-06; conversation-list evidence and further requests remain gated
 - [tail] T10: limited separately authorized native conversation-list pass observed ordinary nonterminal pages, identity and marker field; authenticated scope and marker behavior remain open
 - [tail] T11: establish authenticated scope, terminal/restart, duplicate/reorder/filter and controlled marker behavior before any skip decision or baseline/scheduler authority
+- [tail] T12: separately adapt exact producers and purpose-aware persistence after evidence and user authority, without mutating journal v1
 
 ## Relations
 
@@ -684,3 +752,4 @@ skip decision, account baseline or scheduler is authorized.
 - S22 — local receipt `LISKA-CHATGPT-GIZMO-WRAPPER-SCHEMA-20261106`; visibility: local-only; one-wrapper field/type observation and identity limits only
 - S23 — [ADR-057: Bounded unbound ChatGPT conversation-list page observation](../adr/057-chatgpt-unbound-conversation-page-observation.md), base main `e09278c35c5c033bd8a02e32c88487aae1272add`
 - S24 — local receipt `LISKA-CHATGPT-CONVERSATION-PAGE-EVIDENCE-20261106`; visibility: local-only; safe request grammar, field/type names and aggregate counts only
+- S25 — [ADR-058: Isolate new-capture purpose and evidence before journal persistence](../adr/058-new-capture-purpose-evidence-contract.md), base main `b3ce405c74cdf03c228235fbe90350d1c9918ee4`
