@@ -623,6 +623,21 @@ terminal states, and the existing no-credential-export boundary.
   binding, exact terminal traversal/restart, duplicate/reorder/filter behavior
   and controlled marker behavior before any skip decision. The completed pass
   authorizes no further provider or browser action.
+- [ADR-058](adr/058-new-capture-purpose-evidence-contract.md) now isolates the
+  first explicit `new-capture` semantic contract without wiring it. The accepted
+  pure operation/evidence relation binds purpose, operation/attempt/reserved
+  capture identity, provider/conversation/versioned key, exact catalog digest,
+  canonical all-of destinations and strict graph/message/branch/asset
+  completeness. File evidence remains terminal exact-path confirmation without
+  byte readback; Obsidian evidence remains byte-length/SHA-256 readback. Missing
+  facts are insufficient, contradictions are conflicts, malformed present
+  identity/commitments are rejected, and `consistent` means only structural
+  relation consistency of detached supplied data. Existing ChatGPT destination
+  receipts are not silently promoted to settlement evidence. Journal v1,
+  persistence, runtime, IDB, UI, build wiring, producers, provider execution,
+  baseline and scheduler remain unchanged. The next semantic slice is a
+  separately reviewed exact-producer adapter and purpose-aware persistence
+  version after sufficient provider evidence and explicit user authority.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
