@@ -5242,3 +5242,63 @@ Idea-Threads validation passes 9 threads / 37 relations; documentation-link test
 pass 76/76. Changed-document Prettier and `git diff --check` pass. This entry is
 append-only; no source, test, package or generated artifact is changed, and no
 provider, browser or network action was taken for this documentation slice.
+
+## ChatGPT conversation-list page evidence checkpoint — 2026-11-06
+
+Branch `codex/chatgpt-conversation-page-contract` starts from base main
+`e09278c35c5c033bd8a02e32c88487aae1272add` and records
+[ADR-057](docs/adr/057-chatgpt-unbound-conversation-page-observation.md).
+During separately authorized broader read-only research, AI Exporter remained
+disabled and the matching list requests were initiated by a ChatGPT CDN bundle.
+No mutation was invoked; headers and cookies were not inspected or retained, no
+raw response was persisted, and no real values were retained.
+
+The expanded pass used a self-imposed soft cap of six actual list requests, but
+two ordinary requests at offsets 20 and 40 preceded a UI-scroll burst of six
+list routes: eight actual requests total, a two-request overshoot. This was not
+a breach of a user-imposed hard cap because the user authorized broader
+read-only research; the overshoot against the stated soft cap remains explicit.
+Recording stopped after the burst. A UI gesture/Stop button cannot enforce an
+actual-request budget, and stopping does not prove network stop or
+completeness.
+
+The ordinary route was exact `GET 200 /backend-api/conversations` with
+observed query keys/values `exclude_conversation_origin=tpp`,
+`expand=false`, `hide_snorlax=false`, `is_archived=false`,
+`is_starred=false`, `limit=20`, `order=updated` and offsets
+0/20/40/60. Only bodies at offsets 20/40/60 were inspected; each had exact
+envelope keys `{items, limit, offset, total}`, integer `limit`/`offset` echoes,
+integer `total` and 20 items, with reported totals 41/61/81. These totals are uninterpreted metadata,
+not proof of an actual total, next offset, completeness or 81 unique
+conversations. Offset 0's response is unsupported and no terminal ordinary page
+was observed. One record's field/type inventory, but no values, is retained in
+ADR-057; one sample does not prove every record shape.
+
+The final burst also emitted a TPP ordinary-family request and a per-gizmo
+conversations request; neither body was inspected. No scope, route-family
+union, overlap or deduplication semantics are inferred. ADR-055's name-only
+pass and ADR-056's sidebar/gizmo-container pass remain distinct evidence.
+
+The documented contract and source implementation admit a pure synchronous unwired
+`observeChatGptUnboundConversationListPage` for the exact inspected
+nonterminal ordinary pages at offsets 20/40/60. It projects bounded identity and
+optional opaque update-time marker data, leaves scope unresolved and termination
+unknown, treats reported totals as uninterpreted metadata, and has no comparator
+or derived continuation/completion. The structure materially advances
+provider-specific discovery, but does not establish scope binding, marker
+semantics, terminal traversal, baseline/capture/scheduler authority or
+production closure.
+
+The implementation adds only provider-local source plus focused functional and
+architecture tests. Targeted validation passes 2 files / 174 tests. The full
+coverage run passes 308 files with one skipped and 11,098 tests with three
+skipped: 95.14% statements, 91.73% branches, 98.26% functions and 97.39% lines;
+the new module reports 99.37% statements, 98.30% branches and 100% functions and
+lines. Global TypeScript, full lint (zero errors and the unchanged 55 warnings),
+full Prettier, Idea-Threads 9/37, documentation links 77/77, dependency audit,
+guarded production build/ZIP and independent review all pass.
+
+The production closure still contains zero matches for the new schema,
+marker-source and function-name strings. Generated `dist` remains 65 files /
+6,078,286 bytes. The 2,789,703-byte candidate ZIP has SHA-256
+`867c999fa7e8a1b4e6acf4be3e190ece62c3ab5afad9dfc7fba9892aa761ffce`.

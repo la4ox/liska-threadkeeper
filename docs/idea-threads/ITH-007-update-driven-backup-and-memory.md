@@ -234,6 +234,39 @@ were proved. E14/E15 establish native sidebar/gizmo-container evidence, not a
 conversation-bearing list, conversation record ID/type/format, actual list-level
 marker or scope binding. They do not materially advance conversation discovery.
 
+### E16 — Native ordinary pages expose a bounded conversation-list structure
+
+In a separately authorized 2026-11-06 read-only pass, AI Exporter remained
+disabled and the matching requests were initiated by a ChatGPT CDN bundle. The
+ordinary route was `GET 200 /backend-api/conversations` with the observed
+query constants `exclude_conversation_origin=tpp`,
+`expand=false`, `hide_snorlax=false`, `is_archived=false`,
+`is_starred=false`, `limit=20` and `order=updated`. Requests at
+offsets 0, 20, 40 and 60 were observed. Only response bodies at offsets 20, 40
+and 60 were inspected; each had exact envelope keys `{items, limit, offset, total}`,
+integer `limit`/`offset` echoes, integer `total` and 20 items. Reported totals were 41, 61 and 81,
+respectively. These values are uninterpreted provider metadata, not proof of
+actual total, continuation, completeness or unique-record count. Offset 0 has
+no admitted response shape, and no terminal ordinary page was observed.
+
+One record was inspected for keys/types only. Its `id` was UUID-like and its
+`update_time` ISO-like; the exact one-sample field/type inventory is in
+ADR-057. This does not establish every record's shape. The same final burst also
+emitted a TPP ordinary-family request and a per-gizmo conversations request,
+but neither body was inspected; no route-family union, deduplication or scope
+semantics follow. No headers, cookies, raw response or real values were
+retained.
+
+### E17 — A UI-scroll burst exceeded the self-imposed request soft cap
+
+Two earlier ordinary-page requests at offsets 20 and 40 preceded one UI-scroll
+burst of six list routes: eight actual list requests total against a
+self-imposed soft cap of six. The user had authorized broader read-only research,
+so this was not a breach of a user-imposed hard cap; it was still a two-request
+overshoot that must remain visible. Recording stopped after the burst. One UI
+gesture or Stop button cannot enforce a request budget when it may emit several
+requests.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -401,6 +434,29 @@ Evidence: E14, E15
 
 Decision record: ADR-056
 
+### D11 — Admit bounded unbound ChatGPT page structure, not a change signal
+
+The exact inspected nonterminal ordinary pages at offsets 20, 40 and 60 justify
+a pure synchronous, unwired provider-local structural projector and materially
+advance provider-specific conversation discovery. Its contract admits only
+bounded `id` and optional opaque `update_time` marker data, identifies
+the source as `chatgpt-backend-api-conversations.update_time/1`, rejects
+duplicate IDs, and returns detached frozen sorted records with unresolved
+`scopeBinding` and unknown termination. The conservative lowercase UUID
+spelling is an acceptance policy, not a provider guarantee. Reported
+`total` remains uninterpreted metadata; no continuation or completion field
+is derived.
+
+No comparator is justified while scope is unresolved. No cross-observation
+equality/change, scope binding, terminal traversal, route-family union,
+baseline/capture authority, scheduler or production closure follows. The
+projector remains pure and unwired, with no network/browser/storage, cursor
+traversal, runtime, importer, catalog, journal, capture or export integration.
+
+Evidence: E16, E17
+
+Decision record: ADR-057
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -526,6 +582,27 @@ inspection. Do not manually change `conversations_per_gizmo`, guess a route or
 scroll Recent under the old cap. The completed schema pass grants no further
 provider request, baseline or scheduler authority.
 
+Fulfilled only as a limited evidence pass on 2026-11-06 (E16/E17): ordinary
+conversation-bearing pages, request grammar, bounded record identity and an
+optional update-time field were observed. Authenticated scope binding, terminal
+traversal, marker behavior and the other T10 requirements remain open; the
+unbound projector in D11 is not a discovery or sync authority. The UI-scroll
+burst exceeded the self-imposed soft cap by two actual requests, so future
+experiments must budget emitted requests rather than gestures.
+
+### T11 — Establish authenticated scope, terminal traversal and marker behavior
+
+Before using any marker to skip capture, establish authenticated scope binding,
+exact terminal traversal and restart behavior, duplicate/reorder/filter
+behavior, and marker behavior under controlled changes. Keep the ordinary,
+TPP and per-gizmo families separate unless observed evidence proves their
+relationships. A nonterminal page or provider-reported total is not
+completeness evidence.
+
+Trigger: a separately authorized bounded experiment establishes these
+provider-specific facts and request-level budgeting. Until then, no comparator,
+skip decision, account baseline or scheduler is authorized.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -545,6 +622,8 @@ provider request, baseline or scheduler authority.
 - [evidence] E13: exact AI Exporter 4.6.1 source is a pass-through observer, so DevTools attribution identifies neither list construction nor the initiating caller #code
 - [evidence] E14: after disabling AI Exporter/reloading, one isolated sidebar opening emitted two native GET 200 gizmo-container requests at budget 2/3; 20/string and 1/null envelopes prove neither account boundaries nor 21 unique records #live
 - [evidence] E15: one expanded gizmo wrapper exposed only keys/types; gizmo and organization strings establish neither conversation identity nor scope binding, while nested empty conversations under an explicit zero setting prove no absence #live
+- [evidence] E16: native ordinary ChatGPT pages exposed an exact bounded nonterminal envelope and one record's field/types; reported totals are uninterpreted and scope/termination remain unknown #live
+- [evidence] E17: two ordinary requests preceded a six-route UI burst, totaling eight against a self-imposed soft cap of six and showing gestures cannot enforce request budgets #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -558,6 +637,7 @@ provider request, baseline or scheduler authority.
 - [decision] D8: keep local verification outside journal v1; future reattachment is pure and exact, while a baseline needs purpose/capture semantics and explicit authority
 - [decision] D9: retain ChatGPT name evidence as docs only; lexical familiarity without grammar/schema or a consumer admits no classifier, parser or runtime
 - [decision] D10: retain exact native sidebar container evidence as docs only; no unused parser/classifier/runtime, and conversation discovery plus baseline/scheduler authority remain gated
+- [decision] D11: admit a pure unbound projector for exact inspected nonterminal ordinary pages only; no comparator, scope binding, terminal traversal or sync authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -567,7 +647,8 @@ provider request, baseline or scheduler authority.
 - [tail] T7: prove Claude pagination, archived visibility, marker semantics and request-level budgeting in later bounded experiments
 - [tail] T8: choose separately authorized Claude evidence or a later explicitly authorized account-wide baseline after semantic/provider review; backup remains unfinished
 - [tail] T9: a separately authorized schema pass was fulfilled only for native sidebar/gizmo containers on 2026-11-06; conversation-list evidence and further requests remain gated
-- [tail] T10: separately authorize a bounded native conversation-bearing list observation with exact visible scope, request grammar, identity field/type/format, pagination and an actual list-level marker; no guessed route or query mutation
+- [tail] T10: limited separately authorized native conversation-list pass observed ordinary nonterminal pages, identity and marker field; authenticated scope and marker behavior remain open
+- [tail] T11: establish authenticated scope, terminal/restart, duplicate/reorder/filter and controlled marker behavior before any skip decision or baseline/scheduler authority
 
 ## Relations
 
@@ -601,3 +682,5 @@ provider request, baseline or scheduler authority.
 - S20 — [ADR-056: Native ChatGPT sidebar container evidence without conversation discovery](../adr/056-chatgpt-native-sidebar-evidence.md), base main `4fc0942480fa7eb35b6fcd989ac42ec684cea663`
 - S21 — local receipt `LISKA-CHATGPT-NATIVE-SIDEBAR-SCHEMA-20261106`; visibility: local-only; safe trigger, request grammar and envelope aggregates only
 - S22 — local receipt `LISKA-CHATGPT-GIZMO-WRAPPER-SCHEMA-20261106`; visibility: local-only; one-wrapper field/type observation and identity limits only
+- S23 — [ADR-057: Bounded unbound ChatGPT conversation-list page observation](../adr/057-chatgpt-unbound-conversation-page-observation.md), base main `e09278c35c5c033bd8a02e32c88487aae1272add`
+- S24 — local receipt `LISKA-CHATGPT-CONVERSATION-PAGE-EVIDENCE-20261106`; visibility: local-only; safe request grammar, field/type names and aggregate counts only

@@ -577,12 +577,52 @@ terminal states, and the existing no-credential-export boundary.
   consumer could justify a strictly bounded gizmo-envelope parser, not a backup
   capability. Catalog, journal, schemas and runtime remain unchanged; baseline
   and scheduler authority stay gated, with semantic memory later.
-- The next ChatGPT evidence gate is a separately authorized bounded observation
-  of a native conversation-bearing list response with exact visible account/scope,
-  actual-emitted-request accounting, request grammar, conversation identity
-  field/type/format, pagination fields and an actual list-level marker. Do not
-  manually change `conversations_per_gizmo` or guess a route. The completed pass
-  authorizes no additional request or browser action.
+- [ADR-057](adr/057-chatgpt-unbound-conversation-page-observation.md) records the
+  separately authorized 2026-11-06 native conversation-list evidence. AI
+  Exporter remained disabled and the matching requests were initiated by a
+  ChatGPT CDN bundle. The ordinary `GET 200 /backend-api/conversations`
+  requests exposed query constants `exclude_conversation_origin=tpp`,
+  `expand=false`, `hide_snorlax=false`, `is_archived=false`,
+  `is_starred=false`, `limit=20` and `order=updated` at observed
+  offsets 0/20/40/60. Only bodies at 20/40/60 were inspected: exact
+  `{items, limit, offset, total}` envelopes, integer `limit`/`offset` echoes,
+  integer `total` and 20 items, with reported totals 41/61/81. Totals are
+  uninterpreted metadata; no
+  terminal page, actual total, continuation, completeness or unique-record
+  count follows. Offset 0's response is unsupported.
+- One record was inspected for keys/types only; its `id` was UUID-like and
+  `update_time` ISO-like. The single sample does not prove every record
+  shape. The same final burst also emitted a TPP ordinary-family request and a
+  per-gizmo conversations request, but neither body was inspected; no union,
+  deduplication or scope semantics follow. No headers, cookies, raw response
+  or real values were retained.
+- Request accounting is explicit: two earlier ordinary pages at offsets 20/40
+  preceded a six-route UI-scroll burst, eight actual list requests total against
+  a self-imposed soft cap of six. The broader read-only research was authorized,
+  but the two-request overshoot is real. A UI gesture/Stop button cannot enforce
+  a request budget; recording stopped after the burst and proves no network or
+  completeness boundary.
+- The accepted pure synchronous provider-local
+  `observeChatGptUnboundConversationListPage` contract is unwired and limited
+  to inspected offsets 20/40/60. It projects only bounded `id` and optional
+  opaque `update_time` marker data from
+  `chatgpt-backend-api-conversations.update_time/1`, with unresolved scope,
+  unknown termination and uninterpreted `reported.total`. No comparator is
+  justified; there is no continuation/completion inference, route-family union,
+  cursor traversal, runtime, catalog/journal, capture, export, baseline or
+  scheduler authority. This is material structural discovery progress, not
+  update detection or production closure.
+- Implementation acceptance passes 2 focused files / 174 tests and the full
+  repository coverage run at 308 passed files / one skipped and 11,098 passed
+  tests / three skipped. TypeScript, full lint with zero errors and 55 unchanged
+  warnings, full Prettier, Idea-Threads, 77 docs-link tests, dependency audit,
+  production build/ZIP and independent review all pass. The unwired module is
+  absent from the built extension; its schema, marker and function-name strings
+  have zero `dist` matches.
+- The next gate is separately authorized evidence for authenticated scope
+  binding, exact terminal traversal/restart, duplicate/reorder/filter behavior
+  and controlled marker behavior before any skip decision. The completed pass
+  authorizes no further provider or browser action.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
