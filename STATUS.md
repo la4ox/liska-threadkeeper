@@ -5182,3 +5182,63 @@ pass excluded bodies. No further provider request is authorized here.
 Idea-Threads validation passes 9 threads / 37 relations; documentation-link tests
 pass 75/75. Changed-document Prettier and `git diff --check` pass. This entry is
 append-only; no provider, browser or network action was taken for the docs slice.
+
+## ChatGPT native sidebar container evidence checkpoint — 2026-11-06
+
+Branch `codex/chatgpt-native-sidebar-evidence` starts from current main
+`4fc0942480fa7eb35b6fcd989ac42ec684cea663` and records
+[ADR-056](docs/adr/056-chatgpt-native-sidebar-evidence.md) as documentation only.
+In the separately authorized schema pass, the user disabled AI Exporter and one
+reload removed its loaded fetch wrapper. DevTools recording started empty and
+active. Reload emitted no relevant sidebar list because docked DevTools had
+collapsed the sidebar; opening it once was the isolated trigger.
+
+Exactly two matching native `Fetch` requests were emitted, both `GET` 200 and
+initiated by a ChatGPT CDN bundle, at exact path
+`/backend-api/gizmos/snorlax/sidebar` with `conversations_per_gizmo=0`, opaque
+`cursor`, `limit=20` and `owned_only=false`. The two request cursor values
+differed; neither was retained. Recording stopped at budget 2/3. The third
+allowed request was deliberately unused because scrolling Recent could emit
+multiple refetches and overshoot the cap; stop is not network/completeness proof.
+
+Both observed response envelopes had keys `{items, cursor}`: the first-observed
+items array had exactly 20 with a string top cursor; the second had exactly 1
+with a null top cursor. Both requests already had cursors, the initial boundary
+is unknown and exact cursor handoff equality was not retained or proved. These
+are not established initial/final account pages or 21 unique records. Every
+visible item summary had `{gizmo, conversations}` with nested conversations
+`{items: [], cursor: null}` under explicit `conversations_per_gizmo=0`; empty
+arrays do not prove that gizmos lack conversations.
+
+One gizmo wrapper in the second-observed null-cursor response was transiently
+expanded only for keys/types: `files` and `tools` arrays; nested `gizmo` with
+`id` and `organization_id` strings; `has_tpp_conversation` and
+`is_space_backing` booleans; `product_features` object;
+`project_connector_scope_limits` and `project_file_limits` null. No headers,
+cookies, raw response body or real identity values were persisted. Gizmo ID is
+not conversation identity, and the organization field is not authenticated
+account/workspace binding. Stability, format, coverage and scope semantics remain
+unproved.
+
+This exact native sidebar/gizmo-container evidence does not materially advance
+conversation discovery: no conversation record ID/type/format, actual list-level
+marker, scope binding or conversation-bearing list was observed. A tiny envelope
+parser is possible but would be unused evidence scaffolding, so no parser,
+classifier or runtime is added. A future diagnostic consumer could justify a
+strictly bounded gizmo-envelope parser, not backup progress. ADR-055's older
+`conversations?` names and caller-attribution ambiguity are not reinterpreted.
+Catalog, inert journal, schemas and runtime are unchanged; account-wide baseline
+and scheduler authority remain gated and semantic memory stays later.
+
+ITH-007 adds E14/E15/D10/T10, records the limited fulfillment of T9 and sets
+`last_turn` to 2026-11-06 without removing prior nodes. The next gate is a
+separately authorized bounded native conversation-bearing list observation with
+exact visible account/scope, actual request grammar, conversation identity
+field/type/format, pagination fields and an actual list-level marker. Do not
+manually change `conversations_per_gizmo`, guess a route or spend the old cap's
+unused request. No further provider request or browser action is authorized.
+
+Idea-Threads validation passes 9 threads / 37 relations; documentation-link tests
+pass 76/76. Changed-document Prettier and `git diff --check` pass. This entry is
+append-only; no source, test, package or generated artifact is changed, and no
+provider, browser or network action was taken for this documentation slice.

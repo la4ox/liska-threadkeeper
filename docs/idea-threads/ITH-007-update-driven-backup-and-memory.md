@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-05
+last_turn: 2026-11-06
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -191,6 +191,49 @@ ADR-055 records exact byte lengths and SHA-256 for the audited script and
 manifest, manifest version 3 and extension version 4.6.1, without local absolute
 paths or the extension ID. The initiating caller remains unresolved.
 
+### E14 — An isolated native sidebar trigger exposed a gizmo-container schema
+
+The separately authorized 2026-11-06 schema pass began after the user disabled
+AI Exporter and one reload removed its loaded fetch wrapper. DevTools recording
+started empty and active. Reload emitted no relevant sidebar list because docked
+DevTools collapsed the sidebar; opening it once was the isolated trigger.
+Exactly two matching native `Fetch` requests were emitted, both `GET` 200
+initiated by a ChatGPT CDN bundle. Their exact path was
+`/backend-api/gizmos/snorlax/sidebar`, with query keys/values
+`conversations_per_gizmo=0`, opaque `cursor`, `limit=20`, `owned_only=false`.
+The two request cursors differed; neither value was retained.
+
+Both observed responses had keys `{items, cursor}`. The first-observed items
+array contained exactly 20 with a string top cursor; the second contained
+exactly 1 with a null top cursor. Every visible item summary had keys
+`{gizmo, conversations}`, with nested conversations `{items: [], cursor: null}`
+under explicit `conversations_per_gizmo=0`. Both requests already had cursors;
+the initial boundary and exact response-to-request cursor handoff equality are
+unproved. These are not established initial/final account pages or 21 unique
+records, and empty nested arrays do not prove gizmos lack conversations.
+
+Recording stopped at budget 2/3. The third allowed request was deliberately
+unused because scrolling Recent could emit multiple refetches and overshoot the
+cap. Recording stop is not network-stop or completeness proof. No headers,
+cookies, raw response body or real identity values were persisted. E14 is
+distinct from E12/E13: it neither identifies the older `conversations?` names as
+this route nor retroactively resolves their attribution ambiguity.
+
+### E15 — A gizmo wrapper does not establish conversation identity or scope
+
+One gizmo wrapper in the second-observed null-cursor response was transiently
+expanded only for keys/types: `files` and `tools` arrays; nested `gizmo` object
+containing `id` and `organization_id` strings; `has_tpp_conversation` and
+`is_space_backing` booleans; `product_features` object;
+`project_connector_scope_limits` and `project_file_limits` null. Real values
+were not retained, and this sample does not prove every wrapper has this shape.
+
+Gizmo ID is not conversation identity; `organization_id` is not authenticated
+account/workspace binding. No stability, format, coverage or scope semantics
+were proved. E14/E15 establish native sidebar/gizmo-container evidence, not a
+conversation-bearing list, conversation record ID/type/format, actual list-level
+marker or scope binding. They do not materially advance conversation discovery.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -341,6 +384,23 @@ Evidence: E12, E13
 
 Decision record: ADR-055
 
+### D10 — Keep native sidebar container evidence docs-only without a parser
+
+Record ADR-056 without parser, classifier or runtime. A tiny structural envelope
+parser is technically possible, but without a diagnostic consumer it is unused
+evidence scaffolding rather than backup progress. A future separately justified
+diagnostic consumer could admit a strictly bounded gizmo-envelope parser, still
+without conversation-discovery authority.
+
+Preserve ADR-055's name-only history and unresolved caller attribution. The
+catalog, inert journal, schemas and runtime remain unchanged. ADR-052/053/054
+retain their authority boundaries; baseline and scheduler work stay gated and
+semantic memory stays later.
+
+Evidence: E14, E15
+
+Decision record: ADR-056
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -445,6 +505,27 @@ including safe aggregate response structure. The completed name-only pass
 excluded bodies and grants no permission to open them later. No further provider
 request is authorized by this thread.
 
+Fulfilled in a limited, separately authorized schema pass on 2026-11-06 (E14/E15):
+only the exact native sidebar/gizmo-container subset was observed, not a
+conversation-bearing list. This does not complete conversation discovery or
+reinterpret the name-only pass. T10 is a new authorization gate, not permission
+to spend the unused third request.
+
+### T10 — Observe a native conversation-bearing list under a new bounded plan
+
+The next ChatGPT evidence must come from a native conversation-bearing list
+response with exact visible account/scope, actual request grammar, conversation
+identity field/type/format, pagination fields and an actual list-level marker.
+Count actual emitted requests including refetches, define stop conditions and
+retain only the explicitly permitted safe schema aggregates. Unknown or absent
+evidence stays unknown or absent; the observed gizmo ID and organization field
+cannot fill those gaps.
+
+Trigger: the user separately authorizes that bounded scope and response
+inspection. Do not manually change `conversations_per_gizmo`, guess a route or
+scroll Recent under the old cap. The completed schema pass grants no further
+provider request, baseline or scheduler authority.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -462,6 +543,8 @@ request is authorized by this thread.
 - [evidence] E11: exact post-PR118 main makes confirmed attempts recorded/ineligible, so verifying an existing snapshot is not new capture work #code
 - [evidence] E12: three ChatGPT Fetch names/statuses exhausted the cap; method, full path and schema were uninspected, and recording stop proves no completeness #live
 - [evidence] E13: exact AI Exporter 4.6.1 source is a pass-through observer, so DevTools attribution identifies neither list construction nor the initiating caller #code
+- [evidence] E14: after disabling AI Exporter/reloading, one isolated sidebar opening emitted two native GET 200 gizmo-container requests at budget 2/3; 20/string and 1/null envelopes prove neither account boundaries nor 21 unique records #live
+- [evidence] E15: one expanded gizmo wrapper exposed only keys/types; gizmo and organization strings establish neither conversation identity nor scope binding, while nested empty conversations under an explicit zero setting prove no absence #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -474,6 +557,7 @@ request is authorized by this thread.
 - [decision] D7: admit the exact Claude terminal list shape and compare opaque tokens without sync authority
 - [decision] D8: keep local verification outside journal v1; future reattachment is pure and exact, while a baseline needs purpose/capture semantics and explicit authority
 - [decision] D9: retain ChatGPT name evidence as docs only; lexical familiarity without grammar/schema or a consumer admits no classifier, parser or runtime
+- [decision] D10: retain exact native sidebar container evidence as docs only; no unused parser/classifier/runtime, and conversation discovery plus baseline/scheduler authority remain gated
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -482,7 +566,8 @@ request is authorized by this thread.
 - [tail] T6: add a scope-aware canonical directory layout only after stable binding and migration rules are reviewed
 - [tail] T7: prove Claude pagination, archived visibility, marker semantics and request-level budgeting in later bounded experiments
 - [tail] T8: choose separately authorized Claude evidence or a later explicitly authorized account-wide baseline after semantic/provider review; backup remains unfinished
-- [tail] T9: separately authorize a capped, scope-explicit ChatGPT schema pass and safe aggregate body inspection; no further request is authorized
+- [tail] T9: a separately authorized schema pass was fulfilled only for native sidebar/gizmo containers on 2026-11-06; conversation-list evidence and further requests remain gated
+- [tail] T10: separately authorize a bounded native conversation-bearing list observation with exact visible scope, request grammar, identity field/type/format, pagination and an actual list-level marker; no guessed route or query mutation
 
 ## Relations
 
@@ -513,3 +598,6 @@ request is authorized by this thread.
 - S17 — [ADR-055: ChatGPT list-name evidence without an executable route contract](../adr/055-chatgpt-list-route-evidence.md), base main `070e6eb0b02f526f5d957964f6daaefebb8014f3`
 - S18 — local receipt `LISKA-CHATGPT-LIST-NAMES-20261105`; visibility: local-only; safe aggregate only
 - S19 — local receipt `LISKA-AI-EXPORTER-461-SOURCE-AUDIT-20261105`; visibility: local-only; safe code behavior and byte provenance only
+- S20 — [ADR-056: Native ChatGPT sidebar container evidence without conversation discovery](../adr/056-chatgpt-native-sidebar-evidence.md), base main `4fc0942480fa7eb35b6fcd989ac42ec684cea663`
+- S21 — local receipt `LISKA-CHATGPT-NATIVE-SIDEBAR-SCHEMA-20261106`; visibility: local-only; safe trigger, request grammar and envelope aggregates only
+- S22 — local receipt `LISKA-CHATGPT-GIZMO-WRAPPER-SCHEMA-20261106`; visibility: local-only; one-wrapper field/type observation and identity limits only
