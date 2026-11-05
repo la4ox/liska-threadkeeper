@@ -533,10 +533,56 @@ terminal states, and the existing no-credential-export boundary.
   payload suitability. A request-shape classifier would encode lexical
   familiarity without a complete grammar or consumer, so no classifier,
   parser or runtime is added and update discovery has not functionally advanced.
-  The next ChatGPT branch is a separately authorized schema-observation pass
-  with explicit scope, actual-request counting and stop conditions. Even safe
-  aggregate list response structure needs explicit permission to inspect
-  because this pass excluded bodies. No further provider request is authorized.
+  At that checkpoint, a next ChatGPT schema-observation pass required separate
+  authorization, explicit scope, actual-request counting and stop conditions.
+  Even safe aggregate list response structure needed explicit permission to
+  inspect because the name-only pass excluded bodies; it authorized no further
+  provider request. The distinct 2026-11-06 pass below does not reinterpret that
+  history or resolve its caller attribution by analogy.
+- [ADR-056](adr/056-chatgpt-native-sidebar-evidence.md) records a separately
+  authorized native sidebar schema pass on 2026-11-06, starting from main
+  `4fc0942480fa7eb35b6fcd989ac42ec684cea663`. The user disabled AI Exporter and
+  one reload removed its loaded fetch wrapper. Network recording began empty
+  and active. Reload itself emitted no relevant sidebar list because docked
+  DevTools collapsed the sidebar; opening the sidebar once isolated the trigger.
+  Exactly two matching native `Fetch` requests were emitted, both `GET` 200
+  initiated by a ChatGPT CDN bundle: exact path
+  `/backend-api/gizmos/snorlax/sidebar`, query keys/values
+  `conversations_per_gizmo=0`, opaque `cursor`, `limit=20`, `owned_only=false`.
+  The two cursor values differed and were not retained. Recording stopped at
+  budget 2/3; the third request was deliberately unused because scrolling Recent
+  could emit multiple refetches and overshoot the cap. Stop is not network or
+  completeness proof.
+- Both observed responses had top-level keys `{items, cursor}`: first-observed
+  `items` length 20 with a string cursor, second-observed length 1 with cursor
+  null. Both requests already had cursors; the initial boundary and exact cursor
+  handoff equality are unproved. Do not call these initial/final account pages,
+  claim 21 unique records or infer conversation completeness. Every visible item
+  summary had `{gizmo, conversations}`, with nested conversations
+  `{items: [], cursor: null}` under explicit `conversations_per_gizmo=0`.
+  Empty nested arrays do not prove that gizmos have no conversations.
+- One gizmo wrapper in the second-observed null-cursor response was transiently
+  expanded for types only: `files` and `tools` arrays; nested `gizmo` object with
+  `id` and `organization_id` strings; `has_tpp_conversation` and
+  `is_space_backing` booleans; `product_features` object;
+  `project_connector_scope_limits` and `project_file_limits` null. No headers,
+  cookies, raw body or real identity values were persisted. Gizmo ID is not
+  conversation identity; `organization_id` is not authenticated account/workspace
+  binding. Stability, format, coverage and scope semantics remain unproved.
+- This is exact native sidebar/gizmo-container evidence, not material
+  conversation-discovery progress: no conversation record ID/type/format,
+  scope binding, actual list-level marker or conversation-bearing list was
+  observed. A tiny envelope parser is technically possible but would be unused
+  evidence scaffolding; add no parser, classifier or runtime. A future diagnostic
+  consumer could justify a strictly bounded gizmo-envelope parser, not a backup
+  capability. Catalog, journal, schemas and runtime remain unchanged; baseline
+  and scheduler authority stay gated, with semantic memory later.
+- The next ChatGPT evidence gate is a separately authorized bounded observation
+  of a native conversation-bearing list response with exact visible account/scope,
+  actual-emitted-request accounting, request grammar, conversation identity
+  field/type/format, pagination fields and an actual list-level marker. Do not
+  manually change `conversations_per_gizmo` or guess a route. The completed pass
+  authorizes no additional request or browser action.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
