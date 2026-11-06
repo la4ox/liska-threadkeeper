@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
@@ -7,6 +7,10 @@ import ts from 'typescript';
 const root = path.resolve(import.meta.dirname, '../..');
 const directory = path.join(root, 'src/resumability-journal/purpose');
 const adapter = path.join(root, 'src/resumability-journal/producer-adapter');
+const handoff = path.join(root, 'src/resumability-journal/capture-handoff');
+const handoffEntry = path.join(handoff, 'index.ts');
+const adapterEntry = path.join(adapter, 'index.ts');
+const executor = path.join(root, 'src/content/capture/chatgpt-admitted-capture.ts');
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const name = path.join(dir, entry.name);
@@ -44,7 +48,7 @@ function references(file: string): string[] {
   return result;
 }
 
-describe('isolated test-only new-capture purpose contract', () => {
+describe('isolated unwired new-capture purpose contract', () => {
   it('has module-local imports only and no execution, clock, storage or browser capabilities', () => {
     const sourceFiles = files(directory).filter(file => file.endsWith('.ts'));
     expect(sourceFiles.length).toBeGreaterThan(0);
@@ -66,21 +70,25 @@ describe('isolated test-only new-capture purpose contract', () => {
       expect(source).not.toMatch(/console\s*\./u);
     }
   });
-  it('has no production source consumers, HTML entrypoints, build or manifest wiring', () => {
+  it('permits only exact isolated consumers, with no HTML entrypoints, build or manifest wiring', () => {
     for (const file of files(path.join(root, 'src'))) {
-      if (file.startsWith(directory + path.sep) || file.startsWith(adapter + path.sep)) continue;
       if (/\.[cm]?[jt]sx?$/u.test(file)) {
         for (const reference of references(file)) {
           const resolved = path.resolve(path.dirname(file), reference);
-          expect(resolved === directory || resolved.startsWith(directory + path.sep)).toBe(false);
-          expect(reference).not.toMatch(/resumability-journal\/purpose/u);
-          expect(resolved === adapter || resolved.startsWith(adapter + path.sep)).toBe(false);
-          expect(reference).not.toMatch(/resumability-journal\/producer-adapter/u);
+          if (resolved === directory || resolved.startsWith(directory + path.sep))
+            expect(
+              file.startsWith(directory + path.sep) || [adapterEntry, handoffEntry].includes(file)
+            ).toBe(true);
+          if (resolved === adapter || resolved.startsWith(adapter + path.sep))
+            expect(file).toBe(adapterEntry);
+          if (resolved === handoff || resolved.startsWith(handoff + path.sep))
+            expect(file).toBe(executor);
+          expect([resolved, resolved + '.ts']).not.toContain(executor);
         }
       }
       if (file.endsWith('.html'))
         expect(readFileSync(file, 'utf8')).not.toMatch(
-          /resumability-journal\/(?:purpose|producer-adapter)|\/(?:purpose|producer-adapter)\/index/u
+          /resumability-journal\/(?:purpose|producer-adapter|capture-handoff)|\/(?:purpose|producer-adapter|capture-handoff)\/index|chatgpt-admitted-capture/u
         );
     }
     for (const file of [
@@ -92,7 +100,7 @@ describe('isolated test-only new-capture purpose contract', () => {
         .map(name => path.join(root, name)),
     ]) {
       expect(readFileSync(file, 'utf8')).not.toMatch(
-        /resumability-journal[/\\](?:purpose|producer-adapter)/u
+        /resumability-journal[/\\](?:purpose|producer-adapter|capture-handoff)|chatgpt-admitted-capture|prepareChatGptNewCapture|capturePreparedChatGpt/u
       );
     }
   });
@@ -103,10 +111,82 @@ describe('isolated test-only new-capture purpose contract', () => {
           '../purpose',
           '../../lib/chatgpt-producer-evidence',
           '../../lib/producer-evidence-data',
+          '../../archive/catalog/conversation-key',
         ]).toContain(reference);
       expect(readFileSync(file, 'utf8')).not.toMatch(
         /\b(?:chrome|browser|navigator|document|window|globalThis|process|indexedDB|localStorage|Date|performance|crypto)\s*[.(]|\b(?:fetch|setTimeout|setInterval|eval|Function|require|import)\s*\(/u
       );
     }
+  });
+  it('keeps the pure handoff and effectful executor separate with exact import allowlists', () => {
+    expect(files(handoff)).toEqual([handoffEntry]);
+    expect(references(handoffEntry).sort()).toEqual(
+      [
+        '../../archive/catalog/admission',
+        '../../archive/catalog/conversation-key',
+        '../../lib/chatgpt-capture-contract',
+        '../../lib/chatgpt-producer-evidence',
+        '../../lib/producer-evidence-data',
+        '../purpose',
+      ].sort()
+    );
+    expect(references(executor).sort()).toEqual(
+      [
+        '../../archive/catalog/conversation-key',
+        '../../lib/chatgpt-capture-contract',
+        '../../resumability-journal/capture-handoff',
+        './chatgpt-current-branch',
+        './response',
+      ].sort()
+    );
+    for (const file of [handoffEntry, executor]) {
+      const source = readFileSync(file, 'utf8');
+      expect(source).not.toMatch(
+        /JournalDispatchToken|journal-v1|runId|itemId|\b(?:indexedDB|localStorage|sessionStorage|fetch|setTimeout|setInterval)\b|\b(?:chrome|browser|document|window)\s*[.(]/u
+      );
+      expect(source).not.toMatch(
+        /\b(?:persist|settle|assessNewCaptureEvidence|requestChatGptConversationCapture|normalizeChatGptCapture|observeChatGpt\w+|abortStagedArchiveArtifact)\s*\(/u
+      );
+    }
+    expect(readFileSync(handoffEntry, 'utf8')).not.toMatch(
+      /\b(?:Date|crypto|performance|globalThis)\s*[.(]/u
+    );
+    for (const file of ['admission.ts', 'conversation-key.ts']) {
+      const source = readFileSync(path.join(root, 'src/archive/catalog', file), 'utf8');
+      expect(source).not.toMatch(
+        /resumability-journal|\b(?:File|Blob|fetch|indexedDB|chrome|crypto)\b/u
+      );
+    }
+  });
+  it('keeps the new symbols and operation schema out of every production entry import closure', () => {
+    const sourceFiles = files(path.join(root, 'src'));
+    const manifest = readFileSync(path.join(root, 'src/manifest.json'), 'utf8');
+    const pending = [...manifest.matchAll(/"(src\/[^"\r\n]+\.ts)"/gu)].map(match =>
+      path.join(root, match[1])
+    );
+    for (const html of sourceFiles.filter(file => file.endsWith('.html')))
+      for (const match of readFileSync(html, 'utf8').matchAll(/\bsrc=["']([^"']+\.ts)["']/gu))
+        pending.push(path.resolve(path.dirname(html), match[1]));
+    expect(pending.length).toBeGreaterThan(5);
+    const visited = new Set<string>();
+    while (pending.length) {
+      const file = pending.pop()!;
+      if (visited.has(file)) continue;
+      visited.add(file);
+      expect([handoffEntry, executor, adapterEntry]).not.toContain(file);
+      expect(file.startsWith(directory + path.sep)).toBe(false);
+      expect(readFileSync(file, 'utf8')).not.toMatch(
+        /prepareChatGptNewCapture|capturePreparedChatGpt|validatePreparedChatGpt|PreparedChatGptCapture|liska-new-capture-operation\/1/u
+      );
+      for (const reference of references(file)) {
+        if (!reference.startsWith('.')) continue;
+        const base = path.resolve(path.dirname(file), reference);
+        const target = [base + '.ts', path.join(base, 'index.ts'), base].find(value =>
+          existsSync(value)
+        );
+        if (target?.endsWith('.ts')) pending.push(target);
+      }
+    }
+    expect(visited.size).toBeGreaterThan(100);
   });
 });

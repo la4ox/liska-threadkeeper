@@ -652,6 +652,19 @@ terminal states, and the existing no-credential-export boundary.
   v1 and IDB are unchanged, and no baseline/scheduler authority is added. The
   next separate slice is an admission/execution handoff that reserves capture
   identity before provider work, followed later by purpose-aware persistence.
+- [ADR-060](adr/060-catalog-bound-chatgpt-capture-handoff.md) now closes that
+  ordering gap without wiring a baseline. The shared data-only admission accepts
+  exact canonical catalog bytes; a pure handoff requires full-triple ChatGPT
+  membership, verifies the provider-aware key and freezes operation, attempt,
+  reserved capture and required destinations before any effect. A separate
+  unwired executor requires an injected single provider request, uses the real
+  capture/normalizer/inventory with that reserved ID and exposes no runtime
+  fallback, retry, persistence or settlement. The real integration remains
+  insufficient because current asset discovery is honestly `not-attempted`.
+  Journal v1 and its dispatch token are unchanged and do not gain purpose
+  meaning. The next separate slice is purpose-aware persistence v2 with
+  restart/crash/retry semantics; provider scope, account-wide baseline and the
+  scheduler remain later decisions.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

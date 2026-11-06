@@ -5418,3 +5418,69 @@ bytes. The 2,791,772-byte candidate ZIP has SHA-256
 `9408a5a82fd3552d74563cd7a105de025167d804633c78711867693f6ece9acd`.
 ITH-007 adds E20/E21/D13/T13, records T12 as partially fulfilled and preserves
 the remaining admission, persistence, scope, baseline and scheduler gates.
+
+## Catalog-bound ChatGPT capture handoff acceptance — 2026-11-06
+
+Branch `codex/new-capture-admission-handoff` starts from merged main
+`b3f6c9deba1781c0ba235f48177e6ef2a7aa5b2e` and records
+[ADR-060](docs/adr/060-catalog-bound-chatgpt-capture-handoff.md). The prior
+producer-evidence slice required immutable purpose intent before the first
+write, while ordinary capture requested provider data before allocating its
+capture ID. This slice closes that ordering gap without wiring a baseline.
+
+The exact canonical catalog admission is now a shared data-only core. The
+private journal page preserves its existing API, File reader and default crypto
+capability, while both paths use the same strict encoder, byte-for-byte canonical
+admission, exact catalog hash and provider-aware conversation-key recipe. No
+second parser or competing key derivation is added.
+
+Pure `prepareChatGptNewCapture` copies catalog bytes and request data before the
+first await, requires exact full-triple ChatGPT membership, validates the strict
+conversation/capture-ID contracts, verifies the provider-aware key and builds
+one deeply frozen ADR-058 operation/producer-intent pair. Hash dependencies
+receive owned bytes; throwing, mutation, invalid digests and cancellation fail
+before capture. Independent review found a late nested-microtask cancellation
+window after the final key hash; a final synchronous signal check plus a real
+prepare-to-executor zero-request regression resolved that P2. Delta review
+reports ready.
+
+The separate unwired `capturePreparedChatGpt` executor requires an injected
+single request and optional clock. It revalidates the immutable pair and identity
+before dispatch, runs the real ChatGPT capture/normalizer/inventory with a
+closure returning the reserved capture ID, and verifies the same provider,
+conversation and capture identity across manifest, companion, archive and
+asset-export context. It exposes no default runtime bridge, alternate normalizer,
+resolver observation, retry, second cleanup, destination write, assessment,
+persistence or settlement.
+
+The full offline integration traverses exact catalog admission, the real capture
+and normalizer, factual producer receipt and adapter. Current real asset
+discovery remains `not-attempted`, including zero assets, so the assessment is
+honestly `insufficient/completeness-incomplete`; no strict completeness is
+manufactured. Ordinary manual capture behavior remains unchanged.
+
+`JournalDispatchToken`, journal v1/core transitions, IndexedDB and UI remain
+unchanged and unused. This handoff reserves identity within one immutable object
+but proves neither durable uniqueness nor restart-safe dispatch authority. The
+next gate is purpose-aware persistence v2 with atomic pre-dispatch reservation,
+pause/restart validation, crash/retry semantics and assessment retention without
+automatic settlement. Provider scope, account-wide baseline authority and the
+daily scheduler remain separate later choices.
+
+Focused parent validation passes 13 files / 433 tests. The full coverage run
+passes 312 files with one skipped and 11,310 tests with three skipped: 95.19%
+statements, 91.82% branches, 98.31% functions and 97.43% lines. The handoff
+module reports 98.11% statements, 97.43% branches, 100% functions and 98.03%
+lines. Global TypeScript, full lint with zero errors and the unchanged 55
+warnings, full Prettier, Idea-Threads 9/37, documentation links 80/80, dependency
+audit with zero vulnerabilities, guarded production build/ZIP and independent
+review all pass.
+
+The production closure contains zero matches for the admission, executor and
+prepared-handoff symbols, the handoff path and the ADR-058 operation schema.
+Generated `dist` is 65 files / 6,086,237 bytes. The 2,791,807-byte candidate ZIP
+has SHA-256
+`ade0dd52169c1e4aeadbd0f7f812102ab4c2242046d0d98ccc6b4dd7a721b7cc`.
+ITH-007 adds E22/E23/D14/T14, records T13 as fulfilled only for unwired
+single-capture ordering and preserves persistence, scope, baseline and scheduler
+gates.
