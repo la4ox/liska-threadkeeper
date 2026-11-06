@@ -353,6 +353,31 @@ full offline path retains the same identity through manifest, companion and
 producer receipt. Real asset inventory remains `not-attempted`, so the adapter
 correctly stays insufficient rather than inventing completeness.
 
+### E24 — Journal v1 cannot safely gain purpose persistence in place
+
+The accepted v1 database requires version 1 and exactly one index-free
+`journals` store; its upgrade path accepts only an empty version-0 database.
+Adding a v2 store or upgrading that database would make the v1 reader reject its
+own schema. V1 also lacks purpose, operation, catalog and destination semantics,
+so its dispatch token cannot be promoted into purpose authority.
+
+A separate database and record schema are therefore required to preserve v1
+bytes, imports and behavior while adding durable single-operation reservation.
+
+### E25 — Separate v2 storage commits reservation and retains assessment without settlement
+
+The new `liska-resumability-journal/2` store atomically reserves unique
+operation/attempt/capture identity, releases session-private tokens only after
+IDB commit, preserves exact producer receipts and recomputed adapter results and
+recovers in-flight work to unknown without retry. `consistent` moves only to
+`awaiting-resolution`; no success or settlement state exists.
+
+One constructor-owned hash authority prevents write/read divergence. Exact
+control-transition projection preserves pause/restart/abandon capacity at the
+8-MiB boundary. A native Chromium smoke verified reserve, claim, fresh-handle
+reopen, explicit restart recovery, evidence commit and second reopen in a unique
+test database that was then removed.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -593,6 +618,22 @@ Evidence: E19, E21, E22, E23
 
 Decision record: ADR-060
 
+### D15 — Keep purpose persistence separate, commit-gated and unresolved
+
+Adopt ADR-061's separate v2 database and one-operation journal. Preserve v1
+source and storage exactly. Require atomic retained identity uniqueness,
+transaction-complete token issuance, exact full-snapshot CAS, session-private
+currentness and explicit restart recovery.
+
+Retain factual receipts and adapter results but never map any assessment to
+settlement or retry. Use one store-owned hash authority and reserve exact space
+for every required later control transition. Treat browser-local commit as
+bookkeeping, not permanent archive durability or exactly-once execution.
+
+Evidence: E19, E21, E23, E24, E25
+
+Decision record: ADR-061
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -784,6 +825,21 @@ Trigger: the persistence/recovery contract is separately reviewed and the user
 explicitly authorizes that local storage slice. Provider scope and account-wide
 baseline authority remain separate later decisions.
 
+Fulfilled as an unwired browser-local persistence gate on 2026-11-06 by E24/E25
+and D15. Actual request ownership and current-token consumption remain open under
+T15; no baseline authority follows.
+
+### T15 — Connect committed currentness to the actual request boundary
+
+Design a single-operation execution coordinator that exclusively owns one
+committed v2 reservation, consumes current session authority at the real provider
+effect boundary and defines pause/cancel races plus evidence-persistence failure
+handling. A pre-request snapshot check alone is not a lock across later awaits.
+
+Trigger: coordinator ownership and crash semantics are separately reviewed and
+the user explicitly authorizes local execution wiring. Provider scope and
+account-wide baseline authority remain separate gates.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -811,6 +867,8 @@ baseline authority remain separate later decisions.
 - [evidence] E21: additive exact ChatGPT producer receipts and an unwired adapter preserve real sink facts but require pre-write intent for purpose consistency #code
 - [evidence] E22: ordinary ChatGPT capture allocated identity after the provider response, leaving pre-dispatch reservation unproved #code
 - [evidence] E23: exact canonical catalog admission now prepares frozen identity before one real injected capture; real asset inventory remains honestly insufficient #code
+- [evidence] E24: v1's exact one-store database and missing purpose semantics prohibit an in-place persistence upgrade #code
+- [evidence] E25: separate v2 IndexedDB commits single-operation reservation and retained assessment without settlement; native Chromium close/reopen/recovery passed #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -828,6 +886,7 @@ baseline authority remain separate later decisions.
 - [decision] D12: adopt a pure all-of new-capture purpose/evidence relation while leaving journal v1, persistence, producers and production authority unchanged
 - [decision] D13: retain exact current producer observations and adapt only explicitly pre-admitted work; manual/legacy captures remain non-authorizing
 - [decision] D14: separate exact catalog-bound admission from one unwired real capture; do not treat the handoff as durable dispatch authority
+- [decision] D15: keep purpose persistence in a separate commit-gated v2 store; retain evidence and uncertainty without settlement, retry or v1 mutation
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -842,6 +901,7 @@ baseline authority remain separate later decisions.
 - [tail] T12: separately adapt exact producers and purpose-aware persistence after evidence and user authority, without mutating journal v1
 - [tail] T13: pass catalog-bound operation/attempt/reserved-capture intent into capture before requests, then design purpose-aware persistence separately
 - [tail] T14: atomically persist purpose-aware reservation and define restart/retry/settlement semantics without changing journal v1
+- [tail] T15: connect committed session currentness to the actual provider request under one separately reviewed execution owner
 
 ## Relations
 
@@ -882,3 +942,6 @@ baseline authority remain separate later decisions.
 - S27 — [ADR-059: Retain exact ChatGPT producer evidence before purpose persistence](../adr/059-chatgpt-producer-evidence-adapter.md), base main `9a83e6d5b84df7f41dfd1fb547665f84db679a49`
 - S28 — [PR #124](https://github.com/la4ox/liska-threadkeeper/pull/124), merged main `b3f6c9d`, exact reviewed head `ef3616d`
 - S29 — [ADR-060: Prepare catalog-bound ChatGPT capture before the provider request](../adr/060-catalog-bound-chatgpt-capture-handoff.md), base main `b3f6c9deba1781c0ba235f48177e6ef2a7aa5b2e`
+- S30 — [PR #125](https://github.com/la4ox/liska-threadkeeper/pull/125), merged main `94af6fe`, exact reviewed head `23700e0`
+- S31 — [ADR-061: Persist purpose-aware single-capture state in a separate v2 journal](../adr/061-purpose-aware-persistence-v2.md), base main `94af6fe90f495cc2fee2b426a028c1da719c8b1c`
+- S32 — local receipt `LISKA-PURPOSE-V2-NATIVE-IDB-20261106`; visibility: local-only; safe lifecycle/revision/assessment aggregate only

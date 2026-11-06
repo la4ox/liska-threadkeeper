@@ -10,6 +10,10 @@ const adapter = path.join(root, 'src/resumability-journal/producer-adapter');
 const handoff = path.join(root, 'src/resumability-journal/capture-handoff');
 const handoffEntry = path.join(handoff, 'index.ts');
 const adapterEntry = path.join(adapter, 'index.ts');
+const persistence = path.join(root, 'src/resumability-journal/purpose-persistence-v2');
+const persistenceCore = path.join(persistence, 'core/record.ts');
+const persistenceEntry = path.join(persistence, 'idb/index.ts');
+const persistenceRecords = path.join(persistence, 'idb/records.ts');
 const executor = path.join(root, 'src/content/capture/chatgpt-admitted-capture.ts');
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -77,12 +81,15 @@ describe('isolated unwired new-capture purpose contract', () => {
           const resolved = path.resolve(path.dirname(file), reference);
           if (resolved === directory || resolved.startsWith(directory + path.sep))
             expect(
-              file.startsWith(directory + path.sep) || [adapterEntry, handoffEntry].includes(file)
+              file.startsWith(directory + path.sep) ||
+                [adapterEntry, handoffEntry, persistenceCore].includes(file)
             ).toBe(true);
           if (resolved === adapter || resolved.startsWith(adapter + path.sep))
-            expect(file).toBe(adapterEntry);
+            expect([adapterEntry, persistenceCore, persistenceEntry, persistenceRecords]).toContain(
+              file
+            );
           if (resolved === handoff || resolved.startsWith(handoff + path.sep))
-            expect(file).toBe(executor);
+            expect([executor, persistenceEntry]).toContain(file);
           expect([resolved, resolved + '.ts']).not.toContain(executor);
         }
       }
