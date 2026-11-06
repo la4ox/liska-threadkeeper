@@ -693,6 +693,20 @@ terminal states, and the existing no-credential-export boundary.
   attachment acquisition remain a separate ownership problem, together with the
   decision whether unpersisted late facts need crash-durable spooling. Provider
   scope, account-wide baseline authority and the scheduler remain later gates.
+- [ADR-063](adr/063-explicit-staged-capture-ownership.md) now makes staged
+  capture/archive ownership explicit without enabling acquisition. A complete
+  injected stage port owns bounded read, canonical-stage creation and explicit
+  release; request-returned leases bind exact execution identity and artifact
+  commitment. Only selected stages transfer synchronously to a narrow sink, and
+  execution releases each unselected lease once after started work drains.
+  Cleanup outcome remains separate from capture/write facts, so dead stage
+  references are not returned as usable evidence. Manual runtime defaults remain
+  unchanged, while the staged coordinator touches no Chrome bridge. Late facts
+  remain documented best-effort runtime output for unwired slices; no durable
+  spool is implied. The next separate slice enables one named resolver family
+  only through a complete resolver/acquisition/binary capability bundle, with no
+  recapture, global-fetch or runtime-message fallback. Provider scope,
+  account-wide baseline authority and scheduling remain later.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

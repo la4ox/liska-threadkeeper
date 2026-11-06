@@ -142,6 +142,7 @@ describe('isolated unwired new-capture purpose contract', () => {
       [
         '../../archive/catalog/conversation-key',
         '../../lib/chatgpt-capture-contract',
+        '../../lib/chatgpt-capture-stage-access',
         '../../resumability-journal/capture-handoff',
         './chatgpt-current-branch',
         './response',

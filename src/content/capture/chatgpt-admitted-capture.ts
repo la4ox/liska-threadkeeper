@@ -1,6 +1,7 @@
 /** Unwired, single-request executor. No persistence, assessment, resolver pass or retry. */
 import { conversationKeyInput } from '../../archive/catalog/conversation-key';
 import type { ChatGptCaptureResponse } from '../../lib/chatgpt-capture-contract';
+import type { ChatGptCaptureStageAccess } from '../../lib/chatgpt-capture-stage-access';
 import {
   validatePreparedChatGpt,
   type PreparedChatGptCapture,
@@ -18,6 +19,7 @@ export interface AdmittedChatGptCapture extends PreparedChatGptCapture {
 export interface AdmittedChatGptCaptureDependencies {
   /** Reject internal canonical staging for isolated inline-only callers. */
   readonly inlineOnly?: boolean;
+  readonly stageAccess?: ChatGptCaptureStageAccess;
   readonly requestCapture: (conversationId: string) => Promise<ChatGptCaptureResponse>;
   readonly now?: () => Date;
 }
@@ -66,6 +68,7 @@ export async function capturePreparedChatGpt(
   const request = dependencies?.requestCapture;
   const now = dependencies?.now;
   const inlineOnly = dependencies?.inlineOnly;
+  const stageAccess = dependencies?.stageAccess;
   const prepared = validatePreparedChatGpt(input);
   if (typeof request !== 'function' || (now !== undefined && typeof now !== 'function'))
     throw new ChatGptCurrentBranchError('capture-failed');
@@ -81,6 +84,7 @@ export async function capturePreparedChatGpt(
     },
     createCaptureId: () => operation.captureId,
     inlineOnly,
+    stageAccess,
     ...(now && { now }),
   });
   verifyResult(capture, prepared, legacyDigest);
