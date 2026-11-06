@@ -674,7 +674,8 @@ function archiveCompanionDownloadPath(
 async function handleVerifiedInlineDownload(
   artifact: InlineDownloadArtifact,
   expectedPath: string,
-  reportDurableWriteOutcome: boolean | undefined
+  reportDurableWriteOutcome: boolean | undefined,
+  archiveRelativePath?: string
 ): Promise<OutputResult> {
   let blobUrl: string | null = null;
   let lease: OffscreenLease | undefined;
@@ -709,7 +710,16 @@ async function handleVerifiedInlineDownload(
       if (outcome.error) result = { destination: 'file', success: false, error: outcome.error };
       else if (await confirmArchiveDownloadPath(outcome, expectedPath)) {
         state = 'confirmed';
-        result = { destination: 'file', success: true };
+        result = {
+          destination: 'file',
+          success: true,
+          ...(archiveRelativePath && {
+            sinkObservation: {
+              kind: 'browser-download-complete-path-confirmed' as const,
+              observedRelativePath: archiveRelativePath,
+            },
+          }),
+        };
       } else
         result = {
           destination: 'file',
@@ -756,7 +766,8 @@ async function handleArchiveDownload(
   return handleVerifiedInlineDownload(
     message.artifact,
     archiveCompanionDownloadPath(message),
-    message.reportDurableWriteOutcome
+    message.reportDurableWriteOutcome,
+    message.artifact.relativePath
   );
 }
 
@@ -1028,6 +1039,7 @@ async function handleArchiveSaveToObsidian(
       {
         destination: 'obsidian',
         success: result.success,
+        ...(result.sinkObservation && { sinkObservation: result.sinkObservation }),
         ...(result.error && { error: result.error }),
       },
       state,

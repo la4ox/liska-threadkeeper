@@ -347,7 +347,16 @@ describe('archive companion durable outputs', () => {
 
     expect(result).toEqual(
       expect.objectContaining({
-        results: [{ destination: 'file', success: true }],
+        results: [
+          {
+            destination: 'file',
+            success: true,
+            sinkObservation: {
+              kind: 'browser-download-complete-path-confirmed',
+              observedRelativePath: descriptor.relativePath,
+            },
+          },
+        ],
         allSuccessful: true,
       })
     );
@@ -447,7 +456,16 @@ describe('archive companion durable outputs', () => {
     );
 
     expect(result).toEqual({
-      results: [{ destination: 'file', success: true }],
+      results: [
+        {
+          destination: 'file',
+          success: true,
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: descriptor.relativePath,
+          },
+        },
+      ],
       allSuccessful: true,
       anySuccessful: true,
     });
@@ -505,6 +523,10 @@ describe('archive companion durable outputs', () => {
           destination: 'file',
           success: true,
           warning: 'binary-stage-cleanup-deferred',
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: descriptor.relativePath,
+          },
         },
       ],
       allSuccessful: true,
@@ -702,7 +724,16 @@ describe('archive companion durable outputs', () => {
 
     const result = await handlePersistArchiveCompanion(await message('raw', ['file']), settings);
 
-    expect(result.results).toEqual([{ destination: 'file', success: true }]);
+    expect(result.results).toEqual([
+      {
+        destination: 'file',
+        success: true,
+        sinkObservation: {
+          kind: 'browser-download-complete-path-confirmed',
+          observedRelativePath: 'responses/conversation.json',
+        },
+      },
+    ]);
     expect(chrome.downloads.search).toHaveBeenCalledWith({ id: 29 });
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiveBlobRevoke' })
@@ -1089,7 +1120,16 @@ describe('archive companion durable outputs', () => {
     await vi.advanceTimersByTimeAsync(30_000);
     const result = await pending;
 
-    expect(result.results).toEqual([{ destination: 'file', success: true }]);
+    expect(result.results).toEqual([
+      {
+        destination: 'file',
+        success: true,
+        sinkObservation: {
+          kind: 'browser-download-complete-path-confirmed',
+          observedRelativePath: 'responses/conversation.json',
+        },
+      },
+    ]);
     expect(chrome.downloads.search).toHaveBeenCalledTimes(3);
     expect(chrome.downloads.cancel).not.toHaveBeenCalled();
     vi.useRealTimers();

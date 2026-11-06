@@ -38,6 +38,11 @@ import { persistChatGptDestinationHonestAttachments } from './chatgpt-asset-expo
 import type { ChatGptAssetExportResult } from './chatgpt-asset-export';
 import { decorateChatGptArchiveNote } from './chatgpt-archive-links';
 import { snapshotChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
+import {
+  observeProducerArtifact,
+  producerCommitment,
+  type ProducerArtifactObservation,
+} from '../lib/chatgpt-producer-evidence';
 import { localizeChatGptSandboxLinks } from './chatgpt-sandbox-localization';
 import {
   DeepSeekNavigationChangedError,
@@ -571,6 +576,7 @@ function archiveWriteOutcome(
 }
 
 export interface ArchiveCompanionPersistenceOutcome {
+  observations?: readonly ProducerArtifactObservation[];
   activeOutputs: PersistentOutputDestination[];
   warnings: string[];
 }
@@ -591,6 +597,7 @@ export async function persistArchiveCompanionArtifacts(
   writeLedger?: OperationWriteLedger,
   isOperationCurrent?: () => boolean
 ): Promise<ArchiveCompanionPersistenceOutcome> {
+  const observations: ProducerArtifactObservation[] = [];
   if (!companion) return { activeOutputs: [], warnings: [] };
   const unclaimedStages = new Set(
     companion.artifacts
@@ -662,6 +669,7 @@ export async function persistArchiveCompanionArtifacts(
       activeOutputs = [];
       break;
     }
+    const commitment = Object.freeze(producerCommitment(artifact));
     const message = buildArchivePersistenceMessage({
       companion,
       noteFileName,
@@ -674,7 +682,7 @@ export async function persistArchiveCompanionArtifacts(
     });
     const attempts = activeOutputs.map(destination => ({
       destination,
-      attempt: writeLedger?.begin(destination, artifact.kind, artifact.byteLength),
+      attempt: writeLedger?.begin(destination, artifact.kind, commitment.byteLength),
     }));
     const label = archiveArtifactLabel(artifact.kind);
     if (
@@ -699,6 +707,7 @@ export async function persistArchiveCompanionArtifacts(
           ? response.results.find(result => result.destination === destination)
           : undefined;
         attempt?.observe(durableWriteOutcomeFromResult(result));
+        observations.push(observeProducerArtifact(destination, commitment, result));
       }
       await requireCurrentOperation();
       const outcome = archiveWriteOutcome(
@@ -712,6 +721,16 @@ export async function persistArchiveCompanionArtifacts(
       activeOutputs = outcome.activeOutputs;
     } catch (error) {
       attempts.forEach(({ attempt }) => attempt?.observe());
+      for (const { destination } of attempts) {
+        if (
+          !observations.some(
+            item =>
+              item.destination === destination &&
+              item.commitment.relativePath === commitment.relativePath
+          )
+        )
+          observations.push(observeProducerArtifact(destination, commitment, undefined));
+      }
       if (error instanceof DeepSeekNavigationChangedError) {
         await abortUnclaimedStages();
         throw error;
@@ -723,7 +742,7 @@ export async function persistArchiveCompanionArtifacts(
     }
   }
   await abortUnclaimedStages();
-  return { activeOutputs, warnings };
+  return { activeOutputs, warnings, observations };
 }
 
 /**

@@ -538,7 +538,16 @@ describe('archive-stage background handler coverage', () => {
     await expect(
       handlers.handleArchiveStageMessage(commitMessage(['file']), settings)
     ).resolves.toEqual({
-      results: [{ destination: 'file', success: true }],
+      results: [
+        {
+          destination: 'file',
+          success: true,
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: 'responses/conversation.json',
+          },
+        },
+      ],
       allSuccessful: true,
       anySuccessful: true,
     });
@@ -570,7 +579,17 @@ describe('archive-stage background handler coverage', () => {
     await expect(
       handlers.handleArchiveStageMessage(commitMessage(['file']), settings)
     ).resolves.toEqual({
-      results: [{ destination: 'file', success: true, warning: 'archive-stage-cleanup-deferred' }],
+      results: [
+        {
+          destination: 'file',
+          success: true,
+          warning: 'archive-stage-cleanup-deferred',
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: 'responses/conversation.json',
+          },
+        },
+      ],
       allSuccessful: true,
       anySuccessful: true,
     });
@@ -634,7 +653,17 @@ describe('archive-stage background handler coverage', () => {
     await expect(
       handlers.handleArchiveStageMessage(commitMessage(['file']), settings)
     ).resolves.toEqual({
-      results: [{ destination: 'file', success: true, warning: 'archive-stage-cleanup-deferred' }],
+      results: [
+        {
+          destination: 'file',
+          success: true,
+          warning: 'archive-stage-cleanup-deferred',
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: 'responses/conversation.json',
+          },
+        },
+      ],
       allSuccessful: true,
       anySuccessful: true,
     });

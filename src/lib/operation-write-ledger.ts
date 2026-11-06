@@ -108,7 +108,11 @@ export function withDurableWriteOutcome(
 /** Read only the exact sink fact; neither success nor an error string substitutes for it. */
 export function durableWriteOutcomeFromResult(value: unknown): DurableWriteOutcome | undefined {
   try {
-    const data = ownData(value, ['destination', 'success', 'writeOutcome'], ['error', 'warning']);
+    const data = ownData(
+      value,
+      ['destination', 'success', 'writeOutcome'],
+      ['error', 'warning', 'sinkObservation']
+    );
     if (
       !data ||
       !['file', 'obsidian'].includes(data.destination as string) ||

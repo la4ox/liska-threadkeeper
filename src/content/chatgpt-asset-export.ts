@@ -9,6 +9,23 @@
  */
 
 import type { RawCaptureAsset, RawCaptureAssetRecord } from '../archive';
+import {
+  snapshotChatGptProducerIntent,
+  snapshotProducerObservations,
+  type ChatGptProducerIntent,
+  type ChatGptProducerReceipt,
+  type ProducerArtifactObservation,
+} from '../lib/chatgpt-producer-evidence';
+import {
+  buildChatGptProducerReceipt,
+  completeChatGptProducerReceipt,
+  snapshotChatGptBinaryObservations,
+} from './chatgpt-producer-receipt';
+import {
+  detachProducerData,
+  freezeProducerData,
+  producerList,
+} from '../lib/producer-evidence-data';
 import type { OperationWriteLedger } from '../lib/operation-write-ledger';
 import type { ChatGptDestinationArchiveReceipt } from '../lib/chatgpt-archive-receipt';
 import {
@@ -99,11 +116,14 @@ export const CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING =
   'ChatGPT attachment acquisition was skipped because the original raw capture has an unsupported or ambiguous owner context; attachment records remain not attempted.';
 
 export interface ArchiveCompanionPersistenceOutcome {
+  observations?: readonly ProducerArtifactObservation[];
   activeOutputs: PersistentOutputDestination[];
   warnings: string[];
 }
 
 export interface ChatGptAssetExportDependencies {
+  /** Explicit reservation supplied before raw persistence; ordinary manual export omits it. */
+  producerIntent?: ChatGptProducerIntent;
   writeLedger?: OperationWriteLedger;
   /** Original runtime-only guard, shared by every durable write in this operation. */
   expectedSyncSettingsSnapshot?: string;
@@ -161,6 +181,12 @@ export interface ChatGptAssetExportDependencies {
 }
 
 export interface ChatGptAssetExportResult {
+  producerReceipts?: readonly ChatGptProducerReceipt[];
+  /** Earlier raw facts remain available even when no destination can be finalized. */
+  producerRaw?: {
+    readonly requestedDestinations: readonly PersistentOutputDestination[];
+    readonly observations: readonly ProducerArtifactObservation[];
+  };
   rawSuccessfulDestinations: PersistentOutputDestination[];
   completeDestinations: PersistentOutputDestination[];
   destinationReceipts: ChatGptDestinationArchiveReceipt[];
@@ -178,13 +204,14 @@ interface AcquiredAssets {
 
 interface AssetAttempt {
   acquired: AcquiredAssets;
-  binaryResults: StagedBinaryAssetResult[];
+  binaryResults: readonly StagedBinaryAssetResult[];
   warnings: string[];
   archiveWarnings?: readonly string[];
   activeResolverMetric?: ChatGptActiveResolverAudit;
 }
 
 interface FinalizedDestination {
+  producerReceipt?: ChatGptProducerReceipt;
   complete: boolean;
   receipt?: ChatGptDestinationArchiveReceipt;
   localizationEvidence?: ChatGptSandboxLocalizationEvidence;
@@ -680,10 +707,10 @@ async function persistAcquiredBinaries(
   assets: readonly RawCaptureAsset[],
   outputs: PersistentOutputDestination[],
   dependencies: ChatGptAssetExportDependencies
-): Promise<StagedBinaryAssetResult[]> {
+): Promise<readonly StagedBinaryAssetResult[]> {
   if (assets.length === 0) return [];
   try {
-    return await (dependencies.persistBinaryAssets ?? persistVerifiedBinaryAssets)({
+    const results = await (dependencies.persistBinaryAssets ?? persistVerifiedBinaryAssets)({
       source: 'chatgpt',
       captureId: companion.captureId,
       conversationKey: companion.conversationKey,
@@ -695,6 +722,10 @@ async function persistAcquiredBinaries(
       outputs,
       ...(dependencies.writeLedger && { writeLedger: dependencies.writeLedger }),
     });
+    // Snapshot at the return boundary, before another await can acquire late facts.
+    return freezeProducerData(
+      producerList(detachProducerData(results))
+    ) as unknown as readonly StagedBinaryAssetResult[];
   } catch {
     return [];
   }
@@ -748,14 +779,16 @@ async function finalizeDestination(
   context: ChatGptAssetExportContext,
   noteFileName: string,
   destination: PersistentOutputDestination,
-  acquired: AcquiredAssets,
-  binaryResults: readonly StagedBinaryAssetResult[],
+  state: ReturnType<typeof reconcileChatGptDestinationAssets>,
+  binaryObservations: readonly ProducerArtifactObservation[],
   activeResolverMetric: ChatGptActiveResolverAudit | undefined,
   archiveWarnings: readonly string[],
-  dependencies: ChatGptAssetExportDependencies
+  dependencies: ChatGptAssetExportDependencies,
+  requested: readonly PersistentOutputDestination[],
+  rawObservations: readonly ProducerArtifactObservation[]
 ): Promise<FinalizedDestination> {
-  const state = reconcileChatGptDestinationAssets(acquired, binaryResults, destination);
   const warnings: string[] = [];
+  let producerReceipt: ChatGptProducerReceipt | undefined;
   if (state.binaryFailed) {
     warnings.push(
       `One or more ChatGPT attachments were not saved to ${destination}; the archive manifest records them as failed.`
@@ -793,6 +826,22 @@ async function finalizeDestination(
       destination,
       state.runtimeAssets
     );
+    // Snapshot exact producer metadata before a dependency can mutate it across an await.
+    if (builtDestination?.manifest) {
+      try {
+        producerReceipt = buildChatGptProducerReceipt(
+          destinationCompanion,
+          builtDestination.manifest,
+          destination,
+          requested,
+          rawObservations,
+          binaryObservations,
+          dependencies.producerIntent
+        );
+      } catch {
+        /* Invalid/legacy producer metadata never authorizes stronger evidence. */
+      }
+    }
     const localizationEvidence = await buildChatGptSandboxLocalizationEvidence(
       destinationCompanion,
       receipt
@@ -807,6 +856,16 @@ async function finalizeDestination(
       ...(dependencies.writeLedger ? [dependencies.writeLedger] : [])
     );
     const complete = outcome.activeOutputs.includes(destination);
+    if (producerReceipt) {
+      try {
+        producerReceipt = completeChatGptProducerReceipt(
+          producerReceipt,
+          outcome.observations ?? []
+        );
+      } catch {
+        // Receipt validation cannot change the legacy output or manufacture missing facts.
+      }
+    }
     let fileArchivePresentation: FinalizedFileArchivePresentationEvidence | undefined;
     let filePresentation: FinalizedFilePresentationEvidence | undefined;
     if (
@@ -850,6 +909,7 @@ async function finalizeDestination(
     }
     return {
       complete,
+      ...(producerReceipt && { producerReceipt }),
       ...(complete && { receipt }),
       ...(complete && localizationEvidence && { localizationEvidence }),
       ...(fileArchivePresentation && { fileArchivePresentation }),
@@ -859,6 +919,7 @@ async function finalizeDestination(
   } catch {
     return {
       complete: false,
+      ...(producerReceipt && { producerReceipt }),
       warnings: [...warnings, CHATGPT_ASSET_FINALIZATION_FAILED_WARNING],
     };
   }
@@ -878,6 +939,27 @@ export async function persistChatGptDestinationHonestAttachments(
   dependencies: ChatGptAssetExportDependencies
 ): Promise<ChatGptAssetExportResult> {
   const requested = persistentOutputs(outputs);
+  // Detach the reservation before the first await/write. Invalid reservations never dispatch.
+  if (dependencies.producerIntent !== undefined) {
+    try {
+      const intent = snapshotChatGptProducerIntent(dependencies.producerIntent);
+      if (
+        intent.captureId !== companion.captureId ||
+        intent.provider !== context.rawCaptureBundle.manifest.provider ||
+        intent.conversationId !== context.conversationId ||
+        JSON.stringify(intent.requiredDestinations) !== JSON.stringify([...requested].sort())
+      )
+        throw new Error();
+      dependencies = { ...dependencies, producerIntent: intent };
+    } catch {
+      return {
+        rawSuccessfulDestinations: [],
+        completeDestinations: [],
+        destinationReceipts: [],
+        warnings: [CHATGPT_ASSET_BINDING_FAILED_WARNING],
+      };
+    }
+  }
   if (requested.length === 0) {
     return {
       rawSuccessfulDestinations: [],
@@ -915,13 +997,24 @@ export async function persistChatGptDestinationHonestAttachments(
       warnings: [CHATGPT_ASSET_RAW_PERSISTENCE_FAILED_WARNING],
     };
   }
-  const rawSuccessfulDestinations = rawOutcome.activeOutputs;
+  const rawSuccessfulDestinations = [...rawOutcome.activeOutputs];
+  let rawObservations: readonly ProducerArtifactObservation[] = [];
+  try {
+    rawObservations = snapshotProducerObservations(rawOutcome.observations ?? []);
+  } catch {
+    /* Retain no assurance for malformed results. */
+  }
+  const producerRaw = Object.freeze({
+    requestedDestinations: Object.freeze([...requested]),
+    observations: rawObservations,
+  });
   const warnings = [...rawOutcome.warnings];
   if (rawSuccessfulDestinations.length === 0) {
     return {
       rawSuccessfulDestinations,
       completeDestinations: [],
       destinationReceipts: [],
+      ...(rawOutcome.observations !== undefined && { producerRaw }),
       warnings,
     };
   }
@@ -941,25 +1034,40 @@ export async function persistChatGptDestinationHonestAttachments(
         archiveWarnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
       };
   const { acquired, binaryResults, activeResolverMetric, archiveWarnings = [] } = assetAttempt;
+  let binaryObservations: readonly ProducerArtifactObservation[] = [];
+  try {
+    binaryObservations = snapshotChatGptBinaryObservations(binaryResults);
+  } catch {
+    // Malformed commitments cannot yield assurance; legacy finalization still fails closed.
+  }
+  // Clone every destination's inventory before the first destination builder can await/mutate.
+  const destinationStates = rawSuccessfulDestinations.map(destination => ({
+    destination,
+    state: reconcileChatGptDestinationAssets(acquired, binaryResults, destination),
+  }));
   warnings.push(...assetAttempt.warnings);
 
   const completeDestinations: PersistentOutputDestination[] = [];
   const destinationReceipts: ChatGptDestinationArchiveReceipt[] = [];
+  const producerReceipts: ChatGptProducerReceipt[] = [];
   const destinationLocalizationEvidence: ChatGptSandboxLocalizationEvidence[] = [];
   let fileArchivePresentation: FinalizedFileArchivePresentationEvidence | undefined;
   let filePresentation: FinalizedFilePresentationEvidence | undefined;
-  for (const destination of rawSuccessfulDestinations) {
+  for (const { destination, state } of destinationStates) {
     const finalized = await finalizeDestination(
       context,
       noteFileName,
       destination,
-      acquired,
-      binaryResults,
+      state,
+      binaryObservations,
       activeResolverMetric,
       archiveWarnings,
-      dependencies
+      dependencies,
+      requested,
+      rawObservations
     );
     warnings.push(...finalized.warnings);
+    if (finalized.producerReceipt) producerReceipts.push(finalized.producerReceipt);
     if (finalized.complete) completeDestinations.push(destination);
     if (finalized.receipt && requested.includes(destination)) {
       destinationReceipts.push(finalized.receipt);
@@ -980,6 +1088,8 @@ export async function persistChatGptDestinationHonestAttachments(
     rawSuccessfulDestinations,
     completeDestinations,
     destinationReceipts,
+    ...(producerReceipts.length > 0 && { producerReceipts }),
+    ...(rawOutcome.observations !== undefined && { producerRaw }),
     ...(destinationLocalizationEvidence.length > 0 && { destinationLocalizationEvidence }),
     ...(fileArchivePresentation && { fileArchivePresentation }),
     ...(filePresentation && { filePresentation }),

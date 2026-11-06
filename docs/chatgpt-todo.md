@@ -638,6 +638,20 @@ terminal states, and the existing no-credential-export boundary.
   baseline and scheduler remain unchanged. The next semantic slice is a
   separately reviewed exact-producer adapter and purpose-aware persistence
   version after sufficient provider evidence and explicit user authority.
+- [ADR-059](adr/059-chatgpt-producer-evidence-adapter.md) now preserves real
+  current ChatGPT producer facts instead of asking a synthetic adapter to invent
+  them. Existing File archive/binary success retains terminal exact-path
+  confirmation without claiming readback; Obsidian retains the verified
+  readback length and SHA-256. A separate additive factual receipt preserves the
+  exact destination manifest, complete asset inventory, raw/manifest/canonical
+  commitments and all sink observations while leaving the legacy receipt intact.
+  The pure adapter independently verifies the legacy routing digest and the
+  provider-aware catalog key. Only a reservation supplied before the first
+  write can produce a purpose-consistent binding; ordinary manual and legacy
+  exports remain insufficient or unsupported. The adapter is unwired, journal
+  v1 and IDB are unchanged, and no baseline/scheduler authority is added. The
+  next separate slice is an admission/execution handoff that reserves capture
+  identity before provider work, followed later by purpose-aware persistence.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
@@ -973,6 +987,21 @@ terminal states, and the existing no-credential-export boundary.
 - Track popup lifecycle, one-shot binding, branch/Stop, fox default,
   feature-detected popup/window fallback, and tests in
   [ITH-009](idea-threads/ITH-009-extension-owned-export-popup.md).
+
+### 11. Distant provider: muse.ai
+
+- Treat `muse.ai` as a separate future provider investigation, not as a variant
+  of the ChatGPT, Gemini or generic DOM adapters.
+- Begin only with a separately opened read-only evidence pass on one explicitly
+  selected account/workspace and item. Establish stable provider identity,
+  list/detail boundaries, pagination or change markers, media/caption/transcript
+  and attachment families, official/source export options and observed rate
+  behavior before designing an adapter.
+- Preserve the strongest available raw/source representation first. Only then
+  map proved fields into `liska-thread/1` and reuse existing media, Markdown,
+  Downloads or Obsidian layers where their contracts genuinely fit.
+- Do not add permissions, background polling, account enumeration, runtime code
+  or scheduler authority merely because this TODO exists.
 
 ## Deliberate non-goals without new evidence
 

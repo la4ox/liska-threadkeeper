@@ -229,7 +229,14 @@ async function downloadStagedBinaryAsset(
     cleanupDeferred,
     recovery,
     result: withDurableWriteOutcome(
-      { destination: 'file', success: true },
+      {
+        destination: 'file',
+        success: true,
+        sinkObservation: {
+          kind: 'browser-download-complete-path-confirmed',
+          observedRelativePath: message.descriptor.relativePath,
+        },
+      },
       'confirmed',
       message.reportDurableWriteOutcome
     ),
@@ -265,6 +272,7 @@ async function saveStagedBinaryAssetToObsidian(
       {
         destination: 'obsidian',
         success: result.success,
+        ...(result.sinkObservation && { sinkObservation: result.sinkObservation }),
         ...(result.error && { error: result.error }),
       },
       state,

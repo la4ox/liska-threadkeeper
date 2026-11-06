@@ -202,7 +202,14 @@ describe('staged binary background handler coverage', () => {
       handleStagedBinaryAssetMessage(commitMessage(['file', 'obsidian']), settings)
     ).resolves.toEqual({
       results: [
-        { destination: 'file', success: true },
+        {
+          destination: 'file',
+          success: true,
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: `assets/${'a'.repeat(64)}.bin`,
+          },
+        },
         { destination: 'obsidian', success: true },
       ],
       allSuccessful: true,
@@ -397,7 +404,14 @@ describe('staged binary background handler coverage', () => {
 
     await expect(pending).resolves.toEqual({
       results: [
-        { destination: 'file', success: true },
+        {
+          destination: 'file',
+          success: true,
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: `assets/${'a'.repeat(64)}.bin`,
+          },
+        },
         { destination: 'obsidian', success: true },
       ],
       allSuccessful: true,
@@ -489,6 +503,10 @@ describe('staged binary background handler coverage', () => {
           destination: 'file',
           success: true,
           warning: 'binary-stage-cleanup-deferred',
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: `assets/${'a'.repeat(64)}.bin`,
+          },
         },
       ],
       allSuccessful: true,

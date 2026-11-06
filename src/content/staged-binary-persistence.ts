@@ -8,6 +8,7 @@
  */
 
 import type { RawCaptureAsset } from '../archive/capture';
+import { snapshotSinkObservation } from '../lib/chatgpt-producer-evidence';
 import { BINARY_STAGE_CHUNK_BYTES } from '../lib/constants';
 import {
   createStagedBinaryAssetDescriptor,
@@ -130,10 +131,14 @@ function isSafeOutputResult(
   const keys = Object.keys(result);
   return (
     keys.every(key =>
-      ['destination', 'success', 'error', 'warning', 'writeOutcome'].includes(key)
+      ['destination', 'success', 'error', 'warning', 'writeOutcome', 'sinkObservation'].includes(
+        key
+      )
     ) &&
     result.destination === destination &&
     typeof result.success === 'boolean' &&
+    (result.sinkObservation === undefined ||
+      snapshotSinkObservation(result.sinkObservation) !== undefined) &&
     (result.error === undefined ||
       (typeof result.error === 'string' && /^[a-z0-9-]{1,96}$/.test(result.error))) &&
     (result.warning === undefined || result.warning === 'binary-stage-cleanup-deferred') &&
