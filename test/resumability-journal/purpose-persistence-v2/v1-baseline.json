@@ -1,0 +1,26 @@
+{
+  "base": "94af6fe90f495cc2fee2b426a028c1da719c8b1c",
+  "gitBlobs": {
+    "src/resumability-journal/core/contracts.ts": "3c13676a20910c56b9079691220f4fef6582b3e7",
+    "src/resumability-journal/core/encoding.ts": "046f79e214648b7a777e6d23a79199dfe3441c7e",
+    "src/resumability-journal/core/index.ts": "5f35a54efef3479df3509db0c5c74a8251b4b676",
+    "src/resumability-journal/core/revision.ts": "ce34cc95104e333c1ec47900e55e610509d76850",
+    "src/resumability-journal/core/safe-data.ts": "a191011da436fafed99615390c85b61498032ae6",
+    "src/resumability-journal/core/snapshot.ts": "2c5c983628fffaecc4cc28f0abd2743f1898841f",
+    "src/resumability-journal/core/transitions.ts": "b4b4d632569c1ea1d73cc7218f0078cc918512da",
+    "src/resumability-journal/idb/database.ts": "1e504496627bb1d6f09f7bd6755e897b19d68023",
+    "src/resumability-journal/idb/errors.ts": "ddfd78b46a5c26946aca6dd69f853b1f8959cbf0",
+    "src/resumability-journal/idb/index.ts": "2af0aa2216a2afa3d98a0f72aaec6e9e5b926993",
+    "src/resumability-journal/idb/operations.ts": "c026db78da648c82c320e27dc981d6bb272b7791",
+    "src/resumability-journal/idb/records.ts": "78b26c0d9ebba9d75ca794965dff455b58950679",
+    "src/resumability-journal/idb/transaction.ts": "dfa873dd505e7f4966fc052d67655d4df9dfd131",
+    "src/resumability-journal/idb/types.ts": "2d04c1cb8677a27cff0b963111a7b401ca1b866e",
+    "src/resumability-journal/page/admission.ts": "b28ed4140d190410c221b4f257890221327f5ecc",
+    "src/resumability-journal/page/app.ts": "2c9a7a69204653708221d8c12854810489a90f8f",
+    "src/resumability-journal/page/download.ts": "b3c6d37dc996d7300c2104e6aa088acd425cf5a4",
+    "src/resumability-journal/page/entry.ts": "e332bd8da110262e12fc25ea2e1e52c373017cb3",
+    "src/resumability-journal/page/journal.html": "f1848bd3d97dbcd660d14793c8e664e5ba823397",
+    "src/resumability-journal/page/styles.css": "eb3011ac8ddd781707256397ffe5f012f5e1c192",
+    "src/resumability-journal/page/text.ts": "a42fdcba6442c2288c6c6eda80daa5520232354d"
+  }
+}

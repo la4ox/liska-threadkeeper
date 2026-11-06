@@ -5484,3 +5484,82 @@ has SHA-256
 ITH-007 adds E22/E23/D14/T14, records T13 as fulfilled only for unwired
 single-capture ordering and preserves persistence, scope, baseline and scheduler
 gates.
+
+## Separate purpose-aware v2 persistence acceptance — 2026-11-06
+
+Branch `codex/purpose-aware-persistence-v2` starts from merged main
+`94af6fe90f495cc2fee2b426a028c1da719c8b1c` and records
+[ADR-061](docs/adr/061-purpose-aware-persistence-v2.md). Journal v1 cannot gain
+purpose persistence in place: its exact database contract requires version 1
+and one `journals` store, and its token lacks purpose, operation, catalog and
+destination semantics. The accepted 21 v1 source blobs remain identical to the
+base commit.
+
+The new isolated `liska-resumability-journal/2` uses a separate
+`liska-resumability-journal-v2` database, initially version 1, with one bounded
+index-free `operations` store. One record owns one immutable ADR-058 operation,
+attempt and reserved capture. It retains phase, active/paused control,
+open/abandoned disposition and at most one exact factual-receipt/adapter
+observation. No recorded, confirmed, settled, completed, retry, reset, delete or
+identity-reuse API exists.
+
+Reservation atomically scans the bounded store and reserves operation, attempt
+and capture identities across every retained record. `claimDispatch` commits
+`in-flight` before releasing an opaque token from the current handle's private
+session. Request success is not commit. Timeout, close and version-change abort
+requests still wait for the terminal transaction event; a missing terminal event
+returns `transaction-outcome-unknown` with no token or automatic retry.
+
+The store uses one constructor-owned hash authority for exact catalog admission,
+producer adaptation and read/recovery replay. Exact factual receipts and the
+full adapter result are committed by full-snapshot CAS after asynchronous work
+outside IDB. Available observations are replayed on every public preflight;
+historical hash dependency failure is retained explicitly as the rejected fact
+of that moment and is not silently re-evaluated. `consistent` only moves the
+record to `awaiting-resolution` and invalidates the dispatch token; it never
+settles work.
+
+Independent review found two pre-commit defects. Per-call hash callbacks could
+diverge from the read verifier and poison the whole store; the API now accepts
+only the store-owned hash. A valid 8,388,606-byte observation could fit yet leave
+no room for abandonment; every write now encodes the real pause, restart,
+abandon and two-step control paths at full safe-integer revision width. Exact
+boundary tests cover 8,388,608 bytes, the next-byte rejection and revision growth
+9→10→11. Delta review reports ready with no material finding.
+
+Opening the database is inert. Explicit recovery validates every record before
+an atomic write, converts only in-flight records to unknown/restart and is an
+idempotent no-op thereafter. Pause and abandonment preserve identity, evidence
+and uncertainty. Closing a handle permanently invalidates its token session; a
+fresh handle is required after reopen. `checkCurrent` remains a snapshot, not a
+lock over a later provider request or an exactly-once guarantee.
+
+A temporary local Vite harness exercised the actual store in native Chromium:
+reserve revision 0, claim revision 1, close/fresh-handle reopen, explicit restart
+recovery revision 2, evidence/consistent assessment revision 3, second reopen
+with the same `awaiting-resolution` record, and deletion of only the unique test
+database. The safe receipt reports `ok: true` and `databaseRemoved: true`. This
+does not prove quota/eviction or abrupt OS-shutdown permanence.
+
+No v2 module has a production consumer, page, UI, background, provider, baseline
+or scheduler connection. The next gate is a separately reviewed single-operation
+execution coordinator that owns currentness at the actual provider effect
+boundary and defines cancellation/evidence-persistence races. Provider scope,
+account-wide baseline authority and scheduling remain later decisions.
+
+Focused parent validation passes 18 files / 514 tests. The full coverage run
+passes 318 files with one skipped and 11,372 tests with three skipped: 95.18%
+statements, 91.81% branches, 98.32% functions and 97.42% lines. V2 core reports
+98.37% statements, 98.03% branches and 100% functions/lines; v2 IDB reports
+92.8% statements, 83.82% branches, 98.78% functions and 96% lines. Global
+TypeScript, full lint with zero errors and the unchanged 55 warnings, full
+Prettier, Idea-Threads 9/37, documentation links 81/81, dependency audit with
+zero vulnerabilities, guarded production build/ZIP, native Chromium smoke and
+independent review all pass.
+
+The production closure contains zero matches for the v2 schema/database,
+factory, token, namespace and receipt-recording API. Generated `dist` remains 65
+files / 6,086,237 bytes. The 2,791,807-byte candidate ZIP has SHA-256
+`8eb1ce321ea9c68972040a87d1fc8ba8733f3f3a0290e8c2b368e489be62d9f6`.
+ITH-007 adds E24/E25/D15/T15, records T14 as fulfilled for the unwired storage
+gate and preserves coordinator, scope, baseline and scheduler authority gates.

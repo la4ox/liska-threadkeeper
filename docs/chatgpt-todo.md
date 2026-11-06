@@ -665,6 +665,20 @@ terminal states, and the existing no-credential-export boundary.
   meaning. The next separate slice is purpose-aware persistence v2 with
   restart/crash/retry semantics; provider scope, account-wide baseline and the
   scheduler remain later decisions.
+- [ADR-061](adr/061-purpose-aware-persistence-v2.md) now provides a separate
+  browser-local `liska-resumability-journal/2` database without touching v1.
+  One immutable operation/attempt/capture reservation is globally unique within
+  the retained v2 database; a session-private token is released only after IDB
+  commit. Exact producer receipts and the recomputed adapter result survive
+  close/reopen, while `consistent` remains merely `awaiting-resolution` and
+  grants no settlement or retry. Explicit restart recovery fences in-flight work
+  to unknown. One store-owned hash authority and exact projected
+  pause/restart/abandon encodings prevent replay poisoning and near-limit dead
+  ends. A native Chromium smoke passed reserve, claim, fresh-handle reopen,
+  recovery, evidence commit and second reopen in an isolated deleted test DB.
+  The next separate slice is a single-operation execution coordinator that
+  consumes committed currentness at the actual request boundary; provider scope,
+  account-wide baseline authority and scheduling remain later.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
