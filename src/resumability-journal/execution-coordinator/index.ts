@@ -21,8 +21,14 @@ import {
   snapshotStagePort,
   type ExecutionStageFact,
   type ExecutionArchiveWriteFact,
-  type StagedExecutionDependencies,
+  type StagedExecutionDependencies as StageDependencies,
 } from './stages';
+import {
+  createOrdinaryDirectPngAttempt,
+  snapshotOrdinaryDirectPngPolicy,
+  type OrdinaryDirectPngFacts,
+  type OrdinaryDirectPngPolicy,
+} from './ordinary-direct-png';
 import { validatePreparedChatGpt, type PreparedChatGptCapture } from '../capture-handoff';
 import {
   PurposePersistenceError,
@@ -44,6 +50,10 @@ export interface InlineExecutionDependencies {
   readonly requestCapture: AdmittedChatGptCaptureDependencies['requestCapture'];
   readonly persistArtifacts: ChatGptAssetExportDependencies['persistArtifacts'];
   readonly now?: () => Date;
+}
+export interface StagedExecutionDependencies extends StageDependencies {
+  /** Omission remains inventory-only. This capability is never accepted on the inline route. */
+  readonly attachmentPolicy?: OrdinaryDirectPngPolicy;
 }
 export type ChatGptExecutionDependencies =
   | InlineExecutionDependencies
@@ -75,6 +85,8 @@ export interface ChatGptExecutionOutcome {
   readonly captureMaterial?: Pick<ChatGptArchiveCapture, 'archive'>;
   readonly stageOwnership?: readonly ExecutionStageFact[];
   readonly archiveWrites?: readonly ExecutionArchiveWriteFact[];
+  /** Execution-local monotonic observations, independent of producer/evidence success. */
+  readonly attachments?: OrdinaryDirectPngFacts;
   readonly captureError?: {
     readonly code: ChatGptCurrentBranchErrorCode;
     readonly archiveCompanion?: ArchiveCompanionBundle;
@@ -146,14 +158,21 @@ export function createChatGptExecution(
   const candidate = fields(
     dependencies,
     ['requestCapture'],
-    ['persistArtifacts', 'now', 'captureTransport', 'stagePort', 'persistSelectedArtifacts']
+    [
+      'persistArtifacts',
+      'now',
+      'captureTransport',
+      'stagePort',
+      'persistSelectedArtifacts',
+      'attachmentPolicy',
+    ]
   );
   const staged = candidate.captureTransport === 'staged';
   const deps = staged
     ? fields(
         dependencies,
         ['requestCapture', 'captureTransport', 'stagePort', 'persistSelectedArtifacts'],
-        ['now']
+        ['now', 'attachmentPolicy']
       )
     : fields(dependencies, ['requestCapture', 'persistArtifacts'], ['now', 'captureTransport']);
   const { store, expectedReservedRevision, noteFileName, signal } =
@@ -178,8 +197,10 @@ export function createChatGptExecution(
   const prepared = validatePreparedChatGpt(supplied.prepared);
   const { operation, producerIntent } = prepared;
   let stagePort;
+  let attachmentPolicy: OrdinaryDirectPngPolicy;
   try {
     if (staged) stagePort = snapshotStagePort(deps.stagePort);
+    attachmentPolicy = snapshotOrdinaryDirectPngPolicy(staged ? deps.attachmentPolicy : undefined);
   } catch {
     throw new ExecutionInputError();
   }
@@ -203,6 +224,10 @@ export function createChatGptExecution(
     stages?.capture ?? (requestCapture as InlineExecutionDependencies['requestCapture']);
   const persistArtifacts =
     stages?.persist ?? (deps as unknown as InlineExecutionDependencies).persistArtifacts;
+  const attachments =
+    attachmentPolicy.mode === 'explicit'
+      ? createOrdinaryDirectPngAttempt(attachmentPolicy, destinations, () => interrupted, now)
+      : undefined;
 
   // No abort is passed to capture or already-started sinks: their late facts must drain.
   const guardedSink: ChatGptAssetExportDependencies['persistArtifacts'] = (...args) => {
@@ -336,7 +361,25 @@ export function createChatGptExecution(
           destinations,
           {
             producerIntent,
-            assetAcquisition: 'disabled',
+            assetAcquisition: attachments
+              ? {
+                  mode: 'explicit',
+                  attempt: attachments.attempt,
+                  isStopped: () => interrupted,
+                  buildDestinationArchive: (context, records, assets, metric, warnings) => {
+                    if (interrupted) throw new Error('execution-cancelled');
+                    return buildChatGptBinaryAwareDestinationArchive(
+                      context,
+                      records,
+                      assets,
+                      metric,
+                      warnings,
+                      false,
+                      stages!.access
+                    );
+                  },
+                }
+              : 'disabled',
             persistArtifacts: guardedSink,
             buildDestinationArchive: (context, records, assets, metric, warnings) =>
               buildChatGptBinaryAwareDestinationArchive(
@@ -388,6 +431,7 @@ export function createChatGptExecution(
       result.stage = 'finished';
       return result;
     } finally {
+      if (attachments) result.attachments = attachments.facts();
       if (stages) {
         result.stageOwnership = await stages.cleanup();
         result.archiveWrites = stages.archiveWrites();

@@ -5718,3 +5718,65 @@ coordinator 104/104; full coverage again passes 325 files with one skipped and
 94.51% statements, 89.77% branches, 98.27% functions and 97.81% lines. ITH-007
 adds E30/D18 without widening acquisition, provider, baseline or scheduler
 authority.
+
+## Explicit ordinary direct PNG acquisition capability — 2026-11-07
+
+Branch `codex/explicit-attachment-acquisition` starts from merged main
+`c22aed4cb18b1311033533cd4e1c75a9ce825be1` and records
+[ADR-064](docs/adr/064-explicit-ordinary-direct-png-acquisition.md). It adds one
+unwired staged-only `ordinary-direct-png/1` attachment policy; omission and the
+explicit disabled value preserve inventory-only behavior.
+
+The exact own-data policy is snapshotted before claim and requires one resolver
+observation request, one browser-managed fetcher, one single-asset binary sink,
+an integer 1 byte–8 MiB limit and an integer 1–30-second timeout. Missing, extra,
+accessor-backed, partial or invalid capabilities fail before the provider
+request or durable write. The fixed attempt budget is one.
+
+After raw persistence, the real observer matches the complete committed ledger
+before filtering. At most one deterministic originally not-attempted PNG with a
+conversation-bound nonnumeric direct URL can proceed. Library, numeric-cid,
+active, foreign, other-MIME and ambiguous identities remain not attempted. A
+new deny-only interpreter helper reports any exact ownership evidence without
+returning message/path/provider values and without inheriting state, cardinality
+or the dispatch-plan cap; ambiguous merged records and weaker aliases cannot
+fall through to ordinary authority.
+
+The real acquisition core retains URL, response, media, bounded stream, PNG,
+length and SHA-256 verification. The mandatory fetcher cannot replace those
+checks or fall back to global fetch. Verified detached bytes transfer to the
+single binary sink at invocation; the sink owns internal staging/cleanup from
+that point, and the coordinator never retries, compensates or cleans an issued
+write. Unknown/not-dispatched results normalize to unsuccessful facts with no
+success observation and conservative cleanup uncertainty.
+
+Stop fences cover the actual resolver request, fetch, binary invocation,
+destination finalization and evidence effect. Started work drains and later
+effects do not begin. Immutable privacy-safe resolver/acquisition/binary facts
+survive canonical-builder and evidence-CAS failure independently from producer
+receipts. They contain no signed URL, resolver key, provider ID, token,
+message/path value, response body or arbitrary exception.
+
+Independent review found and closed two material seams: ambiguous interpreter
+ownership had been confused with an empty dispatch plan, and
+unknown/not-dispatched sink outcomes had retained an optimistic public success
+fact. Re-review reports ready. The current focused matrix passes 12 files / 614
+tests, including 78 policy and 254 resolver cases; TypeScript, scoped lint,
+focused Prettier and diff checks pass.
+
+No live capability provider, production import, UI, global/runtime fallback,
+numeric/active/Library/interpreter/XLSX/batch support, provider scope,
+account-wide baseline, scheduler, retry, settlement, v2 schema or durable spool
+is added. Full repository/build/GitHub acceptance remains pending.
+
+Local acceptance is now complete. Full coverage passes 326 files with one
+skipped and 11,581 tests with three skipped: 95.16% statements, 91.80%
+branches, 98.33% functions and 97.43% lines. The execution-coordinator aggregate
+is 93.20% / 88.94% / 98.85% / 97.22%; the new policy is 90.51% / 87.01% /
+100% / 95.68%. Global lint has zero errors and the unchanged 55 warnings; full
+Prettier, Idea Threads 9/37, documentation links 84/84, zero-vulnerability
+production audit and the guarded production build/ZIP pass. Fresh `dist` is 65
+files / 6,087,953 bytes with zero coordinator/policy/v2 markers. The 2,792,264-
+byte ZIP has SHA-256
+`0d45c9359f84bb6420e4b84debaceaaafd8192a19b45f083175c36dfc828f166`.
+Current-head GitHub gates remain pending.

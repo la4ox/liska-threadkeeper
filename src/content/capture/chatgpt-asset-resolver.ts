@@ -355,6 +355,25 @@ async function interpreterEvidenceForAsset(
 }
 
 /**
+ * Deny-only ownership, not a dispatch plan. Any exact interpreter evidence
+ * counts, including ambiguous merged locations and already-attempted records.
+ * No message, path, provider identity, or bounded-plan eligibility escapes.
+ */
+export async function hasChatGptInterpreterAssetOwnership(
+  raw: unknown,
+  asset: RawCaptureAssetRecord,
+  sha256: (bytes: Uint8Array) => Promise<string> = sha256Hex
+): Promise<boolean> {
+  const evidence = await interpreterEvidenceForAsset(
+    raw,
+    asset,
+    identity => chatGptAssetIdForIdentity(identity, sha256),
+    new Map()
+  );
+  return evidence.size > 0;
+}
+
+/**
  * Select bounded, exact ledger locations for a future interpreter-download
  * attempt. Metadata attachments stay synchronous in effect; assistant sandbox
  * links are verified against their centralized opaque asset-ID derivation.
