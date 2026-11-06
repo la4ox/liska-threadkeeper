@@ -679,6 +679,20 @@ terminal states, and the existing no-credential-export boundary.
   The next separate slice is a single-operation execution coordinator that
   consumes committed currentness at the actual request boundary; provider scope,
   account-wide baseline authority and scheduling remain later.
+- [ADR-062](adr/062-single-operation-execution-coordinator.md) now connects one
+  committed v2 reservation to the real inline ChatGPT request boundary without
+  claiming exactly-once execution. The store consumes the session token once and
+  invokes the request callback in the same synchronous continuation as its final
+  fence. The coordinator runs the real capture/normalizer and an explicit
+  no-acquisition producer mode: asset-bearing inventory remains
+  `not-attempted`, while hidden resolver recapture, global fetch and binary sink
+  defaults are unreachable. Structured outcomes retain request, capture,
+  producer receipts and evidence-persistence facts independently; cancellation
+  starts no later effect, uncertain commits trigger no retry and committed
+  assessment is only `evidence-recorded`, never settled. Staged capture and
+  attachment acquisition remain a separate ownership problem, together with the
+  decision whether unpersisted late facts need crash-durable spooling. Provider
+  scope, account-wide baseline authority and the scheduler remain later gates.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

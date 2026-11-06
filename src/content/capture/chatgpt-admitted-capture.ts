@@ -16,6 +16,8 @@ export interface AdmittedChatGptCapture extends PreparedChatGptCapture {
   readonly capture: ChatGptArchiveCapture;
 }
 export interface AdmittedChatGptCaptureDependencies {
+  /** Reject internal canonical staging for isolated inline-only callers. */
+  readonly inlineOnly?: boolean;
   readonly requestCapture: (conversationId: string) => Promise<ChatGptCaptureResponse>;
   readonly now?: () => Date;
 }
@@ -63,6 +65,7 @@ export async function capturePreparedChatGpt(
 ): Promise<AdmittedChatGptCapture> {
   const request = dependencies?.requestCapture;
   const now = dependencies?.now;
+  const inlineOnly = dependencies?.inlineOnly;
   const prepared = validatePreparedChatGpt(input);
   if (typeof request !== 'function' || (now !== undefined && typeof now !== 'function'))
     throw new ChatGptCurrentBranchError('capture-failed');
@@ -77,6 +80,7 @@ export async function capturePreparedChatGpt(
       return request(id);
     },
     createCaptureId: () => operation.captureId,
+    inlineOnly,
     ...(now && { now }),
   });
   verifyResult(capture, prepared, legacyDigest);

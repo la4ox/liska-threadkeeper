@@ -5563,3 +5563,76 @@ files / 6,086,237 bytes. The 2,791,807-byte candidate ZIP has SHA-256
 `8eb1ce321ea9c68972040a87d1fc8ba8733f3f3a0290e8c2b368e489be62d9f6`.
 ITH-007 adds E24/E25/D15/T15, records T14 as fulfilled for the unwired storage
 gate and preserves coordinator, scope, baseline and scheduler authority gates.
+
+## One-shot inline execution coordinator acceptance — 2026-11-06
+
+Branch `codex/purpose-execution-coordinator` starts from merged main
+`a370036d8e57672b968b1bd60bba0646818a7e30` and records
+[ADR-062](docs/adr/062-single-operation-execution-coordinator.md). The prior v2
+store committed reservation but exposed a reusable snapshot token check, while
+prepared capture awaited identity hashes before the request. The existing
+producer also defaulted missing dependencies to resolver recapture,
+authenticated fetch and runtime binary sinks.
+
+The v2 store now provides one-use `consumeDispatch`. It burns the session token
+synchronously before its first await, serializes an exact committed-state check,
+then performs the final same-handle session fence and invokes a generic effect
+callback in one synchronous continuation outside IDB. Independent review found
+an earlier microtask gap after consume returned, where close/pause/recovery could
+invalidate authority before the coordinator resumed. Moving callback invocation
+inside the store-owned final continuation plus eight event-order regressions
+resolved that P1. Cross-handle DB/network races remain explicitly outside any
+exactly-once claim.
+
+The new unwired `createChatGptExecution(...).run()` shares one one-shot promise.
+It derives destinations and producer intent only from the prepared operation,
+claims the committed reservation, consumes authority inside the real injected
+request wrapper and runs the actual capture/normalizer with the reserved ID.
+Successful staged responses are rejected before any stage runtime helper, and a
+narrow inline-only seam prevents automatic canonical staging. Ordinary manual
+staged capture remains unchanged.
+
+The real producer has an explicit no-acquisition mode. Asset-bearing inventory
+is retained as `not-attempted`; no resolver observation, recapture, global fetch,
+Library/active route or binary sink default can run. The coordinator supplies one
+guarded injected archive sink and the real destination builder in inline-only
+mode. Cancellation prevents later sink starts but drains already-started work so
+late facts remain available.
+
+Coordinator outcomes keep claim, token consumption, request invocation,
+capture/partial companion, producer raw facts/receipts, evidence persistence and
+uncertainty as independent dimensions. `evidence-recorded` means only that the
+store committed receipts and assessment; it never means settled or complete.
+Evidence CAS, quota, close and missing-terminal failures retain runtime facts.
+`transaction-outcome-unknown` triggers no compensation or retry because the
+commit may already exist.
+
+The v2 schema now admits fixed execution uncertainty reasons for cancellation,
+capture, producer and evidence-persistence failure. They require resolution and
+do not prove whether external effects happened. Shared headroom projections
+include every new reason and its pause/abandon paths. No retry, settlement,
+delete or baseline state is added.
+
+The coordinator remains inline-only and no-acquisition. Staged handle ownership,
+resolver/acquisition routes, binary sinks and crash-durable recovery of late
+unpersisted facts remain a separate next gate. No live provider/account action,
+UI, page, baseline or scheduler consumer is added; all 21 v1 source blobs remain
+unchanged.
+
+Focused parent validation passes 30 files / 799 tests. The broader worker
+regression passes 2,408 tests with two skipped across 76 files, including a
+separate 1,826-test manual/staged subset. The full coverage run passes 324 files
+with one skipped and 11,441 tests with three skipped: 95.19% statements, 91.81%
+branches, 98.33% functions and 97.42% lines. The coordinator reports 96.63%
+statements, 90.58% branches, 100% functions and 97.22% lines. Global TypeScript,
+full lint with zero errors and the unchanged 55 warnings, full Prettier,
+Idea-Threads 9/37, documentation links 82/82, dependency audit with zero
+vulnerabilities, guarded production build/ZIP and independent review all pass.
+
+The production closure contains zero matches for the coordinator, token
+consumption, uncertainty-transition and v2 authority markers. Generated `dist`
+is 65 files / 6,086,636 bytes. The 2,791,929-byte candidate ZIP has SHA-256
+`a212d9be7745630ce352cb5867fba0f4a523b1bdbe746ac45380e68d3dcc11dc`.
+ITH-007 adds E26/E27/D16/T16, records T15 as fulfilled only for unwired
+inline/no-acquisition execution and preserves staged/acquisition, scope, baseline
+and scheduler gates.

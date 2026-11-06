@@ -15,6 +15,7 @@ const persistenceCore = path.join(persistence, 'core/record.ts');
 const persistenceEntry = path.join(persistence, 'idb/index.ts');
 const persistenceRecords = path.join(persistence, 'idb/records.ts');
 const executor = path.join(root, 'src/content/capture/chatgpt-admitted-capture.ts');
+const coordinator = path.join(root, 'src/resumability-journal/execution-coordinator/index.ts');
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const name = path.join(dir, entry.name);
@@ -82,15 +83,15 @@ describe('isolated unwired new-capture purpose contract', () => {
           if (resolved === directory || resolved.startsWith(directory + path.sep))
             expect(
               file.startsWith(directory + path.sep) ||
-                [adapterEntry, handoffEntry, persistenceCore].includes(file)
+                [adapterEntry, handoffEntry, persistenceCore, persistenceEntry].includes(file)
             ).toBe(true);
           if (resolved === adapter || resolved.startsWith(adapter + path.sep))
             expect([adapterEntry, persistenceCore, persistenceEntry, persistenceRecords]).toContain(
               file
             );
           if (resolved === handoff || resolved.startsWith(handoff + path.sep))
-            expect([executor, persistenceEntry]).toContain(file);
-          expect([resolved, resolved + '.ts']).not.toContain(executor);
+            expect([executor, persistenceEntry, coordinator]).toContain(file);
+          if ([resolved, resolved + '.ts'].includes(executor)) expect(file).toBe(coordinator);
         }
       }
       if (file.endsWith('.html'))
@@ -180,7 +181,7 @@ describe('isolated unwired new-capture purpose contract', () => {
       const file = pending.pop()!;
       if (visited.has(file)) continue;
       visited.add(file);
-      expect([handoffEntry, executor, adapterEntry]).not.toContain(file);
+      expect([handoffEntry, executor, adapterEntry, coordinator]).not.toContain(file);
       expect(file.startsWith(directory + path.sep)).toBe(false);
       expect(readFileSync(file, 'utf8')).not.toMatch(
         /prepareChatGptNewCapture|capturePreparedChatGpt|validatePreparedChatGpt|PreparedChatGptCapture|liska-new-capture-operation\/1/u

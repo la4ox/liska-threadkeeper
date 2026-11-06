@@ -13,6 +13,13 @@ import { PurposePersistenceError, requireCondition } from './errors';
 
 export const RECORD_SCHEMA = 'liska-resumability-journal/2' as const;
 export const ADAPTER_VERSION = 'liska-chatgpt-producer-adapter/1' as const;
+export const EXECUTION_INTERRUPTION_REASONS = [
+  'execution-cancelled',
+  'capture-failed',
+  'producer-failed',
+  'evidence-persistence-failed',
+] as const;
+export type ExecutionInterruptionReason = (typeof EXECUTION_INTERRUPTION_REASONS)[number];
 export interface Observation {
   readonly adapterVersion: typeof ADAPTER_VERSION;
   /** Historical dependency outcome, not a claim about the currently available hash. */
@@ -27,7 +34,7 @@ export interface OperationRecord {
   readonly phase: 'reserved' | 'in-flight' | 'awaiting-resolution' | 'unknown';
   readonly control: 'active' | 'paused';
   readonly disposition: 'open' | 'abandoned';
-  readonly interruptionReason?: 'pause' | 'restart' | 'abandon';
+  readonly interruptionReason?: 'pause' | 'restart' | 'abandon' | ExecutionInterruptionReason;
   readonly observation?: Observation;
 }
 
@@ -67,8 +74,9 @@ export function snapshotRecord(input: unknown): OperationRecord {
     requireCondition(canonical(operation) === canonical(data.operation));
     if ('interruptionReason' in data)
       requireCondition(
-        ['pause', 'restart', 'abandon'].includes(data.interruptionReason as string) &&
-          ['unknown', 'awaiting-resolution'].includes(data.phase as string)
+        ['pause', 'restart', 'abandon', ...EXECUTION_INTERRUPTION_REASONS].includes(
+          data.interruptionReason as string
+        ) && ['unknown', 'awaiting-resolution'].includes(data.phase as string)
       );
     requireCondition(data.phase !== 'unknown' || 'interruptionReason' in data);
     requireCondition(

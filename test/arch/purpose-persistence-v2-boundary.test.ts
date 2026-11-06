@@ -119,7 +119,13 @@ describe('separate inert purpose persistence v2 boundary', () => {
       for (const reference of references(file)) {
         const resolved = path.resolve(path.dirname(file), reference);
         if (resolved === directory || resolved.startsWith(directory + path.sep))
-          expect(file.startsWith(directory + path.sep), file).toBe(true);
+          expect(
+            file.startsWith(directory + path.sep) ||
+              (file ===
+                path.join(root, 'src/resumability-journal/execution-coordinator/index.ts') &&
+                resolved === path.join(directory, 'idb')),
+            file
+          ).toBe(true);
       }
   });
 
@@ -149,7 +155,7 @@ describe('separate inert purpose persistence v2 boundary', () => {
     }
     expect(visited.size).toBeGreaterThan(100);
     const marker =
-      /purpose-persistence-v2|liska-resumability-journal-v2|liska-resumability-journal\/2|createPurposePersistenceStore|PurposeDispatchToken/u;
+      /purpose-persistence-v2|liska-resumability-journal-v2|liska-resumability-journal\/2|createPurposePersistenceStore|PurposeDispatchToken|execution-coordinator|createChatGptExecution|invalid-execution-input/u;
     const config = [
       ...files(path.join(root, 'scripts')),
       ...readdirSync(root)
