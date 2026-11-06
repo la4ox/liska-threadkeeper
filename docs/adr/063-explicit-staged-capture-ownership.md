@@ -144,36 +144,38 @@ scope, account-wide baseline authority and scheduling remain later gates.
 
 ## Evidence and validation
 
-- Focused parent validation passes 12 files / 277 tests across staged
-  coordinator, capture/producer, manual stage ownership and architecture. The
-  worker broader regression passes 2,450 tests with two skipped across 83
-  suites, including 52 staged ownership cases after reviewer-requested duplicate
-  and asynchronous-mutation regressions.
+- Initial focused parent validation passes 12 files / 277 tests across staged
+  coordinator, capture/producer, manual stage ownership and architecture. After
+  the first-head review correction, the current coordinator rerun passes five
+  files / 104 tests, including all 52 staged ownership cases. The worker broader
+  regression passes 2,450 tests with two skipped across 83 suites.
 - The full coverage run passes 325 files with one skipped and 11,494 tests with
   three skipped: 95.18% statements, 91.81% branches, 98.33% functions and
-  97.43% lines. The staged coordinator aggregate reports 94.48% statements,
-  90.13% branches, 98.27% functions and 97.79% lines.
+  97.43% lines. The current staged coordinator aggregate reports 94.51%
+  statements, 89.77% branches, 98.27% functions and 97.81% lines.
 - Global TypeScript, full lint with zero errors and the unchanged 55 warnings,
   full Prettier, Idea-Threads validation at 9 threads / 37 relations,
   documentation links at 83/83, production dependency audit with zero
   vulnerabilities and the guarded production build/ZIP pass. The root lint
   found and corrected one unused fixture binding before acceptance.
-- Independent review reports no material P0-P2 finding. It confirms exact lease
-  binding, synchronous selected transfer, execution-owned single release and
-  safe removal of live staged references after cleanup.
+- Independent pre-PR review reports no material P0-P2 finding. First-head GitHub
+  review then found one P2 cancellation race: a stop arriving during the
+  evidence pre-CAS read preserved the effect-start fence but could return before
+  recording cancellation uncertainty. The coordinator now attempts that durable
+  transition before returning; the focused and full current-head reruns pass.
 - Real staged raw exceeds the actual 16-MiB threshold. Canonical staging tests
   use an injected lower threshold while production's 32-MiB threshold remains
   unchanged.
 - The worker production build and architecture closure pass with new staged
   coordinator markers absent from `dist`; v1 source remains unchanged.
 - [ITH-007](../idea-threads/ITH-007-update-driven-backup-and-memory.md) preserves
-  E28/E29/D17/T17 and the remaining acquisition/provider/baseline gates.
+  E28/E29/E30/D17/D18/T17 and the remaining acquisition/provider/baseline gates.
 
 The production closure contains zero matches for the staged execution factory,
 lease/sink contracts, selected-write API, coordinator and v2 authority markers.
 Generated `dist` is 65 files / 6,086,741 bytes. The 2,791,971-byte candidate ZIP
 has SHA-256
-`76af73805728161ea3c435c82040394746118f7ff2c2879497003f1e145101a5`.
+`1fa09682b28812228b36651dfaddf8de8584db5d8cc84fa7020709c890501a79`.
 
 Current-head GitHub CI, Code Review and Security Review remain acceptance gates
 for this branch.

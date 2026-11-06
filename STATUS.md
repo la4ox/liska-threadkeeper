@@ -5703,6 +5703,18 @@ The production closure contains zero matches for the staged execution factory,
 lease/sink contracts, selected-write API, coordinator and v2 authority markers.
 Generated `dist` is 65 files / 6,086,741 bytes. The 2,791,971-byte candidate ZIP
 has SHA-256
-`76af73805728161ea3c435c82040394746118f7ff2c2879497003f1e145101a5`.
+`1fa09682b28812228b36651dfaddf8de8584db5d8cc84fa7020709c890501a79`.
 ITH-007 adds E28/E29/D17/T17, records T16 as partially fulfilled and preserves
 acquisition, scope, baseline and scheduler gates.
+
+First-head GitHub review at `2728c65` found one P2 cancellation race after
+destination writes: a stop arriving during the evidence pre-CAS read kept the
+effect-start fence but could return without attempting the separate durable
+`execution-cancelled` transition. The coordinator now attempts that transition
+before returning and retains failed/unknown outcomes without retry or
+compensation. Current-head focused reruns pass the staged 52/52 and the complete
+coordinator 104/104; full coverage again passes 325 files with one skipped and
+11,494 tests with three skipped. The current staged coordinator aggregate is
+94.51% statements, 89.77% branches, 98.27% functions and 97.81% lines. ITH-007
+adds E30/D18 without widening acquisition, provider, baseline or scheduler
+authority.

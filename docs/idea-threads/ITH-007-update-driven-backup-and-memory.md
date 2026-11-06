@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-06
+last_turn: 2026-11-07
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -427,6 +427,18 @@ references are removed from returned material after cleanup. Asset acquisition
 remains disabled. Real staged raw above 16 MiB and injected canonical staging
 paths pass offline without touching extension runtime.
 
+### E30 — A late stop fence still needs a durable interruption attempt
+
+First-head review found one staged cancellation race after every destination
+write had completed. If cancellation arrived during the evidence pre-CAS read,
+the coordinator correctly prevented the receipt CAS but returned without
+attempting the separate interruption transition. Durable state could therefore
+remain active and `in-flight` after execution and external writes had ended.
+
+The fixed path keeps the no-new-effect fence and then attempts
+`execution-cancelled` through the existing independent uncertainty transition.
+Failure or unknown outcome remains honest and is never retried or compensated.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -716,6 +728,17 @@ Evidence: E27, E28, E29
 
 Decision record: ADR-063
 
+### D18 — Pair every cancelled effect fence with an interruption transition
+
+When staged cancellation wins before a new evidence effect starts, preserve the
+fence and attempt the independent durable cancellation transition before
+returning. Do not convert an uncertain transition into success, and do not
+restart, compensate or duplicate destination writes.
+
+Evidence: E27, E29, E30
+
+Decision record: ADR-063
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -937,9 +960,10 @@ Trigger: staged/acquisition cleanup and late-fact recovery semantics are
 separately reviewed and the user explicitly authorizes that local execution
 slice. Provider scope and account-wide baseline authority remain later gates.
 
-Partially fulfilled on 2026-11-07 by E28/E29 and D17: staged capture/archive
-ownership is explicit and runtime-best-effort late-fact policy is adopted for
-unwired work. Attachment acquisition remains open under T17.
+Partially fulfilled on 2026-11-07 by E28/E29/E30 and D17/D18: staged
+capture/archive ownership is explicit, stopped evidence effects retain an
+independent interruption attempt, and runtime-best-effort late-fact policy is
+adopted for unwired work. Attachment acquisition remains open under T17.
 
 ### T17 — Enable one explicit attachment acquisition family
 
@@ -985,6 +1009,7 @@ account-wide baseline authority remain later gates.
 - [evidence] E27: store-owned one-use consumption now gates one inline request; no-acquisition producer and structured outcomes retain facts without settlement/retry #code
 - [evidence] E28: ambient stage helpers and companion-wide sink cleanup left staged ownership implicit and unsafe for retained coordinator outcomes #code
 - [evidence] E29: execution-bound staged leases, selected transfer and explicit cleanup now drive the real offline capture/archive path without acquisition #code
+- [evidence] E30: first-head review found and closed a late cancellation race between the evidence pre-CAS read and its effect-start fence #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1005,6 +1030,7 @@ account-wide baseline authority remain later gates.
 - [decision] D15: keep purpose persistence in a separate commit-gated v2 store; retain evidence and uncertainty without settlement, retry or v1 mutation
 - [decision] D16: consume one session token at the request boundary, run only explicit inline/no-acquisition effects and preserve every known fact independently
 - [decision] D17: make staged lease ownership and selected sink transfer explicit before any attachment acquisition capability is enabled
+- [decision] D18: pair every cancelled evidence effect fence with an independent durable interruption attempt before returning
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries

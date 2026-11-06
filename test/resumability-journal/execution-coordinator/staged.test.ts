@@ -477,6 +477,7 @@ it('stop before evidence effect prevents its CAS; late sink facts remain returne
   const ctx = await fixture();
   canonicalLimit.value = 1;
   const read = ctx.store.read.bind(ctx.store);
+  const marker = vi.spyOn(ctx.store, 'markExecutionUnknown');
   vi.spyOn(ctx.store, 'read').mockImplementation(async (...args) => {
     const record = await read(...args);
     if (ctx.persistSelectedArtifacts.mock.calls.length === 3) ctx.abort.abort();
@@ -486,6 +487,13 @@ it('stop before evidence effect prevents its CAS; late sink facts remain returne
   const result = await ctx.execute().run();
   expect(record).not.toHaveBeenCalled();
   expect(result.evidence.state).toBe('not-attempted');
+  expect(result.code).toBe('execution-cancelled');
+  expect(result.uncertainty).toMatchObject({
+    state: 'committed',
+    reason: 'execution-cancelled',
+    record: { interruptionReason: 'execution-cancelled' },
+  });
+  expect(marker).toHaveBeenCalledOnce();
   expect(result.producer?.producerReceipts).toHaveLength(2);
   expect(result.archiveWrites?.every(write => write.state === 'returned')).toBe(true);
   expect(ctx.release).toHaveBeenCalledOnce();

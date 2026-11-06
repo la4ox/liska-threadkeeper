@@ -371,6 +371,8 @@ export function createChatGptExecution(
       result.evidence = await persistEvidence(result.producer);
       if (stages && result.evidence.state === 'not-attempted' && interrupted) {
         result.code = 'execution-cancelled';
+        if (result.uncertainty.state === 'not-attempted')
+          result.uncertainty = await mark('execution-cancelled');
         return result;
       }
       if (result.evidence.state !== 'committed') {
