@@ -5636,3 +5636,85 @@ is 65 files / 6,086,636 bytes. The 2,791,929-byte candidate ZIP has SHA-256
 ITH-007 adds E26/E27/D16/T16, records T15 as fulfilled only for unwired
 inline/no-acquisition execution and preserves staged/acquisition, scope, baseline
 and scheduler gates.
+
+## Explicit staged capture ownership acceptance — 2026-11-07
+
+Branch `codex/staged-acquisition-ownership` starts from merged main
+`39914cfe23c1752b1b3b5c7350faa603aeba8273` and records
+[ADR-063](docs/adr/063-explicit-staged-capture-ownership.md). The prior
+coordinator was inline-only because capture/canonical stage helpers used ambient
+runtime messaging and the legacy archive sink owned every stage in a supplied
+companion, aborting unselected stages after a raw-only write.
+
+The unwired coordinator now accepts either the existing inline-only transport or
+a complete frozen staged capability. The stage port exposes only bounded read,
+canonical-stage creation and explicit release; no generic runtime sender is
+available. Request-returned leases bind exact operation/attempt/capture,
+conversation, artifact kind, stage ID, byte-length/SHA commitment and an opaque
+execution token. Duplicate token/stage IDs, commitment mismatch, cross-execution
+reuse and late mutation fail closed.
+
+The real admitted capture, raw stage materialization, normalizer, canonical
+companion builder and destination archive builder all use the explicit port in
+staged mode. Manual callers that omit it keep their existing runtime stage
+behavior. Real staged raw above 16 MiB passes; canonical staging paths use an
+injected lower threshold while production's 32-MiB threshold is unchanged.
+
+The isolated staged path uses a selected-artifact sink rather than legacy
+companion-wide ownership. Selected stages transfer synchronously at sink
+invocation and are never released by execution afterward, even on throw,
+rejection, malformed response or uncertain completion. Unselected stages remain
+execution-owned until their last reader and every started sink drain, then each
+releases at most once. An initial canonical stage is not silently destroyed by a
+raw-only sink.
+
+Release reports `released`, `deferred` or `outcome-unknown` independently from
+capture/write/evidence facts. Cleanup continues after cancellation, while stop
+fences prevent every new read, stage creation, sink or evidence effect. Returned
+outcomes remove usable-looking live staged companions after cleanup and retain
+normalized capture material plus independent ownership/archive-write/cleanup
+facts. Partial failures expose no dead lease as recoverable evidence.
+
+Attachment acquisition remains disabled. Asset-bearing inventory stays
+`not-attempted`; resolver recapture, global fetch, Library/active routes, binary
+stage and binary sink defaults remain unreachable. No durable late-fact spool is
+added: these unwired slices retain late facts best-effort in memory, while v2
+unknown/no-retry semantics prevent absence from becoming a false no-effect
+claim. Temporary stages and download cleanup records are not treated as purpose
+evidence.
+
+Independent review reports no material P0-P2 finding. It confirmed exact lease
+binding, synchronous transfer and execution-owned single release. Nine added
+regressions explicitly cover duplicate lease tokens/stage IDs and nested async
+mutation; no source defect was exposed. The root scoped lint also found and
+corrected one unused test-fixture binding.
+
+Focused parent validation passes 12 files / 277 tests. The worker broader run
+passes 2,450 tests with two skipped across 83 suites, including 52 staged cases.
+The full coverage run passes 325 files with one skipped and 11,494 tests with
+three skipped: 95.18% statements, 91.81% branches, 98.33% functions and 97.43%
+lines. The staged coordinator aggregate reports 94.48% statements, 90.13%
+branches, 98.27% functions and 97.79% lines. Global TypeScript, full lint with
+zero errors and the unchanged 55 warnings, full Prettier, Idea-Threads 9/37,
+documentation links 83/83, dependency audit with zero vulnerabilities, guarded
+production build/ZIP and independent review all pass.
+
+The production closure contains zero matches for the staged execution factory,
+lease/sink contracts, selected-write API, coordinator and v2 authority markers.
+Generated `dist` is 65 files / 6,086,741 bytes. The 2,791,971-byte candidate ZIP
+has SHA-256
+`1fa09682b28812228b36651dfaddf8de8584db5d8cc84fa7020709c890501a79`.
+ITH-007 adds E28/E29/D17/T17, records T16 as partially fulfilled and preserves
+acquisition, scope, baseline and scheduler gates.
+
+First-head GitHub review at `2728c65` found one P2 cancellation race after
+destination writes: a stop arriving during the evidence pre-CAS read kept the
+effect-start fence but could return without attempting the separate durable
+`execution-cancelled` transition. The coordinator now attempts that transition
+before returning and retains failed/unknown outcomes without retry or
+compensation. Current-head focused reruns pass the staged 52/52 and the complete
+coordinator 104/104; full coverage again passes 325 files with one skipped and
+11,494 tests with three skipped. The current staged coordinator aggregate is
+94.51% statements, 89.77% branches, 98.27% functions and 97.81% lines. ITH-007
+adds E30/D18 without widening acquisition, provider, baseline or scheduler
+authority.

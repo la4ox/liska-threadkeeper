@@ -7,6 +7,7 @@ import ts from 'typescript';
 const root = path.resolve(import.meta.dirname, '../..');
 const directory = path.join(root, 'src/resumability-journal/execution-coordinator');
 const entry = path.join(directory, 'index.ts');
+const stages = path.join(directory, 'stages.ts');
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(item =>
     item.isDirectory() ? files(path.join(dir, item.name)) : [path.join(dir, item.name)]
@@ -47,8 +48,8 @@ function references(file: string): string[] {
   visit(source);
   return result;
 }
-it('allows only the exact single coordinator with mandatory injected effects and no consumers', () => {
-  expect(files(directory)).toEqual([entry]);
+it('allows only the exact coordinator and stage ownership port with mandatory injected effects and no external consumers', () => {
+  expect(files(directory)).toEqual([entry, stages]);
   expect(references(entry).sort()).toEqual(
     [
       '../../content/capture/chatgpt-admitted-capture',
@@ -57,9 +58,22 @@ it('allows only the exact single coordinator with mandatory injected effects and
       '../../lib/types',
       '../capture-handoff',
       '../purpose-persistence-v2/idb',
+      './stages',
     ].sort()
   );
-  const source = readFileSync(entry, 'utf8');
+  expect(references(stages).sort()).toEqual(
+    [
+      '../../lib/archive-stage-contract',
+      '../../lib/chatgpt-capture-contract',
+      '../../lib/chatgpt-capture-stage-access',
+      '../../lib/types',
+      '../../content/chatgpt-asset-export',
+      '../../content/capture/response',
+      '../../lib/producer-evidence-data',
+      '../../lib/chatgpt-producer-evidence',
+    ].sort()
+  );
+  const source = [entry, stages].map(file => readFileSync(file, 'utf8')).join('\n');
   expect(source).not.toMatch(
     /\b(?:chrome|browser|navigator|document|window|globalThis|indexedDB|localStorage|sessionStorage)\s*[.(]/u
   );
@@ -72,7 +86,8 @@ it('allows only the exact single coordinator with mandatory injected effects and
   for (const file of files(path.join(root, 'src')).filter(file => /\.[jt]sx?$/u.test(file)))
     for (const ref of references(file)) {
       const resolved = path.resolve(path.dirname(file), ref);
-      expect(resolved === directory || resolved.startsWith(directory + path.sep), file).toBe(false);
+      if (resolved === directory || resolved.startsWith(directory + path.sep))
+        expect([file, resolved]).toEqual([entry, stages.slice(0, -3)]);
     }
 });
 it('keeps coordinator and its v2 authority out of all production import closures and generated code', () => {
@@ -89,7 +104,7 @@ it('keeps coordinator and its v2 authority out of all production import closures
     const file = pending.pop()!;
     if (seen.has(file)) continue;
     seen.add(file);
-    expect(file).not.toBe(entry);
+    expect([entry, stages]).not.toContain(file);
     expect(file).not.toContain('purpose-persistence-v2');
     for (const ref of references(file)) {
       if (!ref.startsWith('.')) continue;
@@ -100,7 +115,7 @@ it('keeps coordinator and its v2 authority out of all production import closures
   }
   expect(seen.size).toBeGreaterThan(100);
   const marker =
-    /execution-coordinator|createChatGptExecution|invalid-execution-input|consumeDispatch|markExecutionUnknown|liska-resumability-journal\/2/u;
+    /execution-coordinator|createChatGptExecution|createExecutionStages|invalid-stage-capability|invalid-execution-input|consumeDispatch|markExecutionUnknown|liska-resumability-journal\/2/u;
   const configs = [
     ...files(path.join(root, 'scripts')),
     ...readdirSync(root)

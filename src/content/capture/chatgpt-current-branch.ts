@@ -39,6 +39,7 @@ import {
   type ChatGptTransientAssetResolver,
 } from '../../lib/chatgpt-capture-contract';
 import { MAX_CONTENT_SIZE } from '../../lib/constants';
+import type { ChatGptCaptureStageAccess } from '../../lib/chatgpt-capture-stage-access';
 import { bytesToBase64 } from '../../lib/image-utils';
 import { canonicalBase64ByteLength } from '../../lib/base64';
 import {
@@ -162,6 +163,8 @@ export class ChatGptCurrentBranchError extends Error {
 export interface ChatGptCurrentBranchDependencies {
   /** Isolated callers may prohibit both staged input and automatic canonical staging. */
   inlineOnly?: boolean;
+  /** Explicit execution-owned stages; omission preserves the manual runtime route. */
+  stageAccess?: ChatGptCaptureStageAccess;
   /** Injectable only for focused tests; production uses the runtime bridge. */
   requestCapture?: (
     conversationId: string,
@@ -282,7 +285,10 @@ interface CapturedArtifact {
 }
 
 // eslint-disable-next-line max-lines-per-function -- Inline and staged raw materialization share one exact integrity boundary.
-async function captureArtifact(response: ChatGptCaptureResponse): Promise<CapturedArtifact> {
+async function captureArtifact(
+  response: ChatGptCaptureResponse,
+  stageAccess?: ChatGptCaptureStageAccess
+): Promise<CapturedArtifact> {
   if (!isChatGptCaptureResponse(response)) {
     throw new ChatGptCurrentBranchError('capture-response-invalid');
   }
@@ -313,9 +319,11 @@ async function captureArtifact(response: ChatGptCaptureResponse): Promise<Captur
       stageId: data.stageId,
     };
     try {
-      bytes = await readStagedArchiveArtifactBytes(rawArtifact);
+      bytes = await (stageAccess
+        ? stageAccess.readRaw(rawArtifact)
+        : readStagedArchiveArtifactBytes(rawArtifact));
     } catch {
-      await abortStagedArchiveArtifact(data.stageId);
+      if (!stageAccess) await abortStagedArchiveArtifact(data.stageId);
       bytes = undefined;
     }
   }
@@ -523,10 +531,13 @@ async function archiveCompanionArtifact(
   kind: ArchiveCompanionArtifact['kind'],
   relativePath: string,
   bytes: Uint8Array,
-  bodyBase64?: string
+  bodyBase64?: string,
+  stageAccess?: ChatGptCaptureStageAccess
 ): Promise<ArchiveCompanionArtifact> {
   if (kind === 'canonical' && bytes.byteLength > MAX_CONTENT_SIZE) {
-    return stageArchiveArtifactBytes('canonical', bytes);
+    return stageAccess
+      ? stageAccess.createCanonical(bytes)
+      : stageArchiveArtifactBytes('canonical', bytes);
   }
   const base64 = bodyBase64 ?? bytesToBase64(bytes);
   return {
@@ -587,7 +598,8 @@ export function assertJsonOnlyArchiveCompanionSafe(bundle: RawCaptureBundle): vo
 async function appendCanonicalCompanion(
   companion: ArchiveCompanionBundle,
   archive: Awaited<ReturnType<typeof normalizeChatGptCapture>>['archive'],
-  inlineOnly = false
+  inlineOnly = false,
+  stageAccess?: ChatGptCaptureStageAccess
 ): Promise<ArchiveCompanionBundle> {
   const bytes = serializeJsonBytes(archive);
   if (inlineOnly && bytes.byteLength > MAX_CONTENT_SIZE)
@@ -595,7 +607,9 @@ async function appendCanonicalCompanion(
   const canonical = await archiveCompanionArtifact(
     'canonical',
     ARCHIVE_COMPANION_RELATIVE_PATHS.canonical,
-    bytes
+    bytes,
+    undefined,
+    stageAccess
   );
   const [raw, manifest] = companion.artifacts;
   return {
@@ -1081,7 +1095,8 @@ export async function buildChatGptBinaryAwareDestinationArchive(
   runtimeAssets: readonly RawCaptureAsset[],
   activeResolverMetric?: ChatGptActiveResolverAudit,
   additionalWarnings: readonly string[] = [],
-  inlineOnly = false
+  inlineOnly = false,
+  stageAccess?: ChatGptCaptureStageAccess
 ): Promise<ChatGptBuiltDestinationArchive> {
   const originalRaw = await verifiedOriginalRaw(context);
   try {
@@ -1136,7 +1151,12 @@ export async function buildChatGptBinaryAwareDestinationArchive(
       sha256: sha256Hex,
     });
     return {
-      companion: await appendCanonicalCompanion(rawManifest, normalized.archive, inlineOnly),
+      companion: await appendCanonicalCompanion(
+        rawManifest,
+        normalized.archive,
+        inlineOnly,
+        stageAccess
+      ),
       archive: normalized.archive,
       manifest,
     };
@@ -1185,7 +1205,7 @@ export async function captureChatGptArchive(
   );
   if (dependencies.inlineOnly && response.success && response.data.transport === 'staged')
     throw new ChatGptCurrentBranchError('capture-response-invalid');
-  const captured = await captureArtifact(response);
+  const captured = await captureArtifact(response, dependencies.stageAccess);
   let stageTransferred = false;
   try {
     await verifyCapturedArtifactIntegrity(captured.artifact);
@@ -1227,7 +1247,8 @@ export async function captureChatGptArchive(
       archiveCompanion = await appendCanonicalCompanion(
         archiveCompanion,
         normalized.archive,
-        dependencies.inlineOnly
+        dependencies.inlineOnly,
+        dependencies.stageAccess
       );
     } catch {
       throw new ChatGptCurrentBranchError('capture-integrity-failed', { archiveCompanion });
@@ -1245,7 +1266,11 @@ export async function captureChatGptArchive(
       transientAssetCandidates,
     };
   } catch (error) {
-    if (!stageTransferred && captured.rawArtifact.transport === 'staged') {
+    if (
+      !dependencies.stageAccess &&
+      !stageTransferred &&
+      captured.rawArtifact.transport === 'staged'
+    ) {
       await abortStagedArchiveArtifact(captured.rawArtifact.stageId);
     }
     throw error;

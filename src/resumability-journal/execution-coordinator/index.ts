@@ -1,4 +1,4 @@
-/** Unwired, one-operation inline execution. No retry, settlement or crash-durable late facts. */
+/** Unwired, one-operation execution. No retry, settlement or crash-durable late facts. */
 import {
   capturePreparedChatGpt,
   type AdmittedChatGptCaptureDependencies,
@@ -15,6 +15,14 @@ import {
   type ChatGptAssetExportResult,
 } from '../../content/chatgpt-asset-export';
 import type { ArchiveCompanionBundle } from '../../lib/types';
+import {
+  createExecutionStages,
+  hasStageReferences,
+  snapshotStagePort,
+  type ExecutionStageFact,
+  type ExecutionArchiveWriteFact,
+  type StagedExecutionDependencies,
+} from './stages';
 import { validatePreparedChatGpt, type PreparedChatGptCapture } from '../capture-handoff';
 import {
   PurposePersistenceError,
@@ -30,11 +38,16 @@ export interface ChatGptExecutionInput {
   readonly noteFileName: string;
   readonly signal: AbortSignal;
 }
-export interface ChatGptExecutionDependencies {
+export interface InlineExecutionDependencies {
+  /** Omission preserves the original isolated inline-only route. */
+  readonly captureTransport?: 'inline-only';
   readonly requestCapture: AdmittedChatGptCaptureDependencies['requestCapture'];
   readonly persistArtifacts: ChatGptAssetExportDependencies['persistArtifacts'];
   readonly now?: () => Date;
 }
+export type ChatGptExecutionDependencies =
+  | InlineExecutionDependencies
+  | StagedExecutionDependencies;
 type PersistenceCode = PurposePersistenceError['code'];
 export interface ExecutionPersistence {
   readonly state: 'not-attempted' | 'committed' | 'failed' | 'outcome-unknown';
@@ -58,6 +71,10 @@ export interface ChatGptExecutionOutcome {
   readonly claim: ExecutionPersistence;
   readonly consumption: ExecutionPersistence;
   readonly capture?: ChatGptArchiveCapture;
+  /** Completed normalization survives cleanup without advertising dead/live borrowed leases. */
+  readonly captureMaterial?: Pick<ChatGptArchiveCapture, 'archive'>;
+  readonly stageOwnership?: readonly ExecutionStageFact[];
+  readonly archiveWrites?: readonly ExecutionArchiveWriteFact[];
   readonly captureError?: {
     readonly code: ChatGptCurrentBranchErrorCode;
     readonly archiveCompanion?: ArchiveCompanionBundle;
@@ -114,7 +131,7 @@ function captureFailure(error: unknown): NonNullable<ChatGptExecutionOutcome['ca
  * a handle: all callers share the same execution promise, never another request.
  * A different handle must compete for the durable reserved revision normally.
  */
-// eslint-disable-next-line max-lines-per-function -- One explicit one-shot closure owns its stop latch and the ordered effect boundaries.
+// eslint-disable-next-line max-lines-per-function, complexity -- One explicit one-shot closure snapshots the discriminated capabilities and owns its stop latch and ordered effect boundaries.
 export function createChatGptExecution(
   input: ChatGptExecutionInput,
   dependencies: ChatGptExecutionDependencies
@@ -126,10 +143,22 @@ export function createChatGptExecution(
     'noteFileName',
     'signal',
   ]);
-  const deps = fields(dependencies, ['requestCapture', 'persistArtifacts'], ['now']);
+  const candidate = fields(
+    dependencies,
+    ['requestCapture'],
+    ['persistArtifacts', 'now', 'captureTransport', 'stagePort', 'persistSelectedArtifacts']
+  );
+  const staged = candidate.captureTransport === 'staged';
+  const deps = staged
+    ? fields(
+        dependencies,
+        ['requestCapture', 'captureTransport', 'stagePort', 'persistSelectedArtifacts'],
+        ['now']
+      )
+    : fields(dependencies, ['requestCapture', 'persistArtifacts'], ['now', 'captureTransport']);
   const { store, expectedReservedRevision, noteFileName, signal } =
     supplied as unknown as ChatGptExecutionInput;
-  const { requestCapture, persistArtifacts, now } = deps as unknown as ChatGptExecutionDependencies;
+  const { requestCapture, now } = deps as unknown as ChatGptExecutionDependencies;
   if (
     !(store instanceof PurposePersistenceStore) ||
     !Number.isSafeInteger(expectedReservedRevision) ||
@@ -141,12 +170,19 @@ export function createChatGptExecution(
     Array.from(noteFileName).some(character => character.charCodeAt(0) < 32) ||
     !(signal instanceof AbortSignal) ||
     typeof requestCapture !== 'function' ||
-    typeof persistArtifacts !== 'function' ||
+    typeof (staged ? deps.persistSelectedArtifacts : deps.persistArtifacts) !== 'function' ||
+    (!staged && deps.captureTransport !== undefined && deps.captureTransport !== 'inline-only') ||
     (now !== undefined && typeof now !== 'function')
   )
     throw new ExecutionInputError();
   const prepared = validatePreparedChatGpt(supplied.prepared);
   const { operation, producerIntent } = prepared;
+  let stagePort;
+  try {
+    if (staged) stagePort = snapshotStagePort(deps.stagePort);
+  } catch {
+    throw new ExecutionInputError();
+  }
   const destinations = operation.destinations.map(item => item.destination);
   let interrupted = signal.aborted;
   const stop = () => {
@@ -154,6 +190,19 @@ export function createChatGptExecution(
   };
   signal.addEventListener('abort', stop, { once: true });
   let running: Promise<ChatGptExecutionOutcome> | undefined;
+  const stages = stagePort
+    ? createExecutionStages(
+        Object.freeze({ operationId: operation.operationId, captureId: operation.captureId }),
+        stagePort,
+        (deps as unknown as StagedExecutionDependencies).requestCapture,
+        (deps as unknown as StagedExecutionDependencies).persistSelectedArtifacts,
+        () => interrupted
+      )
+    : undefined;
+  const captureRequest =
+    stages?.capture ?? (requestCapture as InlineExecutionDependencies['requestCapture']);
+  const persistArtifacts =
+    stages?.persist ?? (deps as unknown as InlineExecutionDependencies).persistArtifacts;
 
   // No abort is passed to capture or already-started sinks: their late facts must drain.
   const guardedSink: ChatGptAssetExportDependencies['persistArtifacts'] = (...args) => {
@@ -185,6 +234,8 @@ export function createChatGptExecution(
       // One read, one CAS. Pause/recovery may be accepted; abandon/observation may not.
       const current = await store.read(operation.operationId);
       if (!current) throw new PurposePersistenceError('operation-not-found');
+      // Staged mode has a strict effect-start stop fence. Already-started CAS drains normally.
+      if (stages && interrupted) return { state: 'not-attempted' };
       const record = await store.recordProducerReceipts(
         operation.operationId,
         current.revision,
@@ -234,7 +285,8 @@ export function createChatGptExecution(
       let boundaryEntered = false;
       try {
         const captured = await capturePreparedChatGpt(prepared, {
-          inlineOnly: true,
+          inlineOnly: !stages,
+          ...(stages && { stageAccess: stages.access }),
           ...(now && { now }),
           requestCapture: async id => {
             if (boundaryEntered) throw new ChatGptCurrentBranchError('capture-failed');
@@ -250,7 +302,7 @@ export function createChatGptExecution(
                 }
                 result.dispatch = 'started';
                 result.request = 'invoked';
-                return requestCapture(id);
+                return captureRequest(id);
               });
             } catch (error) {
               // Callback rejection is a request/cancellation failure, not failed authority.
@@ -260,7 +312,7 @@ export function createChatGptExecution(
               }
               throw error;
             }
-            if (response?.success && response.data?.transport === 'staged') {
+            if (!stages && response?.success && response.data?.transport === 'staged') {
               boundaryCode = 'staged-unsupported';
               throw new ChatGptCurrentBranchError('capture-response-invalid');
             }
@@ -293,7 +345,8 @@ export function createChatGptExecution(
                 assets,
                 metric,
                 warnings,
-                true
+                !stages,
+                stages?.access
               ),
           }
         );
@@ -313,8 +366,15 @@ export function createChatGptExecution(
       if (interrupted || !complete)
         result.uncertainty = await mark(interrupted ? 'execution-cancelled' : 'producer-failed');
       if (result.uncertainty.state === 'outcome-unknown') return result;
+      if (stages && interrupted) return result;
       result.stage = 'evidence';
       result.evidence = await persistEvidence(result.producer);
+      if (stages && result.evidence.state === 'not-attempted' && interrupted) {
+        result.code = 'execution-cancelled';
+        if (result.uncertainty.state === 'not-attempted')
+          result.uncertainty = await mark('execution-cancelled');
+        return result;
+      }
       if (result.evidence.state !== 'committed') {
         result.code = 'evidence-persistence-failed';
         // Unknown outcome may already contain the commit: no compensation or retry.
@@ -328,6 +388,19 @@ export function createChatGptExecution(
       result.stage = 'finished';
       return result;
     } finally {
+      if (stages) {
+        result.stageOwnership = await stages.cleanup();
+        result.archiveWrites = stages.archiveWrites();
+        if (result.capture && hasStageReferences(result.capture.archiveCompanion)) {
+          result.captureMaterial = Object.freeze({ archive: result.capture.archive });
+          delete result.capture;
+        }
+        if (
+          result.captureError?.archiveCompanion &&
+          hasStageReferences(result.captureError.archiveCompanion)
+        )
+          result.captureError = { code: result.captureError.code };
+      }
       result.interrupted = interrupted;
       signal.removeEventListener('abort', stop);
       Object.freeze(result);

@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-06
+last_turn: 2026-11-07
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -403,6 +403,42 @@ started request. Evidence is attempted once; failed or uncertain commit keeps
 facts in memory and triggers no retry. A committed assessment is labelled
 `evidence-recorded`, not successful or settled.
 
+### E28 — Legacy stage helpers and companion-wide sinks hid ownership
+
+The manual staged path read, created and aborted archive stages through ambient
+runtime messaging. The legacy archive sink also owned every stage in a supplied
+companion and removed unselected stages after a raw-only write. An unwired
+coordinator could therefore neither prove stage cleanup nor safely retain an
+unselected canonical stage reference.
+
+Attachment acquisition would magnify this gap by adding resolver, fetch, binary
+stage and destination effects before ownership was explicit.
+
+### E29 — Explicit leases now preserve selected transfer and cleanup facts
+
+The staged coordinator now accepts a complete injected stage port and
+request-returned leases bound to exact execution identity and artifact
+commitment. The real capture and destination builder use only that port. Selected
+stages transfer synchronously to a narrow sink; unselected stages remain
+execution-owned and release exactly once after started work drains.
+
+Cleanup outcome is independent from capture and write facts, and live staged
+references are removed from returned material after cleanup. Asset acquisition
+remains disabled. Real staged raw above 16 MiB and injected canonical staging
+paths pass offline without touching extension runtime.
+
+### E30 — A late stop fence still needs a durable interruption attempt
+
+First-head review found one staged cancellation race after every destination
+write had completed. If cancellation arrived during the evidence pre-CAS read,
+the coordinator correctly prevented the receipt CAS but returned without
+attempting the separate interruption transition. Durable state could therefore
+remain active and `in-flight` after execution and external writes had ended.
+
+The fixed path keeps the no-new-effect fence and then attempts
+`execution-cancelled` through the existing independent uncertainty transition.
+Failure or unknown outcome remains honest and is never retried or compensated.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -676,6 +712,33 @@ Evidence: E21, E23, E25, E26, E27
 
 Decision record: ADR-062
 
+### D17 — Make staged ownership explicit before enabling acquisition
+
+Adopt ADR-063's staged capability/lease and selected-artifact sink contract.
+Bind leases to exact execution identity and commitment, transfer only selected
+stages at sink invocation and never release a possibly dispatched lease. Release
+execution-owned stages once and retain deferred/unknown cleanup separately from
+capture and archive facts.
+
+Keep acquisition disabled and late facts best-effort runtime for this unwired
+stage. Do not treat temporary stages or download cleanup records as a durable
+purpose-evidence spool.
+
+Evidence: E27, E28, E29
+
+Decision record: ADR-063
+
+### D18 — Pair every cancelled effect fence with an interruption transition
+
+When staged cancellation wins before a new evidence effect starts, preserve the
+fence and attempt the independent durable cancellation transition before
+returning. Do not convert an uncertain transition into success, and do not
+restart, compensate or duplicate destination writes.
+
+Evidence: E27, E29, E30
+
+Decision record: ADR-063
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -897,6 +960,22 @@ Trigger: staged/acquisition cleanup and late-fact recovery semantics are
 separately reviewed and the user explicitly authorizes that local execution
 slice. Provider scope and account-wide baseline authority remain later gates.
 
+Partially fulfilled on 2026-11-07 by E28/E29/E30 and D17/D18: staged
+capture/archive ownership is explicit, stopped evidence effects retain an
+independent interruption attempt, and runtime-best-effort late-fact policy is
+adopted for unwired work. Attachment acquisition remains open under T17.
+
+### T17 — Enable one explicit attachment acquisition family
+
+Add one named resolver family with an all-or-nothing capability bundle:
+resolver, bounded acquisition and binary sink. Missing capabilities must fail
+before dispatch; omission must never fall back to recapture, global fetch or
+runtime messaging. Apply stop and reserved-destination guards to every effect.
+
+Trigger: one family and its ownership/cleanup contract are separately reviewed
+and the user authorizes that local offline acquisition slice. Provider scope and
+account-wide baseline authority remain later gates.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -928,6 +1007,9 @@ slice. Provider scope and account-wide baseline authority remain later gates.
 - [evidence] E25: separate v2 IndexedDB commits single-operation reservation and retained assessment without settlement; native Chromium close/reopen/recovery passed #live
 - [evidence] E26: reusable currentness and hidden producer defaults left request duplication and unintended recapture/fetch/runtime effects possible #code
 - [evidence] E27: store-owned one-use consumption now gates one inline request; no-acquisition producer and structured outcomes retain facts without settlement/retry #code
+- [evidence] E28: ambient stage helpers and companion-wide sink cleanup left staged ownership implicit and unsafe for retained coordinator outcomes #code
+- [evidence] E29: execution-bound staged leases, selected transfer and explicit cleanup now drive the real offline capture/archive path without acquisition #code
+- [evidence] E30: first-head review found and closed a late cancellation race between the evidence pre-CAS read and its effect-start fence #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -947,6 +1029,8 @@ slice. Provider scope and account-wide baseline authority remain later gates.
 - [decision] D14: separate exact catalog-bound admission from one unwired real capture; do not treat the handoff as durable dispatch authority
 - [decision] D15: keep purpose persistence in a separate commit-gated v2 store; retain evidence and uncertainty without settlement, retry or v1 mutation
 - [decision] D16: consume one session token at the request boundary, run only explicit inline/no-acquisition effects and preserve every known fact independently
+- [decision] D17: make staged lease ownership and selected sink transfer explicit before any attachment acquisition capability is enabled
+- [decision] D18: pair every cancelled evidence effect fence with an independent durable interruption attempt before returning
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -963,6 +1047,7 @@ slice. Provider scope and account-wide baseline authority remain later gates.
 - [tail] T14: atomically persist purpose-aware reservation and define restart/retry/settlement semantics without changing journal v1
 - [tail] T15: connect committed session currentness to the actual provider request under one separately reviewed execution owner
 - [tail] T16: add explicit staged/acquisition ownership and decide whether unpersisted late facts need crash-durable spooling
+- [tail] T17: enable one named resolver/acquisition/binary family with complete explicit capabilities and no fallback effects
 
 ## Relations
 
@@ -1008,3 +1093,5 @@ slice. Provider scope and account-wide baseline authority remain later gates.
 - S32 — local receipt `LISKA-PURPOSE-V2-NATIVE-IDB-20261106`; visibility: local-only; safe lifecycle/revision/assessment aggregate only
 - S33 — [PR #126](https://github.com/la4ox/liska-threadkeeper/pull/126), merged main `a370036`, exact reviewed head `40eff55`
 - S34 — [ADR-062: Coordinate one inline ChatGPT capture without retry or hidden effects](../adr/062-single-operation-execution-coordinator.md), base main `a370036d8e57672b968b1bd60bba0646818a7e30`
+- S35 — [PR #127](https://github.com/la4ox/liska-threadkeeper/pull/127), merged main `39914cf`, exact reviewed head `a313f1a`
+- S36 — [ADR-063: Make staged ChatGPT capture ownership explicit before acquisition](../adr/063-explicit-staged-capture-ownership.md), base main `39914cfe23c1752b1b3b5c7350faa603aeba8273`
