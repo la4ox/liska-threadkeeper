@@ -299,6 +299,34 @@ freshness or account completeness and performs no settlement, persistence,
 execution, dispatch or retry. Journal v1, runtime, storage, UI and build wiring
 remain unchanged.
 
+### E20 — Current sinks already had exact facts that legacy receipts discarded
+
+File archive and binary writes succeed only after terminal download and exact
+requested-path confirmation; they do not read downloaded bytes back. Obsidian
+writes then performs bounded binary readback, exact length comparison and
+SHA-256 comparison. The legacy ChatGPT destination receipt and generic durable
+write accounting retained neither assurance basis nor the exact per-artifact
+observation.
+
+The current destination builder also holds exact raw/manifest/canonical
+commitments and the full destination-specific manifest inventory. Therefore the
+missing evidence is a producer-result loss, not a need for another provider or
+account request.
+
+### E21 — Exact producer receipts can adapt only pre-admitted work
+
+The additive `liska-chatgpt-producer-evidence/1` receipt now retains real File or
+Obsidian sink observations, exact destination commitments, completeness and the
+full asset inventory without replacing the legacy receipt. Raw facts are kept
+from the early raw write; archive commitments and binary results are detached
+before later awaits can mutate them.
+
+The pure unwired adapter independently verifies the legacy routing digest and
+the provider-aware catalog key, then projects only receipts carrying an explicit
+pre-write operation/attempt/catalog/reserved-capture intent. Manual and legacy
+receipts stay insufficient or unsupported. No journal persistence, settlement,
+baseline or scheduler follows.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -507,6 +535,22 @@ Evidence: E11, E18, E19
 
 Decision record: ADR-058
 
+### D13 — Retain real producer facts before adding purpose persistence
+
+Adopt ADR-059's additive factual receipt and unwired ChatGPT adapter. Preserve
+the exact distinction between File terminal path confirmation and Obsidian byte
+readback, keep destination manifests independent and never reconstruct raw
+delivery from later finalization.
+
+Allow a purpose-consistent projection only when immutable intent was supplied
+before the first write and both legacy-routing and provider-aware identity hashes
+match their independent recipes. Ordinary manual exports may expose factual
+receipts but cannot acquire operation, attempt or catalog meaning after capture.
+
+Evidence: E18, E19, E20, E21
+
+Decision record: ADR-059
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -667,6 +711,21 @@ one provider has sufficient authenticated scope/traversal evidence, and the user
 explicitly chooses the next persistence or account-wide baseline slice. No
 driver or scheduler follows from the pure contract alone.
 
+Partially fulfilled on 2026-11-06 by E20/E21 and D13: exact current ChatGPT
+producer facts and an unwired adapter now exist. Purpose-aware persistence and
+the pre-capture admission/execution handoff remain open; journal v1 is unchanged.
+
+### T13 — Hand admitted identity to capture before any provider request
+
+Design a separately reviewed handoff that starts from an exact selected catalog,
+creates operation/attempt identity, reserves the capture ID and passes immutable
+intent into capture before the request and first durable write. Only a later
+purpose-aware persistence version may retain assessment/settlement state.
+
+Trigger: one provider has sufficient authenticated scope/traversal evidence and
+the user explicitly authorizes the admission/execution slice. This does not
+authorize an account-wide baseline or scheduler.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -690,6 +749,8 @@ driver or scheduler follows from the pure contract alone.
 - [evidence] E17: two ordinary requests preceded a six-route UI burst, totaling eight against a self-imposed soft cap of six and showing gestures cannot enforce request budgets #live
 - [evidence] E18: journal v1 and current ChatGPT destination receipts lack purpose-complete new-capture settlement evidence, and File path confirmation is not Obsidian byte readback #code
 - [evidence] E19: pure versioned new-capture operation/evidence relations now classify detached supplied facts without persistence, settlement or execution authority #code
+- [evidence] E20: current File and Obsidian sinks already proved distinct per-artifact facts that legacy receipts and generic accounting discarded #code
+- [evidence] E21: additive exact ChatGPT producer receipts and an unwired adapter preserve real sink facts but require pre-write intent for purpose consistency #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -705,6 +766,7 @@ driver or scheduler follows from the pure contract alone.
 - [decision] D10: retain exact native sidebar container evidence as docs only; no unused parser/classifier/runtime, and conversation discovery plus baseline/scheduler authority remain gated
 - [decision] D11: admit a pure unbound projector for exact inspected nonterminal ordinary pages only; no comparator, scope binding, terminal traversal or sync authority
 - [decision] D12: adopt a pure all-of new-capture purpose/evidence relation while leaving journal v1, persistence, producers and production authority unchanged
+- [decision] D13: retain exact current producer observations and adapt only explicitly pre-admitted work; manual/legacy captures remain non-authorizing
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -717,6 +779,7 @@ driver or scheduler follows from the pure contract alone.
 - [tail] T10: limited separately authorized native conversation-list pass observed ordinary nonterminal pages, identity and marker field; authenticated scope and marker behavior remain open
 - [tail] T11: establish authenticated scope, terminal/restart, duplicate/reorder/filter and controlled marker behavior before any skip decision or baseline/scheduler authority
 - [tail] T12: separately adapt exact producers and purpose-aware persistence after evidence and user authority, without mutating journal v1
+- [tail] T13: pass catalog-bound operation/attempt/reserved-capture intent into capture before requests, then design purpose-aware persistence separately
 
 ## Relations
 
@@ -753,3 +816,5 @@ driver or scheduler follows from the pure contract alone.
 - S23 — [ADR-057: Bounded unbound ChatGPT conversation-list page observation](../adr/057-chatgpt-unbound-conversation-page-observation.md), base main `e09278c35c5c033bd8a02e32c88487aae1272add`
 - S24 — local receipt `LISKA-CHATGPT-CONVERSATION-PAGE-EVIDENCE-20261106`; visibility: local-only; safe request grammar, field/type names and aggregate counts only
 - S25 — [ADR-058: Isolate new-capture purpose and evidence before journal persistence](../adr/058-new-capture-purpose-evidence-contract.md), base main `b3ce405c74cdf03c228235fbe90350d1c9918ee4`
+- S26 — [PR #123](https://github.com/la4ox/liska-threadkeeper/pull/123), merged main `9a83e6d`, exact reviewed head `ec78f36`
+- S27 — [ADR-059: Retain exact ChatGPT producer evidence before purpose persistence](../adr/059-chatgpt-producer-evidence-adapter.md), base main `9a83e6d5b84df7f41dfd1fb547665f84db679a49`

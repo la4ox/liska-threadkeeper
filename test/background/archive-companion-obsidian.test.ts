@@ -113,7 +113,14 @@ describe('Obsidian archive companion persistence', () => {
       value.bytes.byteLength,
       ARCHIVE_COMPANION_API_TIMEOUT_MS
     );
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({
+      success: true,
+      sinkObservation: {
+        kind: 'byte-readback-sha256',
+        byteLength: value.bytes.byteLength,
+        sha256: value.artifact.sha256,
+      },
+    });
   });
 
   it.each(['preflight', 'put', 'readback-size', 'readback-hash', 'confirmed'])(
@@ -226,7 +233,14 @@ describe('Obsidian archive companion persistence', () => {
 
     const tokens = getDateVariables(beforeMidnight);
     const path = `AI/chatgpt/${tokens.YYYY}/${tokens.MM}/${tokens.DD}/_liska-archive/${CONVERSATION_KEY}/${CAPTURE_ID}/canonical/liska-thread-1.json`;
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({
+      success: true,
+      sinkObservation: {
+        kind: 'byte-readback-sha256',
+        byteLength: value.bytes.byteLength,
+        sha256: value.artifact.sha256,
+      },
+    });
     expect(mocks.getFile).toHaveBeenCalledTimes(2);
     expect(mocks.getFile).toHaveBeenCalledWith(path);
     expect(mocks.putBinaryFile).toHaveBeenCalledWith(
@@ -490,7 +504,14 @@ describe('Obsidian archive companion persistence', () => {
     expect(Array.from(putArgs?.[1] as Uint8Array)).toEqual(Array.from(value.bytes));
     expect(putArgs?.[2]).toBe('application/octet-stream');
     expect(putArgs?.[3]).toBe(ARCHIVE_COMPANION_API_TIMEOUT_MS);
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({
+      success: true,
+      sinkObservation: {
+        kind: 'byte-readback-sha256',
+        byteLength: value.bytes.byteLength,
+        sha256: value.artifact.sha256,
+      },
+    });
   });
 
   it('does not fetch or overwrite an existing staged asset path', async () => {

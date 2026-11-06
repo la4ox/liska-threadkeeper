@@ -401,7 +401,14 @@ describe('archive-stage background handlers', () => {
         handleArchiveStageMessage(commitMessage(kind, ['file', 'obsidian']), settings)
       ).resolves.toEqual({
         results: [
-          { destination: 'file', success: true },
+          {
+            destination: 'file',
+            success: true,
+            sinkObservation: {
+              kind: 'browser-download-complete-path-confirmed',
+              observedRelativePath: commitMessage(kind, ['file']).artifact.relativePath,
+            },
+          },
           { destination: 'obsidian', success: true },
         ],
         allSuccessful: true,
@@ -534,7 +541,14 @@ describe('archive-stage background handlers', () => {
 
       await expect(handleArchiveStageMessage(request, settings)).resolves.toEqual({
         results: [
-          { destination: 'file', success: true },
+          {
+            destination: 'file',
+            success: true,
+            sinkObservation: {
+              kind: 'browser-download-complete-path-confirmed',
+              observedRelativePath: request.artifact.relativePath,
+            },
+          },
           { destination: 'obsidian', success: true },
         ],
         allSuccessful: true,
@@ -616,7 +630,14 @@ describe('archive-stage background handlers', () => {
 
     await expect(pending).resolves.toEqual({
       results: [
-        { destination: 'file', success: true },
+        {
+          destination: 'file',
+          success: true,
+          sinkObservation: {
+            kind: 'browser-download-complete-path-confirmed',
+            observedRelativePath: 'responses/conversation.json',
+          },
+        },
         { destination: 'obsidian', success: true },
       ],
       allSuccessful: true,

@@ -5351,3 +5351,70 @@ candidate ZIP has SHA-256
 `eac4275202139606a92b712aa0896561e514714985247d98cf672d8eee2ed1ff`.
 ITH-007 adds E18/E19/D12/T12 and preserves the remaining producer, persistence,
 scope, traversal, baseline and scheduler gates.
+
+## Exact ChatGPT producer evidence and unwired adapter acceptance — 2026-11-06
+
+Branch `codex/new-capture-producer-adapter` starts from merged main
+`9a83e6d5b84df7f41dfd1fb547665f84db679a49` and records
+[ADR-059](docs/adr/059-chatgpt-producer-evidence-adapter.md). The source audit
+confirmed that current File and Obsidian sinks already performed the assurance
+needed by ADR-058 but discarded it from their legacy result surfaces. File
+confirms terminal download plus exact requested archive path without byte
+readback. Obsidian performs bounded binary readback and exact length/SHA-256
+comparison. The legacy ChatGPT receipt also omits raw/canonical hashes, complete
+asset inventory, completeness and operation/admission binding.
+
+The current archive and binary sinks now add an exact optional observation to
+their existing result without changing success/error semantics or issuing any
+new request. File retains only `browser-download-complete-path-confirmed` and a
+safe archive-relative path; Obsidian retains the actually verified readback
+length and SHA-256. The versioned `liska-chatgpt-producer-evidence/1` factual
+receipt remains separate from the legacy link receipt and records exact
+provider/conversation/capture identity, routing-only legacy digest, original
+all-of requested destinations, destination-specific raw/manifest/canonical
+commitments, completeness, the complete asset inventory and every retained sink
+observation.
+
+Evidence is pinned at its actual temporal boundary. Intent is detached before
+the first write; archive commitments before dispatch; raw observations
+immediately after the early raw write; binary results immediately when binary
+persistence returns; and both destination inventories before the first
+destination-builder await. Finalization cannot reconstruct or replace missing
+raw/binary facts. An independent review found late-mutation gaps in the first
+draft; pre-await snapshots and dedicated regression cases resolved that P2, and
+the delta review reports ready with no remaining material finding.
+
+The pure unwired `adaptChatGptProducerEvidence` independently verifies both the
+legacy `SHA256(UTF8(conversationId))` routing digest and the provider-aware
+catalog recipe
+`SHA256(UTF8(JSON.stringify(['liska-conversation-key/1', provider, conversationId])))`.
+It never substitutes or prefixes one digest into the other. Only receipts with
+an immutable intent supplied before the first write can bind operation, attempt,
+reserved capture, exact catalog and required destinations. Ordinary manual and
+legacy exports remain factual but insufficient or unsupported; they gain no
+purpose meaning after capture.
+
+No journal-v1, journal transition, IndexedDB, catalog schema, UI, provider-list,
+baseline, scheduler, settlement, retry or permission change is included. The
+adapter has no production consumer. The next gate is a separately reviewed
+admission/execution handoff that selects an exact catalog, creates the operation
+and attempt, reserves capture identity before the provider request and passes
+that immutable intent into capture. Purpose-aware persistence remains later and
+journal v1 remains unchanged.
+
+Focused parent validation passes 12 files / 424 tests. The full coverage run
+passes 311 files with one skipped and 11,268 tests with three skipped: 95.18%
+statements, 91.81% branches, 98.31% functions and 97.42% lines. Global
+TypeScript, full lint with zero errors and the unchanged 55 warnings, full
+Prettier, Idea-Threads 9/37, documentation links 79/79, dependency audit with
+zero vulnerabilities, guarded production build/ZIP and independent review all
+pass.
+
+The production closure intentionally contains the factual producer schema in
+one content bundle and the File/Obsidian assurance markers in the content and
+service-worker bundles. It contains zero matches for the adapter function and
+both ADR-058 purpose schema strings. Generated `dist` is 65 files / 6,086,099
+bytes. The 2,791,772-byte candidate ZIP has SHA-256
+`9408a5a82fd3552d74563cd7a105de025167d804633c78711867693f6ece9acd`.
+ITH-007 adds E20/E21/D13/T13, records T12 as partially fulfilled and preserves
+the remaining admission, persistence, scope, baseline and scheduler gates.

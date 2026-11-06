@@ -47,6 +47,72 @@ describe('content archive companion persistence', () => {
     vi.clearAllMocks();
   });
 
+  it.each(['success', 'unknown', 'catch'] as const)(
+    'pins the issued artifact commitment before asynchronous %s response mutation',
+    async mode => {
+      const value = {
+        ...companion,
+        artifacts: companion.artifacts.map(artifact => ({ ...artifact })),
+      };
+      const artifact = value.artifacts[0];
+      const expected = {
+        relativePath: artifact.relativePath,
+        byteLength: artifact.byteLength,
+        sha256: artifact.sha256,
+      };
+      vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+        (_message: unknown, callback?: (response: unknown) => void) => {
+          queueMicrotask(() => {
+            Object.assign(artifact, {
+              relativePath: 'changed.json',
+              byteLength: 999,
+              sha256: 'f'.repeat(64),
+            });
+            if (mode === 'catch') chrome.runtime.lastError = { message: 'synthetic failure' };
+            callback?.(
+              mode === 'success'
+                ? {
+                    results: [
+                      {
+                        destination: 'file',
+                        success: true,
+                        sinkObservation: {
+                          kind: 'browser-download-complete-path-confirmed',
+                          observedRelativePath: expected.relativePath,
+                        },
+                      },
+                    ],
+                    allSuccessful: true,
+                    anySuccessful: true,
+                  }
+                : undefined
+            );
+            chrome.runtime.lastError = undefined;
+          });
+        }
+      );
+      const outcome = await persistArchiveCompanionArtifacts(
+        value,
+        'note.md',
+        'chatgpt',
+        ['file'],
+        ['raw']
+      );
+      expect(outcome.observations).toEqual([
+        {
+          destination: 'file',
+          commitment: expected,
+          ...(mode === 'success' && {
+            observation: {
+              kind: 'browser-download-complete-path-confirmed',
+              observedRelativePath: expected.relativePath,
+            },
+          }),
+        },
+      ]);
+    }
+  );
+
   it('excludes Clipboard and warns when it is the only selected output', async () => {
     const warnings = await persistArchiveCompanions(companion, 'note.md', 'chatgpt', ['clipboard']);
 
@@ -92,7 +158,24 @@ describe('content archive companion persistence', () => {
         undefined,
         serializeSyncSettingsSnapshot(DEFAULT_SYNC_SETTINGS)
       )
-    ).resolves.toEqual({ activeOutputs: ['file'], warnings: [] });
+    ).resolves.toMatchObject({
+      activeOutputs: ['file'],
+      warnings: [],
+      observations: [
+        {
+          destination: 'file',
+          commitment: {
+            relativePath: staged.artifacts[0].relativePath,
+            byteLength: staged.artifacts[0].byteLength,
+            sha256: staged.artifacts[0].sha256,
+          },
+        },
+        {
+          destination: 'file',
+          commitment: { relativePath: 'manifest.json', byteLength: 2, sha256: 'c'.repeat(64) },
+        },
+      ],
+    });
 
     const messages = vi.mocked(chrome.runtime.sendMessage).mock.calls.map(call => call[0]);
     expect(messages.map(message => (message as { action: string }).action)).toEqual([
@@ -464,6 +547,14 @@ describe('content archive companion persistence', () => {
 
     expect(outcome).toEqual({
       activeOutputs: [],
+      observations: ['file', 'obsidian'].map(destination => ({
+        destination,
+        commitment: {
+          relativePath: companion.artifacts[0].relativePath,
+          byteLength: companion.artifacts[0].byteLength,
+          sha256: companion.artifacts[0].sha256,
+        },
+      })),
       warnings: [
         'raw archive companion was not saved to file because the extension write failed',
         'raw archive companion was not saved to obsidian because the extension write failed',

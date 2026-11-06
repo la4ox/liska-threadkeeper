@@ -1065,6 +1065,8 @@ export async function buildChatGptBinaryAwareArchiveCompanion(
 export interface ChatGptBuiltDestinationArchive {
   companion: ArchiveCompanionBundle;
   archive: LiskaThreadArchive;
+  /** Exact destination manifest used to serialize and hash this companion. */
+  manifest?: RawCaptureBundle['manifest'];
 }
 
 /** Retain the exact normalized destination archive without re-normalizing for HTML. */
@@ -1131,6 +1133,7 @@ export async function buildChatGptBinaryAwareDestinationArchive(
     return {
       companion: await appendCanonicalCompanion(rawManifest, normalized.archive),
       archive: normalized.archive,
+      manifest,
     };
   } catch {
     throw new ChatGptCurrentBranchError('capture-integrity-failed');

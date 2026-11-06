@@ -6,6 +6,7 @@ import ts from 'typescript';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const directory = path.join(root, 'src/resumability-journal/purpose');
+const adapter = path.join(root, 'src/resumability-journal/producer-adapter');
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const name = path.join(dir, entry.name);
@@ -67,17 +68,19 @@ describe('isolated test-only new-capture purpose contract', () => {
   });
   it('has no production source consumers, HTML entrypoints, build or manifest wiring', () => {
     for (const file of files(path.join(root, 'src'))) {
-      if (file.startsWith(directory + path.sep)) continue;
+      if (file.startsWith(directory + path.sep) || file.startsWith(adapter + path.sep)) continue;
       if (/\.[cm]?[jt]sx?$/u.test(file)) {
         for (const reference of references(file)) {
           const resolved = path.resolve(path.dirname(file), reference);
           expect(resolved === directory || resolved.startsWith(directory + path.sep)).toBe(false);
           expect(reference).not.toMatch(/resumability-journal\/purpose/u);
+          expect(resolved === adapter || resolved.startsWith(adapter + path.sep)).toBe(false);
+          expect(reference).not.toMatch(/resumability-journal\/producer-adapter/u);
         }
       }
       if (file.endsWith('.html'))
         expect(readFileSync(file, 'utf8')).not.toMatch(
-          /resumability-journal\/purpose|\/purpose\/index/u
+          /resumability-journal\/(?:purpose|producer-adapter)|\/(?:purpose|producer-adapter)\/index/u
         );
     }
     for (const file of [
@@ -88,7 +91,22 @@ describe('isolated test-only new-capture purpose contract', () => {
         )
         .map(name => path.join(root, name)),
     ]) {
-      expect(readFileSync(file, 'utf8')).not.toMatch(/resumability-journal[/\\]purpose/u);
+      expect(readFileSync(file, 'utf8')).not.toMatch(
+        /resumability-journal[/\\](?:purpose|producer-adapter)/u
+      );
+    }
+  });
+  it('permits only the isolated adapter with pure receipt parsing and injected hashing', () => {
+    for (const file of files(adapter)) {
+      for (const reference of references(file))
+        expect([
+          '../purpose',
+          '../../lib/chatgpt-producer-evidence',
+          '../../lib/producer-evidence-data',
+        ]).toContain(reference);
+      expect(readFileSync(file, 'utf8')).not.toMatch(
+        /\b(?:chrome|browser|navigator|document|window|globalThis|process|indexedDB|localStorage|Date|performance|crypto)\s*[.(]|\b(?:fetch|setTimeout|setInterval|eval|Function|require|import)\s*\(/u
+      );
     }
   });
 });

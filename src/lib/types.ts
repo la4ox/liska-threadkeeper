@@ -407,6 +407,8 @@ export interface OutputOptions {
  * Result of a single output operation
  */
 export interface OutputResult {
+  /** Exact archive/binary sink observation; absent for legacy and unconfirmed writes. */
+  sinkObservation?: import('./chatgpt-producer-evidence').SinkObservation;
   destination: OutputDestination;
   success: boolean;
   error?: string;
@@ -936,6 +938,7 @@ export interface SettingsSaveResponse {
  * Response from background service worker
  */
 export interface SaveResponse {
+  sinkObservation?: import('./chatgpt-producer-evidence').SinkObservation;
   success: boolean;
   error?: string;
   isNewFile?: boolean;

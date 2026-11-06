@@ -380,7 +380,14 @@ async function downloadStagedArchiveToFile(
         outcome.error
           ? { destination: 'file', success: false, error: outcome.error }
           : exactPath
-            ? { destination: 'file', success: true }
+            ? {
+                destination: 'file',
+                success: true,
+                sinkObservation: {
+                  kind: 'browser-download-complete-path-confirmed',
+                  observedRelativePath: message.artifact.relativePath,
+                },
+              }
             : {
                 destination: 'file',
                 success: false,
@@ -440,6 +447,7 @@ async function saveStagedArchiveToObsidian(
       {
         destination: 'obsidian',
         success: saved.success,
+        ...(saved.sinkObservation && { sinkObservation: saved.sinkObservation }),
         ...(saved.error && { error: saved.error }),
       },
       state,

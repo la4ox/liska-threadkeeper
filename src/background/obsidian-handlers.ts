@@ -289,10 +289,18 @@ async function writeAndVerifyArchiveCompanion(
   }
 
   try {
-    const exact = (await sha256Hex(readBack)) === expectedSha256;
+    const sha256 = await sha256Hex(readBack);
+    const exact = sha256 === expectedSha256;
     if (exact) observe?.('confirmed');
     return exact
-      ? { success: true }
+      ? {
+          success: true,
+          sinkObservation: {
+            kind: 'byte-readback-sha256',
+            byteLength: readBack.byteLength,
+            sha256,
+          },
+        }
       : { success: false, error: 'archive-obsidian-readback-hash-mismatch' };
   } catch {
     return { success: false, error: 'archive-obsidian-readback-hash-failed' };
@@ -466,10 +474,18 @@ async function writeAndVerifyStagedBinary(
     return { success: false, error: 'binary-obsidian-readback-size-mismatch' };
   }
   try {
-    const exact = (await sha256Hex(readBack)) === descriptor.sha256;
+    const sha256 = await sha256Hex(readBack);
+    const exact = sha256 === descriptor.sha256;
     if (exact) observe?.('confirmed');
     return exact
-      ? { success: true }
+      ? {
+          success: true,
+          sinkObservation: {
+            kind: 'byte-readback-sha256',
+            byteLength: readBack.byteLength,
+            sha256,
+          },
+        }
       : { success: false, error: 'binary-obsidian-readback-hash-mismatch' };
   } catch {
     return { success: false, error: 'binary-obsidian-readback-hash-failed' };
