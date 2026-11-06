@@ -25,6 +25,7 @@ import {
   freezeProducerData,
   producerList,
 } from '../../lib/producer-evidence-data';
+import { conversationKeyInput } from '../../archive/catalog/conversation-key';
 
 export interface ProducerAdaptation {
   readonly evidence?: NewCaptureEvidence;
@@ -170,13 +171,7 @@ export async function adaptChatGptProducerEvidence(
   let legacyHash: string;
   try {
     hash = await sha256(
-      new TextEncoder().encode(
-        JSON.stringify([
-          'liska-conversation-key/1',
-          operation.admission.provider,
-          operation.admission.conversationId,
-        ])
-      )
+      conversationKeyInput(operation.admission.provider, operation.admission.conversationId)
     );
     if (typeof hash !== 'string' || !/^[a-f0-9]{64}$/u.test(hash)) return rejected('hash-failed');
     // Verify routing independently. This digest is never prefixed/promoted into the catalog key.

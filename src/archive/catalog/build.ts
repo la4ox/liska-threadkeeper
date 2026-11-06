@@ -8,6 +8,7 @@ import {
   type SnapshotCatalogEntry,
 } from './contracts';
 import { encodeSnapshotCatalog } from './encode';
+import { conversationKeyInput } from './conversation-key';
 import { CATALOG_HEADER, entrySortKey } from './format';
 import { requireCatalogManifest } from './manifest';
 import {
@@ -230,14 +231,11 @@ async function catalogEntries(
     const manifest = parseManifest(file, entry, prepared, jsonBudget, recordBudget);
     if (manifest) {
       projectManifest(entry, manifest, files);
-      const identity = JSON.stringify([
-        CONVERSATION_KEY_VERSION,
-        manifest.provider,
-        manifest.conversationId,
-      ]);
+      const keyInput = conversationKeyInput(manifest.provider, manifest.conversationId);
+      const identity = new TextDecoder().decode(keyInput);
       let key = keys.get(identity);
       if (!key) {
-        key = `${CONVERSATION_KEY_VERSION}:${await prepared.hash(new TextEncoder().encode(identity))}`;
+        key = `${CONVERSATION_KEY_VERSION}:${await prepared.hash(keyInput)}`;
         keys.set(identity, key);
       }
       entry.conversationKey = key;

@@ -327,6 +327,32 @@ pre-write operation/attempt/catalog/reserved-capture intent. Manual and legacy
 receipts stay insufficient or unsupported. No journal persistence, settlement,
 baseline or scheduler follows.
 
+### E22 — Ordinary capture requested provider data before identity reservation
+
+The existing ChatGPT capture accepted an injectable capture-ID factory but
+invoked it only while building the manifest, after the provider response. This
+was sufficient for manual export tests but did not establish that a future
+catalog-bound operation and reserved capture identity existed before dispatch.
+
+Catalog admission already preserved exact canonical bytes and projected stable
+provider/conversation/versioned-key identity. The missing layer was a bounded
+handoff from that evidence into the real capture path, not another provider
+experiment.
+
+### E23 — A frozen handoff now reaches the real capture before the request
+
+The accepted catalog admission is now shared as a data-only core. A pure
+`prepareChatGptNewCapture` operation copies and hashes exact catalog bytes,
+requires full-triple ChatGPT membership, verifies the provider-aware key and
+builds one deeply frozen operation/producer-intent pair with a strict reserved
+capture ID.
+
+The unwired `capturePreparedChatGpt` executor revalidates that pair before the
+request and runs the real capture/normalizer/inventory with the reserved ID. The
+full offline path retains the same identity through manifest, companion and
+producer receipt. Real asset inventory remains `not-attempted`, so the adapter
+correctly stays insufficient rather than inventing completeness.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -551,6 +577,22 @@ Evidence: E18, E19, E20, E21
 
 Decision record: ADR-059
 
+### D14 — Separate pure admission from one unwired prepared capture
+
+Adopt ADR-060's exact canonical catalog handoff and real single-capture executor.
+The operation and producer intent share one admitted source of truth, the
+reserved ID exists before the provider request and no default runtime bridge,
+alternate normalizer, retry or persistence is available to this executor.
+
+Do not use journal v1's dispatch token or derive operation meaning from
+`runId`/`itemId`. This handoff proves effect ordering but not durable uniqueness
+or restart-safe dispatch authority. Preserve real `not-attempted` asset
+semantics and the resulting insufficient assessment.
+
+Evidence: E19, E21, E22, E23
+
+Decision record: ADR-060
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -726,6 +768,22 @@ Trigger: one provider has sufficient authenticated scope/traversal evidence and
 the user explicitly authorizes the admission/execution slice. This does not
 authorize an account-wide baseline or scheduler.
 
+Fulfilled as an unwired single-capture acceptance gate on 2026-11-06 by E22/E23
+and D14. Durable reservation, current-token validation and settlement remain
+open under T14.
+
+### T14 — Persist purpose-aware reservation before dispatch
+
+Design a new persistence version that atomically stores purpose, operation,
+attempt, reserved capture and exact catalog identity before any dispatch. Define
+pause/restart validation, crash/retry behavior and assessment retention without
+mapping `consistent` directly to automatic settlement. Keep journal v1 readable
+and byte/meaning stable.
+
+Trigger: the persistence/recovery contract is separately reviewed and the user
+explicitly authorizes that local storage slice. Provider scope and account-wide
+baseline authority remain separate later decisions.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -751,6 +809,8 @@ authorize an account-wide baseline or scheduler.
 - [evidence] E19: pure versioned new-capture operation/evidence relations now classify detached supplied facts without persistence, settlement or execution authority #code
 - [evidence] E20: current File and Obsidian sinks already proved distinct per-artifact facts that legacy receipts and generic accounting discarded #code
 - [evidence] E21: additive exact ChatGPT producer receipts and an unwired adapter preserve real sink facts but require pre-write intent for purpose consistency #code
+- [evidence] E22: ordinary ChatGPT capture allocated identity after the provider response, leaving pre-dispatch reservation unproved #code
+- [evidence] E23: exact canonical catalog admission now prepares frozen identity before one real injected capture; real asset inventory remains honestly insufficient #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -767,6 +827,7 @@ authorize an account-wide baseline or scheduler.
 - [decision] D11: admit a pure unbound projector for exact inspected nonterminal ordinary pages only; no comparator, scope binding, terminal traversal or sync authority
 - [decision] D12: adopt a pure all-of new-capture purpose/evidence relation while leaving journal v1, persistence, producers and production authority unchanged
 - [decision] D13: retain exact current producer observations and adapt only explicitly pre-admitted work; manual/legacy captures remain non-authorizing
+- [decision] D14: separate exact catalog-bound admission from one unwired real capture; do not treat the handoff as durable dispatch authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -780,6 +841,7 @@ authorize an account-wide baseline or scheduler.
 - [tail] T11: establish authenticated scope, terminal/restart, duplicate/reorder/filter and controlled marker behavior before any skip decision or baseline/scheduler authority
 - [tail] T12: separately adapt exact producers and purpose-aware persistence after evidence and user authority, without mutating journal v1
 - [tail] T13: pass catalog-bound operation/attempt/reserved-capture intent into capture before requests, then design purpose-aware persistence separately
+- [tail] T14: atomically persist purpose-aware reservation and define restart/retry/settlement semantics without changing journal v1
 
 ## Relations
 
@@ -818,3 +880,5 @@ authorize an account-wide baseline or scheduler.
 - S25 — [ADR-058: Isolate new-capture purpose and evidence before journal persistence](../adr/058-new-capture-purpose-evidence-contract.md), base main `b3ce405c74cdf03c228235fbe90350d1c9918ee4`
 - S26 — [PR #123](https://github.com/la4ox/liska-threadkeeper/pull/123), merged main `9a83e6d`, exact reviewed head `ec78f36`
 - S27 — [ADR-059: Retain exact ChatGPT producer evidence before purpose persistence](../adr/059-chatgpt-producer-evidence-adapter.md), base main `9a83e6d5b84df7f41dfd1fb547665f84db679a49`
+- S28 — [PR #124](https://github.com/la4ox/liska-threadkeeper/pull/124), merged main `b3f6c9d`, exact reviewed head `ef3616d`
+- S29 — [ADR-060: Prepare catalog-bound ChatGPT capture before the provider request](../adr/060-catalog-bound-chatgpt-capture-handoff.md), base main `b3f6c9deba1781c0ba235f48177e6ef2a7aa5b2e`

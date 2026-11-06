@@ -33,6 +33,7 @@ import {
   CHATGPT_CAPTURE_MAX_BYTES,
   CHATGPT_INLINE_CAPTURE_MAX_BYTES,
   isChatGptCaptureResponse,
+  isChatGptCaptureId,
   isChatGptConversationId,
   type ChatGptCaptureResponse,
   type ChatGptTransientAssetResolver,
@@ -263,10 +264,7 @@ function captureId(createCaptureId: (() => string) | undefined): string {
     throw new ChatGptCurrentBranchError('capture-id-unavailable');
   }
 
-  if (
-    typeof value !== 'string' ||
-    !/^capture-chatgpt-[A-Za-z0-9][A-Za-z0-9_-]{0,239}$/.test(value)
-  ) {
+  if (!isChatGptCaptureId(value)) {
     throw new ChatGptCurrentBranchError('capture-id-invalid');
   }
   return value;

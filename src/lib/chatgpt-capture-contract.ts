@@ -165,6 +165,13 @@ export function isChatGptConversationId(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value);
 }
 
+/** Shared by manual capture and pre-request capture reservation admission. */
+export function isChatGptCaptureId(value: unknown): value is string {
+  return (
+    typeof value === 'string' && /^capture-chatgpt-[A-Za-z0-9][A-Za-z0-9_-]{0,239}$/.test(value)
+  );
+}
+
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
   const keys = Reflect.ownKeys(value);
   return keys.length === expected.length && expected.every(key => keys.includes(key));
