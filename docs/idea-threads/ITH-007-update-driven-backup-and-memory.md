@@ -439,6 +439,26 @@ The fixed path keeps the no-new-effect fence and then attempts
 `execution-cancelled` through the existing independent uncertainty transition.
 Failure or unknown outcome remains honest and is never retried or compensated.
 
+### E31 — Broad attachment defaults were incompatible with isolated execution
+
+The established manual producer can use omitted dependencies to invoke legacy
+raw recapture, global fetch and runtime binary staging. Enabling acquisition by
+removing the coordinator's disabled flag would therefore bypass the explicit
+ownership boundary from E29 rather than extend it.
+
+### E32 — One complete ordinary direct PNG bundle closes the offline effect chain
+
+The staged coordinator now accepts one exact `ordinary-direct-png/1` bundle with
+mandatory resolver observation, browser-managed fetch, single-binary sink and
+strict limits. It runs the real whole-ledger matcher and acquisition verifier,
+then existing destination reconciliation and producer/evidence paths. Omitted
+or partial capabilities start no attachment effect.
+
+The policy remains unwired from production. Deny-only interpreter ownership and
+normalized unknown/not-dispatched sink facts prevent ambiguous evidence from
+becoming ordinary authority or fetched assurance. Attachment facts remain
+best-effort runtime output; no spool, retry or settlement follows.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -739,6 +759,18 @@ Evidence: E27, E29, E30
 
 Decision record: ADR-063
 
+### D19 — Prove one complete attachment family offline before live wiring
+
+Adopt ADR-064's staged-only ordinary direct PNG capability contract. Require
+every effect capability before claim, one attempt, full-ledger identity denial,
+real bounded byte verification and exact destination facts. Preserve manual
+defaults outside the coordinator and keep all live/provider/baseline authority
+behind later explicit gates.
+
+Evidence: E29, E31, E32
+
+Decision record: ADR-064
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -960,10 +992,11 @@ Trigger: staged/acquisition cleanup and late-fact recovery semantics are
 separately reviewed and the user explicitly authorizes that local execution
 slice. Provider scope and account-wide baseline authority remain later gates.
 
-Partially fulfilled on 2026-11-07 by E28/E29/E30 and D17/D18: staged
+Partially fulfilled on 2026-11-07 by E28/E29/E30/E31/E32 and D17/D18/D19: staged
 capture/archive ownership is explicit, stopped evidence effects retain an
-independent interruption attempt, and runtime-best-effort late-fact policy is
-adopted for unwired work. Attachment acquisition remains open under T17.
+independent interruption attempt, runtime-best-effort late-fact policy is
+adopted for unwired work and one ordinary direct PNG family has a complete
+offline capability proof. Live capability wiring remains open under T18.
 
 ### T17 — Enable one explicit attachment acquisition family
 
@@ -975,6 +1008,20 @@ runtime messaging. Apply stop and reserved-destination guards to every effect.
 Trigger: one family and its ownership/cleanup contract are separately reviewed
 and the user authorizes that local offline acquisition slice. Provider scope and
 account-wide baseline authority remain later gates.
+
+Fulfilled offline on 2026-11-07 by E31/E32 and D19 for exactly one
+`ordinary-direct-png/1` attempt. No live capability provider or installed byte
+acceptance follows.
+
+### T18 — Bind one live capability provider without widening the family
+
+Provide the exact resolver/fetch/single-binary capabilities required by ADR-064
+without exposing general runtime messaging or optional fallbacks. Prove useful
+current-provider eligibility and one physical destination outcome separately.
+
+Trigger: the user explicitly authorizes one bounded installed acceptance plan.
+Until then no production import, UI switch, provider request, baseline or
+scheduler authority is added.
 
 ## Observations
 
@@ -1010,6 +1057,8 @@ account-wide baseline authority remain later gates.
 - [evidence] E28: ambient stage helpers and companion-wide sink cleanup left staged ownership implicit and unsafe for retained coordinator outcomes #code
 - [evidence] E29: execution-bound staged leases, selected transfer and explicit cleanup now drive the real offline capture/archive path without acquisition #code
 - [evidence] E30: first-head review found and closed a late cancellation race between the evidence pre-CAS read and its effect-start fence #code
+- [evidence] E31: broad manual attachment omissions could recapture raw, use global fetch or invoke runtime binary staging and therefore were not isolated execution authority #code
+- [evidence] E32: one complete ordinary direct PNG bundle now proves the offline resolver-to-receipt chain while production remains unwired #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1031,6 +1080,7 @@ account-wide baseline authority remain later gates.
 - [decision] D16: consume one session token at the request boundary, run only explicit inline/no-acquisition effects and preserve every known fact independently
 - [decision] D17: make staged lease ownership and selected sink transfer explicit before any attachment acquisition capability is enabled
 - [decision] D18: pair every cancelled evidence effect fence with an independent durable interruption attempt before returning
+- [decision] D19: prove one complete attachment family offline through mandatory capabilities before considering live wiring
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1048,6 +1098,7 @@ account-wide baseline authority remain later gates.
 - [tail] T15: connect committed session currentness to the actual provider request under one separately reviewed execution owner
 - [tail] T16: add explicit staged/acquisition ownership and decide whether unpersisted late facts need crash-durable spooling
 - [tail] T17: enable one named resolver/acquisition/binary family with complete explicit capabilities and no fallback effects
+- [tail] T18: bind and live-accept the exact ordinary direct PNG capabilities separately without widening provider authority
 
 ## Relations
 
@@ -1095,3 +1146,4 @@ account-wide baseline authority remain later gates.
 - S34 — [ADR-062: Coordinate one inline ChatGPT capture without retry or hidden effects](../adr/062-single-operation-execution-coordinator.md), base main `a370036d8e57672b968b1bd60bba0646818a7e30`
 - S35 — [PR #127](https://github.com/la4ox/liska-threadkeeper/pull/127), merged main `39914cf`, exact reviewed head `a313f1a`
 - S36 — [ADR-063: Make staged ChatGPT capture ownership explicit before acquisition](../adr/063-explicit-staged-capture-ownership.md), base main `39914cfe23c1752b1b3b5c7350faa603aeba8273`
+- S37 — [ADR-064: Admit one ordinary direct PNG family through explicit offline capabilities](../adr/064-explicit-ordinary-direct-png-acquisition.md), base main `c22aed4cb18b1311033533cd4e1c75a9ce825be1`

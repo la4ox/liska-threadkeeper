@@ -8,6 +8,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const directory = path.join(root, 'src/resumability-journal/execution-coordinator');
 const entry = path.join(directory, 'index.ts');
 const stages = path.join(directory, 'stages.ts');
+const attachments = path.join(directory, 'ordinary-direct-png.ts');
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(item =>
     item.isDirectory() ? files(path.join(dir, item.name)) : [path.join(dir, item.name)]
@@ -48,8 +49,8 @@ function references(file: string): string[] {
   visit(source);
   return result;
 }
-it('allows only the exact coordinator and stage ownership port with mandatory injected effects and no external consumers', () => {
-  expect(files(directory)).toEqual([entry, stages]);
+it('allows only the coordinator, stage ownership port and explicit one-PNG policy with mandatory injected effects and no external consumers', () => {
+  expect(files(directory)).toEqual([entry, attachments, stages]);
   expect(references(entry).sort()).toEqual(
     [
       '../../content/capture/chatgpt-admitted-capture',
@@ -59,6 +60,19 @@ it('allows only the exact coordinator and stage ownership port with mandatory in
       '../capture-handoff',
       '../purpose-persistence-v2/idb',
       './stages',
+      './ordinary-direct-png',
+    ].sort()
+  );
+  expect(references(attachments).sort()).toEqual(
+    [
+      '../../content/capture/chatgpt-current-branch',
+      '../../content/capture/chatgpt-asset-resolver',
+      '../../content/capture/chatgpt-asset-acquisition',
+      '../../content/chatgpt-asset-export',
+      '../../lib/chatgpt-capture-contract',
+      '../../lib/chatgpt-producer-evidence',
+      '../../lib/producer-evidence-data',
+      '../../lib/types',
     ].sort()
   );
   expect(references(stages).sort()).toEqual(
@@ -73,7 +87,7 @@ it('allows only the exact coordinator and stage ownership port with mandatory in
       '../../lib/chatgpt-producer-evidence',
     ].sort()
   );
-  const source = [entry, stages].map(file => readFileSync(file, 'utf8')).join('\n');
+  const source = [entry, stages, attachments].map(file => readFileSync(file, 'utf8')).join('\n');
   expect(source).not.toMatch(
     /\b(?:chrome|browser|navigator|document|window|globalThis|indexedDB|localStorage|sessionStorage)\s*[.(]/u
   );
@@ -81,13 +95,18 @@ it('allows only the exact coordinator and stage ownership port with mandatory in
     /\b(?:fetch|XMLHttpRequest|WebSocket|setTimeout|setInterval|require|import)\s*\(/u
   );
   expect(source).not.toMatch(
-    /adaptChatGptProducerEvidence|assessNewCaptureEvidence|observeChatGptAssetResolvers|requestChatGptConversationCapture|(?:read|abort|stage)StagedArchiveArtifact|persistVerifiedBinaryAssets|normalizeChatGptCapture/u
+    /adaptChatGptProducerEvidence|assessNewCaptureEvidence|requestChatGptConversationCapture|(?:read|abort|stage)StagedArchiveArtifact|persistVerifiedBinaryAssets|normalizeChatGptCapture|planChatGptActiveImageAsset|planChatGptLibrary|observeInterpreterResolvers|resolveActiveAsset/u
+  );
+  expect([entry, stages].map(file => readFileSync(file, 'utf8')).join('\n')).not.toMatch(
+    /observeChatGptAssetResolvers|acquireChatGptPageOwnedAssets/u
   );
   for (const file of files(path.join(root, 'src')).filter(file => /\.[jt]sx?$/u.test(file)))
     for (const ref of references(file)) {
       const resolved = path.resolve(path.dirname(file), ref);
-      if (resolved === directory || resolved.startsWith(directory + path.sep))
-        expect([file, resolved]).toEqual([entry, stages.slice(0, -3)]);
+      if (resolved === directory || resolved.startsWith(directory + path.sep)) {
+        expect(file).toBe(entry);
+        expect([stages.slice(0, -3), attachments.slice(0, -3)]).toContain(resolved);
+      }
     }
 });
 it('keeps coordinator and its v2 authority out of all production import closures and generated code', () => {
@@ -104,7 +123,7 @@ it('keeps coordinator and its v2 authority out of all production import closures
     const file = pending.pop()!;
     if (seen.has(file)) continue;
     seen.add(file);
-    expect([entry, stages]).not.toContain(file);
+    expect([entry, stages, attachments]).not.toContain(file);
     expect(file).not.toContain('purpose-persistence-v2');
     for (const ref of references(file)) {
       if (!ref.startsWith('.')) continue;
@@ -115,7 +134,7 @@ it('keeps coordinator and its v2 authority out of all production import closures
   }
   expect(seen.size).toBeGreaterThan(100);
   const marker =
-    /execution-coordinator|createChatGptExecution|createExecutionStages|invalid-stage-capability|invalid-execution-input|consumeDispatch|markExecutionUnknown|liska-resumability-journal\/2/u;
+    /execution-coordinator|createChatGptExecution|createExecutionStages|createOrdinaryDirectPngAttempt|ordinary-direct-png\/1|invalid-ordinary-direct-png-capability|invalid-stage-capability|invalid-execution-input|consumeDispatch|markExecutionUnknown|liska-resumability-journal\/2/u;
   const configs = [
     ...files(path.join(root, 'scripts')),
     ...readdirSync(root)

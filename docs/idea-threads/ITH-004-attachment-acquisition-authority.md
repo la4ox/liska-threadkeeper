@@ -4,10 +4,10 @@ type: idea-thread
 permalink: ith-004-attachment-acquisition-authority
 tags: [idea-thread, attachments, privacy, integrity, obsidian]
 thread_id: ITH-004
-thread_state: settled
+thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-01
+last_turn: 2026-11-07
 ---
 
 # ITH-004 — Attachment acquisition authority and honest loss states
@@ -99,6 +99,29 @@ HTML/receipt, and both Markdown notes saved but differed by configured
 presentation transform. No XLSX binary or retry occurred. The final approval
 was consumed without byte acceptance; the candidate remained branch-only and
 unaccepted. Sources: S10.
+
+### E8 — Optional broad producer dependencies were not an execution authority
+
+After staged ownership became explicit, the isolated coordinator still had to
+keep acquisition disabled. The established manual producer uses useful omission
+defaults: legacy resolver observation may recapture raw, acquisition may reach
+global `fetch`, and binary persistence may reach runtime staging. Merely removing
+the disabled flag would therefore grant several unrelated effects at once.
+
+### E9 — One complete ordinary direct PNG capability now closes the offline chain
+
+ADR-064 admits exactly one staged-only `ordinary-direct-png/1` policy. A complete
+resolver/fetch/single-binary bundle is snapshotted before claim; one real
+whole-ledger observation, one deterministic conversation-bound nonnumeric PNG,
+one real bounded acquisition and one injected binary sink feed existing
+destination reconciliation and receipts. Omission remains inventory-only.
+
+Review found two authority seams before acceptance. Ambiguous merged interpreter
+evidence initially looked like an empty dispatch plan and could fall through to
+ordinary acquisition; deny-only ownership now treats any exact evidence as a
+block. Unknown/not-dispatched binary writes initially retained an optimistic
+success fact; normalized public facts and producer results now agree on failure
+and cleanup uncertainty.
 
 ### X1 — Guess provider routes or copy credential/header values
 
@@ -202,6 +225,21 @@ for another canary, code change, retry, envelope diagnostic or transport redesig
 
 Evidence: E6, E7
 
+### D5 — Admit one attachment family only through a complete capability bundle
+
+Adopt ADR-064's staged-only ordinary direct PNG offline contract. Whole-ledger
+identity and interpreter ownership are evaluated before one candidate is
+selected. Real byte validation remains inside the acquisition core; the caller
+supplies only exact effect capabilities. The binary sink owns staging/cleanup
+from invocation, and uncertain outcomes never become fetched assurance.
+
+Keep every other family, manual default and live provider adapter outside this
+decision. The offline proof grants no installed-run or account-wide authority.
+
+Evidence: E1, E2, E8, E9
+
+Decision record: ADR-064
+
 ### T1 — Admit new attachment families one evidence gate at a time
 
 Owner-context binaries, project assets, additional media and isolated provider
@@ -230,6 +268,17 @@ Trigger: a new, separately authorized evidence plan defines whether and how to
 investigate the unresolved provider envelope or attempt new XLSX acceptance.
 Until then the final canary approval remains spent and no further run follows.
 
+### T4 — Bind and accept a live ordinary direct PNG adapter separately
+
+The offline capability proof does not establish that current provider traffic
+offers a useful eligible direct PNG or that a live adapter preserves the exact
+three-capability boundary. Do not infer support from synthetic byte acceptance.
+
+Trigger: a separately authorized installed plan binds the exact resolver,
+browser-managed fetch and single-binary sink without enabling numeric, active,
+Library, interpreter, XLSX, recapture or fallback routes, then proves one
+physical File/Obsidian byte outcome with privacy-safe receipts.
+
 ## Observations
 
 - [hypothesis] H1: plausible provider pointers, names and media types initially appeared sufficient to identify assets
@@ -240,6 +289,8 @@ Until then the final canary approval remains spent and no further run follows.
 - [evidence] E5: the first historical installed XLSX canary ended before dispatch with ambiguous source-http-error and null binary truth #live
 - [evidence] E6: the attribution branch canary proved only a source 4xx class before dispatch, not a specific cause or XLSX bytes #live
 - [evidence] E7: the final branch canary passed source 200 JSON and dispatched once, but provider-status-other yielded no candidate or bytes and spent approval #live
+- [evidence] E8: broad manual producer omissions could recapture raw, use global fetch or invoke runtime binary staging, so omission was not coordinator authority #code
+- [evidence] E9: a complete staged-only ordinary direct PNG bundle now proves one offline resolver-to-destination chain without enabling another family #code
 - [rejected] X1: guessed routes and reusable credential extraction exceed the evidence and privacy boundary
 - [rejected] X2: ambiguity is not an explicit decline and must not be recorded as one
 - [rejected] X3: later captures cannot silently authorize historical image backfill
@@ -250,9 +301,11 @@ Until then the final canary approval remains spent and no further run follows.
 - [decision] D2: preserve the unmerged branch admission design without adopting its implementation or claiming XLSX support
 - [decision] D3: retain the candidate source-diagnostic split as history, not an adopted mainline contract
 - [decision] D4: retire the unaccepted candidate after spent approval; merge evidence docs before closing #89 unmerged and retain the branch
+- [decision] D5: admit one attachment family only through a complete staged capability bundle and keep live wiring separate
 - [tail] T1: add attachment families only through provider-specific identity and byte proofs
 - [tail] T2: keep orphan cleanup behind a separate reversible authority boundary
 - [tail] T3: reopen ordinary XLSX only under a new separately authorized evidence plan, never the spent canary approval
+- [tail] T4: bind and accept a live ordinary direct PNG adapter only through a separate installed plan
 
 ## Relations
 
@@ -274,3 +327,4 @@ Until then the final canary approval remains spent and no further run follows.
 - S8 — local receipt `LISKA-XLSX-NORMAL-MODE-20261031`; visibility: local-only; safe aggregate only; historical ambiguous pre-dispatch failure
 - S9 — local receipt `LISKA-XLSX-SOURCE-4XX-20261031`; visibility: local-only; safe aggregate only; historical pre-dispatch source 4xx class
 - S10 — local receipt `LISKA-XLSX-PROVIDER-STATUS-OTHER-20261101`; visibility: local-only; safe aggregate only; [final evidence `a086fe3`](https://github.com/la4ox/liska-threadkeeper/commit/a086fe3af022b67dc2e52e2170677f1a0f961a08) and [safe aggregate hashes](../../STATUS.md#ordinary-direct-xlsx-experiment-retired-unaccepted--2026-11-01)
+- S11 — [ADR-064: Admit one ordinary direct PNG family through explicit offline capabilities](../adr/064-explicit-ordinary-direct-png-acquisition.md), base main `c22aed4cb18b1311033533cd4e1c75a9ce825be1`

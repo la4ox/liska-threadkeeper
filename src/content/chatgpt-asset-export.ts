@@ -123,7 +123,7 @@ export interface ArchiveCompanionPersistenceOutcome {
 
 export interface ChatGptAssetExportDependencies {
   /** Explicit inventory-only path: no resolver observation, acquisition or binary sink. */
-  assetAcquisition?: 'disabled';
+  assetAcquisition?: 'disabled' | ExplicitChatGptAssetAcquisition;
   /** Explicit reservation supplied before raw persistence; ordinary manual export omits it. */
   producerIntent?: ChatGptProducerIntent;
   writeLedger?: OperationWriteLedger;
@@ -204,12 +204,61 @@ interface AcquiredAssets {
   runtimeAssets: RawCaptureAsset[];
 }
 
-interface AssetAttempt {
+export interface ExplicitChatGptAssetAttempt {
   acquired: AcquiredAssets;
   binaryResults: readonly StagedBinaryAssetResult[];
   warnings: string[];
+}
+
+/** Isolated injected route: none of the optional manual resolver/runtime defaults apply. */
+export interface ExplicitChatGptAssetAcquisition {
+  readonly mode: 'explicit';
+  readonly attempt: (
+    context: ChatGptAssetExportContext,
+    destinations: readonly PersistentOutputDestination[],
+    /** Parsed once from the exact already verified original raw, never recaptured. */
+    originalRaw: unknown
+  ) => Promise<ExplicitChatGptAssetAttempt>;
+  readonly buildDestinationArchive: typeof buildChatGptBinaryAwareDestinationArchive;
+  readonly isStopped: () => boolean;
+}
+
+interface AssetAttempt extends ExplicitChatGptAssetAttempt {
   archiveWarnings?: readonly string[];
   activeResolverMetric?: ChatGptActiveResolverAudit;
+}
+
+/** Validate selected explicit capabilities before raw verification or any producer effect. */
+function explicitDependencies(
+  dependencies: ChatGptAssetExportDependencies
+): ChatGptAssetExportDependencies {
+  const ds = Object.getOwnPropertyDescriptors(dependencies);
+  if (!ds.assetAcquisition) return dependencies;
+  if (!('value' in ds.assetAcquisition)) throw new Error('invalid-explicit-assets');
+  const selected: unknown = ds.assetAcquisition.value;
+  if (selected === undefined || selected === 'disabled') return dependencies;
+  if (!selected || typeof selected !== 'object') throw new Error('invalid-explicit-assets');
+  const fields = Object.getOwnPropertyDescriptors(selected);
+  const keys = ['mode', 'attempt', 'buildDestinationArchive', 'isStopped'];
+  if (
+    Reflect.ownKeys(selected).length !== keys.length ||
+    keys.some(key => !fields[key] || !('value' in fields[key])) ||
+    fields.mode.value !== 'explicit' ||
+    keys.slice(1).some(key => typeof fields[key].value !== 'function') ||
+    typeof ds.persistArtifacts?.value !== 'function'
+  )
+    throw new Error('invalid-explicit-assets');
+  // No general optional dependency cascade, presentation effects, or runtime persistence.
+  return {
+    assetAcquisition: Object.freeze({
+      mode: 'explicit',
+      attempt: fields.attempt.value,
+      buildDestinationArchive: fields.buildDestinationArchive.value,
+      isStopped: fields.isStopped.value,
+    }),
+    persistArtifacts: ds.persistArtifacts.value,
+    ...(ds.producerIntent && { producerIntent: ds.producerIntent.value }),
+  };
 }
 
 interface FinalizedDestination {
@@ -797,23 +846,34 @@ async function finalizeDestination(
     );
   }
   try {
-    const builtDestination = dependencies.buildDestinationArchive
-      ? await dependencies.buildDestinationArchive(
+    const explicit =
+      typeof dependencies.assetAcquisition === 'object' ? dependencies.assetAcquisition : undefined;
+    if (explicit?.isStopped()) throw new Error('execution-cancelled');
+    const builtDestination = explicit
+      ? await explicit.buildDestinationArchive(
           context,
           state.records,
           state.runtimeAssets,
           activeResolverMetric,
           archiveWarnings
         )
-      : dependencies.buildDestinationCompanion
-        ? undefined
-        : await buildChatGptBinaryAwareDestinationArchive(
+      : dependencies.buildDestinationArchive
+        ? await dependencies.buildDestinationArchive(
             context,
             state.records,
             state.runtimeAssets,
             activeResolverMetric,
             archiveWarnings
-          );
+          )
+        : dependencies.buildDestinationCompanion
+          ? undefined
+          : await buildChatGptBinaryAwareDestinationArchive(
+              context,
+              state.records,
+              state.runtimeAssets,
+              activeResolverMetric,
+              archiveWarnings
+            );
     const destinationCompanion = builtDestination
       ? builtDestination.companion
       : await dependencies.buildDestinationCompanion!(
@@ -940,6 +1000,7 @@ export async function persistChatGptDestinationHonestAttachments(
   outputs: OutputDestination[],
   dependencies: ChatGptAssetExportDependencies
 ): Promise<ChatGptAssetExportResult> {
+  dependencies = explicitDependencies(dependencies);
   const requested = persistentOutputs(outputs);
   // Detach the reservation before the first await/write. Invalid reservations never dispatch.
   if (dependencies.producerIntent !== undefined) {
@@ -1034,7 +1095,13 @@ export async function persistChatGptDestinationHonestAttachments(
             : [],
         }
       : allowsChatGptAttachmentAcquisitionFromJsonBytes(originalRawBytes, context.routeFamily)
-        ? await attemptAssets(context, companion, rawSuccessfulDestinations, dependencies)
+        ? typeof dependencies.assetAcquisition === 'object'
+          ? await dependencies.assetAcquisition.attempt(
+              context,
+              rawSuccessfulDestinations,
+              JSON.parse(new TextDecoder().decode(originalRawBytes))
+            )
+          : await attemptAssets(context, companion, rawSuccessfulDestinations, dependencies)
         : {
             acquired: {
               records: context.rawCaptureBundle.manifest.assets.map(cloneRecord),

@@ -17,6 +17,7 @@ import {
   extractChatGptLibraryCsvPlan,
   extractChatGptLibraryTextPlainPlan,
   extractChatGptInterpreterAssetPlan,
+  hasChatGptInterpreterAssetOwnership,
   matchChatGptPageOwnedAssetResolvers,
   type ChatGptTransientResolverRecord,
 } from '../../src/content/capture/chatgpt-asset-resolver';
@@ -1105,6 +1106,104 @@ describe('ChatGPT page-owned asset resolver matching', () => {
         ).toBeUndefined();
       }
     );
+  });
+  describe('deny-only interpreter ownership', () => {
+    it.each(['not-attempted', 'failed', 'declined', 'fetched', 'expired', 'unavailable'] as const)(
+      'reports ambiguous merged ownership independently of record state %s and plan eligibility',
+      async state => {
+        const raw = {
+          mapping: {
+            node: {
+              message: {
+                id: 'message-interpreter',
+                metadata: {
+                  attachments: [
+                    { id: 'file_one', mime_type: 'image/png', name: '/mnt/data/first.png' },
+                    { id: 'file_one', mime_type: 'image/png', name: '/mnt/data/second.png' },
+                  ],
+                },
+              },
+            },
+          },
+        };
+        const inventory = await inventoryChatGptRawAssets({
+          raw,
+          artifactId: 'conversation',
+          sha256: digest,
+        });
+        expect(inventory.assets).toHaveLength(1);
+        const record = { ...inventory.assets[0], state };
+        expect(record.sourceRefs).toHaveLength(2);
+        const before = JSON.stringify({ raw, record });
+        await expect(extractChatGptInterpreterAssetPlan(raw, [record], digest)).resolves.toEqual(
+          []
+        );
+        await expect(hasChatGptInterpreterAssetOwnership(raw, record, digest)).resolves.toBe(true);
+        await expect(
+          hasChatGptInterpreterAssetOwnership(
+            { ...raw, project_id: 'unsupported-owner' },
+            record,
+            digest
+          )
+        ).resolves.toBe(true);
+        expect(JSON.stringify({ raw, record })).toBe(before);
+      }
+    );
+
+    it('does not mistake absent or unrelated source evidence for ownership', async () => {
+      const raw = {
+        mapping: {
+          node: {
+            message: {
+              id: 'message-interpreter',
+              metadata: { attachments: [{ id: 'file_one', mime_type: 'image/png' }] },
+            },
+          },
+        },
+      };
+      await expect(
+        hasChatGptInterpreterAssetOwnership(
+          raw,
+          asset('a', '/mapping/node/message/metadata/attachments/0'),
+          digest
+        )
+      ).resolves.toBe(false);
+      await expect(
+        hasChatGptInterpreterAssetOwnership(raw, asset('a', '/missing'), digest)
+      ).resolves.toBe(false);
+      const foreign = asset('a', '/mapping/node/message/metadata/attachments/0');
+      foreign.sourceRefs[0].artifactId = 'other';
+      await expect(hasChatGptInterpreterAssetOwnership(raw, foreign, digest)).resolves.toBe(false);
+    });
+
+    it('retains exact assistant sandbox-link identity checking while exposing only a boolean', async () => {
+      const raw = {
+        mapping: {
+          node: {
+            message: {
+              id: 'assistant-message',
+              author: { role: 'assistant' },
+              content: { content_type: 'text', parts: ['[image](sandbox:/mnt/data/private.png)'] },
+            },
+          },
+        },
+      };
+      const inventory = await inventoryChatGptRawAssets({
+        raw,
+        artifactId: 'conversation',
+        sha256: digest,
+      });
+      expect(inventory.assets).toHaveLength(1);
+      const record = { ...inventory.assets[0], state: 'failed' as const };
+      await expect(hasChatGptInterpreterAssetOwnership(raw, record, digest)).resolves.toBe(true);
+      await expect(
+        hasChatGptInterpreterAssetOwnership(
+          raw,
+          { ...record, id: asset('a', '/missing').id },
+          digest
+        )
+      ).resolves.toBe(false);
+    });
   });
   describe('interpreter attachment plan', () => {
     it('never selects declined metadata attachments even when their sandbox path is resolvable', async () => {

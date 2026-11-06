@@ -707,6 +707,18 @@ terminal states, and the existing no-credential-export boundary.
   only through a complete resolver/acquisition/binary capability bundle, with no
   recapture, global-fetch or runtime-message fallback. Provider scope,
   account-wide baseline authority and scheduling remain later.
+- [ADR-064](adr/064-explicit-ordinary-direct-png-acquisition.md) now proves one
+  such family offline without adding a live adapter. The staged coordinator can
+  accept only the complete `ordinary-direct-png/1` resolver/fetch/single-binary
+  capability bundle, with one deterministic attempt, explicit 1 byte–8 MiB and
+  1–30-second limits, whole-ledger ambiguity/Library/interpreter denial and no
+  omitted fallback. The real acquisition core still verifies URL, response,
+  PNG bytes, length and SHA-256; normalized destination facts cannot promote an
+  unknown or not-dispatched binary write to fetched. Existing manual defaults,
+  production imports, UI, other attachment families and v1 remain unchanged.
+  A live provider adapter and installed byte acceptance require a separate
+  explicit decision; provider scope, baseline and scheduler authority remain
+  gated.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
