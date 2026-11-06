@@ -378,6 +378,31 @@ control-transition projection preserves pause/restart/abandon capacity at the
 reopen, explicit restart recovery, evidence commit and second reopen in a unique
 test database that was then removed.
 
+### E26 — A reusable currentness check and producer defaults could start hidden effects
+
+The committed v2 token was reusable and `checkCurrent` was a snapshot separated
+from the actual ChatGPT request by identity-hash awaits. A same-operation caller
+could therefore attempt multiple requests, while a pre-hash check could become
+stale before the effect boundary.
+
+The existing attachment producer also defaults missing dependencies to legacy
+recapture, authenticated global fetch and runtime binary persistence. Injecting
+only final archive writes would not create an offline or bounded coordinator.
+
+### E27 — One-use inline execution now retains facts and never settles them
+
+The v2 store now burns a token once and invokes the generic request callback in
+the same synchronous continuation as its final session fence. The unwired
+coordinator uses the real inline capture/normalizer and a real producer mode that
+preserves asset-bearing inventory as `not-attempted` while invoking no resolver,
+fetch or binary sink.
+
+Structured outcomes retain request/capture/producer/receipt/evidence facts
+independently. Cancellation prevents future effects but never claims to undo a
+started request. Evidence is attempted once; failed or uncertain commit keeps
+facts in memory and triggers no retry. A committed assessment is labelled
+`evidence-recorded`, not successful or settled.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -634,6 +659,23 @@ Evidence: E19, E21, E23, E24, E25
 
 Decision record: ADR-061
 
+### D16 — Consume one token at the effect boundary and preserve every known fact
+
+Adopt ADR-062's one-shot inline/no-acquisition coordinator. Require store-owned
+token consumption with the final fence and request invocation in one synchronous
+continuation. Derive destinations and intent only from the prepared operation,
+reject staged transport before stage runtime and keep manual staged behavior
+unchanged.
+
+Return independent claim, request, capture, producer and evidence-persistence
+facts. Do not discard late receipts when a later write fails, and do not retry or
+compensate after an uncertain transaction. Preserve asset-bearing inventory as
+not attempted rather than reaching hidden network defaults.
+
+Evidence: E21, E23, E25, E26, E27
+
+Decision record: ADR-062
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -840,6 +882,21 @@ Trigger: coordinator ownership and crash semantics are separately reviewed and
 the user explicitly authorizes local execution wiring. Provider scope and
 account-wide baseline authority remain separate gates.
 
+Fulfilled for one unwired inline/no-acquisition operation on 2026-11-06 by
+E26/E27 and D16. Staged capture, attachment acquisition and crash-durable late
+facts remain open under T16; no live provider or baseline authority follows.
+
+### T16 — Own staged/acquisition effects and decide late-fact durability
+
+Design explicit owners for staged capture handles, resolver/acquisition routes
+and binary sinks without fallback to global runtime/network capabilities. Decide
+whether raw/producer facts that cannot reach v2 evidence persistence require a
+separate crash-durable spool or remain best-effort runtime output.
+
+Trigger: staged/acquisition cleanup and late-fact recovery semantics are
+separately reviewed and the user explicitly authorizes that local execution
+slice. Provider scope and account-wide baseline authority remain later gates.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -869,6 +926,8 @@ account-wide baseline authority remain separate gates.
 - [evidence] E23: exact canonical catalog admission now prepares frozen identity before one real injected capture; real asset inventory remains honestly insufficient #code
 - [evidence] E24: v1's exact one-store database and missing purpose semantics prohibit an in-place persistence upgrade #code
 - [evidence] E25: separate v2 IndexedDB commits single-operation reservation and retained assessment without settlement; native Chromium close/reopen/recovery passed #live
+- [evidence] E26: reusable currentness and hidden producer defaults left request duplication and unintended recapture/fetch/runtime effects possible #code
+- [evidence] E27: store-owned one-use consumption now gates one inline request; no-acquisition producer and structured outcomes retain facts without settlement/retry #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -887,6 +946,7 @@ account-wide baseline authority remain separate gates.
 - [decision] D13: retain exact current producer observations and adapt only explicitly pre-admitted work; manual/legacy captures remain non-authorizing
 - [decision] D14: separate exact catalog-bound admission from one unwired real capture; do not treat the handoff as durable dispatch authority
 - [decision] D15: keep purpose persistence in a separate commit-gated v2 store; retain evidence and uncertainty without settlement, retry or v1 mutation
+- [decision] D16: consume one session token at the request boundary, run only explicit inline/no-acquisition effects and preserve every known fact independently
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -902,6 +962,7 @@ account-wide baseline authority remain separate gates.
 - [tail] T13: pass catalog-bound operation/attempt/reserved-capture intent into capture before requests, then design purpose-aware persistence separately
 - [tail] T14: atomically persist purpose-aware reservation and define restart/retry/settlement semantics without changing journal v1
 - [tail] T15: connect committed session currentness to the actual provider request under one separately reviewed execution owner
+- [tail] T16: add explicit staged/acquisition ownership and decide whether unpersisted late facts need crash-durable spooling
 
 ## Relations
 
@@ -945,3 +1006,5 @@ account-wide baseline authority remain separate gates.
 - S30 — [PR #125](https://github.com/la4ox/liska-threadkeeper/pull/125), merged main `94af6fe`, exact reviewed head `23700e0`
 - S31 — [ADR-061: Persist purpose-aware single-capture state in a separate v2 journal](../adr/061-purpose-aware-persistence-v2.md), base main `94af6fe90f495cc2fee2b426a028c1da719c8b1c`
 - S32 — local receipt `LISKA-PURPOSE-V2-NATIVE-IDB-20261106`; visibility: local-only; safe lifecycle/revision/assessment aggregate only
+- S33 — [PR #126](https://github.com/la4ox/liska-threadkeeper/pull/126), merged main `a370036`, exact reviewed head `40eff55`
+- S34 — [ADR-062: Coordinate one inline ChatGPT capture without retry or hidden effects](../adr/062-single-operation-execution-coordinator.md), base main `a370036d8e57672b968b1bd60bba0646818a7e30`

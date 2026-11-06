@@ -122,6 +122,8 @@ export interface ArchiveCompanionPersistenceOutcome {
 }
 
 export interface ChatGptAssetExportDependencies {
+  /** Explicit inventory-only path: no resolver observation, acquisition or binary sink. */
+  assetAcquisition?: 'disabled';
   /** Explicit reservation supplied before raw persistence; ordinary manual export omits it. */
   producerIntent?: ChatGptProducerIntent;
   writeLedger?: OperationWriteLedger;
@@ -1019,20 +1021,29 @@ export async function persistChatGptDestinationHonestAttachments(
     };
   }
 
-  const assetAttempt: AssetAttempt = allowsChatGptAttachmentAcquisitionFromJsonBytes(
-    originalRawBytes,
-    context.routeFamily
-  )
-    ? await attemptAssets(context, companion, rawSuccessfulDestinations, dependencies)
-    : {
-        acquired: {
-          records: context.rawCaptureBundle.manifest.assets.map(cloneRecord),
-          runtimeAssets: [],
-        },
-        binaryResults: [],
-        warnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
-        archiveWarnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
-      };
+  const assetAttempt: AssetAttempt =
+    dependencies.assetAcquisition === 'disabled'
+      ? {
+          acquired: {
+            records: context.rawCaptureBundle.manifest.assets.map(cloneRecord),
+            runtimeAssets: [],
+          },
+          binaryResults: [],
+          warnings: context.rawCaptureBundle.manifest.assets.length
+            ? [CHATGPT_ASSET_UNRESOLVED_WARNING]
+            : [],
+        }
+      : allowsChatGptAttachmentAcquisitionFromJsonBytes(originalRawBytes, context.routeFamily)
+        ? await attemptAssets(context, companion, rawSuccessfulDestinations, dependencies)
+        : {
+            acquired: {
+              records: context.rawCaptureBundle.manifest.assets.map(cloneRecord),
+              runtimeAssets: [],
+            },
+            binaryResults: [],
+            warnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
+            archiveWarnings: [CHATGPT_ASSET_OWNER_CONTEXT_SKIPPED_WARNING],
+          };
   const { acquired, binaryResults, activeResolverMetric, archiveWarnings = [] } = assetAttempt;
   let binaryObservations: readonly ProducerArtifactObservation[] = [];
   try {

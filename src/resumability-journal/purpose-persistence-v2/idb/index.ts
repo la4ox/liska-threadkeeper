@@ -1,7 +1,8 @@
 import { prepareChatGptNewCapture } from '../../capture-handoff';
+import { admitNewCaptureOperation, type NewCaptureOperation } from '../../purpose';
 import { adaptChatGptProducerEvidence, type ProducerSha256 } from '../../producer-adapter';
 import { canonical, freeze, MAX_RECORDS } from '../core/data';
-import { controlRecord, encodeWithControlHeadroom } from '../core/control';
+import { controlRecord, encodeWithControlHeadroom, interruptExecution } from '../core/control';
 import { PurposePersistenceError, requireCondition } from '../core/errors';
 import {
   ADAPTER_VERSION,
@@ -10,6 +11,7 @@ import {
   snapshotRecord,
   snapshotReceipts,
   type OperationRecord,
+  type ExecutionInterruptionReason,
 } from '../core/record';
 import {
   closeConnection,
@@ -23,7 +25,7 @@ import { assertUnchanged, scan, selected, validatedSnapshot, type StoredRecord }
 
 export { PurposePersistenceError } from '../core/errors';
 export { RECORD_SCHEMA, ADAPTER_VERSION } from '../core/record';
-export type { OperationRecord, Observation } from '../core/record';
+export type { OperationRecord, Observation, ExecutionInterruptionReason } from '../core/record';
 export { JOURNAL_DATABASE_NAME, JOURNAL_DATABASE_VERSION, JOURNAL_STORE_NAME } from './database';
 export type { JournalTimers, JournalStoreOptions } from './database';
 
@@ -52,6 +54,7 @@ export class PurposePersistenceStore {
   #cancelOpen?: () => void;
   #closed = false;
   #tokens = new WeakMap<object, string>();
+  #fences = new Map<string, number>();
 
   constructor(options: PurposeStoreOptions) {
     this.#dependencies = databaseDependencies(options);
@@ -223,6 +226,62 @@ export class PurposePersistenceStore {
     );
   }
 
+  /**
+   * Burn before any await, including failed validation. The final readwrite transaction
+   * serializes the exact check with other store writers, but is NOT a DB/network lock.
+   * After IDB completion, the final session fence and generic effect start share one
+   * synchronous continuation. No callback runs inside IDB; no durable effect flag exists.
+   */
+  async consumeDispatch<Output>(
+    token: PurposeDispatchToken,
+    exactOperation: NewCaptureOperation,
+    beginEffect: () => Output | Promise<Output>
+  ): Promise<Output> {
+    const session = this.#tokens;
+    const expected = token && typeof token === 'object' ? session.get(token) : undefined;
+    if (token && typeof token === 'object') session.delete(token);
+    requireCondition(expected && !this.#closed && !this.#connection?.failure, 'transition-failed');
+    requireCondition(typeof beginEffect === 'function', 'transition-failed');
+    const operation = admitNewCaptureOperation(exactOperation);
+    const fence = this.#fences.get(operation.operationId);
+    const currentSession = () =>
+      !this.#closed &&
+      !this.#connection?.failure &&
+      this.#tokens === session &&
+      this.#fences.get(operation.operationId) === fence;
+    const before = await this.#snapshot();
+    await this.#commit(before, records => {
+      requireCondition(currentSession(), 'transition-failed');
+      const record = records.find(item => item.key === operation.operationId)?.record;
+      requireCondition(
+        record &&
+          record.phase === 'in-flight' &&
+          record.control === 'active' &&
+          record.disposition === 'open' &&
+          canonical(record) === expected &&
+          canonical(record.operation) === canonical(operation),
+        'transition-failed'
+      );
+    });
+    requireCondition(currentSession(), 'transition-failed');
+    return beginEffect();
+  }
+
+  markExecutionUnknown(
+    operationId: string,
+    expectedRevision: number,
+    reason: ExecutionInterruptionReason
+  ): Promise<OperationRecord> {
+    this.#fence(operationId);
+    return this.#change(operationId, expectedRevision, record =>
+      interruptExecution(record, reason)
+    );
+  }
+
+  #fence(operationId: string): void {
+    this.#fences.set(operationId, (this.#fences.get(operationId) ?? 0) + 1);
+  }
+
   async recordProducerReceipts(
     operationId: string,
     expectedRevision: number,
@@ -259,10 +318,12 @@ export class PurposePersistenceStore {
   }
 
   pause(operationId: string, expectedRevision: number): Promise<OperationRecord> {
+    this.#fence(operationId);
     return this.#change(operationId, expectedRevision, record => controlRecord(record, 'pause'));
   }
 
   abandon(operationId: string, expectedRevision: number): Promise<OperationRecord> {
+    this.#fence(operationId);
     return this.#change(operationId, expectedRevision, record => controlRecord(record, 'abandon'));
   }
 

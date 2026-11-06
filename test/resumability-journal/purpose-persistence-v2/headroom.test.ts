@@ -191,7 +191,7 @@ it('projects all actual in-flight fencing paths before token admission, at full 
     const projected = encode.mock.calls
       .slice(1)
       .map(([record]) => record as records.OperationRecord);
-    for (const reason of ['pause', 'restart', 'abandon'])
+    for (const reason of ['pause', 'restart', 'abandon', ...records.EXECUTION_INTERRUPTION_REASONS])
       expect(
         projected.some(record => record.phase === 'unknown' && record.interruptionReason === reason)
       ).toBe(true);
