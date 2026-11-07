@@ -731,6 +731,18 @@ terminal states, and the existing no-credential-export boundary.
   `no-unattempted-items` never means complete. V1/v2 stores and schemas remain
   unchanged. Durable plan storage, atomic charge+reservation, provider traversal,
   live execution and scheduling are later explicit gates.
+- [ADR-066](adr/066-durable-baseline-owner-atomic-reservation.md) now persists
+  exactly one baseline owner in a new rollback-isolated two-store IndexedDB. Its
+  exact catalog/plan/checkpoint envelope and v2-format reserved operations share
+  one complete-inventory CAS transaction, so the item link, reservation-slot
+  charge, observation and operation insert either all commit or all abort. Fresh
+  handles require explicit paused recovery. A refused upgrade abort is unknown;
+  transaction aborts wait for terminal commit/abort and only a missing terminal
+  event becomes unknown. None authorizes automatic retry. Existing v1/v2
+  databases remain untouched. This slice has no
+  dispatch token or evidence writer, so its first reserved item intentionally
+  blocks further progress. A baseline-owned coordinator/evidence adapter is the
+  next separate gate; provider traversal and scheduling remain later.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

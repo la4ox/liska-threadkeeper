@@ -1,0 +1,33 @@
+{
+  "base": "de13928e5cc097301487ad5a3cbba611fb268842",
+  "files": [
+    {
+      "file": "src/resumability-journal/baseline-plan/checkpoint.ts",
+      "hash": "d47f621143bd59e8049d7efc83a909e76d24764b"
+    },
+    {
+      "file": "src/resumability-journal/baseline-plan/contracts.ts",
+      "hash": "caf7d374dc6e8054c1edaaa4e89ce2852386ad0e"
+    },
+    {
+      "file": "src/resumability-journal/baseline-plan/data.ts",
+      "hash": "31808e85a4866824add640e7ffd2af69745fecbb"
+    },
+    {
+      "file": "src/resumability-journal/baseline-plan/index.ts",
+      "hash": "ad9c06ab4fa06c0e97eb3ae033c97a5fce4d06db"
+    },
+    {
+      "file": "src/resumability-journal/baseline-plan/operation.ts",
+      "hash": "81ba89add6a8b1d8561aca128bec14303076ec88"
+    },
+    {
+      "file": "src/resumability-journal/baseline-plan/plan.ts",
+      "hash": "54d98f63b41bc7810fb274f1907f6e63b9ecab13"
+    },
+    {
+      "file": "src/resumability-journal/baseline-plan/progress.ts",
+      "hash": "2909f6034154a77653ffe2a6bad5fc3d73ce89b4"
+    }
+  ]
+}

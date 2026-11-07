@@ -5842,3 +5842,75 @@ zero-vulnerability production audit and guarded build/ZIP pass. Fresh `dist` is
 2,792,264-byte ZIP has SHA-256
 `d1f187116b302bc8dafae39796867666c2c1067fac0abf0b6ece75745a0b5bf1`.
 Current-head GitHub gates remain pending.
+
+## Durable baseline owner and atomic reservation — 2026-11-07
+
+Branch `codex/durable-baseline-owner` starts from merged main
+`de13928e5cc097301487ad5a3cbba611fb268842` and records
+[ADR-066](docs/adr/066-durable-baseline-owner-atomic-reservation.md). It adds a
+new rollback-isolated `liska-baseline-owner-v1` IndexedDB rather than changing or
+opening the accepted v1/v2 databases.
+
+The exact version-1 schema has one fixed-key `owner` store and one `operations`
+store, both out-of-line-key and index-free. The bounded binary owner envelope
+retains exact canonical catalog bytes, plan bytes/digest and checkpoint bytes.
+Operations retain the unchanged canonical `liska-resumability-journal/2` record
+format, but belong only to this new owner domain.
+
+Every read scans both complete inventories in one transaction. Preparation,
+hashing, observation replay and next-decision work happen outside IndexedDB.
+Every mutation then opens one readwrite transaction over both stores, rescans and
+byte-CASes the complete inventories, and releases output only after commit. The
+checkpoint item link, reservation-slot charge, record observation and revision-0
+reserved operation therefore all commit or all abort. Two racing handles cannot
+produce two winning reservations.
+
+Creation stores one exact plan and paused checkpoint and refuses replacement.
+Fresh handles may inspect but cannot mutate an existing owner until explicit
+restart recovery records paused planning. Atomic reservation derives the current
+deterministic ChatGPT item, destinations and completeness only from the stored
+plan; exact catalog bytes are required again. The caller supplies only fresh
+operation/attempt/capture IDs, time and signal. Every result remains
+`executionAuthorized: false`; no token or provider callback exists.
+
+Timeout, close and versionchange follow terminal-event discipline. A refused
+transaction abort keeps waiting: observed completion returns committed local
+facts, observed abort returns failure, and only a missing terminal event fences
+mutations with `transaction-outcome-unknown`. Open cancellation retains the
+exact upgrade transaction: accepted abort preserves the initiating error, while
+a refused or already-committed upgrade returns `open-outcome-unknown`; late
+success closes the database without exposing a connection. Reservation
+inspection is read-only and never grants retry or replacement IDs.
+
+The owner retains at most 16 lifetime reservation/link/charge triples, 128
+observations and 64 windows. There is no pruning, refund, deletion or database
+rotation. Existing v2 control-transition headroom is validated both before
+operation insert and on read. Active checkpoint states retain one revision for
+recovery; pause/recovery may consume the final revision and leave terminal
+paused read-only state without wrap/reset.
+
+Independent review found and closed three P2 seams: pause headroom was initially
+too strict; a live schema upgrade was not aborted after timeout/close; and the
+spec interval after upgrade commit but before queued open success treated a null
+transaction as rollback. Final re-review reports ready with no remaining
+material finding. The broader parent matrix passes 24 files / 456 tests;
+TypeScript, scoped zero-warning lint, focused Prettier and diff checks pass.
+
+This slice intentionally stops after its first reservation: reserved work blocks
+the next candidate and no dispatch/evidence writer is exposed. Existing v1/v2/
+baseline-plan source remains unchanged. No migration, provider request,
+coordinator integration, settlement, retry, deletion, account scope, baseline
+runner, scheduler, UI or memory layer is added. Native-browser IndexedDB timing,
+full repository/build/GitHub acceptance and a future baseline-owned
+runner/evidence adapter remain open.
+
+Local acceptance is now complete. Full coverage passes 338 files with one
+skipped and 11,735 tests with three skipped: 95.22% statements, 91.84%
+branches, 98.37% functions and 97.45% lines. The durable owner aggregate is
+94.98% / 89.07% / 98.92% / 96.66%. Global lint has zero errors and the
+unchanged 55 warnings; full Prettier, Idea Threads 9/37, documentation links
+86/86, zero-vulnerability production audit and guarded build/ZIP pass. Fresh
+`dist` is 65 files / 6,087,953 bytes with zero durable-owner authority markers.
+The 2,792,264-byte ZIP has SHA-256
+`c69723aed42149f298859c07b044ea861f715925f31157095becff0e90a61714`.
+Native-browser IndexedDB timing and current-head GitHub gates remain pending.

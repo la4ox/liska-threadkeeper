@@ -7,6 +7,9 @@ import ts from 'typescript';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const directory = path.join(root, 'src/resumability-journal/purpose-persistence-v2');
+const ownerPureConsumers = ['index.ts', 'envelope.ts'].map(name =>
+  path.join(root, 'src/resumability-journal/baseline-owner', name)
+);
 const baselinePureConsumers = new Map(
   Object.entries({
     'contracts.ts': ['core/record'],
@@ -136,6 +139,10 @@ describe('separate inert purpose persistence v2 boundary', () => {
           expect(
             file.startsWith(directory + path.sep) ||
               baselinePureConsumers.get(file)?.includes(resolved) === true ||
+              (ownerPureConsumers.includes(file) &&
+                ['core/record', 'core/control'].some(
+                  target => resolved === path.join(directory, target)
+                )) ||
               (file ===
                 path.join(root, 'src/resumability-journal/execution-coordinator/index.ts') &&
                 resolved === path.join(directory, 'idb')),
