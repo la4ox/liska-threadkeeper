@@ -754,6 +754,21 @@ terminal states, and the existing no-credential-export boundary.
   explicit call—never automatically. No production consumer, provider runner,
   settlement, retry or scheduler is added. Native-browser synthetic acceptance
   and any manual provider binding remain later explicit gates.
+- [ADR-068](adr/068-isolated-baseline-owner-native-harness.md) now isolates the
+  native owner/coordinator gate in a separate direct opt-in MV3 Options page.
+  Its exact manifest has empty permissions and host permissions plus network-
+  denying CSP. The build compiles the real owner, branded port, coordinator,
+  capture/producer/stage/evidence path while replacing only four dormant
+  ambient defaults behind exact normalized source-hash pins and counted throwing
+  sentinels. One guarded random test database exercises staged selected-byte
+  verification, awaiting-resolution evidence, explicit second reservation,
+  close/reopen paused recovery, in-flight restart to unknown, stale capability
+  denial and exact cleanup. Offline browser simulation and one visible installed
+  Comet run now pass all 14 fixed rows; the native receipt reports 842 ms total,
+  146 ms maximum scheduling gap and zero network/ambient calls. File/Obsidian
+  facts remain explicitly simulated in memory; production wiring,
+  provider/account scope, real destinations, manual baseline execution and
+  scheduling remain unchanged.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
