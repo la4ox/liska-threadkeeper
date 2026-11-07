@@ -554,6 +554,21 @@ cleanup. The fixed receipt contains only row statuses and capped integers.
 This does not yet prove installed Comet CSP, physical IndexedDB or native timer
 scheduling; that one visible run remains open.
 
+### E41 — The isolated owner path now passes one visible installed Comet run
+
+The exact generated directory was loaded as a separate unpacked extension after
+explicit user confirmation. Comet reported no special permissions and no
+additional site access. Its Options tab stayed visible through one run: overall
+PASS, all 14 fixed rows PASS, 842 ms elapsed and 146 ms maximum scheduling gap.
+
+The receipt records three refused foreign/wrong-version database operations,
+four exact opens, two exact deletes, one staged transfer with independent
+selected-byte verification, paused reopen recovery, in-flight restart to
+unknown and zero post-recovery request/sink growth. Network and denied-ambient
+counts stayed zero. This proves native CSP, IndexedDB and timer behavior only for
+the synthetic harness; it does not accept provider access or real File/Obsidian
+delivery.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -919,10 +934,10 @@ and require a visible bounded fixed-content receipt with exact cleanup.
 
 File and Obsidian observations remain explicitly in-memory simulations. The
 harness adds no provider, destination, account, runner or scheduler authority;
-an installed native PASS and any later manual provider binding are separate
+the installed native PASS and any later manual provider binding remain separate
 gates.
 
-Evidence: E38, E39, E40
+Evidence: E38, E39, E40, E41
 
 Decision record: ADR-068
 
@@ -1218,9 +1233,9 @@ Trigger: ADR-067 is accepted and the user authorizes one installed synthetic
 acceptance harness. A later manual provider runner still requires explicit scope,
 capabilities and request budgets; no scheduler follows.
 
-Implemented offline on 2026-11-07 by E39/E40 and D23. The exact unpacked build
-still needs one user-confirmed, visible installed-Comet run before this tail is
-fulfilled.
+Fulfilled on 2026-11-07 by E39/E40/E41 and D23. The exact unpacked build passed
+one user-confirmed, continuously visible installed-Comet run without provider,
+destination or production-database authority.
 
 ### T22 — Design one manual provider-bound baseline operation
 
@@ -1231,6 +1246,9 @@ paused recovery and no automatic continuation.
 
 Trigger: T21 has an installed native PASS and the user separately authorizes the
 provider, account scope and bounded live request.
+
+The native precondition is now satisfied by E41. This tail remains unopened
+until that separate provider/account/request authorization is given.
 
 ## Observations
 
@@ -1276,6 +1294,7 @@ provider, account scope and bounded live request.
 - [evidence] E38: one branded five-method port now drives owner-backed claim/effects/evidence while atomically preserving latest checkpoint observations #code
 - [evidence] E39: dormant messaging, scope, manifest and binary defaults made an unchanged production import closure too broad for isolated native acceptance #code
 - [evidence] E40: an exact zero-permission MV3 harness now compiles the real owner/coordinator path and passes offline browser simulation; installed native timing remains open #synthetic
+- [evidence] E41: one visible installed Comet run passed all 14 fixed rows with exact cleanup and zero network/ambient calls; provider and real destinations remain untested #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1322,7 +1341,7 @@ provider, account scope and bounded live request.
 - [tail] T18: bind and live-accept the exact ordinary direct PNG capabilities separately without widening provider authority
 - [tail] T19: design durable baseline-plan storage and atomic charge+operation reservation before any runner
 - [tail] T20: connect one baseline-owned reservation to coordinator execution and retained evidence without implicit settlement or retry
-- [tail] T21: accept owner-backed coordinator execution in a native synthetic browser before any manual provider runner
+- [tail] T21: fulfilled by one visible installed native PASS without provider or destination authority
 - [tail] T22: after native PASS, design one separately authorized provider-bound baseline operation with explicit scope and request budget
 
 ## Relations
@@ -1376,3 +1395,4 @@ provider, account scope and bounded live request.
 - S39 — [ADR-066: Persist one baseline owner and reserve atomically without dispatch](../adr/066-durable-baseline-owner-atomic-reservation.md), base main `de13928e5cc097301487ad5a3cbba611fb268842`
 - S40 — [ADR-067: Bind the durable baseline owner to the existing coordinator](../adr/067-baseline-owner-execution-store-port.md), base main `da517ea7c8fd089f2ed6f19e1f5e30b2021fa951`
 - S41 — [ADR-068: Accept owner-backed execution through an isolated native harness](../adr/068-isolated-baseline-owner-native-harness.md), base main `ab41408fef2cd990174cf4ac56b98a04b33061c1`
+- S42 — local receipt `LISKA-BASELINE-OWNER-NATIVE-20261107`; visibility: local-only; all 14 fixed rows PASS, 842 ms elapsed, 146 ms max gap, zero network/ambient calls

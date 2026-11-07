@@ -3,8 +3,8 @@
 ## Status
 
 Accepted on 2026-11-07 as a separate opt-in synthetic harness. Its compiled
-logic and offline browser simulation are accepted; an installed Comet run
-remains the final native-runtime gate.
+logic, offline browser simulation and one visible installed-Comet run are
+accepted within the synthetic owner/coordinator boundary.
 
 ## Context
 
@@ -185,15 +185,24 @@ a scheduler or begin the living-memory project.
   production build/ZIP pass. Fresh `dist` contains 65 files / 6,087,953 bytes
   with zero harness markers. The 2,792,264-byte ZIP has SHA-256
   `2920e34fc8816916f3774586347204ffbfa3c05edf051eaea983831c1a1fe493`.
-- An installed Comet/MV3 run has not yet been performed. Native browser CSP,
-  physical IndexedDB and real scheduling remain unproven until that receipt is
-  observed on the exact candidate build.
+- The exact generated directory was loaded as a separate unpacked extension in
+  Comet after explicit user confirmation. Its details page reported no special
+  permissions and no additional site access. One continuously visible Options-
+  page run returned overall PASS with all 14 fixed rows PASS, `elapsedMs: 842`
+  and `maxGapMs: 146`. The guarded database row refused three foreign/wrong-
+  version operations before any native open; cleanup observed four exact opens,
+  two exact deletes and the same three denials. Network and denied-ambient call
+  counts stayed zero. This closes native MV3 CSP, physical IndexedDB,
+  close/reopen/restart and bounded timer scheduling for this synthetic build.
+- Local receipt `LISKA-BASELINE-OWNER-NATIVE-20261107` retains only the fixed
+  row/status/integer payload; it contains no provider, conversation, database,
+  operation, capture, path, URL, digest, raw byte or exception content. A
+  separate local-only screenshot proves the visible PASS and is not committed.
 
 ## Next gate
 
-Load the exact generated directory as a separate unpacked extension with explicit
-user confirmation, keep its Options tab visible, run once and retain only the
-fixed numeric receipt. Remove or disable the synthetic extension afterward if
-desired. A manual one-operation provider runner requires a new explicit scope,
-capability and request-budget decision; account traversal and scheduling remain
-later gates.
+Design a manual one-operation provider runner only after a new explicit scope,
+account, capability and request-budget decision. The installed synthetic PASS
+does not authorize provider traversal, real File/Obsidian delivery, automatic
+continuation, an account-wide baseline or scheduling. The test extension may
+remain inert or be removed separately after user confirmation.

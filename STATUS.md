@@ -6060,9 +6060,19 @@ production audit and guarded build/ZIP pass. Fresh `dist` contains 65 files /
 6,087,953 bytes with no harness markers. The 2,792,264-byte ZIP has SHA-256
 `2920e34fc8816916f3774586347204ffbfa3c05edf051eaea983831c1a1fe493`.
 
-An installed Comet/MV3 run is not yet complete. Browser CSP enforcement,
-physical IndexedDB and native scheduling remain unproven until the exact
-candidate is loaded with user confirmation, kept visible and returns the fixed
-receipt. No provider/account/capture-page, real File/Obsidian, production
-extension, manual baseline, scheduler, settlement, retry, deletion or memory
-authority is added.
+The exact generated directory was loaded as a separate unpacked Comet extension
+after explicit user confirmation. Its details page reported no special
+permissions and no additional site access. One continuously visible Options-
+page run returned overall PASS with all 14 fixed rows PASS, 842 ms elapsed and a
+146 ms maximum scheduling gap. Guarded database metrics were `[3,0,0]`, cleanup
+was `[4,2,3]`, staged execution was `[1,1,3,1,0,34,0,1,5]`, and both network and
+denied-ambient call counts were zero. Reopen/recovery and in-flight restart rows
+also showed zero post-recovery request/sink growth.
+
+Local receipt `LISKA-BASELINE-OWNER-NATIVE-20261107` preserves only fixed row
+names, PASS statuses and capped integers; the local screenshot/metadata remain
+under ignored `test-results`. This closes native MV3 CSP, physical IndexedDB,
+close/reopen/restart and visible timer scheduling for the synthetic build. It
+does not add or accept provider/account/capture-page, real File/Obsidian,
+production-extension, manual baseline, scheduler, settlement, retry, deletion
+or memory authority.
