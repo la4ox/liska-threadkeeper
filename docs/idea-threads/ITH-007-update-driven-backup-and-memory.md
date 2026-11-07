@@ -506,6 +506,30 @@ control headroom is validated before insert and on every read. The owner exposes
 no dispatch token or provider effect, so its first reserved record intentionally
 blocks the next candidate until a future evidence/runner adapter exists.
 
+### E37 — Concrete store coupling blocked owner-backed execution
+
+The accepted coordinator used only five persistence methods but required a
+concrete `PurposePersistenceStore` instance and recognized only its error type.
+The durable owner could not safely borrow that store: it owns another database,
+checkpoint observations and session fences. Owner lifecycle states were also
+rejected by reservation-only admission, and uncertain owner commits would have
+collapsed to generic write failure.
+
+### E38 — One branded store port now preserves owner lifecycle and evidence
+
+ADR-067 extracts exactly the five coordinator methods behind a frozen branded
+port. The legacy wrapper preserves native v2 behavior; the owner-bound port
+atomically updates operation bytes and the latest checkpoint observation for
+claim, interruption, pause/restart and factual evidence. Tokens are minted only
+after claim commit, burned before consume awaits and invalidated by stop/session
+events.
+
+Awaiting-resolution evidence may expose another untouched item, but no method
+automatically reserves or executes it. Exact phase/control headroom and read
+admission cover claim, mandatory interruption/recovery and late evidence through
+safe-integer limits. Already-paused recovery preserves bytes without restoring
+tokens or dispatch authority.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -846,6 +870,22 @@ Evidence: E25, E33, E34, E35, E36
 
 Decision record: ADR-066
 
+### D22 — Reuse one coordinator through an exact execution-store port
+
+Adopt ADR-067's five-method port rather than a second coordinator or an owner
+subclass of the native v2 store. BaselineOwner remains the sole database/session
+authority and binds each port to one immutable reservation plus caller clock.
+Every lifecycle mutation updates operation and checkpoint evidence atomically.
+
+Preserve the cross-handle transaction-to-provider-start race as an explicit
+at-most-one-capability limitation. Keep error mapping closed so uncertain commits
+never trigger compensation or retry. Do not promote awaiting-resolution to
+settlement or auto-reserve the next item.
+
+Evidence: E27, E29, E35, E36, E37, E38
+
+Decision record: ADR-067
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1124,6 +1164,20 @@ Trigger: ADR-066 is accepted and the user explicitly authorizes an unwired
 runner/evidence slice. Provider enumeration, multi-day live baseline and the
 daily scheduler remain later gates.
 
+Fulfilled offline on 2026-11-07 by E37/E38 and D22 for one explicitly invoked
+owner-backed operation. Native-browser and provider binding remain open.
+
+### T21 — Accept owner-backed execution natively before a manual provider runner
+
+Exercise the owner database, branded port and existing coordinator in a native
+browser using synthetic injected request/stage/sink capabilities. Verify physical
+close/reopen, paused recovery, final-effect fences and exact evidence bytes
+without touching an account or production database.
+
+Trigger: ADR-067 is accepted and the user authorizes one installed synthetic
+acceptance harness. A later manual provider runner still requires explicit scope,
+capabilities and request budgets; no scheduler follows.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1164,6 +1218,8 @@ daily scheduler remain later gates.
 - [evidence] E34: exact explicit-catalog plan/checkpoint/decision core now explains offline progress while every result denies execution authority #code
 - [evidence] E35: separate plan and v2 database writes could not atomically bind one item charge to one reservation without a crash gap #code
 - [evidence] E36: one rollback-isolated two-store owner now commits exact checkpoint and reserved operation bytes atomically without dispatch authority #code
+- [evidence] E37: concrete native-store and error coupling prevented the durable owner from reusing the accepted coordinator safely #code
+- [evidence] E38: one branded five-method port now drives owner-backed claim/effects/evidence while atomically preserving latest checkpoint observations #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1188,6 +1244,7 @@ daily scheduler remain later gates.
 - [decision] D19: prove one complete attachment family offline through mandatory capabilities before considering live wiring
 - [decision] D20: keep multi-item planning separate from v2 operation ownership until an atomic durable protocol is designed
 - [decision] D21: persist one baseline owner and its reservations in a new rollback-isolated atomic database domain
+- [decision] D22: reuse one coordinator through an exact branded store port while keeping BaselineOwner the sole token and transaction authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1208,6 +1265,7 @@ daily scheduler remain later gates.
 - [tail] T18: bind and live-accept the exact ordinary direct PNG capabilities separately without widening provider authority
 - [tail] T19: design durable baseline-plan storage and atomic charge+operation reservation before any runner
 - [tail] T20: connect one baseline-owned reservation to coordinator execution and retained evidence without implicit settlement or retry
+- [tail] T21: accept owner-backed coordinator execution in a native synthetic browser before any manual provider runner
 
 ## Relations
 
@@ -1258,3 +1316,4 @@ daily scheduler remain later gates.
 - S37 — [ADR-064: Admit one ordinary direct PNG family through explicit offline capabilities](../adr/064-explicit-ordinary-direct-png-acquisition.md), base main `c22aed4cb18b1311033533cd4e1c75a9ce825be1`
 - S38 — [ADR-065: Plan an explicit selected baseline without execution authority](../adr/065-explicit-baseline-plan-core.md), base main `61d644396b6f10c1c36089a355ff5240b80cc6cf`
 - S39 — [ADR-066: Persist one baseline owner and reserve atomically without dispatch](../adr/066-durable-baseline-owner-atomic-reservation.md), base main `de13928e5cc097301487ad5a3cbba611fb268842`
+- S40 — [ADR-067: Bind the durable baseline owner to the existing coordinator](../adr/067-baseline-owner-execution-store-port.md), base main `da517ea7c8fd089f2ed6f19e1f5e30b2021fa951`

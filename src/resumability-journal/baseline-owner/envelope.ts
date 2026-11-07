@@ -111,6 +111,55 @@ export function assertHeadroom(checkpoint: BaselineCheckpoint): void {
     observedAt: Number.MAX_SAFE_INTEGER,
   });
 }
+/** Reserve actual observation slots and worst-width bytes for claim, interruption and late evidence.
+ * No history truncation and no imaginary charge/link are used to make an operation fit.
+ */
+export function assertExecutionHeadroom(owner: ValidatedOwner): void {
+  assertHeadroom(owner.checkpoint);
+  // The planner/claim protocol can own only one pending reservation or unresolved effect.
+  // Summing hypothetical parallel executions would obscure the actual transition costs.
+  const pending = owner.operations.filter(record => record.phase !== 'awaiting-resolution');
+  requireOwner(pending.length <= 1, 'corrupt-owner');
+  const observations = [...owner.checkpoint.observations];
+  let checkpointSteps = 0;
+  const record = pending[0];
+  if (record?.disposition === 'open') {
+    const active = owner.checkpoint.control === 'active';
+    const costs = {
+      // A paused reservation has no mandatory effect transition. Activation is optional
+      // and must pass this active-state projection AFTER paying its own revision.
+      reserved: active && record.control === 'active' ? [4, 3] : [0, 0],
+      'in-flight': [3, 2], // control + unknown observation + late evidence observation
+      unknown: [active ? 2 : 1, 1], // active evidence must still leave a checkpoint pause
+      'awaiting-resolution': [0, 0],
+    } as const;
+    const [steps, observationSlots] = costs[record.phase];
+    checkpointSteps = steps;
+    requireOwner(
+      record.revision <= Number.MAX_SAFE_INTEGER - observationSlots,
+      'headroom-exhausted'
+    );
+    for (let step = observationSlots; step > 0; step--)
+      observations.push({
+        operationId: record.operation.operationId,
+        recordRevision: Number.MAX_SAFE_INTEGER - step + 1,
+        recordSha256: 'f'.repeat(64),
+        observedAt: Number.MAX_SAFE_INTEGER,
+      });
+  }
+  requireOwner(
+    observations.length <= BASELINE_LIMITS.maxObservations &&
+      owner.checkpoint.revision <= Number.MAX_SAFE_INTEGER - checkpointSteps,
+    'headroom-exhausted'
+  );
+  encodeBaselineCheckpoint({
+    ...owner.checkpoint,
+    observations,
+    control: 'paused',
+    revision: Number.MAX_SAFE_INTEGER,
+    observedAt: Number.MAX_SAFE_INTEGER,
+  });
+}
 // eslint-disable-next-line max-lines-per-function -- One detached owner admission checks canonical bytes, replay, complete links and recovery headroom together.
 export async function validateInventory(
   raw: Inventory,
@@ -148,22 +197,7 @@ export async function validateInventory(
     requireOwner(sameBytes(encodeWithControlHeadroom(record), entry.bytes), 'corrupt-owner');
     return record;
   });
-  // This offline owner has no operation writer after reservation. Never adopt injected execution.
-  requireOwner(
-    operations.every(
-      record =>
-        record.revision === 0 &&
-        record.phase === 'reserved' &&
-        record.control === 'active' &&
-        record.disposition === 'open'
-    ),
-    'corrupt-owner'
-  );
-  requireOwner(
-    checkpoint.links.length === operations.length &&
-      checkpoint.observations.length === operations.length,
-    'corrupt-owner'
-  );
+  requireOwner(checkpoint.links.length === operations.length, 'corrupt-owner');
   const progress = await projectBaselineProgress(
     plan,
     checkpoint,
@@ -171,12 +205,13 @@ export async function validateInventory(
     checkpoint.observedAt,
     dependencies
   );
-  requireOwner(!progress.conflict && !progress.unresolvedEffect, 'corrupt-owner');
+  requireOwner(!progress.conflict, 'corrupt-owner');
   // The pure projection permits a newer unobserved revision. The durable owner does not.
   for (const record of operations) {
-    const observation = checkpoint.observations.find(
+    const observations = checkpoint.observations.filter(
       item => item.operationId === record.operation.operationId
     );
+    const observation = observations[observations.length - 1];
     requireOwner(observation?.recordRevision === record.revision, 'corrupt-owner');
     requireOwner(
       observation.recordSha256 ===
@@ -184,6 +219,7 @@ export async function validateInventory(
       'corrupt-owner'
     );
   }
-  assertHeadroom(checkpoint);
-  return { plan, checkpoint, catalogBytes, operations: Object.freeze(operations) };
+  const owner = { plan, checkpoint, catalogBytes, operations: Object.freeze(operations) };
+  assertExecutionHeadroom(owner);
+  return owner;
 }

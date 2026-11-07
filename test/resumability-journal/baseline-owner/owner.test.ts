@@ -182,7 +182,8 @@ describe('durable offline baseline owner', () => {
     const after = await next.recoverAfterRestart(2, 103, signal());
     expect(after.checkpoint.cooldown).toEqual(before!.checkpoint.cooldown);
     expect(after.checkpoint.windows).toEqual(before!.checkpoint.windows);
-    await next.applyControl(3, { kind: 'clear-cooldown', now: 104 });
+    expect(after).toEqual(before);
+    await next.applyControl(2, { kind: 'clear-cooldown', now: 104 });
     expect((await next.readSnapshot())?.checkpoint.cooldown).toBeUndefined();
     next.close();
   });

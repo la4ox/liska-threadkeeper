@@ -5914,3 +5914,83 @@ unchanged 55 warnings; full Prettier, Idea Threads 9/37, documentation links
 The 2,792,264-byte ZIP has SHA-256
 `c69723aed42149f298859c07b044ea861f715925f31157095becff0e90a61714`.
 Native-browser IndexedDB timing and current-head GitHub gates remain pending.
+
+## Baseline-owner execution store port — 2026-11-07
+
+Branch `codex/baseline-owner-execution-adapter` starts from merged main
+`da517ea7c8fd089f2ed6f19e1f5e30b2021fa951` and records
+[ADR-067](docs/adr/067-baseline-owner-execution-store-port.md). The implementation
+reuses the accepted ChatGPT coordinator rather than introducing a second effect
+orchestration path.
+
+A new internal store-port exposes exactly read, claim, consume, interruption and
+producer-receipt methods. Ports are frozen branded factory results with captured
+method references; arbitrary accessor/decorated duck types fail admission. A
+native wrapper preserves `PurposePersistenceStore` behavior, while a separate
+operation-bound owner port delegates to the existing BaselineOwner transaction,
+session and token authority.
+
+The owner port binds one exact plan digest, item ordinal/full triple and
+operation/attempt/capture IDs plus an explicit monotonic caller clock. Claim
+atomically revises the reserved operation to in-flight and appends its latest
+checkpoint observation in the same two-store CAS. Only after commit and a final
+same-session fence is an opaque WeakMap token minted.
+
+Consume burns the token synchronously before any await, revalidates the complete
+owner/operation inventory through a serializing transaction, then checks the
+session and invokes the provider callback in the same continuation outside IDB.
+Capabilities are at-most-one invocation, not exactly-once external effects; a
+different handle may still race after the final transaction and before provider
+start.
+
+Interruption, pause/restart and factual receipts atomically update operation
+bytes plus the matching checkpoint observation. Interruption pauses planning;
+late evidence may move open in-flight/unknown work to awaiting-resolution but
+never reactivates or settles it. Closed fixed-code error mapping preserves
+transaction/open uncertainty, so the coordinator never compensates or retries an
+unknown commit.
+
+Close, versionchange, transaction uncertainty, pause and restart invalidate
+tokens/session authority before persistence awaits. Failed pause leaves dispatch
+disabled until explicit activation. Restart converts in-flight work to
+unknown/restart and pauses planning; already-paused owners with no in-flight work
+use a byte-identical recovery CAS and restore neither tokens nor dispatch.
+
+Envelope admission now accepts exact supported lifecycle states, permits
+in-flight/unknown as planning stops rather than corruption, and requires the
+latest observation revision/digest for every operation. At most one reserved/
+in-flight/unknown effect owner is admitted. Headroom is checked on commit and
+read: active reserved needs four revisions/three observations, in-flight three/
+two, paused unknown one/one and active unknown two/one. Exact MAX tests prove
+reserved M−4 → in-flight M−3 → unknown M−1 → awaiting-resolution M through
+pause, restart and explicit interruption; insufficient revision/count/64 KiB
+states fail before a port is returned.
+
+Operation snapshots are sorted by ordinal operation ID across commit/read/reopen
+without changing checkpoint history. After awaiting-resolution, an explicit
+separate reserve call may select another untouched item; no automatic loop or
+settlement exists.
+
+Independent review found and closed three P2 seams: execution headroom
+undercounted mandatory control transitions, read admission omitted that
+headroom, and paused unknown M−1 could be stranded by a redundant recovery
+revision before late evidence. Final re-review reports ready. The broader parent
+matrix passes 35 files / 723 tests; TypeScript, scoped zero-warning lint, focused
+Prettier and diff checks pass.
+
+No v1/v2/baseline-plan source, database migration, production consumer, provider
+enumeration, automatic runner, scheduler, retry, settlement, deletion, UI or
+memory layer is added. Native-browser owner+coordinator timing, full repository/
+build/GitHub acceptance and any manual provider binding remain open.
+
+Local acceptance is now complete. Full coverage passes 342 files with one
+skipped and 11,814 tests with three skipped: 95.23% statements, 91.84%
+branches, 98.38% functions and 97.46% lines. The owner aggregate is 95.63% /
+89.70% / 99.24% / 97.03%, the coordinator is 93.93% / 89.54% / 99.05% /
+97.53%, and the branded store port is 100% / 97.29% / 100% / 100%. Global lint
+has zero errors and the unchanged 55 warnings; full Prettier, Idea Threads 9/37,
+documentation links 87/87, zero-vulnerability production audit and guarded
+build/ZIP pass. Fresh `dist` is 65 files / 6,087,953 bytes with zero owner/port
+authority markers. The 2,792,264-byte ZIP has SHA-256
+`62566aca6d3dde098ef1913be46299eabf6bf4b34b2a937df85134fd280b6a67`.
+Native-browser timing and current-head GitHub gates remain pending.
