@@ -5994,3 +5994,75 @@ build/ZIP pass. Fresh `dist` is 65 files / 6,087,953 bytes with zero owner/port
 authority markers. The 2,792,264-byte ZIP has SHA-256
 `62566aca6d3dde098ef1913be46299eabf6bf4b34b2a937df85134fd280b6a67`.
 Native-browser timing and current-head GitHub gates remain pending.
+
+## Isolated baseline-owner native harness — 2026-11-07
+
+Branch `codex/baseline-owner-native-harness` starts from merged main
+`ab41408fef2cd990174cf4ac56b98a04b33061c1` and records
+[ADR-068](docs/adr/068-isolated-baseline-owner-native-harness.md). It adds only a
+direct opt-in test builder, a separate MV3 Options-page fixture and test/
+architecture coverage. Production source, manifest, package scripts, Vite
+configuration and committed `dist` artifacts are absent from the diff. The
+harness CLI test snapshots the current local production build inputs/output and
+proves that invoking this builder leaves them byte-identical.
+
+The exact test manifest grants no permissions or host permissions. Its CSP
+denies all connections, objects, frames, remote images, forms, inline code and
+external base URLs. The build must contain exactly four files and rejects extra
+chunks/maps, remote references, extension APIs, Web Storage, clipboard, dynamic
+code, runtime imports, unsafe output paths and symlink traversal.
+
+The bundle compiles the real catalog encoder, durable owner, branded execution
+port, ChatGPT coordinator and capture/normalizer/producer/stage/evidence logic.
+Four dormant ambient seams—messaging, export-operation defaults, the manifest
+permission probe and default binary persistence—are replaced only for this
+fixture. Every replacement is pinned to the normalized production-source
+SHA-256, is counted and throws; drift, missing/duplicate replacement or any call
+fails closed. The page also installs counted throwing sentinels for fetch,
+XHR, WebSocket, EventSource and sendBeacon before opening IndexedDB.
+
+One cryptographically random exact-prefix database is admitted through a guarded
+factory; the production database name, foreign names and wrong versions are
+refused before native access. The first synthetic lifecycle creates paused,
+activates, reserves and executes one real coordinator operation using staged raw
+just over the real 16 MiB threshold. The in-memory sink independently reads and
+verifies every selected artifact length/SHA before emitting explicit synthetic
+File/Obsidian observations. Evidence remains awaiting-resolution; a second item
+is reserved only by a separate call. Close/reopen recovery stays paused, grows
+no effects and revives no old token.
+
+An independent fresh-database case closes after provider effect start but before
+its synthetic callback returns. Reopen/restart converts the retained in-flight
+record to unknown/restart, preserves the exact link/charge and rejects old,
+foreign and new claims without starting another effect. Cleanup closes every
+owner and deletes only the exact test database.
+
+The tab must remain visible. Hidden state latches, clock regression, total
+deadline, excessive scheduling gap or an invalid final timer probe produces
+INCONCLUSIVE rather than PASS. The fixed receipt contains only row status and
+capped nonnegative integers—no database/conversation/operation/capture identity,
+path, URL, digest, raw bytes or error prose.
+
+Focused acceptance passes 18 files / 363 tests. TypeScript, scoped ESLint,
+focused Prettier, diff checks and the deterministic builder pass. The exact
+four-file output includes a 685,683-byte `assets/runner.js` with SHA-256
+`83f69312946abf98e0b94d3834085486b508f8afc65f40f830c7665401f6d3ad`.
+Independent review reports ready and separately confirms the build inventory,
+runtime authority audit and four source-context pins.
+
+Full coverage passes 343 files with one skipped and 11,833 tests with three
+skipped: 95.24% statements, 91.84% branches, 98.38% functions and 97.46% lines.
+A first pass timed out only one unchanged v2 headroom case under full local load;
+its exact isolated rerun passed 3/3 and the second unchanged full coverage
+command passed. Global lint has zero errors and the unchanged 55 warnings; full
+Prettier, Idea Threads 9/37, documentation links 88/88, zero-vulnerability
+production audit and guarded build/ZIP pass. Fresh `dist` contains 65 files /
+6,087,953 bytes with no harness markers. The 2,792,264-byte ZIP has SHA-256
+`2920e34fc8816916f3774586347204ffbfa3c05edf051eaea983831c1a1fe493`.
+
+An installed Comet/MV3 run is not yet complete. Browser CSP enforcement,
+physical IndexedDB and native scheduling remain unproven until the exact
+candidate is loaded with user confirmation, kept visible and returns the fixed
+receipt. No provider/account/capture-page, real File/Obsidian, production
+extension, manual baseline, scheduler, settlement, retry, deletion or memory
+authority is added.

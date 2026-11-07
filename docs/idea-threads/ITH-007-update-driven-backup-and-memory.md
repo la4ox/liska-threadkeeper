@@ -530,6 +530,30 @@ admission cover claim, mandatory interruption/recovery and late evidence through
 safe-integer limits. Already-paused recovery preserves bytes without restoring
 tokens or dispatch authority.
 
+### E39 — Production closure authority would make native acceptance ambiguous
+
+The real owner-backed coordinator import closure reaches dormant extension
+messaging, export-scope defaults, a manifest permission probe and default runtime
+binary persistence. None is selected by the synthetic scenario, but packaging
+them unchanged would make a supposedly isolated browser test depend on ambient
+extension authority and leave accidental invocation observable only after the
+fact.
+
+### E40 — One exact zero-permission harness now compiles the real execution path
+
+ADR-068 adds a direct opt-in MV3 Options-page build with empty permissions and
+host permissions, network-denying CSP and counted throwing runtime sentinels.
+Four ambient seams are replaced only after exact normalized source-hash checks;
+drift, missing/duplicate replacement or any sentinel call fails closed.
+
+The compiled real owner, branded port and coordinator pass an offline browser
+simulation for staged selected-byte verification, awaiting-resolution evidence,
+explicit second reservation, database close/reopen semantics, paused recovery,
+in-flight restart to unknown, stale-authority denial and exact test-database
+cleanup. The fixed receipt contains only row statuses and capped integers.
+This does not yet prove installed Comet CSP, physical IndexedDB or native timer
+scheduling; that one visible run remains open.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -886,6 +910,22 @@ Evidence: E27, E29, E35, E36, E37, E38
 
 Decision record: ADR-067
 
+### D23 — Keep native owner acceptance in a separate zero-permission extension
+
+Adopt ADR-068's direct opt-in test build rather than loading the production
+extension or copying a miniature owner/coordinator. Compile the real logic, pin
+and deny only exact ambient defaults, permit one guarded random test database,
+and require a visible bounded fixed-content receipt with exact cleanup.
+
+File and Obsidian observations remain explicitly in-memory simulations. The
+harness adds no provider, destination, account, runner or scheduler authority;
+an installed native PASS and any later manual provider binding are separate
+gates.
+
+Evidence: E38, E39, E40
+
+Decision record: ADR-068
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1178,6 +1218,20 @@ Trigger: ADR-067 is accepted and the user authorizes one installed synthetic
 acceptance harness. A later manual provider runner still requires explicit scope,
 capabilities and request budgets; no scheduler follows.
 
+Implemented offline on 2026-11-07 by E39/E40 and D23. The exact unpacked build
+still needs one user-confirmed, visible installed-Comet run before this tail is
+fulfilled.
+
+### T22 — Design one manual provider-bound baseline operation
+
+After native synthetic acceptance, define one explicit provider page, capture
+capability bundle, account/scope evidence, request budget, stop conditions and
+receipt boundary for a single baseline-owned operation. Preserve manual launch,
+paused recovery and no automatic continuation.
+
+Trigger: T21 has an installed native PASS and the user separately authorizes the
+provider, account scope and bounded live request.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1220,6 +1274,8 @@ capabilities and request budgets; no scheduler follows.
 - [evidence] E36: one rollback-isolated two-store owner now commits exact checkpoint and reserved operation bytes atomically without dispatch authority #code
 - [evidence] E37: concrete native-store and error coupling prevented the durable owner from reusing the accepted coordinator safely #code
 - [evidence] E38: one branded five-method port now drives owner-backed claim/effects/evidence while atomically preserving latest checkpoint observations #code
+- [evidence] E39: dormant messaging, scope, manifest and binary defaults made an unchanged production import closure too broad for isolated native acceptance #code
+- [evidence] E40: an exact zero-permission MV3 harness now compiles the real owner/coordinator path and passes offline browser simulation; installed native timing remains open #synthetic
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1245,6 +1301,7 @@ capabilities and request budgets; no scheduler follows.
 - [decision] D20: keep multi-item planning separate from v2 operation ownership until an atomic durable protocol is designed
 - [decision] D21: persist one baseline owner and its reservations in a new rollback-isolated atomic database domain
 - [decision] D22: reuse one coordinator through an exact branded store port while keeping BaselineOwner the sole token and transaction authority
+- [decision] D23: accept native owner execution only through a separate exact zero-permission harness with pinned ambient denials and content-free receipts
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1266,6 +1323,7 @@ capabilities and request budgets; no scheduler follows.
 - [tail] T19: design durable baseline-plan storage and atomic charge+operation reservation before any runner
 - [tail] T20: connect one baseline-owned reservation to coordinator execution and retained evidence without implicit settlement or retry
 - [tail] T21: accept owner-backed coordinator execution in a native synthetic browser before any manual provider runner
+- [tail] T22: after native PASS, design one separately authorized provider-bound baseline operation with explicit scope and request budget
 
 ## Relations
 
@@ -1317,3 +1375,4 @@ capabilities and request budgets; no scheduler follows.
 - S38 — [ADR-065: Plan an explicit selected baseline without execution authority](../adr/065-explicit-baseline-plan-core.md), base main `61d644396b6f10c1c36089a355ff5240b80cc6cf`
 - S39 — [ADR-066: Persist one baseline owner and reserve atomically without dispatch](../adr/066-durable-baseline-owner-atomic-reservation.md), base main `de13928e5cc097301487ad5a3cbba611fb268842`
 - S40 — [ADR-067: Bind the durable baseline owner to the existing coordinator](../adr/067-baseline-owner-execution-store-port.md), base main `da517ea7c8fd089f2ed6f19e1f5e30b2021fa951`
+- S41 — [ADR-068: Accept owner-backed execution through an isolated native harness](../adr/068-isolated-baseline-owner-native-harness.md), base main `ab41408fef2cd990174cf4ac56b98a04b33061c1`

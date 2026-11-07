@@ -154,7 +154,10 @@ it('keeps coordinator and its v2 authority out of all production import closures
   const marker =
     /execution-coordinator|createChatGptExecution|createExecutionStages|createOrdinaryDirectPngAttempt|ordinary-direct-png\/1|invalid-ordinary-direct-png-capability|invalid-stage-capability|invalid-execution-input|consumeDispatch|markExecutionUnknown|liska-resumability-journal\/2/u;
   const configs = [
-    ...files(path.join(root, 'scripts')),
+    // Exact test-only build exemption; no production closure/configuration/dist exemption.
+    ...files(path.join(root, 'scripts')).filter(
+      file => file !== path.join(root, 'scripts/build-baseline-owner-browser.mjs')
+    ),
     ...readdirSync(root)
       .filter(
         name => /(?:config|manifest|package)/u.test(name) && /\.(?:json|ts|js|mjs)$/u.test(name)
