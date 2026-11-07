@@ -459,6 +459,28 @@ normalized unknown/not-dispatched sink facts prevent ambiguous evidence from
 becoming ordinary authority or fetched assurance. Attachment facts remain
 best-effort runtime output; no spool, retry or settlement follows.
 
+### E33 — Single-operation v2 records did not form a resumable baseline
+
+After E32, Liska could prepare, persist and execute one explicit operation, but
+there was no immutable multi-item plan or conservative answer to “what remains
+untouched?” Journal v1 lacks new-capture purpose and destination assurance; v2
+retains at most 16 immutable operations and has no settlement, retry, deletion
+or plan store. Extending either schema before atomic ownership and retention are
+decided would conflate separate facts.
+
+### E34 — Explicit catalog planning now stops before authority
+
+ADR-065 adds an unwired pure plan/checkpoint/projection core. Exact canonical
+catalog bytes plus a nonempty explicit subset produce deterministic plan bytes
+and a separately reverified digest. Checkpoints start and restart paused, retain
+bounded immutable links/charges/time/window/cooldown observations and never
+refund or retry a touched item.
+
+Projection requires a claimed complete detached v2 snapshot and replays its
+evidence. Foreign, missing or orphan operations stop conservatively. Every next
+decision remains `executionAuthorized: false`; even `consistent` evidence and
+`no-unattempted-items` are not completion or settlement.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -771,6 +793,18 @@ Evidence: E29, E31, E32
 
 Decision record: ADR-064
 
+### D20 — Separate multi-item planning from durable operation ownership
+
+Adopt ADR-065's exact explicit-selected plan and data-only checkpoint before any
+baseline runner. The planner may explain one untouched candidate or a fixed stop
+reason, but cannot reserve, dispatch, settle or retry. V2 remains the sole owner
+of operation state; a future durable baseline owner must atomically bind plan
+item, slot charge and reservation instead of composing two independent writes.
+
+Evidence: E11, E24, E25, E33, E34
+
+Decision record: ADR-065
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1023,6 +1057,17 @@ Trigger: the user explicitly authorizes one bounded installed acceptance plan.
 Until then no production import, UI switch, provider request, baseline or
 scheduler authority is added.
 
+### T19 — Design durable baseline-plan ownership and atomic reservation
+
+Choose storage evolution, capacity/retention and an atomic protocol that relates
+one plan item, reservation-slot charge and v2 operation before dispatch. Preserve
+unknown commit outcomes without blind retry, and recover every active plan as
+paused. Do not duplicate v2 phases into a second mutable ledger.
+
+Trigger: the pure ADR-065 core is accepted and the user explicitly authorizes a
+durable local planning slice. Provider traversal, live baseline execution and a
+daily scheduler remain separate gates.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1059,6 +1104,8 @@ scheduler authority is added.
 - [evidence] E30: first-head review found and closed a late cancellation race between the evidence pre-CAS read and its effect-start fence #code
 - [evidence] E31: broad manual attachment omissions could recapture raw, use global fetch or invoke runtime binary staging and therefore were not isolated execution authority #code
 - [evidence] E32: one complete ordinary direct PNG bundle now proves the offline resolver-to-receipt chain while production remains unwired #code
+- [evidence] E33: catalog plus independent v2 records still lacked a bounded multi-item plan and conservative remaining-work projection #code
+- [evidence] E34: exact explicit-catalog plan/checkpoint/decision core now explains offline progress while every result denies execution authority #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1081,6 +1128,7 @@ scheduler authority is added.
 - [decision] D17: make staged lease ownership and selected sink transfer explicit before any attachment acquisition capability is enabled
 - [decision] D18: pair every cancelled evidence effect fence with an independent durable interruption attempt before returning
 - [decision] D19: prove one complete attachment family offline through mandatory capabilities before considering live wiring
+- [decision] D20: keep multi-item planning separate from v2 operation ownership until an atomic durable protocol is designed
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1099,6 +1147,7 @@ scheduler authority is added.
 - [tail] T16: add explicit staged/acquisition ownership and decide whether unpersisted late facts need crash-durable spooling
 - [tail] T17: enable one named resolver/acquisition/binary family with complete explicit capabilities and no fallback effects
 - [tail] T18: bind and live-accept the exact ordinary direct PNG capabilities separately without widening provider authority
+- [tail] T19: design durable baseline-plan storage and atomic charge+operation reservation before any runner
 
 ## Relations
 
@@ -1147,3 +1196,4 @@ scheduler authority is added.
 - S35 — [PR #127](https://github.com/la4ox/liska-threadkeeper/pull/127), merged main `39914cf`, exact reviewed head `a313f1a`
 - S36 — [ADR-063: Make staged ChatGPT capture ownership explicit before acquisition](../adr/063-explicit-staged-capture-ownership.md), base main `39914cfe23c1752b1b3b5c7350faa603aeba8273`
 - S37 — [ADR-064: Admit one ordinary direct PNG family through explicit offline capabilities](../adr/064-explicit-ordinary-direct-png-acquisition.md), base main `c22aed4cb18b1311033533cd4e1c75a9ce825be1`
+- S38 — [ADR-065: Plan an explicit selected baseline without execution authority](../adr/065-explicit-baseline-plan-core.md), base main `61d644396b6f10c1c36089a355ff5240b80cc6cf`

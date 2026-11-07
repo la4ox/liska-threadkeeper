@@ -7,6 +7,20 @@ import ts from 'typescript';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const directory = path.join(root, 'src/resumability-journal/purpose-persistence-v2');
+const baselinePureConsumers = new Map(
+  Object.entries({
+    'contracts.ts': ['core/record'],
+    'checkpoint.ts': ['core/record'],
+    'operation.ts': ['core/record', 'core/data'],
+    'progress.ts': ['core/record'],
+  }).map(
+    ([name, targets]) =>
+      [
+        path.join(root, 'src/resumability-journal/baseline-plan', name),
+        targets.map(target => path.join(directory, target)),
+      ] as const
+  )
+);
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
     entry.isDirectory() ? files(path.join(dir, entry.name)) : [path.join(dir, entry.name)]
@@ -121,6 +135,7 @@ describe('separate inert purpose persistence v2 boundary', () => {
         if (resolved === directory || resolved.startsWith(directory + path.sep))
           expect(
             file.startsWith(directory + path.sep) ||
+              baselinePureConsumers.get(file)?.includes(resolved) === true ||
               (file ===
                 path.join(root, 'src/resumability-journal/execution-coordinator/index.ts') &&
                 resolved === path.join(directory, 'idb')),
