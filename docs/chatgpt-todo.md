@@ -719,6 +719,18 @@ terminal states, and the existing no-credential-export boundary.
   A live provider adapter and installed byte acceptance require a separate
   explicit decision; provider scope, baseline and scheduler authority remain
   gated.
+- [ADR-065](adr/065-explicit-baseline-plan-core.md) now adds the missing pure
+  multi-item planning layer without launching a baseline. Exact canonical
+  catalog bytes plus a nonempty explicit subset create deterministic
+  `new-capture` plan bytes and a separately reverified digest. A bounded
+  data-only checkpoint starts/restarts paused, retains immutable operation links,
+  reservation-slot charges, explicit cooldown/window observations and exact
+  caller time. Projection replays complete detached v2 snapshots into
+  conservative untouched/reserved/unknown/awaiting-resolution/paused/conflict
+  categories; every next decision remains `executionAuthorized: false` and
+  `no-unattempted-items` never means complete. V1/v2 stores and schemas remain
+  unchanged. Durable plan storage, atomic charge+reservation, provider traversal,
+  live execution and scheduling are later explicit gates.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

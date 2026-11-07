@@ -14,6 +14,9 @@ const persistence = path.join(root, 'src/resumability-journal/purpose-persistenc
 const persistenceCore = path.join(persistence, 'core/record.ts');
 const persistenceEntry = path.join(persistence, 'idb/index.ts');
 const persistenceRecords = path.join(persistence, 'idb/records.ts');
+const baselinePlanConsumers = ['contracts.ts', 'plan.ts'].map(name =>
+  path.join(root, 'src/resumability-journal/baseline-plan', name)
+);
 const executor = path.join(root, 'src/content/capture/chatgpt-admitted-capture.ts');
 const coordinator = path.join(root, 'src/resumability-journal/execution-coordinator/index.ts');
 function files(dir: string): string[] {
@@ -83,7 +86,13 @@ describe('isolated unwired new-capture purpose contract', () => {
           if (resolved === directory || resolved.startsWith(directory + path.sep))
             expect(
               file.startsWith(directory + path.sep) ||
-                [adapterEntry, handoffEntry, persistenceCore, persistenceEntry].includes(file)
+                [
+                  adapterEntry,
+                  handoffEntry,
+                  persistenceCore,
+                  persistenceEntry,
+                  ...baselinePlanConsumers,
+                ].includes(file)
             ).toBe(true);
           if (resolved === adapter || resolved.startsWith(adapter + path.sep))
             expect([adapterEntry, persistenceCore, persistenceEntry, persistenceRecords]).toContain(

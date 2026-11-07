@@ -5780,3 +5780,65 @@ files / 6,087,953 bytes with zero coordinator/policy/v2 markers. The 2,792,264-
 byte ZIP has SHA-256
 `0d45c9359f84bb6420e4b84debaceaaafd8192a19b45f083175c36dfc828f166`.
 Current-head GitHub gates remain pending.
+
+## Explicit selected-baseline planning core — 2026-11-07
+
+Branch `codex/resumable-baseline-plan` starts from merged main
+`61d644396b6f10c1c36089a355ff5240b80cc6cf` and records
+[ADR-065](docs/adr/065-explicit-baseline-plan-core.md). The new isolated pure
+module fills the multi-item planning gap between the exact snapshot catalog and
+independent purpose-aware v2 operations without adding persistence, provider
+requests or execution authority.
+
+Plan creation requires exact canonical catalog bytes plus a nonempty explicitly
+selected subset of complete provider/conversation/key triples. It produces
+deterministic ordinal plan bytes bound to new-capture purpose, exact destination
+assurances, strict completeness and selected-inputs-only coverage. The plan SHA
+remains separate and is reverified through injected hashing at every admission,
+reducer and projection boundary; catalog loading alone creates no plan.
+
+The versioned data-only checkpoint starts and recovers paused. It retains exact
+revision, caller-supplied monotonic time, opaque budget windows, a maximum of 16
+reservation-slot charges/links, at most 128 operation observations and optional
+explicit cooldown. Clock jumps never roll a window, unknown results never
+refund a slot, and explicit rollover cannot make touched items retryable.
+Effect-idempotent repeated observations add no link, charge or history entry but
+still advance checkpoint revision/time for CAS ordering.
+
+Every operation link revalidates the complete identity triple, catalog digest,
+purpose, operation/attempt/capture IDs, destinations, completeness policy and v2
+observation replay. Projection requires the caller's claimed complete detached
+v2 snapshot. Foreign, missing, duplicate, stale or orphan records stop
+conservatively; the pure module cannot prove a never-linked record was omitted.
+
+Progress categories are only untouched, reserved, in-flight-or-unknown,
+awaiting-resolution, paused-or-abandoned and conflict. Reserved active operations
+block as pending; in-flight/unknown block even when paused or abandoned.
+Awaiting-resolution and safely non-in-flight paused/abandoned items remain
+touched and non-retryable but may allow a different untouched item. All
+assessments, including consistent, require resolution.
+
+Every next decision contains `executionAuthorized: false` and yields either one
+deterministic untouched candidate or a fixed stop reason. No-unattempted-items is
+not baseline completion. The focused parent matrix passes 19 files / 522 tests;
+TypeScript, scoped zero-warning lint, focused Prettier and diff checks pass.
+Independent review reports no P0–P2 finding. Architecture tests pin the exact
+seven-file module and 24-file pure runtime closure, zero production consumers or
+generated markers and byte-identical v2 source blobs; v1 invariants remain green.
+
+No v1/v2 schema/store, IDB, provider discovery, account scope, cursor/marker,
+capture handoff, coordinator, live baseline, scheduler, retry, settlement,
+deletion or memory layer is added. Full repository/build/GitHub acceptance and a
+future separately authorized durable atomic plan/charge/reservation owner remain
+open.
+
+Local acceptance is now complete. Full coverage passes 332 files with one
+skipped and 11,651 tests with three skipped: 95.22% statements, 91.86%
+branches, 98.36% functions and 97.46% lines. The pure baseline-plan aggregate is
+99.53% / 99.07% / 100% / 99.74%. Global lint has zero errors and the unchanged
+55 warnings; full Prettier, Idea Threads 9/37, documentation links 85/85,
+zero-vulnerability production audit and guarded build/ZIP pass. Fresh `dist` is
+65 files / 6,087,953 bytes with zero baseline-plan authority markers. The
+2,792,264-byte ZIP has SHA-256
+`d1f187116b302bc8dafae39796867666c2c1067fac0abf0b6ece75745a0b5bf1`.
+Current-head GitHub gates remain pending.
