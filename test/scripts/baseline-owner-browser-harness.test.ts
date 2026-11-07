@@ -11,7 +11,7 @@ import {
   existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, dirname, relative } from 'node:path';
+import { join, resolve, dirname, relative, posix, win32 } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { webcrypto } from 'node:crypto';
@@ -60,6 +60,8 @@ const snapshot = (directory: string) =>
     (file: string) => `${file}:${sha256(readFileSync(resolve(directory, file)))}`
   );
 const manifest = () => JSON.parse(readFileSync(join(extension, 'manifest.json'), 'utf8'));
+const filesystemAbsolute = (reference: string) =>
+  posix.isAbsolute(reference) || win32.isAbsolute(reference);
 const cloneBuild = (suffix: string) => {
   const target = join(root, suffix);
   cpSync(extension, target, { recursive: true });
@@ -461,6 +463,9 @@ describe('test-only import/authority boundaries', () => {
     }
   });
   it('pins the exact transformed production import closure and excludes extension entrypoints', () => {
+    expect(filesystemAbsolute('/workspace/liska/test/sentinel.ts')).toBe(true);
+    expect(filesystemAbsolute('C:\\workspace\\liska\\test\\sentinel.ts')).toBe(true);
+    expect(filesystemAbsolute('dompurify')).toBe(false);
     const pending = [join(HARNESS_ROOT, 'runner.ts')];
     const seen = new Set<string>();
     const external = new Set<string>();
@@ -489,11 +494,12 @@ describe('test-only import/authority boundaries', () => {
           continue;
         if (ts.isExportDeclaration(node) && node.isTypeOnly) continue;
         const reference = node.moduleSpecifier.text;
-        if (!reference.startsWith('.') && !reference.includes(':')) {
+        const absolute = filesystemAbsolute(reference);
+        if (!reference.startsWith('.') && !absolute) {
           external.add(reference);
           continue;
         }
-        const base = resolve(dirname(file), reference);
+        const base = absolute ? reference : resolve(dirname(file), reference);
         const target = [base + '.ts', join(base, 'index.ts'), base].find(candidate =>
           existsSync(candidate)
         );
