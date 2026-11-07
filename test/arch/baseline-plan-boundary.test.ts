@@ -1,5 +1,4 @@
 // @vitest-environment node
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -204,19 +203,19 @@ describe('unwired pure explicit baseline-plan boundary', () => {
       for (const file of files(dist).filter(file => /\.(?:js|json|html)$/u.test(file)))
         expect(readFileSync(file, 'utf8'), relative(file)).not.toMatch(marker);
   });
-  it('preserves the entire v2 source set and Git blob bytes from the exact foundation base', () => {
+  it('preserves the entire v2 source set and pinned Git blob bytes from the exact foundation base', () => {
     const prefix = 'src/resumability-journal/purpose-persistence-v2/';
-    const tree = execFileSync(
-      'git',
-      ['ls-tree', '-r', '61d644396b6f10c1c36089a355ff5240b80cc6cf', '--', prefix],
-      { cwd: root, encoding: 'utf8' }
-    )
-      .trim()
-      .split('\n');
-    const expected = tree.map(line => {
-      const match = /^100644 blob ([a-f0-9]{40})\t(.+)$/u.exec(line)!;
-      return { hash: match[1], file: match[2] };
-    });
+    const baseline = JSON.parse(
+      readFileSync(
+        path.join(root, 'test/resumability-journal/baseline-plan/v2-source-baseline.json'),
+        'utf8'
+      )
+    ) as { base: string; files: { file: string; hash: string }[] };
+    expect(baseline.base).toBe('61d644396b6f10c1c36089a355ff5240b80cc6cf');
+    const expected = baseline.files;
+    expect(expected).toHaveLength(9);
+    expect(new Set(expected.map(item => item.file)).size).toBe(expected.length);
+    expect(expected.every(item => /^[a-f0-9]{40}$/u.test(item.hash))).toBe(true);
     expect(files(path.join(root, prefix)).map(relative).sort()).toEqual(
       expected.map(item => item.file).sort()
     );

@@ -1,0 +1,41 @@
+{
+  "base": "61d644396b6f10c1c36089a355ff5240b80cc6cf",
+  "files": [
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/core/control.ts",
+      "hash": "8d394b970a276f9365042f40bc5e6cdd29b8719d"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/core/data.ts",
+      "hash": "8b6f7fe084d06cb363fac6a8f1a586677f93da0c"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/core/errors.ts",
+      "hash": "5cf29ea3356a77a0f68feb2b44adc9cc77959c97"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/core/record.ts",
+      "hash": "1fa23e8c68347e7e5274490266c098b55d51ff0b"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/idb/database.ts",
+      "hash": "2eeb3726156713d3ac9c6357f47cc5db46bbd35c"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/idb/errors.ts",
+      "hash": "5344b98c6e51b9fee9601a7f3d9bbfd5036babe4"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/idb/index.ts",
+      "hash": "9f4cf2c7e18bb23b44f25acaec9c3e05001bcfef"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/idb/records.ts",
+      "hash": "db4d3a2f9c68dbc29acdb2ab7525f67f80ddd4a7"
+    },
+    {
+      "file": "src/resumability-journal/purpose-persistence-v2/idb/transaction.ts",
+      "hash": "0e031fc20717ec8b83441121b274816ffb3239ad"
+    }
+  ]
+}
