@@ -10,7 +10,7 @@ import { encodeOwner } from '../../../src/resumability-journal/baseline-owner/en
 import { encodeRecord } from '../../../src/resumability-journal/purpose-persistence-v2/core/record';
 import { encodeBaselineCheckpoint } from '../../../src/resumability-journal/baseline-plan';
 import { active, setup, ids, signal, sha256 } from './fixtures';
-import { fixture, linked, reserved, dependencies } from '../baseline-plan/fixtures';
+import { fixture, linked, reserved, observed, dependencies } from '../baseline-plan/fixtures';
 import { reduceBaselineCheckpoint } from '../../../src/resumability-journal/baseline-plan';
 import { MAX_OWNER_BYTES } from '../../../src/resumability-journal/baseline-owner/envelope';
 
@@ -36,6 +36,27 @@ async function mutate(factory: IDBFactory, action: (tx: IDBTransaction) => void)
   }
 }
 describe('exact durable inventory and bounded accepted state', () => {
+  it('rejects two exact pending reservations even with complete canonical links and observations', async () => {
+    const factory = new IDBFactory(),
+      owner = createBaselineOwner({ indexedDB: factory, sha256 });
+    await owner.open();
+    const data = await fixture(2),
+      records = [reserved(data.plan, 0), reserved(data.plan, 1)];
+    let checkpoint = data.checkpoint;
+    for (let index = 0; index < records.length; index++)
+      checkpoint = await linked(data.plan, checkpoint, records[index], index);
+    await mutate(factory, tx => {
+      tx.objectStore('owner').add(
+        encodeOwner({ plan: data.plan, checkpoint, catalogBytes: data.bytes }),
+        OWNER_KEY
+      );
+      records.forEach(record =>
+        tx.objectStore('operations').add(encodeRecord(record), record.operation.operationId)
+      );
+    });
+    await expect(owner.readSnapshot()).rejects.toMatchObject({ code: 'corrupt-owner' });
+    owner.close();
+  });
   it('accepts exactly 16 linked lifetime records, rejects the seventeenth and never refunds reservations', async () => {
     const factory = new IDBFactory();
     const owner = createBaselineOwner({ indexedDB: factory, sha256 });
@@ -44,7 +65,7 @@ describe('exact durable inventory and bounded accepted state', () => {
     let checkpoint = data.checkpoint;
     const records = [];
     for (let index = 0; index < 16; index++) {
-      const record = reserved(data.plan, index);
+      const record = await observed(reserved(data.plan, index));
       records.push(record);
       checkpoint = await linked(data.plan, checkpoint, record, index);
     }

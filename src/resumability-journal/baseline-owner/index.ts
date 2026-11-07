@@ -1,4 +1,4 @@
-/** Offline durable reservation facts only. No execution capability or production consumer. */
+/** Unwired durable owner. Execution authority is operation-bound and session-local. */
 import { MAX_CATALOG_BYTES, type CatalogSha256 } from '../../archive/catalog/admission';
 import {
   createBaselinePlan,
@@ -10,14 +10,42 @@ import {
   type PlanDependencies,
   type PlanItem,
 } from '../baseline-plan';
-import { detach, exact, hashDependency, identifier, integer } from '../baseline-plan/data';
+import {
+  canonical,
+  detach,
+  exact,
+  hashDependency,
+  identifier,
+  integer,
+} from '../baseline-plan/data';
+import { admitNewCaptureOperation, type NewCaptureOperation } from '../purpose';
+import {
+  createExecutionStorePort,
+  type ExecutionStorePort,
+  type ExecutionDispatchToken,
+} from '../execution-coordinator/store-port';
+import {
+  snapshotIdentity,
+  boundRecord,
+  observeRecord,
+  evidenceRecord,
+  ownerResult,
+  ownerFailure,
+} from './execution';
 import { prepareChatGptNewCapture } from '../capture-handoff';
 import {
   RECORD_SCHEMA,
   snapshotRecord,
+  snapshotReceipts,
+  revise,
+  type ExecutionInterruptionReason,
   type OperationRecord,
 } from '../purpose-persistence-v2/core/record';
-import { encodeWithControlHeadroom } from '../purpose-persistence-v2/core/control';
+import {
+  controlRecord,
+  interruptExecution,
+  encodeWithControlHeadroom,
+} from '../purpose-persistence-v2/core/control';
 import {
   closeConnection,
   databaseDependencies,
@@ -30,6 +58,7 @@ import { ownerTransaction, type OwnerTransactionRunner } from './transaction';
 import { scan, assertUnchanged } from './inventory';
 import {
   assertHeadroom,
+  assertExecutionHeadroom,
   copyBytes,
   encodeOwner,
   sameBytes,
@@ -71,6 +100,10 @@ export interface OwnerSnapshot {
   readonly operations: readonly OperationRecord[];
   readonly ownerBytes: Uint8Array;
 }
+type DispatchSession = WeakMap<
+  object,
+  { identity: string; raw: Inventory; record: OperationRecord }
+>;
 function idsSnapshot(input: ReservationIds): ReservationIds {
   const fields = exact(detach(input), ['operationId', 'attemptId', 'captureId']);
   return {
@@ -84,7 +117,15 @@ function output(owner: ValidatedOwner): OwnerSnapshot {
     executionAuthorized: false,
     plan: owner.plan,
     checkpoint: owner.checkpoint,
-    operations: Object.freeze([...owner.operations]),
+    operations: Object.freeze(
+      [...owner.operations].sort((left, right) =>
+        left.operation.operationId < right.operation.operationId
+          ? -1
+          : left.operation.operationId > right.operation.operationId
+            ? 1
+            : 0
+      )
+    ),
     ownerBytes: encodeOwner(owner),
   });
 }
@@ -102,6 +143,24 @@ export class BaselineOwner {
   #cancelOpen?: () => void;
   #closed = false;
   #recovered = false;
+  #dispatchEnabled = false;
+  #tokens: DispatchSession = new WeakMap();
+
+  #invalidate(): void {
+    this.#tokens = new WeakMap();
+    this.#dispatchEnabled = false;
+  }
+  #dispatchReady(session: DispatchSession): void {
+    this.#sessionCurrent(session);
+    requireOwner(this.#dispatchEnabled, 'candidate-unavailable');
+  }
+  #sessionCurrent(session: DispatchSession, recovery = false): void {
+    if (!recovery) this.#mutationReady();
+    requireOwner(!this.#closed, 'closed');
+    requireOwner(!this.#connection?.mutationUnknown, 'transaction-outcome-unknown');
+    if (this.#connection?.failure) throw this.#connection.failure;
+    requireOwner(this.#tokens === session, 'invalid-input');
+  }
 
   constructor(input: BaselineOwnerOptions) {
     const options = exact(
@@ -127,10 +186,12 @@ export class BaselineOwner {
         throw new OwnerStorageError('closed');
       }
       this.#connection = connection;
+      connection.invalidate = () => this.#invalidate();
     });
     return this.#opening;
   }
   close(): void {
+    this.#invalidate();
     this.#closed = true;
     this.#recovered = false;
     this.#cancelOpen?.();
@@ -158,18 +219,24 @@ export class BaselineOwner {
     raw: Inventory,
     owner: ValidatedOwner,
     signal: AbortSignal,
-    insert?: OperationRecord
+    change?: { readonly record: OperationRecord; readonly insert: boolean },
+    session?: DispatchSession,
+    recovery = false
   ): Promise<OwnerSnapshot> {
     const bytes = encodeOwner(owner);
-    const recordBytes = insert && encodeWithControlHeadroom(insert);
+    const recordBytes = change && encodeWithControlHeadroom(change.record);
+    assertExecutionHeadroom(owner);
     const result = output(owner);
     return this.#run<OwnerSnapshot>('readwrite', context =>
       scan(context, actual => {
         assertUnchanged(raw, actual);
+        if (session) this.#sessionCurrent(session, recovery);
         requireOwner(!signal.aborted, 'invalid-input');
-        if (insert && recordBytes)
+        if (change && recordBytes)
           context.request(
-            context.operations.add(recordBytes, insert.operation.operationId),
+            change.insert
+              ? context.operations.add(recordBytes, change.record.operation.operationId)
+              : context.operations.put(recordBytes, change.record.operation.operationId),
             () => {}
           );
         context.request(
@@ -221,6 +288,8 @@ export class BaselineOwner {
     this.#mutationReady();
     const command = detach(commandInput);
     const fields = exact(command, ['kind', 'now'], ['until', 'windowId']);
+    if (fields.kind === 'pause') this.#invalidate();
+    const session = this.#tokens;
     requireOwner(
       ['activate', 'pause', 'clear-cooldown', 'set-cooldown', 'roll-budget-window'].includes(
         fields.kind as string
@@ -238,8 +307,30 @@ export class BaselineOwner {
       dependencies
     );
     assertHeadroom(checkpoint);
+    let updated = { ...current, checkpoint };
+    const inflight = current.operations.filter(record => record.phase === 'in-flight');
+    requireOwner(inflight.length <= 1, 'corrupt-owner');
+    const record =
+      fields.kind === 'pause' && inflight[0] ? controlRecord(inflight[0], 'pause') : undefined;
+    if (record) {
+      updated = await observeRecord(updated, record, integer(fields.now), dependencies);
+    }
     this.#mutationReady();
-    return this.#commit(raw, { ...current, checkpoint }, dependencies.signal);
+    const result = await this.#commit(
+      raw,
+      updated,
+      dependencies.signal,
+      record && { record, insert: false },
+      session
+    );
+    if (
+      fields.kind === 'activate' &&
+      session === this.#tokens &&
+      !this.#closed &&
+      !this.#connection?.failure
+    )
+      this.#dispatchEnabled = true;
+    return result;
   }
   // eslint-disable-next-line max-lines-per-function -- One explicit snapshot/decision/preparation/reduction/CAS protocol; no callback or effect capability crosses it.
   async reserveNextChatGpt(
@@ -250,6 +341,7 @@ export class BaselineOwner {
     signal: AbortSignal
   ) {
     this.#mutationReady();
+    const session = this.#tokens;
     integer(expectedRevision);
     integer(now);
     const catalogBytes = copyBytes(catalogInput, MAX_CATALOG_BYTES);
@@ -306,7 +398,8 @@ export class BaselineOwner {
       raw,
       { ...current, checkpoint, operations: Object.freeze([...current.operations, record]) },
       signal,
-      record
+      { record, insert: true },
+      session
     );
     return Object.freeze({
       executionAuthorized: false as const,
@@ -321,15 +414,21 @@ export class BaselineOwner {
     now: number,
     signal: AbortSignal
   ): Promise<OwnerSnapshot> {
+    this.#invalidate();
+    this.#recovered = false;
+    const session = this.#tokens;
     integer(expectedRevision);
     integer(now);
     const dependencies = this.#hash(signal);
     const { raw, owner } = await this.#snapshot(dependencies);
     const current = selected(owner, expectedRevision);
     requireOwner(now >= current.checkpoint.observedAt, 'invalid-input');
-    const terminal = current.checkpoint.revision === Number.MAX_SAFE_INTEGER;
-    requireOwner(!terminal || current.checkpoint.control === 'paused', 'headroom-exhausted');
-    const checkpoint = terminal
+    const inflight = current.operations.filter(record => record.phase === 'in-flight');
+    requireOwner(inflight.length <= 1, 'corrupt-owner');
+    // Already-paused facts need session recovery, not another durable transition. Preserve
+    // the remaining revision for late evidence while still performing the full fenced CAS.
+    const preserve = current.checkpoint.control === 'paused' && inflight.length === 0;
+    const checkpoint = preserve
       ? current.checkpoint
       : await reduceBaselineCheckpoint(
           current.plan,
@@ -338,9 +437,185 @@ export class BaselineOwner {
           dependencies
         );
     assertHeadroom(checkpoint);
-    const result = await this.#commit(raw, { ...current, checkpoint }, signal);
-    this.#recovered = !this.#closed && !this.#connection?.failure;
+    const record = inflight[0] && controlRecord(inflight[0], 'restart');
+    const updated = record
+      ? await observeRecord({ ...current, checkpoint }, record, now, dependencies)
+      : { ...current, checkpoint };
+    requireOwner(session === this.#tokens, 'invalid-input');
+    const result = await this.#commit(
+      raw,
+      updated,
+      signal,
+      record && { record, insert: false },
+      session,
+      true
+    );
+    this.#recovered = session === this.#tokens && !this.#closed && !this.#connection?.failure;
     return result;
+  }
+  /** Bind one full immutable reservation, plus an explicit monotonic clock capability. */
+  async createExecutionPort(
+    input: ReservationIdentity,
+    clockInput: { readonly now: () => number }
+  ): Promise<ExecutionStorePort> {
+    this.#mutationReady();
+    const identity = snapshotIdentity(input);
+    const clock = exact(clockInput, ['now']).now;
+    requireOwner(typeof clock === 'function', 'invalid-input');
+    let last = -1;
+    const now = () => {
+      const value = (clock as () => number)();
+      if (!Number.isSafeInteger(value) || value < 0 || value < last) {
+        this.#invalidate();
+        throw new OwnerStorageError('invalid-input');
+      }
+      last = value;
+      return value;
+    };
+    const time = now(),
+      session = this.#tokens;
+    const { owner } = await this.#snapshot(this.#hash(new AbortController().signal));
+    boundRecord(owner, identity);
+    requireOwner(time >= owner!.checkpoint.observedAt, 'invalid-input');
+    this.#sessionCurrent(session);
+    return createExecutionStorePort({
+      read: id =>
+        ownerResult(async () => {
+          const { owner } = await this.#snapshot(this.#hash(new AbortController().signal));
+          return boundRecord(owner, identity, id);
+        }),
+      claimDispatch: (id, revision) =>
+        ownerResult(() => this.#claim(identity, id, revision, now())),
+      consumeDispatch: (token, operation, begin) =>
+        this.#consume(token, identity, operation, begin),
+      markExecutionUnknown: (id, revision, reason) =>
+        ownerResult(() => this.#mark(identity, id, revision, reason, now())),
+      recordProducerReceipts: (id, revision, receipts) =>
+        ownerResult(() => this.#evidence(identity, id, revision, receipts, now())),
+    });
+  }
+  async #claim(identity: ReservationIdentity, id: string, revision: number, now: number) {
+    this.#mutationReady();
+    integer(revision);
+    const session = this.#tokens,
+      dependencies = this.#hash(new AbortController().signal);
+    this.#dispatchReady(session);
+    const { raw, owner } = await this.#snapshot(dependencies);
+    const original = boundRecord(owner, identity, id, revision);
+    requireOwner(
+      owner!.checkpoint.control === 'active' &&
+        original.phase === 'reserved' &&
+        original.control === 'active' &&
+        original.disposition === 'open' &&
+        !owner!.operations.some(
+          record =>
+            record !== original && ['reserved', 'in-flight', 'unknown'].includes(record.phase)
+        ),
+      'candidate-unavailable'
+    );
+    const record = revise(original, { phase: 'in-flight' });
+    const updated = await observeRecord(owner!, record, now, dependencies);
+    await this.#commit(raw, updated, dependencies.signal, { record, insert: false }, session);
+    this.#dispatchReady(session);
+    const token = Object.freeze(Object.create(null)) as ExecutionDispatchToken;
+    // Exact committed inventory, including checkpoint, not just an operation revision.
+    const committed: Inventory = {
+      owner: [{ key: OWNER_KEY, bytes: encodeOwner(updated) }],
+      operations: raw.operations.map(entry =>
+        entry.key === id ? { key: id, bytes: encodeWithControlHeadroom(record) } : entry
+      ),
+    };
+    session.set(token, { identity: canonical(identity), raw: committed, record });
+    return Object.freeze({ record, token });
+  }
+  async #consume<T>(
+    token: ExecutionDispatchToken,
+    identity: ReservationIdentity,
+    input: NewCaptureOperation,
+    begin: () => T | Promise<T>
+  ): Promise<T> {
+    // At most one invocation per capability, not exactly-once external effects. Another
+    // handle may commit after our terminal transaction and before the provider starts.
+    const session = this.#tokens;
+    const expected = token && typeof token === 'object' ? session.get(token) : undefined;
+    if (token && typeof token === 'object') session.delete(token);
+    // Keep callback errors outside the storage error mapper; the coordinator owns effect failures.
+    await ownerResult(async () => {
+      this.#dispatchReady(session);
+      requireOwner(
+        expected && expected.identity === canonical(identity) && typeof begin === 'function',
+        'invalid-input'
+      );
+      const operation = admitNewCaptureOperation(input);
+      requireOwner(canonical(operation) === canonical(expected.record.operation), 'invalid-input');
+      const { raw, owner } = await this.#snapshot(this.#hash(new AbortController().signal));
+      boundRecord(owner, identity);
+      assertUnchanged(expected.raw, raw);
+      await this.#run<void>('readwrite', context =>
+        scan(context, actual => {
+          this.#dispatchReady(session);
+          assertUnchanged(raw, actual);
+          context.finish(undefined);
+        })
+      );
+    });
+    // Same continuation: no caller code or await between this fence and effect start.
+    try {
+      this.#dispatchReady(session);
+    } catch (error) {
+      ownerFailure(error);
+    }
+    return begin();
+  }
+  async #mark(
+    identity: ReservationIdentity,
+    id: string,
+    revision: number,
+    reason: ExecutionInterruptionReason,
+    now: number
+  ): Promise<OperationRecord> {
+    this.#invalidate();
+    this.#mutationReady();
+    integer(revision);
+    const session = this.#tokens,
+      dependencies = this.#hash(new AbortController().signal);
+    const { raw, owner } = await this.#snapshot(dependencies);
+    const record = interruptExecution(boundRecord(owner, identity, id, revision), reason);
+    const checkpoint = await reduceBaselineCheckpoint(
+      owner!.plan,
+      owner!.checkpoint,
+      {
+        kind: 'pause',
+        expectedRevision: owner!.checkpoint.revision,
+        now,
+      },
+      dependencies
+    );
+    const updated = await observeRecord({ ...owner!, checkpoint }, record, now, dependencies);
+    await this.#commit(raw, updated, dependencies.signal, { record, insert: false }, session);
+    return record;
+  }
+  async #evidence(
+    identity: ReservationIdentity,
+    id: string,
+    revision: number,
+    receipts: unknown,
+    now: number
+  ): Promise<OperationRecord> {
+    this.#mutationReady();
+    integer(revision);
+    const accepted = snapshotReceipts(receipts);
+    const session = this.#tokens,
+      dependencies = this.#hash(new AbortController().signal);
+    const { raw, owner } = await this.#snapshot(dependencies);
+    const record = await evidenceRecord(
+      boundRecord(owner, identity, id, revision),
+      accepted,
+      dependencies
+    );
+    const updated = await observeRecord(owner!, record, now, dependencies);
+    await this.#commit(raw, updated, dependencies.signal, { record, insert: false }, session);
+    return record;
   }
   async inspectReservation(input: ReservationIdentity) {
     const fields = exact(detach(input), [

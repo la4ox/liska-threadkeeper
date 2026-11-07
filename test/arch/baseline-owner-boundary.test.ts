@@ -19,6 +19,17 @@ const imports: Record<string, string[]> = {
   'errors.ts': [],
   'transaction.ts': ['./database', './errors'],
   'inventory.ts': ['./envelope', './database', './errors', './transaction'],
+  'execution.ts': [
+    '../baseline-plan/data',
+    '../baseline-plan',
+    '../producer-adapter',
+    '../purpose-persistence-v2/core/record',
+    '../purpose-persistence-v2/core/errors',
+    '../execution-coordinator/store-port',
+    './errors',
+    './envelope',
+    './index',
+  ],
   'envelope.ts': [
     '../../archive/catalog/admission',
     '../baseline-plan',
@@ -31,6 +42,9 @@ const imports: Record<string, string[]> = {
     '../../archive/catalog/admission',
     '../baseline-plan',
     '../baseline-plan/data',
+    '../purpose',
+    '../execution-coordinator/store-port',
+    './execution',
     '../capture-handoff',
     '../purpose-persistence-v2/core/record',
     '../purpose-persistence-v2/core/control',
@@ -145,6 +159,10 @@ describe('isolated durable baseline owner boundary', () => {
       ),
       'src/resumability-journal/producer-adapter/index.ts',
       'src/resumability-journal/capture-handoff/index.ts',
+      'src/resumability-journal/execution-coordinator/store-port.ts',
+      ...['index', 'database', 'transaction', 'records', 'errors'].map(
+        name => 'src/resumability-journal/purpose-persistence-v2/idb/' + name + '.ts'
+      ),
       'src/lib/chatgpt-producer-evidence.ts',
       'src/lib/producer-evidence-data.ts',
       'src/lib/chatgpt-capture-contract.ts',
@@ -160,7 +178,8 @@ describe('isolated durable baseline owner boundary', () => {
       );
       if (
         file !== path.join(directory, 'database.ts') &&
-        file !== path.join(directory, 'transaction.ts')
+        file !== path.join(directory, 'transaction.ts') &&
+        !file.includes(path.join('purpose-persistence-v2', 'idb'))
       )
         expect(text, relative(file)).not.toMatch(
           /\b(?:globalThis|indexedDB|performance)\s*[.(]|\bDate\s*\.\s*now\s*\(|new\s+Date\s*\(\s*\)|\b(?:setTimeout|clearTimeout)\s*\(/u

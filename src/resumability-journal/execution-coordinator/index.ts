@@ -30,15 +30,21 @@ import {
   type OrdinaryDirectPngPolicy,
 } from './ordinary-direct-png';
 import { validatePreparedChatGpt, type PreparedChatGptCapture } from '../capture-handoff';
+import type {
+  ExecutionInterruptionReason,
+  OperationRecord,
+} from '../purpose-persistence-v2/core/record';
 import {
-  PurposePersistenceError,
-  PurposePersistenceStore,
-  type ExecutionInterruptionReason,
-  type OperationRecord,
-} from '../purpose-persistence-v2/idb';
+  snapshotExecutionStore,
+  executionStoreFailure,
+  ExecutionStoreError,
+  type ExecutionStoreInput,
+  type ExecutionStorePort,
+  type ExecutionStoreCode,
+} from './store-port';
 
 export interface ChatGptExecutionInput {
-  readonly store: PurposePersistenceStore;
+  readonly store: ExecutionStoreInput;
   readonly prepared: PreparedChatGptCapture;
   readonly expectedReservedRevision: number;
   readonly noteFileName: string;
@@ -58,7 +64,7 @@ export interface StagedExecutionDependencies extends StageDependencies {
 export type ChatGptExecutionDependencies =
   | InlineExecutionDependencies
   | StagedExecutionDependencies;
-type PersistenceCode = PurposePersistenceError['code'];
+type PersistenceCode = ExecutionStoreCode;
 export interface ExecutionPersistence {
   readonly state: 'not-attempted' | 'committed' | 'failed' | 'outcome-unknown';
   readonly record?: OperationRecord;
@@ -125,8 +131,7 @@ function fields(
 }
 
 function persistenceFailure(error: unknown): ExecutionPersistence {
-  const code = error instanceof PurposePersistenceError ? error.code : 'write-failed';
-  return { state: code === 'transaction-outcome-unknown' ? 'outcome-unknown' : 'failed', code };
+  return executionStoreFailure(error);
 }
 
 function captureFailure(error: unknown): NonNullable<ChatGptExecutionOutcome['captureError']> {
@@ -175,11 +180,16 @@ export function createChatGptExecution(
         ['now', 'attachmentPolicy']
       )
     : fields(dependencies, ['requestCapture', 'persistArtifacts'], ['now', 'captureTransport']);
-  const { store, expectedReservedRevision, noteFileName, signal } =
+  const { expectedReservedRevision, noteFileName, signal } =
     supplied as unknown as ChatGptExecutionInput;
+  let store: ExecutionStorePort;
+  try {
+    store = snapshotExecutionStore(supplied.store);
+  } catch {
+    throw new ExecutionInputError();
+  }
   const { requestCapture, now } = deps as unknown as ChatGptExecutionDependencies;
   if (
-    !(store instanceof PurposePersistenceStore) ||
     !Number.isSafeInteger(expectedReservedRevision) ||
     expectedReservedRevision < 0 ||
     typeof noteFileName !== 'string' ||
@@ -241,7 +251,7 @@ export function createChatGptExecution(
   ): Promise<ChatGptExecutionOutcome['uncertainty']> {
     try {
       const current = await store.read(operation.operationId);
-      if (!current) throw new PurposePersistenceError('operation-not-found');
+      if (!current) throw new ExecutionStoreError('operation-not-found');
       const record = await store.markExecutionUnknown(
         operation.operationId,
         current.revision,
@@ -258,7 +268,7 @@ export function createChatGptExecution(
     try {
       // One read, one CAS. Pause/recovery may be accepted; abandon/observation may not.
       const current = await store.read(operation.operationId);
-      if (!current) throw new PurposePersistenceError('operation-not-found');
+      if (!current) throw new ExecutionStoreError('operation-not-found');
       // Staged mode has a strict effect-start stop fence. Already-started CAS drains normally.
       if (stages && interrupted) return { state: 'not-attempted' };
       const record = await store.recordProducerReceipts(
@@ -288,7 +298,7 @@ export function createChatGptExecution(
       interrupted,
     };
     try {
-      let claimed: Awaited<ReturnType<PurposePersistenceStore['claimDispatch']>>;
+      let claimed: Awaited<ReturnType<ExecutionStorePort['claimDispatch']>>;
       try {
         claimed = await store.claimDispatch(operation.operationId, expectedReservedRevision);
         result.claim = { state: 'committed', record: claimed.record };

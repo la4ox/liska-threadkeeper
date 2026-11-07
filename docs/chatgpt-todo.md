@@ -743,6 +743,17 @@ terminal states, and the existing no-credential-export boundary.
   dispatch token or evidence writer, so its first reserved item intentionally
   blocks further progress. A baseline-owned coordinator/evidence adapter is the
   next separate gate; provider traversal and scheduling remain later.
+- [ADR-067](adr/067-baseline-owner-execution-store-port.md) now supplies that
+  unwired adapter without adding a second coordinator. A frozen branded
+  five-method store port preserves the native v2 path and binds one exact
+  baseline-owned reservation. Claim, interruption, pause/restart and factual
+  evidence update operation bytes plus the latest checkpoint observation in one
+  atomic owner transaction. Session-local tokens burn before awaits; close,
+  pause, recovery, versionchange and unknown commits fence authority. After
+  awaiting-resolution, another untouched item may be reserved only by a separate
+  explicit call—never automatically. No production consumer, provider runner,
+  settlement, retry or scheduler is added. Native-browser synthetic acceptance
+  and any manual provider binding remain later explicit gates.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

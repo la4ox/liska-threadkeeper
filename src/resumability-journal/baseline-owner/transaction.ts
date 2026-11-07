@@ -67,12 +67,15 @@ class TransactionSession<Output> {
     // Removing an in-memory transaction handle never removes a stored journal.
     const connection = this.connection;
     connection.transactions.delete(this.transaction);
-    if (error instanceof OwnerStorageError && error.code === 'transaction-outcome-unknown')
+    if (error instanceof OwnerStorageError && error.code === 'transaction-outcome-unknown') {
       connection.mutationUnknown = true;
+      connection.invalidate?.();
+    }
     if (error) this.reject(error);
     else if (this.hasOutput) this.resolve(this.output);
     else {
       connection.mutationUnknown = true;
+      connection.invalidate?.();
       this.reject(new OwnerStorageError('transaction-outcome-unknown'));
     }
   }

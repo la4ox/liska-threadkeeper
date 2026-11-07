@@ -9,6 +9,9 @@ const directory = path.join(root, 'src/resumability-journal/execution-coordinato
 const entry = path.join(directory, 'index.ts');
 const stages = path.join(directory, 'stages.ts');
 const attachments = path.join(directory, 'ordinary-direct-png.ts');
+const storePort = path.join(directory, 'store-port.ts');
+const ownerEntry = path.join(root, 'src/resumability-journal/baseline-owner/index.ts');
+const ownerExecution = path.join(root, 'src/resumability-journal/baseline-owner/execution.ts');
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(item =>
     item.isDirectory() ? files(path.join(dir, item.name)) : [path.join(dir, item.name)]
@@ -50,7 +53,7 @@ function references(file: string): string[] {
   return result;
 }
 it('allows only the coordinator, stage ownership port and explicit one-PNG policy with mandatory injected effects and no external consumers', () => {
-  expect(files(directory)).toEqual([entry, attachments, stages]);
+  expect(files(directory)).toEqual([entry, attachments, stages, storePort]);
   expect(references(entry).sort()).toEqual(
     [
       '../../content/capture/chatgpt-admitted-capture',
@@ -58,9 +61,18 @@ it('allows only the coordinator, stage ownership port and explicit one-PNG polic
       '../../content/chatgpt-asset-export',
       '../../lib/types',
       '../capture-handoff',
-      '../purpose-persistence-v2/idb',
+      '../purpose-persistence-v2/core/record',
+      './store-port',
       './stages',
       './ordinary-direct-png',
+    ].sort()
+  );
+  expect(references(storePort).sort()).toEqual(
+    [
+      '../purpose-persistence-v2/idb',
+      '../purpose-persistence-v2/core/errors',
+      '../purpose-persistence-v2/core/record',
+      '../purpose',
     ].sort()
   );
   expect(references(attachments).sort()).toEqual(
@@ -104,8 +116,14 @@ it('allows only the coordinator, stage ownership port and explicit one-PNG polic
     for (const ref of references(file)) {
       const resolved = path.resolve(path.dirname(file), ref);
       if (resolved === directory || resolved.startsWith(directory + path.sep)) {
-        expect(file).toBe(entry);
-        expect([stages.slice(0, -3), attachments.slice(0, -3)]).toContain(resolved);
+        if ([ownerEntry, ownerExecution].includes(file))
+          expect(resolved).toBe(storePort.slice(0, -3));
+        else {
+          expect(file).toBe(entry);
+          expect([stages.slice(0, -3), attachments.slice(0, -3), storePort.slice(0, -3)]).toContain(
+            resolved
+          );
+        }
       }
     }
 });
@@ -123,7 +141,7 @@ it('keeps coordinator and its v2 authority out of all production import closures
     const file = pending.pop()!;
     if (seen.has(file)) continue;
     seen.add(file);
-    expect([entry, stages, attachments]).not.toContain(file);
+    expect([entry, stages, attachments, storePort, ownerEntry, ownerExecution]).not.toContain(file);
     expect(file).not.toContain('purpose-persistence-v2');
     for (const ref of references(file)) {
       if (!ref.startsWith('.')) continue;

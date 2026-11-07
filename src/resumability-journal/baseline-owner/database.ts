@@ -29,6 +29,7 @@ export interface DatabaseDependencies {
 
 export interface OwnerConnection {
   database: IDBDatabase;
+  invalidate?: () => void;
   failure?: OwnerStorageError;
   mutationUnknown?: boolean;
   transactions: Map<IDBTransaction, (error: OwnerStorageError) => void>;
@@ -70,6 +71,7 @@ export function databaseDependencies(options: OwnerStoreOptions): DatabaseDepend
 }
 
 export function closeConnection(connection: OwnerConnection, code: OwnerStorageErrorCode): void {
+  connection.invalidate?.();
   connection.failure ??= new OwnerStorageError(code);
   for (const fail of connection.transactions.values()) fail(connection.failure);
   connection.database.close();

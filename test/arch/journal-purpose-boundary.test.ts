@@ -92,13 +92,19 @@ describe('isolated unwired new-capture purpose contract', () => {
                   handoffEntry,
                   persistenceCore,
                   persistenceEntry,
+                  baselineOwnerEntry,
+                  path.join(root, 'src/resumability-journal/execution-coordinator/store-port.ts'),
                   ...baselinePlanConsumers,
                 ].includes(file)
             ).toBe(true);
           if (resolved === adapter || resolved.startsWith(adapter + path.sep))
-            expect([adapterEntry, persistenceCore, persistenceEntry, persistenceRecords]).toContain(
-              file
-            );
+            expect([
+              adapterEntry,
+              persistenceCore,
+              persistenceEntry,
+              persistenceRecords,
+              path.join(root, 'src/resumability-journal/baseline-owner/execution.ts'),
+            ]).toContain(file);
           if (resolved === handoff || resolved.startsWith(handoff + path.sep))
             expect([executor, persistenceEntry, coordinator, baselineOwnerEntry]).toContain(file);
           if ([resolved, resolved + '.ts'].includes(executor)) expect(file).toBe(coordinator);
