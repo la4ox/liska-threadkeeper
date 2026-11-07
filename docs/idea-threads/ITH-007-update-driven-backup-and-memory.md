@@ -481,6 +481,31 @@ evidence. Foreign, missing or orphan operations stop conservatively. Every next
 decision remains `executionAuthorized: false`; even `consistent` evidence and
 `no-unattempted-items` are not completion or settlement.
 
+### E35 — Separate databases could not make plan charge and reservation atomic
+
+The pure checkpoint could observe an existing v2 operation, but persisting its
+link/charge and independently reserving in the existing v2 database left a crash
+window. Upgrading v2 could provide one transaction but would make old rollback
+code fail its exact version/schema open. A second plan-only database would still
+leave two commits, while a new combined owner could preserve both earlier
+namespaces and own future baseline reservations atomically.
+
+### E36 — One rollback-isolated owner now commits the first reservation atomically
+
+ADR-066 adds a fixed two-store database containing one exact catalog/plan/
+checkpoint envelope and its canonical v2-format reserved records. Every mutation
+rescans and byte-CASes both complete inventories; the checkpoint link, slot
+charge, observation and operation insert commit or abort together. Opening an
+existing owner requires explicit paused recovery.
+
+Timeout, close and versionchange request abort and wait for a terminal
+transaction event; a refused abort may still end in an observed commit or abort,
+while only a missing terminal event remains unknown. A refused or already-
+committed schema-upgrade abort is separately `open-outcome-unknown`. Operation
+control headroom is validated before insert and on every read. The owner exposes
+no dispatch token or provider effect, so its first reserved record intentionally
+blocks the next candidate until a future evidence/runner adapter exists.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -805,6 +830,22 @@ Evidence: E11, E24, E25, E33, E34
 
 Decision record: ADR-065
 
+### D21 — Keep durable baseline ownership in a rollback-isolated atomic domain
+
+Adopt ADR-066's new fixed database rather than upgrading v2 or coordinating two
+independent stores. One owner retains exact plan/checkpoint/catalog bytes and at
+most 16 owned v2-format reservations. Reservation atomically binds item, charge,
+observation and operation, but grants no dispatch or retry authority.
+
+Preserve existing v1/v2 databases, reject foreign/corrupt/partial state, and
+require fresh read-only reconciliation after uncertain commit. Do not add
+multiple owners, deletion or automatic database rotation before retention and
+operation-runner ownership are separately designed.
+
+Evidence: E25, E33, E34, E35, E36
+
+Decision record: ADR-066
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1068,6 +1109,21 @@ Trigger: the pure ADR-065 core is accepted and the user explicitly authorizes a
 durable local planning slice. Provider traversal, live baseline execution and a
 daily scheduler remain separate gates.
 
+Fulfilled locally on 2026-11-07 by E35/E36 and D21 for one retained owner and one
+atomic ChatGPT reservation path. Dispatch/evidence progression remains open.
+
+### T20 — Connect the owned reservation to execution and evidence atomically
+
+Provide a store adapter that can claim/consume one baseline-owned reserved
+operation, run the existing coordinator and retain resulting v2 evidence plus
+the matching checkpoint observation without split-brain or automatic retry.
+Unknown provider/storage outcomes must fence the owner and require explicit
+resolution; consistent evidence is still not settlement.
+
+Trigger: ADR-066 is accepted and the user explicitly authorizes an unwired
+runner/evidence slice. Provider enumeration, multi-day live baseline and the
+daily scheduler remain later gates.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1106,6 +1162,8 @@ daily scheduler remain separate gates.
 - [evidence] E32: one complete ordinary direct PNG bundle now proves the offline resolver-to-receipt chain while production remains unwired #code
 - [evidence] E33: catalog plus independent v2 records still lacked a bounded multi-item plan and conservative remaining-work projection #code
 - [evidence] E34: exact explicit-catalog plan/checkpoint/decision core now explains offline progress while every result denies execution authority #code
+- [evidence] E35: separate plan and v2 database writes could not atomically bind one item charge to one reservation without a crash gap #code
+- [evidence] E36: one rollback-isolated two-store owner now commits exact checkpoint and reserved operation bytes atomically without dispatch authority #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1129,6 +1187,7 @@ daily scheduler remain separate gates.
 - [decision] D18: pair every cancelled evidence effect fence with an independent durable interruption attempt before returning
 - [decision] D19: prove one complete attachment family offline through mandatory capabilities before considering live wiring
 - [decision] D20: keep multi-item planning separate from v2 operation ownership until an atomic durable protocol is designed
+- [decision] D21: persist one baseline owner and its reservations in a new rollback-isolated atomic database domain
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1148,6 +1207,7 @@ daily scheduler remain separate gates.
 - [tail] T17: enable one named resolver/acquisition/binary family with complete explicit capabilities and no fallback effects
 - [tail] T18: bind and live-accept the exact ordinary direct PNG capabilities separately without widening provider authority
 - [tail] T19: design durable baseline-plan storage and atomic charge+operation reservation before any runner
+- [tail] T20: connect one baseline-owned reservation to coordinator execution and retained evidence without implicit settlement or retry
 
 ## Relations
 
@@ -1197,3 +1257,4 @@ daily scheduler remain separate gates.
 - S36 — [ADR-063: Make staged ChatGPT capture ownership explicit before acquisition](../adr/063-explicit-staged-capture-ownership.md), base main `39914cfe23c1752b1b3b5c7350faa603aeba8273`
 - S37 — [ADR-064: Admit one ordinary direct PNG family through explicit offline capabilities](../adr/064-explicit-ordinary-direct-png-acquisition.md), base main `c22aed4cb18b1311033533cd4e1c75a9ce825be1`
 - S38 — [ADR-065: Plan an explicit selected baseline without execution authority](../adr/065-explicit-baseline-plan-core.md), base main `61d644396b6f10c1c36089a355ff5240b80cc6cf`
+- S39 — [ADR-066: Persist one baseline owner and reserve atomically without dispatch](../adr/066-durable-baseline-owner-atomic-reservation.md), base main `de13928e5cc097301487ad5a3cbba611fb268842`
