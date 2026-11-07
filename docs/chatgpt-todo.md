@@ -769,6 +769,17 @@ terminal states, and the existing no-credential-export boundary.
   facts remain explicitly simulated in memory; production wiring,
   provider/account scope, real destinations, manual baseline execution and
   scheduling remain unchanged.
+- [ADR-069](adr/069-closed-multi-provider-journal-v3.md) adds the first Claude
+  foundation without changing any accepted bytes. The new pure
+  `liska-resumability-journal/3` record is closed to exact ChatGPT/Claude
+  provider, receipt-schema and adapter-version combinations. Claude receives a
+  separate strict factual receipt and replay adapter; provider-aware identity,
+  pre-write intent, destinations, commitments, completeness, assets and sink
+  assurance are revalidated, while incomplete Claude facts remain insufficient.
+  The 64 KiB record/lifecycle/headroom contract has no store, owner, coordinator,
+  browser, capture, destination, migration or production consumer. A new
+  rollback-isolated owner/checkpoint domain is the next gate before any live
+  Claude request.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

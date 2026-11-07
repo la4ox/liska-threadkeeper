@@ -10,6 +10,14 @@ const adapter = path.join(root, 'src/resumability-journal/producer-adapter');
 const handoff = path.join(root, 'src/resumability-journal/capture-handoff');
 const handoffEntry = path.join(handoff, 'index.ts');
 const adapterEntry = path.join(adapter, 'index.ts');
+const claudeAdapterEntry = path.join(
+  root,
+  'src/resumability-journal/claude-producer-adapter/index.ts'
+);
+const persistenceV3Core = path.join(
+  root,
+  'src/resumability-journal/purpose-persistence-v3/core/record.ts'
+);
 const persistence = path.join(root, 'src/resumability-journal/purpose-persistence-v2');
 const persistenceCore = path.join(persistence, 'core/record.ts');
 const persistenceEntry = path.join(persistence, 'idb/index.ts');
@@ -89,6 +97,8 @@ describe('isolated unwired new-capture purpose contract', () => {
               file.startsWith(directory + path.sep) ||
                 [
                   adapterEntry,
+                  claudeAdapterEntry,
+                  persistenceV3Core,
                   handoffEntry,
                   persistenceCore,
                   persistenceEntry,
@@ -100,6 +110,7 @@ describe('isolated unwired new-capture purpose contract', () => {
           if (resolved === adapter || resolved.startsWith(adapter + path.sep))
             expect([
               adapterEntry,
+              persistenceV3Core,
               persistenceCore,
               persistenceEntry,
               persistenceRecords,

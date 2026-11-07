@@ -569,6 +569,26 @@ counts stayed zero. This proves native CSP, IndexedDB and timer behavior only fo
 the synthetic harness; it does not accept provider access or real File/Obsidian
 delivery.
 
+### E42 — The accepted operation stack was provider-neutral only above the record
+
+The baseline plan already orders and binds provider-aware identities, but its
+checkpoint and progress code import journal/2 decoding and replay directly. That
+record and its factual receipt are intentionally ChatGPT-only and source-pinned.
+Changing only owner reservation or adding a Claude sidecar would therefore
+either fail to reopen or split operation/checkpoint/evidence authority.
+
+### E43 — Journal/3 now closes provider evidence without wiring a store
+
+ADR-069 adds an exact 64 KiB `liska-resumability-journal/3` pure record. Its
+observation is a closed ChatGPT/Claude provider, adapter-version and receipt-
+schema union. Claude has a separate factual receipt and pure replay adapter;
+cached assessment/evidence is rederived on validation.
+
+The new source has no store, owner, plan/checkpoint consumer, coordinator,
+browser, network, clock, UI or production entrypoint. Old v1/v2/plan/owner/
+ChatGPT blobs remain unchanged. Partial Claude coverage, metadata-only assets or
+missing sink observations remain insufficient rather than consistent.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -941,6 +961,20 @@ Evidence: E38, E39, E40, E41
 
 Decision record: ADR-068
 
+### D24 — Evolve provider operations through an additive journal/3 boundary
+
+Adopt ADR-069 instead of widening journal/2, relabelling Claude as ChatGPT or
+creating a sidecar receipt ledger. Keep provider evidence precise behind a
+closed replay dispatch and preserve every existing namespace/source pin.
+
+Journal/3 remains pure and unwired until a new rollback-isolated owner/checkpoint
+domain can atomically own its reservation, lifecycle and evidence. Do not create
+a standalone journal/3 store or dual-write old and new owners.
+
+Evidence: E42, E43
+
+Decision record: ADR-069
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1250,6 +1284,20 @@ provider, account scope and bounded live request.
 The native precondition is now satisfied by E41. This tail remains unopened
 until that separate provider/account/request authorization is given.
 
+The first storage subgate is fulfilled by E42/E43 and D24: journal/3 can retain
+closed Claude facts without changing old bytes. Owner/checkpoint, common
+lifecycle and the one-request Claude capability remain open.
+
+### T23 — Add a rollback-isolated provider owner for journal/3
+
+Define a new owner/checkpoint/progress namespace that atomically binds one
+provider-aware plan item, slot charge and journal/3 reservation, then preserves
+claim, restart uncertainty, late evidence and headroom under complete-inventory
+CAS. Reuse transaction discipline without opening or rewriting the old owner.
+
+Trigger: journal/3 is accepted and current-head review confirms the old source
+pins and production closure are unchanged. Claude capture and UI remain later.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1295,6 +1343,8 @@ until that separate provider/account/request authorization is given.
 - [evidence] E39: dormant messaging, scope, manifest and binary defaults made an unchanged production import closure too broad for isolated native acceptance #code
 - [evidence] E40: an exact zero-permission MV3 harness now compiles the real owner/coordinator path and passes offline browser simulation; installed native timing remains open #synthetic
 - [evidence] E41: one visible installed Comet run passed all 14 fixed rows with exact cleanup and zero network/ambient calls; provider and real destinations remain untested #live
+- [evidence] E42: the accepted plan is provider-neutral but its operation/checkpoint/progress layer is source-pinned to ChatGPT-only journal/2 #code
+- [evidence] E43: closed journal/3 and Claude factual replay now exist as a 64 KiB unwired pure contract while old blobs remain unchanged #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1321,6 +1371,7 @@ until that separate provider/account/request authorization is given.
 - [decision] D21: persist one baseline owner and its reservations in a new rollback-isolated atomic database domain
 - [decision] D22: reuse one coordinator through an exact branded store port while keeping BaselineOwner the sole token and transaction authority
 - [decision] D23: accept native owner execution only through a separate exact zero-permission harness with pinned ambient denials and content-free receipts
+- [decision] D24: evolve provider operations through additive journal/3 and a later isolated owner, never by widening v2 or sidecar dual authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1343,6 +1394,7 @@ until that separate provider/account/request authorization is given.
 - [tail] T20: connect one baseline-owned reservation to coordinator execution and retained evidence without implicit settlement or retry
 - [tail] T21: fulfilled by one visible installed native PASS without provider or destination authority
 - [tail] T22: after native PASS, design one separately authorized provider-bound baseline operation with explicit scope and request budget
+- [tail] T23: build a rollback-isolated provider owner/checkpoint domain that atomically owns journal/3 before Claude live wiring
 
 ## Relations
 
@@ -1396,3 +1448,4 @@ until that separate provider/account/request authorization is given.
 - S40 — [ADR-067: Bind the durable baseline owner to the existing coordinator](../adr/067-baseline-owner-execution-store-port.md), base main `da517ea7c8fd089f2ed6f19e1f5e30b2021fa951`
 - S41 — [ADR-068: Accept owner-backed execution through an isolated native harness](../adr/068-isolated-baseline-owner-native-harness.md), base main `ab41408fef2cd990174cf4ac56b98a04b33061c1`
 - S42 — local receipt `LISKA-BASELINE-OWNER-NATIVE-20261107`; visibility: local-only; all 14 fixed rows PASS, 842 ms elapsed, 146 ms max gap, zero network/ambient calls
+- S43 — [ADR-069: Add a closed multi-provider journal/3 without wiring execution](../adr/069-closed-multi-provider-journal-v3.md), base main `8e5060315ad740a8f05bb14eb50b5ecd48fd08f9`

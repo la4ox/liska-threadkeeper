@@ -6076,3 +6076,58 @@ close/reopen/restart and visible timer scheduling for the synthetic build. It
 does not add or accept provider/account/capture-page, real File/Obsidian,
 production-extension, manual baseline, scheduler, settlement, retry, deletion
 or memory authority.
+
+## Closed multi-provider journal/3 contract — 2026-11-07
+
+Branch `codex/claude-baseline-one-operation` starts from merged main
+`8e5060315ad740a8f05bb14eb50b5ecd48fd08f9` and records
+[ADR-069](docs/adr/069-closed-multi-provider-journal-v3.md). The first Claude
+slice is additive and pure: no accepted v1/v2, baseline-plan, baseline-owner,
+ChatGPT receipt/adapter or coordinator source is changed.
+
+`liska-resumability-journal/3` admits only ChatGPT and Claude operations. Its
+awaiting-resolution observation is a closed provider/adapter/receipt union and
+replays the selected pure adapter on every validation rather than trusting the
+stored assessment. Unknown, mixed or mismatched provider/schema/version
+combinations fail closed.
+
+Claude now has a separate `liska-claude-producer-evidence/1` factual envelope and
+pure adapter. Exact pre-write intent binds operation, attempt, capture, provider,
+conversation, provider-aware key, catalog digest and requested destinations.
+Raw/manifest/canonical commitments, completeness, metadata-only assets and File
+path or Obsidian readback observations are detached, bounded and frozen. The
+adapter independently verifies the provider-aware conversation key and legacy
+routing digest. Missing intent, partial/unknown completeness, metadata-only
+assets or absent sink assurance cannot become consistent.
+
+Journal/3 retains the accepted lifecycle/interruption shapes but has an exact
+64 KiB canonical UTF-8 ceiling. Its local data snapshot rejects getters,
+`toJSON`, capabilities, unsafe keys, prototypes, cycles and sparse arrays.
+Control headroom projects every pause/restart/abandon/interruption path at maximum
+safe revision. `consistent` remains factual relationship agreement, not
+provenance authentication, settlement or proof of a real write.
+
+The complete runtime closure is unwired and contains no IDB store, owner,
+checkpoint/progress consumer, coordinator, browser, network, clock, UI,
+manifest, config or `dist` path. The only existing-source edit is an exact-file
+architecture allowlist for the new pure consumers; all other production files
+are new.
+
+Focused acceptance passes 8 files / 119 tests. Project TypeScript, scoped
+zero-warning ESLint, focused Prettier and diff checks pass. Independent review
+reports ready with no material finding.
+
+Full coverage passes 347 files with one skipped and 11,935 tests with three
+skipped: 95.28% statements, 91.91% branches, 98.39% functions and 97.49% lines.
+Global lint has zero errors and the unchanged 55 warnings; full Prettier, Idea
+Threads 9/37, documentation links 89/89 and the zero-vulnerability production
+audit pass. The guarded production build/ZIP passes. Fresh `dist` contains 65
+files / 6,087,953 bytes with no journal/3 or Claude-adapter markers. The
+2,792,264-byte ZIP has SHA-256
+`7f70e6780f571dcdca1d6a830ccd9a013935ccfc7838f08e86c43a5d85f2fe8e`.
+Current-head GitHub gates remain pending.
+
+The next separate gate is a new rollback-isolated provider owner/checkpoint
+domain that atomically owns journal/3 operations. No Claude request, destination
+write, migration, dual write, traversal, automatic continuation, account-wide
+baseline or scheduler is authorized or implemented by this slice.
