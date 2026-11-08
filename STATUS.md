@@ -6243,3 +6243,66 @@ destination, retry, settlement, migration, deletion, automatic continuation,
 account-wide baseline, scheduler, UI or living-memory authority. The next gate
 is a separate native Chromium storage-only harness for owner/2;
 lifecycle/evidence integration and live Claude work remain later decisions.
+
+## Provider owner/2 native storage harness — 2026-11-09
+
+Branch `codex/provider-owner-v2-native-harness` starts from merged main
+`e57bfb53f171b63ec8c00c3b0b4a836125fb885a` and records
+[ADR-072](docs/adr/072-provider-owner-v2-native-storage-harness.md). It adds a
+second independent direct opt-in MV3 harness without changing production source,
+configuration, package scripts, manifest, lockfile, committed `dist` or the
+accepted ADR-068 harness.
+
+The exact zero-permission manifest has empty permissions/host permissions, one
+tab-opened Options page and a fixed `connect-src 'none'` CSP. The builder emits
+only manifest, HTML, runner JS and CSS beneath guarded `test-results`; it rejects
+unknown output, remote/runtime imports, extension/Web Storage, clipboard,
+worker or dynamic-code authority. Its exact real owner/2 closure contains 37
+source and 38 runtime modules and requires no source replacements.
+
+The fixed 13-row scenario exercises one mixed ChatGPT/Claude and one independent
+Claude lifecycle. A real post-read SHA gate lets one handle commit a complete
+reservation while the stale handle fails exactly with `revision-conflict`.
+Independent native-store reads verify owner/record bytes, link, charge and
+latest observation. Exact/absent inspection writes nothing; close/reopen requires
+explicit recovery; active-to-paused and repeated paused recovery preserve the
+reservation; pending work blocks another item. The second lifecycle proves a
+same-handle pause fences a stale reservation before a fresh handle preserves
+paused recovery, activates and reserves Claude. No execution port exists.
+
+The guarded factory denies seven production/legacy/foreign/wrong-version actions
+before native IDB. Cleanup releases gates, drains work, closes handles and
+requires two exact database deletions before PASS. The page installs counted
+throwing fetch/XHR/WebSocket/EventSource/beacon sentinels before any IDB open and
+returns fixed capped integers only.
+
+Focused acceptance passes 13 files / 152 tests; the new harness contributes 46
+cases. TypeScript, scoped zero-warning ESLint, focused Prettier and diff checks
+pass. Independent review reports ready with no material finding. The first full
+coverage pass exposed three missing exact test-builder exceptions; after narrow
+corrections, the second full pass is clean at 358 files plus one skipped and
+12,159 tests plus three skipped: 95.29% statements, 91.91% branches, 98.41%
+functions and 97.49% lines.
+
+Global lint has zero errors and the unchanged 55 warnings; full Prettier and the
+zero-vulnerability production audit pass. The direct harness runner is 155,137
+bytes with SHA-256
+`f3fc628d099d08c4832ea6db57a849d482371b54baa707be9c0a9fe27a168e97`.
+The guarded production build/ZIP passes: fresh `dist` remains 65 files /
+6,087,953 bytes with zero harness markers; the 2,792,264-byte ZIP has SHA-256
+`fc07883da5fa691ffc50ce6b889a5cd89ef36157b2de507f15db093d9e7358dd`.
+
+After explicit user confirmation, the exact generated directory was installed
+as a separate unpacked Comet extension. One continuously visible Options-page
+run returned overall PASS with all 13 rows PASS, `elapsedMs: 249` and
+`maxGapMs: 21`. Cleanup reported 18 exact opens, two exact deletes and two
+completed deletions; network calls were zero. Local receipt
+`LISKA-PROVIDER-OWNER-V2-NATIVE-20261109` retains only the fixed row/status/
+integer payload.
+
+Current-head GitHub gates remain pending. This closes only native synthetic
+storage/CSP/WebCrypto/IDB scheduling. It does not prove browser crash/power-loss
+durability and adds no provider/account access, real Claude request, destination,
+execution, settlement, retry, automatic continuation, account-wide baseline,
+scheduler, UI or living-memory authority. The next separate gate is an owner/2
+lifecycle/evidence port.

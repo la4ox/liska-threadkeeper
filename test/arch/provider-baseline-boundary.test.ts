@@ -218,7 +218,9 @@ describe('unwired pure closed provider baseline checkpoint/2 boundary', () => {
     const marker =
       /provider-baseline|liska-explicit-baseline-checkpoint\/2|createProviderBaselineCheckpoint|reduceProviderBaselineCheckpoint|nextProviderBaselineDecision/u;
     const config = [
-      ...files(path.join(root, 'scripts')),
+      ...files(path.join(root, 'scripts')).filter(
+        file => file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
+      ),
       ...files(path.join(root, 'src')).filter(
         file => file.endsWith('.html') || file.endsWith('manifest.json')
       ),

@@ -266,7 +266,9 @@ describe('isolated reservation-only provider baseline owner boundary', () => {
     const marker =
       /provider-baseline-owner|liska-baseline-owner-v2|liska-baseline-owner\/2|createProviderBaselineOwner/u;
     const config = [
-      ...files(path.join(root, 'scripts')),
+      ...files(path.join(root, 'scripts')).filter(
+        file => file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
+      ),
       ...files(path.join(root, 'src')).filter(
         file => file.endsWith('.html') || file.endsWith('manifest.json')
       ),

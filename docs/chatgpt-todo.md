@@ -800,6 +800,15 @@ terminal states, and the existing no-credential-export boundary.
   `executionAuthorized: false`; there is no execution port, evidence writer,
   provider request, automatic continuation or scheduler. Native storage-only
   acceptance is the next separate gate.
+- [ADR-072](adr/072-provider-owner-v2-native-storage-harness.md) now accepts that
+  physical storage boundary through a separate zero-permission MV3 harness. The
+  exact 37-module owner/2 closure passes deterministic two-handle CAS,
+  read-only inspection, close/reopen, paused recovery, blocked continuation,
+  stale-session and genuine Claude reservation checks without execution or
+  provider effects. One continuously visible installed-Comet run passed all 13
+  fixed rows in 249 ms with a 21 ms maximum gap, exact two-lifecycle cleanup and
+  zero network calls. The next gate is a separately reviewed owner/2 lifecycle
+  and evidence port—not a live provider runner or scheduler.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

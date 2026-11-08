@@ -198,7 +198,9 @@ describe('isolated durable baseline owner boundary', () => {
       // Only this direct opt-in test build may name the isolated owner. All production
       // configuration, manifests, source consumers and dist remain scanned below.
       ...files(path.join(root, 'scripts')).filter(
-        file => file !== path.join(root, 'scripts/build-baseline-owner-browser.mjs')
+        file =>
+          file !== path.join(root, 'scripts/build-baseline-owner-browser.mjs') &&
+          file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
       ),
       ...files(path.join(root, 'src')).filter(
         file => file.endsWith('.html') || file.endsWith('manifest.json')
