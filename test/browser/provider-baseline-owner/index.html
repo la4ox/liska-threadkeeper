@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Synthetic provider owner storage acceptance</title>
+    <script type="module" src="./runner.ts"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Synthetic provider owner storage acceptance</h1>
+      <p>Test only. Keep this Options tab visible until completion.</p>
+      <p>
+        Storage-only synthetic metadata. No provider access, capture, execution, downloads or vault
+        writes.
+      </p>
+      <p>
+        The real provider owner and journal/3 reserve facts only. Execution is never authorized.
+      </p>
+      <button id="run" type="button">Run bounded native acceptance</button>
+      <output id="overall" aria-live="polite">NOT RUN</output>
+      <table>
+        <caption>
+          Fixed acceptance rows
+        </caption>
+        <tbody id="rows"></tbody>
+      </table>
+      <pre id="receipt" aria-label="Content-free acceptance receipt"></pre>
+    </main>
+  </body>
+</html>

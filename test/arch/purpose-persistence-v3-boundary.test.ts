@@ -190,7 +190,9 @@ describe('unwired closed ChatGPT/Claude journal/3 contract boundary', () => {
     for (const file of Object.keys(imports))
       expect(production.has(path.join(root, file)), file).toBe(false);
     const config = [
-      ...files(path.join(root, 'scripts')),
+      ...files(path.join(root, 'scripts')).filter(
+        file => file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
+      ),
       ...source.filter(file => file.endsWith('.html') || file.endsWith('manifest.json')),
       ...readdirSync(root)
         .filter(

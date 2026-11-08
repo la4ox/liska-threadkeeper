@@ -132,7 +132,9 @@ describe('isolated unwired new-capture purpose contract', () => {
         );
     }
     for (const file of [
-      ...files(path.join(root, 'scripts')),
+      ...files(path.join(root, 'scripts')).filter(
+        file => file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
+      ),
       ...readdirSync(root)
         .filter(
           name => /(?:config|manifest|package)/u.test(name) && /\.(?:json|ts|js|mjs)$/u.test(name)

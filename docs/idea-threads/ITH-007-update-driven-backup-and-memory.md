@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-08
+last_turn: 2026-11-09
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -622,6 +622,20 @@ authorizing; stale hash/session continuations cannot write. No execution port,
 evidence writer, provider request, retry or automatic continuation exists, and
 native Chromium acceptance remains open.
 
+### E47 — Owner/2 storage now passes an installed native Chromium acceptance
+
+ADR-072 adds a separate exact zero-permission MV3 harness around the unchanged
+real owner/2 closure. Deterministic post-read SHA gates prove one two-handle
+reservation winner plus exact `revision-conflict`, and a separate Claude
+lifecycle proves same-handle pause fences a stale reservation before a fresh
+handle recovers and reserves.
+
+One continuously visible installed-Comet run passed all 13 fixed rows in 249 ms
+with a 21 ms maximum scheduling gap, two completed guarded database deletions and
+zero network calls. This proves the synthetic storage/CSP/WebCrypto/native-IDB
+boundary, not crash durability, provider scope, a request, destination write,
+execution, settlement, retry or automatic continuation.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1037,6 +1051,20 @@ Evidence: E45, E46
 
 Decision record: ADR-071
 
+### D27 — Accept native storage only through a separate exact harness
+
+Adopt ADR-072 instead of loading the production extension, reusing the old
+journal/2 execution harness or copying a mini-owner. Compile the exact real
+owner/2 closure in its own zero-permission Options extension, require bounded
+visible scheduling and retain only a content-free receipt.
+
+Treat the native PASS as storage evidence only. A lifecycle/evidence port and
+every provider effect remain later independent decisions.
+
+Evidence: E46, E47
+
+Decision record: ADR-072
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1388,6 +1416,19 @@ Trigger: ADR-071 passes current-head review and the harness remains isolated
 from the installed production extension. A later lifecycle port still requires
 separate design and review.
 
+Fulfilled on 2026-11-09 by E47 and D27. The exact separate bundle passed one
+visible installed-Comet run with all 13 rows, cleanup and network denial green.
+
+### T26 — Design owner/2 lifecycle and factual-evidence integration
+
+Define a narrow owner-backed port that can claim/consume one reserved journal/3
+operation and atomically retain factual evidence plus its matching checkpoint
+observation. Preserve one owner/session/transaction authority and no automatic
+next reservation, settlement or retry.
+
+Trigger: ADR-072 is merged after current-head review. Any live Claude request
+still requires a separate provider/account/capability/request-budget decision.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1438,6 +1479,7 @@ separate design and review.
 - [evidence] E44: importing the accepted baseline-plan barrel would silently reintroduce journal/2 checkpoint/progress semantics #code
 - [evidence] E45: checkpoint/2 now reconciles closed journal/3 records under unchanged plan bytes with no persistence authority #code
 - [evidence] E46: owner/2 atomically commits exact catalog, unchanged plan, checkpoint/2 and one journal/3 reservation while exposing no execution authority #code
+- [evidence] E47: one isolated installed-Comet owner/2 run passed all 13 storage rows with exact cleanup, bounded timing and zero network calls #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1467,6 +1509,7 @@ separate design and review.
 - [decision] D24: evolve provider operations through additive journal/3 and a later isolated owner, never by widening v2 or sidecar dual authority
 - [decision] D25: version checkpoint/progress separately, reuse only direct plan primitives and leave completeness/atomicity to the later owner
 - [decision] D26: persist provider reservations in a fresh rollback-isolated owner/2 domain without execution or retry authority
+- [decision] D27: accept owner/2 native storage only through a separate exact zero-permission harness with content-free receipts
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1492,6 +1535,7 @@ separate design and review.
 - [tail] T23: build a rollback-isolated provider owner/checkpoint domain that atomically owns journal/3 before Claude live wiring
 - [tail] T24: persist the unchanged plan, checkpoint/2 and journal/3 reservations atomically in one new non-executing owner
 - [tail] T25: accept provider owner/2 in a native storage-only harness before designing lifecycle or provider effects
+- [tail] T26: design one owner/2 lifecycle/evidence port without automatic continuation, settlement or retry
 
 ## Relations
 
@@ -1548,3 +1592,5 @@ separate design and review.
 - S43 — [ADR-069: Add a closed multi-provider journal/3 without wiring execution](../adr/069-closed-multi-provider-journal-v3.md), base main `8e5060315ad740a8f05bb14eb50b5ecd48fd08f9`
 - S44 — [ADR-070: Rebind provider baseline checkpointing to journal/3 without persistence](../adr/070-provider-checkpoint-v2-without-persistence.md), base main `84a45731a1b627826bf2670dc3a6c4139ad7b66c`
 - S45 — [ADR-071: Persist provider reservations in an isolated owner v2](../adr/071-provider-baseline-owner-v2-atomic-reservation.md), base main `e6b8af1056ebc830e84c208078ce92d971750dcb`
+- S46 — [ADR-072: Accept provider owner/2 through a native storage-only harness](../adr/072-provider-owner-v2-native-storage-harness.md), base main `e57bfb53f171b63ec8c00c3b0b4a836125fb885a`
+- S47 — local receipt `LISKA-PROVIDER-OWNER-V2-NATIVE-20261109`; visibility: local-only; all 13 fixed rows PASS, 249 ms elapsed, 21 ms max gap, two completed deletes, zero network calls
