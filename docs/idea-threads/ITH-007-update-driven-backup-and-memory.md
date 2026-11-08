@@ -589,6 +589,26 @@ browser, network, clock, UI or production entrypoint. Old v1/v2/plan/owner/
 ChatGPT blobs remain unchanged. Partial Claude coverage, metadata-only assets or
 missing sink observations remain insufficient rather than consistent.
 
+### E44 — Reusing the accepted checkpoint would silently restore journal/2
+
+The accepted plan bytes and provider-aware identities are reusable, but its
+barrel reexports checkpoint/progress modules that decode journal/2 directly.
+Casting journal/3 into those types or widening the pinned checkpoint would erase
+the provider evidence boundary introduced by E43.
+
+### E45 — Checkpoint/2 now reconciles journal/3 without persistence authority
+
+ADR-070 adds a closed 64 KiB provider checkpoint/progress domain while retaining
+the accepted plan schema and digest. It snapshots/replays journal/3 records,
+binds provider identity and immutable operation/full-record digests, preserves
+append-only charges/links/observations and returns only non-authorizing progress
+or stop facts.
+
+The caller must still supply a complete external record snapshot. Missing known
+records conflict, orphan records fence as unresolved effects and consistent
+awaiting-resolution facts remain touched. No store, owner, browser or production
+consumer exists.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -975,6 +995,20 @@ Evidence: E42, E43
 
 Decision record: ADR-069
 
+### D25 — Version checkpoint/progress separately while preserving plan bytes
+
+Adopt ADR-070 instead of widening the frozen checkpoint or importing the old
+baseline-plan barrel. Reuse only direct provider-neutral plan primitives and
+bind checkpoint/2 exclusively to journal/3 records.
+
+Preserve the accepted append-only histories, limits and stop precedence. Treat
+external snapshot completeness and atomic persistence as later owner
+responsibilities; every result remains non-authorizing.
+
+Evidence: E44, E45
+
+Decision record: ADR-070
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1298,6 +1332,20 @@ CAS. Reuse transaction discipline without opening or rewriting the old owner.
 Trigger: journal/3 is accepted and current-head review confirms the old source
 pins and production closure are unchanged. Claude capture and UI remain later.
 
+The pure checkpoint/progress subgate is fulfilled by E44/E45 and D25. Atomic
+storage, owner admission/headroom and native reopen evidence remain open.
+
+### T24 — Persist plan, checkpoint/2 and journal/3 in one new owner
+
+Create a fresh fixed database/envelope namespace with two stores and complete-
+inventory CAS. It may create, activate/pause, reserve one deterministic
+ChatGPT/Claude item, recover paused and inspect exact reservation facts, but must
+expose no execution port, evidence writer, retry, replacement, deletion or
+automatic continuation.
+
+Trigger: checkpoint/2 is accepted on current main and exact source pins for the
+old owner and journal/3 remain unchanged. Live provider work remains later.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1345,6 +1393,8 @@ pins and production closure are unchanged. Claude capture and UI remain later.
 - [evidence] E41: one visible installed Comet run passed all 14 fixed rows with exact cleanup and zero network/ambient calls; provider and real destinations remain untested #live
 - [evidence] E42: the accepted plan is provider-neutral but its operation/checkpoint/progress layer is source-pinned to ChatGPT-only journal/2 #code
 - [evidence] E43: closed journal/3 and Claude factual replay now exist as a 64 KiB unwired pure contract while old blobs remain unchanged #code
+- [evidence] E44: importing the accepted baseline-plan barrel would silently reintroduce journal/2 checkpoint/progress semantics #code
+- [evidence] E45: checkpoint/2 now reconciles closed journal/3 records under unchanged plan bytes with no persistence authority #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1372,6 +1422,7 @@ pins and production closure are unchanged. Claude capture and UI remain later.
 - [decision] D22: reuse one coordinator through an exact branded store port while keeping BaselineOwner the sole token and transaction authority
 - [decision] D23: accept native owner execution only through a separate exact zero-permission harness with pinned ambient denials and content-free receipts
 - [decision] D24: evolve provider operations through additive journal/3 and a later isolated owner, never by widening v2 or sidecar dual authority
+- [decision] D25: version checkpoint/progress separately, reuse only direct plan primitives and leave completeness/atomicity to the later owner
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1395,6 +1446,7 @@ pins and production closure are unchanged. Claude capture and UI remain later.
 - [tail] T21: fulfilled by one visible installed native PASS without provider or destination authority
 - [tail] T22: after native PASS, design one separately authorized provider-bound baseline operation with explicit scope and request budget
 - [tail] T23: build a rollback-isolated provider owner/checkpoint domain that atomically owns journal/3 before Claude live wiring
+- [tail] T24: persist the unchanged plan, checkpoint/2 and journal/3 reservations atomically in one new non-executing owner
 
 ## Relations
 
@@ -1449,3 +1501,4 @@ pins and production closure are unchanged. Claude capture and UI remain later.
 - S41 — [ADR-068: Accept owner-backed execution through an isolated native harness](../adr/068-isolated-baseline-owner-native-harness.md), base main `ab41408fef2cd990174cf4ac56b98a04b33061c1`
 - S42 — local receipt `LISKA-BASELINE-OWNER-NATIVE-20261107`; visibility: local-only; all 14 fixed rows PASS, 842 ms elapsed, 146 ms max gap, zero network/ambient calls
 - S43 — [ADR-069: Add a closed multi-provider journal/3 without wiring execution](../adr/069-closed-multi-provider-journal-v3.md), base main `8e5060315ad740a8f05bb14eb50b5ecd48fd08f9`
+- S44 — [ADR-070: Rebind provider baseline checkpointing to journal/3 without persistence](../adr/070-provider-checkpoint-v2-without-persistence.md), base main `84a45731a1b627826bf2670dc3a6c4139ad7b66c`

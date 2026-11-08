@@ -154,8 +154,14 @@ describe('unwired closed ChatGPT/Claude journal/3 contract boundary', () => {
     const consumers: Record<string, string[]> = {
       [receipt]: [adapter + 'index.ts', v3 + 'core/record.ts'],
       [adapter + 'index.ts']: [v3 + 'core/record.ts'],
-      [v3 + 'core/record.ts']: [v3 + 'core/control.ts'],
-      [v3 + 'core/data.ts']: [v3 + 'core/record.ts'],
+      [v3 + 'core/record.ts']: [
+        v3 + 'core/control.ts',
+        prefix + 'provider-baseline/contracts.ts',
+        prefix + 'provider-baseline/checkpoint.ts',
+        prefix + 'provider-baseline/operation.ts',
+        prefix + 'provider-baseline/progress.ts',
+      ],
+      [v3 + 'core/data.ts']: [v3 + 'core/record.ts', prefix + 'provider-baseline/operation.ts'],
       [v3 + 'core/errors.ts']: [v3 + 'core/data.ts', v3 + 'core/record.ts', v3 + 'core/control.ts'],
       [v3 + 'core/control.ts']: [],
     };

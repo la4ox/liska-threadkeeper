@@ -14,10 +14,22 @@ const ownerConsumers = new Map(
     ['index.ts', ['', 'data']],
     ['envelope.ts', ['', 'contracts']],
     ['execution.ts', ['', 'data']],
-  ].map(([name, targets]) => [
-    path.join(root, 'src/resumability-journal/baseline-owner', name as string),
-    (targets as string[]).map(target => path.join(directory, target)),
-  ])
+  ]
+    .map(([name, targets]) => [
+      path.join(root, 'src/resumability-journal/baseline-owner', name as string),
+      (targets as string[]).map(target => path.join(directory, target)),
+    ])
+    .concat(
+      [
+        ['contracts.ts', ['contracts']],
+        ['checkpoint.ts', ['data', 'plan']],
+        ['operation.ts', ['contracts', 'data', 'plan']],
+        ['progress.ts', ['contracts', 'data', 'plan']],
+      ].map(([name, targets]) => [
+        path.join(root, 'src/resumability-journal/provider-baseline', name as string),
+        (targets as string[]).map(target => path.join(directory, target)),
+      ])
+    )
 );
 const ownImports: Record<string, string[]> = {
   'contracts.ts': [
