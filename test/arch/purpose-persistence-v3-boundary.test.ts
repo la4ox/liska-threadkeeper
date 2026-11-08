@@ -160,10 +160,15 @@ describe('unwired closed ChatGPT/Claude journal/3 contract boundary', () => {
         prefix + 'provider-baseline/checkpoint.ts',
         prefix + 'provider-baseline/operation.ts',
         prefix + 'provider-baseline/progress.ts',
+        prefix + 'provider-baseline-owner/envelope.ts',
+        prefix + 'provider-baseline-owner/index.ts',
       ],
       [v3 + 'core/data.ts']: [v3 + 'core/record.ts', prefix + 'provider-baseline/operation.ts'],
       [v3 + 'core/errors.ts']: [v3 + 'core/data.ts', v3 + 'core/record.ts', v3 + 'core/control.ts'],
-      [v3 + 'core/control.ts']: [],
+      [v3 + 'core/control.ts']: [
+        prefix + 'provider-baseline-owner/envelope.ts',
+        prefix + 'provider-baseline-owner/index.ts',
+      ],
     };
     const source = files(path.join(root, 'src'));
     for (const file of source.filter(file => /\.[cm]?[jt]sx?$/u.test(file)))

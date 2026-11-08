@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-07
+last_turn: 2026-11-08
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -609,6 +609,19 @@ records conflict, orphan records fence as unresolved effects and consistent
 awaiting-resolution facts remain touched. No store, owner, browser or production
 consumer exists.
 
+### E46 — Owner/2 now atomically persists one provider reservation without execution
+
+ADR-071 adds a fresh `liska-baseline-owner-v2` two-store database and
+`liska-baseline-owner/2` envelope. It binds exact catalog bytes, unchanged plan
+bytes, checkpoint/2 and closed journal/3 reservations under complete-inventory
+CAS while leaving every accepted old namespace and source pin unchanged.
+
+Only revision-0 active/open/reserved records are admitted. Explicit create,
+controls, paused restart recovery and read-only inspection remain non-
+authorizing; stale hash/session continuations cannot write. No execution port,
+evidence writer, provider request, retry or automatic continuation exists, and
+native Chromium acceptance remains open.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1009,6 +1022,21 @@ Evidence: E44, E45
 
 Decision record: ADR-070
 
+### D26 — Persist provider reservations in a new non-executing owner
+
+Adopt ADR-071 instead of widening the old journal/2 owner, splitting state across
+databases or dual-writing two authorities. Store the exact catalog, unchanged
+plan, checkpoint/2 and revision-0 journal/3 reservation in one rollback-isolated
+complete-inventory CAS domain.
+
+Keep the public surface reservation-only and every result non-authorizing. Do
+not add an execution port or provider effect until the new physical owner passes
+its own native storage acceptance.
+
+Evidence: E45, E46
+
+Decision record: ADR-071
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1346,6 +1374,20 @@ automatic continuation.
 Trigger: checkpoint/2 is accepted on current main and exact source pins for the
 old owner and journal/3 remain unchanged. Live provider work remains later.
 
+Fulfilled on 2026-11-08 by E46 and D26 for the reservation-only storage
+boundary. Native Chromium acceptance, lifecycle/evidence integration and every
+provider effect remain separate gates.
+
+### T25 — Accept provider owner/2 in a native storage-only harness
+
+Exercise the exact new database with create/reserve, close/reopen, explicit
+paused recovery, two-handle CAS and cleanup while keeping network, destinations,
+execution and provider capabilities absent.
+
+Trigger: ADR-071 passes current-head review and the harness remains isolated
+from the installed production extension. A later lifecycle port still requires
+separate design and review.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1395,6 +1437,7 @@ old owner and journal/3 remain unchanged. Live provider work remains later.
 - [evidence] E43: closed journal/3 and Claude factual replay now exist as a 64 KiB unwired pure contract while old blobs remain unchanged #code
 - [evidence] E44: importing the accepted baseline-plan barrel would silently reintroduce journal/2 checkpoint/progress semantics #code
 - [evidence] E45: checkpoint/2 now reconciles closed journal/3 records under unchanged plan bytes with no persistence authority #code
+- [evidence] E46: owner/2 atomically commits exact catalog, unchanged plan, checkpoint/2 and one journal/3 reservation while exposing no execution authority #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1423,6 +1466,7 @@ old owner and journal/3 remain unchanged. Live provider work remains later.
 - [decision] D23: accept native owner execution only through a separate exact zero-permission harness with pinned ambient denials and content-free receipts
 - [decision] D24: evolve provider operations through additive journal/3 and a later isolated owner, never by widening v2 or sidecar dual authority
 - [decision] D25: version checkpoint/progress separately, reuse only direct plan primitives and leave completeness/atomicity to the later owner
+- [decision] D26: persist provider reservations in a fresh rollback-isolated owner/2 domain without execution or retry authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1447,6 +1491,7 @@ old owner and journal/3 remain unchanged. Live provider work remains later.
 - [tail] T22: after native PASS, design one separately authorized provider-bound baseline operation with explicit scope and request budget
 - [tail] T23: build a rollback-isolated provider owner/checkpoint domain that atomically owns journal/3 before Claude live wiring
 - [tail] T24: persist the unchanged plan, checkpoint/2 and journal/3 reservations atomically in one new non-executing owner
+- [tail] T25: accept provider owner/2 in a native storage-only harness before designing lifecycle or provider effects
 
 ## Relations
 
@@ -1502,3 +1547,4 @@ old owner and journal/3 remain unchanged. Live provider work remains later.
 - S42 — local receipt `LISKA-BASELINE-OWNER-NATIVE-20261107`; visibility: local-only; all 14 fixed rows PASS, 842 ms elapsed, 146 ms max gap, zero network/ambient calls
 - S43 — [ADR-069: Add a closed multi-provider journal/3 without wiring execution](../adr/069-closed-multi-provider-journal-v3.md), base main `8e5060315ad740a8f05bb14eb50b5ecd48fd08f9`
 - S44 — [ADR-070: Rebind provider baseline checkpointing to journal/3 without persistence](../adr/070-provider-checkpoint-v2-without-persistence.md), base main `84a45731a1b627826bf2670dc3a6c4139ad7b66c`
+- S45 — [ADR-071: Persist provider reservations in an isolated owner v2](../adr/071-provider-baseline-owner-v2-atomic-reservation.md), base main `e6b8af1056ebc830e84c208078ce92d971750dcb`

@@ -790,6 +790,16 @@ terminal states, and the existing no-credential-export boundary.
   retryable. All decisions remain non-authorizing under the fixed stop order.
   The pure slice has no store, owner, IDB, capture or production consumer; the
   rollback-isolated atomic owner is still the next separate gate.
+- [ADR-071](adr/071-provider-baseline-owner-v2-atomic-reservation.md) now closes
+  that reservation-only persistence gate in a fresh rollback-isolated
+  `liska-baseline-owner-v2` database. Exact catalog, unchanged plan,
+  checkpoint/2 and revision-0 reserved journal/3 bytes share one two-store,
+  complete-inventory CAS transaction. A new handle must explicitly recover to
+  paused planning, stale hash/session continuations cannot write and uncertain
+  terminal outcomes never authorize retry. Every result remains
+  `executionAuthorized: false`; there is no execution port, evidence writer,
+  provider request, automatic continuation or scheduler. Native storage-only
+  acceptance is the next separate gate.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
