@@ -6131,3 +6131,57 @@ The next separate gate is a new rollback-isolated provider owner/checkpoint
 domain that atomically owns journal/3 operations. No Claude request, destination
 write, migration, dual write, traversal, automatic continuation, account-wide
 baseline or scheduler is authorized or implemented by this slice.
+
+## Provider baseline checkpoint/2 without persistence — 2026-11-08
+
+Branch `codex/provider-baseline-checkpoint-v2` starts from merged main
+`84a45731a1b627826bf2670dc3a6c4139ad7b66c` and records
+[ADR-070](docs/adr/070-provider-checkpoint-v2-without-persistence.md). It keeps
+the accepted plan schema/bytes/digest unchanged and adds a separate
+`liska-explicit-baseline-checkpoint/2` pure checkpoint/progress domain for
+journal/3 records.
+
+The layer is closed to ChatGPT/Claude plan items and rejects unsupported provider
+plans instead of skipping them. It snapshots and replays every journal/3 record
+independently, binds the complete provider-aware identity and immutable operation
+digest, and retains exact full-record revision/digest observations. First
+observation appends one link, one current-window charge and one observation;
+repeating the exact same record appends no history. Histories are never refunded,
+pruned, adopted, reset or rewritten.
+
+Reconciliation requires the caller's claimed complete journal/3 snapshot.
+Missing known records, foreign/duplicate identities, changed operations and
+stale or same-revision mutated bytes conflict. Existing unlinked records fence as
+unresolved effects. In-flight/unknown work remains unresolved; every
+awaiting-resolution record remains touched even when consistent.
+
+The exact stop order is conflict, regressed clock, paused, unresolved effect,
+pending reservation, cooldown, no untouched item, current-window budget and
+lifetime/history capacity. Only then may the first deterministic untouched item
+be reported, always with `executionAuthorized: false`.
+
+Checkpoint/2 preserves the accepted limits: 4,096 plan items, 16 lifetime
+operations/links/charges, 128 observations, 64 windows, at most 16 slots per
+window and 64 KiB checkpoint bytes. Journal/3 records never pass through the
+older shorter plan-data traversal. The module has no store, transaction, IDB,
+owner, browser, network, clock, capture, destination, retry, settlement,
+migration, UI, automatic continuation or scheduler authority.
+
+Focused acceptance passes 16 files / 222 tests, including 106 new behavioral and
+four new architecture cases. Project TypeScript, scoped zero-warning ESLint,
+focused Prettier and diff checks pass. Independent review reports ready with no
+material finding.
+
+Full coverage passes 351 files with one skipped and 12,046 tests with three
+skipped: 95.31% statements, 91.95% branches, 98.40% functions and 97.50% lines.
+Global lint has zero errors and the unchanged 55 warnings; full Prettier, Idea
+Threads 9/37, documentation links 90/90 and the zero-vulnerability production
+audit pass. The guarded production build/ZIP passes. Fresh `dist` contains 65
+files / 6,087,953 bytes with no checkpoint/2 markers. The 2,792,264-byte ZIP has
+SHA-256 `f8b2f4b5608824e6c744fe3d89838c5e7a0d46bff2808fd4c27f18c78f9bc697`.
+Current-head GitHub gates remain pending.
+
+The next gate is a fresh `liska-baseline-owner-v2` database and
+`liska-baseline-owner/2` envelope that atomically owns the unchanged plan,
+checkpoint/2 and journal/3 reservations under complete-inventory CAS. Production
+wiring and Claude live requests remain later.

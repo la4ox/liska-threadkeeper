@@ -780,6 +780,16 @@ terminal states, and the existing no-credential-export boundary.
   browser, capture, destination, migration or production consumer. A new
   rollback-isolated owner/checkpoint domain is the next gate before any live
   Claude request.
+- [ADR-070](adr/070-provider-checkpoint-v2-without-persistence.md) now rebinds
+  baseline checkpoint/progress semantics to journal/3 without changing accepted
+  plan bytes. The exact checkpoint/2 schema remains append-only and bounded;
+  mixed ChatGPT/Claude identities, operation/full-record digests, replayed
+  provider evidence, charges and history are reconciled conservatively. Missing
+  known records conflict, orphan records fence as unresolved effects, and even
+  consistent awaiting-resolution facts remain touched—not complete or
+  retryable. All decisions remain non-authorizing under the fixed stop order.
+  The pure slice has no store, owner, IDB, capture or production consumer; the
+  rollback-isolated atomic owner is still the next separate gate.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
