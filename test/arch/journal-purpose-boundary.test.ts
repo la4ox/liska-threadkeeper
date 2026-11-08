@@ -28,6 +28,10 @@ const baselinePlanConsumers = ['contracts.ts', 'plan.ts'].map(name =>
 const executor = path.join(root, 'src/content/capture/chatgpt-admitted-capture.ts');
 const coordinator = path.join(root, 'src/resumability-journal/execution-coordinator/index.ts');
 const baselineOwnerEntry = path.join(root, 'src/resumability-journal/baseline-owner/index.ts');
+const providerOwnerEntry = path.join(
+  root,
+  'src/resumability-journal/provider-baseline-owner/index.ts'
+);
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const name = path.join(dir, entry.name);
@@ -103,6 +107,7 @@ describe('isolated unwired new-capture purpose contract', () => {
                   persistenceCore,
                   persistenceEntry,
                   baselineOwnerEntry,
+                  providerOwnerEntry,
                   path.join(root, 'src/resumability-journal/execution-coordinator/store-port.ts'),
                   ...baselinePlanConsumers,
                 ].includes(file)

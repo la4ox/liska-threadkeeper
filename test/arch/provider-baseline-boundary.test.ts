@@ -11,6 +11,15 @@ import {
 
 const root = path.resolve(import.meta.dirname, '../..');
 const directory = path.join(root, 'src/resumability-journal/provider-baseline');
+const ownerConsumers = new Map(
+  [
+    ['index.ts', ['checkpoint', 'contracts', 'operation', 'progress']],
+    ['envelope.ts', ['checkpoint', 'contracts', 'operation']],
+  ].map(([name, targets]) => [
+    path.join(root, 'src/resumability-journal/provider-baseline-owner', name as string),
+    (targets as string[]).map(target => path.join(directory, target)),
+  ])
+);
 const ownImports: Record<string, string[]> = {
   'contracts.ts': ['../baseline-plan/contracts', '../purpose-persistence-v3/core/record'],
   'operation.ts': [
@@ -189,7 +198,11 @@ describe('unwired pure closed provider baseline checkpoint/2 boundary', () => {
       for (const reference of references(file)) {
         const resolved = path.resolve(path.dirname(file), reference);
         if (resolved === directory || resolved.startsWith(directory + path.sep))
-          expect(file.startsWith(directory + path.sep), relative(file)).toBe(true);
+          expect(
+            file.startsWith(directory + path.sep) ||
+              ownerConsumers.get(file)?.includes(resolved) === true,
+            relative(file)
+          ).toBe(true);
       }
       if (file.startsWith(directory + path.sep))
         expect(readFileSync(file, 'utf8')).not.toMatch(

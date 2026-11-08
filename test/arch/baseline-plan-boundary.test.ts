@@ -30,6 +30,15 @@ const ownerConsumers = new Map(
         (targets as string[]).map(target => path.join(directory, target)),
       ])
     )
+    .concat(
+      [
+        ['index.ts', ['contracts', 'data', 'plan']],
+        ['envelope.ts', ['contracts', 'plan']],
+      ].map(([name, targets]) => [
+        path.join(root, 'src/resumability-journal/provider-baseline-owner', name as string),
+        (targets as string[]).map(target => path.join(directory, target)),
+      ])
+    )
 );
 const ownImports: Record<string, string[]> = {
   'contracts.ts': [

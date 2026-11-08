@@ -6185,3 +6185,61 @@ The next gate is a fresh `liska-baseline-owner-v2` database and
 `liska-baseline-owner/2` envelope that atomically owns the unchanged plan,
 checkpoint/2 and journal/3 reservations under complete-inventory CAS. Production
 wiring and Claude live requests remain later.
+
+## Provider baseline owner/2 atomic reservation — 2026-11-08
+
+Branch `codex/provider-baseline-owner-v2` starts from merged main
+`e6b8af1056ebc830e84c208078ce92d971750dcb` and records
+[ADR-071](docs/adr/071-provider-baseline-owner-v2-atomic-reservation.md). It adds
+one fresh rollback-isolated `liska-baseline-owner-v2` physical database and
+`liska-baseline-owner/2` binary envelope without changing the old owner,
+journal/1/2/3, plan or checkpoint/2 sources.
+
+The database has exactly `owner` and `operations` stores. One fixed owner key
+holds exact catalog bytes, unchanged plan bytes/digest and checkpoint/2 bytes;
+the second store holds canonical journal/3 records by operation ID. Every read
+scans both complete inventories. Every mutation prepares detached bytes first,
+then rescans, byte-compares and writes owner plus optional record in one
+readwrite transaction. Results are released only after a terminal commit.
+
+The public owner can open/close, create one paused owner, read its complete
+snapshot, apply the closed control set, reserve the first deterministic
+ChatGPT/Claude item, recover explicitly to paused planning and inspect one exact
+reservation read-only. Reservation rehashes the provider-aware conversation key
+and atomically adds only a revision-0 active/open/reserved record with its
+immutable link, charge and observation. Every returned value retains
+`executionAuthorized: false`.
+
+Fresh handles never regain mutation authority merely by opening. Pause,
+recovery, close, cancellation and failed mutations rotate or fence the session;
+delayed-hash tests prove stale reservation continuations issue no later write.
+Transaction and open uncertainty retain the accepted terminal-event discipline
+and never authorize retry or replacement IDs.
+
+Admission permits at most 16 lifetime operations/links/charges, 128 checkpoint
+observations, 64 windows and 16 reservation slots per window. Journal/3 records
+must retain their exact 64 KiB canonical/control headroom, and active
+checkpoints must retain mandatory pause/restart headroom. In-flight, unknown,
+awaiting-resolution or nonzero-revision records are corruption in this
+reservation-only domain.
+
+Focused acceptance passes 28 files / 435 tests, including 60 owner behavior
+cases and six exact architecture cases. Project TypeScript, scoped zero-warning
+ESLint, focused Prettier and diff checks pass. Independent review reports ready
+with no material finding.
+
+Full coverage passes 357 files with one skipped and 12,113 tests with three
+skipped: 95.28% statements, 91.89% branches, 98.40% functions and 97.48% lines.
+Global lint has zero errors and the unchanged 55 warnings; full Prettier, Idea
+Threads 9/37, documentation links 91/91 and the zero-vulnerability production
+audit pass. The guarded production build/ZIP passes. Fresh `dist` contains 65
+files / 6,087,953 bytes with no provider-owner-v2 markers. The 2,792,264-byte
+ZIP has SHA-256
+`4935ccbe44cafe2dfa3b3a779d0f1517dd663ff8aa044fd3813cc8a422a3b592`.
+
+Current-head GitHub gates remain pending. The source is unwired: there is no
+production consumer, execution port, provider request, evidence writer,
+destination, retry, settlement, migration, deletion, automatic continuation,
+account-wide baseline, scheduler, UI or living-memory authority. The next gate
+is a separate native Chromium storage-only harness for owner/2;
+lifecycle/evidence integration and live Claude work remain later decisions.
