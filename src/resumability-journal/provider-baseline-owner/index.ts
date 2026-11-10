@@ -1,9 +1,18 @@
-/** Unwired durable provider owner. It reserves facts only and never grants execution authority. */
+/* eslint-disable max-lines -- One private owner retains the complete session and two-store CAS protocol. */
+/** Unwired durable provider owner. Dispatch is bound and session-local; provider effects stay out. */
 import { MAX_CATALOG_BYTES, type CatalogSha256 } from '../../archive/catalog/admission';
 import { conversationKeyInput } from '../../archive/catalog/conversation-key';
 import { createBaselinePlan } from '../baseline-plan/plan';
 import type { BaselinePlanRequest, PlanDependencies } from '../baseline-plan/contracts';
-import { detach, digest, exact, hashDependency, identifier, integer } from '../baseline-plan/data';
+import {
+  canonical,
+  detach,
+  digest,
+  exact,
+  hashDependency,
+  identifier,
+  integer,
+} from '../baseline-plan/data';
 import {
   createProviderBaselineCheckpoint,
   reduceProviderBaselineCheckpoint,
@@ -14,10 +23,18 @@ import { nextProviderBaselineDecision } from '../provider-baseline/progress';
 import { admitNewCaptureOperation, OPERATION_SCHEMA, type NewCaptureOperation } from '../purpose';
 import {
   RECORD_SCHEMA,
+  revise,
+  snapshotReceipts,
   snapshotRecord,
+  type ClosedCaptureOperation,
+  type ExecutionInterruptionReason,
   type OperationRecord,
 } from '../purpose-persistence-v3/core/record';
-import { encodeWithControlHeadroom } from '../purpose-persistence-v3/core/control';
+import {
+  controlRecord,
+  encodeWithControlHeadroom,
+  interruptExecution,
+} from '../purpose-persistence-v3/core/control';
 import {
   closeConnection,
   databaseDependencies,
@@ -30,6 +47,7 @@ import { assertUnchanged, scan } from './inventory';
 import { providerOwnerTransaction, type ProviderOwnerTransactionRunner } from './transaction';
 import {
   assertProviderOwnerHeadroom,
+  assertProviderExecutionHeadroom,
   copyBytes,
   encodeProviderOwner,
   sameBytes,
@@ -38,8 +56,23 @@ import {
   type ValidatedProviderOwner,
 } from './envelope';
 import { ProviderOwnerStorageError, requireOwner } from './errors';
+import {
+  boundProviderRecord,
+  observeProviderRecord,
+  providerEvidenceRecord,
+  snapshotProviderIdentity,
+} from './execution';
+import {
+  createProviderExecutionPort,
+  providerExecutionFailure,
+  providerExecutionResult,
+  type ProviderDispatchClaim,
+  type ProviderDispatchToken,
+  type ProviderExecutionPort,
+} from './port';
 
 export { ProviderOwnerStorageError } from './errors';
+export { ProviderExecutionPortError } from './port';
 export {
   PROVIDER_OWNER_DATABASE_NAME,
   PROVIDER_OWNER_DATABASE_VERSION,
@@ -48,6 +81,12 @@ export {
   PROVIDER_OPERATIONS_STORE_NAME,
 } from './database';
 export type { ProviderOwnerStoreOptions, ProviderOwnerTimers } from './database';
+export type {
+  ProviderDispatchClaim,
+  ProviderDispatchToken,
+  ProviderExecutionPort,
+  ProviderExecutionPortCode,
+} from './port';
 
 export interface ProviderBaselineOwnerOptions extends ProviderOwnerStoreOptions {
   readonly sha256: CatalogSha256;
@@ -114,6 +153,10 @@ export interface ProviderBaselineOwner {
     now: number,
     signal: AbortSignal
   ): Promise<ProviderOwnerSnapshot>;
+  createExecutionPort(
+    identity: ProviderReservationIdentity,
+    clock: { readonly now: () => number }
+  ): Promise<ProviderExecutionPort>;
   inspectReservation(input: ProviderReservationIdentity): Promise<
     | { readonly executionAuthorized: false; readonly kind: 'not-observed' }
     | {
@@ -123,6 +166,20 @@ export interface ProviderBaselineOwner {
         readonly item: ProviderReservationIdentity['item'];
       }
   >;
+}
+
+interface ClaimedDispatch {
+  readonly identity: string;
+  readonly raw: Inventory;
+  readonly record: OperationRecord;
+}
+
+interface DispatchSession {
+  readonly tokens: WeakMap<object, ClaimedDispatch>;
+}
+
+function dispatchSession(): DispatchSession {
+  return Object.freeze({ tokens: new WeakMap() });
 }
 
 function idsSnapshot(input: ProviderReservationIds): ProviderReservationIds {
@@ -172,7 +229,8 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
   #closed = false;
   #recovered = false;
   #fenced = false;
-  #session: object = Object.freeze({});
+  #dispatchEnabled = false;
+  #session = dispatchSession();
 
   constructor(input: ProviderBaselineOwnerOptions) {
     const options = exact(
@@ -185,8 +243,9 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
     this.#dependencies = databaseDependencies(options as ProviderOwnerStoreOptions);
   }
 
-  #rotateSession(): object {
-    this.#session = Object.freeze({});
+  #rotateSession(): DispatchSession {
+    this.#session = dispatchSession();
+    this.#dispatchEnabled = false;
     return this.#session;
   }
 
@@ -208,10 +267,27 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
     requireOwner(this.#recovered, 'recovery-required');
   }
 
-  #sessionCurrent(session: object, recovery = false): void {
+  #sessionCurrent(session: DispatchSession, recovery = false): void {
     if (recovery) this.#operational();
     else this.#mutationReady();
     requireOwner(this.#session === session, 'invalid-input');
+  }
+
+  #dispatchReady(session: DispatchSession): void {
+    this.#sessionCurrent(session);
+    requireOwner(this.#dispatchEnabled, 'candidate-unavailable');
+  }
+
+  #dispatchAvailable(session: DispatchSession): boolean {
+    return (
+      session === this.#session &&
+      this.#dispatchEnabled &&
+      this.#recovered &&
+      !this.#closed &&
+      !this.#fenced &&
+      !this.#connection?.failure &&
+      !this.#connection?.mutationUnknown
+    );
   }
 
   open(): Promise<void> {
@@ -260,26 +336,37 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
     return { raw, owner: await validateInventory(raw, dependencies) };
   }
 
+  async #portMutation<Output>(run: () => Promise<Output>): Promise<Output> {
+    try {
+      return await run();
+    } catch (error) {
+      this.#fence();
+      throw error;
+    }
+  }
+
   async #commit(
     raw: Inventory,
     owner: ValidatedProviderOwner,
     signal: AbortSignal,
-    session: object,
+    session: DispatchSession,
     recovery: boolean,
-    record?: OperationRecord
+    change?: { readonly record: OperationRecord; readonly insert: boolean }
   ): Promise<ProviderOwnerSnapshot> {
-    assertProviderOwnerHeadroom(owner.checkpoint);
+    assertProviderExecutionHeadroom(owner);
     const ownerBytes = encodeProviderOwner(owner);
-    const recordBytes = record && encodeWithControlHeadroom(record);
+    const recordBytes = change && encodeWithControlHeadroom(change.record);
     const result = output(owner);
     return this.#run<ProviderOwnerSnapshot>('readwrite', context =>
       scan(context, actual => {
         assertUnchanged(raw, actual);
         this.#sessionCurrent(session, recovery);
         requireOwner(!signal.aborted, 'invalid-input');
-        if (record && recordBytes)
+        if (change && recordBytes)
           context.request(
-            context.operations.add(recordBytes, record.operation.operationId),
+            change.insert
+              ? context.operations.add(recordBytes, change.record.operation.operationId)
+              : context.operations.put(recordBytes, change.record.operation.operationId),
             () => {}
           );
         context.request(
@@ -293,6 +380,7 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
     );
   }
 
+  // eslint-disable-next-line max-lines-per-function -- One create snapshot/hash/CAS protocol with a terminal-event result.
   async create(
     catalogInput: Uint8Array,
     requestInput: BaselinePlanRequest,
@@ -337,6 +425,7 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
         !this.#connection?.mutationUnknown
       )
         this.#recovered = true;
+      this.#dispatchEnabled = false;
       return result;
     } catch (error) {
       this.#fence();
@@ -349,6 +438,7 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
     return owner && output(owner);
   }
 
+  // eslint-disable-next-line max-lines-per-function, complexity -- Closed control commands share one atomic checkpoint+record CAS.
   async applyControl(
     expectedRevisionInput: number,
     commandInput: ProviderOwnerControl
@@ -363,10 +453,7 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
         ),
         'invalid-input'
       );
-      if (fields.kind === 'pause') {
-        this.#rotateSession();
-        this.#recovered = true;
-      }
+      if (fields.kind === 'pause') this.#rotateSession();
       const session = this.#session;
       const dependencies = this.#hash(new AbortController().signal);
       const { raw, owner } = await this.#snapshot(dependencies);
@@ -377,14 +464,32 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
         { ...fields, expectedRevision } as ProviderCheckpointCommand,
         dependencies
       );
-      assertProviderOwnerHeadroom(checkpoint);
-      return await this.#commit(
+      let updated: ValidatedProviderOwner = { ...current, checkpoint };
+      const inflight = current.operations.filter(record => record.phase === 'in-flight');
+      requireOwner(inflight.length <= 1, 'corrupt-owner');
+      const record =
+        fields.kind === 'pause' && inflight[0] ? controlRecord(inflight[0], 'pause') : undefined;
+      if (record)
+        updated = await observeProviderRecord(updated, record, integer(fields.now), dependencies);
+      const result = await this.#commit(
         raw,
-        { ...current, checkpoint },
+        updated,
         dependencies.signal,
         session,
-        false
+        false,
+        record && { record, insert: false }
       );
+      if (
+        fields.kind === 'activate' &&
+        session === this.#session &&
+        this.#recovered &&
+        !this.#closed &&
+        !this.#fenced &&
+        !this.#connection?.failure &&
+        !this.#connection?.mutationUnknown
+      )
+        this.#dispatchEnabled = true;
+      return result;
     } catch (error) {
       this.#fence();
       throw error;
@@ -483,7 +588,7 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
         signal,
         session,
         false,
-        record
+        { record, insert: true }
       );
       return Object.freeze({
         executionAuthorized: false as const,
@@ -497,6 +602,7 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
     }
   }
 
+  // eslint-disable-next-line max-lines-per-function -- Recovery revokes first, then performs one complete-inventory reconciliation CAS.
   async recoverAfterRestart(
     expectedRevisionInput: number,
     nowInput: number,
@@ -513,17 +619,29 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
       const { raw, owner } = await this.#snapshot(dependencies);
       const current = selected(owner, expectedRevision);
       requireOwner(now >= current.checkpoint.observedAt, 'invalid-input');
-      const checkpoint =
-        current.checkpoint.control === 'paused'
-          ? current.checkpoint
-          : await reduceProviderBaselineCheckpoint(
-              current.plan,
-              current.checkpoint,
-              { kind: 'recover-after-restart', expectedRevision, now },
-              dependencies
-            );
-      assertProviderOwnerHeadroom(checkpoint);
-      const result = await this.#commit(raw, { ...current, checkpoint }, signal, session, true);
+      const inflight = current.operations.filter(record => record.phase === 'in-flight');
+      requireOwner(inflight.length <= 1, 'corrupt-owner');
+      const preserve = current.checkpoint.control === 'paused' && inflight.length === 0;
+      const checkpoint = preserve
+        ? current.checkpoint
+        : await reduceProviderBaselineCheckpoint(
+            current.plan,
+            current.checkpoint,
+            { kind: 'recover-after-restart', expectedRevision, now },
+            dependencies
+          );
+      const record = inflight[0] && controlRecord(inflight[0], 'restart');
+      const updated = record
+        ? await observeProviderRecord({ ...current, checkpoint }, record, now, dependencies)
+        : { ...current, checkpoint };
+      const result = await this.#commit(
+        raw,
+        updated,
+        signal,
+        session,
+        true,
+        record && { record, insert: false }
+      );
       if (
         session === this.#session &&
         !this.#closed &&
@@ -532,11 +650,214 @@ class ProviderBaselineOwnerImplementation implements ProviderBaselineOwner {
         !this.#connection?.mutationUnknown
       )
         this.#recovered = true;
+      this.#dispatchEnabled = false;
       return result;
     } catch (error) {
       this.#fence();
       throw error;
     }
+  }
+
+  /** Bind one full immutable reservation and a captured monotonic clock, never owner authority. */
+  // eslint-disable-next-line max-lines-per-function -- Exact five-method port captures one identity and monotonic clock.
+  async createExecutionPort(
+    input: ProviderReservationIdentity,
+    clockInput: { readonly now: () => number }
+  ): Promise<ProviderExecutionPort> {
+    this.#mutationReady();
+    const identity = snapshotProviderIdentity(input);
+    const clock = exact(clockInput, ['now']).now;
+    requireOwner(typeof clock === 'function', 'invalid-input');
+    let last = -1;
+    const now = () => {
+      const value = (clock as () => number)();
+      if (!Number.isSafeInteger(value) || value < 0 || value < last) {
+        this.#rotateSession();
+        throw new ProviderOwnerStorageError('invalid-input');
+      }
+      last = value;
+      return value;
+    };
+    const time = now();
+    const session = this.#session;
+    const { owner } = await this.#snapshot(this.#hash(new AbortController().signal));
+    boundProviderRecord(owner, identity);
+    requireOwner(time >= owner!.checkpoint.observedAt, 'invalid-input');
+    this.#sessionCurrent(session);
+    return createProviderExecutionPort({
+      read: () =>
+        providerExecutionResult(async () => {
+          const { owner } = await this.#snapshot(this.#hash(new AbortController().signal));
+          return boundProviderRecord(owner, identity);
+        }),
+      claimDispatch: revision =>
+        providerExecutionResult(() =>
+          this.#portMutation(() => this.#claim(identity, revision, now()))
+        ),
+      consumeDispatch: (token, operation, beginEffect) =>
+        this.#consume(token, identity, operation, beginEffect),
+      markExecutionUnknown: (revision, reason) =>
+        providerExecutionResult(() =>
+          this.#portMutation(() => this.#mark(identity, revision, reason, now()))
+        ),
+      recordProducerReceipts: (revision, receipts) =>
+        providerExecutionResult(() =>
+          this.#portMutation(async () => {
+            const accepted = snapshotReceipts(
+              identity.item.provider as 'chatgpt' | 'claude',
+              receipts
+            );
+            const observedAt = now();
+            return this.#evidence(identity, revision, accepted, observedAt);
+          })
+        ),
+    });
+  }
+
+  async #claim(
+    identity: ProviderReservationIdentity,
+    revision: number,
+    now: number
+  ): Promise<ProviderDispatchClaim> {
+    this.#mutationReady();
+    integer(revision);
+    const session = this.#session;
+    const dependencies = this.#hash(new AbortController().signal);
+    this.#dispatchReady(session);
+    const { raw, owner } = await this.#snapshot(dependencies);
+    const original = boundProviderRecord(owner, identity, revision);
+    requireOwner(
+      owner!.checkpoint.control === 'active' &&
+        original.phase === 'reserved' &&
+        original.control === 'active' &&
+        original.disposition === 'open' &&
+        !owner!.operations.some(
+          record =>
+            record !== original && ['reserved', 'in-flight', 'unknown'].includes(record.phase)
+        ),
+      'candidate-unavailable'
+    );
+    const record = revise(original, { phase: 'in-flight' });
+    const updated = await observeProviderRecord(owner!, record, now, dependencies);
+    await this.#commit(raw, updated, dependencies.signal, session, false, {
+      record,
+      insert: false,
+    });
+    if (!this.#dispatchAvailable(session))
+      return Object.freeze({ record, dispatch: 'revoked' as const });
+    const token = Object.freeze(Object.create(null)) as ProviderDispatchToken;
+    const committed: Inventory = {
+      owner: [{ key: PROVIDER_OWNER_KEY, bytes: encodeProviderOwner(updated) }],
+      operations: raw.operations.map(entry =>
+        entry.key === identity.operationId
+          ? { key: identity.operationId, bytes: encodeWithControlHeadroom(record) }
+          : entry
+      ),
+    };
+    session.tokens.set(token, { identity: canonical(identity), raw: committed, record });
+    return Object.freeze({ record, dispatch: 'available' as const, token });
+  }
+
+  async #consume<Output>(
+    token: ProviderDispatchToken,
+    identity: ProviderReservationIdentity,
+    input: ClosedCaptureOperation,
+    beginEffect: (operation: ClosedCaptureOperation) => Output | Promise<Output>
+  ): Promise<Output> {
+    // Burn before the first await. No validation failure, callback failure or retry restores it.
+    const session = this.#session;
+    const expected = token && typeof token === 'object' ? session.tokens.get(token) : undefined;
+    if (token && typeof token === 'object') session.tokens.delete(token);
+    let operation!: ClosedCaptureOperation;
+    await providerExecutionResult(async () => {
+      this.#dispatchReady(session);
+      requireOwner(
+        expected && expected.identity === canonical(identity) && typeof beginEffect === 'function',
+        'invalid-input'
+      );
+      const supplied = admitNewCaptureOperation(input) as ClosedCaptureOperation;
+      requireOwner(
+        (supplied.admission.provider === 'chatgpt' || supplied.admission.provider === 'claude') &&
+          canonical(supplied) === canonical(expected.record.operation),
+        'invalid-input'
+      );
+      operation = expected.record.operation;
+      await this.#run<void>('readwrite', context =>
+        scan(context, actual => {
+          this.#dispatchReady(session);
+          assertUnchanged(expected.raw, actual);
+          context.finish(undefined);
+        })
+      );
+    });
+    // Same continuation: no caller code or await occurs between this fence and effect start.
+    try {
+      this.#dispatchReady(session);
+    } catch (error) {
+      providerExecutionFailure(error);
+    }
+    return beginEffect(operation);
+  }
+
+  async #mark(
+    identity: ProviderReservationIdentity,
+    revision: number,
+    reason: ExecutionInterruptionReason,
+    now: number
+  ): Promise<OperationRecord> {
+    // Stopping is fail-closed: revoke first and never restore this dispatch session.
+    this.#rotateSession();
+    this.#mutationReady();
+    integer(revision);
+    const session = this.#session;
+    const dependencies = this.#hash(new AbortController().signal);
+    const { raw, owner } = await this.#snapshot(dependencies);
+    const record = interruptExecution(boundProviderRecord(owner, identity, revision), reason);
+    const checkpoint = await reduceProviderBaselineCheckpoint(
+      owner!.plan,
+      owner!.checkpoint,
+      {
+        kind: 'pause',
+        expectedRevision: owner!.checkpoint.revision,
+        now,
+      },
+      dependencies
+    );
+    const updated = await observeProviderRecord(
+      { ...owner!, checkpoint },
+      record,
+      now,
+      dependencies
+    );
+    await this.#commit(raw, updated, dependencies.signal, session, false, {
+      record,
+      insert: false,
+    });
+    return record;
+  }
+
+  async #evidence(
+    identity: ProviderReservationIdentity,
+    revision: number,
+    receipts: ReturnType<typeof snapshotReceipts>,
+    now: number
+  ): Promise<OperationRecord> {
+    this.#mutationReady();
+    integer(revision);
+    const session = this.#session;
+    const dependencies = this.#hash(new AbortController().signal);
+    const { raw, owner } = await this.#snapshot(dependencies);
+    const record = await providerEvidenceRecord(
+      boundProviderRecord(owner, identity, revision),
+      receipts,
+      dependencies
+    );
+    const updated = await observeProviderRecord(owner!, record, now, dependencies);
+    await this.#commit(raw, updated, dependencies.signal, session, false, {
+      record,
+      insert: false,
+    });
+    return record;
   }
 
   // eslint-disable-next-line max-lines-per-function -- One read-only identity snapshot and exact committed-record reconciliation.

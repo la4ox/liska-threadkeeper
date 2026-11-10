@@ -95,8 +95,8 @@ describe('separate opt-in provider owner MV3 build', () => {
       resolve(ROOT, 'test-results/provider-baseline-owner-browser/extension')
     );
     expect(built.ok).toBe(true);
-    expect(built.sourceModules).toBe(37);
-    expect(built.runtimeModules).toBe(38);
+    expect(built.sourceModules).toBe(39);
+    expect(built.runtimeModules).toBe(40);
     expect(built.files.map(file => file.id)).toEqual(INVENTORY);
     for (const file of built.files) {
       const bytes = readFileSync(join(extension, file.id));
@@ -586,8 +586,8 @@ describe('compiled runner with native WebCrypto and fake IDB', () => {
 describe('source and runtime authority closure', () => {
   it('pins every production module to real v2 owner and pure journal/3 dependencies', () => {
     expect(inspectSourceClosure()).toEqual(SOURCE_CLOSURE);
-    expect(SOURCE_CLOSURE).toHaveLength(37);
-    expect(SOURCE_CLOSURE.filter((file: string) => file.startsWith('src/'))).toHaveLength(33);
+    expect(SOURCE_CLOSURE).toHaveLength(39);
+    expect(SOURCE_CLOSURE.filter((file: string) => file.startsWith('src/'))).toHaveLength(35);
     expect(SOURCE_CLOSURE.join('\n')).not.toMatch(
       /(?:^|\/)baseline-owner\/|execution-coordinator|capture-handoff|purpose-persistence-v2|messaging|destination|node_modules/u
     );

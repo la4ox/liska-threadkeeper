@@ -15,8 +15,12 @@ import {
   controlRecord,
   encodeWithControlHeadroom,
 } from '../../../src/resumability-journal/purpose-persistence-v3/core/control';
-import type { OperationRecord } from '../../../src/resumability-journal/purpose-persistence-v3/core/record';
-import { reserved } from '../provider-baseline/fixtures';
+import {
+  encodeRecord,
+  snapshotRecord,
+  type OperationRecord,
+} from '../../../src/resumability-journal/purpose-persistence-v3/core/record';
+import { observed, reserved } from '../provider-baseline/fixtures';
 import { catalogBytes, identity, requirements, setup, sha256, signal } from './fixtures';
 
 async function rewrite(
@@ -48,37 +52,52 @@ async function rewrite(
 
 async function linkedCheckpoint(
   snapshot: Awaited<ReturnType<typeof setup>>['snapshot'],
-  count: number
+  count: number,
+  awaiting = false
 ) {
   let checkpoint = snapshot.checkpoint;
   const records: OperationRecord[] = [];
   for (let ordinal = 0; ordinal < count; ordinal++) {
     const record = reserved(snapshot.plan, ordinal, String(ordinal));
-    records.push(record);
     checkpoint = await reduceProviderBaselineCheckpoint(
       snapshot.plan,
       checkpoint,
       {
         kind: 'observe-operation',
         expectedRevision: checkpoint.revision,
-        now: 101 + ordinal,
+        now: 101 + ordinal * (awaiting ? 2 : 1),
         itemOrdinal: ordinal,
         record,
       },
       { sha256, signal: signal() }
     );
+    const current = awaiting ? await observed(record, 'insufficient') : record;
+    if (awaiting)
+      checkpoint = await reduceProviderBaselineCheckpoint(
+        snapshot.plan,
+        checkpoint,
+        {
+          kind: 'observe-operation',
+          expectedRevision: checkpoint.revision,
+          now: 102 + ordinal * 2,
+          itemOrdinal: ordinal,
+          record: current,
+        },
+        { sha256, signal: signal() }
+      );
+    records.push(current);
   }
   return { checkpoint, records };
 }
 
 describe('provider owner complete-inventory admission and bounds', () => {
-  it('admits exactly 16 bound reservations and rejects a seventeenth physical record', async () => {
+  it('admits exactly 16 bound awaiting-resolution records and rejects a seventeenth physical record', async () => {
     const selection = Array.from({ length: 17 }, (_, index) =>
       identity(index, index % 2 ? 'claude' : 'chatgpt')
     );
     const { owner, bytes, snapshot, factory, settings } = await setup({}, selection);
     owner.close();
-    const { checkpoint, records } = await linkedCheckpoint(snapshot, 16);
+    const { checkpoint, records } = await linkedCheckpoint(snapshot, 16, true);
     const ownerBytes = encodeProviderOwner({
       plan: snapshot.plan,
       checkpoint,
@@ -99,6 +118,56 @@ describe('provider owner complete-inventory admission and bounds', () => {
     await overflow.open();
     await expect(overflow.readSnapshot()).rejects.toMatchObject({ code: 'corrupt-owner' });
     overflow.close();
+  });
+
+  it('rejects more than one reserved, in-flight or unknown pending record', async () => {
+    const selection = [identity(0, 'chatgpt'), identity(1, 'claude')];
+    const { owner, bytes, snapshot, factory, settings } = await setup({}, selection);
+    owner.close();
+    const { checkpoint, records } = await linkedCheckpoint(snapshot, 2);
+    await rewrite(
+      factory,
+      encodeProviderOwner({ plan: snapshot.plan, checkpoint, catalogBytes: bytes }),
+      records
+    );
+    const reader = createProviderBaselineOwner(settings);
+    await reader.open();
+    await expect(reader.readSnapshot()).rejects.toMatchObject({ code: 'corrupt-owner' });
+    reader.close();
+  });
+
+  it('rejects canonical reserved/paused state with a valid appended latest digest on read and reopen', async () => {
+    const { owner, bytes, snapshot, factory, settings } = await setup();
+    owner.close();
+    const linked = await linkedCheckpoint(snapshot, 1);
+    const paused = controlRecord(linked.records[0], 'pause');
+    const checkpoint = await reduceProviderBaselineCheckpoint(
+      snapshot.plan,
+      linked.checkpoint,
+      {
+        kind: 'observe-operation',
+        expectedRevision: linked.checkpoint.revision,
+        now: linked.checkpoint.observedAt + 1,
+        itemOrdinal: 0,
+        record: paused,
+      },
+      { sha256, signal: signal() }
+    );
+    expect(checkpoint.observations.at(-1)).toMatchObject({
+      recordRevision: paused.revision,
+      recordSha256: await sha256(encodeRecord(paused)),
+    });
+    await rewrite(
+      factory,
+      encodeProviderOwner({ plan: snapshot.plan, checkpoint, catalogBytes: bytes }),
+      [paused]
+    );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const reader = createProviderBaselineOwner(settings);
+      await reader.open();
+      await expect(reader.readSnapshot()).rejects.toMatchObject({ code: 'corrupt-owner' });
+      reader.close();
+    }
   });
 
   it.each(['orphan', 'paused', 'trailing-record', 'trailing-owner'] as const)(
@@ -149,6 +218,43 @@ describe('provider owner complete-inventory admission and bounds', () => {
     await expect(reader.readSnapshot()).rejects.toMatchObject({ code: 'corrupt-owner' });
     reader.close();
   });
+
+  it.each(['immutable-operation', 'latest-record-digest'] as const)(
+    'rejects %s corruption without rewriting either store',
+    async kind => {
+      const { owner, bytes, snapshot, factory, settings } = await setup();
+      owner.close();
+      const { checkpoint, records } = await linkedCheckpoint(snapshot, 1);
+      const stored =
+        kind === 'immutable-operation'
+          ? [
+              snapshotRecord({
+                ...records[0],
+                operation: {
+                  ...records[0].operation,
+                  sourceSelection: { catalogSha256: 'f'.repeat(64) },
+                },
+              }),
+            ]
+          : records;
+      const observations = [...checkpoint.observations];
+      if (kind === 'latest-record-digest')
+        observations[observations.length - 1] = {
+          ...observations.at(-1)!,
+          recordSha256: 'e'.repeat(64),
+        };
+      const corrupted = { ...checkpoint, observations };
+      await rewrite(
+        factory,
+        encodeProviderOwner({ plan: snapshot.plan, checkpoint: corrupted, catalogBytes: bytes }),
+        stored
+      );
+      const reader = createProviderBaselineOwner(settings);
+      await reader.open();
+      await expect(reader.readSnapshot()).rejects.toMatchObject({ code: 'corrupt-owner' });
+      reader.close();
+    }
+  );
 
   it('admits 64 budget windows and fences the 65th without changing stored bytes', async () => {
     const { owner } = await setup();

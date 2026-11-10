@@ -809,6 +809,16 @@ terminal states, and the existing no-credential-export boundary.
   fixed rows in 249 ms with a 21 ms maximum gap, exact two-lifecycle cleanup and
   zero network calls. The next gate is a separately reviewed owner/2 lifecycle
   and evidence port—not a live provider runner or scheduler.
+- [ADR-073](adr/073-provider-owner-v2-lifecycle-port.md) now supplies that
+  journal/3-specific port without widening the old journal/2 coordinator. One
+  owner-bound, runtime-branded five-method surface atomically claims a reserved
+  record, burns one session token at consume, retains explicit uncertainty and
+  maps provider-selected factual receipts to awaiting-resolution with the
+  matching checkpoint observation. Pause/restart revoke first; unknown commits
+  never retry; awaiting evidence never settles or reserves automatically. Exact
+  5/4/3 record-revision and checkpoint/history projections fail before effects
+  when late evidence could not fit. The next gate is separate synthetic native
+  lifecycle acceptance, not a live Claude request.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

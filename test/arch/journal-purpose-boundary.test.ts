@@ -32,6 +32,10 @@ const providerOwnerEntry = path.join(
   root,
   'src/resumability-journal/provider-baseline-owner/index.ts'
 );
+const providerOwnerExecution = path.join(
+  root,
+  'src/resumability-journal/provider-baseline-owner/execution.ts'
+);
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const name = path.join(dir, entry.name);
@@ -120,6 +124,7 @@ describe('isolated unwired new-capture purpose contract', () => {
               persistenceEntry,
               persistenceRecords,
               path.join(root, 'src/resumability-journal/baseline-owner/execution.ts'),
+              providerOwnerExecution,
             ]).toContain(file);
           if (resolved === handoff || resolved.startsWith(handoff + path.sep))
             expect([executor, persistenceEntry, coordinator, baselineOwnerEntry]).toContain(file);

@@ -6306,3 +6306,89 @@ durability and adds no provider/account access, real Claude request, destination
 execution, settlement, retry, automatic continuation, account-wide baseline,
 scheduler, UI or living-memory authority. The next separate gate is an owner/2
 lifecycle/evidence port.
+
+## Provider owner/2 journal/3 lifecycle port — 2026-11-10
+
+Branch `codex/provider-owner-v2-lifecycle` starts from merged main
+`80b7efcd17c30139d76df822e0c8e59f5780d7d0` and records
+[ADR-073](docs/adr/073-provider-owner-v2-lifecycle-port.md). It adds one unwired
+provider-closed lifecycle/evidence port to the existing owner/2 database without
+changing its physical version, stores, envelope, plan, checkpoint or journal/3
+schemas.
+
+The exact owner-bound port exposes only read, claim, consume, mark unknown and
+record producer receipts. Identity binds the plan digest, full provider-aware
+item and operation/attempt/capture IDs. The monotonic caller clock is captured;
+regression revokes the session. No reservation, checkpoint control, transaction,
+adapter registration, settlement or retry authority crosses the port.
+
+Claim requires one exact active/open/reserved journal/3 record and no competing
+reserved/in-flight/unknown work. It atomically replaces the record with
+in-flight bytes and appends the matching checkpoint observation. Only after a
+known terminal commit may it mint a token. A concurrent stop after commit returns
+the committed record with `dispatch: revoked`; an unknown commit remains a fixed
+outcome-unknown error.
+
+Consume burns the opaque token before its first await, checks the exact operation
+and complete claimed inventory in a serializing two-store transaction, performs
+one final same-session fence and invokes the injected callback outside IDB. The
+token is never restored. This guarantees at most one callback per capability,
+not exactly-once external effects or global cross-handle cancellation.
+
+Pause, restart and explicit execution interruption revoke dispatch before
+persistence awaits. In-flight work becomes unknown and planning pauses with one
+atomic record/checkpoint observation. Provider-selected strict ChatGPT or Claude
+receipts may later revise an exact in-flight/unknown record to
+awaiting-resolution. The owner computes provider tag, adapter version, hash
+outcome and complete adaptation; callers supply no assessment. Consistent
+evidence is not settlement, and no next item is reserved automatically.
+
+Admission now accepts exact open reserved/in-flight/unknown/awaiting records,
+requires immutable links and charges plus an exact latest revision/full-record
+digest, and permits observation history to exceed record count. At most one
+record may remain pending. Reserved records must stay active; canonical forged
+reserved/paused bytes are rejected even with a recomputed latest digest. A
+transient replay outage for historically available evidence returns
+`read-failed`, not false corruption.
+
+Execution headroom is validated on read/reopen and every commit. The retained
+checkpoint revision/observation budgets remain 4/3, 3/2, 2-or-1/1 and
+1-or-0/0 for active reserved, in-flight, unknown and active-or-paused awaiting
+states. Record-revision budgets are separately 5/4/3/0 so
+awaiting-resolution plus its control projections still fit. Exact boundary
+tests prove reserved `M−5` → in-flight `M−4` → unknown `M−3` → evidence `M−2`;
+adjacent overfull states fail before an effect or late write. Paused
+reservations remain readable but activation revalidates the full active budget.
+
+The parent focused matrix passes 31 files / 542 tests across provider owner,
+checkpoint/2, journal/3, baseline plan/owner, architecture and the storage
+harness. The final provider-owner suite passes 7 files / 121 tests. TypeScript,
+scoped zero-warning ESLint, focused Prettier and diff checks pass. Independent
+review found and closed two material gaps: canonical reserved/paused admission
+and undercounted future awaiting control revisions. Final re-review reports
+ready.
+
+The ADR-072 storage scenario remains unchanged and passes 46 tests. Its exact
+closure grows to 39 source / 40 runtime modules; the rebuilt 172,353-byte runner
+has SHA-256
+`5e660a7ded0e2f7a3087fddf6863b1259344a3a6425ae84bed1989cfe3aba19e`.
+That historical native storage PASS does not certify the newly added lifecycle
+or token races.
+
+Full coverage, global lint/format, Idea Threads/documentation, dependency audit,
+production build/ZIP and current-head GitHub gates were the remaining local
+acceptance set. Full coverage now passes 360 files plus one skipped and 12,222
+tests plus three skipped: 95.31% statements, 91.93% branches, 98.43% functions
+and 97.50% lines. Global lint has zero errors and the unchanged 55 warnings;
+full Prettier, Idea Threads 9/37, documentation links 93/93 and the
+zero-vulnerability production audit pass. The guarded production build/ZIP
+passes: fresh `dist` remains 65 files / 6,087,953 bytes with zero lifecycle
+markers; the 2,792,264-byte ZIP has SHA-256
+`0f47af77431d0f6395e1fa162f1c20dbf62b543e0a7fb460c7c2c886ba07679d`.
+
+Current-head GitHub gates remain pending. The source is still unwired: no
+provider request, capture/stage/attachment pipeline, destination, production
+entrypoint, UI, live account scope, traversal, settlement, retry, automatic
+continuation, account-wide baseline, scheduler or living memory is added. The
+next separate gate is zero-permission synthetic native lifecycle acceptance
+before any manually authorized provider operation.

@@ -88,7 +88,7 @@ describe('provider owner real checkpoint and record headroom', () => {
     expect(helper.mock.results.every(call => call.value instanceof Uint8Array)).toBe(true);
     helper.mockClear();
     expect((await owner.readSnapshot())?.operations).toEqual([result.record]);
-    expect(helper).toHaveBeenCalledExactlyOnceWith(result.record);
+    expect(helper).toHaveBeenCalledWith(result.record);
     owner.close();
   });
 

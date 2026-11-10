@@ -153,7 +153,10 @@ describe('unwired closed ChatGPT/Claude journal/3 contract boundary', () => {
   it('allows only exact intra-slice consumers and has zero production entrypoint consumers', () => {
     const consumers: Record<string, string[]> = {
       [receipt]: [adapter + 'index.ts', v3 + 'core/record.ts'],
-      [adapter + 'index.ts']: [v3 + 'core/record.ts'],
+      [adapter + 'index.ts']: [
+        v3 + 'core/record.ts',
+        prefix + 'provider-baseline-owner/execution.ts',
+      ],
       [v3 + 'core/record.ts']: [
         v3 + 'core/control.ts',
         prefix + 'provider-baseline/contracts.ts',
@@ -161,10 +164,18 @@ describe('unwired closed ChatGPT/Claude journal/3 contract boundary', () => {
         prefix + 'provider-baseline/operation.ts',
         prefix + 'provider-baseline/progress.ts',
         prefix + 'provider-baseline-owner/envelope.ts',
+        prefix + 'provider-baseline-owner/execution.ts',
         prefix + 'provider-baseline-owner/index.ts',
+        prefix + 'provider-baseline-owner/port.ts',
       ],
       [v3 + 'core/data.ts']: [v3 + 'core/record.ts', prefix + 'provider-baseline/operation.ts'],
-      [v3 + 'core/errors.ts']: [v3 + 'core/data.ts', v3 + 'core/record.ts', v3 + 'core/control.ts'],
+      [v3 + 'core/errors.ts']: [
+        v3 + 'core/data.ts',
+        v3 + 'core/record.ts',
+        v3 + 'core/control.ts',
+        prefix + 'provider-baseline-owner/envelope.ts',
+        prefix + 'provider-baseline-owner/port.ts',
+      ],
       [v3 + 'core/control.ts']: [
         prefix + 'provider-baseline-owner/envelope.ts',
         prefix + 'provider-baseline-owner/index.ts',
