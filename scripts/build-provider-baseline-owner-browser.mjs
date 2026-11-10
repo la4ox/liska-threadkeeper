@@ -33,9 +33,16 @@ export const SOURCE_CLOSURE = Object.freeze(
     ...['runner.ts', 'scenario.ts', 'capabilities.ts', 'style.css'].map(
       name => 'test/browser/provider-baseline-owner/' + name
     ),
-    ...['index', 'database', 'transaction', 'inventory', 'envelope', 'errors'].map(
-      name => 'src/resumability-journal/provider-baseline-owner/' + name + '.ts'
-    ),
+    ...[
+      'index',
+      'database',
+      'transaction',
+      'inventory',
+      'envelope',
+      'errors',
+      'execution',
+      'port',
+    ].map(name => 'src/resumability-journal/provider-baseline-owner/' + name + '.ts'),
     ...['contracts', 'data', 'plan'].map(
       name => 'src/resumability-journal/baseline-plan/' + name + '.ts'
     ),

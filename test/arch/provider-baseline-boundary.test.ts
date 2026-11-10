@@ -15,6 +15,7 @@ const ownerConsumers = new Map(
   [
     ['index.ts', ['checkpoint', 'contracts', 'operation', 'progress']],
     ['envelope.ts', ['checkpoint', 'contracts', 'operation']],
+    ['execution.ts', ['checkpoint', 'operation']],
   ].map(([name, targets]) => [
     path.join(root, 'src/resumability-journal/provider-baseline-owner', name as string),
     (targets as string[]).map(target => path.join(directory, target)),

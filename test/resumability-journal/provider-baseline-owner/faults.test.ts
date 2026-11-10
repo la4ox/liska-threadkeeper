@@ -7,7 +7,7 @@ import {
 } from '../../../src/resumability-journal/provider-baseline-owner';
 import { encodeWithControlHeadroom } from '../../../src/resumability-journal/purpose-persistence-v3/core/control';
 import { reserved } from '../provider-baseline/fixtures';
-import { active, deferred, ids, ManualTimers, sha256, signal } from './fixtures';
+import { active, deferred, identity, ids, ManualTimers, sha256, signal } from './fixtures';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -242,6 +242,260 @@ describe('provider owner two-store atomicity and terminal outcomes', () => {
       owner.close();
       fresh.close();
       expect(timers.pending.size).toBe(0);
+    }
+  );
+});
+
+async function executionFaultFixture(
+  options: Parameters<typeof active>[0] = {},
+  provider: 'chatgpt' | 'claude' = 'chatgpt'
+) {
+  const context = await active(options, [identity(0, provider)]);
+  const reservation = await context.owner.reserveNext(
+    1,
+    context.bytes,
+    ids(provider),
+    102,
+    signal()
+  );
+  const bound = {
+    ...ids(provider),
+    planSha256: reservation.snapshot.plan.planSha256,
+    item: reservation.item,
+  };
+  const port = await context.owner.createExecutionPort(bound, { now: () => 103 });
+  return { ...context, ...reservation, identity: bound, port };
+}
+
+describe('provider execution lifecycle fencing and atomicity', () => {
+  it('returns committed but revoked when pause invalidates the session after the claim write', async () => {
+    const context = await executionFaultFixture();
+    let pause: Promise<unknown> | undefined;
+    let triggered = false;
+    const original = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (value, key) {
+      const request = original.call(this, value, key);
+      if (!triggered && this.name === 'operations') {
+        triggered = true;
+        pause = context.owner.applyControl(3, { kind: 'pause', now: 104 });
+      }
+      return request;
+    });
+    const claim = await context.port.claimDispatch(0);
+    expect(claim).toMatchObject({ dispatch: 'revoked', record: { phase: 'in-flight' } });
+    await pause;
+    expect((await context.owner.readSnapshot())?.operations[0]).toMatchObject({
+      phase: 'unknown',
+      interruptionReason: 'pause',
+    });
+    context.owner.close();
+  });
+
+  it.each(['claim', 'evidence'] as const)(
+    'rolls back both stores when the owner half of %s throws after the operation PUT',
+    async stage => {
+      const context = await executionFaultFixture();
+      if (stage === 'evidence') await context.port.claimDispatch(0);
+      const before = await context.owner.readSnapshot();
+      const original = IDBObjectStore.prototype.put;
+      let operationWritten = false;
+      const spy = vi
+        .spyOn(IDBObjectStore.prototype, 'put')
+        .mockImplementation(function (value, key) {
+          if (this.name === 'operations') operationWritten = true;
+          if (this.name === 'owner' && operationWritten)
+            throw new DOMException('private', 'QuotaExceededError');
+          return original.call(this, value, key);
+        });
+      const pending =
+        stage === 'claim'
+          ? context.port.claimDispatch(0)
+          : context.port.recordProducerReceipts(1, []);
+      await expect(pending).rejects.toMatchObject({ code: 'quota-exceeded' });
+      spy.mockRestore();
+      const fresh = createProviderBaselineOwner(context.settings);
+      await fresh.open();
+      expect(await fresh.readSnapshot()).toEqual(before);
+      await expect(
+        context.owner.applyControl(before!.checkpoint.revision, { kind: 'pause', now: 105 })
+      ).rejects.toMatchObject({ code: 'recovery-required' });
+      context.owner.close();
+      fresh.close();
+    }
+  );
+
+  it('CASes an operation-only phantom introduced during delayed evidence adaptation', async () => {
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    let hold = false;
+    const context = await executionFaultFixture({
+      sha256: async bytes => {
+        if (hold) {
+          hold = false;
+          entered.resolve();
+          await release.promise;
+        }
+        return sha256(bytes);
+      },
+    });
+    await context.port.claimDispatch(0);
+    hold = true;
+    const pending = context.port.recordProducerReceipts(1, []);
+    await entered.promise;
+    const database = await new Promise<IDBDatabase>(resolve => {
+      const request = context.factory.open(PROVIDER_OWNER_DATABASE_NAME, 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('operations', 'readwrite');
+      const phantom = reserved(context.snapshot.plan, 0, 'phantom-lifecycle');
+      transaction
+        .objectStore('operations')
+        .add(encodeWithControlHeadroom(phantom), phantom.operation.operationId);
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error);
+    });
+    database.close();
+    release.resolve();
+    await expect(pending).rejects.toMatchObject({ code: 'revision-conflict' });
+    context.owner.close();
+  });
+
+  it.each(['pause', 'restart', 'close', 'versionchange'] as const)(
+    'revokes delayed evidence before persistence on %s',
+    async action => {
+      const entered = deferred<void>();
+      const release = deferred<void>();
+      let hold = false;
+      const context = await executionFaultFixture({
+        sha256: async bytes => {
+          if (hold) {
+            hold = false;
+            entered.resolve();
+            await release.promise;
+          }
+          return sha256(bytes);
+        },
+      });
+      await context.port.claimDispatch(0);
+      hold = true;
+      const evidence = context.port.recordProducerReceipts(1, []);
+      await entered.promise;
+      if (action === 'pause') await context.owner.applyControl(3, { kind: 'pause', now: 104 });
+      else if (action === 'restart') await context.owner.recoverAfterRestart(3, 104, signal());
+      else if (action === 'close') context.owner.close();
+      else {
+        await new Promise<void>(resolve => {
+          const request = context.factory.open(PROVIDER_OWNER_DATABASE_NAME, 2);
+          request.onupgradeneeded = () => request.transaction?.abort();
+          request.onerror = () => resolve();
+          request.onsuccess = () => {
+            request.result.close();
+            resolve();
+          };
+        });
+      }
+      release.resolve();
+      await expect(evidence).rejects.toBeDefined();
+      const fresh = createProviderBaselineOwner(context.settings);
+      await fresh.open();
+      const stored = await fresh.readSnapshot();
+      expect(stored?.operations[0].phase).not.toBe('awaiting-resolution');
+      context.owner.close();
+      fresh.close();
+    }
+  );
+
+  it('failed pause never restores authority and leaves the atomic in-flight state recoverable', async () => {
+    const context = await executionFaultFixture();
+    const claim = await context.port.claimDispatch(0);
+    if (claim.dispatch !== 'available') throw new Error('unreachable');
+    const original = IDBObjectStore.prototype.put;
+    let failed = false;
+    const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (value, key) {
+      if (!failed && this.name === 'operations') {
+        failed = true;
+        throw new DOMException('private', 'QuotaExceededError');
+      }
+      return original.call(this, value, key);
+    });
+    await expect(context.owner.applyControl(3, { kind: 'pause', now: 104 })).rejects.toMatchObject({
+      code: 'quota-exceeded',
+    });
+    spy.mockRestore();
+    await expect(
+      context.port.consumeDispatch(claim.token, context.record.operation, vi.fn())
+    ).rejects.toBeDefined();
+    await expect(context.owner.applyControl(3, { kind: 'pause', now: 105 })).rejects.toMatchObject({
+      code: 'recovery-required',
+    });
+    const fresh = createProviderBaselineOwner(context.settings);
+    await fresh.open();
+    expect((await fresh.readSnapshot())?.operations[0].phase).toBe('in-flight');
+    context.owner.close();
+    fresh.close();
+  });
+
+  it('rejects cross-owner and stale tokens without invoking an effect', async () => {
+    const context = await executionFaultFixture();
+    const claim = await context.port.claimDispatch(0);
+    if (claim.dispatch !== 'available') throw new Error('unreachable');
+    const other = createProviderBaselineOwner(context.settings);
+    await other.open();
+    await other.recoverAfterRestart(3, 104, signal());
+    const otherPort = await other.createExecutionPort(context.identity, { now: () => 105 });
+    const effect = vi.fn();
+    await expect(
+      otherPort.consumeDispatch(claim.token, context.record.operation, effect)
+    ).rejects.toBeDefined();
+    await expect(
+      context.port.consumeDispatch(claim.token, context.record.operation, effect)
+    ).rejects.toBeDefined();
+    expect(effect).not.toHaveBeenCalled();
+    context.owner.close();
+    other.close();
+  });
+
+  it.each(['commit', 'abort'] as const)(
+    'reports missing lifecycle %s terminal as outcome-unknown and never retries',
+    async outcome => {
+      const timers = new ManualTimers();
+      const context = await executionFaultFixture({ timers });
+      const terminal = deferred<void>();
+      const original = IDBObjectStore.prototype.put;
+      let intercepted = false;
+      const spy = vi
+        .spyOn(IDBObjectStore.prototype, 'put')
+        .mockImplementation(function (value, key) {
+          const request = original.call(this, value, key);
+          if (!intercepted && this.name === 'owner') {
+            intercepted = true;
+            this.transaction.oncomplete = null;
+            this.transaction.onabort = null;
+            this.transaction.addEventListener(outcome === 'commit' ? 'complete' : 'abort', () =>
+              terminal.resolve()
+            );
+            if (outcome === 'commit') this.transaction.commit();
+            else this.transaction.abort();
+            timers.fire();
+          }
+          return request;
+        });
+      const claim = context.port.claimDispatch(0);
+      const assertion = expect(claim).rejects.toMatchObject({
+        code: 'transaction-outcome-unknown',
+      });
+      await terminal.promise;
+      spy.mockRestore();
+      timers.fire();
+      await assertion;
+      const fresh = createProviderBaselineOwner(context.settings);
+      await fresh.open();
+      expect((await fresh.readSnapshot())?.operations[0].phase).toBe(
+        outcome === 'commit' ? 'in-flight' : 'reserved'
+      );
+      context.owner.close();
+      fresh.close();
     }
   );
 });

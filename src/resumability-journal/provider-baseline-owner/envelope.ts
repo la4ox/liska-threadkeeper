@@ -22,8 +22,9 @@ import {
   PROVIDER_BASELINE_LIMITS,
   type ProviderBaselineCheckpoint,
 } from '../provider-baseline/contracts';
-import { decodeRecord, type OperationRecord } from '../purpose-persistence-v3/core/record';
-import { encodeWithControlHeadroom } from '../purpose-persistence-v3/core/control';
+import { decodeRecord, revise, type OperationRecord } from '../purpose-persistence-v3/core/record';
+import { controlRecord, encodeWithControlHeadroom } from '../purpose-persistence-v3/core/control';
+import { PurposePersistenceError } from '../purpose-persistence-v3/core/errors';
 import { ProviderOwnerStorageError, requireOwner } from './errors';
 
 export const PROVIDER_OWNER_SCHEMA = 'liska-baseline-owner/2';
@@ -132,6 +133,87 @@ export function assertProviderOwnerHeadroom(checkpoint: ProviderBaselineCheckpoi
   }
 }
 
+function executionNeeds(owner: ValidatedProviderOwner): {
+  readonly checkpointRevisions: number;
+  readonly observationSlots: number;
+  readonly recordRevisions: number;
+  readonly pending?: OperationRecord;
+} {
+  const pending = owner.operations.filter(record =>
+    ['reserved', 'in-flight', 'unknown'].includes(record.phase)
+  );
+  requireOwner(pending.length <= 1, 'corrupt-owner');
+  const record = pending[0];
+  if (!record)
+    return {
+      checkpointRevisions: owner.checkpoint.control === 'active' ? 1 : 0,
+      observationSlots: 0,
+      recordRevisions: 0,
+    };
+  if (record.phase === 'reserved')
+    return owner.checkpoint.control === 'active'
+      ? {
+          checkpointRevisions: 4,
+          observationSlots: 3,
+          recordRevisions: 5,
+          pending: record,
+        }
+      : { checkpointRevisions: 0, observationSlots: 0, recordRevisions: 0, pending: record };
+  if (record.phase === 'in-flight')
+    return {
+      checkpointRevisions: 3,
+      observationSlots: 2,
+      recordRevisions: 4,
+      pending: record,
+    };
+  return {
+    checkpointRevisions: owner.checkpoint.control === 'active' ? 2 : 1,
+    observationSlots: 1,
+    recordRevisions: 3,
+    pending: record,
+  };
+}
+
+/** Exact retained lifecycle budget, including the mandatory active-state pause fence. */
+export function assertProviderExecutionHeadroom(owner: ValidatedProviderOwner): void {
+  const needs = executionNeeds(owner);
+  const maximum = Number.MAX_SAFE_INTEGER;
+  requireOwner(
+    owner.checkpoint.revision <= maximum - needs.checkpointRevisions &&
+      owner.checkpoint.observedAt <= maximum &&
+      owner.checkpoint.observations.length <=
+        PROVIDER_BASELINE_LIMITS.maxObservations - needs.observationSlots &&
+      (!needs.pending || needs.pending.revision <= maximum - needs.recordRevisions),
+    'headroom-exhausted'
+  );
+  try {
+    for (const record of owner.operations) encodeWithControlHeadroom(record);
+    if (needs.pending?.phase === 'reserved' && owner.checkpoint.control === 'active') {
+      const claimed = revise(needs.pending, { phase: 'in-flight' });
+      encodeWithControlHeadroom(claimed);
+      encodeWithControlHeadroom(controlRecord(claimed, 'pause'));
+    }
+    const observations = [...owner.checkpoint.observations];
+    for (let index = 0; index < needs.observationSlots; index++)
+      observations.push({
+        operationId: needs.pending!.operation.operationId,
+        recordRevision: maximum - needs.observationSlots + index + 1,
+        recordSha256: 'f'.repeat(64),
+        observedAt: maximum,
+      });
+    encodeProviderBaselineCheckpoint({
+      ...owner.checkpoint,
+      control: needs.checkpointRevisions ? 'paused' : owner.checkpoint.control,
+      revision: maximum,
+      observedAt: maximum,
+      observations,
+    });
+  } catch (error) {
+    if (error instanceof ProviderOwnerStorageError) throw error;
+    throw new ProviderOwnerStorageError('headroom-exhausted');
+  }
+}
+
 // eslint-disable-next-line max-lines-per-function, complexity -- Exact record/link/charge/observation binding stays in one complete-inventory validation pass.
 async function validateRelationships(
   plan: AdmittedBaselinePlan,
@@ -143,7 +225,7 @@ async function validateRelationships(
   requireOwner(
     checkpoint.links.length === records.length &&
       checkpoint.charges.length === records.length &&
-      checkpoint.observations.length === records.length,
+      checkpoint.observations.length >= records.length,
     'corrupt-owner'
   );
   const identities = records.flatMap(record => [
@@ -152,15 +234,18 @@ async function validateRelationships(
     record.operation.captureId,
   ]);
   requireOwner(new Set(identities).size === identities.length, 'corrupt-owner');
+  requireOwner(
+    records.filter(record => ['reserved', 'in-flight', 'unknown'].includes(record.phase)).length <=
+      1,
+    'corrupt-owner'
+  );
   const hash = (bytes: Uint8Array) => dependencies.sha256(bytes, dependencies.signal);
   for (const record of records) {
     requireOwner(
-      record.revision === 0 &&
-        record.phase === 'reserved' &&
-        record.control === 'active' &&
-        record.disposition === 'open' &&
-        !('observation' in record) &&
-        !('interruptionReason' in record),
+      record.disposition === 'open' &&
+        ['reserved', 'in-flight', 'unknown', 'awaiting-resolution'].includes(record.phase) &&
+        (record.phase !== 'reserved' || record.control === 'active') &&
+        !(checkpoint.control === 'paused' && record.phase === 'in-flight'),
       'corrupt-owner'
     );
     const link = checkpoint.links.find(
@@ -247,13 +332,14 @@ async function validate(
   });
   requireOwner(records.length <= MAX_PROVIDER_OPERATIONS, 'corrupt-owner');
   await validateRelationships(plan, checkpoint, records, dependencies);
-  assertProviderOwnerHeadroom(checkpoint);
-  return {
+  const owner = {
     plan,
     checkpoint,
     catalogBytes,
     operations: Object.freeze(records),
   };
+  assertProviderExecutionHeadroom(owner);
+  return owner;
 }
 
 export async function validateInventory(
@@ -263,8 +349,11 @@ export async function validateInventory(
   try {
     return await validate(raw, dependencies);
   } catch (error) {
+    if (error instanceof PurposePersistenceError && error.code === 'read-failed')
+      throw new ProviderOwnerStorageError('read-failed');
     if (
-      (error instanceof ProviderOwnerStorageError && error.code === 'headroom-exhausted') ||
+      (error instanceof ProviderOwnerStorageError &&
+        ['headroom-exhausted', 'read-failed'].includes(error.code)) ||
       (error && typeof error === 'object' && 'code' in error && error.code === 'record-too-large')
     )
       throw error;

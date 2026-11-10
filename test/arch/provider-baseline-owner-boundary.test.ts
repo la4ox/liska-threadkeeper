@@ -36,6 +36,24 @@ const imports: Record<string, string[]> = {
     '../provider-baseline/contracts',
     '../purpose-persistence-v3/core/record',
     '../purpose-persistence-v3/core/control',
+    '../purpose-persistence-v3/core/errors',
+    './errors',
+  ],
+  'execution.ts': [
+    '../claude-producer-adapter',
+    '../baseline-plan/data',
+    '../baseline-plan/contracts',
+    '../provider-baseline/checkpoint',
+    '../provider-baseline/operation',
+    '../producer-adapter',
+    '../purpose-persistence-v3/core/record',
+    './errors',
+    './envelope',
+    './index',
+  ],
+  'port.ts': [
+    '../purpose-persistence-v3/core/record',
+    '../purpose-persistence-v3/core/errors',
     './errors',
   ],
   'index.ts': [
@@ -56,9 +74,13 @@ const imports: Record<string, string[]> = {
     './transaction',
     './envelope',
     './errors',
+    './execution',
+    './port',
     './errors',
+    './port',
     './database',
     './database',
+    './port',
   ],
 };
 
@@ -114,8 +136,8 @@ function relative(file: string) {
   return path.relative(root, file).replaceAll('\\', '/');
 }
 
-describe('isolated reservation-only provider baseline owner boundary', () => {
-  it('pins exactly six modules, every direct import, schema, namespace and retained limits', () => {
+describe('isolated provider baseline owner lifecycle boundary', () => {
+  it('pins exactly eight modules, every direct import, schema, namespace and retained limits', () => {
     expect(
       files(directory)
         .map(file => path.basename(file))
@@ -151,6 +173,7 @@ describe('isolated reservation-only provider baseline owner boundary', () => {
     expect(Object.keys(ownerApi).sort()).toEqual(
       [
         'ProviderOwnerStorageError',
+        'ProviderExecutionPortError',
         'createProviderBaselineOwner',
         'PROVIDER_OPERATIONS_STORE_NAME',
         'PROVIDER_OWNER_DATABASE_NAME',
@@ -170,6 +193,7 @@ describe('isolated reservation-only provider baseline owner boundary', () => {
         'applyControl',
         'reserveNext',
         'recoverAfterRestart',
+        'createExecutionPort',
         'inspectReservation',
       ].sort()
     );
@@ -285,12 +309,15 @@ describe('isolated reservation-only provider baseline owner boundary', () => {
       expect(readFileSync(file, 'utf8'), relative(file)).not.toMatch(marker);
   });
 
-  it('contains no execution, retry, settlement, migration, pruning or provider-effect surface', () => {
+  it('contains no retry, settlement, migration, pruning, provider effect or old coordinator surface', () => {
     const source = files(directory)
       .map(file => readFileSync(file, 'utf8'))
       .join('\n');
     expect(source).not.toMatch(
-      /createExecutionPort|claimDispatch|consumeDispatch|dispatchToken|producerCallback|requestChatGpt|requestClaude|\bsettle(?:ment)?\b|replacement|scheduler|automaticContinuation|deleteDatabase|deleteObjectStore/u
+      /ExecutionStorePort|execution-coordinator|producerCallback|requestChatGpt|requestClaude|\bsettle(?:ment)?\b|replacement|scheduler|automaticContinuation|deleteDatabase|deleteObjectStore/u
+    );
+    expect(readFileSync(path.join(directory, 'port.ts'), 'utf8')).not.toMatch(
+      /reserveNext|applyControl|recoverAfterRestart|ProviderOwnerTransaction/u
     );
     expect(source).not.toMatch(/executionAuthorized\s*:\s*true/u);
   });
