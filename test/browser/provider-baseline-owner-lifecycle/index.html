@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Synthetic provider owner lifecycle acceptance</title>
+    <script type="module" src="./runner.ts"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Synthetic provider owner lifecycle acceptance</h1>
+      <p>Test only. Keep this Options tab visible until completion.</p>
+      <p>
+        Synthetic lifecycle and factual receipt metadata. No provider access, capture, downloads or
+        vault writes.
+      </p>
+      <p>
+        Real owner/2 tokens call only counted in-memory synthetic effects. Restart is an explicit
+        recovery simulation, not a crash test.
+      </p>
+      <button id="run" type="button">Run bounded native acceptance</button>
+      <output id="overall" aria-live="polite">NOT RUN</output>
+      <table>
+        <caption>
+          Fixed acceptance rows
+        </caption>
+        <tbody id="rows"></tbody>
+      </table>
+      <pre id="receipt" aria-label="Content-free acceptance receipt"></pre>
+    </main>
+  </body>
+</html>

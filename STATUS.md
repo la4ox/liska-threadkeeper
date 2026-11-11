@@ -6392,3 +6392,65 @@ entrypoint, UI, live account scope, traversal, settlement, retry, automatic
 continuation, account-wide baseline, scheduler or living memory is added. The
 next separate gate is zero-permission synthetic native lifecycle acceptance
 before any manually authorized provider operation.
+
+## Provider owner/2 native lifecycle harness — 2026-11-11
+
+Branch `codex/provider-owner-v2-lifecycle-native` starts from merged main
+`2d8cad804c3c1f13d2bf105df2d6f730c3a89103` and records
+[ADR-074](docs/adr/074-provider-owner-v2-native-lifecycle-harness.md). It adds a
+third independent test-only MV3 Options extension for the exact unwired
+owner/2 lifecycle/evidence closure. The manifest has zero permissions and host
+permissions, `connect-src 'none'`, no background/content script, and no
+production package/config entrypoint.
+
+The fixed 13-row native matrix covers the guarded database, single-use claim
+and consume, pause/restart late evidence, known-commit revoked dispatch, final
+consume fencing, a true two-owner claim CAS, complete-inventory consume fencing,
+explicit interruption, physical evidence-transaction abort, exact cleanup,
+visible timing and zero network calls. Synthetic callbacks only count local
+invocation and return strict synthetic provider receipts; no provider, capture,
+attachment, file or vault effect exists.
+
+The first installed-Comet run passed 12/13 rows and failed only the atomic-abort
+row while cleanup and network denial stayed green. That failure exposed a
+harness-only native event-order race hidden by fake IndexedDB: the owner's
+earlier `onabort` handler could reject its Promise before the later test
+observer counted the same abort. The narrow fix now awaits the real matched
+transaction terminal under the existing 1.5-second bound. Exact
+`transaction-aborted`, request-success, `[1,0,1]` terminal counts and independent
+byte equality for both stores remain mandatory. Delayed, missing and per-store
+mutation regressions prove the distinction; independent re-review reports ready.
+
+The corrected harness passes 65/65 cases, and the current focused harness plus
+owner lifecycle/fault matrix passes 3 files / 115 tests. The unrelated v2
+headroom file that timed out under the overloaded full-coverage worker passes
+3/3 alone. The earlier full candidate coverage remains 361 files plus one
+skipped and 12,283 tests plus three skipped at 95.31% statements, 91.93%
+branches, 98.43% functions and 97.50% lines; the correction changes only the
+test harness and its tests. A later host-contended all-suite coverage attempt
+was stopped after several timeout-only failures and is not acceptance evidence.
+
+TypeScript and production build/ZIP pass. Global lint has zero errors and the
+unchanged 55 warnings; scoped harness lint has zero warnings, and full Prettier
+and diff checks pass. Production-only audit reports zero vulnerabilities. The
+full development tree now reports 13 moderate `minimatch` findings through
+lint/architecture tooling with no available fix, and no force-update was made.
+
+The exact build contains 39 source / 40 runtime modules. The 184,971-byte
+runner has SHA-256
+`73d7b56c23a7512751c2882f6f088768223ffd5f4ccde06a38be932f4a3d07c8`.
+Fresh production `dist` remains 65 files / 6,087,953 bytes with zero lifecycle
+markers. The 2,792,264-byte ZIP has SHA-256
+`18dbd0606502eb4a0ab87948ee0acbed4dd96fba7c157e26012fd66be9c9f6b5`.
+
+After explicit confirmation, only the lifecycle harness was reloaded in Comet.
+One continuously visible corrected run returned all 13 rows PASS in 1,356 ms
+with a 26 ms maximum gap, cleanup `[77,9,9,7]` and network `[0]`. The local
+content-free PASS and earlier FAIL receipts retain the regression provenance.
+
+Current-head GitHub CI, Code Review and Security Review remain pending. This
+closes only synthetic native owner/2 lifecycle/token/evidence acceptance. It
+adds no provider/account access, production wiring, settlement, retry,
+automatic continuation, account-wide baseline, scheduler or living memory. A
+manual provider-bound operation remains a separate explicit provider,
+account/scope, capability, request-budget and stop-condition decision.

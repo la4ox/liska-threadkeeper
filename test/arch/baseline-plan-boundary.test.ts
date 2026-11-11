@@ -223,7 +223,9 @@ describe('unwired pure explicit baseline-plan boundary', () => {
       /baseline-plan|liska-explicit-baseline|createBaselinePlan|reduceBaselineCheckpoint|nextBaselineDecision/u;
     const config = [
       ...files(path.join(root, 'scripts')).filter(
-        file => file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
+        file =>
+          file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs') &&
+          file !== path.join(root, 'scripts/build-provider-baseline-owner-lifecycle-browser.mjs')
       ),
       ...files(path.join(root, 'src')).filter(
         file => file.endsWith('.html') || file.endsWith('manifest.json')

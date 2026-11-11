@@ -291,7 +291,9 @@ describe('isolated provider baseline owner lifecycle boundary', () => {
       /provider-baseline-owner|liska-baseline-owner-v2|liska-baseline-owner\/2|createProviderBaselineOwner/u;
     const config = [
       ...files(path.join(root, 'scripts')).filter(
-        file => file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
+        file =>
+          file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs') &&
+          file !== path.join(root, 'scripts/build-provider-baseline-owner-lifecycle-browser.mjs')
       ),
       ...files(path.join(root, 'src')).filter(
         file => file.endsWith('.html') || file.endsWith('manifest.json')
