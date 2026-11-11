@@ -200,7 +200,8 @@ describe('isolated durable baseline owner boundary', () => {
       ...files(path.join(root, 'scripts')).filter(
         file =>
           file !== path.join(root, 'scripts/build-baseline-owner-browser.mjs') &&
-          file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs')
+          file !== path.join(root, 'scripts/build-provider-baseline-owner-browser.mjs') &&
+          file !== path.join(root, 'scripts/build-provider-baseline-owner-lifecycle-browser.mjs')
       ),
       ...files(path.join(root, 'src')).filter(
         file => file.endsWith('.html') || file.endsWith('manifest.json')

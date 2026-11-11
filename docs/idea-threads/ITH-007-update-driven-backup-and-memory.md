@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-10
+last_turn: 2026-11-11
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -652,6 +652,23 @@ No assessment, settlement, retry or automatic next reservation enters the port.
 Exact 5/4/3 record-revision headroom keeps late evidence and its control
 projections writable or fails before effect authority is granted.
 
+### E49 — Native lifecycle acceptance exposed and closed an observer-order gap
+
+A third zero-permission Options harness compiled the exact owner/2 lifecycle
+closure and exercised claim/consume, two-owner CAS, pause/restart/interruption,
+late provider-selected evidence, native atomic abort, cleanup and network denial.
+Its first installed-Comet run passed 12/13 rows and failed only atomic-abort
+observation while cleanup and network denial remained green.
+
+The failure was not discarded: native event ordering could reject the owner's
+Promise before the later harness observer counted the same real abort, whereas
+fake IndexedDB masked that ordering. The corrected harness waits for that exact
+terminal event under the existing bound while retaining strict error, terminal
+counts and independent byte equality for both stores. One visible rerun passed
+all 13 rows in 1,356 ms with a 26 ms maximum gap, nine completed deletions and
+zero network calls. This proves only synthetic native lifecycle/token/evidence
+semantics, not provider scope, external effects or crash durability.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1096,6 +1113,21 @@ Evidence: E47, E48
 
 Decision record: ADR-073
 
+### D29 — Accept lifecycle semantics only through their own native gate
+
+Adopt ADR-074 and its third isolated zero-permission harness instead of reusing
+ADR-072's storage-only PASS, widening an accepted fixture or loading production
+Liska. Treat the initial 12/13 run as regression provenance and require the
+corrected real-terminal observation plus exact two-store rollback before PASS.
+
+The native gate authorizes no provider request or destination. One manual
+provider-bound operation remains a separate T22 decision with explicit account
+scope, capabilities, request budget and stop conditions.
+
+Evidence: E48, E49
+
+Decision record: ADR-074
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1399,15 +1431,14 @@ capability bundle, account/scope evidence, request budget, stop conditions and
 receipt boundary for a single baseline-owned operation. Preserve manual launch,
 paused recovery and no automatic continuation.
 
-Trigger: T21 has an installed native PASS and the user separately authorizes the
-provider, account scope and bounded live request.
+Trigger: E49/D29 have accepted the exact owner/2 lifecycle natively and the user
+separately authorizes the provider, active account scope and bounded live
+request.
 
-The native precondition is now satisfied by E41. This tail remains unopened
-until that separate provider/account/request authorization is given.
-
-The first storage subgate is fulfilled by E42/E43 and D24: journal/3 can retain
-closed Claude facts without changing old bytes. Owner/checkpoint, common
-lifecycle and the one-request Claude capability remain open.
+The catalog, journal/3, owner/2 storage and lifecycle subgates are now satisfied
+through E43–E49 and D24–D29. This tail remains unopened until that separate
+provider/account/request decision is given; no account-wide baseline or
+scheduler follows automatically.
 
 ### T23 — Add a rollback-isolated provider owner for journal/3
 
@@ -1475,6 +1506,11 @@ Trigger: ADR-073 is merged after current-head review. Provider/account/network
 authority remains absent; a real manual operation still requires T22's separate
 decision.
 
+Fulfilled locally on 2026-11-11 by E49 and D29. The corrected exact bundle
+passed one visible installed-Comet run with all 13 rows, physical two-store
+rollback, exact cleanup, bounded timing and zero network calls. Current-head
+GitHub gates remain pending; provider/account authority remains absent.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1527,6 +1563,7 @@ decision.
 - [evidence] E46: owner/2 atomically commits exact catalog, unchanged plan, checkpoint/2 and one journal/3 reservation while exposing no execution authority #code
 - [evidence] E47: one isolated installed-Comet owner/2 run passed all 13 storage rows with exact cleanup, bounded timing and zero network calls #live
 - [evidence] E48: owner/2 now claims one journal/3 reservation, fences a single-use token and atomically retains provider-selected factual evidence without settlement or retry #code
+- [evidence] E49: one isolated native run exposed a harness observer-order race; the corrected real-terminal gate then passed all 13 lifecycle rows with exact rollback, cleanup and zero network calls #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1558,6 +1595,7 @@ decision.
 - [decision] D26: persist provider reservations in a fresh rollback-isolated owner/2 domain without execution or retry authority
 - [decision] D27: accept owner/2 native storage only through a separate exact zero-permission harness with content-free receipts
 - [decision] D28: keep owner/2 as sole journal/3 lifecycle/token/CAS authority through a new provider-closed five-method port
+- [decision] D29: accept owner/2 lifecycle semantics only through their own exact zero-permission native harness and keep every real provider effect separately gated
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1579,12 +1617,12 @@ decision.
 - [tail] T19: design durable baseline-plan storage and atomic charge+operation reservation before any runner
 - [tail] T20: connect one baseline-owned reservation to coordinator execution and retained evidence without implicit settlement or retry
 - [tail] T21: fulfilled by one visible installed native PASS without provider or destination authority
-- [tail] T22: after native PASS, design one separately authorized provider-bound baseline operation with explicit scope and request budget
+- [tail] T22: native lifecycle preconditions are satisfied; design one provider-bound operation only after separate provider/account/capability/request-budget authorization
 - [tail] T23: build a rollback-isolated provider owner/checkpoint domain that atomically owns journal/3 before Claude live wiring
 - [tail] T24: persist the unchanged plan, checkpoint/2 and journal/3 reservations atomically in one new non-executing owner
 - [tail] T25: accept provider owner/2 in a native storage-only harness before designing lifecycle or provider effects
 - [tail] T26: design one owner/2 lifecycle/evidence port without automatic continuation, settlement or retry
-- [tail] T27: accept owner/2 lifecycle and token races in a separate zero-permission native harness before any manual provider operation
+- [tail] T27: fulfilled by the corrected 13-row visible native PASS; preserve its non-provider boundary
 
 ## Relations
 
@@ -1644,3 +1682,5 @@ decision.
 - S46 — [ADR-072: Accept provider owner/2 through a native storage-only harness](../adr/072-provider-owner-v2-native-storage-harness.md), base main `e57bfb53f171b63ec8c00c3b0b4a836125fb885a`
 - S47 — local receipt `LISKA-PROVIDER-OWNER-V2-NATIVE-20261109`; visibility: local-only; all 13 fixed rows PASS, 249 ms elapsed, 21 ms max gap, two completed deletes, zero network calls
 - S48 — [ADR-073: Add a provider-closed journal/3 lifecycle port to owner/2](../adr/073-provider-owner-v2-lifecycle-port.md), base main `80b7efcd17c30139d76df822e0c8e59f5780d7d0`
+- S49 — [ADR-074: Accept owner/2 lifecycle semantics through a native harness](../adr/074-provider-owner-v2-native-lifecycle-harness.md), base main `2d8cad804c3c1f13d2bf105df2d6f730c3a89103`
+- S50 — local receipt `LISKA-PROVIDER-OWNER-V2-LIFECYCLE-NATIVE-20261111`; visibility: local-only; corrected bundle 13/13 PASS, 1,356 ms elapsed, 26 ms max gap, nine completed deletes, zero network calls
