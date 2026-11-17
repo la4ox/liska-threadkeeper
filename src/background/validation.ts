@@ -848,6 +848,10 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
     return hasExactOwnKeys(extensionMessage, ['action']);
   }
 
+  if (extensionMessage.action === 'probeClaudeLists') {
+    return hasExactOwnKeys(extensionMessage, ['action']);
+  }
+
   if (extensionMessage.action === 'persistArchiveCompanion') {
     return validatePersistArchiveCompanionMessage(extensionMessage);
   }

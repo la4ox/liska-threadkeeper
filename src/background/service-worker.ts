@@ -93,6 +93,14 @@ import {
 } from '../lib/dots-schema-probe-contract';
 import { isAuthorizedDotsSchemaProbeSender, probeDotsSchemaInActiveTab } from './dots-schema-probe';
 import {
+  isAuthorizedClaudeListProbeSender,
+  probeClaudeListsInActiveTab,
+} from './claude-list-probe';
+import {
+  createClaudeListProbeFailure,
+  isClaudeListProbeResponse,
+} from '../lib/claude-list-probe-contract';
+import {
   TEXT_PREVIEW_CAPTURE_ACTIONS,
   TEXT_PREVIEW_CONTROL_ACTIONS,
   isTextPreviewToken,
@@ -317,6 +325,9 @@ function rejectedMessageResponse(message: unknown, reason: 'sender' | 'message')
   if (hasOwnDataProperty(message, 'action', 'probeDotsSchema')) {
     return createDotsSchemaProbeFailure(reason === 'sender' ? 'invalid-sender' : 'invalid-message');
   }
+  if (hasOwnDataProperty(message, 'action', 'probeClaudeLists')) {
+    return createClaudeListProbeFailure(reason === 'sender' ? 'invalid-sender' : 'invalid-message');
+  }
   return chatGptBridgeFailureOr(message, {
     success: false,
     error: reason === 'sender' ? 'Unauthorized' : 'Invalid message content',
@@ -457,6 +468,11 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
+    if (!isAuthorizedClaudeListProbeRequest(message, sender)) {
+      sendResponse(createClaudeListProbeFailure('invalid-sender'));
+      return false;
+    }
+
     if (!isAuthorizedOutputOptionsUpdate(message, sender)) {
       sendResponse({ success: false, error: 'Unauthorized' });
       return false;
@@ -594,6 +610,18 @@ function isAuthorizedDotsSchemaProbeRequest(
       chrome.runtime.id,
       chrome.runtime.getURL('src/popup/index.html')
     ) || exportOperations.isUiCandidate(sender)
+  );
+}
+
+function isAuthorizedClaudeListProbeRequest(
+  message: ExtensionMessage,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (message.action !== 'probeClaudeLists') return true;
+  return isAuthorizedClaudeListProbeSender(
+    sender,
+    chrome.runtime.id,
+    chrome.runtime.getURL('src/popup/index.html')
   );
 }
 
@@ -918,6 +946,20 @@ async function handleDotsSchemaProbe(sourceTab?: { tabId: number; url: string })
   }
 }
 
+async function handleClaudeListProbe() {
+  if (!(await hasScriptingPermission())) {
+    return createClaudeListProbeFailure('permission-unavailable');
+  }
+  try {
+    const response = await probeClaudeListsInActiveTab();
+    return isClaudeListProbeResponse(response)
+      ? response
+      : createClaudeListProbeFailure('result-invalid');
+  } catch {
+    return createClaudeListProbeFailure('result-invalid');
+  }
+}
+
 function isChatGptBridgeAction(message: ExtensionMessage): message is Extract<
   ExtensionMessage,
   {
@@ -1038,6 +1080,7 @@ async function handleMessage(
       ? handleDotsSchemaProbe({ tabId: source.tabId, url: source.route })
       : createDotsSchemaProbeFailure('active-tab-required');
   }
+  if (message.action === 'probeClaudeLists') return handleClaudeListProbe();
 
   if (
     (message.action === 'saveSettings' || message.action === 'updateOutputOptions') &&

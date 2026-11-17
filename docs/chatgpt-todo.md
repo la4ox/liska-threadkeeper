@@ -832,6 +832,15 @@ terminal states, and the existing no-credential-export boundary.
   markers and always reports archived unobserved/account incomplete. Newly
   discovered chats need a separate account-inventory source and later durable
   cursor owner; fake capture manifests and owner/2 batch expansion are rejected.
+- [ADR-076](adr/076-bounded-claude-list-probe.md) adds the first intentionally
+  live-capable but still non-persistent Claude baseline diagnostic. A trusted
+  popup click pins one selected Claude document and owns at most four serial
+  active/archived list GETs. Output is content-free; scope remains unresolved
+  while only bounded candidate header names are retained. Absolute deadlines,
+  response cancellation, invocation-token navigation abort and late lock
+  ownership prevent request overlap. Detail capture, catalog admission and
+  durable cursor work remain later gates until the installed probe is reviewed
+  and run once with explicit confirmation.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

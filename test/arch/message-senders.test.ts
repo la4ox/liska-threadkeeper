@@ -68,6 +68,7 @@ describe('architecture: message actions have live senders', () => {
       'updateOutputOptions',
       'testConnection',
       'probeDotsSchema',
+      'probeClaudeLists',
       'abortStagedArchiveArtifact',
       'abortStagedBinaryAsset',
     ]);

@@ -20,8 +20,10 @@ vi.mock('../../src/lib/messaging', () => ({
 import { getSettingsOrThrow } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
 import {
+  handleTrustedClaudeListProbeClick,
   handleTrustedDotsSchemaProbeClick,
   initPopup,
+  runClaudeListProbe,
   runDotsSchemaProbe,
 } from '../../src/popup/app';
 import { validateMessageContent } from '../../src/background/validation';
@@ -140,6 +142,7 @@ function buildPopupDom(): void {
     <button id="saveBtn"></button>
     <button id="openReconciliationBtn"></button>
     <button id="probeDotsSchemaBtn"></button>
+    <button id="probeClaudeListsBtn"></button>
     <div id="status" class="status"></div>
   `;
 }
@@ -333,6 +336,89 @@ describe('popup/app', () => {
       await vi.waitFor(() => expect(statusEl().textContent).toBe('status_dotsSchemaProbeSaved'));
       expect(statusEl().className).toBe('status success');
       expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(false);
+    });
+
+    it('ignores a programmatic Claude list probe click and sends nothing during initialization', async () => {
+      await initWithDefaults();
+      expect(sendMessage).not.toHaveBeenCalled();
+
+      el<HTMLButtonElement>('probeClaudeListsBtn').click();
+
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(statusEl().textContent).toBe('');
+    });
+
+    it('keeps all conflicting controls busy for one trusted Claude list probe and renders safe counts', async () => {
+      await initWithDefaults();
+      let resolveProbe!: (value: unknown) => void;
+      vi.mocked(sendMessage).mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveProbe = resolve;
+        }) as never
+      );
+
+      handleTrustedClaudeListProbeClick({ isTrusted: true } as Event, () => {
+        void runClaudeListProbe();
+      });
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({ action: 'probeClaudeLists' })
+      );
+      expect(el<HTMLButtonElement>('probeClaudeListsBtn').disabled).toBe(true);
+      expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(true);
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(true);
+      expect(el<HTMLButtonElement>('testBtn').disabled).toBe(true);
+      await runClaudeListProbe();
+      expect(sendMessage).toHaveBeenCalledOnce();
+
+      resolveProbe({
+        success: true,
+        data: {
+          schema: 'liska-claude-list-probe/1',
+          status: 'stopped',
+          code: 'scope-unresolved',
+          counts: {
+            dispatch: 2,
+            page: 2,
+            record: 7,
+            validUuid: 7,
+            marker: 6,
+            duplicate: 0,
+            overlap: 0,
+            archivedMismatch: 0,
+          },
+          pages: [
+            { partition: 'active', offset: 0, hasMore: false, terminal: true },
+            { partition: 'archived', offset: 0, hasMore: false, terminal: true },
+          ],
+          pagination: {
+            exercised: false,
+            hypothesis: 'not-exercised',
+            unfinished: false,
+          },
+          scope: {
+            organizationResolved: false,
+            workspaceResolved: false,
+            consistent: false,
+            routeOrganizationMatched: false,
+            fingerprint: null,
+            relevantHeaderNames: ['x-organization-workspace-id'],
+          },
+        },
+      });
+      await vi.waitFor(() => expect(statusEl().textContent).toBe('status_claudeListProbeResult'));
+      expect(chrome.i18n.getMessage).toHaveBeenCalledWith('status_claudeListProbeResult', [
+        'stopped',
+        'scope-unresolved',
+        '2',
+        '2',
+        '7',
+        'unresolved',
+      ]);
+      expect(statusEl().className).toBe('status warning');
+      expect(el<HTMLButtonElement>('probeClaudeListsBtn').disabled).toBe(false);
+      expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(false);
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
+      expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
     });
 
     it('keeps settings actions disabled until the strict read succeeds', async () => {

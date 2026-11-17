@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
   settings: vi.fn(),
   dots: vi.fn(),
+  claudeLists: vi.fn(),
   connection: vi.fn(),
 }));
 vi.mock('../../src/background/obsidian-handlers', () => ({
@@ -23,6 +24,10 @@ vi.mock('../../src/background/obsidian-handlers', () => ({
 vi.mock('../../src/background/dots-schema-probe', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/background/dots-schema-probe')>()),
   probeDotsSchemaInActiveTab: mocks.dots,
+}));
+vi.mock('../../src/background/claude-list-probe', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/background/claude-list-probe')>()),
+  probeClaudeListsInActiveTab: mocks.claudeLists,
 }));
 vi.mock('../../src/lib/storage', () => ({
   getSettings: mocks.settings,
@@ -179,12 +184,41 @@ beforeEach(async () => {
   mocks.output.mockResolvedValue({ allSuccessful: true });
   mocks.archive.mockResolvedValue({ success: true, stageId });
   mocks.binary.mockResolvedValue({ success: true });
+  mocks.claudeLists.mockResolvedValue({ success: false, code: 'active-tab-required' });
   vi.mocked(chrome.runtime.onMessage.addListener).mockImplementation(candidate => {
     listener = candidate;
   });
   await import('../../src/background/service-worker');
 });
 describe('export authority at actual worker dispatch', () => {
+  it('admits only an exact popup Claude-list message and rejects sender or extra-field variants before probing', async () => {
+    Object.assign(chrome, {
+      permissions: { contains: (_value: unknown, done: (allowed: boolean) => void) => done(true) },
+    });
+    expect(validateMessageContent({ action: 'probeClaudeLists' })).toBe(true);
+    expect(validateMessageContent({ action: 'probeClaudeLists', extra: true })).toBe(false);
+    await expect(dispatch({ action: 'probeClaudeLists' }, popup())).resolves.toEqual({
+      success: false,
+      code: 'active-tab-required',
+    });
+    expect(mocks.claudeLists).toHaveBeenCalledOnce();
+
+    const copied = { ...popup(), url: `${popup().url}?copied=1` };
+    await expect(dispatch({ action: 'probeClaudeLists' }, copied)).resolves.toEqual({
+      success: false,
+      code: 'invalid-sender',
+    });
+    await expect(dispatch({ action: 'probeClaudeLists' }, sender())).resolves.toEqual({
+      success: false,
+      code: 'invalid-sender',
+    });
+    await expect(dispatch({ action: 'probeClaudeLists', extra: true }, popup())).resolves.toEqual({
+      success: false,
+      code: 'invalid-message',
+    });
+    expect(mocks.claudeLists).toHaveBeenCalledOnce();
+  });
+
   it.each(['archive', 'binary'] as const)(
     'retains %s cleanup ownership until confirmed success, then persists its release',
     async kind => {

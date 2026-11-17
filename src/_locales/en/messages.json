@@ -1113,6 +1113,32 @@
       }
     }
   },
+  "settings_probeClaudeLists": {
+    "message": "Inspect Claude lists"
+  },
+  "settings_probeClaudeListsHelp": {
+    "message": "Inspect bounded active and archived list metadata in the selected Claude chat without exporting content"
+  },
+  "status_claudeListProbeRunning": {
+    "message": "Inspecting bounded Claude active and archived list metadata…"
+  },
+  "status_claudeListProbeResult": {
+    "message": "Claude list diagnostic: $STATUS$ ($CODE$); $DISPATCHES$ requests, $PAGES$ pages, $RECORDS$ records; scope $SCOPE$.",
+    "placeholders": {
+      "status": { "content": "$1" },
+      "code": { "content": "$2" },
+      "dispatches": { "content": "$3" },
+      "pages": { "content": "$4" },
+      "records": { "content": "$5" },
+      "scope": { "content": "$6" }
+    }
+  },
+  "toast_error_claudeListProbeFailed": {
+    "message": "Claude list diagnostic did not start or return safely ($ERROR$).",
+    "placeholders": {
+      "error": { "content": "$1" }
+    }
+  },
   "reconcile_openFailed": {
     "message": "Could not open the archive comparison tool"
   },
