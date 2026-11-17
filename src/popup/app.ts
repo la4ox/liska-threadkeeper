@@ -27,6 +27,7 @@ import {
 } from '../lib/constants';
 import { getMessage } from '../lib/i18n';
 import { sendMessage } from '../lib/messaging';
+import type { ClaudeListProbeResponse } from '../lib/claude-list-probe-contract';
 
 /**
  * Initialize i18n for all elements with data-i18n attributes
@@ -85,6 +86,7 @@ function queryElements() {
     outputClipboard: getElement<HTMLInputElement>('outputClipboard'),
     openReconciliationBtn: getElement<HTMLButtonElement>('openReconciliationBtn'),
     probeDotsSchemaBtn: getElement<HTMLButtonElement>('probeDotsSchemaBtn'),
+    probeClaudeListsBtn: getElement<HTMLButtonElement>('probeClaudeListsBtn'),
     obsidianSettings: getElement<HTMLElement>('obsidianSettings'),
     // Obsidian settings
     apiKey: getElement<HTMLInputElement>('apiKey'),
@@ -131,6 +133,7 @@ let elements: PopupElements;
 let outputSaveChain: Promise<void> = Promise.resolve();
 let settingsActionInFlight = false;
 let dotsSchemaProbeInFlight = false;
+let claudeListProbeInFlight = false;
 // Only an edited field may replace the credential, including when migration
 // finishes in the background after this popup was populated with a blank key.
 let savedApiKeyValue = '';
@@ -151,6 +154,7 @@ export async function initPopup(): Promise<void> {
   elements = queryElements();
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
+  elements.probeClaudeListsBtn.disabled = true;
   try {
     initializeI18n();
     // Never populate an editable form with defaults after an unreadable store.
@@ -160,6 +164,7 @@ export async function initPopup(): Promise<void> {
     setupToggleSwitchAccessibility();
     elements.saveBtn.disabled = false;
     elements.testBtn.disabled = false;
+    elements.probeClaudeListsBtn.disabled = false;
   } catch {
     showStatus(getMessage('toast_error_connectionFailed'), 'error');
     console.error('[G2O Popup] Failed to initialize settings');
@@ -269,6 +274,9 @@ function setupEventListeners(): void {
   elements.probeDotsSchemaBtn.addEventListener('click', event => {
     handleTrustedDotsSchemaProbeClick(event, () => void runDotsSchemaProbe());
   });
+  elements.probeClaudeListsBtn.addEventListener('click', event => {
+    handleTrustedClaudeListProbeClick(event, () => void runClaudeListProbe());
+  });
 
   // Output destination checkbox listeners
   elements.outputObsidian.addEventListener('change', () => {
@@ -310,11 +318,25 @@ export function handleTrustedDotsSchemaProbeClick(event: Event, onClick: () => v
   onClick();
 }
 
+/** A synthetic popup event cannot spend the bounded Claude request budget. */
+export function handleTrustedClaudeListProbeClick(event: Event, onClick: () => void): void {
+  if (!event.isTrusted) return;
+  onClick();
+}
+
+function sendClaudeListProbeMessage(): Promise<ClaudeListProbeResponse> {
+  const send = sendMessage as unknown as (message: {
+    action: 'probeClaudeLists';
+  }) => Promise<ClaudeListProbeResponse>;
+  return send({ action: 'probeClaudeLists' });
+}
+
 /** Run one selected-tab, schema-only Dots diagnostic. */
 export async function runDotsSchemaProbe(): Promise<void> {
-  if (dotsSchemaProbeInFlight || settingsActionInFlight) return;
+  if (dotsSchemaProbeInFlight || claudeListProbeInFlight || settingsActionInFlight) return;
   dotsSchemaProbeInFlight = true;
   elements.probeDotsSchemaBtn.disabled = true;
+  elements.probeClaudeListsBtn.disabled = true;
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
   clearStatus();
@@ -330,6 +352,47 @@ export async function runDotsSchemaProbe(): Promise<void> {
     showStatus(getMessage('toast_error_dotsSchemaProbeFailed', 'unavailable'), 'error');
   } finally {
     dotsSchemaProbeInFlight = false;
+    elements.probeDotsSchemaBtn.disabled = false;
+    elements.probeClaudeListsBtn.disabled = false;
+    elements.saveBtn.disabled = false;
+    elements.testBtn.disabled = false;
+  }
+}
+
+/** Run one content-free, selected-tab Claude active/archived list diagnostic. */
+export async function runClaudeListProbe(): Promise<void> {
+  if (claudeListProbeInFlight || dotsSchemaProbeInFlight || settingsActionInFlight) return;
+  claudeListProbeInFlight = true;
+  elements.probeClaudeListsBtn.disabled = true;
+  elements.probeDotsSchemaBtn.disabled = true;
+  elements.saveBtn.disabled = true;
+  elements.testBtn.disabled = true;
+  clearStatus();
+  showStatus(getMessage('status_claudeListProbeRunning'), 'info');
+  try {
+    const response = await sendClaudeListProbeMessage();
+    if (response.success) {
+      const result = response.data;
+      const scope = result.scope.fingerprint === null ? 'unresolved' : 'resolved';
+      showStatus(
+        getMessage('status_claudeListProbeResult', [
+          result.status,
+          result.code,
+          String(result.counts.dispatch),
+          String(result.counts.page),
+          String(result.counts.record),
+          scope,
+        ]),
+        result.status === 'complete' ? 'success' : 'warning'
+      );
+    } else {
+      showStatus(getMessage('toast_error_claudeListProbeFailed', response.code), 'error');
+    }
+  } catch {
+    showStatus(getMessage('toast_error_claudeListProbeFailed', 'unavailable'), 'error');
+  } finally {
+    claudeListProbeInFlight = false;
+    elements.probeClaudeListsBtn.disabled = false;
     elements.probeDotsSchemaBtn.disabled = false;
     elements.saveBtn.disabled = false;
     elements.testBtn.disabled = false;
@@ -612,11 +675,12 @@ function normalizeObsidianSettings(
 
 /** Save and connection-test flows share credential state and cannot overlap. */
 function beginSettingsAction(): boolean {
-  if (settingsActionInFlight || dotsSchemaProbeInFlight) return false;
+  if (settingsActionInFlight || dotsSchemaProbeInFlight || claudeListProbeInFlight) return false;
   settingsActionInFlight = true;
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
   elements.probeDotsSchemaBtn.disabled = true;
+  elements.probeClaudeListsBtn.disabled = true;
   return true;
 }
 
@@ -625,6 +689,7 @@ function endSettingsAction(): void {
   elements.saveBtn.disabled = false;
   elements.testBtn.disabled = false;
   elements.probeDotsSchemaBtn.disabled = false;
+  elements.probeClaudeListsBtn.disabled = false;
 }
 
 /**

@@ -216,6 +216,7 @@ export const VALID_MESSAGE_ACTIONS = [
   'saveSettings',
   'testConnection',
   'probeDotsSchema',
+  'probeClaudeLists',
   'saveToOutputs',
   'fetchImage',
   'captureChatGptConversation',

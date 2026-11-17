@@ -717,6 +717,7 @@ type ExtensionActionMessage =
   | { action: 'getSettings' }
   | { action: 'testConnection' }
   | { action: 'probeDotsSchema' }
+  | { action: 'probeClaudeLists' }
   | { action: 'fetchImage'; url: string }
   | {
       action: 'captureChatGptConversation';

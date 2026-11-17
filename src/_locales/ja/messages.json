@@ -994,6 +994,32 @@
       }
     }
   },
+  "settings_probeClaudeLists": {
+    "message": "Claude のリストを確認"
+  },
+  "settings_probeClaudeListsHelp": {
+    "message": "会話内容を書き出さず、選択中の Claude チャットでアクティブ／アーカイブ済みリストの限定メタデータを確認します"
+  },
+  "status_claudeListProbeRunning": {
+    "message": "Claude のアクティブ／アーカイブ済みリストを限定的に確認しています…"
+  },
+  "status_claudeListProbeResult": {
+    "message": "Claude リスト診断: $STATUS$（$CODE$）、リクエスト $DISPATCHES$ 件、ページ $PAGES$ 件、レコード $RECORDS$ 件、スコープ $SCOPE$。",
+    "placeholders": {
+      "status": { "content": "$1" },
+      "code": { "content": "$2" },
+      "dispatches": { "content": "$3" },
+      "pages": { "content": "$4" },
+      "records": { "content": "$5" },
+      "scope": { "content": "$6" }
+    }
+  },
+  "toast_error_claudeListProbeFailed": {
+    "message": "Claude リスト診断を安全に開始または完了できませんでした（$ERROR$）。",
+    "placeholders": {
+      "error": { "content": "$1" }
+    }
+  },
   "reconcile_openFailed": {
     "message": "アーカイブ比較ツールを開けませんでした"
   },

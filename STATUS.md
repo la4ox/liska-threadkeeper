@@ -6518,3 +6518,69 @@ serial active/archived reads and content-free aggregate evidence. After real
 scope, terminal and pagination facts are known, a fresh rollback-isolated
 account-baseline owner will persist pages, cursor, targets and per-iteration
 progress before any detail capture begins.
+
+## Bounded Claude active/archived list probe — 2026-11-18
+
+Branch `codex/claude-list-probe-v1` starts from merged main
+`f6f0886ed963abef387e127fdcc44879b71ca37c` and records
+[ADR-076](docs/adr/076-bounded-claude-list-probe.md). It adds one trusted popup
+action for a selected existing `https://claude.ai/chat/{uuid}` tab. Existing
+manifest permissions are unchanged.
+
+The popup/background lifecycle pins the exact selected route and document before
+running one self-contained ISOLATED-world diagnostic, then repeats pinned
+document and selected-route checks afterward. Only the exact popup sender and a
+real trusted click are admitted; startup, synthetic clicks, content scripts and
+copied popup URLs send no request.
+
+The probe charges before each serial GET and has a hard total cap of four:
+active and archived `offset=0` pages, followed only when `has_more=true` by one
+explicit `offset+30` continuation hypothesis for each partition while budget
+remains. The hypothesis is reported as evidence, not accepted pagination
+semantics. There are no detail calls, retries, redirects, UI list gestures,
+reloads, scrolling, downloads, destinations, persistence, catalog/journal
+mutation or scheduler behavior.
+
+One absolute page deadline, a 512 KiB body bound and explicit cancellation own
+every transport. Unread bodies are aborted/cancelled on all early exits and late
+fetch settlement. A global lock survives a background timeout until the actual
+pinned script finishes, so a late probe cannot overlap another run.
+
+A sticky background tab latch sends a document-pinned, invocation-token-bound
+marker into the same ISOLATED world. A→B→A navigation aborts the active fetch,
+sets sticky state and prevents later dispatch. The lock also waits for late
+marker settlement; only the owning invocation removes its private state.
+
+Because exact identity-header spellings remain unknown, this version reads and
+returns only at most eight bounded relevant header names. It never reads their
+values for identity, keeps every scope flag false and the fingerprint null, and
+finishes `scope-unresolved` after bounded evidence collection unless another
+error wins. That result cannot admit ADR-075's catalog yet.
+
+The detached result contains only fixed codes, bounded counts, page and
+pagination flags, unresolved scope flags and safe header names. URLs,
+conversation IDs, markers, titles, summaries, bodies, header values,
+account/organization/workspace values and arbitrary errors never cross the
+injected boundary.
+
+The current focused/adjacent matrix passes 9 files / 304 tests. The broader
+pre-fix suite reached 12,417 passes and exposed message-inventory/hash drift;
+both were corrected and their suites pass in the current focused matrix. Full
+TypeScript, zero-warning lint for the new modules, wiring lint with zero errors,
+Prettier and diff checks pass. Global lint has zero errors and the unchanged 55
+warnings; Idea Threads 9/37 and documentation links 96/96 pass. Production-only
+audit reports zero vulnerabilities; the unchanged development-only tooling tree
+retains the separately recorded 19 transitive findings.
+
+Independent review found and closed four material lifecycle gaps:
+timeout/lock overlap, unread-body leakage, fuzzy scope resolution and A→B→A
+dispatch continuation; final re-review reports ready. The guarded production
+build/ZIP passes. Fresh `dist` contains 65 files / 6,110,959 bytes; probe markers
+appear only in the expected popup/locales/constants/service-worker artifacts.
+The 2,797,903-byte ZIP has SHA-256
+`72a80b0091e16fa1a1441f957cb6e6f30e6081141a26403a7e3edb8ede0d68ae`.
+
+No live Claude or browser action has occurred. Current-head GitHub gates remain.
+The next action is one user-confirmed extension reload and one trusted live
+click; it may establish current list/header evidence but performs no detail
+capture or File write.

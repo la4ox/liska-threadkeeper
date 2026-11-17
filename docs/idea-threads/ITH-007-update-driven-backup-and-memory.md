@@ -685,6 +685,21 @@ observed, archived unobserved and account incomplete for every result. This
 creates useful first-capture targets without fabricating manifests or claiming
 that the visible list is the whole account.
 
+### E51 — A trusted bounded probe can collect list grammar without content
+
+ADR-076 adds one user-clicked popup diagnostic for the exact selected Claude
+chat document. It issues at most four serial list GETs: active and archived
+offset zero, then one explicitly labelled offset-plus-30 hypothesis only after
+`has_more=true`. No detail, export, storage or scheduler path is reachable.
+
+The result retains only fixed codes, bounded counts, page/pagination flags and
+candidate header names. Because exact identity-header semantics remain unknown,
+scope stays unresolved and no fingerprint is produced. Document-bound sticky
+navigation signalling aborts active work and prevents later requests; locks and
+response bodies remain owned through late settlement. This is implementation
+evidence only until one separately confirmed installed-browser click observes
+the real provider behavior.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1160,6 +1175,22 @@ Evidence: E10, E49, E50
 
 Decision record: ADR-075
 
+### D31 — Learn current Claude enumeration through one request-counted probe
+
+Adopt ADR-076 instead of reloading Claude, scrolling lists or inferring archive
+and pagination semantics from old request parameters. Use one trusted popup
+click, one pinned selected document, serial cap-four GETs and content-free
+aggregate output.
+
+Treat candidate header names and offset continuation as evidence only. Scope
+resolution, catalog admission and durable cursor work remain closed until exact
+live identities and terminal chains are observed. The probe performs no detail
+capture or File write.
+
+Evidence: E10, E50, E51
+
+Decision record: ADR-076
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1559,6 +1590,18 @@ boundary; the next live step is a trusted request-counted active/archived list
 probe before the durable account owner is added. The former single-operation T22
 becomes the acceptance phase of this wider baseline, not a separate final goal.
 
+### T29 — Run the bounded Claude list evidence probe
+
+Reload the reviewed unpacked extension, select the intended signed-in current
+personal Claude chat and invoke `Inspect Claude lists` once. Retain only the
+content-free aggregate result and use it to decide which exact scope headers,
+partitions and continuation variants can enter the durable enumeration contract.
+
+Trigger: ADR-076 passes current-head review and the user gives action-time
+confirmation for the extension reload and single trusted click. Any scope-
+unresolved, auth, verification, navigation, budget or schema stop remains useful
+evidence but grants no catalog admission or automatic retry.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1613,6 +1656,7 @@ becomes the acceptance phase of this wider baseline, not a separate final goal.
 - [evidence] E48: owner/2 now claims one journal/3 reservation, fences a single-use token and atomically retains provider-selected factual evidence without settlement or retry #code
 - [evidence] E49: one isolated native run exposed a harness observer-order race; the corrected real-terminal gate then passed all 13 lifecycle rows with exact rollback, cleanup and zero network calls #live
 - [evidence] E50: full-account planning proved that unseen Claude chats cannot enter a snapshot-derived plan honestly, so a separate scope-bound active-only incomplete catalog now exists #code
+- [evidence] E51: an offline trusted-click Claude list probe now enforces cap-four serial evidence reads, content-free output and exact navigation/timeout ownership without baseline authority #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1646,6 +1690,7 @@ becomes the acceptance phase of this wider baseline, not a separate final goal.
 - [decision] D28: keep owner/2 as sole journal/3 lifecycle/token/CAS authority through a new provider-closed five-method port
 - [decision] D29: accept owner/2 lifecycle semantics only through their own exact zero-permission native harness and keep every real provider effect separately gated
 - [decision] D30: keep first-capture Claude account inventory separate from captured-snapshot truth and give its future cursor/progress a fresh owner
+- [decision] D31: establish current Claude scope, archive and continuation facts through one pinned request-counted probe before durable enumeration
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1674,6 +1719,7 @@ becomes the acceptance phase of this wider baseline, not a separate final goal.
 - [tail] T26: design one owner/2 lifecycle/evidence port without automatic continuation, settlement or retry
 - [tail] T27: fulfilled by the corrected 13-row visible native PASS; preserve its non-provider boundary
 - [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
+- [tail] T29: after review, run one user-confirmed installed Claude list probe and admit only its exact observed evidence
 
 ## Relations
 
@@ -1736,3 +1782,4 @@ becomes the acceptance phase of this wider baseline, not a separate final goal.
 - S49 — [ADR-074: Accept owner/2 lifecycle semantics through a native harness](../adr/074-provider-owner-v2-native-lifecycle-harness.md), base main `2d8cad804c3c1f13d2bf105df2d6f730c3a89103`
 - S50 — local receipt `LISKA-PROVIDER-OWNER-V2-LIFECYCLE-NATIVE-20261111`; visibility: local-only; corrected bundle 13/13 PASS, 1,356 ms elapsed, 26 ms max gap, nine completed deletes, zero network calls
 - S51 — [ADR-075: Separate Claude account inventory from captured-snapshot truth](../adr/075-claude-account-baseline-catalog.md), base main `91c4f49e45c6f08736239154c3acac7d99b53e7b`
+- S52 — [ADR-076: Inspect Claude list evidence through one bounded trusted probe](../adr/076-bounded-claude-list-probe.md), base main `f6f0886ed963abef387e127fdcc44879b71ca37c`
