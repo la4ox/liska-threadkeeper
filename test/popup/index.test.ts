@@ -373,9 +373,10 @@ describe('popup/app', () => {
       resolveProbe({
         success: true,
         data: {
-          schema: 'liska-claude-list-probe/1',
+          schema: 'liska-claude-list-probe/2',
           status: 'stopped',
           code: 'scope-unresolved',
+          verificationPresent: true,
           counts: {
             dispatch: 2,
             page: 2,
@@ -406,6 +407,10 @@ describe('popup/app', () => {
         },
       });
       await vi.waitFor(() => expect(statusEl().textContent).toBe('status_claudeListProbeResult'));
+      expect(chrome.i18n.getMessage).toHaveBeenCalledWith(
+        'status_claudeListProbeVerificationYes',
+        undefined
+      );
       expect(chrome.i18n.getMessage).toHaveBeenCalledWith('status_claudeListProbeResult', [
         'stopped',
         'scope-unresolved',
@@ -413,6 +418,7 @@ describe('popup/app', () => {
         '2',
         '7',
         'unresolved',
+        'status_claudeListProbeVerificationYes',
       ]);
       expect(statusEl().className).toBe('status warning');
       expect(el<HTMLButtonElement>('probeClaudeListsBtn').disabled).toBe(false);

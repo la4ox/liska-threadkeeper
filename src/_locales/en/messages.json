@@ -1123,15 +1123,22 @@
     "message": "Inspecting bounded Claude active and archived list metadata…"
   },
   "status_claudeListProbeResult": {
-    "message": "Claude list diagnostic: $STATUS$ ($CODE$); $DISPATCHES$ requests, $PAGES$ pages, $RECORDS$ records; scope $SCOPE$.",
+    "message": "Claude list diagnostic: $STATUS$ ($CODE$); $DISPATCHES$ requests, $PAGES$ pages, $RECORDS$ records; scope $SCOPE$; verification banner observed $VERIFICATION$.",
     "placeholders": {
       "status": { "content": "$1" },
       "code": { "content": "$2" },
       "dispatches": { "content": "$3" },
       "pages": { "content": "$4" },
       "records": { "content": "$5" },
-      "scope": { "content": "$6" }
+      "scope": { "content": "$6" },
+      "verification": { "content": "$7" }
     }
+  },
+  "status_claudeListProbeVerificationYes": {
+    "message": "yes"
+  },
+  "status_claudeListProbeVerificationNo": {
+    "message": "no"
   },
   "toast_error_claudeListProbeFailed": {
     "message": "Claude list diagnostic did not start or return safely ($ERROR$).",

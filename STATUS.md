@@ -6584,3 +6584,52 @@ No live Claude or browser action has occurred. Current-head GitHub gates remain.
 The next action is one user-confirmed extension reload and one trusted live
 click; it may establish current list/header evidence but performs no detail
 capture or File write.
+
+## Claude list probe v1 live stop and v2 banner evidence — 2026-11-18
+
+Branch `codex/claude-list-probe-verification-banner` starts from merged main
+`e8b8de368596009222d66b31b4e7869047b0b17f` and records
+[ADR-077](docs/adr/077-claude-list-probe-verification-evidence.md).
+
+Comet's installed Liska source was identified as the generated `dist` beneath
+the old Documents checkout rather than the current worktree. The old 65-file
+installed build was moved intact to
+`dist-backup-codex-20261118-claude-list-probe`; the reviewed PR141 build was
+copied to the original installed path and every relative file SHA-256 matched
+the source. Nothing in the backup was deleted.
+
+One ordinary short Claude chat was selected on a clean `/chat/{uuid}` route.
+After explicit action-time confirmation, one trusted v1 popup click returned
+`stopped / auth-verification-required` with zero dispatches, pages and records
+and unresolved scope. No provider request, detail capture, download or persistent
+write occurred. Local receipt
+`LISKA-CLAUDE-LIST-PROBE-V1-VERIFICATION-20261118` retains only reviewed head,
+fixed code and zero counts.
+
+ADR-053 had already shown that this reply-verification banner can coexist with
+successful existing-list reads. The narrow correction therefore versions the
+result as `liska-claude-list-probe/2` and adds mandatory content-free
+`verificationPresent`. Banner presence is latched but no longer stops the
+read-only diagnostic, resolves scope or creates a fingerprint. The retired
+`auth-verification-required` code and every `/1` or mixed result are rejected.
+
+Actual `401`/`403` responses remain `auth-required` hard stops after one charged
+dispatch with signal abort and unread-body cancellation. Cap-four seriality,
+absolute deadlines, document/invocation pinning, navigation abort, global lock
+and every no-detail/no-output boundary remain unchanged. Popup output now reports
+the verification observation as localized yes/no.
+
+The corrected current focused/adjacent matrix passes 9 files / 310 tests. Full
+TypeScript, zero-warning lint for the probe modules, wiring lint with zero errors,
+Prettier and diff checks pass. Global lint has zero errors and the unchanged 55
+warnings; Idea Threads 9/37 and documentation links 97/97 pass. Production-only
+audit reports zero vulnerabilities.
+
+Independent re-review reports ready. The guarded production build/ZIP passes.
+Fresh `dist` contains 65 files / 6,111,562 bytes. The 2,798,108-byte ZIP has
+SHA-256
+`78b665fc103dc7f55e862da270c520af049f54098454779c649ef4e70be2b9fc`.
+V2 markers appear only in the expected popup and service-worker bundles.
+
+No v2 live Claude/browser action has occurred; current-head GitHub gates remain
+before a separately confirmed retry.

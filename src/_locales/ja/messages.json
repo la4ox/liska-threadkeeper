@@ -1004,15 +1004,22 @@
     "message": "Claude のアクティブ／アーカイブ済みリストを限定的に確認しています…"
   },
   "status_claudeListProbeResult": {
-    "message": "Claude リスト診断: $STATUS$（$CODE$）、リクエスト $DISPATCHES$ 件、ページ $PAGES$ 件、レコード $RECORDS$ 件、スコープ $SCOPE$。",
+    "message": "Claude リスト診断: $STATUS$（$CODE$）、リクエスト $DISPATCHES$ 件、ページ $PAGES$ 件、レコード $RECORDS$ 件、スコープ $SCOPE$、検証バナーの観測 $VERIFICATION$。",
     "placeholders": {
       "status": { "content": "$1" },
       "code": { "content": "$2" },
       "dispatches": { "content": "$3" },
       "pages": { "content": "$4" },
       "records": { "content": "$5" },
-      "scope": { "content": "$6" }
+      "scope": { "content": "$6" },
+      "verification": { "content": "$7" }
     }
+  },
+  "status_claudeListProbeVerificationYes": {
+    "message": "あり"
+  },
+  "status_claudeListProbeVerificationNo": {
+    "message": "なし"
   },
   "toast_error_claudeListProbeFailed": {
     "message": "Claude リスト診断を安全に開始または完了できませんでした（$ERROR$）。",

@@ -841,6 +841,12 @@ terminal states, and the existing no-credential-export boundary.
   ownership prevent request overlap. Detail capture, catalog admission and
   durable cursor work remain later gates until the installed probe is reviewed
   and run once with explicit confirmation.
+- [ADR-077](adr/077-claude-list-probe-verification-evidence.md) records that the
+  first installed v1 probe stopped before network on Claude's reply-verification
+  banner. Historical list evidence showed that banner did not itself deny list
+  reads, so v2 latches it as a content-free boolean while keeping scope
+  unresolved. Real 401/403 remain hard stops; the reviewed v1 schema and local
+  zero-request receipt are preserved rather than silently reinterpreted.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

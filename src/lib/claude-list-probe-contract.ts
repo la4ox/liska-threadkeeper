@@ -1,6 +1,6 @@
 /** Content-free result contract for one foreground Claude list diagnostic. */
 
-export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/1' as const;
+export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/2' as const;
 export const CLAUDE_LIST_PROBE_SCOPE_PREFIX = 'liska-claude-list-probe-scope/1:' as const;
 export const CLAUDE_LIST_PROBE_MAX_DISPATCHES = 4;
 export const CLAUDE_LIST_PROBE_MAX_RECORDS = 120;
@@ -9,7 +9,6 @@ export const CLAUDE_LIST_PROBE_MAX_HEADER_NAMES = 8;
 export const CLAUDE_LIST_PROBE_OUTCOME_CODES = Object.freeze([
   'ok',
   'route-organization-unresolved',
-  'auth-verification-required',
   'request-failed',
   'auth-required',
   'rate-limited',
@@ -53,6 +52,7 @@ export interface ClaudeListProbeResult {
   readonly schema: typeof CLAUDE_LIST_PROBE_SCHEMA;
   readonly status: 'complete' | 'stopped';
   readonly code: ClaudeListProbeOutcomeCode;
+  readonly verificationPresent: boolean;
   readonly counts: {
     readonly dispatch: number;
     readonly page: number;
@@ -273,6 +273,7 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
     'schema',
     'status',
     'code',
+    'verificationPresent',
     'counts',
     'pages',
     'pagination',
@@ -283,7 +284,8 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
     data.schema !== CLAUDE_LIST_PROBE_SCHEMA ||
     (data.status !== 'complete' && data.status !== 'stopped') ||
     typeof data.code !== 'string' ||
-    !(CLAUDE_LIST_PROBE_OUTCOME_CODES as readonly string[]).includes(data.code)
+    !(CLAUDE_LIST_PROBE_OUTCOME_CODES as readonly string[]).includes(data.code) ||
+    typeof data.verificationPresent !== 'boolean'
   )
     return undefined;
   const counts = snapshotCounts(data.counts);
@@ -298,6 +300,7 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
     schema: CLAUDE_LIST_PROBE_SCHEMA,
     status: data.status,
     code: data.code as ClaudeListProbeOutcomeCode,
+    verificationPresent: data.verificationPresent,
     counts,
     pages,
     pagination,

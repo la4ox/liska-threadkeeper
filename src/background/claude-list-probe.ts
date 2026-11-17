@@ -555,7 +555,7 @@ export async function runClaudeListProbeInPage(
   ownerToken: string,
   navigationAlreadyChanged: boolean
 ): Promise<unknown> {
-  const schema = 'liska-claude-list-probe/1';
+  const schema = 'liska-claude-list-probe/2';
   const privateKey = '__liskaClaudeListProbeNavigation_v1';
   const root = globalThis as unknown as Record<string, unknown>;
   const ownerValid =
@@ -602,6 +602,16 @@ export async function runClaudeListProbeInPage(
   const archivedIds = new Set<string>();
   const relevantHeaderNames = new Set<string>();
   let routeOrganization = '';
+  let verificationObserved = false;
+
+  const observeVerificationBanner = (): void => {
+    if (verificationObserved) return;
+    try {
+      verificationObserved = document.querySelector('[data-organization-banners]') !== null;
+    } catch {
+      // Unreadable DOM is not positive evidence that the banner exists.
+    }
+  };
 
   const navigationMatches = (): boolean => {
     try {
@@ -611,6 +621,10 @@ export async function runClaudeListProbeInPage(
     }
   };
   const navigationChanged = (): boolean => state.changed || !navigationMatches();
+  const checkpoint = (): boolean => {
+    observeVerificationBanner();
+    return navigationChanged();
+  };
   const setActiveCancel = (cancel: (() => void) | null): void => {
     if (root[privateKey] === state) state.cancel = cancel;
   };
@@ -628,6 +642,7 @@ export async function runClaudeListProbeInPage(
       schema,
       status: code === 'ok' ? 'complete' : 'stopped',
       code,
+      verificationPresent: verificationObserved,
       counts: { ...counts, page: pages.length },
       pages: pages.map(page => ({ ...page })),
       pagination: {
@@ -729,13 +744,6 @@ export async function runClaudeListProbeInPage(
     }
     return candidates.size === 1 ? [...candidates][0] : undefined;
   };
-  const verificationPresent = (): boolean => {
-    try {
-      return document.querySelector('[data-organization-banners]') !== null;
-    } catch {
-      return true;
-    }
-  };
   const readBody = async (response: Response, controller: AbortController): Promise<unknown> => {
     const contentLength = response.headers.get('content-length');
     if (
@@ -755,7 +763,7 @@ export async function runClaudeListProbeInPage(
     try {
       while (true) {
         const next = await deadlinePromise(reader.read(), cancelReader);
-        if (navigationChanged()) throw new Error('navigation');
+        if (checkpoint()) throw new Error('navigation');
         if (next.done) break;
         if (
           !ArrayBuffer.isView(next.value) ||
@@ -854,8 +862,7 @@ export async function runClaudeListProbeInPage(
     offset: 0 | 30
     // eslint-disable-next-line complexity, max-lines-per-function -- One request lifecycle owns dispatch, transport, scope and body admission.
   ): Promise<{ hasMore?: boolean; code?: ClaudeListProbeOutcomeCode }> => {
-    if (navigationChanged()) return { code: 'navigation-changed' };
-    if (verificationPresent()) return { code: 'auth-verification-required' };
+    if (checkpoint()) return { code: 'navigation-changed' };
     if (Date.now() >= deadline) return { code: 'deadline-exceeded' };
     if (counts.dispatch >= maxDispatches) return { code: 'budget-exhausted' };
     const requestUrl =
@@ -883,7 +890,7 @@ export async function runClaudeListProbeInPage(
           lateResponse => cancelUnreadBody(lateResponse, controller),
           () => undefined
         );
-      if (navigationChanged()) return { code: 'navigation-changed' };
+      if (checkpoint()) return { code: 'navigation-changed' };
       return {
         code:
           error instanceof Error && error.message === 'deadline'
@@ -892,7 +899,7 @@ export async function runClaudeListProbeInPage(
       };
     }
     setActiveCancel(() => cancelUnreadBody(response, controller));
-    if (navigationChanged()) {
+    if (checkpoint()) {
       cancelUnreadBody(response, controller);
       return { code: 'navigation-changed' };
     }
@@ -930,7 +937,7 @@ export async function runClaudeListProbeInPage(
       body = await readBody(response, controller);
     } catch (error) {
       cancelUnreadBody(response, controller);
-      if (navigationChanged() || (error instanceof Error && error.message === 'navigation'))
+      if (checkpoint() || (error instanceof Error && error.message === 'navigation'))
         return { code: 'navigation-changed' };
       if (error instanceof Error && error.message === 'deadline')
         return { code: 'deadline-exceeded' };
@@ -942,7 +949,7 @@ export async function runClaudeListProbeInPage(
       controller.abort();
       return { code: 'deadline-exceeded' };
     }
-    if (navigationChanged()) {
+    if (checkpoint()) {
       controller.abort();
       return { code: 'navigation-changed' };
     }
@@ -951,8 +958,7 @@ export async function runClaudeListProbeInPage(
   };
 
   try {
-    if (navigationChanged()) return finish('navigation-changed');
-    if (verificationPresent()) return finish('auth-verification-required');
+    if (checkpoint()) return finish('navigation-changed');
     const pageUrl = new URL(expectedUrl);
     const chatMatch = chatPathPattern.exec(pageUrl.pathname);
     if (pageUrl.origin !== 'https://claude.ai' || pageUrl.search || pageUrl.hash || !chatMatch)
@@ -963,14 +969,14 @@ export async function runClaudeListProbeInPage(
     const pending: Array<'active' | 'archived'> = [];
     for (const partition of ['active', 'archived'] as const) {
       const page = await requestPage(partition, 0);
-      if (navigationChanged()) return finish('navigation-changed');
+      if (checkpoint()) return finish('navigation-changed');
       if (page.code) return finish(page.code);
       if (page.hasMore) pending.push(partition);
     }
     for (const partition of pending) {
       if (counts.dispatch >= maxDispatches) return finish('budget-exhausted');
       const page = await requestPage(partition, 30);
-      if (navigationChanged()) return finish('navigation-changed');
+      if (checkpoint()) return finish('navigation-changed');
       if (page.code) return finish(page.code);
     }
     if (unfinished())
