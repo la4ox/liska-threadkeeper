@@ -6454,3 +6454,67 @@ adds no provider/account access, production wiring, settlement, retry,
 automatic continuation, account-wide baseline, scheduler or living memory. A
 manual provider-bound operation remains a separate explicit provider,
 account/scope, capability, request-budget and stop-condition decision.
+
+## Claude account baseline catalog contract — 2026-11-18
+
+Branch `codex/claude-account-baseline-v1` starts from merged main
+`91c4f49e45c6f08736239154c3acac7d99b53e7b` and records
+[ADR-075](docs/adr/075-claude-account-baseline-catalog.md). The user explicitly
+opened a full current-personal-account Claude backup attempt, allowed to proceed
+through bounded resumable manual iterations. The daily scheduler remains a later
+decision.
+
+The first slice adds a pure, unwired
+`liska-claude-account-baseline-catalog/1` contract. It projects only the exact
+detached ADR-053 `observed_page` shape plus a matching opaque manual-personal
+scope attestation. Output contains fixed provider `claude`, the existing opaque
+scope key, deterministically sorted conversation IDs and optional existing
+opaque marker source/token. Raw organization/workspace values, email, title,
+summary, settings, response/request bodies, URLs, headers and credentials never
+enter the result.
+
+Every catalog is explicitly active-only:
+`active=terminal-observed`, `archived=unobserved`, `accountComplete=false`.
+Empty, short, twelve-record and full thirty-record pages retain that same
+incomplete meaning. Missing markers stay absent and marker equality grants no
+skip or capture authority. Published objects are detached and deeply frozen;
+duplicates, malformed/foreign identity, mismatched or unresolved scope, unsafe
+object shapes and bounded-limit violations fail closed.
+
+The new source remains import-isolated because ADR-053's observation module is
+intentionally frozen against production consumers. Runtime tests pass a real
+ADR-053 parser result into the new contract. A TypeScript compiler-program test
+checks exact compatibility in both directions and requires TS2322 for a
+deliberately drifted shape, so ordinary CI now proves the type boundary rather
+than merely transpiling it.
+
+No existing tracked source/configuration file changes. The new architecture
+guard pins all five source modules and proves zero network, browser, storage,
+clock, timer, journal, snapshot-catalog, capture, export, destination, retry,
+cursor, scheduler, UI, package, build, manifest or production consumer.
+
+The new slice passes 4 files / 106 tests. The current relevant matrix passes 7
+files / 276 tests including the unchanged ADR-053 observation, comparison and
+frozen-boundary suites. Independent review found and closed the ineffective
+compile-time-test gap and now reports ready. Full TypeScript, scoped zero-warning
+ESLint, Prettier, diff, Idea Threads 9/37 and documentation links 95/95 pass.
+Global lint has zero errors and the unchanged 55 warnings; the production-only
+dependency audit reports zero vulnerabilities. The complete development tree
+now reports 19 transitive tooling findings (nine moderate, ten high) through
+`minimatch`/`picomatch`; the proposed high-severity force fix would install a
+breaking Vitest version, so no lockfile or dependency change is included here.
+
+The guarded production build/ZIP passes. Fresh `dist` remains 65 files /
+6,087,953 bytes with zero Claude-baseline markers. The 2,792,264-byte ZIP has
+SHA-256
+`08b2ff418a48258ef19cd11f504c6d2a91f8a87d0ffbd36c3597d9969d0eb39a`.
+Current-head GitHub gates remain to be completed for this branch.
+
+This catalog is not `liska-snapshot-catalog/1` and no fake capture manifests are
+created. It also does not widen provider owner/2, whose accepted snapshot source
+and lifetime limits are unsuitable for a full account baseline. The next slice
+is a trusted user-clicked Claude list probe with a hard four-request budget,
+serial active/archived reads and content-free aggregate evidence. After real
+scope, terminal and pagination facts are known, a fresh rollback-isolated
+account-baseline owner will persist pages, cursor, targets and per-iteration
+progress before any detail capture begins.

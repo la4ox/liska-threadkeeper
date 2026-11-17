@@ -819,6 +819,19 @@ terminal states, and the existing no-credential-export boundary.
   5/4/3 record-revision and checkpoint/history projections fail before effects
   when late evidence could not fit. The next gate is separate synthetic native
   lifecycle acceptance, not a live Claude request.
+- [ADR-074](adr/074-provider-owner-v2-native-lifecycle-harness.md) accepts that
+  lifecycle through a third isolated zero-permission native harness. The first
+  installed run exposed a real terminal-observer ordering gap in the harness;
+  the corrected bundle retained exact abort and two-store rollback assertions
+  and passed all 13 rows with exact cleanup and zero network calls. This closes
+  synthetic owner/2 lifecycle evidence only.
+- [ADR-075](adr/075-claude-account-baseline-catalog.md) opens the explicitly
+  authorized full current-personal Claude baseline without widening captured-
+  snapshot truth. The first pure catalog consumes only exact ADR-053 active-list
+  observations plus matching opaque manual scope evidence, retains IDs/opaque
+  markers and always reports archived unobserved/account incomplete. Newly
+  discovered chats need a separate account-inventory source and later durable
+  cursor owner; fake capture manifests and owner/2 batch expansion are rejected.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
