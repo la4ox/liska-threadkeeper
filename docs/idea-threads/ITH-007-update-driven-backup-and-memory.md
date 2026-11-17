@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-11
+last_turn: 2026-11-18
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -669,6 +669,22 @@ all 13 rows in 1,356 ms with a 26 ms maximum gap, nine completed deletions and
 zero network calls. This proves only synthetic native lifecycle/token/evidence
 semantics, not provider scope, external effects or crash durability.
 
+### E50 — A full Claude baseline needs discovery truth before capture truth
+
+After ADR-074, the user explicitly chose a full current-personal-account Claude
+backup that may proceed through multiple resumable manual iterations. Source
+reconciliation exposed two hard boundaries: the accepted snapshot catalog can
+name only conversations with valid existing capture manifests, and provider
+owner/2 retains at most 16 operations from that snapshot-derived plan.
+
+The first new contract therefore admits the exact detached ADR-053 terminal
+active-list page plus a matching opaque manual-personal scope attestation into a
+separate `liska-claude-account-baseline-catalog/1`. It retains only sorted Claude
+conversation IDs and optional opaque markers. Its schema says active terminal
+observed, archived unobserved and account incomplete for every result. This
+creates useful first-capture targets without fabricating manifests or claiming
+that the visible list is the whole account.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1128,6 +1144,22 @@ Evidence: E48, E49
 
 Decision record: ADR-074
 
+### D30 — Give first-capture account inventory its own source and owner path
+
+Adopt ADR-075 instead of widening `liska-snapshot-catalog/1` or stretching
+provider owner/2 into an account runner. Preserve the captured-snapshot catalog
+as archive evidence and build a separate scope-bound Claude account inventory,
+later followed by a fresh rollback-isolated enumeration/cursor owner.
+
+The initial pure catalog remains unwired and incomplete. A trusted live list
+probe must establish authenticated scope, active/archived coverage and actual
+pagination grammar before durable enumeration can claim closure. Known targets
+may still be captured while archive coverage remains explicitly unproven.
+
+Evidence: E10, E49, E50
+
+Decision record: ADR-075
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1511,6 +1543,22 @@ passed one visible installed-Comet run with all 13 rows, physical two-store
 rollback, exact cleanup, bounded timing and zero network calls. Current-head
 GitHub gates remain pending; provider/account authority remains absent.
 
+### T28 — Complete a resumable current-personal Claude baseline attempt
+
+Inventory the user's current personal Claude scope with explicit active and
+archived coverage facts, persist a bounded durable target queue and then capture
+raw/manifest/canonical File artifacts sequentially across manual iterations.
+Preserve every confirmed capture, pause on scope/auth/rate-limit/terminal or
+persistence uncertainty and never invent completeness for inaccessible chats,
+message branches or attachment bytes.
+
+Trigger: the user explicitly authorizes the full current-personal-account Claude
+backup and accepts resumable bounded iterations without enabling a scheduler.
+Opened on 2026-11-17. E50/D30 implement the first pure active-list catalog
+boundary; the next live step is a trusted request-counted active/archived list
+probe before the durable account owner is added. The former single-operation T22
+becomes the acceptance phase of this wider baseline, not a separate final goal.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1564,6 +1612,7 @@ GitHub gates remain pending; provider/account authority remains absent.
 - [evidence] E47: one isolated installed-Comet owner/2 run passed all 13 storage rows with exact cleanup, bounded timing and zero network calls #live
 - [evidence] E48: owner/2 now claims one journal/3 reservation, fences a single-use token and atomically retains provider-selected factual evidence without settlement or retry #code
 - [evidence] E49: one isolated native run exposed a harness observer-order race; the corrected real-terminal gate then passed all 13 lifecycle rows with exact rollback, cleanup and zero network calls #live
+- [evidence] E50: full-account planning proved that unseen Claude chats cannot enter a snapshot-derived plan honestly, so a separate scope-bound active-only incomplete catalog now exists #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1596,6 +1645,7 @@ GitHub gates remain pending; provider/account authority remains absent.
 - [decision] D27: accept owner/2 native storage only through a separate exact zero-permission harness with content-free receipts
 - [decision] D28: keep owner/2 as sole journal/3 lifecycle/token/CAS authority through a new provider-closed five-method port
 - [decision] D29: accept owner/2 lifecycle semantics only through their own exact zero-permission native harness and keep every real provider effect separately gated
+- [decision] D30: keep first-capture Claude account inventory separate from captured-snapshot truth and give its future cursor/progress a fresh owner
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1617,12 +1667,13 @@ GitHub gates remain pending; provider/account authority remains absent.
 - [tail] T19: design durable baseline-plan storage and atomic charge+operation reservation before any runner
 - [tail] T20: connect one baseline-owned reservation to coordinator execution and retained evidence without implicit settlement or retry
 - [tail] T21: fulfilled by one visible installed native PASS without provider or destination authority
-- [tail] T22: native lifecycle preconditions are satisfied; design one provider-bound operation only after separate provider/account/capability/request-budget authorization
+- [tail] T22: provider-bound single-operation work is now the acceptance phase inside the explicitly authorized full Claude baseline T28
 - [tail] T23: build a rollback-isolated provider owner/checkpoint domain that atomically owns journal/3 before Claude live wiring
 - [tail] T24: persist the unchanged plan, checkpoint/2 and journal/3 reservations atomically in one new non-executing owner
 - [tail] T25: accept provider owner/2 in a native storage-only harness before designing lifecycle or provider effects
 - [tail] T26: design one owner/2 lifecycle/evidence port without automatic continuation, settlement or retry
 - [tail] T27: fulfilled by the corrected 13-row visible native PASS; preserve its non-provider boundary
+- [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
 
 ## Relations
 
@@ -1684,3 +1735,4 @@ GitHub gates remain pending; provider/account authority remains absent.
 - S48 — [ADR-073: Add a provider-closed journal/3 lifecycle port to owner/2](../adr/073-provider-owner-v2-lifecycle-port.md), base main `80b7efcd17c30139d76df822e0c8e59f5780d7d0`
 - S49 — [ADR-074: Accept owner/2 lifecycle semantics through a native harness](../adr/074-provider-owner-v2-native-lifecycle-harness.md), base main `2d8cad804c3c1f13d2bf105df2d6f730c3a89103`
 - S50 — local receipt `LISKA-PROVIDER-OWNER-V2-LIFECYCLE-NATIVE-20261111`; visibility: local-only; corrected bundle 13/13 PASS, 1,356 ms elapsed, 26 ms max gap, nine completed deletes, zero network calls
+- S51 — [ADR-075: Separate Claude account inventory from captured-snapshot truth](../adr/075-claude-account-baseline-catalog.md), base main `91c4f49e45c6f08736239154c3acac7d99b53e7b`
