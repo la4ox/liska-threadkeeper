@@ -26,6 +26,7 @@ function safeResult() {
     schema: CLAUDE_LIST_PROBE_SCHEMA,
     status: 'complete' as const,
     code: 'ok' as const,
+    verificationPresent: false,
     counts: {
       dispatch: 2,
       page: 2,
@@ -452,6 +453,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(result.status).toBe('stopped');
     expect(result.code).toBe('scope-unresolved');
+    expect(result.verificationPresent).toBe(false);
     expect(result.counts).toMatchObject({
       dispatch: 2,
       page: 2,
@@ -683,10 +685,13 @@ describe('Claude injected active/archived list diagnostic', () => {
       observed = response(url, list(), { status });
       return observed;
     });
+    if (status === 401 || status === 403)
+      document.body.innerHTML = '<div data-organization-banners></div>';
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(result.code).toBe(code);
     expect(result.counts.dispatch).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.verificationPresent).toBe(status === 401 || status === 403);
     expect((vi.mocked(fetch).mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
     expect(
       (observed.body as unknown as { cancel: ReturnType<typeof vi.fn> }).cancel
@@ -733,19 +738,39 @@ describe('Claude injected active/archived list diagnostic', () => {
     );
   });
 
-  it('makes zero requests on unresolved route hints or a verification banner', async () => {
+  it('makes zero requests on unresolved route hints', async () => {
     installPage(async url => response(url, list()));
     vi.stubGlobal('performance', { getEntriesByType: () => [] });
     expect((await runPage()) as object).toMatchObject({
       code: 'route-organization-unresolved',
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
 
-    vi.stubGlobal('performance', { getEntriesByType: () => [{ name: DETAIL_URL }] });
+  it('observes a verification banner from the start without blocking terminal list reads', async () => {
+    installPage(async url => response(url, list()));
     document.body.innerHTML = '<div data-organization-banners></div>';
-    expect((await runPage()) as object).toMatchObject({
-      code: 'auth-verification-required',
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      schema: 'liska-claude-list-probe/2',
+      status: 'stopped',
+      code: 'scope-unresolved',
+      verificationPresent: true,
+      counts: { dispatch: 2, page: 2, record: 0 },
     });
-    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('latches a verification banner that appears during the first request', async () => {
+    installPage(async url => {
+      if (vi.mocked(fetch).mock.calls.length === 1)
+        document.body.innerHTML = '<div data-organization-banners></div>';
+      else document.body.innerHTML = '';
+      return response(url, list());
+    });
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result.code).toBe('scope-unresolved');
+    expect(result.verificationPresent).toBe(true);
   });
 });

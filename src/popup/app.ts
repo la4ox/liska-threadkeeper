@@ -374,6 +374,11 @@ export async function runClaudeListProbe(): Promise<void> {
     if (response.success) {
       const result = response.data;
       const scope = result.scope.fingerprint === null ? 'unresolved' : 'resolved';
+      const verification = getMessage(
+        result.verificationPresent
+          ? 'status_claudeListProbeVerificationYes'
+          : 'status_claudeListProbeVerificationNo'
+      );
       showStatus(
         getMessage('status_claudeListProbeResult', [
           result.status,
@@ -382,6 +387,7 @@ export async function runClaudeListProbe(): Promise<void> {
           String(result.counts.page),
           String(result.counts.record),
           scope,
+          verification,
         ]),
         result.status === 'complete' ? 'success' : 'warning'
       );

@@ -13,6 +13,7 @@ function result() {
     schema: CLAUDE_LIST_PROBE_SCHEMA,
     status: 'complete' as const,
     code: 'ok' as const,
+    verificationPresent: false,
     counts: {
       dispatch: 2,
       page: 2,
@@ -56,6 +57,9 @@ describe('Claude list probe content-free contract', () => {
 
   it.each([
     { extra: true },
+    { ...result(), schema: 'liska-claude-list-probe/1' },
+    { ...result(), verificationPresent: 'false' },
+    { ...result(), status: 'stopped', code: 'auth-verification-required' },
     { ...result(), privateId: 'secret' },
     { ...result(), status: 'complete', code: 'scope-unresolved' },
     { ...result(), counts: { ...result().counts, dispatch: 5 } },
@@ -101,6 +105,24 @@ describe('Claude list probe content-free contract', () => {
     expect(
       isClaudeListProbeResponse({ success: false, code: 'invalid-sender', detail: 'private' })
     ).toBe(false);
+  });
+
+  it('rejects the reviewed v1 shape and every old/new mixed shape', () => {
+    const { verificationPresent: _verificationPresent, ...withoutVerification } = result();
+    expect(
+      snapshotClaudeListProbeResult({
+        ...withoutVerification,
+        schema: 'liska-claude-list-probe/1',
+      })
+    ).toBeUndefined();
+    expect(snapshotClaudeListProbeResult(withoutVerification)).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({
+        ...withoutVerification,
+        schema: CLAUDE_LIST_PROBE_SCHEMA,
+        verification: { present: true },
+      })
+    ).toBeUndefined();
   });
 
   it('allows unresolved scope only without a fingerprint', () => {
