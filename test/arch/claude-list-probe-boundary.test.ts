@@ -47,7 +47,7 @@ describe('Claude list diagnostic architecture boundary', () => {
     expect(references(source(contractPath))).toEqual([]);
   });
 
-  it('has no baseline, ADR053 observation, storage, download, destination, detail, export, journal or scheduler dependency', () => {
+  it('has no baseline, ADR053 observation, general storage, download, destination, detail, export, journal or scheduler dependency', () => {
     const text = [backgroundPath, contractPath]
       .map(file => readFileSync(path.join(root, file), 'utf8'))
       .join('\n');
@@ -56,7 +56,6 @@ describe('Claude list diagnostic architecture boundary', () => {
     );
     const tree = source(backgroundPath);
     const bannedIdentifiers = new Set([
-      'localStorage',
       'sessionStorage',
       'indexedDB',
       'caches',
@@ -72,6 +71,9 @@ describe('Claude list diagnostic architecture boundary', () => {
       ts.forEachChild(node, visit);
     }
     visit(tree);
+    const background = readFileSync(path.join(root, backgroundPath), 'utf8');
+    expect(background.match(/localStorage\.getItem\('ccd-sync-org'\)/gu)).toHaveLength(1);
+    expect(background).not.toMatch(/localStorage\.(?!getItem\b)/u);
   });
 
   it('does not change the manifest or grant baseline/account completeness authority', () => {

@@ -714,6 +714,20 @@ as a boolean but leaves scope unresolved and continues only the bounded read-onl
 list diagnostic. Real `401`/`403` remain hard authentication stops. V1 remains
 local regression provenance and is not silently reinterpreted.
 
+### E53 — V2 passed banner admission but lacked a current route hint
+
+The reviewed v2 build was installed through exact file reconciliation and run
+once on the same clean Claude chat. It retained the verification banner as
+evidence, then stopped `route-organization-unresolved` with zero requests, pages
+and records. Resource timing was empty after reload; the result proved the next
+missing prerequisite without spending provider budget.
+
+V3 reconciles only the existing exact non-secret page hints: bounded list/detail
+resource routes, a verification link bound to the current conversation and the
+single named `ccd-sync-org` storage key. It reports only the source class, never
+the raw organization ID. Conflicting, absent or query-ambiguous hints stop before
+network.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1219,6 +1233,20 @@ Evidence: E10, E51, E52
 
 Decision record: ADR-077
 
+### D33 — Resolve Claude list routing from exact reconciled page hints
+
+Adopt ADR-078 and version the result as `liska-claude-list-probe/3`. Collect all
+eligible route hints without source precedence; permit requests only when they
+agree on one canonical organization ID. Return only a closed evidence enum.
+
+Require exactly one `org`, `return_to` and `return_path` on a verification link
+before it contributes authority. Preserve names-only unresolved scope and every
+ADR-076/077 request and lifecycle bound.
+
+Evidence: E51, E52, E53
+
+Decision record: ADR-078
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1634,6 +1662,11 @@ The first v1 trigger was fulfilled by E52: it stopped before network on the
 reply-verification banner. Reopened for v2 after D32; a new action-time
 confirmation is required, and no automatic retry follows from the code change.
 
+The v2 trigger was fulfilled by E53: it stopped before network when resource
+timing exposed no organization route. Reopened for v3 after D33; one new
+action-time confirmation is required and conflicting hints still stop without a
+request.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1690,6 +1723,7 @@ confirmation is required, and no automatic retry follows from the code change.
 - [evidence] E50: full-account planning proved that unseen Claude chats cannot enter a snapshot-derived plan honestly, so a separate scope-bound active-only incomplete catalog now exists #code
 - [evidence] E51: an offline trusted-click Claude list probe now enforces cap-four serial evidence reads, content-free output and exact navigation/timeout ownership without baseline authority #code
 - [evidence] E52: the first installed v1 probe stopped before network on Claude reply verification, motivating a versioned names-only v2 correction rather than forced account verification #live
+- [evidence] E53: the installed v2 probe passed verification admission but stopped at zero requests when resource timing exposed no route organization #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1725,6 +1759,7 @@ confirmation is required, and no automatic retry follows from the code change.
 - [decision] D30: keep first-capture Claude account inventory separate from captured-snapshot truth and give its future cursor/progress a fresh owner
 - [decision] D31: establish current Claude scope, archive and continuation facts through one pinned request-counted probe before durable enumeration
 - [decision] D32: record reply-verification as boolean evidence in probe v2 while keeping scope unresolved and 401/403 as the hard list-auth boundary
+- [decision] D33: resolve probe routing only from exact reconciled resource, verification-link and named-storage hints, exposing source class but never the ID
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1753,7 +1788,7 @@ confirmation is required, and no automatic retry follows from the code change.
 - [tail] T26: design one owner/2 lifecycle/evidence port without automatic continuation, settlement or retry
 - [tail] T27: fulfilled by the corrected 13-row visible native PASS; preserve its non-provider boundary
 - [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
-- [tail] T29: v1 stopped before network on reply verification; after v2 review, run one newly confirmed probe and admit only its exact observed evidence
+- [tail] T29: v1 and v2 stopped before network on verification then missing route evidence; after v3 review, run one newly confirmed probe and admit only exact observations
 
 ## Relations
 
@@ -1819,3 +1854,5 @@ confirmation is required, and no automatic retry follows from the code change.
 - S52 — [ADR-076: Inspect Claude list evidence through one bounded trusted probe](../adr/076-bounded-claude-list-probe.md), base main `f6f0886ed963abef387e127fdcc44879b71ca37c`
 - S53 — local receipt `LISKA-CLAUDE-LIST-PROBE-V1-VERIFICATION-20261118`; visibility: local-only; reviewed v1 stopped before network with fixed verification code and zero request/page/record counts
 - S54 — [ADR-077: Treat Claude reply verification as list-probe evidence, not identity](../adr/077-claude-list-probe-verification-evidence.md), base main `e8b8de368596009222d66b31b4e7869047b0b17f`
+- S55 — local receipt `LISKA-CLAUDE-LIST-PROBE-V2-ROUTE-UNRESOLVED-20261118`; visibility: local-only; reviewed v2 stopped before network with fixed route-unresolved code, zero counts, unresolved scope and verification observed
+- S56 — [ADR-078: Resolve Claude list routing from exact non-secret page hints](../adr/078-claude-list-probe-route-hints.md), base main `c36c5f935f6737aaaf04e8ebb7cbe7f24cef3a76`

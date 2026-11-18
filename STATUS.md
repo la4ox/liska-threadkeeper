@@ -6633,3 +6633,53 @@ V2 markers appear only in the expected popup and service-worker bundles.
 
 No v2 live Claude/browser action has occurred; current-head GitHub gates remain
 before a separately confirmed retry.
+
+## Claude list probe v2 route stop and v3 exact hints — 2026-11-18
+
+Branch `codex/claude-list-probe-route-hints` starts from merged main
+`c36c5f935f6737aaaf04e8ebb7cbe7f24cef3a76` and records
+[ADR-078](docs/adr/078-claude-list-probe-route-hints.md).
+
+The reviewed v2 build replaced the installed v1 `dist` with exact relative-file
+SHA-256 reconciliation; v1 remains intact in
+`dist-backup-codex-20261118-claude-list-probe-v1`. One newly confirmed v2 click
+on the same clean Claude chat returned
+`stopped / route-organization-unresolved`, zero dispatches/pages/records,
+unresolved scope and verification observed. No provider request or output
+occurred. Local receipt
+`LISKA-CLAUDE-LIST-PROBE-V2-ROUTE-UNRESOLVED-20261118` contains only reviewed
+head, schema, fixed stop and zero-count facts.
+
+Resource timing had no usable organization route after reload. V3 therefore
+adds exact self-contained reconciliation of three already accepted non-secret
+page hints: bounded exact list/current-detail resource routes, an exact current-
+conversation Anthropic verification link and exactly one named
+`localStorage.getItem('ccd-sync-org')` read. Storage is never enumerated and raw
+IDs never leave the injected world.
+
+The result schema becomes `liska-claude-list-probe/3` with mandatory closed
+`routeOrganizationEvidence`: resource timing, verification link, named storage,
+multiple consistent or unresolved. One unique ID permits requests; agreeing
+source classes are explicit; conflict or absence stops before fetch. Every
+authority-bearing verification-link query parameter must occur exactly once, so
+missing or duplicate `org`, `return_to` or `return_path` values are rejected even
+when duplicates agree.
+
+Scope remains names-only unresolved and every v2 request, privacy, deadline,
+body-cancellation, document/invocation, navigation and lock boundary remains
+unchanged. Popup output shows only the evidence class, never the route value.
+
+The corrected current focused/adjacent matrix passes 9 files / 326 tests. Full
+TypeScript, strict probe lint, wiring lint, Prettier and diff checks pass.
+Global lint has zero errors and the unchanged 55 warnings; Idea Threads 9/37 and
+documentation links 98/98 pass. Production-only audit reports zero
+vulnerabilities.
+
+Independent review found and closed duplicate-query ambiguity and reports ready.
+The guarded production build/ZIP passes. Fresh `dist` contains 65 files /
+6,114,178 bytes. The 2,798,840-byte ZIP has SHA-256
+`359016e7f883ee8a50b92723e2f3e1c4559d6855eec2171bc40cb154976ab350`.
+V3 markers appear only in the expected popup and service-worker bundles.
+
+No v3 live action has occurred; current-head GitHub gates remain before a
+separately confirmed retry.

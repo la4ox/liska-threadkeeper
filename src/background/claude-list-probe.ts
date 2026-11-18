@@ -555,7 +555,7 @@ export async function runClaudeListProbeInPage(
   ownerToken: string,
   navigationAlreadyChanged: boolean
 ): Promise<unknown> {
-  const schema = 'liska-claude-list-probe/2';
+  const schema = 'liska-claude-list-probe/3';
   const privateKey = '__liskaClaudeListProbeNavigation_v1';
   const root = globalThis as unknown as Record<string, unknown>;
   const ownerValid =
@@ -602,6 +602,12 @@ export async function runClaudeListProbeInPage(
   const archivedIds = new Set<string>();
   const relevantHeaderNames = new Set<string>();
   let routeOrganization = '';
+  let routeOrganizationEvidence:
+    | 'resource-timing'
+    | 'verification-link'
+    | 'named-storage'
+    | 'multiple-consistent'
+    | 'unresolved' = 'unresolved';
   let verificationObserved = false;
 
   const observeVerificationBanner = (): void => {
@@ -643,6 +649,7 @@ export async function runClaudeListProbeInPage(
       status: code === 'ok' ? 'complete' : 'stopped',
       code,
       verificationPresent: verificationObserved,
+      routeOrganizationEvidence,
       counts: { ...counts, page: pages.length },
       pages: pages.map(page => ({ ...page })),
       pagination: {
@@ -719,13 +726,36 @@ export async function runClaudeListProbeInPage(
     }
     return output;
   };
-  const resolveRouteOrganization = (conversationId: string): string | undefined => {
-    const candidates = new Set<string>();
+  const resolveRouteOrganization = (
+    conversationId: string
+  ): {
+    organization?: string;
+    evidence:
+      | 'resource-timing'
+      | 'verification-link'
+      | 'named-storage'
+      | 'multiple-consistent'
+      | 'unresolved';
+    // eslint-disable-next-line complexity, max-lines-per-function -- Three exact hint sources reconcile inside the serialized privacy boundary.
+  } => {
+    const candidates = new Map<
+      string,
+      Set<'resource-timing' | 'verification-link' | 'named-storage'>
+    >();
+    const add = (
+      organization: string,
+      source: 'resource-timing' | 'verification-link' | 'named-storage'
+    ): void => {
+      if (!uuidPattern.test(organization)) return;
+      const sources = candidates.get(organization) ?? new Set();
+      sources.add(source);
+      candidates.set(organization, sources);
+    };
     let entries: PerformanceEntry[];
     try {
       entries = performance.getEntriesByType('resource').slice(-128);
     } catch {
-      return undefined;
+      entries = [];
     }
     for (const entry of entries) {
       let url: URL;
@@ -737,12 +767,60 @@ export async function runClaudeListProbeInPage(
       if (url.origin !== 'https://claude.ai' || url.username || url.password || url.hash) continue;
       const listMatch = listPathPattern.exec(url.pathname);
       const detailMatch = detailPathPattern.exec(url.pathname);
-      if (listMatch && uuidPattern.test(listMatch[1])) candidates.add(listMatch[1]);
-      if (detailMatch && detailMatch[2] === conversationId && uuidPattern.test(detailMatch[1]))
-        candidates.add(detailMatch[1]);
-      if (candidates.size > 1) return undefined;
+      if (listMatch) add(listMatch[1], 'resource-timing');
+      if (!url.search && detailMatch && detailMatch[2] === conversationId)
+        add(detailMatch[1], 'resource-timing');
     }
-    return candidates.size === 1 ? [...candidates][0] : undefined;
+    try {
+      const banner = document.querySelector('[data-organization-banners]');
+      if (banner) {
+        const links = banner.querySelectorAll<HTMLAnchorElement>(
+          'a[href^="https://portal.anthropic.com/verify?"]'
+        );
+        for (let index = 0; index < Math.min(links.length, 32); index += 1) {
+          let url: URL;
+          try {
+            url = new URL(links[index].href);
+          } catch {
+            continue;
+          }
+          if (
+            url.origin !== 'https://portal.anthropic.com' ||
+            url.pathname !== '/verify' ||
+            url.username ||
+            url.password ||
+            url.hash
+          )
+            continue;
+          const organizations = url.searchParams.getAll('org');
+          const returnTargets = url.searchParams.getAll('return_to');
+          const returnPaths = url.searchParams.getAll('return_path');
+          if (
+            organizations.length !== 1 ||
+            returnTargets.length !== 1 ||
+            returnPaths.length !== 1 ||
+            returnTargets[0] !== 'claude' ||
+            returnPaths[0] !== `/chat/${conversationId}`
+          )
+            continue;
+          add(organizations[0], 'verification-link');
+        }
+      }
+    } catch {
+      // The exact named banner/link hint is optional.
+    }
+    try {
+      const organization = localStorage.getItem('ccd-sync-org');
+      if (organization !== null) add(organization, 'named-storage');
+    } catch {
+      // Named storage can be unavailable; no other key is eligible.
+    }
+    if (candidates.size !== 1) return { evidence: 'unresolved' };
+    const [organization, sources] = [...candidates][0];
+    return {
+      organization,
+      evidence: sources.size > 1 ? 'multiple-consistent' : [...sources][0],
+    };
   };
   const readBody = async (response: Response, controller: AbortController): Promise<unknown> => {
     const contentLength = response.headers.get('content-length');
@@ -963,7 +1041,9 @@ export async function runClaudeListProbeInPage(
     const chatMatch = chatPathPattern.exec(pageUrl.pathname);
     if (pageUrl.origin !== 'https://claude.ai' || pageUrl.search || pageUrl.hash || !chatMatch)
       return finish('navigation-changed');
-    routeOrganization = resolveRouteOrganization(chatMatch[1]) ?? '';
+    const resolvedRoute = resolveRouteOrganization(chatMatch[1]);
+    routeOrganization = resolvedRoute.organization ?? '';
+    routeOrganizationEvidence = resolvedRoute.evidence;
     if (!routeOrganization) return finish('route-organization-unresolved');
 
     const pending: Array<'active' | 'archived'> = [];

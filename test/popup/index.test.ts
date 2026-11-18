@@ -373,10 +373,11 @@ describe('popup/app', () => {
       resolveProbe({
         success: true,
         data: {
-          schema: 'liska-claude-list-probe/2',
+          schema: 'liska-claude-list-probe/3',
           status: 'stopped',
           code: 'scope-unresolved',
           verificationPresent: true,
+          routeOrganizationEvidence: 'verification-link',
           counts: {
             dispatch: 2,
             page: 2,
@@ -411,6 +412,10 @@ describe('popup/app', () => {
         'status_claudeListProbeVerificationYes',
         undefined
       );
+      expect(chrome.i18n.getMessage).toHaveBeenCalledWith(
+        'status_claudeListProbeRouteVerificationLink',
+        undefined
+      );
       expect(chrome.i18n.getMessage).toHaveBeenCalledWith('status_claudeListProbeResult', [
         'stopped',
         'scope-unresolved',
@@ -419,6 +424,7 @@ describe('popup/app', () => {
         '7',
         'unresolved',
         'status_claudeListProbeVerificationYes',
+        'status_claudeListProbeRouteVerificationLink',
       ]);
       expect(statusEl().className).toBe('status warning');
       expect(el<HTMLButtonElement>('probeClaudeListsBtn').disabled).toBe(false);

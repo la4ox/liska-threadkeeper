@@ -27,7 +27,10 @@ import {
 } from '../lib/constants';
 import { getMessage } from '../lib/i18n';
 import { sendMessage } from '../lib/messaging';
-import type { ClaudeListProbeResponse } from '../lib/claude-list-probe-contract';
+import type {
+  ClaudeListProbeResponse,
+  ClaudeListRouteOrganizationEvidence,
+} from '../lib/claude-list-probe-contract';
 
 /**
  * Initialize i18n for all elements with data-i18n attributes
@@ -331,6 +334,17 @@ function sendClaudeListProbeMessage(): Promise<ClaudeListProbeResponse> {
   return send({ action: 'probeClaudeLists' });
 }
 
+function claudeRouteEvidenceMessage(evidence: ClaudeListRouteOrganizationEvidence): string {
+  const keys: Record<ClaudeListRouteOrganizationEvidence, string> = {
+    'resource-timing': 'status_claudeListProbeRouteResourceTiming',
+    'verification-link': 'status_claudeListProbeRouteVerificationLink',
+    'named-storage': 'status_claudeListProbeRouteNamedStorage',
+    'multiple-consistent': 'status_claudeListProbeRouteMultipleConsistent',
+    unresolved: 'status_claudeListProbeRouteUnresolved',
+  };
+  return getMessage(keys[evidence]);
+}
+
 /** Run one selected-tab, schema-only Dots diagnostic. */
 export async function runDotsSchemaProbe(): Promise<void> {
   if (dotsSchemaProbeInFlight || claudeListProbeInFlight || settingsActionInFlight) return;
@@ -379,6 +393,7 @@ export async function runClaudeListProbe(): Promise<void> {
           ? 'status_claudeListProbeVerificationYes'
           : 'status_claudeListProbeVerificationNo'
       );
+      const routeEvidence = claudeRouteEvidenceMessage(result.routeOrganizationEvidence);
       showStatus(
         getMessage('status_claudeListProbeResult', [
           result.status,
@@ -388,6 +403,7 @@ export async function runClaudeListProbe(): Promise<void> {
           String(result.counts.record),
           scope,
           verification,
+          routeEvidence,
         ]),
         result.status === 'complete' ? 'success' : 'warning'
       );
