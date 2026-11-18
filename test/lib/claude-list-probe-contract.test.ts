@@ -14,6 +14,7 @@ function result() {
     status: 'complete' as const,
     code: 'ok' as const,
     verificationPresent: false,
+    routeOrganizationEvidence: 'resource-timing' as const,
     counts: {
       dispatch: 2,
       page: 2,
@@ -58,7 +59,9 @@ describe('Claude list probe content-free contract', () => {
   it.each([
     { extra: true },
     { ...result(), schema: 'liska-claude-list-probe/1' },
+    { ...result(), schema: 'liska-claude-list-probe/2' },
     { ...result(), verificationPresent: 'false' },
+    { ...result(), routeOrganizationEvidence: 'private-route-id' },
     { ...result(), status: 'stopped', code: 'auth-verification-required' },
     { ...result(), privateId: 'secret' },
     { ...result(), status: 'complete', code: 'scope-unresolved' },
@@ -107,20 +110,35 @@ describe('Claude list probe content-free contract', () => {
     ).toBe(false);
   });
 
-  it('rejects the reviewed v1 shape and every old/new mixed shape', () => {
-    const { verificationPresent: _verificationPresent, ...withoutVerification } = result();
+  it('rejects reviewed v1/v2 shapes and every old/new mixed shape', () => {
+    const {
+      verificationPresent: _verificationPresent,
+      routeOrganizationEvidence: _routeOrganizationEvidence,
+      ...v1
+    } = result();
+    const { routeOrganizationEvidence: _routeEvidence, ...v2 } = result();
     expect(
       snapshotClaudeListProbeResult({
-        ...withoutVerification,
+        ...v1,
         schema: 'liska-claude-list-probe/1',
       })
     ).toBeUndefined();
-    expect(snapshotClaudeListProbeResult(withoutVerification)).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...v2, schema: 'liska-claude-list-probe/2' })
+    ).toBeUndefined();
+    expect(snapshotClaudeListProbeResult(v2)).toBeUndefined();
     expect(
       snapshotClaudeListProbeResult({
-        ...withoutVerification,
+        ...v1,
         schema: CLAUDE_LIST_PROBE_SCHEMA,
         verification: { present: true },
+      })
+    ).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({
+        ...result(),
+        schema: 'liska-claude-list-probe/2',
+        routeOrganizationEvidence: 'resource-timing',
       })
     ).toBeUndefined();
   });

@@ -1,10 +1,19 @@
 /** Content-free result contract for one foreground Claude list diagnostic. */
 
-export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/2' as const;
+export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/3' as const;
 export const CLAUDE_LIST_PROBE_SCOPE_PREFIX = 'liska-claude-list-probe-scope/1:' as const;
 export const CLAUDE_LIST_PROBE_MAX_DISPATCHES = 4;
 export const CLAUDE_LIST_PROBE_MAX_RECORDS = 120;
 export const CLAUDE_LIST_PROBE_MAX_HEADER_NAMES = 8;
+export const CLAUDE_LIST_ROUTE_ORGANIZATION_EVIDENCE = Object.freeze([
+  'resource-timing',
+  'verification-link',
+  'named-storage',
+  'multiple-consistent',
+  'unresolved',
+] as const);
+export type ClaudeListRouteOrganizationEvidence =
+  (typeof CLAUDE_LIST_ROUTE_ORGANIZATION_EVIDENCE)[number];
 
 export const CLAUDE_LIST_PROBE_OUTCOME_CODES = Object.freeze([
   'ok',
@@ -53,6 +62,7 @@ export interface ClaudeListProbeResult {
   readonly status: 'complete' | 'stopped';
   readonly code: ClaudeListProbeOutcomeCode;
   readonly verificationPresent: boolean;
+  readonly routeOrganizationEvidence: ClaudeListRouteOrganizationEvidence;
   readonly counts: {
     readonly dispatch: number;
     readonly page: number;
@@ -274,6 +284,7 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
     'status',
     'code',
     'verificationPresent',
+    'routeOrganizationEvidence',
     'counts',
     'pages',
     'pagination',
@@ -285,7 +296,11 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
     (data.status !== 'complete' && data.status !== 'stopped') ||
     typeof data.code !== 'string' ||
     !(CLAUDE_LIST_PROBE_OUTCOME_CODES as readonly string[]).includes(data.code) ||
-    typeof data.verificationPresent !== 'boolean'
+    typeof data.verificationPresent !== 'boolean' ||
+    typeof data.routeOrganizationEvidence !== 'string' ||
+    !(CLAUDE_LIST_ROUTE_ORGANIZATION_EVIDENCE as readonly string[]).includes(
+      data.routeOrganizationEvidence
+    )
   )
     return undefined;
   const counts = snapshotCounts(data.counts);
@@ -301,6 +316,8 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
     status: data.status,
     code: data.code as ClaudeListProbeOutcomeCode,
     verificationPresent: data.verificationPresent,
+    routeOrganizationEvidence:
+      data.routeOrganizationEvidence as ClaudeListRouteOrganizationEvidence,
     counts,
     pages,
     pagination,

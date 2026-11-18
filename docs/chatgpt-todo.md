@@ -847,6 +847,13 @@ terminal states, and the existing no-credential-export boundary.
   reads, so v2 latches it as a content-free boolean while keeping scope
   unresolved. Real 401/403 remain hard stops; the reviewed v1 schema and local
   zero-request receipt are preserved rather than silently reinterpreted.
+- [ADR-078](adr/078-claude-list-probe-route-hints.md) records the second
+  installed zero-request result: v2 passed banner admission but resource timing
+  exposed no organization route after reload. V3 reconciles only exact bounded
+  resource routes, an exact current-chat verification link and the single named
+  `ccd-sync-org` storage key. Sources must agree; duplicate authority query
+  parameters and conflicts stop before fetch. Only the route-evidence class
+  leaves the page, while scope remains unresolved.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

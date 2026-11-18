@@ -1004,7 +1004,7 @@
     "message": "Claude のアクティブ／アーカイブ済みリストを限定的に確認しています…"
   },
   "status_claudeListProbeResult": {
-    "message": "Claude リスト診断: $STATUS$（$CODE$）、リクエスト $DISPATCHES$ 件、ページ $PAGES$ 件、レコード $RECORDS$ 件、スコープ $SCOPE$、検証バナーの観測 $VERIFICATION$。",
+    "message": "Claude リスト診断: $STATUS$（$CODE$）、リクエスト $DISPATCHES$ 件、ページ $PAGES$ 件、レコード $RECORDS$ 件、スコープ $SCOPE$、検証バナーの観測 $VERIFICATION$、ルート根拠 $ROUTE$。",
     "placeholders": {
       "status": { "content": "$1" },
       "code": { "content": "$2" },
@@ -1012,7 +1012,8 @@
       "pages": { "content": "$4" },
       "records": { "content": "$5" },
       "scope": { "content": "$6" },
-      "verification": { "content": "$7" }
+      "verification": { "content": "$7" },
+      "route": { "content": "$8" }
     }
   },
   "status_claudeListProbeVerificationYes": {
@@ -1020,6 +1021,21 @@
   },
   "status_claudeListProbeVerificationNo": {
     "message": "なし"
+  },
+  "status_claudeListProbeRouteResourceTiming": {
+    "message": "リソースタイミング"
+  },
+  "status_claudeListProbeRouteVerificationLink": {
+    "message": "検証リンク"
+  },
+  "status_claudeListProbeRouteNamedStorage": {
+    "message": "名前付きストレージ"
+  },
+  "status_claudeListProbeRouteMultipleConsistent": {
+    "message": "一致する複数の手掛かり"
+  },
+  "status_claudeListProbeRouteUnresolved": {
+    "message": "未解決"
   },
   "toast_error_claudeListProbeFailed": {
     "message": "Claude リスト診断を安全に開始または完了できませんでした（$ERROR$）。",

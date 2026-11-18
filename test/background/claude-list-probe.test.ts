@@ -16,6 +16,7 @@ const TAB_ID = 73;
 const DOCUMENT_ID = 'claude_document_123';
 const CONVERSATION_ID = '11111111-1111-4111-8111-111111111111';
 const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222';
+const OTHER_ORGANIZATION_ID = '44444444-4444-4444-8444-444444444444';
 const WORKSPACE_ID = 'private-workspace-value';
 const OWNER_TOKEN = '33333333-3333-4333-8333-333333333333';
 const CHAT_URL = `https://claude.ai/chat/${CONVERSATION_ID}`;
@@ -27,6 +28,7 @@ function safeResult() {
     status: 'complete' as const,
     code: 'ok' as const,
     verificationPresent: false,
+    routeOrganizationEvidence: 'resource-timing' as const,
     counts: {
       dispatch: 2,
       page: 2,
@@ -167,6 +169,13 @@ function id(index: number): string {
 
 function list(records: unknown[] = [], hasMore = false) {
   return { data: records, has_more: hasMore };
+}
+
+function verificationHref(organization = ORGANIZATION_ID, conversation = CONVERSATION_ID): string {
+  return (
+    `https://portal.anthropic.com/verify?org=${organization}` +
+    `&return_to=claude&return_path=${encodeURIComponent(`/chat/${conversation}`)}`
+  );
 }
 
 function pageDeadline(milliseconds = 1_000): number {
@@ -454,6 +463,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     expect(result.status).toBe('stopped');
     expect(result.code).toBe('scope-unresolved');
     expect(result.verificationPresent).toBe(false);
+    expect(result.routeOrganizationEvidence).toBe('resource-timing');
     expect(result.counts).toMatchObject({
       dispatch: 2,
       page: 2,
@@ -489,6 +499,131 @@ describe('Claude injected active/archived list diagnostic', () => {
     expect(serialized).not.toContain(ORGANIZATION_ID);
     expect(serialized).not.toContain(WORKSPACE_ID);
     expect(serialized).not.toContain('private-marker');
+  });
+
+  it('uses only the exact named storage key once when it is the sole route hint', async () => {
+    installPage(async url => response(url, list()));
+    vi.stubGlobal('performance', { getEntriesByType: () => [] });
+    const getItem = vi.fn((key: string) => (key === 'ccd-sync-org' ? ORGANIZATION_ID : null));
+    const storage = new Proxy(
+      { getItem },
+      {
+        get(target, property) {
+          if (property === 'getItem') return target.getItem;
+          throw new Error(`unrelated storage property read: ${String(property)}`);
+        },
+        ownKeys() {
+          throw new Error('storage enumeration attempted');
+        },
+      }
+    );
+    vi.stubGlobal('localStorage', storage);
+
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(getItem).toHaveBeenCalledExactlyOnceWith('ccd-sync-org');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result.routeOrganizationEvidence).toBe('named-storage');
+    expect(JSON.stringify(result)).not.toContain(ORGANIZATION_ID);
+  });
+
+  it('uses an exact current-conversation verification link without reading unrelated DOM', async () => {
+    installPage(async url => response(url, list()));
+    vi.stubGlobal('performance', { getEntriesByType: () => [] });
+    const getItem = vi.fn(() => null);
+    vi.stubGlobal('localStorage', { getItem });
+    document.body.innerHTML = `<div data-organization-banners><a href="${verificationHref()}">Verify</a></div>`;
+    const query = vi.spyOn(document, 'querySelector');
+
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(getItem).toHaveBeenCalledExactlyOnceWith('ccd-sync-org');
+    expect(result.routeOrganizationEvidence).toBe('verification-link');
+    expect(result.verificationPresent).toBe(true);
+    expect(query.mock.calls.every(([selector]) => selector === '[data-organization-banners]')).toBe(
+      true
+    );
+    expect(JSON.stringify(result)).not.toContain(ORGANIZATION_ID);
+  });
+
+  it.each([
+    [
+      `https://example.invalid/verify?org=${ORGANIZATION_ID}&return_to=claude&return_path=${encodeURIComponent(`/chat/${CONVERSATION_ID}`)}`,
+      'wrong origin',
+    ],
+    [verificationHref(ORGANIZATION_ID, '99999999-9999-4999-8999-999999999999'), 'wrong route'],
+    [verificationHref('not-a-uuid'), 'malformed organization'],
+    [`${verificationHref()}&org=${OTHER_ORGANIZATION_ID}`, 'conflicting duplicate org'],
+    [`${verificationHref()}&org=${ORGANIZATION_ID}`, 'same-value duplicate org'],
+    [`${verificationHref()}&return_to=claude`, 'duplicate return_to'],
+    [
+      `${verificationHref()}&return_path=${encodeURIComponent(`/chat/${CONVERSATION_ID}`)}`,
+      'duplicate return_path',
+    ],
+    [
+      `https://portal.anthropic.com/verify?return_to=claude&return_path=${encodeURIComponent(`/chat/${CONVERSATION_ID}`)}`,
+      'missing org',
+    ],
+    ['https://portal.anthropic.com/verify?%', 'malformed URL'],
+  ])('rejects a %s verification-link hint', async (href, _label) => {
+    installPage(async url => response(url, list()));
+    vi.stubGlobal('performance', { getEntriesByType: () => [] });
+    const getItem = vi.fn(() => null);
+    vi.stubGlobal('localStorage', { getItem });
+    document.body.innerHTML = `<div data-organization-banners><a href="${href}">Verify</a></div>`;
+
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(fetch).not.toHaveBeenCalled();
+    expect(getItem).toHaveBeenCalledExactlyOnceWith('ccd-sync-org');
+    expect(result.code).toBe('route-organization-unresolved');
+    expect(result.routeOrganizationEvidence).toBe('unresolved');
+    expect(JSON.stringify(result)).not.toContain(ORGANIZATION_ID);
+    expect(JSON.stringify(result)).not.toContain(OTHER_ORGANIZATION_ID);
+  });
+
+  it('uses an exact organization list resource timing hint', async () => {
+    installPage(async url => response(url, list()));
+    vi.stubGlobal('performance', {
+      getEntriesByType: () => [
+        {
+          name:
+            `https://claude.ai/api/organizations/${ORGANIZATION_ID}/chat_conversations_v2` +
+            '?limit=30&offset=0&archived=false&consistency=strong',
+        },
+      ],
+    });
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null) });
+
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result.routeOrganizationEvidence).toBe('resource-timing');
+  });
+
+  it('classifies agreeing resource, verification-link and named-storage hints as multiple-consistent', async () => {
+    installPage(async url => response(url, list()));
+    const getItem = vi.fn(() => ORGANIZATION_ID);
+    vi.stubGlobal('localStorage', { getItem });
+    document.body.innerHTML = `<div data-organization-banners><a href="${verificationHref()}">Verify</a></div>`;
+
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(getItem).toHaveBeenCalledExactlyOnceWith('ccd-sync-org');
+    expect(result.routeOrganizationEvidence).toBe('multiple-consistent');
+    expect(JSON.stringify(result)).not.toContain(ORGANIZATION_ID);
+  });
+
+  it('rejects conflicting eligible sources before any request without exposing either ID', async () => {
+    installPage(async url => response(url, list()));
+    const getItem = vi.fn(() => OTHER_ORGANIZATION_ID);
+    vi.stubGlobal('localStorage', { getItem });
+    document.body.innerHTML = `<div data-organization-banners><a href="${verificationHref()}">Verify</a></div>`;
+
+    const result = (await runPage()) as ReturnType<typeof safeResult>;
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result.code).toBe('route-organization-unresolved');
+    expect(result.routeOrganizationEvidence).toBe('unresolved');
+    expect(result.verificationPresent).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(ORGANIZATION_ID);
+    expect(JSON.stringify(result)).not.toContain(OTHER_ORGANIZATION_ID);
   });
 
   it('uses offset+30 only after has_more and labels it as an unproven hypothesis', async () => {
@@ -743,6 +878,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     vi.stubGlobal('performance', { getEntriesByType: () => [] });
     expect((await runPage()) as object).toMatchObject({
       code: 'route-organization-unresolved',
+      routeOrganizationEvidence: 'unresolved',
     });
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -753,10 +889,11 @@ describe('Claude injected active/archived list diagnostic', () => {
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
-      schema: 'liska-claude-list-probe/2',
+      schema: 'liska-claude-list-probe/3',
       status: 'stopped',
       code: 'scope-unresolved',
       verificationPresent: true,
+      routeOrganizationEvidence: 'resource-timing',
       counts: { dispatch: 2, page: 2, record: 0 },
     });
   });
