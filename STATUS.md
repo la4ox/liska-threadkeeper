@@ -6780,3 +6780,28 @@ Independent code and senior reviews report ready; locale validation is
 static-only. Exact-head GitHub gates and live acceptance remain incomplete.
 A future live value-reading gate requires those gates plus fresh explicit
 confirmation and one click without retry.
+
+## Claude list probe v5 installed live header-pair observation — 2026-11-20
+
+The reviewed producer head `fa5ea83` is an ancestor of docs base main `1719fff`.
+Its installed files matched by exact relative-file SHA-256 reconciliation; the
+v4 rollback remains at
+`dist-backup-codex-20261120-claude-list-probe-v4`. One user-confirmed click with
+no retry returned `stopped / scope-observed`, verification true and
+`multiple-consistent` route evidence: two requests, two pages and twelve
+records. Active offset 0 was terminal with 12 records, 12 valid UUIDs, 12
+markers, 12/12 boolean archive flags and zero mismatches; archived offset 0 was
+terminal with zero records/counts. Duplicates and cross-partition overlap were
+zero. Pagination was not exercised and no continuation was observed pending.
+
+The exact pair `anthropic-organization-id` and `anthropic-workspace-id` was
+observed consistently in this diagnostic. Its run-scoped fingerprint existed
+internally, but neither fingerprint nor raw header values appeared in rendered
+output or were retained in the git-ignored local content-free receipt
+`LISKA-CLAUDE-LIST-PROBE-V5-HEADER-PAIR-20261120`; the receipt is private-route-
+free. This does not prove account completeness, general pagination,
+deletion/archived-history completeness, provider workspace semantics,
+authenticated personal scope, stable cross-run identity, catalog admission,
+baseline execution, capture/export, or scheduler authority. The next gate is a
+separately reviewed semantic/personal-scope/catalog bridge; no automatic
+baseline follows.

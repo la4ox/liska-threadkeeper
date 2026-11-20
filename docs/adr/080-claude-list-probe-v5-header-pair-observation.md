@@ -2,10 +2,11 @@
 
 ## Status
 
-Accepted for offline `/5` implementation on base main
-`80c88e9169676a224a141fe999581ffef1a3bb4e`. This decision does not authorize a
-live run. Exact-head gates and a separate explicit action-time confirmation are
-required before one value-reading click.
+Accepted for the exact installed live `/5` acceptance documented below. The
+reviewed producer head `fa5ea83` is an ancestor of docs base main `1719fff`, and
+its installation was reconciled by exact relative-file SHA-256. One explicitly
+confirmed click with no retry completed the exact-head/live gate. This does not
+establish semantic or personal scope, catalog admission, or baseline authority.
 
 ## Context
 
@@ -106,19 +107,33 @@ admission, baseline execution, capture, export, or automation.
   16 files / 590 tests. TypeScript, scoped lint, Prettier, and diff checks pass.
 - Project lint has zero errors and the unchanged 55 warnings; the production
   dependency audit reports zero vulnerabilities. Production build/ZIP pass:
-  `dist` has 65 files / 6,125,112 bytes; the 2,801,704-byte ZIP has SHA-256
-  `8d8afa2670b00e2b632c4d6f5bc89c400dbad2ebb8eab98a62e4c24169f7a4bc`.
+  `dist` has 65 files / 6,125,112 bytes and the ZIP is 2,801,704 bytes.
 - English/Japanese validation is an isolated static smoke only; no runtime
   locale test is claimed.
-- Independent code and senior reviews report ready. Exact-head GitHub gates and
-  live acceptance are not complete. These offline results do not establish
-  installed behavior.
+- Independent code and senior reviews report ready. The exact-head/live gate
+  was completed for the reviewed producer head `fa5ea83`, an ancestor of docs
+  base main `1719fff`. The installed relative files matched by SHA-256
+  reconciliation; rollback `dist-backup-codex-20261120-claude-list-probe-v4`
+  remains available.
+- One user-confirmed click with no retry returned `stopped / scope-observed`;
+  verification was true and route evidence was `multiple-consistent`. The run
+  made two requests across two pages and observed twelve records. Active offset
+  0 was terminal: 12 records, 12 valid UUIDs, 12 markers, 12/12 boolean archive
+  flags and zero mismatches. Archived offset 0 was terminal with zero
+  records/counts. Duplicates and cross-partition overlap were zero. Pagination
+  was not exercised and no continuation was observed pending.
+- The exact header pair `anthropic-organization-id` and
+  `anthropic-workspace-id` was observed consistently in this diagnostic. A
+  run-scoped fingerprint existed internally, but neither it nor raw header
+  values were rendered in UI/output, read from the receipt, or retained there.
+  The git-ignored local receipt `LISKA-CLAUDE-LIST-PROBE-V5-HEADER-PAIR-20261120`
+  is content-free and private-route-free.
 
 ## Next gate
 
-After exact-head gates pass, a single live value-reading attempt requires fresh
-explicit user confirmation because it newly reads identifier header values,
-even though those values remain inside the page. At most one click is authorized
-for that gate, with no retry. Retain only a content-free receipt. Do not infer
-account completeness, provider workspace semantics, personal scope, or catalog
-admission from the outcome.
+The one-click exact-head/live gate is complete. The next gate is a separately
+reviewed semantic/personal-scope/catalog bridge. This observation does not prove
+account completeness, general pagination, deletion or archived-history
+completeness, provider workspace semantics, authenticated personal scope, or
+stable cross-run identity. It does not admit the catalog, authorize a baseline,
+capture/export, or scheduler authority; no baseline runs automatically.
