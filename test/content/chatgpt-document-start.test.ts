@@ -1285,15 +1285,31 @@ describe('startChatGptDocumentStartCapture', () => {
   it.each(['buffer', 'byteLength', 'byteOffset', 'length', 'then'] as const)(
     'does not consult a page-installed Uint8Array.prototype.%s getter after document start',
     async property => {
-      const { response } = responseWithCloneSpy(new Uint8Array([0, 255, 1, 128, 42]));
+      const pageRealm = createContext({});
+      const PageUint8Array = runInContext('Uint8Array', pageRealm) as Uint8ArrayConstructor;
+      const response = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              runInContext('new Uint8Array([0, 255, 1, 128, 42])', pageRealm) as Uint8Array
+            );
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        }
+      );
       const page = fakePage(markedUrl(), async () => response);
-      const original = Object.getOwnPropertyDescriptor(Uint8Array.prototype, property);
+      page.pageWindow.Uint8Array = PageUint8Array;
+      const original = Object.getOwnPropertyDescriptor(PageUint8Array.prototype, property);
       const poisoned = vi.fn(() => {
         throw new Error(`poisoned Uint8Array ${property}`);
       });
 
       startChatGptDocumentStartCapture(page.pageWindow);
-      Object.defineProperty(Uint8Array.prototype, property, {
+      Object.defineProperty(PageUint8Array.prototype, property, {
         configurable: true,
         get: poisoned,
       });
@@ -1311,8 +1327,8 @@ describe('startChatGptDocumentStartCapture', () => {
         );
         expect(poisoned).not.toHaveBeenCalled();
       } finally {
-        if (original) Object.defineProperty(Uint8Array.prototype, property, original);
-        else Reflect.deleteProperty(Uint8Array.prototype, property);
+        if (original) Object.defineProperty(PageUint8Array.prototype, property, original);
+        else Reflect.deleteProperty(PageUint8Array.prototype, property);
       }
     }
   );
