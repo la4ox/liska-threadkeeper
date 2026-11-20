@@ -6752,3 +6752,31 @@ Exact route evidence stays local-only. Next gate: a separately reviewed exact
 scope contract may read only those two names and must prove value grammar,
 cross-page consistency, route-organization match, privacy-preserving fingerprint
 and a manual personal-scope boundary; no implementation is authorized here.
+
+## Claude list probe v5 header-pair observation — 2026-11-20
+
+Branch `codex/claude-list-probe-v5-header-pair` starts from base main
+`80c88e9169676a224a141fe999581ffef1a3bb4e` and records [ADR-080](docs/adr/080-claude-list-probe-v5-header-pair-observation.md).
+The offline `/5` contract reads only values of the two exact organization and
+workspace header names observed by v4, after the existing transport gates. It requires an
+exact lowercase route-matching organization UUID and a case-sensitive,
+project-bound workspace envelope, then compares the raw pair across pages.
+A fresh per-invocation token scopes SHA-256 page linkage to the pinned run;
+raw values remain inside the pinned page, while the transient fingerprint is
+never rendered, persisted, exported, copied, or retained in receipts.
+Pages and scope evidence commit atomically, and late crypto completion is fenced.
+
+The popup may show only a localized observed/not-observed boolean and warns
+that account completeness is unproved. Every result remains stopped; positive
+scope requires an exhausted schedule, no pending continuation, and matching
+page fingerprints. No catalog, owner, persistence, capture/export, endpoint,
+permission, or scheduler authority is added. Focused core/popup/architecture
+tests pass 274/274 and adjacent tests 16 files / 590; TypeScript, scoped lint,
+Prettier, and diff checks pass. Project lint has zero errors / unchanged 55
+warnings and the production audit has zero vulnerabilities. Fresh `dist` has 65
+files / 6,125,112 bytes. The 2,801,704-byte ZIP has SHA-256
+`8d8afa2670b00e2b632c4d6f5bc89c400dbad2ebb8eab98a62e4c24169f7a4bc`.
+Independent code and senior reviews report ready; locale validation is
+static-only. Exact-head GitHub gates and live acceptance remain incomplete.
+A future live value-reading gate requires those gates plus fresh explicit
+confirmation and one click without retry.

@@ -30,6 +30,9 @@ import {
 import { validateMessageContent } from '../../src/background/validation';
 
 const VALID_API_KEY = 'a'.repeat(32);
+const CLAUDE_FINGERPRINT_PREFIX = 'claude-probe-scope-run-v1-sha256:';
+const CLAUDE_FINGERPRINT = `${CLAUDE_FINGERPRINT_PREFIX}${'a'.repeat(64)}`;
+const OTHER_CLAUDE_FINGERPRINT = `${CLAUDE_FINGERPRINT_PREFIX}${'b'.repeat(64)}`;
 
 const storedSettings: ExtensionSettings = {
   obsidianApiKey: VALID_API_KEY,
@@ -161,9 +164,9 @@ function claudeListProbeFixture() {
   return {
     success: true,
     data: {
-      schema: 'liska-claude-list-probe/4',
+      schema: 'liska-claude-list-probe/5',
       status: 'stopped',
-      code: 'scope-unresolved',
+      code: 'scope-observed',
       verificationPresent: true,
       routeOrganizationEvidence: 'verification-link',
       counts: {
@@ -183,6 +186,7 @@ function claudeListProbeFixture() {
           offset: 0,
           hasMore: false,
           terminal: true,
+          scopeFingerprint: CLAUDE_FINGERPRINT,
           counts: { record: 4, validUuid: 4, marker: 3, archivedFlag: 2, archivedMismatch: 1 },
         },
         {
@@ -190,6 +194,7 @@ function claudeListProbeFixture() {
           offset: 0,
           hasMore: false,
           terminal: true,
+          scopeFingerprint: CLAUDE_FINGERPRINT,
           counts: { record: 3, validUuid: 3, marker: 3, archivedFlag: 3, archivedMismatch: 0 },
         },
       ],
@@ -199,12 +204,13 @@ function claudeListProbeFixture() {
         unfinished: false,
       },
       scope: {
-        organizationResolved: false,
-        workspaceResolved: false,
-        consistent: false,
-        routeOrganizationMatched: false,
-        fingerprint: null,
-        relevantHeaderNames: ['x-organization-workspace-id'],
+        observed: true,
+        fingerprint: CLAUDE_FINGERPRINT,
+        relevantHeaderNames: [
+          'anthropic-organization-id',
+          'anthropic-workspace-id',
+          'x-organization-workspace-id',
+        ],
       },
     },
   } as const;
@@ -215,7 +221,8 @@ function useClaudeEvidenceMessages(locale: 'en' | 'ja' = 'en'): void {
     readFileSync(`src/_locales/${locale}/messages.json`, 'utf8')
   ) as Record<string, { message: string; placeholders?: Record<string, { content: string }> }>;
   vi.mocked(chrome.i18n.getMessage).mockImplementation((key, substitutions) => {
-    if (!key.startsWith('claudeListEvidence')) return key;
+    if (!key.startsWith('claudeListEvidence') && !key.startsWith('status_claudeListProbe'))
+      return key;
     const entry = messages[key];
     if (!entry) return '';
     const values = typeof substitutions === 'string' ? [substitutions] : (substitutions ?? []);
@@ -224,6 +231,28 @@ function useClaudeEvidenceMessages(locale: 'en' | 'ja' = 'en'): void {
       return values[Number(content.slice(1)) - 1] ?? '';
     });
   });
+}
+
+function expectNoSensitiveProbeValues(values: readonly string[]): void {
+  const elements = [...document.querySelectorAll('*')];
+  const attributes = elements.flatMap(element =>
+    [...element.attributes].map(attribute => `${attribute.name}=${attribute.value}`)
+  );
+  const accessibilityMarkup = elements.flatMap(element => [
+    element.textContent ?? '',
+    element.getAttribute('title') ?? '',
+    ...[...element.attributes]
+      .filter(attribute => attribute.name.startsWith('aria-'))
+      .map(attribute => attribute.value),
+  ]);
+  for (const value of values) {
+    expect(document.body.textContent).not.toContain(value);
+    expect(document.body.innerHTML).not.toContain(value);
+    expect(document.documentElement.outerHTML).not.toContain(value);
+    expect(attributes.join('\n')).not.toContain(value);
+    expect(accessibilityMarkup.join('\n')).not.toContain(value);
+    expect(JSON.stringify(vi.mocked(chrome.i18n.getMessage).mock.calls)).not.toContain(value);
+  }
 }
 
 async function initWithDefaults(settings: ExtensionSettings = storedSettings): Promise<void> {
@@ -263,8 +292,12 @@ describe('canonical HTML popup setting markup', () => {
         'claudeListEvidencePagination',
         'claudeListEvidencePaginationNotExercised',
         'claudeListEvidencePaginationOffsetPlus30',
+        'claudeListEvidenceHeaderPairObserved',
+        'claudeListEvidenceHeaderPairNotObserved',
         'claudeListEvidenceHeaders',
         'claudeListEvidenceNoneObserved',
+        'status_claudeListProbeHeaderPairObserved',
+        'status_claudeListProbeHeaderPairNotObserved',
       ]) {
         expect(messages[key]?.message).toBeTruthy();
       }
@@ -486,11 +519,11 @@ describe('popup/app', () => {
       );
       expect(chrome.i18n.getMessage).toHaveBeenCalledWith('status_claudeListProbeResult', [
         'stopped',
-        'scope-unresolved',
+        'scope-observed',
         '2',
         '2',
         '7',
-        'unresolved',
+        'status_claudeListProbeHeaderPairObserved',
         'status_claudeListProbeVerificationYes',
         'status_claudeListProbeRouteVerificationLink',
       ]);
@@ -501,6 +534,138 @@ describe('popup/app', () => {
       expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
     });
 
+    it.each([
+      {
+        locale: 'en' as const,
+        observed: true,
+        pair: 'header pair observed',
+        verification: 'yes',
+        route: 'verification link',
+        line: 'Response header pair matched across this diagnostic. Account completeness is not established.',
+        summary:
+          'Claude list diagnostic: stopped (scope-observed); 2 requests, 2 pages, 7 records; header pair observed; verification banner observed yes; route evidence verification link.',
+      },
+      {
+        locale: 'en' as const,
+        observed: false,
+        pair: 'header pair not observed',
+        verification: 'yes',
+        route: 'verification link',
+        line: 'Response header pair was not established across this diagnostic. Account completeness is not established.',
+        summary:
+          'Claude list diagnostic: stopped (deadline-exceeded); 1 requests, 1 pages, 4 records; header pair not observed; verification banner observed yes; route evidence verification link.',
+      },
+      {
+        locale: 'ja' as const,
+        observed: true,
+        pair: 'ヘッダーの組を観測',
+        verification: 'あり',
+        route: '検証リンク',
+        line: 'この診断では応答ヘッダーの組が一貫して一致しました。アカウント全体の網羅性は確認されていません。',
+        summary:
+          'Claude リスト診断: stopped（scope-observed）、リクエスト 2 件、ページ 2 件、レコード 7 件、ヘッダーの組を観測、検証バナーの観測 あり、ルート根拠 検証リンク。',
+      },
+      {
+        locale: 'ja' as const,
+        observed: false,
+        pair: 'ヘッダーの組は未観測',
+        verification: 'あり',
+        route: '検証リンク',
+        line: 'この診断では応答ヘッダーの組の一貫した一致は確認されませんでした。アカウント全体の網羅性は確認されていません。',
+        summary:
+          'Claude リスト診断: stopped（deadline-exceeded）、リクエスト 1 件、ページ 1 件、レコード 4 件、ヘッダーの組は未観測、検証バナーの観測 あり、ルート根拠 検証リンク。',
+      },
+    ])(
+      'shows only localized $locale pair evidence when observed=$observed',
+      async ({ locale, observed, pair, verification, route, line, summary }) => {
+        await initWithDefaults();
+        useClaudeEvidenceMessages(locale);
+        const fixture = claudeListProbeFixture();
+        const firstPage = { ...fixture.data.pages[0], scopeFingerprint: OTHER_CLAUDE_FINGERPRINT };
+        const result = observed
+          ? fixture.data
+          : {
+              ...fixture.data,
+              code: 'deadline-exceeded',
+              counts: {
+                ...firstPage.counts,
+                dispatch: 1,
+                page: 1,
+                duplicate: 0,
+                overlap: 0,
+              },
+              pages: [firstPage],
+              scope: { ...fixture.data.scope, observed: false, fingerprint: null },
+            };
+        expect(snapshotClaudeListProbeResult(result)).toBeDefined();
+
+        // The actual contract rejects these extra raw fields. Include them in a
+        // mocked response to verify the renderer never serializes the payload.
+        const rawOrganization = 'RAW-ORGANIZATION-VALUE-TEST';
+        const rawWorkspace = 'RAW-WORKSPACE-VALUE-TEST';
+        const ownerToken = 'OWNER-TOKEN-TEST';
+        const response = {
+          success: true,
+          data: {
+            ...result,
+            ownerToken,
+            scope: { ...result.scope, rawOrganization },
+            pages: result.pages.map(page => ({ ...page, rawWorkspace })),
+          },
+        };
+        const consoleSpies = (
+          ['log', 'warn', 'error', 'info', 'debug', 'trace', 'dir', 'table'] as const
+        ).map(method => vi.spyOn(console, method).mockImplementation(() => {}));
+        const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+        const writeText = vi.fn();
+        const write = vi.fn();
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { writeText, write },
+        });
+        try {
+          vi.mocked(sendMessage).mockResolvedValueOnce(response as never);
+          await runClaudeListProbe();
+
+          expect(statusEl().textContent).toBe(summary);
+          expect(statusEl().className).toBe('status warning');
+          expect(el<HTMLElement>('claudeListEvidence').textContent?.split('\n')).toContain(line);
+          expect(chrome.i18n.getMessage).toHaveBeenCalledWith('status_claudeListProbeResult', [
+            'stopped',
+            observed ? 'scope-observed' : 'deadline-exceeded',
+            observed ? '2' : '1',
+            observed ? '2' : '1',
+            observed ? '7' : '4',
+            pair,
+            verification,
+            route,
+          ]);
+          const sensitiveValues = [
+            CLAUDE_FINGERPRINT_PREFIX,
+            CLAUDE_FINGERPRINT,
+            OTHER_CLAUDE_FINGERPRINT,
+            'a'.repeat(64),
+            'b'.repeat(64),
+            rawOrganization,
+            rawWorkspace,
+            ownerToken,
+          ];
+          expectNoSensitiveProbeValues(sensitiveValues);
+          expect(document.title).not.toContain(CLAUDE_FINGERPRINT_PREFIX);
+          for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled();
+          expect(writeText).not.toHaveBeenCalled();
+          expect(write).not.toHaveBeenCalled();
+          expect(sendMessage).toHaveBeenCalledOnce();
+          expect(sendMessage).toHaveBeenCalledWith({ action: 'probeClaudeLists' });
+        } finally {
+          for (const spy of consoleSpies) spy.mockRestore();
+          if (clipboardDescriptor)
+            Object.defineProperty(navigator, 'clipboard', clipboardDescriptor);
+          else Reflect.deleteProperty(navigator, 'clipboard');
+        }
+      }
+    );
+
     it('renders admitted page evidence and the offset pagination hypothesis', async () => {
       await initWithDefaults();
       useClaudeEvidenceMessages();
@@ -508,6 +673,7 @@ describe('popup/app', () => {
       const result = {
         ...fixture.data,
         code: 'pagination-unfinished',
+        scope: { ...fixture.data.scope, observed: false, fingerprint: null },
         counts: { ...fixture.data.counts, dispatch: 3, page: 3, duplicate: 2, overlap: 1 },
         pages: [
           { ...fixture.data.pages[0], hasMore: true, terminal: false },
@@ -517,6 +683,7 @@ describe('popup/app', () => {
             offset: 30,
             hasMore: true,
             terminal: false,
+            scopeFingerprint: CLAUDE_FINGERPRINT,
             counts: { record: 0, validUuid: 0, marker: 0, archivedFlag: 0, archivedMismatch: 0 },
           },
         ],
@@ -543,7 +710,10 @@ describe('popup/app', () => {
         'Pagination: offset + 30 hypothesis. Observed continuation still pending: yes.'
       );
       expect(evidence.textContent).toContain(
-        'Observed candidate header names — not scope proof: x-organization-workspace-id.'
+        'Response header pair was not established across this diagnostic. Account completeness is not established.'
+      );
+      expect(evidence.textContent).toContain(
+        'Observed candidate header names — not scope proof: anthropic-organization-id, anthropic-workspace-id, x-organization-workspace-id.'
       );
       expect(sendMessage).toHaveBeenCalledOnce();
       expect(sendMessage).toHaveBeenCalledWith({ action: 'probeClaudeLists' });
@@ -576,11 +746,15 @@ describe('popup/app', () => {
       useClaudeEvidenceMessages();
       const fixture = claudeListProbeFixture();
       expect(snapshotClaudeListProbeResult(fixture.data)).toBeDefined();
+      const page = fixture.data.pages[0];
       vi.mocked(sendMessage).mockResolvedValueOnce({
         ...fixture,
         data: {
           ...fixture.data,
-          scope: { ...fixture.data.scope, relevantHeaderNames: [] },
+          code: 'deadline-exceeded',
+          counts: { ...page.counts, dispatch: 1, page: 1, duplicate: 0, overlap: 0 },
+          pages: [page],
+          scope: { observed: false, fingerprint: null, relevantHeaderNames: [] },
         },
       } as never);
 
@@ -617,11 +791,12 @@ describe('popup/app', () => {
             archivedMismatch: 0,
           },
           pages: [],
-          scope: { ...fixture.data.scope, relevantHeaderNames: [] },
+          scope: { observed: false, fingerprint: null, relevantHeaderNames: [] },
         },
         {
           ...fixture.data,
           code: 'deadline-exceeded',
+          scope: { ...fixture.data.scope, observed: false, fingerprint: null },
           counts: { ...page.counts, dispatch: 1, page: 1, duplicate: 0, overlap: 0 },
           pages: [page],
         },
@@ -641,9 +816,16 @@ describe('popup/app', () => {
       await initWithDefaults();
       useClaudeEvidenceMessages('ja');
       const fixture = claudeListProbeFixture();
+      const page = fixture.data.pages[0];
       vi.mocked(sendMessage).mockResolvedValueOnce({
         ...fixture,
-        data: { ...fixture.data, scope: { ...fixture.data.scope, relevantHeaderNames: [] } },
+        data: {
+          ...fixture.data,
+          code: 'deadline-exceeded',
+          counts: { ...page.counts, dispatch: 1, page: 1, duplicate: 0, overlap: 0 },
+          pages: [page],
+          scope: { observed: false, fingerprint: null, relevantHeaderNames: [] },
+        },
       } as never);
 
       await runClaudeListProbe();
@@ -653,6 +835,9 @@ describe('popup/app', () => {
       expect(evidence.textContent).toContain('真偽値のアーカイブフラグ 2/4');
       expect(evidence.textContent).toContain(
         'ページネーション: 未実行。観測された続きは未取得: いいえ。'
+      );
+      expect(evidence.textContent).toContain(
+        'この診断では応答ヘッダーの組の一貫した一致は確認されませんでした。アカウント全体の網羅性は確認されていません。'
       );
       expect(evidence.textContent).toContain(
         '候補ヘッダー名（スコープの証明ではありません）: 観測なし。'

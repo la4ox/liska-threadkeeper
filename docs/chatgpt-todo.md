@@ -870,6 +870,16 @@ terminal states, and the existing no-credential-export boundary.
   privacy-preserving fingerprint and a manual personal-scope boundary. This
   does not prove account completeness, general pagination, archival deletion
   coverage or authenticated personal account/workspace scope.
+- [ADR-080](adr/080-claude-list-probe-v5-header-pair-observation.md) records
+  the accepted offline `/5` header-pair contract. It reads only the two exact
+  values of the two exact v4-observed names after transport gates, binds the
+  organization to the exact
+  route UUID, admits workspace strings only through a project-bound envelope,
+  and links pages with an invocation-local fingerprint without rendering or
+  persisting values or digest. Scope remains stopped evidence, not personal
+  attestation, catalog admission, completeness, or execution authority. The
+  value-reading live gate still requires exact-head gates and fresh explicit
+  confirmation for one click with no retry.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

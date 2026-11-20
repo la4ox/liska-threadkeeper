@@ -770,6 +770,20 @@ does not establish account completeness, general pagination, archival deletion
 coverage or authenticated personal account/workspace scope. Receipt S59 is
 local-only; no IDs, marker values, header values or content were retained here.
 
+### E57 — Exact header names permit a same-run pair observation, not identity
+
+E56 established the exact response names `anthropic-organization-id` and
+`anthropic-workspace-id`, but not their values or provider semantics. The current
+pinned probe already owns one route organization and one invocation token, and
+its isolated world has bounded Web Crypto. Those facts permit a narrow exact-
+name, exact-value equality observation across admitted pages without returning
+the pair.
+
+They do not establish that the workspace token identifies a personal workspace,
+that the selected actor owns either namespace, or that a same-run digest is a
+stable catalog key. The existing manual personal-scope attestation and catalog
+scope remain separate authority boundaries.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1302,6 +1316,24 @@ Evidence: E54, E55, E56
 
 Decision record: ADR-079
 
+### D35 — Observe the exact Claude response header pair only within one run
+
+Adopt ADR-080 and version the diagnostic as `/5`. Read only the two exact names
+from E56 after transport admission, require the organization UUID to match the
+request route, and admit the workspace only through a bounded case-sensitive
+project envelope. Compare raw values inside the pinned invocation and return only
+a fresh owner-token-scoped SHA-256 fingerprint on each atomically admitted page.
+
+Global `scope-observed` means only that the same pair accompanied every admitted
+page in this diagnostic. The fingerprint is neither authentication,
+anonymization, personal-scope attestation nor a catalog key; it is never rendered,
+persisted or exported. Request budget, no-retry behavior and every catalog,
+capture, destination and scheduler boundary remain unchanged.
+
+Evidence: E56, E57
+
+Decision record: ADR-080
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1743,6 +1775,17 @@ does not promote the result to scope, catalog or baseline authority. The next
 scope step requires its own reviewed exact contract and must preserve the manual
 personal-scope boundary.
 
+### T31 — Run one reviewed Claude list-probe v5 header-pair observation
+
+After exact-head CI, Code Review and Security Review pass, explicitly confirm one
+value-reading live attempt, install the reviewed `/5` build and click once. The
+raw organization/workspace pair remains inside the pinned page; retain only a
+content-free receipt that omits the run fingerprint as well as both values.
+
+Trigger: exact-head reviews complete and the user explicitly authorizes this new
+identifier-value read. No retry or catalog/baseline promotion follows from any
+outcome.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1803,6 +1846,7 @@ personal-scope boundary.
 - [evidence] E54: the installed v3 probe resolved multiple consistent route hints and completed two bounded list reads with twelve aggregate records while scope stayed unresolved #live
 - [evidence] E55: v3 popup omitted per-page/header-name evidence, while zero archive mismatches could not distinguish valid, missing or non-boolean flags #live
 - [evidence] E56: one reviewed v4 click returned stopped/scope-unresolved with 2 requests/pages, 12 active records, 12/12 boolean flags, 0 mismatches, 0 archived records, duplicates or overlap, and two names-only candidate headers; pagination, scope and completeness remain unproved #live
+- [evidence] E57: the two exact v4-observed names plus the pinned route/run boundary permit a same-run pair observation, but not identity, personal scope or a stable catalog key #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1840,6 +1884,7 @@ personal-scope boundary.
 - [decision] D32: record reply-verification as boolean evidence in probe v2 while keeping scope unresolved and 401/403 as the hard list-auth boundary
 - [decision] D33: resolve probe routing only from exact reconciled resource, verification-link and named-storage hints, exposing source class but never the ID
 - [decision] D34: keep probe v4 evidence-only and page-atomic with exact reconciliation, unresolved scope and no catalog or execution authority
+- [decision] D35: make probe v5 an exact same-run response-header-pair observation with a nonpersistent run-scoped fingerprint and no identity or catalog authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1870,6 +1915,7 @@ personal-scope boundary.
 - [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
 - [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
+- [tail] T31: after exact-head reviews and explicit value-read confirmation, run one reviewed v5 click and retain a digest-free content-free receipt without retry
 
 ## Relations
 
@@ -1940,3 +1986,4 @@ personal-scope boundary.
 - S57 — local receipt `LISKA-CLAUDE-LIST-PROBE-V3-SCOPE-UNRESOLVED-20261120`; visibility: local-only; reviewed v3 resolved multiple consistent route hints and completed two bounded reads with twelve aggregate records while scope remained unresolved
 - S58 — [ADR-079: Make Claude list-probe v4 evidence visible and atomic](../adr/079-claude-list-probe-v4-evidence-visibility.md), base main `4a2c29785e2e052c7f27137562ac2dad3f1b3ee3`
 - S59 — local receipt `LISKA-CLAUDE-LIST-PROBE-V4-PAGE-EVIDENCE-20261120`; visibility: local-only; one confirmed click, content-free active/archived page and boolean-flag counts, names-only candidate headers, unresolved scope, no retry
+- S60 — [ADR-080: Observe Claude list header-pair scope within one probe run](../adr/080-claude-list-probe-v5-header-pair-observation.md), base main `80c88e9169676a224a141fe999581ffef1a3bb4e`

@@ -547,7 +547,7 @@ export function inspectClaudeListProbeDocument(expectedUrl: string): { ready: bo
 
 /**
  * Self-contained ISOLATED-world function. Raw response values and identifiers
- * remain inside this invocation; only fixed booleans, counts and bounded header names return.
+ * stay inside this invocation; the scope fingerprint is a same-run diagnostic only.
  */
 // eslint-disable-next-line complexity, max-lines-per-function -- The serialized trust boundary is deliberately self-contained.
 export async function runClaudeListProbeInPage(
@@ -556,7 +556,7 @@ export async function runClaudeListProbeInPage(
   ownerToken: string,
   navigationAlreadyChanged: boolean
 ): Promise<unknown> {
-  const schema = 'liska-claude-list-probe/4';
+  const schema = 'liska-claude-list-probe/5';
   const privateKey = '__liskaClaudeListProbeNavigation_v1';
   const root = globalThis as unknown as Record<string, unknown>;
   const ownerValid =
@@ -575,6 +575,8 @@ export async function runClaudeListProbeInPage(
   const maxDispatches = 4;
   const maxBodyBytes = 512 * 1024;
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+  // Project admission envelope only, not provider grammar or evidence of personal identity.
+  const workspacePattern = /^[A-Za-z0-9._~-]{1,128}$/u;
   const chatPathPattern =
     /^\/chat\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/u;
   const listPathPattern =
@@ -600,6 +602,9 @@ export async function runClaudeListProbeInPage(
   const activeIds = new Set<string>();
   const archivedIds = new Set<string>();
   const relevantHeaderNames = new Set<string>();
+  type ScopePair = { readonly organization: string; readonly workspace: string };
+  type ScopeDigest = (pair: ScopePair) => Promise<ArrayBuffer>;
+  let scopeAnchor: (ScopePair & { readonly fingerprint: string }) | undefined;
   let routeOrganization = '';
   let routeOrganizationEvidence:
     | 'resource-timing'
@@ -643,6 +648,7 @@ export async function runClaudeListProbeInPage(
   const headerNames = (): string[] => [...relevantHeaderNames].sort().slice(0, 8);
   const finish = (code: ClaudeListProbeOutcomeCode): unknown => {
     const exercised = pages.some(page => page.offset === 30);
+    const observed = code === 'scope-observed';
     return {
       schema,
       status: 'stopped',
@@ -657,27 +663,22 @@ export async function runClaudeListProbeInPage(
         unfinished: unfinished(),
       },
       scope: {
-        organizationResolved: false,
-        workspaceResolved: false,
-        consistent: false,
-        routeOrganizationMatched: false,
-        fingerprint: null,
+        observed,
+        fingerprint: observed ? pages[0].scopeFingerprint : null,
         relevantHeaderNames: headerNames(),
       },
     };
   };
+  const deadlineError = new Error('deadline');
   const deadlinePromise = <T>(promise: Promise<T>, onTimeout: () => void): Promise<T> =>
     new Promise((resolve, reject) => {
       const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
+      const expire = (): void => {
         onTimeout();
-        reject(new Error('deadline'));
-        return;
-      }
-      const timer = setTimeout(() => {
-        onTimeout();
-        reject(new Error('deadline'));
-      }, remainingMs);
+        reject(deadlineError);
+      };
+      const timer = remainingMs > 0 ? setTimeout(expire, remainingMs) : undefined;
+      // Observe settlement even if the deadline passed while the operation was being started.
       promise.then(
         value => {
           clearTimeout(timer);
@@ -688,7 +689,45 @@ export async function runClaudeListProbeInPage(
           reject(error);
         }
       );
+      if (timer === undefined) expire();
     });
+  const captureScopeDigest = (): ScopeDigest | undefined => {
+    try {
+      const subtle = globalThis.crypto?.subtle;
+      if (!subtle || typeof subtle.digest !== 'function') return undefined;
+      const digest = subtle.digest.bind(subtle);
+      const encoder = new TextEncoder();
+      const encode = encoder.encode.bind(encoder);
+      const stringify = JSON.stringify;
+      return ({ organization, workspace }) =>
+        digest(
+          'SHA-256',
+          encode(
+            stringify([
+              'liska-claude-list-probe-scope-run/1',
+              ownerToken,
+              'https://claude.ai',
+              'anthropic-organization-id',
+              organization,
+              'anthropic-workspace-id',
+              workspace,
+            ])
+          )
+        );
+    } catch {
+      return undefined;
+    }
+  };
+  const scopeFingerprint = async (digest: ScopeDigest, pair: ScopePair): Promise<string> => {
+    const buffer = await deadlinePromise(digest(pair), () => undefined);
+    if (Object.prototype.toString.call(buffer) !== '[object ArrayBuffer]')
+      throw new Error('invalid-digest');
+    const bytes = new Uint8Array(buffer);
+    if (bytes.length !== 32) throw new Error('invalid-digest');
+    let hex = '';
+    for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+    return `claude-probe-scope-run-v1-sha256:${hex}`;
+  };
   const exactDataObject = (
     value: unknown,
     requiredKeys: readonly string[]
@@ -878,6 +917,7 @@ export async function runClaudeListProbeInPage(
     }
   };
   const collectRelevantHeaderNames = (response: Response): void => {
+    if (relevantHeaderNames.size >= 8) return;
     for (const rawName of response.headers.keys()) {
       const name = rawName.toLowerCase();
       if (!/(?:^|-)(?:organization|org|workspace)(?:-|$)/u.test(name)) continue;
@@ -886,12 +926,36 @@ export async function runClaudeListProbeInPage(
       if (relevantHeaderNames.size >= 8) break;
     }
   };
-  const admitPage = (
+  const readScopePair = (response: Response): ScopePair | ClaudeListProbeOutcomeCode => {
+    const organization = response.headers.get('anthropic-organization-id');
+    const workspace = response.headers.get('anthropic-workspace-id');
+    // Give exact names priority within the cap. Any earlier admitted page already added both.
+    if (organization !== null) relevantHeaderNames.add('anthropic-organization-id');
+    if (workspace !== null) relevantHeaderNames.add('anthropic-workspace-id');
+    collectRelevantHeaderNames(response);
+    if (organization === null || workspace === null) return 'scope-header-missing';
+    if (
+      typeof organization !== 'string' ||
+      !uuidPattern.test(organization) ||
+      typeof workspace !== 'string' ||
+      !workspacePattern.test(workspace)
+    )
+      return 'scope-header-invalid';
+    if (organization !== routeOrganization) return 'scope-route-mismatch';
+    // Compare the exact local values, never the diagnostic fingerprint, for page admission.
+    if (
+      scopeAnchor &&
+      (scopeAnchor.organization !== organization || scopeAnchor.workspace !== workspace)
+    )
+      return 'scope-pair-mismatch';
+    return { organization, workspace };
+  };
+  const stagePage = (
     value: unknown,
     partition: 'active' | 'archived',
     offset: 0 | 30
-    // eslint-disable-next-line complexity, max-lines-per-function -- Stage and commit all page evidence in one place.
-  ): boolean | undefined => {
+    // eslint-disable-next-line complexity, max-lines-per-function -- Stage all page evidence and return its sole commit path.
+  ): ((fingerprint: string) => boolean) | undefined => {
     const envelope = exactDataObject(value, ['data', 'has_more']);
     if (!envelope || typeof envelope.has_more !== 'boolean' || !Array.isArray(envelope.data))
       return undefined;
@@ -932,27 +996,31 @@ export async function runClaudeListProbeInPage(
         if (item.is_archived !== (partition === 'archived')) pageCounts.archivedMismatch += 1;
       }
     }
-    // A late malformed record leaves previously admitted evidence untouched.
-    for (const id of pageIds) seen.add(id);
-    counts.record += pageCounts.record;
-    counts.validUuid += pageCounts.validUuid;
-    counts.marker += pageCounts.marker;
-    counts.archivedFlag += pageCounts.archivedFlag;
-    counts.archivedMismatch += pageCounts.archivedMismatch;
-    counts.duplicate += duplicate;
-    counts.overlap += overlap;
-    pages.push({
-      partition,
-      offset,
-      hasMore: envelope.has_more,
-      terminal: !envelope.has_more,
-      counts: pageCounts,
-    });
-    return envelope.has_more;
+    const hasMore = envelope.has_more;
+    return fingerprint => {
+      for (const id of pageIds) seen.add(id);
+      counts.record += pageCounts.record;
+      counts.validUuid += pageCounts.validUuid;
+      counts.marker += pageCounts.marker;
+      counts.archivedFlag += pageCounts.archivedFlag;
+      counts.archivedMismatch += pageCounts.archivedMismatch;
+      counts.duplicate += duplicate;
+      counts.overlap += overlap;
+      pages.push({
+        partition,
+        offset,
+        hasMore,
+        terminal: !hasMore,
+        scopeFingerprint: fingerprint,
+        counts: pageCounts,
+      });
+      return hasMore;
+    };
   };
   const requestPage = async (
     partition: 'active' | 'archived',
-    offset: 0 | 30
+    offset: 0 | 30,
+    digestScope: ScopeDigest
     // eslint-disable-next-line complexity, max-lines-per-function -- One request lifecycle owns dispatch, transport, scope and body admission.
   ): Promise<{ hasMore?: boolean; code?: ClaudeListProbeOutcomeCode }> => {
     if (checkpoint()) return { code: 'navigation-changed' };
@@ -985,16 +1053,17 @@ export async function runClaudeListProbeInPage(
         );
       if (checkpoint()) return { code: 'navigation-changed' };
       return {
-        code:
-          error instanceof Error && error.message === 'deadline'
-            ? 'deadline-exceeded'
-            : 'request-failed',
+        code: error === deadlineError ? 'deadline-exceeded' : 'request-failed',
       };
     }
     setActiveCancel(() => cancelUnreadBody(response, controller));
     if (checkpoint()) {
       cancelUnreadBody(response, controller);
       return { code: 'navigation-changed' };
+    }
+    if (Date.now() >= deadline) {
+      cancelUnreadBody(response, controller);
+      return { code: 'deadline-exceeded' };
     }
     if (response.status === 401 || response.status === 403) {
       cancelUnreadBody(response, controller);
@@ -1019,11 +1088,16 @@ export async function runClaudeListProbeInPage(
       cancelUnreadBody(response, controller);
       return { code: 'unexpected-media-type' };
     }
+    let pair: ScopePair | ClaudeListProbeOutcomeCode;
     try {
-      collectRelevantHeaderNames(response);
+      pair = readScopePair(response);
     } catch {
       cancelUnreadBody(response, controller);
       return { code: 'response-schema-invalid' };
+    }
+    if (typeof pair === 'string') {
+      cancelUnreadBody(response, controller);
+      return { code: pair };
     }
     let body: unknown;
     try {
@@ -1032,8 +1106,7 @@ export async function runClaudeListProbeInPage(
       cancelUnreadBody(response, controller);
       if (checkpoint() || (error instanceof Error && error.message === 'navigation'))
         return { code: 'navigation-changed' };
-      if (error instanceof Error && error.message === 'deadline')
-        return { code: 'deadline-exceeded' };
+      if (error === deadlineError) return { code: 'deadline-exceeded' };
       if (error instanceof Error && error.message === 'too-large')
         return { code: 'response-too-large' };
       return { code: 'response-schema-invalid' };
@@ -1046,8 +1119,23 @@ export async function runClaudeListProbeInPage(
       controller.abort();
       return { code: 'navigation-changed' };
     }
-    const hasMore = admitPage(body, partition, offset);
-    return hasMore === undefined ? { code: 'response-schema-invalid' } : { hasMore };
+    const commitPage = stagePage(body, partition, offset);
+    if (!commitPage) return { code: 'response-schema-invalid' };
+    let fingerprint = scopeAnchor?.fingerprint;
+    if (!fingerprint) {
+      try {
+        fingerprint = await scopeFingerprint(digestScope, pair);
+      } catch (error) {
+        if (checkpoint()) return { code: 'navigation-changed' };
+        if (error === deadlineError || Date.now() >= deadline) return { code: 'deadline-exceeded' };
+        return { code: 'scope-crypto-failed' };
+      }
+    }
+    if (checkpoint()) return { code: 'navigation-changed' };
+    if (Date.now() >= deadline) return { code: 'deadline-exceeded' };
+    const hasMore = commitPage(fingerprint);
+    scopeAnchor ??= { ...pair, fingerprint };
+    return { hasMore };
   };
 
   try {
@@ -1060,17 +1148,23 @@ export async function runClaudeListProbeInPage(
     routeOrganization = resolvedRoute.organization ?? '';
     routeOrganizationEvidence = resolvedRoute.evidence;
     if (!routeOrganization) return finish('route-organization-unresolved');
+    if (checkpoint()) return finish('navigation-changed');
+    if (Date.now() >= deadline) return finish('deadline-exceeded');
+    const digestScope = captureScopeDigest();
+    if (checkpoint()) return finish('navigation-changed');
+    if (Date.now() >= deadline) return finish('deadline-exceeded');
+    if (!digestScope) return finish('scope-crypto-failed');
 
     const pending: Array<'active' | 'archived'> = [];
     for (const partition of ['active', 'archived'] as const) {
-      const page = await requestPage(partition, 0);
+      const page = await requestPage(partition, 0, digestScope);
       if (checkpoint()) return finish('navigation-changed');
       if (page.code) return finish(page.code);
       if (page.hasMore) pending.push(partition);
     }
     for (const partition of pending) {
       if (counts.dispatch >= maxDispatches) return finish('budget-exhausted');
-      const page = await requestPage(partition, 30);
+      const page = await requestPage(partition, 30, digestScope);
       if (checkpoint()) return finish('navigation-changed');
       if (page.code) return finish(page.code);
     }
@@ -1078,7 +1172,9 @@ export async function runClaudeListProbeInPage(
       return finish(
         counts.dispatch >= maxDispatches ? 'budget-exhausted' : 'pagination-unfinished'
       );
-    return finish('scope-unresolved');
+    if (checkpoint()) return finish('navigation-changed');
+    if (Date.now() >= deadline) return finish('deadline-exceeded');
+    return finish('scope-observed');
   } catch {
     return finish(Date.now() >= deadline ? 'deadline-exceeded' : 'response-schema-invalid');
   } finally {

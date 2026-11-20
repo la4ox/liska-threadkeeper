@@ -1057,6 +1057,12 @@
   "claudeListEvidenceNo": {
     "message": "いいえ"
   },
+  "claudeListEvidenceHeaderPairObserved": {
+    "message": "この診断では応答ヘッダーの組が一貫して一致しました。アカウント全体の網羅性は確認されていません。"
+  },
+  "claudeListEvidenceHeaderPairNotObserved": {
+    "message": "この診断では応答ヘッダーの組の一貫した一致は確認されませんでした。アカウント全体の網羅性は確認されていません。"
+  },
   "claudeListEvidenceHeaders": {
     "message": "観測された候補ヘッダー名（スコープの証明ではありません）: $NAMES$。",
     "placeholders": {
@@ -1070,17 +1076,23 @@
     "message": "Claude のアクティブ／アーカイブ済みリストを限定的に確認しています…"
   },
   "status_claudeListProbeResult": {
-    "message": "Claude リスト診断: $STATUS$（$CODE$）、リクエスト $DISPATCHES$ 件、ページ $PAGES$ 件、レコード $RECORDS$ 件、スコープ $SCOPE$、検証バナーの観測 $VERIFICATION$、ルート根拠 $ROUTE$。",
+    "message": "Claude リスト診断: $STATUS$（$CODE$）、リクエスト $DISPATCHES$ 件、ページ $PAGES$ 件、レコード $RECORDS$ 件、$HEADERPAIR$、検証バナーの観測 $VERIFICATION$、ルート根拠 $ROUTE$。",
     "placeholders": {
       "status": { "content": "$1" },
       "code": { "content": "$2" },
       "dispatches": { "content": "$3" },
       "pages": { "content": "$4" },
       "records": { "content": "$5" },
-      "scope": { "content": "$6" },
+      "headerpair": { "content": "$6" },
       "verification": { "content": "$7" },
       "route": { "content": "$8" }
     }
+  },
+  "status_claudeListProbeHeaderPairObserved": {
+    "message": "ヘッダーの組を観測"
+  },
+  "status_claudeListProbeHeaderPairNotObserved": {
+    "message": "ヘッダーの組は未観測"
   },
   "status_claudeListProbeVerificationYes": {
     "message": "あり"

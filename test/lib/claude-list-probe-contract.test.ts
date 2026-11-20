@@ -8,7 +8,14 @@ import {
   type ClaudeListProbeResult,
 } from '../../src/lib/claude-list-probe-contract';
 
-const fingerprint = `liska-claude-list-probe-scope/1:${'a'.repeat(64)}`;
+const fingerprint = `claude-probe-scope-run-v1-sha256:${'a'.repeat(64)}`;
+const otherFingerprint = `claude-probe-scope-run-v1-sha256:${'b'.repeat(64)}`;
+const exactHeaderNames = ['anthropic-organization-id', 'anthropic-workspace-id'];
+const incompleteHeaderNames = [
+  [],
+  ...exactHeaderNames.map(name => [name]),
+  ['x-organization-id', 'x-workspace-id'],
+];
 
 function page(
   partition: ClaudeListProbePage['partition'],
@@ -21,6 +28,7 @@ function page(
     offset,
     hasMore,
     terminal: !hasMore,
+    scopeFingerprint: fingerprint,
     counts: {
       record: 0,
       validUuid: 0,
@@ -64,13 +72,18 @@ function resultWithPages(
       unfinished,
     },
     scope: {
-      organizationResolved: false,
-      workspaceResolved: false,
-      consistent: false,
-      routeOrganizationMatched: false,
+      observed: false,
       fingerprint: null,
-      relevantHeaderNames: pages.length > 0 ? ['x-organization-id', 'x-workspace-id'] : [],
+      relevantHeaderNames: pages.length > 0 ? [...exactHeaderNames] : [],
     },
+  };
+}
+
+function scopeObserved(source: ClaudeListProbeResult): ClaudeListProbeResult {
+  return {
+    ...source,
+    code: 'scope-observed',
+    scope: { ...source.scope, observed: true, fingerprint },
   };
 }
 
@@ -85,7 +98,7 @@ function result() {
     }),
     page('archived', 0, false, { record: 1, validUuid: 1, marker: 1, archivedFlag: 1 }),
   ]);
-  return { ...terminalResult, code: 'scope-unresolved' as const };
+  return scopeObserved(terminalResult);
 }
 
 describe('Claude list probe content-free contract', () => {
@@ -107,12 +120,14 @@ describe('Claude list probe content-free contract', () => {
     { ...result(), schema: 'liska-claude-list-probe/1' },
     { ...result(), schema: 'liska-claude-list-probe/2' },
     { ...result(), schema: 'liska-claude-list-probe/3' },
+    { ...result(), schema: 'liska-claude-list-probe/4' },
     { ...result(), verificationPresent: 'false' },
     { ...result(), routeOrganizationEvidence: 'private-route-id' },
     { ...result(), code: 'scope-mismatch' },
+    { ...result(), code: 'scope-unresolved' },
     { ...result(), status: 'stopped', code: 'auth-verification-required' },
     { ...result(), privateId: 'secret' },
-    { ...result(), status: 'complete', code: 'scope-unresolved' },
+    { ...result(), status: 'complete', code: 'scope-observed' },
     { ...result(), status: 'complete', code: 'ok' },
     { ...result(), status: 'stopped', code: 'ok' },
     { ...result(), counts: { ...result().counts, dispatch: 5 } },
@@ -124,7 +139,7 @@ describe('Claude list probe content-free contract', () => {
       pagination: { exercised: true, hypothesis: 'offset-plus-30', unfinished: false },
     },
     { ...result(), pagination: { ...result().pagination, unfinished: true } },
-    { ...result(), scope: { ...result().scope, fingerprint } },
+    { ...result(), scope: { ...result().scope, fingerprint: otherFingerprint } },
     { ...result(), scope: { ...result().scope, fingerprint: 'raw-private-scope' } },
     {
       ...result(),
@@ -191,7 +206,7 @@ describe('Claude list probe content-free contract', () => {
     ).toBe(false);
   });
 
-  it('rejects reviewed v1/v2 and old/new mixed shapes without per-page evidence', () => {
+  it('rejects old schemas and mixed shapes without the exact per-page scope evidence', () => {
     const {
       verificationPresent: _verificationPresent,
       routeOrganizationEvidence: _routeOrganizationEvidence,
@@ -226,16 +241,87 @@ describe('Claude list probe content-free contract', () => {
     const oldPages = result().pages.map(({ counts: _counts, ...item }) => item);
     expect(snapshotClaudeListProbeResult({ ...result(), counts: oldCounts })).toBeUndefined();
     expect(snapshotClaudeListProbeResult({ ...result(), pages: oldPages })).toBeUndefined();
+    const source = result();
+    const v4Pages = source.pages.map(({ scopeFingerprint: _fingerprint, ...item }) => item);
+    const v4Scope = {
+      organizationResolved: false,
+      workspaceResolved: false,
+      consistent: false,
+      routeOrganizationMatched: false,
+      fingerprint: null,
+      relevantHeaderNames: source.scope.relevantHeaderNames,
+    };
+    expect(snapshotClaudeListProbeResult({ ...source, pages: v4Pages })).toBeUndefined();
+    expect(snapshotClaudeListProbeResult({ ...source, scope: v4Scope })).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...source, pages: [source.pages[0], v4Pages[1]] })
+    ).toBeUndefined();
   });
 
+  it.each([null, 0, 'true', {}, false])(
+    'requires an exact, positive observed flag (%j)',
+    observed => {
+      expect(
+        snapshotClaudeListProbeResult({ ...result(), scope: { ...result().scope, observed } })
+      ).toBeUndefined();
+    }
+  );
+
   it.each([
-    'organizationResolved',
-    'workspaceResolved',
-    'consistent',
-    'routeOrganizationMatched',
-  ] as const)('rejects a positive %s even with all other scope flags false', key => {
+    null,
+    undefined,
+    {},
+    `liska-claude-list-probe-scope/1:${'a'.repeat(64)}`,
+    `claude-probe-scope-run-v1-sha256:${'A'.repeat(64)}`,
+    `claude-probe-scope-run-v1-sha256:${'a'.repeat(63)}`,
+    `claude-probe-scope-run-v1-sha256:${'a'.repeat(65)}`,
+    `${fingerprint}\n`,
+  ])('rejects malformed page and global fingerprints (%j)', value => {
+    const source = result();
     expect(
-      snapshotClaudeListProbeResult({ ...result(), scope: { ...result().scope, [key]: true } })
+      snapshotClaudeListProbeResult({ ...source, scope: { ...source.scope, fingerprint: value } })
+    ).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({
+        ...source,
+        pages: source.pages.map(page => ({ ...page, scopeFingerprint: value })),
+      })
+    ).toBeUndefined();
+  });
+
+  it('reads neither scope nor page fingerprint accessors', () => {
+    const source = result();
+    let reads = 0;
+    const getter = {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return fingerprint;
+      },
+    };
+    const scope = Object.defineProperty({ ...source.scope }, 'fingerprint', getter);
+    const active = Object.defineProperty({ ...source.pages[0] }, 'scopeFingerprint', getter);
+    expect(snapshotClaudeListProbeResult({ ...source, scope })).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...source, pages: [active, source.pages[1]] })
+    ).toBeUndefined();
+    expect(reads).toBe(0);
+  });
+
+  it('requires a shared fingerprint even on a stopped admitted prefix', () => {
+    const source = resultWithPages([page('active', 0, true), page('archived', 0)], true, 3);
+    expect(snapshotClaudeListProbeResult(source)).toEqual(source);
+    expect(
+      snapshotClaudeListProbeResult({
+        ...source,
+        pages: [source.pages[0], { ...source.pages[1], scopeFingerprint: otherFingerprint }],
+      })
+    ).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...source, scope: { ...source.scope, fingerprint } })
+    ).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...result(), code: 'deadline-exceeded' })
     ).toBeUndefined();
   });
 
@@ -315,15 +401,16 @@ describe('Claude list probe content-free contract', () => {
     [[active0, archived0], true, 2, 'deadline-exceeded'],
     [[active0, archived0], true, 3, 'request-failed'],
     [[active0, archived0, active30], true, 4, 'request-failed'],
-    [[active0, archived0, active30, archived30], false, 4, 'scope-unresolved'],
+    [[active0, archived0, active30, archived30], false, 4, 'scope-observed'],
     [[active0, archived0, active30, page('archived', 30, true)], true, 4, 'budget-exhausted'],
-    [[activeTerminal, archived0, archived30], false, 3, 'scope-unresolved'],
-    [[active0, archivedTerminal, active30], false, 3, 'scope-unresolved'],
+    [[activeTerminal, archived0, archived30], false, 3, 'scope-observed'],
+    [[active0, archivedTerminal, active30], false, 3, 'scope-observed'],
     [[active0, archivedTerminal, page('active', 30, true)], true, 3, 'pagination-unfinished'],
   ] as const)(
     'accepts an exact schedule or early-stop prefix %#',
     (pages, unfinished, dispatch, code) => {
-      const source = { ...resultWithPages(pages, unfinished, dispatch), code };
+      const base = resultWithPages(pages, unfinished, dispatch);
+      const source = code === 'scope-observed' ? scopeObserved(base) : { ...base, code };
       expect(snapshotClaudeListProbeResult(source)).toEqual(source);
       const wrongUnfinished = {
         ...source,
@@ -388,19 +475,122 @@ describe('Claude list probe content-free contract', () => {
     expect(snapshotClaudeListProbeResult({ ...first, scope: later.scope })).toBeUndefined();
   });
 
-  it('retains optional header names from an oversized unadmitted response', () => {
-    const first = { ...resultWithPages([], false, 1), code: 'response-too-large' };
-    const withNames = {
-      ...first,
-      scope: { ...first.scope, relevantHeaderNames: ['x-workspace-id'] },
-    };
-    expect(snapshotClaudeListProbeResult(first)).toEqual(first);
-    expect(snapshotClaudeListProbeResult(withNames)).toEqual(withNames);
+  it.each(['response-too-large', 'scope-header-invalid', 'scope-route-mismatch'])(
+    'requires one unadmitted dispatch and both exact names for %s, even on page zero',
+    code => {
+      for (const pages of [[], [activeTerminal]]) {
+        const base = resultWithPages(pages, false, pages.length + 1);
+        const failure = {
+          ...base,
+          code,
+          scope: { ...base.scope, relevantHeaderNames: [...exactHeaderNames, 'x-workspace-id'] },
+        };
+        const withoutFailure = { ...resultWithPages(pages), code };
+        expect(snapshotClaudeListProbeResult(failure)).toEqual(failure);
+        expect(snapshotClaudeListProbeResult(withoutFailure)).toBeUndefined();
+        expect(
+          snapshotClaudeListProbeResult({ ...failure, routeOrganizationEvidence: 'unresolved' })
+        ).toBeUndefined();
+        for (const relevantHeaderNames of incompleteHeaderNames) {
+          expect(
+            snapshotClaudeListProbeResult({
+              ...failure,
+              scope: { ...failure.scope, relevantHeaderNames },
+            })
+          ).toBeUndefined();
+        }
+      }
+    }
+  );
+
+  it('allows missing-header outcomes with one unadmitted dispatch and honest aggregate names', () => {
+    const code = 'scope-header-missing';
+    const first = { ...resultWithPages([], false, 1), code };
+    for (const relevantHeaderNames of incompleteHeaderNames) {
+      const source = { ...first, scope: { ...first.scope, relevantHeaderNames } };
+      expect(snapshotClaudeListProbeResult(source)).toEqual(source);
+    }
     expect(
-      snapshotClaudeListProbeResult({ ...withNames, routeOrganizationEvidence: 'unresolved' })
+      snapshotClaudeListProbeResult({
+        ...first,
+        scope: { ...first.scope, relevantHeaderNames: exactHeaderNames },
+      })
+    ).toBeUndefined();
+    const later = { ...resultWithPages([activeTerminal], false, 2), code };
+    expect(snapshotClaudeListProbeResult(later)).toEqual(later);
+    expect(snapshotClaudeListProbeResult({ ...later, scope: first.scope })).toBeUndefined();
+    expect(snapshotClaudeListProbeResult({ ...resultWithPages([]), code })).toBeUndefined();
+  });
+
+  it('requires a previously admitted page plus one unadmitted dispatch for pair mismatch', () => {
+    const code = 'scope-pair-mismatch';
+    const admissible = { ...resultWithPages([active0], true, 2), code };
+    expect(snapshotClaudeListProbeResult(admissible)).toEqual(admissible);
+    expect(
+      snapshotClaudeListProbeResult({
+        ...admissible,
+        scope: { ...admissible.scope, relevantHeaderNames: [] },
+      })
+    ).toBeUndefined();
+    const first = resultWithPages([], false, 1);
+    expect(
+      snapshotClaudeListProbeResult({ ...first, code, scope: admissible.scope })
     ).toBeUndefined();
     expect(
-      snapshotClaudeListProbeResult({ ...resultWithPages([activeTerminal]), code: first.code })
+      snapshotClaudeListProbeResult({ ...resultWithPages([active0], true), code })
+    ).toBeUndefined();
+  });
+
+  it('allows crypto failure only at resolved-route preflight or first-page digest', () => {
+    const code = 'scope-crypto-failed';
+    const preflight = { ...resultWithPages([]), code };
+    const afterDispatch = { ...resultWithPages([], false, 1), code };
+    const digestFailure = {
+      ...afterDispatch,
+      scope: { ...afterDispatch.scope, relevantHeaderNames: exactHeaderNames },
+    };
+    expect(snapshotClaudeListProbeResult(preflight)).toEqual(preflight);
+    expect(snapshotClaudeListProbeResult(digestFailure)).toEqual(digestFailure);
+    for (const relevantHeaderNames of incompleteHeaderNames) {
+      expect(
+        snapshotClaudeListProbeResult({
+          ...afterDispatch,
+          scope: { ...afterDispatch.scope, relevantHeaderNames },
+        })
+      ).toBeUndefined();
+    }
+    expect(
+      snapshotClaudeListProbeResult({ ...preflight, routeOrganizationEvidence: 'unresolved' })
+    ).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...preflight, scope: digestFailure.scope })
+    ).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...resultWithPages([activeTerminal]), code })
+    ).toBeUndefined();
+    expect(
+      snapshotClaudeListProbeResult({ ...resultWithPages([activeTerminal], false, 2), code })
+    ).toBeUndefined();
+  });
+
+  it('requires the exact two header names for terminal scope observation', () => {
+    const source = result();
+    const names = [...exactHeaderNames, 'x-workspace-id'];
+    const withNames = { ...source, scope: { ...source.scope, relevantHeaderNames: names } };
+    expect(snapshotClaudeListProbeResult(withNames)).toEqual(withNames);
+    for (const relevantHeaderNames of incompleteHeaderNames) {
+      expect(
+        snapshotClaudeListProbeResult({
+          ...source,
+          scope: { ...source.scope, relevantHeaderNames },
+        })
+      ).toBeUndefined();
+    }
+    expect(
+      snapshotClaudeListProbeResult({
+        ...source,
+        scope: { ...source.scope, observed: false, fingerprint: null },
+      })
     ).toBeUndefined();
   });
 
@@ -408,35 +598,38 @@ describe('Claude list probe content-free contract', () => {
     'allows %s before a dispatch or on an unadmitted response after headers',
     code => {
       const before = { ...resultWithPages([]), code, routeOrganizationEvidence: 'unresolved' };
-      const after = {
-        ...resultWithPages([], false, 1),
-        code,
-        scope: { ...before.scope, relevantHeaderNames: ['x-workspace-id'] },
-      };
+      const after = { ...resultWithPages([], false, 1), code };
       const afterAdmitted = { ...resultWithPages([activeTerminal]), code };
       expect(snapshotClaudeListProbeResult(before)).toEqual(before);
-      expect(snapshotClaudeListProbeResult(after)).toEqual(after);
       expect(snapshotClaudeListProbeResult(afterAdmitted)).toEqual(afterAdmitted);
-      expect(snapshotClaudeListProbeResult({ ...before, scope: after.scope })).toBeUndefined();
       expect(
         snapshotClaudeListProbeResult({ ...after, routeOrganizationEvidence: 'unresolved' })
       ).toBeUndefined();
+      for (const relevantHeaderNames of [...incompleteHeaderNames, exactHeaderNames]) {
+        const scope = { ...after.scope, relevantHeaderNames };
+        const candidate = { ...after, scope };
+        expect(snapshotClaudeListProbeResult(candidate)).toEqual(candidate);
+        if (relevantHeaderNames.length > 0)
+          expect(snapshotClaudeListProbeResult({ ...before, scope })).toBeUndefined();
+        if (relevantHeaderNames !== exactHeaderNames)
+          expect(snapshotClaudeListProbeResult({ ...afterAdmitted, scope })).toBeUndefined();
+      }
     }
   );
 
   const activeMoreAt30 = page('active', 30, true);
   it.each([
-    [[activeTerminal], false, 'scope-unresolved'],
-    [[active0, archivedTerminal, activeMoreAt30], true, 'scope-unresolved'],
+    [[activeTerminal], false, 'scope-observed'],
+    [[active0, archivedTerminal, activeMoreAt30], true, 'scope-observed'],
     [[active0, archivedTerminal], true, 'pagination-unfinished'],
     [[active0, archivedTerminal, active30], false, 'pagination-unfinished'],
     [[active0, archived0, activeMoreAt30, archived30], true, 'pagination-unfinished'],
     [[active0, archivedTerminal, activeMoreAt30], true, 'budget-exhausted'],
     [[active0, archived0, active30, archived30], false, 'budget-exhausted'],
   ] as const)('rejects contradictory completed-schedule outcomes %#', (pages, unfinished, code) => {
-    expect(
-      snapshotClaudeListProbeResult({ ...resultWithPages(pages, unfinished), code })
-    ).toBeUndefined();
+    const base = resultWithPages(pages, unfinished);
+    const candidate = code === 'scope-observed' ? scopeObserved(base) : { ...base, code };
+    expect(snapshotClaudeListProbeResult(candidate)).toBeUndefined();
   });
 
   it.each([
