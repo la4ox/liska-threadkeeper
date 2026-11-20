@@ -784,6 +784,28 @@ that the selected actor owns either namespace, or that a same-run digest is a
 stable catalog key. The existing manual personal-scope attestation and catalog
 scope remain separate authority boundaries.
 
+### E58 — One installed v5 run observed the header pair without proving scope
+
+The reviewed producer head `fa5ea83` was installed by exact relative-file
+SHA-256 reconciliation and is an ancestor of docs base main `1719fff`, with the
+v4 installation retained as rollback. One user-confirmed click with no retry
+returned `stopped / scope-observed`, verification true and
+`multiple-consistent` route evidence: two requests, two pages and twelve
+records. Active offset 0 was terminal with 12 records, 12 valid UUIDs, 12
+markers, 12/12 boolean archive flags and zero mismatches. Archived offset 0 was
+terminal with zero records/counts. Duplicates and cross-partition overlap were
+zero; pagination was not exercised and no continuation was observed pending.
+
+The exact names `anthropic-organization-id` and
+`anthropic-workspace-id` were observed consistently in this diagnostic. A
+run-scoped fingerprint existed internally, but neither fingerprint nor raw
+header values appeared in rendered output or were retained in the git-ignored,
+content-free receipt; no private route or user content was included. The live
+result does not prove account completeness, general pagination,
+deletion/archived-history completeness, provider workspace semantics,
+authenticated personal scope, stable cross-run identity, catalog admission,
+baseline execution, capture/export, or scheduler authority.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1777,14 +1799,14 @@ personal-scope boundary.
 
 ### T31 — Run one reviewed Claude list-probe v5 header-pair observation
 
-After exact-head CI, Code Review and Security Review pass, explicitly confirm one
-value-reading live attempt, install the reviewed `/5` build and click once. The
-raw organization/workspace pair remains inside the pinned page; retain only a
-content-free receipt that omits the run fingerprint as well as both values.
+Fulfilled by E58 and local-only receipt S61: one exact-head installed, explicitly
+confirmed click with no retry observed the header pair consistently within the
+bounded run. The content-free receipt excludes the fingerprint and raw values.
+This closes only the one-run observation; the semantic/personal-scope/catalog
+bridge remains a separately reviewed gate, with no automatic baseline.
 
-Trigger: exact-head reviews complete and the user explicitly authorizes this new
-identifier-value read. No retry or catalog/baseline promotion follows from any
-outcome.
+Trigger: a separately reviewed semantic/personal-scope/catalog bridge is ready
+for its own bounded decision.
 
 ## Observations
 
@@ -1847,6 +1869,7 @@ outcome.
 - [evidence] E55: v3 popup omitted per-page/header-name evidence, while zero archive mismatches could not distinguish valid, missing or non-boolean flags #live
 - [evidence] E56: one reviewed v4 click returned stopped/scope-unresolved with 2 requests/pages, 12 active records, 12/12 boolean flags, 0 mismatches, 0 archived records, duplicates or overlap, and two names-only candidate headers; pagination, scope and completeness remain unproved #live
 - [evidence] E57: the two exact v4-observed names plus the pinned route/run boundary permit a same-run pair observation, but not identity, personal scope or a stable catalog key #code
+- [evidence] E58: one installed v5 click observed the exact header pair consistently and returned stopped/scope-observed; safe aggregates are retained without values or fingerprint, while pagination, completeness, personal scope and catalog admission remain unproved #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1915,7 +1938,7 @@ outcome.
 - [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
 - [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
-- [tail] T31: after exact-head reviews and explicit value-read confirmation, run one reviewed v5 click and retain a digest-free content-free receipt without retry
+- [tail] T31: fulfilled by E58/S61 for one no-retry live header-pair observation; the semantic/personal-scope/catalog bridge remains separate and no automatic baseline follows
 
 ## Relations
 
@@ -1987,3 +2010,4 @@ outcome.
 - S58 — [ADR-079: Make Claude list-probe v4 evidence visible and atomic](../adr/079-claude-list-probe-v4-evidence-visibility.md), base main `4a2c29785e2e052c7f27137562ac2dad3f1b3ee3`
 - S59 — local receipt `LISKA-CLAUDE-LIST-PROBE-V4-PAGE-EVIDENCE-20261120`; visibility: local-only; one confirmed click, content-free active/archived page and boolean-flag counts, names-only candidate headers, unresolved scope, no retry
 - S60 — [ADR-080: Observe Claude list header-pair scope within one probe run](../adr/080-claude-list-probe-v5-header-pair-observation.md), base main `80c88e9169676a224a141fe999581ffef1a3bb4e`
+- S61 — local receipt `LISKA-CLAUDE-LIST-PROBE-V5-HEADER-PAIR-20261120`; visibility: local-only; git-ignored, content-free, private-route-free; safe aggregate/header-name observation only, with no raw header values or fingerprint

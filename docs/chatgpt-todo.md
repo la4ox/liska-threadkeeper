@@ -871,15 +871,19 @@ terminal states, and the existing no-credential-export boundary.
   does not prove account completeness, general pagination, archival deletion
   coverage or authenticated personal account/workspace scope.
 - [ADR-080](adr/080-claude-list-probe-v5-header-pair-observation.md) records
-  the accepted offline `/5` header-pair contract. It reads only the two exact
-  values of the two exact v4-observed names after transport gates, binds the
-  organization to the exact
-  route UUID, admits workspace strings only through a project-bound envelope,
-  and links pages with an invocation-local fingerprint without rendering or
-  persisting values or digest. Scope remains stopped evidence, not personal
-  attestation, catalog admission, completeness, or execution authority. The
-  value-reading live gate still requires exact-head gates and fresh explicit
-  confirmation for one click with no retry.
+  records the offline `/5` contract and one exact installed live acceptance.
+  One user-confirmed click with no retry returned `stopped / scope-observed`,
+  verification true and `multiple-consistent` route evidence: two requests,
+  two pages and twelve records. The active offset-0 page was terminal with 12
+  valid UUIDs, 12 markers, 12/12 boolean archive flags and no mismatches; the
+  archived offset-0 page was terminal and empty. The two exact header names
+  were observed consistently. The git-ignored local receipt is content-free
+  and contains no raw values, fingerprint, private route or user content. This
+  does not prove account completeness, pagination, archived-history
+  completeness, provider semantics, authenticated personal scope or stable
+  cross-run identity, and it does not admit the catalog or run a baseline. The
+  next gate remains a separately reviewed semantic/personal-scope/catalog
+  bridge; no automatic baseline follows.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
