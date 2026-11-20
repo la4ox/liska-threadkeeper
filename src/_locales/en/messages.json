@@ -1176,6 +1176,12 @@
   "claudeListEvidenceNo": {
     "message": "no"
   },
+  "claudeListEvidenceHeaderPairObserved": {
+    "message": "Response header pair matched across this diagnostic. Account completeness is not established."
+  },
+  "claudeListEvidenceHeaderPairNotObserved": {
+    "message": "Response header pair was not established across this diagnostic. Account completeness is not established."
+  },
   "claudeListEvidenceHeaders": {
     "message": "Observed candidate header names — not scope proof: $NAMES$.",
     "placeholders": {
@@ -1189,17 +1195,23 @@
     "message": "Inspecting bounded Claude active and archived list metadata…"
   },
   "status_claudeListProbeResult": {
-    "message": "Claude list diagnostic: $STATUS$ ($CODE$); $DISPATCHES$ requests, $PAGES$ pages, $RECORDS$ records; scope $SCOPE$; verification banner observed $VERIFICATION$; route evidence $ROUTE$.",
+    "message": "Claude list diagnostic: $STATUS$ ($CODE$); $DISPATCHES$ requests, $PAGES$ pages, $RECORDS$ records; $HEADERPAIR$; verification banner observed $VERIFICATION$; route evidence $ROUTE$.",
     "placeholders": {
       "status": { "content": "$1" },
       "code": { "content": "$2" },
       "dispatches": { "content": "$3" },
       "pages": { "content": "$4" },
       "records": { "content": "$5" },
-      "scope": { "content": "$6" },
+      "headerpair": { "content": "$6" },
       "verification": { "content": "$7" },
       "route": { "content": "$8" }
     }
+  },
+  "status_claudeListProbeHeaderPairObserved": {
+    "message": "header pair observed"
+  },
+  "status_claudeListProbeHeaderPairNotObserved": {
+    "message": "header pair not observed"
   },
   "status_claudeListProbeVerificationYes": {
     "message": "yes"

@@ -1,6 +1,6 @@
 /** Content-free result contract for one foreground Claude list diagnostic. */
 
-export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/4' as const;
+export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/5' as const;
 export const CLAUDE_LIST_PROBE_MAX_DISPATCHES = 4;
 const MAX_RECORDS_PER_PAGE = 30;
 export const CLAUDE_LIST_PROBE_MAX_RECORDS =
@@ -28,7 +28,12 @@ export const CLAUDE_LIST_PROBE_OUTCOME_CODES = Object.freeze([
   'response-schema-invalid',
   'deadline-exceeded',
   'navigation-changed',
-  'scope-unresolved',
+  'scope-header-missing',
+  'scope-header-invalid',
+  'scope-route-mismatch',
+  'scope-pair-mismatch',
+  'scope-crypto-failed',
+  'scope-observed',
   'budget-exhausted',
   'pagination-unfinished',
 ] as const);
@@ -62,6 +67,8 @@ export interface ClaudeListProbePage {
   readonly offset: 0 | 30;
   readonly hasMore: boolean;
   readonly terminal: boolean;
+  /** Same-run diagnostic only, not an identity, authority or anonymization claim. */
+  readonly scopeFingerprint: string;
   readonly counts: ClaudeListProbeRecordCounts;
 }
 
@@ -84,11 +91,8 @@ export interface ClaudeListProbeResult {
     readonly unfinished: boolean;
   };
   readonly scope: {
-    readonly organizationResolved: false;
-    readonly workspaceResolved: false;
-    readonly consistent: false;
-    readonly routeOrganizationMatched: false;
-    readonly fingerprint: null;
+    readonly observed: boolean;
+    readonly fingerprint: string | null;
     readonly relevantHeaderNames: readonly string[];
   };
 }
@@ -188,6 +192,12 @@ interface AdmittedPages {
   readonly scheduleExhausted: boolean;
 }
 
+const scopeFingerprintPattern = /^claude-probe-scope-run-v1-sha256:[a-f0-9]{64}$/u;
+
+function isScopeFingerprint(value: unknown): value is string {
+  return typeof value === 'string' && scopeFingerprintPattern.test(value);
+}
+
 function snapshotPages(value: unknown): AdmittedPages | undefined {
   const values = denseArray(value, CLAUDE_LIST_PROBE_MAX_DISPATCHES);
   if (!values) return undefined;
@@ -199,7 +209,14 @@ function snapshotPages(value: unknown): AdmittedPages | undefined {
   ];
   const output: ClaudeListProbePage[] = [];
   for (const item of values) {
-    const page = record(item, ['partition', 'offset', 'hasMore', 'terminal', 'counts']);
+    const page = record(item, [
+      'partition',
+      'offset',
+      'hasMore',
+      'terminal',
+      'scopeFingerprint',
+      'counts',
+    ]);
     const expected = schedule[output.length];
     if (
       !page ||
@@ -207,7 +224,8 @@ function snapshotPages(value: unknown): AdmittedPages | undefined {
       page.partition !== expected.partition ||
       page.offset !== expected.offset ||
       typeof page.hasMore !== 'boolean' ||
-      page.terminal !== !page.hasMore
+      page.terminal !== !page.hasMore ||
+      !isScopeFingerprint(page.scopeFingerprint)
     )
       return undefined;
     const countData = record(page.counts, recordCountKeys);
@@ -219,6 +237,7 @@ function snapshotPages(value: unknown): AdmittedPages | undefined {
       ...expected,
       hasMore: page.hasMore,
       terminal: page.terminal,
+      scopeFingerprint: page.scopeFingerprint,
       counts,
     });
   }
@@ -232,6 +251,7 @@ function reconcilesPageEvidence(
   const { pages, scheduleExhausted } = admitted;
   if (counts.page !== pages.length || (scheduleExhausted && counts.dispatch !== counts.page))
     return false;
+  if (!pages.every(page => page.scopeFingerprint === pages[0].scopeFingerprint)) return false;
   if (
     recordCountKeys.some(
       key => counts[key] !== pages.reduce((sum, page) => sum + page.counts[key], 0)
@@ -278,25 +298,18 @@ function snapshotPagination(
 
 const headerNamePattern = /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const relevantHeaderPattern = /(?:^|-)(?:organization|org|workspace)(?:-|$)/u;
+const exactScopeHeaderNames = ['anthropic-organization-id', 'anthropic-workspace-id'] as const;
+
+function hasExactScopeHeaderNames(names: readonly string[]): boolean {
+  return exactScopeHeaderNames.every(name => names.includes(name));
+}
 
 function snapshotScope(value: unknown): ClaudeListProbeResult['scope'] | undefined {
-  const data = record(value, [
-    'organizationResolved',
-    'workspaceResolved',
-    'consistent',
-    'routeOrganizationMatched',
-    'fingerprint',
-    'relevantHeaderNames',
-  ]);
-  if (!data) return undefined;
-  for (const key of [
-    'organizationResolved',
-    'workspaceResolved',
-    'consistent',
-    'routeOrganizationMatched',
-  ])
-    if (data[key] !== false) return undefined;
-  if (data.fingerprint !== null) return undefined;
+  const data = record(value, ['observed', 'fingerprint', 'relevantHeaderNames']);
+  if (!data || typeof data.observed !== 'boolean') return undefined;
+  const { observed, fingerprint } = data;
+  if (fingerprint !== null && !isScopeFingerprint(fingerprint)) return undefined;
+  if (observed !== (fingerprint !== null)) return undefined;
   const names = denseArray(data.relevantHeaderNames, CLAUDE_LIST_PROBE_MAX_HEADER_NAMES);
   if (!names) return undefined;
   let previous = '';
@@ -313,11 +326,8 @@ function snapshotScope(value: unknown): ClaudeListProbeResult['scope'] | undefin
     previous = name;
   }
   return {
-    organizationResolved: false,
-    workspaceResolved: false,
-    consistent: false,
-    routeOrganizationMatched: false,
-    fingerprint: null,
+    observed,
+    fingerprint,
     relevantHeaderNames: headerNames,
   };
 }
@@ -331,7 +341,10 @@ function outcomeMatchesEvidence(
   const { dispatch, page } = counts;
   const hasRouteHint = routeOrganizationEvidence !== 'unresolved';
   const hasHeaderNames = scope.relevantHeaderNames.length > 0;
+  const hasExactPairNames = hasExactScopeHeaderNames(scope.relevantHeaderNames);
   if (dispatch > 0 ? !hasRouteHint : hasHeaderNames) return false;
+  if (scope.observed !== (code === 'scope-observed')) return false;
+  if (page > 0 && !hasExactPairNames) return false;
 
   const unadmittedDispatch = dispatch === page + 1;
   const scheduleRead = scheduleExhausted && dispatch === page;
@@ -347,9 +360,23 @@ function outcomeMatchesEvidence(
       // These stops precede header-name collection on the failed request.
       return unadmittedDispatch && (page > 0 || !hasHeaderNames);
     case 'response-too-large':
-      return unadmittedDispatch;
-    case 'scope-unresolved':
-      return scheduleRead && !pagination.unfinished;
+    case 'scope-header-invalid':
+    case 'scope-route-mismatch':
+      return unadmittedDispatch && hasExactPairNames;
+    case 'scope-header-missing':
+      // Both names can only be retained from an earlier admitted response.
+      return unadmittedDispatch && (page > 0 || !hasExactPairNames);
+    case 'scope-pair-mismatch':
+      return unadmittedDispatch && page > 0;
+    case 'scope-crypto-failed':
+      // Preflight or the first digest. Later pages reuse the admitted first digest.
+      return (
+        page === 0 && (dispatch === 0 ? hasRouteHint : unadmittedDispatch && hasExactPairNames)
+      );
+    case 'scope-observed': {
+      const firstFingerprint = result.pages[0]?.scopeFingerprint;
+      return scheduleRead && !pagination.unfinished && scope.fingerprint === firstFingerprint;
+    }
     case 'pagination-unfinished':
       return scheduleRead && pagination.unfinished && dispatch < CLAUDE_LIST_PROBE_MAX_DISPATCHES;
     case 'budget-exhausted':

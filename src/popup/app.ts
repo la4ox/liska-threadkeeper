@@ -348,6 +348,14 @@ function claudeRouteEvidenceMessage(evidence: ClaudeListRouteOrganizationEvidenc
   return getMessage(keys[evidence]);
 }
 
+function claudeHeaderPairSummary(observed: boolean): string {
+  return getMessage(
+    observed
+      ? 'status_claudeListProbeHeaderPairObserved'
+      : 'status_claudeListProbeHeaderPairNotObserved'
+  );
+}
+
 function clearClaudeListEvidence(): void {
   elements.claudeListEvidence.textContent = '';
   elements.claudeListEvidence.hidden = true;
@@ -395,6 +403,11 @@ function showClaudeListEvidence(result: ClaudeListProbeResult): void {
       String(result.counts.overlap),
     ]),
     getMessage('claudeListEvidencePagination', [hypothesis, unfinished]),
+    getMessage(
+      result.scope.observed
+        ? 'claudeListEvidenceHeaderPairObserved'
+        : 'claudeListEvidenceHeaderPairNotObserved'
+    ),
     getMessage('claudeListEvidenceHeaders', names),
   ];
   elements.claudeListEvidence.textContent = lines.join('\n');
@@ -444,7 +457,7 @@ export async function runClaudeListProbe(): Promise<void> {
     const response = await sendClaudeListProbeMessage();
     if (response.success) {
       const result = response.data;
-      const scope = 'unresolved';
+      const headerPair = claudeHeaderPairSummary(result.scope.observed);
       const verification = getMessage(
         result.verificationPresent
           ? 'status_claudeListProbeVerificationYes'
@@ -459,7 +472,7 @@ export async function runClaudeListProbe(): Promise<void> {
           String(result.counts.dispatch),
           String(result.counts.page),
           String(result.counts.record),
-          scope,
+          headerPair,
           verification,
           routeEvidence,
         ]),

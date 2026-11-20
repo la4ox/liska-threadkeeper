@@ -1,4 +1,4 @@
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   inspectClaudeListProbeDocument,
@@ -22,6 +22,21 @@ const WORKSPACE_ID = 'private-workspace-value';
 const OWNER_TOKEN = '33333333-3333-4333-8333-333333333333';
 const CHAT_URL = `https://claude.ai/chat/${CONVERSATION_ID}`;
 const DETAIL_URL = `https://claude.ai/api/organizations/${ORGANIZATION_ID}/chat_conversations/${CONVERSATION_ID}`;
+const exactHeaderNames = ['anthropic-organization-id', 'anthropic-workspace-id'] as const;
+const expectedFingerprint = `claude-probe-scope-run-v1-sha256:${createHash('sha256')
+  .update(
+    JSON.stringify([
+      'liska-claude-list-probe-scope-run/1',
+      OWNER_TOKEN,
+      'https://claude.ai',
+      'anthropic-organization-id',
+      ORGANIZATION_ID,
+      'anthropic-workspace-id',
+      WORKSPACE_ID,
+    ]),
+    'utf8'
+  )
+  .digest('hex')}`;
 
 const emptyPageCounts = {
   record: 0,
@@ -35,7 +50,7 @@ function safeResult(): ClaudeListProbeResult {
   return {
     schema: CLAUDE_LIST_PROBE_SCHEMA,
     status: 'stopped',
-    code: 'scope-unresolved',
+    code: 'scope-observed',
     verificationPresent: false,
     routeOrganizationEvidence: 'resource-timing',
     counts: {
@@ -51,6 +66,7 @@ function safeResult(): ClaudeListProbeResult {
         offset: 0,
         hasMore: false,
         terminal: true,
+        scopeFingerprint: expectedFingerprint,
         counts: { ...emptyPageCounts },
       },
       {
@@ -58,6 +74,7 @@ function safeResult(): ClaudeListProbeResult {
         offset: 0,
         hasMore: false,
         terminal: true,
+        scopeFingerprint: expectedFingerprint,
         counts: { ...emptyPageCounts },
       },
     ],
@@ -67,12 +84,9 @@ function safeResult(): ClaudeListProbeResult {
       unfinished: false,
     },
     scope: {
-      organizationResolved: false,
-      workspaceResolved: false,
-      consistent: false,
-      routeOrganizationMatched: false,
-      fingerprint: null,
-      relevantHeaderNames: ['x-organization-id', 'x-workspace-id'],
+      observed: true,
+      fingerprint: expectedFingerprint,
+      relevantHeaderNames: [...exactHeaderNames],
     },
   };
 }
@@ -133,7 +147,7 @@ function response(
     status?: number;
     redirected?: boolean;
     url?: string;
-    headers?: Record<string, string>;
+    headers?: Record<string, string | null>;
     stalled?: boolean;
   } = {}
 ) {
@@ -157,10 +171,13 @@ function response(
       };
   const headers = new Headers({
     'content-type': 'application/json; charset=utf-8',
-    'x-organization-id': ORGANIZATION_ID,
-    'x-workspace-id': WORKSPACE_ID,
-    ...options.headers,
+    'anthropic-organization-id': ORGANIZATION_ID,
+    'anthropic-workspace-id': WORKSPACE_ID,
   });
+  for (const [name, value] of Object.entries(options.headers ?? {})) {
+    if (value === null) headers.delete(name);
+    else headers.set(name, value);
+  }
   const stream = { getReader: () => reader, cancel: vi.fn(async () => undefined) };
   return {
     status: options.status ?? 200,
@@ -200,8 +217,28 @@ function pageDeadline(milliseconds = 1_000): number {
   return Date.now() + milliseconds;
 }
 
-function runPage(milliseconds = 1_000): Promise<unknown> {
-  return runClaudeListProbeInPage(CHAT_URL, pageDeadline(milliseconds), OWNER_TOKEN, false);
+function runPage(milliseconds = 1_000, ownerToken = OWNER_TOKEN): Promise<unknown> {
+  return runClaudeListProbeInPage(CHAT_URL, pageDeadline(milliseconds), ownerToken, false);
+}
+
+function installPendingDigest() {
+  let resolve!: (buffer: ArrayBuffer) => void;
+  let reject!: (error: Error) => void;
+  const pending = new Promise<ArrayBuffer>((resolveDigest, rejectDigest) => {
+    resolve = resolveDigest;
+    reject = rejectDigest;
+  });
+  const started = new Promise<void>(onStart => {
+    vi.stubGlobal('crypto', {
+      subtle: {
+        digest: () => {
+          onStart();
+          return pending;
+        },
+      },
+    });
+  });
+  return { started, resolve, reject };
 }
 
 describe('Claude selected-tab list probe controller', () => {
@@ -460,6 +497,7 @@ describe('Claude injected active/archived list diagnostic', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
   });
@@ -479,7 +517,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     });
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(result.status).toBe('stopped');
-    expect(result.code).toBe('scope-unresolved');
+    expect(result.code).toBe('scope-observed');
     expect(result.verificationPresent).toBe(false);
     expect(result.routeOrganizationEvidence).toBe('resource-timing');
     expect(result.counts).toMatchObject({
@@ -497,6 +535,7 @@ describe('Claude injected active/archived list diagnostic', () => {
         offset: 0,
         hasMore: false,
         terminal: true,
+        scopeFingerprint: expectedFingerprint,
         counts: { record: 1, validUuid: 1, marker: 1, archivedFlag: 1, archivedMismatch: 0 },
       },
       {
@@ -504,6 +543,7 @@ describe('Claude injected active/archived list diagnostic', () => {
         offset: 0,
         hasMore: false,
         terminal: true,
+        scopeFingerprint: expectedFingerprint,
         counts: { record: 1, validUuid: 1, marker: 1, archivedFlag: 1, archivedMismatch: 1 },
       },
     ]);
@@ -519,17 +559,15 @@ describe('Claude injected active/archived list diagnostic', () => {
       cache: 'no-store',
     });
     expect(result.scope).toEqual({
-      organizationResolved: false,
-      workspaceResolved: false,
-      consistent: false,
-      routeOrganizationMatched: false,
-      fingerprint: null,
-      relevantHeaderNames: ['x-organization-id', 'x-workspace-id'],
+      observed: true,
+      fingerprint: expectedFingerprint,
+      relevantHeaderNames: [...exactHeaderNames],
     });
     expect(snapshotClaudeListProbeResult(result)).toEqual(result);
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain(ORGANIZATION_ID);
     expect(serialized).not.toContain(WORKSPACE_ID);
+    expect(serialized).not.toContain(OWNER_TOKEN);
     expect(serialized).not.toContain('private-marker');
   });
 
@@ -675,7 +713,7 @@ describe('Claude injected active/archived list diagnostic', () => {
       unfinished: false,
     });
     expect(result.status).toBe('stopped');
-    expect(result.code).toBe('scope-unresolved');
+    expect(result.code).toBe('scope-observed');
   });
 
   it('counts the failed dispatch, stops without retry, and never exceeds the total cap', async () => {
@@ -690,8 +728,16 @@ describe('Claude injected active/archived list diagnostic', () => {
     expect(result.code).toBe('unexpected-status');
     expect(result.counts).toMatchObject({ dispatch: 2, page: 1 });
     expect(result.pages).toEqual([
-      { partition: 'active', offset: 0, hasMore: true, terminal: false, counts: emptyPageCounts },
+      {
+        partition: 'active',
+        offset: 0,
+        hasMore: true,
+        terminal: false,
+        scopeFingerprint: expectedFingerprint,
+        counts: emptyPageCounts,
+      },
     ]);
+    expect(result.scope).toMatchObject({ observed: false, fingerprint: null });
     expect(result.pagination).toEqual({
       exercised: false,
       hypothesis: 'not-exercised',
@@ -772,7 +818,7 @@ describe('Claude injected active/archived list diagnostic', () => {
       );
     });
     const result = (await runPage()) as ClaudeListProbeResult;
-    expect(result.code).toBe('scope-unresolved');
+    expect(result.code).toBe('scope-observed');
     expect(result.counts).toEqual({
       dispatch: 4,
       page: 4,
@@ -831,23 +877,42 @@ describe('Claude injected active/archived list diagnostic', () => {
     expect(JSON.stringify(result)).not.toContain('private-discarded-marker');
   });
 
+  it('does not hash or seed an anchor from a late malformed first page', async () => {
+    installPage(async url => response(url, list([{ uuid: id(1), is_archived: false }, null])));
+    const digest = vi.fn(webcrypto.subtle.digest.bind(webcrypto.subtle));
+    vi.stubGlobal('crypto', { subtle: { digest } });
+    const result = (await runPage()) as ClaudeListProbeResult;
+    expect(result.code).toBe('response-schema-invalid');
+    expect(result.counts).toMatchObject({ dispatch: 1, page: 0, record: 0, validUuid: 0 });
+    expect(result.pages).toEqual([]);
+    expect(result.scope).toMatchObject({ observed: false, fingerprint: null });
+    expect(digest).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+  });
+
   it.each([
     [{ 'x-organization-workspace-id': 'private-combined' }, 'x-organization-workspace-id'],
     [{ 'x-workspace-count': '27' }, 'x-workspace-count'],
     [{ 'x-org-id': 'private-org', 'x-workspace-name': 'private-name' }, 'x-org-id'],
   ] as const)(
-    'keeps ambiguous header evidence unresolved without reading values (%s)',
+    'does not substitute fuzzy header names for the exact pair (%s)',
     async (extraHeaders, expectedName) => {
-      installPage(async url => response(url, list(), { headers: extraHeaders }));
+      installPage(async url =>
+        response(url, list(), {
+          headers: {
+            'anthropic-organization-id': null,
+            'anthropic-workspace-id': null,
+            ...extraHeaders,
+          },
+        })
+      );
       const result = (await runPage()) as ReturnType<typeof safeResult>;
-      expect(fetch).toHaveBeenCalledTimes(2);
-      expect(result.code).toBe('scope-unresolved');
-      expect(result.counts).toMatchObject({ dispatch: 2, page: 2 });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(result.code).toBe('scope-header-missing');
+      expect(result.counts).toMatchObject({ dispatch: 1, page: 0 });
       expect(result.scope).toMatchObject({
-        organizationResolved: false,
-        workspaceResolved: false,
-        consistent: false,
-        routeOrganizationMatched: false,
+        observed: false,
         fingerprint: null,
       });
       expect(result.scope.relevantHeaderNames).toContain(expectedName);
@@ -856,10 +921,12 @@ describe('Claude injected active/archived list diagnostic', () => {
     }
   );
 
-  it('never asks Headers for candidate values while retaining bounded names', async () => {
+  it('asks Headers only for transport metadata and the exact pair, never fuzzy candidate values', async () => {
     const get = vi.fn((name: string) => {
       if (name === 'content-type') return 'application/json';
       if (name === 'content-length') return null;
+      if (name === 'anthropic-organization-id') return ORGANIZATION_ID;
+      if (name === 'anthropic-workspace-id') return WORKSPACE_ID;
       throw new Error(`candidate value read: ${name}`);
     });
     installPage(async url => {
@@ -872,15 +939,18 @@ describe('Claude injected active/archived list diagnostic', () => {
       });
     });
     const result = (await runPage()) as ReturnType<typeof safeResult>;
-    expect(result.code).toBe('scope-unresolved');
+    expect(result.code).toBe('scope-observed');
     expect(result.scope.relevantHeaderNames).toEqual([
+      ...exactHeaderNames,
       'x-organization-workspace-id',
       'x-workspace-count',
     ]);
     expect(get.mock.calls.map(([name]) => name)).toEqual([
       'content-type',
+      ...exactHeaderNames,
       'content-length',
       'content-type',
+      ...exactHeaderNames,
       'content-length',
     ]);
   });
@@ -888,29 +958,247 @@ describe('Claude injected active/archived list diagnostic', () => {
   it('caps matching header-name evidence without reading or returning values', async () => {
     const headers = Object.fromEntries(
       Array.from({ length: 12 }, (_, index) => [
-        `x-workspace-hint-${String(index).padStart(2, '0')}`,
+        `aa-workspace-hint-${String(index).padStart(2, '0')}`,
         `private-value-${index}`,
       ])
     );
     installPage(async url => response(url, list(), { headers }));
     const result = (await runPage()) as ReturnType<typeof safeResult>;
-    expect(result.code).toBe('scope-unresolved');
+    expect(result.code).toBe('scope-observed');
     expect(result.scope.relevantHeaderNames).toHaveLength(8);
+    expect(result.scope.relevantHeaderNames).toEqual(expect.arrayContaining(exactHeaderNames));
     for (const value of Object.values(headers)) expect(JSON.stringify(result)).not.toContain(value);
   });
 
   it.each([
+    ['anthropic-organization-id', null, 'scope-header-missing'],
+    ['anthropic-workspace-id', null, 'scope-header-missing'],
+    ['anthropic-organization-id', '', 'scope-header-invalid'],
+    ['anthropic-workspace-id', '', 'scope-header-invalid'],
+    ['anthropic-organization-id', 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', 'scope-header-invalid'],
+    ['anthropic-organization-id', ` ${ORGANIZATION_ID}`, 'scope-header-invalid'],
+    ['anthropic-organization-id', `${ORGANIZATION_ID}, ${ORGANIZATION_ID}`, 'scope-header-invalid'],
+    ['anthropic-organization-id', OTHER_ORGANIZATION_ID, 'scope-route-mismatch'],
+    ['anthropic-workspace-id', 'private_a, private_b', 'scope-header-invalid'],
+    ['anthropic-workspace-id', 'private a', 'scope-header-invalid'],
+    ['anthropic-workspace-id', 'private-a ', 'scope-header-invalid'],
+    ['anthropic-workspace-id', 'private-a\n', 'scope-header-invalid'],
+    ['anthropic-workspace-id', 'private/a', 'scope-header-invalid'],
+    ['anthropic-workspace-id', 'я', 'scope-header-invalid'],
+    ['anthropic-workspace-id', 'a'.repeat(129), 'scope-header-invalid'],
+  ] as const)('stops on an inadmissible exact %s=%j (%s)', async (name, value, code) => {
+    let observed!: Response;
+    let getBody!: ReturnType<typeof vi.spyOn>;
+    installPage(async url => {
+      observed = response(url, list([{ uuid: id(1) }], true), {
+        headers: value === null ? { [name]: null } : {},
+      });
+      const original = observed.headers.get.bind(observed.headers);
+      // Preserve the exact value returned by Headers.get; the probe must not normalize it.
+      vi.spyOn(observed.headers, 'get').mockImplementation(key =>
+        key === name ? value : original(key)
+      );
+      getBody = vi.spyOn(observed.body!, 'getReader');
+      return observed;
+    });
+    const result = (await runPage()) as ClaudeListProbeResult;
+    expect(result).toMatchObject({
+      code,
+      counts: { dispatch: 1, page: 0, ...emptyPageCounts },
+      scope: { observed: false, fingerprint: null },
+      pages: [],
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getBody).not.toHaveBeenCalled();
+    expect(observed.body!.cancel).toHaveBeenCalledOnce();
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+  });
+
+  it.each(['A', `Aa._~-${'b'.repeat(122)}`])(
+    'accepts an opaque workspace string in the project envelope without treating it as a provider ID: %s',
+    async workspace => {
+      installPage(async url =>
+        response(url, list(), { headers: { 'anthropic-workspace-id': workspace } })
+      );
+      const result = (await runPage()) as ClaudeListProbeResult;
+      expect(result.code).toBe('scope-observed');
+      expect(result.pages[1]).toMatchObject({ partition: 'archived', counts: emptyPageCounts });
+      expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+    }
+  );
+
+  it.each([
+    [null, 'scope-header-missing'],
+    ['Private-workspace-value', 'scope-pair-mismatch'],
+    ['different-workspace', 'scope-pair-mismatch'],
+  ] as const)(
+    'still requires the same exact pair on an empty archived page (%s)',
+    async (id, code) => {
+      installPage(async url => {
+        const archived = new URL(url).searchParams.get('archived') === 'true';
+        return response(url, list([], !archived), {
+          headers: archived ? { 'anthropic-workspace-id': id } : {},
+        });
+      });
+      const result = (await runPage()) as ClaudeListProbeResult;
+      expect(result.code).toBe(code);
+      expect(result.counts).toMatchObject({ dispatch: 2, page: 1, ...emptyPageCounts });
+      expect(result.pages.map(page => page.scopeFingerprint)).toEqual([expectedFingerprint]);
+      expect(result.scope).toMatchObject({ observed: false, fingerprint: null });
+      expect(result.pagination).toMatchObject({ unfinished: true });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+    }
+  );
+
+  it('hashes exactly once per run and varies the fingerprint with the token or exact pair', async () => {
+    let workspace = WORKSPACE_ID;
+    installPage(async url =>
+      response(url, list(), { headers: { 'anthropic-workspace-id': workspace } })
+    );
+    const digest = vi.fn(webcrypto.subtle.digest.bind(webcrypto.subtle));
+    vi.stubGlobal('crypto', { subtle: { digest } });
+    const first = (await runPage()) as ClaudeListProbeResult;
+    expect(digest).toHaveBeenCalledOnce();
+    const same = (await runPage()) as ClaudeListProbeResult;
+    const otherToken = '55555555-5555-4555-8555-555555555555';
+    const differentToken = (await runPage(1_000, otherToken)) as ClaudeListProbeResult;
+    workspace = 'private-other-workspace';
+    const differentPair = (await runPage()) as ClaudeListProbeResult;
+    expect(digest).toHaveBeenCalledTimes(4);
+    expect(first.scope.fingerprint).toBe(expectedFingerprint);
+    expect(same.scope.fingerprint).toBe(expectedFingerprint);
+    expect(differentToken.scope.fingerprint).not.toBe(expectedFingerprint);
+    expect(differentPair.scope.fingerprint).not.toBe(expectedFingerprint);
+    for (const result of [first, same, differentToken, differentPair]) {
+      expect(result.code).toBe('scope-observed');
+      expect(result.pages.map(page => page.scopeFingerprint)).toEqual([
+        result.scope.fingerprint,
+        result.scope.fingerprint,
+      ]);
+      for (const secret of [OWNER_TOKEN, otherToken, ORGANIZATION_ID, WORKSPACE_ID, workspace])
+        expect(JSON.stringify(result)).not.toContain(secret);
+    }
+  });
+
+  it.each(['crypto', 'TextEncoder'])(
+    'fails crypto preflight without dispatch if %s is unavailable',
+    async name => {
+      installPage(async url => response(url, list()));
+      vi.stubGlobal(name, undefined);
+      const result = (await runPage()) as ClaudeListProbeResult;
+      expect(result).toMatchObject({
+        code: 'scope-crypto-failed',
+        counts: { dispatch: 0, page: 0 },
+        routeOrganizationEvidence: 'resource-timing',
+        scope: { observed: false, fingerprint: null, relevantHeaderNames: [] },
+      });
+      expect(fetch).not.toHaveBeenCalled();
+      expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+    }
+  );
+
+  it.each(['reject', 'malformed'])(
+    'discards staged page evidence when the digest is %s',
+    async failure => {
+      installPage(async url => response(url, list([{ uuid: id(1), is_archived: false }], true)));
+      const digest = vi.fn(async () => {
+        if (failure === 'reject') throw new Error('private crypto rejection');
+        return new ArrayBuffer(31);
+      });
+      vi.stubGlobal('crypto', { subtle: { digest } });
+      const result = (await runPage()) as ClaudeListProbeResult;
+      expect(result).toMatchObject({
+        code: 'scope-crypto-failed',
+        counts: { dispatch: 1, page: 0, ...emptyPageCounts },
+        pages: [],
+        scope: { observed: false, fingerprint: null },
+      });
+      expect(digest).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+      expect(JSON.stringify(result)).not.toContain('private crypto rejection');
+    }
+  );
+
+  it.each(['resolve', 'reject'] as const)(
+    'bounds digest by the existing deadline and consumes late %s without committing',
+    async settlement => {
+      vi.useFakeTimers();
+      installPage(async url => response(url, list([{ uuid: id(1) }], true)));
+      const digest = installPendingDigest();
+      const pending = runPage();
+      await digest.started;
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = (await pending) as ClaudeListProbeResult;
+      if (settlement === 'resolve') digest.resolve(new ArrayBuffer(32));
+      else digest.reject(new Error('private late crypto rejection'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(result).toMatchObject({
+        code: 'deadline-exceeded',
+        counts: { dispatch: 1, page: 0, ...emptyPageCounts },
+        pages: [],
+        scope: { observed: false, fingerprint: null },
+      });
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+    }
+  );
+
+  it('discards the staged page if sticky navigation changes during digest', async () => {
+    installPage(async url => response(url, list([{ uuid: id(1) }], true)));
+    const digest = installPendingDigest();
+    const pending = runPage();
+    await digest.started;
+    expect(markClaudeListProbeNavigationChanged(OWNER_TOKEN)).toEqual({ marked: true });
+    digest.resolve(new ArrayBuffer(32));
+    const result = (await pending) as ClaudeListProbeResult;
+    expect(result).toMatchObject({
+      code: 'navigation-changed',
+      counts: { dispatch: 1, page: 0, ...emptyPageCounts },
+      pages: [],
+      scope: { observed: false, fingerprint: null },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+  });
+
+  it('checks the absolute deadline again after a digest that beats a delayed timeout callback', async () => {
+    vi.useFakeTimers();
+    installPage(async url => response(url, list([{ uuid: id(1) }], true)));
+    const digest = installPendingDigest();
+    const deadline = pageDeadline();
+    const pending = runClaudeListProbeInPage(CHAT_URL, deadline, OWNER_TOKEN, false);
+    await digest.started;
+    vi.setSystemTime(deadline);
+    digest.resolve(new ArrayBuffer(32));
+    const result = (await pending) as ClaudeListProbeResult;
+    expect(result).toMatchObject({
+      code: 'deadline-exceeded',
+      counts: { dispatch: 1, page: 0, ...emptyPageCounts },
+      pages: [],
+      scope: { observed: false, fingerprint: null },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+  });
+
+  it.each([
     ['redirect', 'unexpected-redirect'],
+    ['url', 'unexpected-redirect'],
     ['media', 'unexpected-media-type'],
     ['schema', 'response-schema-invalid'],
   ] as const)('stops without retry on an unexpected %s response', async (scenario, code) => {
     let observed!: Response;
+    let getHeader!: ReturnType<typeof vi.spyOn>;
     installPage(async url => {
       if (scenario === 'redirect') observed = response(url, list(), { redirected: true });
+      if (scenario === 'url') observed = response(url, list(), { url: `${url}&other=1` });
       if (scenario === 'media')
         observed = response(url, list(), { headers: { 'content-type': 'text/html' } });
       if (scenario === 'schema')
         observed = response(url, { data: [], has_more: false, extra: true });
+      getHeader = vi.spyOn(observed.headers, 'get');
       return observed;
     });
     const result = (await runPage()) as ReturnType<typeof safeResult>;
@@ -918,6 +1206,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     expect(result.counts.dispatch).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
     if (scenario !== 'schema') {
+      for (const name of exactHeaderNames) expect(getHeader).not.toHaveBeenCalledWith(name);
       expect((vi.mocked(fetch).mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
       expect(
         (observed.body as unknown as { cancel: ReturnType<typeof vi.fn> }).cancel
@@ -936,14 +1225,30 @@ describe('Claude injected active/archived list diagnostic', () => {
     expect(JSON.stringify(result)).not.toContain('private network detail');
   });
 
+  it('retains both exact names but no admitted scope on the first oversized response', async () => {
+    installPage(async url =>
+      response(url, list(), { headers: { 'content-length': String(512 * 1024 + 1) } })
+    );
+    const result = (await runPage()) as ClaudeListProbeResult;
+    expect(result).toMatchObject({
+      code: 'response-too-large',
+      counts: { dispatch: 1, page: 0 },
+      scope: { observed: false, fingerprint: null, relevantHeaderNames: [...exactHeaderNames] },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+  });
+
   it.each([
     [401, 'auth-required'],
     [403, 'auth-required'],
     [429, 'rate-limited'],
   ] as const)('does not retry status %s', async (status, code) => {
     let observed!: Response;
+    let getHeader!: ReturnType<typeof vi.spyOn>;
     installPage(async url => {
       observed = response(url, list(), { status });
+      getHeader = vi.spyOn(observed.headers, 'get');
       return observed;
     });
     if (status === 401 || status === 403)
@@ -952,6 +1257,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     expect(result.code).toBe(code);
     expect(result.counts.dispatch).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
+    expect(getHeader).not.toHaveBeenCalled();
     expect(result.verificationPresent).toBe(status === 401 || status === 403);
     expect((vi.mocked(fetch).mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
     expect(
@@ -1015,9 +1321,9 @@ describe('Claude injected active/archived list diagnostic', () => {
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
-      schema: 'liska-claude-list-probe/4',
+      schema: 'liska-claude-list-probe/5',
       status: 'stopped',
-      code: 'scope-unresolved',
+      code: 'scope-observed',
       verificationPresent: true,
       routeOrganizationEvidence: 'resource-timing',
       counts: { dispatch: 2, page: 2, record: 0 },
@@ -1033,7 +1339,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     });
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(result.code).toBe('scope-unresolved');
+    expect(result.code).toBe('scope-observed');
     expect(result.verificationPresent).toBe(true);
   });
 });
