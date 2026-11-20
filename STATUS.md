@@ -6681,5 +6681,15 @@ The guarded production build/ZIP passes. Fresh `dist` contains 65 files /
 `359016e7f883ee8a50b92723e2f3e1c4559d6855eec2171bc40cb154976ab350`.
 V3 markers appear only in the expected popup and service-worker bundles.
 
-No v3 live action has occurred; current-head GitHub gates remain before a
-separately confirmed retry.
+Current-head CI, Code Review and Security Review passed for exact reviewed head
+`97945fe27e95ed6e68c8ed117c84a1beb35d09a2`; it merged as `410cc764`.
+
+On 2026-11-20 the reviewed v3 `dist` replaced the installed v2 tree after exact
+relative-file SHA-256 reconciliation. V2 remains intact as
+`dist-backup-codex-20261120-claude-list-probe-v2`. One newly confirmed click on
+the same clean Claude chat returned `stopped / scope-unresolved`, two requests,
+two pages, twelve aggregate records, unresolved scope, verification observed and
+multiple consistent route hints. This proves live route resolution and bounded
+list reads only; it does not prove active/archive allocation, twelve unique chats,
+authenticated account/workspace scope or account completeness. No retry, detail
+capture, catalog admission or baseline execution followed.
