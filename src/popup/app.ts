@@ -28,7 +28,9 @@ import {
 import { getMessage } from '../lib/i18n';
 import { sendMessage } from '../lib/messaging';
 import type {
+  ClaudeListProbePage,
   ClaudeListProbeResponse,
+  ClaudeListProbeResult,
   ClaudeListRouteOrganizationEvidence,
 } from '../lib/claude-list-probe-contract';
 
@@ -90,6 +92,7 @@ function queryElements() {
     openReconciliationBtn: getElement<HTMLButtonElement>('openReconciliationBtn'),
     probeDotsSchemaBtn: getElement<HTMLButtonElement>('probeDotsSchemaBtn'),
     probeClaudeListsBtn: getElement<HTMLButtonElement>('probeClaudeListsBtn'),
+    claudeListEvidence: getElement<HTMLElement>('claudeListEvidence'),
     obsidianSettings: getElement<HTMLElement>('obsidianSettings'),
     // Obsidian settings
     apiKey: getElement<HTMLInputElement>('apiKey'),
@@ -345,6 +348,59 @@ function claudeRouteEvidenceMessage(evidence: ClaudeListRouteOrganizationEvidenc
   return getMessage(keys[evidence]);
 }
 
+function clearClaudeListEvidence(): void {
+  elements.claudeListEvidence.textContent = '';
+  elements.claudeListEvidence.hidden = true;
+}
+
+function claudeListPageEvidence(page: ClaudeListProbePage): string {
+  const partition = getMessage(
+    page.partition === 'active' ? 'claudeListEvidenceActive' : 'claudeListEvidenceArchived'
+  );
+  const continuation = getMessage(
+    page.terminal ? 'claudeListEvidenceTerminal' : 'claudeListEvidenceHasMore'
+  );
+  return getMessage('claudeListEvidencePage', [
+    partition,
+    String(page.offset),
+    String(page.counts.record),
+    String(page.counts.validUuid),
+    String(page.counts.marker),
+    String(page.counts.archivedFlag),
+    String(page.counts.archivedMismatch),
+    continuation,
+  ]);
+}
+
+function showClaudeListEvidence(result: ClaudeListProbeResult): void {
+  const pages = result.pages.length
+    ? result.pages.map(claudeListPageEvidence)
+    : [getMessage('claudeListEvidenceNoPages')];
+  const hypothesis = getMessage(
+    result.pagination.hypothesis === 'not-exercised'
+      ? 'claudeListEvidencePaginationNotExercised'
+      : 'claudeListEvidencePaginationOffsetPlus30'
+  );
+  const unfinished = getMessage(
+    result.pagination.unfinished ? 'claudeListEvidenceYes' : 'claudeListEvidenceNo'
+  );
+  const names = result.scope.relevantHeaderNames.length
+    ? result.scope.relevantHeaderNames.join(', ')
+    : getMessage('claudeListEvidenceNoneObserved');
+  const lines = [
+    getMessage('claudeListEvidenceHeading'),
+    ...pages,
+    getMessage('claudeListEvidenceDuplicates', [
+      String(result.counts.duplicate),
+      String(result.counts.overlap),
+    ]),
+    getMessage('claudeListEvidencePagination', [hypothesis, unfinished]),
+    getMessage('claudeListEvidenceHeaders', names),
+  ];
+  elements.claudeListEvidence.textContent = lines.join('\n');
+  elements.claudeListEvidence.hidden = false;
+}
+
 /** Run one selected-tab, schema-only Dots diagnostic. */
 export async function runDotsSchemaProbe(): Promise<void> {
   if (dotsSchemaProbeInFlight || claudeListProbeInFlight || settingsActionInFlight) return;
@@ -382,18 +438,20 @@ export async function runClaudeListProbe(): Promise<void> {
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
   clearStatus();
+  clearClaudeListEvidence();
   showStatus(getMessage('status_claudeListProbeRunning'), 'info');
   try {
     const response = await sendClaudeListProbeMessage();
     if (response.success) {
       const result = response.data;
-      const scope = result.scope.fingerprint === null ? 'unresolved' : 'resolved';
+      const scope = 'unresolved';
       const verification = getMessage(
         result.verificationPresent
           ? 'status_claudeListProbeVerificationYes'
           : 'status_claudeListProbeVerificationNo'
       );
       const routeEvidence = claudeRouteEvidenceMessage(result.routeOrganizationEvidence);
+      showClaudeListEvidence(result);
       showStatus(
         getMessage('status_claudeListProbeResult', [
           result.status,
@@ -405,12 +463,13 @@ export async function runClaudeListProbe(): Promise<void> {
           verification,
           routeEvidence,
         ]),
-        result.status === 'complete' ? 'success' : 'warning'
+        'warning'
       );
     } else {
       showStatus(getMessage('toast_error_claudeListProbeFailed', response.code), 'error');
     }
   } catch {
+    clearClaudeListEvidence();
     showStatus(getMessage('toast_error_claudeListProbeFailed', 'unavailable'), 'error');
   } finally {
     claudeListProbeInFlight = false;

@@ -1,9 +1,10 @@
 /** Content-free result contract for one foreground Claude list diagnostic. */
 
-export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/3' as const;
-export const CLAUDE_LIST_PROBE_SCOPE_PREFIX = 'liska-claude-list-probe-scope/1:' as const;
+export const CLAUDE_LIST_PROBE_SCHEMA = 'liska-claude-list-probe/4' as const;
 export const CLAUDE_LIST_PROBE_MAX_DISPATCHES = 4;
-export const CLAUDE_LIST_PROBE_MAX_RECORDS = 120;
+const MAX_RECORDS_PER_PAGE = 30;
+export const CLAUDE_LIST_PROBE_MAX_RECORDS =
+  CLAUDE_LIST_PROBE_MAX_DISPATCHES * MAX_RECORDS_PER_PAGE;
 export const CLAUDE_LIST_PROBE_MAX_HEADER_NAMES = 8;
 export const CLAUDE_LIST_ROUTE_ORGANIZATION_EVIDENCE = Object.freeze([
   'resource-timing',
@@ -16,7 +17,6 @@ export type ClaudeListRouteOrganizationEvidence =
   (typeof CLAUDE_LIST_ROUTE_ORGANIZATION_EVIDENCE)[number];
 
 export const CLAUDE_LIST_PROBE_OUTCOME_CODES = Object.freeze([
-  'ok',
   'route-organization-unresolved',
   'request-failed',
   'auth-required',
@@ -29,7 +29,6 @@ export const CLAUDE_LIST_PROBE_OUTCOME_CODES = Object.freeze([
   'deadline-exceeded',
   'navigation-changed',
   'scope-unresolved',
-  'scope-mismatch',
   'budget-exhausted',
   'pagination-unfinished',
 ] as const);
@@ -50,28 +49,33 @@ export const CLAUDE_LIST_PROBE_FAILURE_CODES = Object.freeze([
 ] as const);
 export type ClaudeListProbeFailureCode = (typeof CLAUDE_LIST_PROBE_FAILURE_CODES)[number];
 
+interface ClaudeListProbeRecordCounts {
+  readonly record: number;
+  readonly validUuid: number;
+  readonly marker: number;
+  readonly archivedFlag: number;
+  readonly archivedMismatch: number;
+}
+
 export interface ClaudeListProbePage {
   readonly partition: 'active' | 'archived';
   readonly offset: 0 | 30;
   readonly hasMore: boolean;
   readonly terminal: boolean;
+  readonly counts: ClaudeListProbeRecordCounts;
 }
 
 export interface ClaudeListProbeResult {
   readonly schema: typeof CLAUDE_LIST_PROBE_SCHEMA;
-  readonly status: 'complete' | 'stopped';
+  readonly status: 'stopped';
   readonly code: ClaudeListProbeOutcomeCode;
   readonly verificationPresent: boolean;
   readonly routeOrganizationEvidence: ClaudeListRouteOrganizationEvidence;
-  readonly counts: {
+  readonly counts: ClaudeListProbeRecordCounts & {
     readonly dispatch: number;
     readonly page: number;
-    readonly record: number;
-    readonly validUuid: number;
-    readonly marker: number;
     readonly duplicate: number;
     readonly overlap: number;
-    readonly archivedMismatch: number;
   };
   readonly pages: readonly ClaudeListProbePage[];
   readonly pagination: {
@@ -80,11 +84,11 @@ export interface ClaudeListProbeResult {
     readonly unfinished: boolean;
   };
   readonly scope: {
-    readonly organizationResolved: boolean;
-    readonly workspaceResolved: boolean;
-    readonly consistent: boolean;
-    readonly routeOrganizationMatched: boolean;
-    readonly fingerprint: string | null;
+    readonly organizationResolved: false;
+    readonly workspaceResolved: false;
+    readonly consistent: false;
+    readonly routeOrganizationMatched: false;
+    readonly fingerprint: null;
     readonly relevantHeaderNames: readonly string[];
   };
 }
@@ -136,93 +140,145 @@ function count(value: unknown, maximum: number): number | undefined {
     : undefined;
 }
 
-function snapshotCounts(value: unknown): ClaudeListProbeResult['counts'] | undefined {
-  const keys = [
-    'dispatch',
-    'page',
-    'record',
-    'validUuid',
-    'marker',
-    'duplicate',
-    'overlap',
-    'archivedMismatch',
-  ];
-  const data = record(value, keys);
-  if (!data) return undefined;
-  const dispatch = count(data.dispatch, CLAUDE_LIST_PROBE_MAX_DISPATCHES);
-  const page = count(data.page, CLAUDE_LIST_PROBE_MAX_DISPATCHES);
-  const recordCount = count(data.record, CLAUDE_LIST_PROBE_MAX_RECORDS);
-  const validUuid = count(data.validUuid, CLAUDE_LIST_PROBE_MAX_RECORDS);
-  const marker = count(data.marker, CLAUDE_LIST_PROBE_MAX_RECORDS);
-  const duplicate = count(data.duplicate, CLAUDE_LIST_PROBE_MAX_RECORDS);
-  const overlap = count(data.overlap, CLAUDE_LIST_PROBE_MAX_RECORDS);
-  const archivedMismatch = count(data.archivedMismatch, CLAUDE_LIST_PROBE_MAX_RECORDS);
-  if (
-    [dispatch, page, recordCount, validUuid, marker, duplicate, overlap, archivedMismatch].some(
-      item => item === undefined
-    ) ||
-    page! > dispatch! ||
-    [validUuid!, marker!, duplicate!, overlap!, archivedMismatch!].some(item => item > recordCount!)
-  )
+const recordCountKeys = [
+  'record',
+  'validUuid',
+  'marker',
+  'archivedFlag',
+  'archivedMismatch',
+] as const;
+
+function snapshotRecordCounts(
+  data: Record<string, unknown>,
+  maxRecords: number
+): ClaudeListProbeRecordCounts | undefined {
+  const recordCount = count(data.record, maxRecords);
+  if (recordCount === undefined) return undefined;
+  const validUuid = count(data.validUuid, recordCount);
+  const marker = count(data.marker, recordCount);
+  const archivedFlag = count(data.archivedFlag, recordCount);
+  if (validUuid === undefined || marker === undefined || archivedFlag === undefined)
     return undefined;
-  return {
-    dispatch: dispatch!,
-    page: page!,
-    record: recordCount!,
-    validUuid: validUuid!,
-    marker: marker!,
-    duplicate: duplicate!,
-    overlap: overlap!,
-    archivedMismatch: archivedMismatch!,
-  };
+  const archivedMismatch = count(data.archivedMismatch, archivedFlag);
+  if (archivedMismatch === undefined) return undefined;
+  return { record: recordCount, validUuid, marker, archivedFlag, archivedMismatch };
 }
 
-function snapshotPages(value: unknown): ClaudeListProbePage[] | undefined {
+function snapshotCounts(value: unknown): ClaudeListProbeResult['counts'] | undefined {
+  const data = record(value, ['dispatch', 'page', 'duplicate', 'overlap', ...recordCountKeys]);
+  if (!data) return undefined;
+  const dispatch = count(data.dispatch, CLAUDE_LIST_PROBE_MAX_DISPATCHES);
+  if (dispatch === undefined) return undefined;
+  const page = count(data.page, dispatch);
+  const recordCounts = snapshotRecordCounts(data, CLAUDE_LIST_PROBE_MAX_RECORDS);
+  if (page === undefined || dispatch > page + 1 || !recordCounts) return undefined;
+  const duplicate = count(data.duplicate, recordCounts.validUuid);
+  const overlap = count(data.overlap, recordCounts.validUuid);
+  if (
+    duplicate === undefined ||
+    overlap === undefined ||
+    duplicate + overlap > recordCounts.validUuid
+  )
+    return undefined;
+  return { dispatch, page, ...recordCounts, duplicate, overlap };
+}
+
+interface AdmittedPages {
+  readonly pages: ClaudeListProbePage[];
+  readonly scheduleExhausted: boolean;
+}
+
+function snapshotPages(value: unknown): AdmittedPages | undefined {
   const values = denseArray(value, CLAUDE_LIST_PROBE_MAX_DISPATCHES);
   if (!values) return undefined;
+  // Admitted pages form a prefix of this schedule; only admitted offset-zero
+  // pages can append the matching continuation, and only in partition order.
+  const schedule: Array<Pick<ClaudeListProbePage, 'partition' | 'offset'>> = [
+    { partition: 'active', offset: 0 },
+    { partition: 'archived', offset: 0 },
+  ];
   const output: ClaudeListProbePage[] = [];
   for (const item of values) {
-    const page = record(item, ['partition', 'offset', 'hasMore', 'terminal']);
+    const page = record(item, ['partition', 'offset', 'hasMore', 'terminal', 'counts']);
+    const expected = schedule[output.length];
     if (
       !page ||
-      (page.partition !== 'active' && page.partition !== 'archived') ||
-      (page.offset !== 0 && page.offset !== 30) ||
+      !expected ||
+      page.partition !== expected.partition ||
+      page.offset !== expected.offset ||
       typeof page.hasMore !== 'boolean' ||
       page.terminal !== !page.hasMore
     )
       return undefined;
+    const countData = record(page.counts, recordCountKeys);
+    const counts = countData && snapshotRecordCounts(countData, MAX_RECORDS_PER_PAGE);
+    if (!counts) return undefined;
+    if (expected.offset === 0 && page.hasMore)
+      schedule.push({ partition: expected.partition, offset: 30 });
     output.push({
-      partition: page.partition,
-      offset: page.offset,
+      ...expected,
       hasMore: page.hasMore,
       terminal: page.terminal,
+      counts,
     });
   }
-  return output;
+  return { pages: output, scheduleExhausted: output.length === schedule.length };
 }
 
-function snapshotPagination(value: unknown): ClaudeListProbeResult['pagination'] | undefined {
+function reconcilesPageEvidence(
+  counts: ClaudeListProbeResult['counts'],
+  admitted: AdmittedPages
+): boolean {
+  const { pages, scheduleExhausted } = admitted;
+  if (counts.page !== pages.length || (scheduleExhausted && counts.dispatch !== counts.page))
+    return false;
+  if (
+    recordCountKeys.some(
+      key => counts[key] !== pages.reduce((sum, page) => sum + page.counts[key], 0)
+    )
+  )
+    return false;
+
+  const validByPartition = { active: 0, archived: 0 };
+  for (const page of pages) validByPartition[page.partition] += page.counts.validUuid;
+  const { active, archived } = validByPartition;
+  const { duplicate, overlap } = counts;
+  // Each overlap needs one distinct UUID in both partitions. Every nonempty
+  // partition needs at least one distinct UUID even if there is no overlap.
+  const distinct = active + archived - duplicate;
+  const minimumDistinct =
+    Math.max(overlap, Number(active > 0)) + Math.max(overlap, Number(archived > 0));
+  return overlap <= Math.min(active, archived) && distinct >= minimumDistinct;
+}
+
+function snapshotPagination(
+  value: unknown,
+  pages: readonly ClaudeListProbePage[]
+): ClaudeListProbeResult['pagination'] | undefined {
+  const exercised = pages.some(page => page.offset === 30);
+  const hypothesis = exercised ? 'offset-plus-30' : 'not-exercised';
+  const pending = new Set<ClaudeListProbePage['partition']>();
+  for (const page of pages) {
+    if (page.hasMore) pending.add(page.partition);
+    else pending.delete(page.partition);
+  }
+  // Only admitted pages supply evidence. With no observed continuation this
+  // may be false even if the first page for a partition was never read.
+  const unfinished = pending.size > 0;
   const data = record(value, ['exercised', 'hypothesis', 'unfinished']);
   if (
     !data ||
-    typeof data.exercised !== 'boolean' ||
-    typeof data.unfinished !== 'boolean' ||
-    (data.hypothesis !== 'not-exercised' && data.hypothesis !== 'offset-plus-30') ||
-    data.exercised !== (data.hypothesis === 'offset-plus-30')
+    data.exercised !== exercised ||
+    data.hypothesis !== hypothesis ||
+    data.unfinished !== unfinished
   )
     return undefined;
-  return {
-    exercised: data.exercised,
-    hypothesis: data.hypothesis,
-    unfinished: data.unfinished,
-  };
+  return { exercised, hypothesis, unfinished };
 }
 
 const headerNamePattern = /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const relevantHeaderPattern = /(?:^|-)(?:organization|org|workspace)(?:-|$)/u;
-const fingerprintPattern = /^liska-claude-list-probe-scope\/1:[0-9a-f]{64}$/u;
 
-// eslint-disable-next-line complexity, max-lines-per-function -- Exact scope admission keeps every raw-data exclusion visible.
 function snapshotScope(value: unknown): ClaudeListProbeResult['scope'] | undefined {
   const data = record(value, [
     'organizationResolved',
@@ -239,12 +295,8 @@ function snapshotScope(value: unknown): ClaudeListProbeResult['scope'] | undefin
     'consistent',
     'routeOrganizationMatched',
   ])
-    if (typeof data[key] !== 'boolean') return undefined;
-  if (
-    data.fingerprint !== null &&
-    (typeof data.fingerprint !== 'string' || !fingerprintPattern.test(data.fingerprint))
-  )
-    return undefined;
+    if (data[key] !== false) return undefined;
+  if (data.fingerprint !== null) return undefined;
   const names = denseArray(data.relevantHeaderNames, CLAUDE_LIST_PROBE_MAX_HEADER_NAMES);
   if (!names) return undefined;
   let previous = '';
@@ -260,24 +312,57 @@ function snapshotScope(value: unknown): ClaudeListProbeResult['scope'] | undefin
     headerNames.push(name);
     previous = name;
   }
-  const resolved =
-    data.organizationResolved === true &&
-    data.workspaceResolved === true &&
-    data.consistent === true &&
-    data.routeOrganizationMatched === true;
-  if (resolved !== (typeof data.fingerprint === 'string')) return undefined;
   return {
-    organizationResolved: data.organizationResolved as boolean,
-    workspaceResolved: data.workspaceResolved as boolean,
-    consistent: data.consistent as boolean,
-    routeOrganizationMatched: data.routeOrganizationMatched as boolean,
-    fingerprint: data.fingerprint as string | null,
+    organizationResolved: false,
+    workspaceResolved: false,
+    consistent: false,
+    routeOrganizationMatched: false,
+    fingerprint: null,
     relevantHeaderNames: headerNames,
   };
 }
 
+// eslint-disable-next-line complexity -- Keep the evidence requirements for all producer outcomes in one exhaustive switch.
+function outcomeMatchesEvidence(
+  result: ClaudeListProbeResult,
+  scheduleExhausted: boolean
+): boolean {
+  const { code, routeOrganizationEvidence, counts, pagination, scope } = result;
+  const { dispatch, page } = counts;
+  const hasRouteHint = routeOrganizationEvidence !== 'unresolved';
+  const hasHeaderNames = scope.relevantHeaderNames.length > 0;
+  if (dispatch > 0 ? !hasRouteHint : hasHeaderNames) return false;
+
+  const unadmittedDispatch = dispatch === page + 1;
+  const scheduleRead = scheduleExhausted && dispatch === page;
+  switch (code) {
+    case 'route-organization-unresolved':
+      return dispatch === 0 && !hasRouteHint;
+    case 'request-failed':
+    case 'auth-required':
+    case 'rate-limited':
+    case 'unexpected-status':
+    case 'unexpected-redirect':
+    case 'unexpected-media-type':
+      // These stops precede header-name collection on the failed request.
+      return unadmittedDispatch && (page > 0 || !hasHeaderNames);
+    case 'response-too-large':
+      return unadmittedDispatch;
+    case 'scope-unresolved':
+      return scheduleRead && !pagination.unfinished;
+    case 'pagination-unfinished':
+      return scheduleRead && pagination.unfinished && dispatch < CLAUDE_LIST_PROBE_MAX_DISPATCHES;
+    case 'budget-exhausted':
+      return scheduleRead && pagination.unfinished && dispatch === CLAUDE_LIST_PROBE_MAX_DISPATCHES;
+    case 'navigation-changed':
+    case 'deadline-exceeded':
+    case 'response-schema-invalid':
+      // These can stop before dispatch or after headers without admitting a page.
+      return true;
+  }
+}
+
 /** Returns a detached exact result; caller-owned objects never cross the worker boundary. */
-// eslint-disable-next-line complexity -- The exact detached result is one closed trust boundary.
 function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbeResult | undefined {
   const data = record(value, [
     'schema',
@@ -293,7 +378,7 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
   if (
     !data ||
     data.schema !== CLAUDE_LIST_PROBE_SCHEMA ||
-    (data.status !== 'complete' && data.status !== 'stopped') ||
+    data.status !== 'stopped' ||
     typeof data.code !== 'string' ||
     !(CLAUDE_LIST_PROBE_OUTCOME_CODES as readonly string[]).includes(data.code) ||
     typeof data.verificationPresent !== 'boolean' ||
@@ -304,14 +389,13 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
   )
     return undefined;
   const counts = snapshotCounts(data.counts);
-  const pages = snapshotPages(data.pages);
-  const pagination = snapshotPagination(data.pagination);
+  const admitted = snapshotPages(data.pages);
+  if (!counts || !admitted || !reconcilesPageEvidence(counts, admitted)) return undefined;
+  const { pages } = admitted;
+  const pagination = snapshotPagination(data.pagination, pages);
   const scope = snapshotScope(data.scope);
-  if (!counts || !pages || !pagination || !scope || counts.page !== pages.length) return undefined;
-  if ((data.code === 'ok') !== (data.status === 'complete')) return undefined;
-  if (data.status === 'complete' && pagination.unfinished) return undefined;
-  if (pages.some(page => page.offset === 30) !== pagination.exercised) return undefined;
-  return {
+  if (!pagination || !scope) return undefined;
+  const result: ClaudeListProbeResult = {
     schema: CLAUDE_LIST_PROBE_SCHEMA,
     status: data.status,
     code: data.code as ClaudeListProbeOutcomeCode,
@@ -323,6 +407,7 @@ function snapshotClaudeListProbeResultUnchecked(value: unknown): ClaudeListProbe
     pagination,
     scope,
   };
+  return outcomeMatchesEvidence(result, admitted.scheduleExhausted) ? result : undefined;
 }
 
 export function snapshotClaudeListProbeResult(value: unknown): ClaudeListProbeResult | undefined {

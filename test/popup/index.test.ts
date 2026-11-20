@@ -19,6 +19,7 @@ vi.mock('../../src/lib/messaging', () => ({
 
 import { getSettingsOrThrow } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
+import { snapshotClaudeListProbeResult } from '../../src/lib/claude-list-probe-contract';
 import {
   handleTrustedClaudeListProbeClick,
   handleTrustedDotsSchemaProbeClick,
@@ -143,6 +144,7 @@ function buildPopupDom(): void {
     <button id="openReconciliationBtn"></button>
     <button id="probeDotsSchemaBtn"></button>
     <button id="probeClaudeListsBtn"></button>
+    <div id="claudeListEvidence" hidden></div>
     <div id="status" class="status"></div>
   `;
 }
@@ -153,6 +155,75 @@ function el<T extends HTMLElement>(id: string): T {
 
 function statusEl(): HTMLDivElement {
   return el<HTMLDivElement>('status');
+}
+
+function claudeListProbeFixture() {
+  return {
+    success: true,
+    data: {
+      schema: 'liska-claude-list-probe/4',
+      status: 'stopped',
+      code: 'scope-unresolved',
+      verificationPresent: true,
+      routeOrganizationEvidence: 'verification-link',
+      counts: {
+        dispatch: 2,
+        page: 2,
+        record: 7,
+        validUuid: 7,
+        marker: 6,
+        archivedFlag: 5,
+        duplicate: 0,
+        overlap: 0,
+        archivedMismatch: 1,
+      },
+      pages: [
+        {
+          partition: 'active',
+          offset: 0,
+          hasMore: false,
+          terminal: true,
+          counts: { record: 4, validUuid: 4, marker: 3, archivedFlag: 2, archivedMismatch: 1 },
+        },
+        {
+          partition: 'archived',
+          offset: 0,
+          hasMore: false,
+          terminal: true,
+          counts: { record: 3, validUuid: 3, marker: 3, archivedFlag: 3, archivedMismatch: 0 },
+        },
+      ],
+      pagination: {
+        exercised: false,
+        hypothesis: 'not-exercised',
+        unfinished: false,
+      },
+      scope: {
+        organizationResolved: false,
+        workspaceResolved: false,
+        consistent: false,
+        routeOrganizationMatched: false,
+        fingerprint: null,
+        relevantHeaderNames: ['x-organization-workspace-id'],
+      },
+    },
+  } as const;
+}
+
+function useClaudeEvidenceMessages(locale: 'en' | 'ja' = 'en'): void {
+  const messages = JSON.parse(
+    readFileSync(`src/_locales/${locale}/messages.json`, 'utf8')
+  ) as Record<string, { message: string; placeholders?: Record<string, { content: string }> }>;
+  vi.mocked(chrome.i18n.getMessage).mockImplementation((key, substitutions) => {
+    if (!key.startsWith('claudeListEvidence')) return key;
+    const entry = messages[key];
+    if (!entry) return '';
+    const values = typeof substitutions === 'string' ? [substitutions] : (substitutions ?? []);
+    return entry.message.replace(/\$([A-Z]+)\$/gu, (_match, placeholder: string) => {
+      const content = entry.placeholders?.[placeholder.toLowerCase()]?.content ?? '';
+      return values[Number(content.slice(1)) - 1] ?? '';
+    });
+  });
 }
 
 async function initWithDefaults(settings: ExtensionSettings = storedSettings): Promise<void> {
@@ -168,6 +239,38 @@ function settingsSaveAt(index: number): PopupSettingsUpdate {
 }
 
 describe('canonical HTML popup setting markup', () => {
+  it('places the initially hidden Claude evidence in the scrollable archive tools', () => {
+    const popup = new DOMParser().parseFromString(
+      readFileSync('src/popup/index.html', 'utf8'),
+      'text/html'
+    );
+    const probe = popup.getElementById('probeClaudeListsBtn');
+    const evidence = popup.getElementById('claudeListEvidence');
+    expect(probe?.nextElementSibling).toBe(evidence);
+    expect(evidence?.hasAttribute('hidden')).toBe(true);
+    expect(evidence?.closest('.archive-tools')).not.toBeNull();
+    expect(evidence?.closest('#settingsPanel.settings')).not.toBeNull();
+    expect(evidence?.closest('footer')).toBeNull();
+    expect(evidence?.querySelector('button')).toBeNull();
+
+    for (const locale of ['en', 'ja']) {
+      const messages = JSON.parse(
+        readFileSync(`src/_locales/${locale}/messages.json`, 'utf8')
+      ) as Record<string, { message: string }>;
+      for (const key of [
+        'claudeListEvidencePage',
+        'claudeListEvidenceDuplicates',
+        'claudeListEvidencePagination',
+        'claudeListEvidencePaginationNotExercised',
+        'claudeListEvidencePaginationOffsetPlus30',
+        'claudeListEvidenceHeaders',
+        'claudeListEvidenceNoneObserved',
+      ]) {
+        expect(messages[key]?.message).toBeTruthy();
+      }
+    }
+  });
+
   it('provides a localized opt-in toggle and help text in English and Japanese', () => {
     const html = readFileSync('src/popup/index.html', 'utf8');
     const popup = new DOMParser().parseFromString(html, 'text/html');
@@ -242,6 +345,7 @@ describe('canonical HTML popup setting markup', () => {
 describe('popup/app', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(chrome.i18n.getMessage).mockImplementation(key => key);
     vi.mocked(sendMessage).mockResolvedValue({ success: true } as never);
   });
 
@@ -370,43 +474,7 @@ describe('popup/app', () => {
       await runClaudeListProbe();
       expect(sendMessage).toHaveBeenCalledOnce();
 
-      resolveProbe({
-        success: true,
-        data: {
-          schema: 'liska-claude-list-probe/3',
-          status: 'stopped',
-          code: 'scope-unresolved',
-          verificationPresent: true,
-          routeOrganizationEvidence: 'verification-link',
-          counts: {
-            dispatch: 2,
-            page: 2,
-            record: 7,
-            validUuid: 7,
-            marker: 6,
-            duplicate: 0,
-            overlap: 0,
-            archivedMismatch: 0,
-          },
-          pages: [
-            { partition: 'active', offset: 0, hasMore: false, terminal: true },
-            { partition: 'archived', offset: 0, hasMore: false, terminal: true },
-          ],
-          pagination: {
-            exercised: false,
-            hypothesis: 'not-exercised',
-            unfinished: false,
-          },
-          scope: {
-            organizationResolved: false,
-            workspaceResolved: false,
-            consistent: false,
-            routeOrganizationMatched: false,
-            fingerprint: null,
-            relevantHeaderNames: ['x-organization-workspace-id'],
-          },
-        },
-      });
+      resolveProbe(claudeListProbeFixture());
       await vi.waitFor(() => expect(statusEl().textContent).toBe('status_claudeListProbeResult'));
       expect(chrome.i18n.getMessage).toHaveBeenCalledWith(
         'status_claudeListProbeVerificationYes',
@@ -431,6 +499,203 @@ describe('popup/app', () => {
       expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(false);
       expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
       expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
+    });
+
+    it('renders admitted page evidence and the offset pagination hypothesis', async () => {
+      await initWithDefaults();
+      useClaudeEvidenceMessages();
+      const fixture = claudeListProbeFixture();
+      const result = {
+        ...fixture.data,
+        code: 'pagination-unfinished',
+        counts: { ...fixture.data.counts, dispatch: 3, page: 3, duplicate: 2, overlap: 1 },
+        pages: [
+          { ...fixture.data.pages[0], hasMore: true, terminal: false },
+          fixture.data.pages[1],
+          {
+            partition: 'active',
+            offset: 30,
+            hasMore: true,
+            terminal: false,
+            counts: { record: 0, validUuid: 0, marker: 0, archivedFlag: 0, archivedMismatch: 0 },
+          },
+        ],
+        pagination: { exercised: true, hypothesis: 'offset-plus-30', unfinished: true },
+      } as const;
+      expect(snapshotClaudeListProbeResult(result)).toBeDefined();
+      vi.mocked(sendMessage).mockResolvedValueOnce({ success: true, data: result } as never);
+
+      await runClaudeListProbe();
+
+      const evidence = el<HTMLElement>('claudeListEvidence');
+      expect(evidence.hidden).toBe(false);
+      expect(evidence.textContent).toContain(
+        'active · offset 0: 4 records; valid UUIDs 4; markers 3; boolean archive flags 2/4; mismatches 1; has more.'
+      );
+      expect(evidence.textContent).toContain(
+        'active · offset 30: 0 records; valid UUIDs 0; markers 0; boolean archive flags 0/0; mismatches 0; has more.'
+      );
+      expect(evidence.textContent).toContain(
+        'archived · offset 0: 3 records; valid UUIDs 3; markers 3; boolean archive flags 3/3; mismatches 0; terminal.'
+      );
+      expect(evidence.textContent).toContain('Duplicates 2; cross-partition overlap 1.');
+      expect(evidence.textContent).toContain(
+        'Pagination: offset + 30 hypothesis. Observed continuation still pending: yes.'
+      );
+      expect(evidence.textContent).toContain(
+        'Observed candidate header names — not scope proof: x-organization-workspace-id.'
+      );
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(sendMessage).toHaveBeenCalledWith({ action: 'probeClaudeLists' });
+    });
+
+    it('never interprets candidate names as HTML even if a mocked response bypasses admission', async () => {
+      await initWithDefaults();
+      useClaudeEvidenceMessages();
+      const fixture = claudeListProbeFixture();
+      const unsafeName = '<img src=x onerror=alert(1)>';
+      const result = {
+        ...fixture.data,
+        scope: { ...fixture.data.scope, relevantHeaderNames: [unsafeName] },
+      };
+      expect(snapshotClaudeListProbeResult(result)).toBeUndefined();
+      vi.mocked(sendMessage).mockResolvedValueOnce({ success: true, data: result } as never);
+
+      await runClaudeListProbe();
+
+      const evidence = el<HTMLElement>('claudeListEvidence');
+      expect(evidence.textContent).toContain(
+        `Observed candidate header names — not scope proof: ${unsafeName}.`
+      );
+      expect(evidence.children).toHaveLength(0);
+      expect(sendMessage).toHaveBeenCalledOnce();
+    });
+
+    it('labels unexercised pagination and an empty candidate-name list as observations', async () => {
+      await initWithDefaults();
+      useClaudeEvidenceMessages();
+      const fixture = claudeListProbeFixture();
+      expect(snapshotClaudeListProbeResult(fixture.data)).toBeDefined();
+      vi.mocked(sendMessage).mockResolvedValueOnce({
+        ...fixture,
+        data: {
+          ...fixture.data,
+          scope: { ...fixture.data.scope, relevantHeaderNames: [] },
+        },
+      } as never);
+
+      await runClaudeListProbe();
+
+      const evidence = el<HTMLElement>('claudeListEvidence');
+      expect(evidence.textContent).toContain(
+        'Pagination: not exercised. Observed continuation still pending: no.'
+      );
+      expect(evidence.textContent).toContain(
+        'Observed candidate header names — not scope proof: none observed.'
+      );
+      expect(sendMessage).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a no-pending result scoped to observed continuations with zero or partial pages', async () => {
+      await initWithDefaults();
+      useClaudeEvidenceMessages();
+      const fixture = claudeListProbeFixture();
+      const page = fixture.data.pages[0];
+      const cases = [
+        {
+          ...fixture.data,
+          code: 'deadline-exceeded',
+          counts: {
+            dispatch: 0,
+            page: 0,
+            record: 0,
+            validUuid: 0,
+            marker: 0,
+            archivedFlag: 0,
+            duplicate: 0,
+            overlap: 0,
+            archivedMismatch: 0,
+          },
+          pages: [],
+          scope: { ...fixture.data.scope, relevantHeaderNames: [] },
+        },
+        {
+          ...fixture.data,
+          code: 'deadline-exceeded',
+          counts: { ...page.counts, dispatch: 1, page: 1, duplicate: 0, overlap: 0 },
+          pages: [page],
+        },
+      ];
+      for (const result of cases) {
+        expect(snapshotClaudeListProbeResult(result)).toBeDefined();
+        vi.mocked(sendMessage).mockResolvedValueOnce({ success: true, data: result } as never);
+        await runClaudeListProbe();
+        expect(el<HTMLElement>('claudeListEvidence').textContent).toContain(
+          'Pagination: not exercised. Observed continuation still pending: no.'
+        );
+      }
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('renders localized Japanese page and scope evidence', async () => {
+      await initWithDefaults();
+      useClaudeEvidenceMessages('ja');
+      const fixture = claudeListProbeFixture();
+      vi.mocked(sendMessage).mockResolvedValueOnce({
+        ...fixture,
+        data: { ...fixture.data, scope: { ...fixture.data.scope, relevantHeaderNames: [] } },
+      } as never);
+
+      await runClaudeListProbe();
+
+      const evidence = el<HTMLElement>('claudeListEvidence');
+      expect(evidence.textContent).toContain('アクティブ・オフセット 0');
+      expect(evidence.textContent).toContain('真偽値のアーカイブフラグ 2/4');
+      expect(evidence.textContent).toContain(
+        'ページネーション: 未実行。観測された続きは未取得: いいえ。'
+      );
+      expect(evidence.textContent).toContain(
+        '候補ヘッダー名（スコープの証明ではありません）: 観測なし。'
+      );
+      expect(sendMessage).toHaveBeenCalledOnce();
+    });
+
+    it('clears previous evidence on a new run and after result or transport failure', async () => {
+      await initWithDefaults();
+      useClaudeEvidenceMessages();
+      const evidence = el<HTMLElement>('claudeListEvidence');
+      vi.mocked(sendMessage).mockResolvedValueOnce(claudeListProbeFixture() as never);
+      await runClaudeListProbe();
+      expect(evidence.hidden).toBe(false);
+      expect(evidence.textContent).not.toBe('');
+
+      let resolveProbe!: (value: unknown) => void;
+      vi.mocked(sendMessage).mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveProbe = resolve;
+        }) as never
+      );
+      const pending = runClaudeListProbe();
+      expect(evidence.hidden).toBe(true);
+      expect(evidence.textContent).toBe('');
+      resolveProbe({ success: false, code: 'result-invalid' });
+      await pending;
+      expect(evidence.hidden).toBe(true);
+      expect(evidence.textContent).toBe('');
+      expect(statusEl().className).toBe('status error');
+
+      vi.mocked(sendMessage).mockResolvedValueOnce(claudeListProbeFixture() as never);
+      await runClaudeListProbe();
+      expect(evidence.hidden).toBe(false);
+      vi.mocked(sendMessage).mockRejectedValueOnce(new Error('transport unavailable'));
+      await runClaudeListProbe();
+      expect(evidence.hidden).toBe(true);
+      expect(evidence.textContent).toBe('');
+      expect(statusEl().className).toBe('status error');
+      expect(sendMessage).toHaveBeenCalledTimes(4);
+      for (const [message] of vi.mocked(sendMessage).mock.calls) {
+        expect(message).toEqual({ action: 'probeClaudeLists' });
+      }
     });
 
     it('keeps settings actions disabled until the strict read succeeds', async () => {

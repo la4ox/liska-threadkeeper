@@ -854,6 +854,13 @@ terminal states, and the existing no-credential-export boundary.
   `ccd-sync-org` storage key. Sources must agree; duplicate authority query
   parameters and conflicts stop before fetch. Only the route-evidence class
   leaves the page, while scope remains unresolved.
+- [ADR-079](adr/079-claude-list-probe-v4-evidence-visibility.md) records the
+  offline `/4` evidence contract: exact page/global archive-flag accounting,
+  reconciliation, pagination checks and atomic page admission, with scope
+  unresolved and no new provider or persistence authority. The popup exposes a
+  compact scroll-area evidence card. Exact-head reviews and a fresh confirmation
+  must precede one install / one click; no live `/4` run or automatic retry has
+  occurred.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

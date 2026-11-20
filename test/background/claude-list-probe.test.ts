@@ -10,6 +10,7 @@ import {
 import {
   CLAUDE_LIST_PROBE_SCHEMA,
   snapshotClaudeListProbeResult,
+  type ClaudeListProbeResult,
 } from '../../src/lib/claude-list-probe-contract';
 
 const TAB_ID = 73;
@@ -22,38 +23,55 @@ const OWNER_TOKEN = '33333333-3333-4333-8333-333333333333';
 const CHAT_URL = `https://claude.ai/chat/${CONVERSATION_ID}`;
 const DETAIL_URL = `https://claude.ai/api/organizations/${ORGANIZATION_ID}/chat_conversations/${CONVERSATION_ID}`;
 
-function safeResult() {
+const emptyPageCounts = {
+  record: 0,
+  validUuid: 0,
+  marker: 0,
+  archivedFlag: 0,
+  archivedMismatch: 0,
+};
+
+function safeResult(): ClaudeListProbeResult {
   return {
     schema: CLAUDE_LIST_PROBE_SCHEMA,
-    status: 'complete' as const,
-    code: 'ok' as const,
+    status: 'stopped',
+    code: 'scope-unresolved',
     verificationPresent: false,
-    routeOrganizationEvidence: 'resource-timing' as const,
+    routeOrganizationEvidence: 'resource-timing',
     counts: {
       dispatch: 2,
       page: 2,
-      record: 0,
-      validUuid: 0,
-      marker: 0,
+      ...emptyPageCounts,
       duplicate: 0,
       overlap: 0,
-      archivedMismatch: 0,
     },
     pages: [
-      { partition: 'active' as const, offset: 0 as const, hasMore: false, terminal: true },
-      { partition: 'archived' as const, offset: 0 as const, hasMore: false, terminal: true },
+      {
+        partition: 'active',
+        offset: 0,
+        hasMore: false,
+        terminal: true,
+        counts: { ...emptyPageCounts },
+      },
+      {
+        partition: 'archived',
+        offset: 0,
+        hasMore: false,
+        terminal: true,
+        counts: { ...emptyPageCounts },
+      },
     ],
     pagination: {
       exercised: false,
-      hypothesis: 'not-exercised' as const,
+      hypothesis: 'not-exercised',
       unfinished: false,
     },
     scope: {
-      organizationResolved: true,
-      workspaceResolved: true,
-      consistent: true,
-      routeOrganizationMatched: true,
-      fingerprint: `liska-claude-list-probe-scope/1:${'a'.repeat(64)}`,
+      organizationResolved: false,
+      workspaceResolved: false,
+      consistent: false,
+      routeOrganizationMatched: false,
+      fingerprint: null,
       relevantHeaderNames: ['x-organization-id', 'x-workspace-id'],
     },
   };
@@ -446,7 +464,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     document.body.innerHTML = '';
   });
 
-  it('dispatches active then archived offset zero serially and returns only safe aggregate data', async () => {
+  it('dispatches active then archived offset zero serially and returns only safe evidence', async () => {
     let inFlight = 0;
     let maximumInFlight = 0;
     installPage(async url => {
@@ -470,10 +488,24 @@ describe('Claude injected active/archived list diagnostic', () => {
       record: 2,
       validUuid: 2,
       marker: 2,
+      archivedFlag: 2,
+      archivedMismatch: 1,
     });
     expect(result.pages).toEqual([
-      { partition: 'active', offset: 0, hasMore: false, terminal: true },
-      { partition: 'archived', offset: 0, hasMore: false, terminal: true },
+      {
+        partition: 'active',
+        offset: 0,
+        hasMore: false,
+        terminal: true,
+        counts: { record: 1, validUuid: 1, marker: 1, archivedFlag: 1, archivedMismatch: 0 },
+      },
+      {
+        partition: 'archived',
+        offset: 0,
+        hasMore: false,
+        terminal: true,
+        counts: { record: 1, validUuid: 1, marker: 1, archivedFlag: 1, archivedMismatch: 1 },
+      },
     ]);
     expect(maximumInFlight).toBe(1);
     const calls = vi.mocked(fetch).mock.calls;
@@ -657,6 +689,15 @@ describe('Claude injected active/archived list diagnostic', () => {
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(result.code).toBe('unexpected-status');
     expect(result.counts).toMatchObject({ dispatch: 2, page: 1 });
+    expect(result.pages).toEqual([
+      { partition: 'active', offset: 0, hasMore: true, terminal: false, counts: emptyPageCounts },
+    ]);
+    expect(result.pagination).toEqual({
+      exercised: false,
+      hypothesis: 'not-exercised',
+      unfinished: true,
+    });
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect((vi.mocked(fetch).mock.calls[1][1]?.signal as AbortSignal).aborted).toBe(true);
     expect(
@@ -677,9 +718,13 @@ describe('Claude injected active/archived list diagnostic', () => {
       ['active', 30],
       ['archived', 30],
     ]);
+    expect(result.pages.map(page => page.counts)).toEqual(
+      Array.from({ length: 4 }, () => emptyPageCounts)
+    );
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
   });
 
-  it('counts duplicates, active/archive overlap and archived-flag mismatches without returning IDs', async () => {
+  it('counts only boolean archived flags and leaves duplicate/overlap numbers global', async () => {
     installPage(async url => {
       const archived = new URL(url).searchParams.get('archived') === 'true';
       return response(
@@ -690,19 +735,100 @@ describe('Claude injected active/archived list diagnostic', () => {
               { uuid: id(1), updated_at: 'm1', is_archived: false },
               { uuid: id(1), updated_at: 'm2', is_archived: false },
               { uuid: id(2), is_archived: true },
+              { uuid: id(3) },
+              { uuid: id(4), is_archived: 'private-nonboolean' },
             ])
       );
     });
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(result.counts).toMatchObject({
-      record: 4,
-      validUuid: 4,
+      record: 6,
+      validUuid: 6,
       marker: 3,
       duplicate: 1,
       overlap: 1,
+      archivedFlag: 4,
       archivedMismatch: 1,
     });
+    expect(result.pages.map(page => page.counts)).toEqual([
+      { record: 5, validUuid: 5, marker: 2, archivedFlag: 3, archivedMismatch: 1 },
+      { record: 1, validUuid: 1, marker: 1, archivedFlag: 1, archivedMismatch: 0 },
+    ]);
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
     expect(JSON.stringify(result)).not.toContain(id(1));
+    expect(JSON.stringify(result)).not.toContain('private-nonboolean');
+  });
+
+  it('carries committed IDs across continuations without counting a repeat as overlap', async () => {
+    const idsByPage = [[id(1)], [id(2)], [id(1), id(2), id(2)], [id(2), id(1)]];
+    installPage(async url => {
+      const pageIndex = vi.mocked(fetch).mock.calls.length - 1;
+      return response(
+        url,
+        list(
+          idsByPage[pageIndex].map(uuid => ({ uuid })),
+          pageIndex < 2
+        )
+      );
+    });
+    const result = (await runPage()) as ClaudeListProbeResult;
+    expect(result.code).toBe('scope-unresolved');
+    expect(result.counts).toEqual({
+      dispatch: 4,
+      page: 4,
+      ...emptyPageCounts,
+      record: 7,
+      validUuid: 7,
+      duplicate: 3,
+      overlap: 2,
+    });
+    expect(result.pages.map(page => page.counts)).toEqual(
+      [1, 1, 3, 2].map(size => ({ ...emptyPageCounts, record: size, validUuid: size }))
+    );
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+  });
+
+  it('discards every item of a page when a late record is malformed', async () => {
+    installPage(async url => {
+      const call = vi.mocked(fetch).mock.calls.length;
+      if (call === 1)
+        return response(url, list([{ uuid: id(1), updated_at: 'm1', is_archived: false }], true));
+      if (call === 2) return response(url, list([{ uuid: id(2), is_archived: true }], true));
+      return response(
+        url,
+        list([
+          { uuid: id(1), updated_at: 'private-discarded-marker', is_archived: true },
+          { uuid: id(2) },
+          { uuid: id(2) },
+          null,
+        ])
+      );
+    });
+    const result = (await runPage()) as ClaudeListProbeResult;
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(result.code).toBe('response-schema-invalid');
+    expect(result.counts).toEqual({
+      dispatch: 3,
+      page: 2,
+      record: 2,
+      validUuid: 2,
+      marker: 1,
+      duplicate: 0,
+      overlap: 0,
+      archivedFlag: 2,
+      archivedMismatch: 0,
+    });
+    expect(result.pages.map(page => [page.partition, page.offset, page.counts])).toEqual([
+      ['active', 0, { record: 1, validUuid: 1, marker: 1, archivedFlag: 1, archivedMismatch: 0 }],
+      ['archived', 0, { record: 1, validUuid: 1, marker: 0, archivedFlag: 1, archivedMismatch: 0 }],
+    ]);
+    expect(result.pagination).toEqual({
+      exercised: false,
+      hypothesis: 'not-exercised',
+      unfinished: true,
+    });
+    expect(snapshotClaudeListProbeResult(result)).toEqual(result);
+    expect(JSON.stringify(result)).not.toContain('private-discarded-marker');
   });
 
   it.each([
@@ -889,7 +1015,7 @@ describe('Claude injected active/archived list diagnostic', () => {
     const result = (await runPage()) as ReturnType<typeof safeResult>;
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
-      schema: 'liska-claude-list-probe/3',
+      schema: 'liska-claude-list-probe/4',
       status: 'stopped',
       code: 'scope-unresolved',
       verificationPresent: true,

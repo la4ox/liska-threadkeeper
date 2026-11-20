@@ -1119,6 +1119,72 @@
   "settings_probeClaudeListsHelp": {
     "message": "Inspect bounded active and archived list metadata in the selected Claude chat without exporting content"
   },
+  "claudeListEvidenceHeading": {
+    "message": "Observed page evidence"
+  },
+  "claudeListEvidenceActive": {
+    "message": "active"
+  },
+  "claudeListEvidenceArchived": {
+    "message": "archived"
+  },
+  "claudeListEvidenceTerminal": {
+    "message": "terminal"
+  },
+  "claudeListEvidenceHasMore": {
+    "message": "has more"
+  },
+  "claudeListEvidencePage": {
+    "message": "$PARTITION$ · offset $OFFSET$: $RECORDS$ records; valid UUIDs $VALID$; markers $MARKERS$; boolean archive flags $FLAGS$/$RECORDS$; mismatches $MISMATCHES$; $CONTINUATION$.",
+    "placeholders": {
+      "partition": { "content": "$1" },
+      "offset": { "content": "$2" },
+      "records": { "content": "$3" },
+      "valid": { "content": "$4" },
+      "markers": { "content": "$5" },
+      "flags": { "content": "$6" },
+      "mismatches": { "content": "$7" },
+      "continuation": { "content": "$8" }
+    }
+  },
+  "claudeListEvidenceNoPages": {
+    "message": "No pages observed."
+  },
+  "claudeListEvidenceDuplicates": {
+    "message": "Duplicates $DUPLICATES$; cross-partition overlap $OVERLAP$.",
+    "placeholders": {
+      "duplicates": { "content": "$1" },
+      "overlap": { "content": "$2" }
+    }
+  },
+  "claudeListEvidencePagination": {
+    "message": "Pagination: $HYPOTHESIS$. Observed continuation still pending: $UNFINISHED$.",
+    "placeholders": {
+      "hypothesis": { "content": "$1" },
+      "unfinished": { "content": "$2" }
+    }
+  },
+  "claudeListEvidencePaginationNotExercised": {
+    "message": "not exercised"
+  },
+  "claudeListEvidencePaginationOffsetPlus30": {
+    "message": "offset + 30 hypothesis"
+  },
+  "claudeListEvidenceYes": {
+    "message": "yes"
+  },
+  "claudeListEvidenceNo": {
+    "message": "no"
+  },
+  "claudeListEvidenceHeaders": {
+    "message": "Observed candidate header names — not scope proof: $NAMES$.",
+    "placeholders": {
+      "names": { "content": "$1" }
+    }
+  },
+  "claudeListEvidenceNoneObserved": {
+    "message": "none observed"
+  },
   "status_claudeListProbeRunning": {
     "message": "Inspecting bounded Claude active and archived list metadata…"
   },
