@@ -6726,3 +6726,29 @@ Exact-head GitHub reviews and live/installed acceptance are not complete; no v4
 provider run has occurred. Next gate: reviewed exact head, fresh action-time
 confirmation, one install and one click, content-free receipt, no automatic
 retry.
+
+## Claude list probe v4 live page evidence — 2026-11-20
+
+Branch `codex/claude-list-probe-v4-live-evidence` starts from merged main
+`34901bc3b52d7163212ac24755629a953e4606b9`. Reviewed producer head
+`87310e556f1ab986c577dad2f0ce8336a304a925` was installed after exact
+relative-file SHA-256 reconciliation. The prior v3 installation remains intact
+as rollback `dist-backup-codex-20261120-claude-list-probe-v3`.
+
+One confirmed click, with no retry, returned `stopped / scope-unresolved`,
+verification true and route evidence `multiple-consistent`: 2 requests, 2 pages
+and 12 records. Active offset 0 was terminal with 12 records, 12 valid UUIDs,
+12 bounded markers, 12/12 boolean archive flags and 0 mismatches. Archived
+offset 0 was terminal with zero records and zero counts. Duplicate count and
+cross-partition overlap were both 0. Pagination was not exercised; no observed
+continuation was pending.
+
+Only the candidate header names `anthropic-organization-id` and
+`anthropic-workspace-id` were observed; no values or record content are
+retained. Receipt `LISKA-CLAUDE-LIST-PROBE-V4-PAGE-EVIDENCE-20261120` is
+local-only. This does not establish account completeness, general pagination,
+archival deletion coverage, or authenticated personal account/workspace scope.
+Exact route evidence stays local-only. Next gate: a separately reviewed exact
+scope contract may read only those two names and must prove value grammar,
+cross-page consistency, route-organization match, privacy-preserving fingerprint
+and a manual personal-scope boundary; no implementation is authorized here.

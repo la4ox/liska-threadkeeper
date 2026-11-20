@@ -748,7 +748,27 @@ records with scope unresolved, but the popup omitted per-page counts and
 candidate header names. A zero archived-mismatch count could not distinguish
 valid boolean flags from missing or non-boolean flags. This is an evidence
 visibility and validation gap, not evidence that the provider records were
-wrong or that archive semantics were established. No live v4 action has occurred.
+wrong or that archive semantics were established. At this observation point, no
+live v4 action had yet occurred.
+
+### E56 — V4 exposed page evidence without resolving scope
+
+The reviewed producer head `87310e556f1ab986c577dad2f0ce8336a304a925`, merged
+as `34901bc3b52d7163212ac24755629a953e4606b9`, was installed after exact
+relative-file SHA-256 reconciliation; the v3 installation remains intact as a
+rollback. One confirmed click with no retry returned `stopped / scope-unresolved`,
+verification true and `multiple-consistent` route evidence: two requests, two
+pages and twelve records. Active offset 0 was terminal with 12 records, 12 valid
+UUIDs, 12 bounded markers, 12/12 boolean archive flags and zero mismatches;
+archived offset 0 was terminal with zero records/counts. Duplicates and
+cross-partition overlap were both zero.
+
+Pagination was not exercised and no continuation was observed pending. Only
+candidate header names `anthropic-organization-id` and
+`anthropic-workspace-id` were observed; names alone do not prove scope. The run
+does not establish account completeness, general pagination, archival deletion
+coverage or authenticated personal account/workspace scope. Receipt S59 is
+local-only; no IDs, marker values, header values or content were retained here.
 
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
@@ -1278,7 +1298,7 @@ and null fingerprint. The popup displays a compact text-only evidence card.
 Candidate header names do not prove scope, and no catalog, owner, capture,
 export or scheduler authority follows.
 
-Evidence: E54, E55
+Evidence: E54, E55, E56
 
 Decision record: ADR-079
 
@@ -1717,6 +1737,12 @@ catalog or baseline authority.
 Trigger: exact-head reviews complete and fresh action-time confirmation for this
 single live action.
 
+Fulfilled by E56 and local receipt S59: one reviewed v4 installation and one
+confirmed click returned stopped / scope-unresolved. No retry followed. This
+does not promote the result to scope, catalog or baseline authority. The next
+scope step requires its own reviewed exact contract and must preserve the manual
+personal-scope boundary.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1776,6 +1802,7 @@ single live action.
 - [evidence] E53: the installed v2 probe passed verification admission but stopped at zero requests when resource timing exposed no route organization #live
 - [evidence] E54: the installed v3 probe resolved multiple consistent route hints and completed two bounded list reads with twelve aggregate records while scope stayed unresolved #live
 - [evidence] E55: v3 popup omitted per-page/header-name evidence, while zero archive mismatches could not distinguish valid, missing or non-boolean flags #live
+- [evidence] E56: one reviewed v4 click returned stopped/scope-unresolved with 2 requests/pages, 12 active records, 12/12 boolean flags, 0 mismatches, 0 archived records, duplicates or overlap, and two names-only candidate headers; pagination, scope and completeness remain unproved #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1842,7 +1869,7 @@ single live action.
 - [tail] T27: fulfilled by the corrected 13-row visible native PASS; preserve its non-provider boundary
 - [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
-- [tail] T30: after exact-head reviews and fresh confirmation, run one reviewed v4 install/click and retain only a content-free receipt without auto-retry
+- [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
 
 ## Relations
 
@@ -1912,3 +1939,4 @@ single live action.
 - S56 — [ADR-078: Resolve Claude list routing from exact non-secret page hints](../adr/078-claude-list-probe-route-hints.md), base main `c36c5f935f6737aaaf04e8ebb7cbe7f24cef3a76`
 - S57 — local receipt `LISKA-CLAUDE-LIST-PROBE-V3-SCOPE-UNRESOLVED-20261120`; visibility: local-only; reviewed v3 resolved multiple consistent route hints and completed two bounded reads with twelve aggregate records while scope remained unresolved
 - S58 — [ADR-079: Make Claude list-probe v4 evidence visible and atomic](../adr/079-claude-list-probe-v4-evidence-visibility.md), base main `4a2c29785e2e052c7f27137562ac2dad3f1b3ee3`
+- S59 — local receipt `LISKA-CLAUDE-LIST-PROBE-V4-PAGE-EVIDENCE-20261120`; visibility: local-only; one confirmed click, content-free active/archived page and boolean-flag counts, names-only candidate headers, unresolved scope, no retry
