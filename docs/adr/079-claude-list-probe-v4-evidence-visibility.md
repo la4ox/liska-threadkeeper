@@ -2,10 +2,10 @@
 
 ## Status
 
-Accepted for offline implementation from base main
-`4a2c29785e2e052c7f27137562ac2dad3f1b3ee3`. Exact-head CI, Code Review and
-Security Review, followed by fresh action-time confirmation, remain pending
-before live acceptance. No v4 provider run has occurred.
+One reviewed v4 installation and confirmed click are recorded below. The
+content-free result is `stopped / scope-unresolved`; there was no retry. The
+next gate is a separately reviewed exact scope contract, not catalog admission
+or a claim of account completeness.
 
 ## Context
 
@@ -62,8 +62,24 @@ account/workspace membership or authorize a baseline.
 
 ## Evidence and validation
 
-- V3 live evidence remains the bounded aggregate described above; it contains no
-  retained provider content or private route/header values.
+- The reviewed producer head `87310e556f1ab986c577dad2f0ce8336a304a925`, merged
+  as `34901bc3b52d7163212ac24755629a953e4606b9`, was installed after exact
+  relative-file SHA-256 reconciliation. The prior v3 installation remains
+  intact as rollback `dist-backup-codex-20261120-claude-list-probe-v3`.
+- One confirmed click, with no retry, returned `stopped / scope-unresolved`,
+  verification `true`, and route evidence `multiple-consistent`: 2 requests,
+  2 pages and 12 records. Active offset 0 was terminal with 12 records, 12
+  valid UUIDs, 12 bounded markers, 12/12 boolean archive flags and 0 archive
+  mismatches. Archived offset 0 was terminal with zero records and zero counts.
+  Duplicate count and cross-partition overlap were both 0.
+- Pagination was not exercised and no continuation was observed pending. The
+  only candidate header names observed were `anthropic-organization-id` and
+  `anthropic-workspace-id`; names alone are not scope proof. No IDs, marker
+  values, header values, body/content, catalog or persistence facts were
+  retained in this documentation.
+- This run does not establish account completeness, general pagination,
+  archival deletion coverage, or authenticated personal account/workspace
+  scope. Exact route evidence remains local-only.
 - The current offline implementation evidence is four focused files / 219 tests
   and sixteen adjacent files / 590 tests passing. TypeScript, Prettier, Idea
   Threads 9/37 and documentation links 99/99 pass. Project lint has zero errors
@@ -81,12 +97,15 @@ account/workspace membership or authorize a baseline.
 - Independent source review reports ready with no material findings.
 - A synthetic 380px popup visual smoke passed. This is not installed or live
   acceptance.
-- Exact-head GitHub reviews are not yet complete, and no live v4 provider run
-  has occurred.
+- The content-free live receipt is local-only:
+  `LISKA-CLAUDE-LIST-PROBE-V4-PAGE-EVIDENCE-20261120`.
 
 ## Next gate
 
-After exact-head CI, Code Review and Security Review pass, obtain fresh
-action-time confirmation for one reviewed v4 installation and one click. Retain
-only a content-free receipt. Do not auto-retry, even if the result stops or is
-otherwise incomplete.
+Any next scope work requires a separate reviewed exact scope contract. It may
+read only the two observed exact header names above and must prove value
+grammar, cross-page consistency, route-organization match, a privacy-preserving
+fingerprint and a manual personal-scope boundary. Do not implement that contract
+here or infer authenticated account/workspace membership from names. Until then,
+do not claim account completeness, general pagination or archival deletion
+coverage, and do not admit these records to a catalog or baseline.

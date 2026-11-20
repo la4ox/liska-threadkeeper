@@ -858,9 +858,18 @@ terminal states, and the existing no-credential-export boundary.
   offline `/4` evidence contract: exact page/global archive-flag accounting,
   reconciliation, pagination checks and atomic page admission, with scope
   unresolved and no new provider or persistence authority. The popup exposes a
-  compact scroll-area evidence card. Exact-head reviews and a fresh confirmation
-  must precede one install / one click; no live `/4` run or automatic retry has
-  occurred.
+  compact scroll-area evidence card. One reviewed installation of producer
+  head `87310e556f1ab986c577dad2f0ce8336a304a925` (merged as
+  `34901bc3b52d7163212ac24755629a953e4606b9`) was reconciled by exact
+  relative-file SHA-256; one confirmed click returned `stopped / scope-unresolved`
+  with 2 requests, 2 pages, 12 active records and zero archived records, with
+  per-page archive-flag evidence and no retry. Only the names
+  `anthropic-organization-id` and `anthropic-workspace-id` were observed. The
+  remaining gate is a separate exact scope contract that may read only those
+  names and must prove value grammar, cross-page consistency, route-org match,
+  privacy-preserving fingerprint and a manual personal-scope boundary. This
+  does not prove account completeness, general pagination, archival deletion
+  coverage or authenticated personal account/workspace scope.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
