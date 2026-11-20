@@ -442,8 +442,22 @@ select {
   text-decoration: none;
 }
 
-.archive-tools .tool-action + .tool-action {
+.archive-tools .tool-action + .tool-action,
+.archive-tools .claude-list-evidence + .tool-action {
   margin-top: 6px;
+}
+
+.claude-list-evidence {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .tool-action:hover,

@@ -1000,6 +1000,72 @@
   "settings_probeClaudeListsHelp": {
     "message": "会話内容を書き出さず、選択中の Claude チャットでアクティブ／アーカイブ済みリストの限定メタデータを確認します"
   },
+  "claudeListEvidenceHeading": {
+    "message": "観測されたページの根拠"
+  },
+  "claudeListEvidenceActive": {
+    "message": "アクティブ"
+  },
+  "claudeListEvidenceArchived": {
+    "message": "アーカイブ済み"
+  },
+  "claudeListEvidenceTerminal": {
+    "message": "終端"
+  },
+  "claudeListEvidenceHasMore": {
+    "message": "続きあり"
+  },
+  "claudeListEvidencePage": {
+    "message": "$PARTITION$・オフセット $OFFSET$: レコード $RECORDS$ 件、有効な UUID $VALID$ 件、マーカー $MARKERS$ 件、真偽値のアーカイブフラグ $FLAGS$/$RECORDS$、不一致 $MISMATCHES$ 件、$CONTINUATION$。",
+    "placeholders": {
+      "partition": { "content": "$1" },
+      "offset": { "content": "$2" },
+      "records": { "content": "$3" },
+      "valid": { "content": "$4" },
+      "markers": { "content": "$5" },
+      "flags": { "content": "$6" },
+      "mismatches": { "content": "$7" },
+      "continuation": { "content": "$8" }
+    }
+  },
+  "claudeListEvidenceNoPages": {
+    "message": "ページは観測されませんでした。"
+  },
+  "claudeListEvidenceDuplicates": {
+    "message": "重複 $DUPLICATES$ 件、パーティション間の重複 $OVERLAP$ 件。",
+    "placeholders": {
+      "duplicates": { "content": "$1" },
+      "overlap": { "content": "$2" }
+    }
+  },
+  "claudeListEvidencePagination": {
+    "message": "ページネーション: $HYPOTHESIS$。観測された続きは未取得: $UNFINISHED$。",
+    "placeholders": {
+      "hypothesis": { "content": "$1" },
+      "unfinished": { "content": "$2" }
+    }
+  },
+  "claudeListEvidencePaginationNotExercised": {
+    "message": "未実行"
+  },
+  "claudeListEvidencePaginationOffsetPlus30": {
+    "message": "オフセット + 30 の仮説"
+  },
+  "claudeListEvidenceYes": {
+    "message": "はい"
+  },
+  "claudeListEvidenceNo": {
+    "message": "いいえ"
+  },
+  "claudeListEvidenceHeaders": {
+    "message": "観測された候補ヘッダー名（スコープの証明ではありません）: $NAMES$。",
+    "placeholders": {
+      "names": { "content": "$1" }
+    }
+  },
+  "claudeListEvidenceNoneObserved": {
+    "message": "観測なし"
+  },
   "status_claudeListProbeRunning": {
     "message": "Claude のアクティブ／アーカイブ済みリストを限定的に確認しています…"
   },

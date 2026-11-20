@@ -6,6 +6,7 @@ import {
   snapshotClaudeListProbeResult,
   type ClaudeListProbeFailureCode,
   type ClaudeListProbeOutcomeCode,
+  type ClaudeListProbePage,
   type ClaudeListProbeResponse,
   type ClaudeListProbeResult,
 } from '../lib/claude-list-probe-contract';
@@ -555,7 +556,7 @@ export async function runClaudeListProbeInPage(
   ownerToken: string,
   navigationAlreadyChanged: boolean
 ): Promise<unknown> {
-  const schema = 'liska-claude-list-probe/3';
+  const schema = 'liska-claude-list-probe/4';
   const privateKey = '__liskaClaudeListProbeNavigation_v1';
   const root = globalThis as unknown as Record<string, unknown>;
   const ownerValid =
@@ -582,21 +583,19 @@ export async function runClaudeListProbeInPage(
     /^\/api\/organizations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/chat_conversations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/u;
   const deadline =
     Number.isSafeInteger(deadlineEpochMs) && deadlineEpochMs > 0 ? deadlineEpochMs : Date.now();
-  const pages: Array<{
-    partition: 'active' | 'archived';
-    offset: 0 | 30;
-    hasMore: boolean;
-    terminal: boolean;
-  }> = [];
-  const counts = {
-    dispatch: 0,
-    page: 0,
+  const pages: ClaudeListProbePage[] = [];
+  const emptyRecordCounts = () => ({
     record: 0,
     validUuid: 0,
     marker: 0,
+    archivedFlag: 0,
+    archivedMismatch: 0,
+  });
+  const counts = {
+    dispatch: 0,
+    ...emptyRecordCounts(),
     duplicate: 0,
     overlap: 0,
-    archivedMismatch: 0,
   };
   const activeIds = new Set<string>();
   const archivedIds = new Set<string>();
@@ -643,19 +642,19 @@ export async function runClaudeListProbeInPage(
   };
   const headerNames = (): string[] => [...relevantHeaderNames].sort().slice(0, 8);
   const finish = (code: ClaudeListProbeOutcomeCode): unknown => {
-    const paginationUnfinished = unfinished();
+    const exercised = pages.some(page => page.offset === 30);
     return {
       schema,
-      status: code === 'ok' ? 'complete' : 'stopped',
+      status: 'stopped',
       code,
       verificationPresent: verificationObserved,
       routeOrganizationEvidence,
       counts: { ...counts, page: pages.length },
-      pages: pages.map(page => ({ ...page })),
+      pages: pages.map(page => ({ ...page, counts: { ...page.counts } })),
       pagination: {
-        exercised: pages.some(page => page.offset === 30),
-        hypothesis: pages.some(page => page.offset === 30) ? 'offset-plus-30' : 'not-exercised',
-        unfinished: paginationUnfinished,
+        exercised,
+        hypothesis: exercised ? 'offset-plus-30' : 'not-exercised',
+        unfinished: unfinished(),
       },
       scope: {
         organizationResolved: false,
@@ -891,7 +890,7 @@ export async function runClaudeListProbeInPage(
     value: unknown,
     partition: 'active' | 'archived',
     offset: 0 | 30
-    // eslint-disable-next-line complexity -- One bounded pass keeps every privacy count co-located.
+    // eslint-disable-next-line complexity, max-lines-per-function -- Stage and commit all page evidence in one place.
   ): boolean | undefined => {
     const envelope = exactDataObject(value, ['data', 'has_more']);
     if (!envelope || typeof envelope.has_more !== 'boolean' || !Array.isArray(envelope.data))
@@ -903,19 +902,23 @@ export async function runClaudeListProbeInPage(
       return undefined;
     const seen = partition === 'active' ? activeIds : archivedIds;
     const other = partition === 'active' ? archivedIds : activeIds;
+    const pageIds = new Set<string>();
+    const pageCounts = emptyRecordCounts();
+    let duplicate = 0;
+    let overlap = 0;
     for (let index = 0; index < envelope.data.length; index += 1) {
       const descriptor = Object.getOwnPropertyDescriptor(envelope.data, String(index));
       if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) return undefined;
       const item = recordObject(descriptor.value);
       if (!item) return undefined;
-      counts.record += 1;
+      pageCounts.record += 1;
       const id = item.uuid;
       if (typeof id === 'string' && uuidPattern.test(id)) {
-        counts.validUuid += 1;
-        if (seen.has(id)) counts.duplicate += 1;
+        pageCounts.validUuid += 1;
+        if (seen.has(id) || pageIds.has(id)) duplicate += 1;
         else {
-          seen.add(id);
-          if (other.has(id)) counts.overlap += 1;
+          pageIds.add(id);
+          if (other.has(id)) overlap += 1;
         }
       }
       if (
@@ -923,15 +926,27 @@ export async function runClaudeListProbeInPage(
         item.updated_at.length > 0 &&
         item.updated_at.length <= 256
       )
-        counts.marker += 1;
-      if (typeof item.is_archived === 'boolean' && item.is_archived !== (partition === 'archived'))
-        counts.archivedMismatch += 1;
+        pageCounts.marker += 1;
+      if (typeof item.is_archived === 'boolean') {
+        pageCounts.archivedFlag += 1;
+        if (item.is_archived !== (partition === 'archived')) pageCounts.archivedMismatch += 1;
+      }
     }
+    // A late malformed record leaves previously admitted evidence untouched.
+    for (const id of pageIds) seen.add(id);
+    counts.record += pageCounts.record;
+    counts.validUuid += pageCounts.validUuid;
+    counts.marker += pageCounts.marker;
+    counts.archivedFlag += pageCounts.archivedFlag;
+    counts.archivedMismatch += pageCounts.archivedMismatch;
+    counts.duplicate += duplicate;
+    counts.overlap += overlap;
     pages.push({
       partition,
       offset,
       hasMore: envelope.has_more,
       terminal: !envelope.has_more,
+      counts: pageCounts,
     });
     return envelope.has_more;
   };

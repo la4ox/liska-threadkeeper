@@ -6693,3 +6693,36 @@ multiple consistent route hints. This proves live route resolution and bounded
 list reads only; it does not prove active/archive allocation, twelve unique chats,
 authenticated account/workspace scope or account completeness. No retry, detail
 capture, catalog admission or baseline execution followed.
+
+## Claude list probe v4 evidence-only — 2026-11-20
+
+Branch `codex/claude-list-probe-v4-evidence` starts from base main
+`4a2c29785e2e052c7f27137562ac2dad3f1b3ee3` and records [ADR-079](docs/adr/079-claude-list-probe-v4-evidence-visibility.md).
+The offline `/4` slice adds exact per-page and global archive-flag evidence,
+reconciliation, producer-order/prefix and pagination checks, and atomic page
+admission. Scope remains unresolved with a null fingerprint; candidate header
+names are names-only, not scope proof. The popup uses a compact `textContent`
+evidence card in its scroll area. No request, retry, value read, persistence,
+catalog, owner, capture/export or scheduler authority was added.
+
+The v3 live result remains two requests, two pages and twelve aggregate records,
+but its popup omitted page/header-name evidence and zero archive mismatches did
+not distinguish missing or non-boolean flags. Focused 4-file / 219-test and
+adjacent 16-file / 590-test matrices pass. TypeScript, Prettier, Idea Threads
+9/37, documentation links 99/99 and production build/ZIP pass; project lint has
+zero errors / unchanged 55 warnings and the production audit has zero
+vulnerabilities. Independent review reports ready. A synthetic 380px visual
+smoke passed.
+
+An earlier pre-review full suite attempt reached 12,523 passing / 3 skipped tests
+but one unrelated native owner-lifecycle `missing-observer` scenario exceeded
+its five-second JSON window under parallel load. That exact scenario passed 1/1
+and its full file passed 65/65 in isolated reruns. Current-head CI remains the
+full-suite gate after final validator tightening. Fresh `dist` has 65 files /
+6,121,311 bytes. The 2,800,776-byte ZIP has SHA-256
+`5fcf4aa6252b6ecd9ab7484c6644fab2c6a20f7c9c453adc55f0e82fc26c2896`.
+
+Exact-head GitHub reviews and live/installed acceptance are not complete; no v4
+provider run has occurred. Next gate: reviewed exact head, fresh action-time
+confirmation, one install and one click, content-free receipt, no automatic
+retry.

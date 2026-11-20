@@ -741,6 +741,15 @@ establish authenticated account/workspace scope, active versus archived
 allocation, terminal continuation proof, twelve distinct conversations, account
 completeness or catalog authority. No automatic retry or content capture followed.
 
+### E55 — V3 aggregate visibility could not distinguish archive-flag evidence
+
+The v3 live result contained two requests, two pages and twelve aggregate
+records with scope unresolved, but the popup omitted per-page counts and
+candidate header names. A zero archived-mismatch count could not distinguish
+valid boolean flags from missing or non-boolean flags. This is an evidence
+visibility and validation gap, not evidence that the provider records were
+wrong or that archive semantics were established. No live v4 action has occurred.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1260,6 +1269,19 @@ Evidence: E51, E52, E53
 
 Decision record: ADR-078
 
+### D34 — Keep Claude probe v4 evidence-only and page-atomic
+
+Adopt ADR-079 as an offline `/4` evidence contract: reconcile exact per-page and
+global archive-flag counts, producer order/prefix and recomputed pagination;
+admit each page atomically. Permit only stopped results with unresolved scope
+and null fingerprint. The popup displays a compact text-only evidence card.
+Candidate header names do not prove scope, and no catalog, owner, capture,
+export or scheduler authority follows.
+
+Evidence: E54, E55
+
+Decision record: ADR-079
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1685,6 +1707,16 @@ records while scope remained unresolved. T29 is fulfilled. Any follow-up scope o
 partition probe requires its own reviewed contract and authority; this result does
 not admit records to T28's account baseline.
 
+### T30 — Run one reviewed Claude list-probe v4 evidence action
+
+After exact-head CI, Code Review and Security Review pass, obtain fresh
+action-time confirmation, install the reviewed v4 build and click once. Retain
+only a content-free receipt; do not auto-retry or promote the result to scope,
+catalog or baseline authority.
+
+Trigger: exact-head reviews complete and fresh action-time confirmation for this
+single live action.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1743,6 +1775,7 @@ not admit records to T28's account baseline.
 - [evidence] E52: the first installed v1 probe stopped before network on Claude reply verification, motivating a versioned names-only v2 correction rather than forced account verification #live
 - [evidence] E53: the installed v2 probe passed verification admission but stopped at zero requests when resource timing exposed no route organization #live
 - [evidence] E54: the installed v3 probe resolved multiple consistent route hints and completed two bounded list reads with twelve aggregate records while scope stayed unresolved #live
+- [evidence] E55: v3 popup omitted per-page/header-name evidence, while zero archive mismatches could not distinguish valid, missing or non-boolean flags #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1779,6 +1812,7 @@ not admit records to T28's account baseline.
 - [decision] D31: establish current Claude scope, archive and continuation facts through one pinned request-counted probe before durable enumeration
 - [decision] D32: record reply-verification as boolean evidence in probe v2 while keeping scope unresolved and 401/403 as the hard list-auth boundary
 - [decision] D33: resolve probe routing only from exact reconciled resource, verification-link and named-storage hints, exposing source class but never the ID
+- [decision] D34: keep probe v4 evidence-only and page-atomic with exact reconciliation, unresolved scope and no catalog or execution authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1808,6 +1842,7 @@ not admit records to T28's account baseline.
 - [tail] T27: fulfilled by the corrected 13-row visible native PASS; preserve its non-provider boundary
 - [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
+- [tail] T30: after exact-head reviews and fresh confirmation, run one reviewed v4 install/click and retain only a content-free receipt without auto-retry
 
 ## Relations
 
@@ -1876,3 +1911,4 @@ not admit records to T28's account baseline.
 - S55 — local receipt `LISKA-CLAUDE-LIST-PROBE-V2-ROUTE-UNRESOLVED-20261118`; visibility: local-only; reviewed v2 stopped before network with fixed route-unresolved code, zero counts, unresolved scope and verification observed
 - S56 — [ADR-078: Resolve Claude list routing from exact non-secret page hints](../adr/078-claude-list-probe-route-hints.md), base main `c36c5f935f6737aaaf04e8ebb7cbe7f24cef3a76`
 - S57 — local receipt `LISKA-CLAUDE-LIST-PROBE-V3-SCOPE-UNRESOLVED-20261120`; visibility: local-only; reviewed v3 resolved multiple consistent route hints and completed two bounded reads with twelve aggregate records while scope remained unresolved
+- S58 — [ADR-079: Make Claude list-probe v4 evidence visible and atomic](../adr/079-claude-list-probe-v4-evidence-visibility.md), base main `4a2c29785e2e052c7f27137562ac2dad3f1b3ee3`
