@@ -4,8 +4,10 @@
 
 Accepted on 2026-11-18 after the first installed v2 probe passed reply-
 verification admission but stopped before network because no organization route
-could be resolved from current resource timing. V3 remains unexecuted live
-pending review and a new action-time confirmation.
+could be resolved from current resource timing. The reviewed v3 build was merged,
+installed and invoked once on 2026-11-20. It resolved multiple consistent route
+hints and completed both bounded list reads, but correctly retained unresolved
+scope and granted no baseline authority.
 
 ## Context
 
@@ -112,6 +114,11 @@ as producer result schemas by v3.
 - Local receipt `LISKA-CLAUDE-LIST-PROBE-V2-ROUTE-UNRESOLVED-20261118` retains
   only reviewed head, v2 schema, fixed stop code, zero counts, unresolved scope
   and verification presence.
+- Local receipt `LISKA-CLAUDE-LIST-PROBE-V3-SCOPE-UNRESOLVED-20261120` retains
+  reviewed head `97945fe27e95ed6e68c8ed117c84a1beb35d09a2`, v3 schema,
+  `stopped / scope-unresolved`, two requests, two pages, twelve aggregate records,
+  unresolved scope, verification presence and `multiple-consistent` route
+  evidence. It retains no organization ID or response content.
 - Tests cover resource-only, verification-link-only, storage-only and agreeing-
   source success; conflicting sources and no source stop before fetch.
 - Storage tests prove exactly one named `getItem` and no enumeration or unrelated
@@ -124,14 +131,15 @@ as producer result schemas by v3.
   TypeScript, strict probe lint, wiring lint, Prettier and diff checks pass.
   Independent review found and closed duplicate-query ambiguity and reports
   ready.
-- Broader build/audit, documentation validation and current-head GitHub gates
-  remain for this branch.
+- Broader build/audit and documentation validation passed. Current-head CI, Code
+  Review and Security Review passed for reviewed head `97945fe`, which merged as
+  `410cc764`.
 
 ## Next gate
 
-After merge, install the reviewed v3 build from exact `dist`, retain the previous
-installed build as rollback, and run one newly confirmed trusted probe from the
-same clean selected Claude chat. Any unresolved/conflicting route evidence still
-stops before network. If route evidence resolves, the result may finally contain
-active/archived page counts and candidate header names, but scope and baseline
-admission remain separate later decisions.
+Do not retry the live v3 probe automatically or infer more than its aggregate
+receipt. The next separately reviewed evidence step must establish authenticated
+account/workspace scope and distinguish active/archive partition and continuation
+semantics without treating twelve aggregate records as twelve unique chats or a
+complete account. Until then, neither the account catalog nor a baseline owner may
+admit these records.
