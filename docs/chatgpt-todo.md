@@ -871,7 +871,7 @@ terminal states, and the existing no-credential-export boundary.
   does not prove account completeness, general pagination, archival deletion
   coverage or authenticated personal account/workspace scope.
 - [ADR-080](adr/080-claude-list-probe-v5-header-pair-observation.md) records
-  records the offline `/5` contract and one exact installed live acceptance.
+  the offline `/5` contract and one exact installed live acceptance.
   One user-confirmed click with no retry returned `stopped / scope-observed`,
   verification true and `multiple-consistent` route evidence: two requests,
   two pages and twelve records. The active offset-0 page was terminal with 12
@@ -881,9 +881,19 @@ terminal states, and the existing no-credential-export boundary.
   and contains no raw values, fingerprint, private route or user content. This
   does not prove account completeness, pagination, archived-history
   completeness, provider semantics, authenticated personal scope or stable
-  cross-run identity, and it does not admit the catalog or run a baseline. The
-  next gate remains a separately reviewed semantic/personal-scope/catalog
-  bridge; no automatic baseline follows.
+  cross-run identity, and it does not admit the catalog or run a baseline.
+- [ADR-081](adr/081-claude-account-catalog-admission.md) adds the offline
+  one-collector projection core, not a wrapper for independently reviewed
+  receipts: equal counts cannot tie target identities to a scope. One future
+  invocation must acquire the exact pair and both terminal offset-0 pages,
+  check the pair across replies and bind the manual visible-personal choice.
+  The core derives a stable, linkable scope pseudonym and reuses the `/1`
+  catalog; companion evidence is explicitly caller-projected and records the
+  empty archive projection without claiming live provenance.
+  Neither completeness nor execution is granted. Next: reviewed `/6` live
+  collection with late-result fences, then a separate resumable inventory
+  owner, one owner-bound detail/File capture, and bounded manual batches
+  toward the confirmed full current-personal backup. No scheduler follows.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
