@@ -1837,17 +1837,31 @@ bridge remains a separately reviewed gate, with no automatic baseline.
 Trigger: a separately reviewed semantic/personal-scope/catalog bridge is ready
 for its own bounded decision.
 
-### T32 — Collect and admit identities in one reviewed Claude live invocation
+### T32 — Persist one admitted Claude catalog in an isolated paused owner
 
-Wire `/6` only after the offline input/output contract is reviewed. Pin the
-selected document, retain request/transport bounds, compare the raw pair on both
-responses, project and admit inside the invocation, and fence navigation,
-timeout, cancellation and late hash completion. Show only safe aggregate live
-evidence. The later rollback-isolated account owner and owner-bound detail/File
-execution precede any resumable manual batch; no daily scheduler follows.
+Add one rollback-isolated storage domain that atomically creates an immutable
+paused seed from the admitted catalog and pending targets. It must publish facts
+only after the native transaction terminal event, preserve commit/abort/unknown
+outcomes, reopen read-only, reject conflicts without overwrite, and expose no
+provider, execution, retry or scheduler authority. Accept storage natively before
+another live list read.
 
-Trigger: reviewed exact `/6` implementation, installed-state reconciliation and
-an explicit user-started live action for the selected visible personal context.
+Trigger: the ADR-081 projection core is merged and the storage-only owner passes
+focused, fault and small native IndexedDB acceptance.
+
+### T33 — Collect, admit and commit identities in one reviewed Claude live invocation
+
+Wire `/6` only after T32 owns a durable paused destination. Pin the selected
+document, retain request/transport bounds, compare the raw pair on both
+responses, project and admit inside the invocation, then commit atomically before
+showing success. Fence navigation, timeout, cancellation, late hash and unknown
+transaction completion. Show only safe aggregate live evidence. Owner-bound
+detail/File execution still precedes any resumable manual batch; no daily
+scheduler follows.
+
+Trigger: reviewed exact `/6` implementation, accepted owner, installed-state
+reconciliation and an explicit user-started live action for the selected visible
+personal context.
 
 ## Observations
 
@@ -1982,7 +1996,8 @@ an explicit user-started live action for the selected visible personal context.
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
 - [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
 - [tail] T31: fulfilled by E58/S61 for one no-retry live header-pair observation; the semantic/personal-scope/catalog bridge remains separate and no automatic baseline follows
-- [tail] T32: live-accept one reviewed `/6` invocation with same-document collection and late-result fences before a separate account owner and detail/File batches
+- [tail] T32: persist one admitted catalog in a rollback-isolated paused owner with truthful native transaction outcomes before another live list read
+- [tail] T33: live-accept one reviewed `/6` invocation that commits through the accepted owner before safe aggregate success and later detail/File batches
 
 ## Relations
 

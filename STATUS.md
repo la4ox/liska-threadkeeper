@@ -6840,7 +6840,9 @@ build because the new core is unwired.
 The user reconfirmed the end goal of a full current-personal Claude backup
 through normal Liska, with provider reads, File downloads and resumable
 batches. Next gate: a separately reviewed `/6` live collector with exact
-same-document acquisition, raw pair equality and late-result fencing. A new
-rollback-isolated inventory owner and owner-bound detail/File execution remain
-separate gates. No installed run, storage, capture, download or scheduler was
-added here.
+batches. Next gate: a storage-only rollback-isolated paused inventory owner,
+accepted before any new live read. The subsequent `/6` collector must perform
+exact same-document acquisition, raw-pair equality and late-result fencing, then
+commit through that owner before reporting success. Owner-bound detail/File
+execution remains a later gate. No installed run, storage, capture, download or
+scheduler was added here.

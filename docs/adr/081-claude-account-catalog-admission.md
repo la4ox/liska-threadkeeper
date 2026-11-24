@@ -122,13 +122,15 @@ passes with zero errors and the unchanged 55 warnings. Production build/package
 passes, and its 65-file / 6,125,112-byte `dist` is byte-identical to the installed
 reviewed `/5` build because this module remains outside production closure.
 
-The next gate is a reviewed, explicitly user-started `/6` collector: retain
-the existing transport and request bounds, check pair equality and route and
-document currentness on both replies, project and admit within that invocation,
-and fence cancellation, timeout and late digest completion before any result
-escapes. Installed verification must not disclose the raw pair or target data.
-Then separately add a rollback-isolated account-baseline owner, atomic
-inventory/item progress and capacity stops; wire one owner-bound detail
-capture and File delivery before widening to resumable manual batches. A
-report must distinguish delivery over the proven targets from full-account
-completeness. No daily scheduler follows automatically.
+The next gate is a storage-only rollback-isolated account-baseline owner that
+can atomically retain one admitted paused catalog with finite capacity and
+truthful transaction outcomes. It must be accepted before another live list
+read. Then a reviewed, explicitly user-started `/6` collector retains the
+existing transport and request bounds, checks pair equality plus route/document
+currentness on both replies, admits inside that invocation, and commits through
+the owner before publishing success. Cancellation, timeout and late digest or
+transaction completion remain fenced; installed verification must disclose
+neither raw pair nor target data. Only after that gate may one owner-bound detail
+capture and File delivery precede resumable manual batches. A report must
+distinguish delivery over proven targets from full-account completeness. No
+daily scheduler follows automatically.

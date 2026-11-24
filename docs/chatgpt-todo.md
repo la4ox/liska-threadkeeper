@@ -890,10 +890,11 @@ terminal states, and the existing no-credential-export boundary.
   The core derives a stable, linkable scope pseudonym and reuses the `/1`
   catalog; companion evidence is explicitly caller-projected and records the
   empty archive projection without claiming live provenance.
-  Neither completeness nor execution is granted. Next: reviewed `/6` live
-  collection with late-result fences, then a separate resumable inventory
-  owner, one owner-bound detail/File capture, and bounded manual batches
-  toward the confirmed full current-personal backup. No scheduler follows.
+  Neither completeness nor execution is granted. Next: a storage-only paused
+  inventory owner with truthful terminal transaction outcomes. Only after that
+  acceptance may reviewed `/6` collection commit its catalog before reporting
+  success; one owner-bound detail/File capture and bounded manual batches then
+  advance the confirmed full current-personal backup. No scheduler follows.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
