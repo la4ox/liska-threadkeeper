@@ -7,14 +7,26 @@ import { describe, expect, it } from 'vitest';
 const root = path.resolve(import.meta.dirname, '../..');
 const modulePath = 'src/claude-baseline';
 const imports: Record<string, readonly string[]> = {
+  'account-admission-contracts.ts': ['./contracts'],
+  'account-admission.ts': [
+    './account-admission-contracts',
+    './contracts',
+    './data',
+    './enumeration',
+  ],
   'contracts.ts': [],
   'data.ts': ['./contracts'],
   'enumeration.ts': ['./contracts', './data', './scope'],
   'scope.ts': ['./contracts', './data'],
-  'index.ts': ['./enumeration', './contracts'],
+  'index.ts': [
+    './account-admission',
+    './account-admission-contracts',
+    './enumeration',
+    './contracts',
+  ],
 };
 const marker =
-  /claude-baseline|liska-claude-account-baseline-catalog\/1|liska-claude-personal-scope-attestation\/1|enumerateClaudeBaselineCatalog|ClaudeBaselineCatalog/u;
+  /claude-baseline|liska-claude-account-baseline-catalog\/1|liska-claude-personal-scope-attestation\/1|enumerateClaudeBaselineCatalog|ClaudeBaselineCatalog|liska-claude-account-catalog-(?:admission|scope)\/1|admitClaudeAccountCatalog|ClaudeAccountCatalogAdmission|ClaudeAccountScopeSha256|manual-same-visible-personal-context/u;
 const bannedIdentifier =
   /^(?:fetch|XMLHttpRequest|WebSocket|EventSource|URL|URLSearchParams|Request|Response|AbortController|chrome|browser|window|document|navigator|globalThis|self|localStorage|sessionStorage|indexedDB|caches|Storage|Date|performance|crypto|setTimeout|clearTimeout|setInterval|clearInterval|queueMicrotask|requestAnimationFrame|Worker|SharedWorker|BroadcastChannel|MessageChannel|postMessage|sendMessage|addEventListener|dispatchEvent|require|process|Buffer|eval|Function|Promise|console|capture|exportConversation|skipDetail|skipCapture|cursor|scheduler|journal|persist|dispatch|settle|retry)$/u;
 const bannedOutcome =
@@ -105,13 +117,32 @@ describe('unwired pure Claude baseline catalog boundary', () => {
   it('contains no network, browser, storage, clock, timer, journal, capture, export, scheduler or UI authority', () => {
     for (const file of files(modulePath)) {
       const source = tree(file);
+      const isAdmission = file === `${modulePath}/account-admission.ts`;
+      const isAdmissionContract = file === `${modulePath}/account-admission-contracts.ts`;
       function visit(node: ts.Node) {
-        if (ts.isIdentifier(node)) expect(node.text, file).not.toMatch(bannedIdentifier);
+        if (ts.isIdentifier(node)) {
+          // The digest port may type or check a native promise, but never create ambient work.
+          const isDigestPromise =
+            (isAdmission || isAdmissionContract) &&
+            node.text === 'Promise' &&
+            (ts.isTypeReferenceNode(node.parent) ||
+              (isAdmission &&
+                ts.isPropertyAccessExpression(node.parent) &&
+                node.parent.expression === node &&
+                node.parent.name.text === 'prototype') ||
+              (isAdmission &&
+                ts.isBinaryExpression(node.parent) &&
+                node.parent.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword &&
+                node.parent.right === node));
+          if (!isDigestPromise) expect(node.text, file).not.toMatch(bannedIdentifier);
+        }
         if (ts.isStringLiteralLike(node)) {
           expect(node.text, file).not.toMatch(bannedOutcome);
-          expect(node.text, file).not.toMatch(
-            /^(?:node:|https?:|chrome-extension:)|liska-snapshot-catalog|archive\/catalog|resumability-journal|extractors|service-worker|update-discovery|capture\/|scheduler/u
-          );
+          // The exact origin is data in the digest domain, never a route or an effect.
+          if (!(isAdmission && node.text === 'https://claude.ai'))
+            expect(node.text, file).not.toMatch(
+              /^(?:node:|https?:|chrome-extension:)|liska-snapshot-catalog|archive\/catalog|resumability-journal|extractors|service-worker|update-discovery|capture\/|scheduler/u
+            );
         }
         if (ts.isCallExpression(node))
           expect(node.expression.kind).not.toBe(ts.SyntaxKind.ImportKeyword);

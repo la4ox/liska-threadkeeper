@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-20
+last_turn: 2026-11-24
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -806,6 +806,19 @@ deletion/archived-history completeness, provider workspace semantics,
 authenticated personal scope, stable cross-run identity, catalog admission,
 baseline execution, capture/export, or scheduler authority.
 
+### E59 — Synthetic collector projection binds targets to a stable scope key
+
+The `/5` receipt retained neither the raw pair nor target identities. Equal
+counts in a separately prepared target list cannot join those identities to
+the scope seen by `/5`. Focused offline tests exercise one closed projection containing
+the exact route and pair, explicit same-visible-personal context, a terminal
+active page and an empty terminal archived page. A fixed new SHA-256 domain
+correlates repeated exact pairs; changing either binding changes the key. The
+existing `/1` catalog remains incomplete; only the companion evidence records
+the caller-projected empty archived response, and nothing authorizes execution.
+This is a structural synthetic proof, not provenance, an installed collector or
+a provider guarantee.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1356,6 +1369,22 @@ Evidence: E56, E57
 
 Decision record: ADR-080
 
+### D36 — Derive the Claude account catalog only from one collector invocation
+
+Adopt ADR-081. Do not compose independently reviewed receipts. Same-run
+acquisition, not count equality or extra confirmation, supplies the link
+between scope and targets. Preserve `/5` as a stopped diagnostic and keep its
+ephemeral fingerprint separate from the new deliberate stable pseudonym. Use
+the unchanged `/1` catalog for the admitted active targets and version separate
+archived-empty evidence without claiming complete history, authentication or
+execution. The user reconfirmed a full current-personal backup through normal
+Liska, with provider reads and File downloads in resumable batches; live
+collection and the future account owner still have their own acceptance gates.
+
+Evidence: E58, E59
+
+Decision record: ADR-081
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1808,6 +1837,32 @@ bridge remains a separately reviewed gate, with no automatic baseline.
 Trigger: a separately reviewed semantic/personal-scope/catalog bridge is ready
 for its own bounded decision.
 
+### T32 — Persist one admitted Claude catalog in an isolated paused owner
+
+Add one rollback-isolated storage domain that atomically creates an immutable
+paused seed from the admitted catalog and pending targets. It must publish facts
+only after the native transaction terminal event, preserve commit/abort/unknown
+outcomes, reopen read-only, reject conflicts without overwrite, and expose no
+provider, execution, retry or scheduler authority. Accept storage natively before
+another live list read.
+
+Trigger: the ADR-081 projection core is merged and the storage-only owner passes
+focused, fault and small native IndexedDB acceptance.
+
+### T33 — Collect, admit and commit identities in one reviewed Claude live invocation
+
+Wire `/6` only after T32 owns a durable paused destination. Pin the selected
+document, retain request/transport bounds, compare the raw pair on both
+responses, project and admit inside the invocation, then commit atomically before
+showing success. Fence navigation, timeout, cancellation, late hash and unknown
+transaction completion. Show only safe aggregate live evidence. Owner-bound
+detail/File execution still precedes any resumable manual batch; no daily
+scheduler follows.
+
+Trigger: reviewed exact `/6` implementation, accepted owner, installed-state
+reconciliation and an explicit user-started live action for the selected visible
+personal context.
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -1870,6 +1925,7 @@ for its own bounded decision.
 - [evidence] E56: one reviewed v4 click returned stopped/scope-unresolved with 2 requests/pages, 12 active records, 12/12 boolean flags, 0 mismatches, 0 archived records, duplicates or overlap, and two names-only candidate headers; pagination, scope and completeness remain unproved #live
 - [evidence] E57: the two exact v4-observed names plus the pinned route/run boundary permit a same-run pair observation, but not identity, personal scope or a stable catalog key #code
 - [evidence] E58: one installed v5 click observed the exact header pair consistently and returned stopped/scope-observed; safe aggregates are retained without values or fingerprint, while pagination, completeness, personal scope and catalog admission remain unproved #live
+- [evidence] E59: one synthetic caller projection admits sorted active targets and separate archived-empty evidence using a stable exact-pair pseudonym; live provenance, independent receipts, completeness and execution are not admitted #synthetic
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1908,6 +1964,7 @@ for its own bounded decision.
 - [decision] D33: resolve probe routing only from exact reconciled resource, verification-link and named-storage hints, exposing source class but never the ID
 - [decision] D34: keep probe v4 evidence-only and page-atomic with exact reconciliation, unresolved scope and no catalog or execution authority
 - [decision] D35: make probe v5 an exact same-run response-header-pair observation with a nonpersistent run-scoped fingerprint and no identity or catalog authority
+- [decision] D36: bind catalog scope and targets through one collector invocation, keep the stable pseudonym separate from `/5`, and leave execution to later owner gates
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1939,6 +1996,8 @@ for its own bounded decision.
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
 - [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
 - [tail] T31: fulfilled by E58/S61 for one no-retry live header-pair observation; the semantic/personal-scope/catalog bridge remains separate and no automatic baseline follows
+- [tail] T32: persist one admitted catalog in a rollback-isolated paused owner with truthful native transaction outcomes before another live list read
+- [tail] T33: live-accept one reviewed `/6` invocation that commits through the accepted owner before safe aggregate success and later detail/File batches
 
 ## Relations
 
@@ -2011,3 +2070,4 @@ for its own bounded decision.
 - S59 — local receipt `LISKA-CLAUDE-LIST-PROBE-V4-PAGE-EVIDENCE-20261120`; visibility: local-only; one confirmed click, content-free active/archived page and boolean-flag counts, names-only candidate headers, unresolved scope, no retry
 - S60 — [ADR-080: Observe Claude list header-pair scope within one probe run](../adr/080-claude-list-probe-v5-header-pair-observation.md), base main `80c88e9169676a224a141fe999581ffef1a3bb4e`
 - S61 — local receipt `LISKA-CLAUDE-LIST-PROBE-V5-HEADER-PAIR-20261120`; visibility: local-only; git-ignored, content-free, private-route-free; safe aggregate/header-name observation only, with no raw header values or fingerprint
+- S62 — [ADR-081: Admit Claude account catalog data from one invocation](../adr/081-claude-account-catalog-admission.md), base main `dbd5d6b`; [synthetic core proof](../../test/claude-baseline/account-admission.test.ts)

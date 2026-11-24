@@ -6805,3 +6805,44 @@ authenticated personal scope, stable cross-run identity, catalog admission,
 baseline execution, capture/export, or scheduler authority. The next gate is a
 separately reviewed semantic/personal-scope/catalog bridge; no automatic
 baseline follows.
+
+## Claude account catalog projection core — 2026-11-24
+
+[ADR-081](docs/adr/081-claude-account-catalog-admission.md) adds the offline,
+production-unwired catalog admission core on main base `dbd5d6b`. It rejects
+composition of reviewed receipts: counts cannot bind active target identities
+to the pair seen by `/5`. A future collector must acquire both together in one
+pinned, manually attested run. The core consumes only exact bounded projected
+data, one terminal active offset-0 page and one terminal empty archived offset-0
+page. It uses an injected SHA-256 dependency to derive a stable, linkable scope
+pseudonym in a new domain, separate from the transient `/5` fingerprint.
+
+The existing `/1` catalog retains sorted identities and opaque markers with
+active terminal, archived unobserved and incomplete account coverage. Only the
+new companion admission evidence records the caller-projected terminal-empty
+archived page; it reports both account completeness and execution authority
+false. No raw scope-pair field, digest preimage, `/5` fingerprint, route, body or
+presentation field is retained. Exact raw-value aliases are rejected; opaque
+marker substrings remain trusted caller projections rather than a broader
+privacy claim. `/5` producer/contract, popup, service worker, manifest, storage
+and live behavior remain unchanged.
+
+Focused Claude baseline, boundary and documentation-link tests pass 7 files /
+247 tests. TypeScript, zero-warning scoped ESLint, scoped Prettier, the idea
+thread validator and `git diff --check` pass. The repository-wide run completed
+12,653 tests with three skips and one known load-sensitive native-harness
+`missing-observer` timeout; that exact scenario then passed 1/1 and its complete
+file passed 65/65 in isolated reruns. Full lint passes with zero errors and the
+unchanged 55 warnings. Production build/package passes, and the 65-file /
+6,125,112-byte `dist` remains byte-identical to the installed reviewed `/5`
+build because the new core is unwired.
+
+The user reconfirmed the end goal of a full current-personal Claude backup
+through normal Liska, with provider reads, File downloads and resumable
+batches. Next gate: a separately reviewed `/6` live collector with exact
+batches. Next gate: a storage-only rollback-isolated paused inventory owner,
+accepted before any new live read. The subsequent `/6` collector must perform
+exact same-document acquisition, raw-pair equality and late-result fencing, then
+commit through that owner before reporting success. Owner-bound detail/File
+execution remains a later gate. No installed run, storage, capture, download or
+scheduler was added here.
