@@ -6839,10 +6839,51 @@ build because the new core is unwired.
 
 The user reconfirmed the end goal of a full current-personal Claude backup
 through normal Liska, with provider reads, File downloads and resumable
-batches. Next gate: a separately reviewed `/6` live collector with exact
 batches. Next gate: a storage-only rollback-isolated paused inventory owner,
 accepted before any new live read. The subsequent `/6` collector must perform
 exact same-document acquisition, raw-pair equality and late-result fencing, then
 commit through that owner before reporting success. Owner-bound detail/File
 execution remains a later gate. No installed run, storage, capture, download or
 scheduler was added here.
+
+## Claude account baseline owner v1 — 2026-11-24
+
+[ADR-082](docs/adr/082-claude-account-baseline-owner-v1.md) implements the
+rollback-isolated storage gate, outside the production build. Its fixed
+IndexedDB v1 domain has one store/key and admits one immutable paused revision-0
+envelope with the exact ADR-081 result plus pending IDs, not copied markers.
+It stores at most 30 targets and caps canonical UTF-8 at 65,536 bytes;
+the fully populated worst-escaping case fits in 53,291 bytes. Account
+completeness and execution authority remain false.
+
+One insert-only transaction inspects exact keys and releases success only
+after commit. Exact seed confirmation is idempotent, different seeds conflict,
+and corrupt/unsupported data is never overwritten. An observed abort proves
+rollback; missing terminal evidence fences the handle until truth is inspected
+by a fresh read. No prior DB, provider, capture, download or scheduler is wired.
+
+Focused owner/admission, architecture, harness and documentation-link checks
+pass 9 files / 290 tests. On 2026-11-25 one isolated Chrome for Testing profile
+loaded the separate zero-permission harness and one trusted click returned exact
+PASS rows `cancel`, `close`, `race`, `reopen`, `cleanup`; no retry followed. The
+32,547-byte runner has SHA-256
+`01824d8b426cc4aaa04621d77fa04f443b071157a794af7b53651e67f0f51205`.
+All temporary profiles were removed, no provider request occurred and production
+Liska was unchanged. Local-only receipt
+`LISKA-CLAUDE-ACCOUNT-OWNER-V1-NATIVE-20261125` closes native storage acceptance.
+The authorized full current-personal backup remains the goal, not work done by
+this storage slice. Reviewed `/6` must next acquire, admit and commit before
+public success. Owner-bound detail and File delivery remain later gates before
+resumable manual batches.
+
+The repository-wide run completed 12,687 tests with three skips and 13 failures
+under sustained load. One was a real broad architecture allowlist omission for
+the new test-only builder; the exact allowlist was fixed and passed 4/4 without
+weakening production scanning. Nine owner/2 lifecycle cases timed out, then the
+complete file passed 65/65 in isolation. Three autoscroll cases timed out in the
+full run; the isolated file completed 158/163 before five 30-second timeouts,
+and each of those five exact tests passed separately. Full lint passes with zero
+errors and the unchanged 55 warnings; build/package passes. The 65-file /
+6,125,112-byte production `dist` stays byte-identical to the installed reviewed
+`/5` build because the owner is unwired. Current-head CI remains the independent
+single-run gate.

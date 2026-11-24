@@ -6,9 +6,17 @@ import { describe, expect, it } from 'vitest';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const modulePath = 'src/claude-baseline';
+const ownerPath = 'src/claude-account-baseline-owner';
+const harnessBuilder = 'scripts/build-claude-account-baseline-owner-browser.mjs';
 const imports: Record<string, readonly string[]> = {
   'account-admission-contracts.ts': ['./contracts'],
   'account-admission.ts': [
+    './account-admission-contracts',
+    './contracts',
+    './data',
+    './enumeration',
+  ],
+  'account-admission-snapshot.ts': [
     './account-admission-contracts',
     './contracts',
     './data',
@@ -20,6 +28,7 @@ const imports: Record<string, readonly string[]> = {
   'scope.ts': ['./contracts', './data'],
   'index.ts': [
     './account-admission',
+    './account-admission-snapshot',
     './account-admission-contracts',
     './enumeration',
     './contracts',
@@ -88,6 +97,16 @@ function resolve(file: string, reference: string): string | undefined {
   );
 }
 
+function wiringCandidates(): string[] {
+  return [
+    ...files('scripts').filter(file => file !== harnessBuilder),
+    ...files('src').filter(file => /\.(?:html|json)$/u.test(file)),
+    ...readdirSync(root).filter(
+      file => /(?:config|manifest|package)/u.test(file) && /\.(?:json|ts|js|mjs)$/u.test(file)
+    ),
+  ];
+}
+
 describe('unwired pure Claude baseline catalog boundary', () => {
   it('pins every source file and its exact runtime and type import closure', () => {
     expect(files(modulePath).sort()).toEqual(
@@ -154,32 +173,122 @@ describe('unwired pure Claude baseline catalog boundary', () => {
     }
   });
 
-  it('has zero consumers or references in other production source files', () => {
+  it('has one source consumer, confined to the otherwise-unwired account owner codec', () => {
     const external = files('src').filter(file => !file.startsWith(modulePath + '/'));
     expect(external.length).toBeGreaterThan(100);
+    const consumers = new Set<string>();
     for (const file of external) {
-      expect(readFileSync(path.join(root, file), 'utf8'), file).not.toMatch(marker);
+      if (marker.test(readFileSync(path.join(root, file), 'utf8'))) consumers.add(file);
       if (!/\.[cm]?[jt]sx?$/u.test(file)) continue;
       for (const reference of references(tree(file))) {
         if (!reference.startsWith('.')) continue;
         const target = resolve(file, reference);
-        expect(target === modulePath || target?.startsWith(modulePath + '/'), file).not.toBe(true);
+        if (target === modulePath || target?.startsWith(modulePath + '/')) consumers.add(file);
       }
     }
+    expect([...consumers]).toEqual([`${ownerPath}/codec.ts`]);
   });
 
-  it('has no configuration, package, build, HTML or manifest wiring', () => {
-    const candidates = [
-      ...files('scripts'),
-      ...files('src').filter(file => /\.(?:html|json)$/u.test(file)),
-      ...readdirSync(root).filter(
-        file => /(?:config|manifest|package)/u.test(file) && /\.(?:json|ts|js|mjs)$/u.test(file)
-      ),
-    ];
+  it('has no configuration, package, production build, HTML or manifest wiring', () => {
+    const candidates = wiringCandidates();
     expect(candidates).toContain('src/manifest.json');
     expect(candidates).toContain('vite.config.ts');
     expect(candidates).toContain('package.json');
     for (const file of candidates)
       expect(readFileSync(path.join(root, file), 'utf8'), file).not.toMatch(marker);
+  });
+});
+
+describe('Claude one-shot account owner boundary', () => {
+  const ownerImports: Record<string, readonly string[]> = {
+    'codec.ts': [
+      '../claude-baseline/account-admission-contracts',
+      '../claude-baseline/account-admission-snapshot',
+      '../claude-baseline/contracts',
+      '../claude-baseline/data',
+      './errors',
+    ],
+    'database.ts': ['./errors'],
+    'errors.ts': [],
+    'index.ts': [
+      './codec',
+      './database',
+      './errors',
+      './errors',
+      './transaction',
+      './codec',
+      './database',
+    ],
+    'transaction.ts': ['./database', './errors'],
+  };
+  const ownerMarker =
+    /claude-account-baseline-owner|claude-account-collection\/1|openClaudeAccountBaselineOwner|ClaudeAccountBaselineOwner|CLAUDE_ACCOUNT_(?:BASELINE_OWNER|COLLECTION_ID)/u;
+
+  it('pins the exact owner sources and static dependencies, without adopting a legacy owner', () => {
+    expect(files(ownerPath).sort()).toEqual(
+      Object.keys(ownerImports)
+        .map(name => `${ownerPath}/${name}`)
+        .sort()
+    );
+    for (const [file, dependencies] of Object.entries(ownerImports))
+      expect(references(tree(`${ownerPath}/${file}`)).sort(), file).toEqual(
+        [...dependencies].sort()
+      );
+  });
+
+  it('permits only its fixed single-store creation, bounded inventory reads and insert', () => {
+    const source = Object.fromEntries(
+      files(ownerPath).map(file => [
+        path.posix.basename(file),
+        readFileSync(path.join(root, file), 'utf8'),
+      ])
+    );
+    expect(source['database.ts']).toMatch(/ = 'liska-claude-account-baseline-owner-v1';/u);
+    expect(source['database.ts']).toMatch(/DATABASE_VERSION = 1;/u);
+    expect(source['database.ts']).toMatch(/OWNER_STORE = 'owner';/u);
+    expect(source['database.ts']).toMatch(/OWNER_KEY = 'baseline';/u);
+    const all = Object.values(source).join('\n');
+    expect(all.match(/\bcreateObjectStore\s*\(/gu)).toHaveLength(1);
+    expect(all.match(/\.add\s*\(/gu)).toHaveLength(1);
+    expect(all.match(/\.openKeyCursor\s*\(/gu)).toHaveLength(1);
+    expect(all.match(/\.delete\s*\(/gu)).toHaveLength(1);
+    expect(source['transaction.ts']).toMatch(/this\.pending\.delete\(/u);
+    expect(all).not.toMatch(
+      /\b(?:deleteDatabase|deleteObjectStore|createIndex|deleteIndex|clear|put|update|activate|reserve|advance|replace|appendPage|retry|recover)\s*\(/u
+    );
+  });
+
+  it('grants no effects besides IndexedDB, cancellation listeners and bounded transaction timers', () => {
+    const forbidden =
+      /^(?:fetch|XMLHttpRequest|WebSocket|EventSource|URL|Request|Response|chrome|browser|window|document|navigator|localStorage|sessionStorage|caches|Date|performance|crypto|setInterval|Worker|BroadcastChannel|postMessage|sendMessage|require|process|eval|Function|console|File|Blob|capture|scheduler|download|credentials)$/u;
+    for (const file of files(ownerPath)) {
+      function visit(node: ts.Node) {
+        if (ts.isIdentifier(node)) expect(node.text, file).not.toMatch(forbidden);
+        if (ts.isStringLiteralLike(node))
+          expect(node.text, file).not.toMatch(
+            /^(?:node:|https?:|chrome-extension:)|liska-snapshot-catalog|provider-baseline-owner|resumability-journal|service-worker|capture\/|scheduler/u
+          );
+        if (ts.isCallExpression(node))
+          expect(node.expression.kind, file).not.toBe(ts.SyntaxKind.ImportKeyword);
+        ts.forEachChild(node, visit);
+      }
+      visit(tree(file));
+    }
+  });
+
+  it('has no production consumers, aliases, manifest, HTML, standard build or package wiring', () => {
+    for (const file of [
+      ...files('src').filter(file => !file.startsWith(ownerPath + '/')),
+      ...wiringCandidates(),
+    ]) {
+      expect(readFileSync(path.join(root, file), 'utf8'), file).not.toMatch(ownerMarker);
+      if (!/\.[cm]?[jt]sx?$/u.test(file)) continue;
+      for (const reference of references(tree(file))) {
+        if (!reference.startsWith('.')) continue;
+        const target = resolve(file, reference);
+        expect(target === ownerPath || target?.startsWith(ownerPath + '/'), file).not.toBe(true);
+      }
+    }
+    expect(readFileSync(path.join(root, harnessBuilder), 'utf8')).toMatch(/configFile: false/u);
   });
 });

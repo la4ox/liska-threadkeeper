@@ -122,7 +122,7 @@ passes with zero errors and the unchanged 55 warnings. Production build/package
 passes, and its 65-file / 6,125,112-byte `dist` is byte-identical to the installed
 reviewed `/5` build because this module remains outside production closure.
 
-The next gate is a storage-only rollback-isolated account-baseline owner that
+The next gate is the [storage-only rollback-isolated owner](082-claude-account-baseline-owner-v1.md) that
 can atomically retain one admitted paused catalog with finite capacity and
 truthful transaction outcomes. It must be accepted before another live list
 read. Then a reviewed, explicitly user-started `/6` collector retains the

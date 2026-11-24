@@ -1,4 +1,5 @@
 export { admitClaudeAccountCatalog } from './account-admission';
+export { snapshotClaudeAccountCatalogAdmission } from './account-admission-snapshot';
 export {
   CLAUDE_ACCOUNT_CATALOG_ADMISSION_SCHEMA,
   CLAUDE_MANUAL_VISIBLE_PERSONAL_CONTEXT,
