@@ -994,6 +994,95 @@
       }
     }
   },
+  "settings_collectClaudeCatalog": {
+    "message": "Claude バックアップ対象一覧を保存"
+  },
+  "settings_collectClaudeCatalogHelp": {
+    "message": "現在の個人用 Claude で、一時停止状態の対象一覧をローカルに保存します。チャット本文はまだダウンロードしません。"
+  },
+  "status_collectorFacts": {
+    "message": "アクティブ一覧の終端: $ACTIVE$。アーカイブが終端で空: $ARCHIVE$。ヘッダーの組が一致: $PAIR$。保存確認: $RETENTION$。アカウント全体の完全性・実行許可なし。本文リクエスト・ダウンロード: 0。",
+    "placeholders": {
+      "active": {
+        "content": "$1"
+      },
+      "archive": {
+        "content": "$2"
+      },
+      "pair": {
+        "content": "$3"
+      },
+      "retention": {
+        "content": "$4"
+      }
+    }
+  },
+  "status_collectorRunning": {
+    "message": "Claude の対象一覧を取得中…"
+  },
+  "status_collectorSaved": {
+    "message": "停止状態の一覧を保存しました（$CODE$）。確認できたリクエスト $REQUESTS$、ページ $PAGES$、対象 $TARGETS$、マーカー $MARKERS$。本文はダウンロードしていません。",
+    "placeholders": {
+      "code": {
+        "content": "$1"
+      },
+      "requests": {
+        "content": "$2"
+      },
+      "pages": {
+        "content": "$3"
+      },
+      "targets": {
+        "content": "$4"
+      },
+      "markers": {
+        "content": "$5"
+      }
+    }
+  },
+  "status_collectorCommittedStop": {
+    "message": "一覧は保存済みですが確認は停止しました（$CODE$）。確認できたリクエスト $REQUESTS$、ページ $PAGES$、対象 $TARGETS$、マーカー $MARKERS$。本文はダウンロードしていません。",
+    "placeholders": {
+      "code": {
+        "content": "$1"
+      },
+      "requests": {
+        "content": "$2"
+      },
+      "pages": {
+        "content": "$3"
+      },
+      "targets": {
+        "content": "$4"
+      },
+      "markers": {
+        "content": "$5"
+      }
+    }
+  },
+  "status_collectorStopped": {
+    "message": "一覧の取得を停止しました（$CODE$）。確認できたリクエスト $REQUESTS$、ページ $PAGES$、対象 $TARGETS$、マーカー $MARKERS$。本文はダウンロードしていません。",
+    "placeholders": {
+      "code": {
+        "content": "$1"
+      },
+      "requests": {
+        "content": "$2"
+      },
+      "pages": {
+        "content": "$3"
+      },
+      "targets": {
+        "content": "$4"
+      },
+      "markers": {
+        "content": "$5"
+      }
+    }
+  },
+  "status_collectorUnavailable": {
+    "message": "取得結果を確認できません。自動では再試行しません。"
+  },
   "settings_probeClaudeLists": {
     "message": "Claude のリストを確認"
   },

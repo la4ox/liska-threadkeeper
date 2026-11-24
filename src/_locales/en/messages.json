@@ -1113,6 +1113,95 @@
       }
     }
   },
+  "settings_collectClaudeCatalog": {
+    "message": "Collect Claude backup catalog"
+  },
+  "settings_collectClaudeCatalogHelp": {
+    "message": "Use the current personal Claude context. Store a paused target catalog locally; no chat content is downloaded yet."
+  },
+  "status_collectorFacts": {
+    "message": "Active terminal: $ACTIVE$. Archived terminal and empty: $ARCHIVE$. Header pair matched: $PAIR$. Retention: $RETENTION$. Account complete: false. Execution authorized: false. Detail requests: 0. Downloads: 0.",
+    "placeholders": {
+      "active": {
+        "content": "$1"
+      },
+      "archive": {
+        "content": "$2"
+      },
+      "pair": {
+        "content": "$3"
+      },
+      "retention": {
+        "content": "$4"
+      }
+    }
+  },
+  "status_collectorRunning": {
+    "message": "Collecting the paused Claude catalog…"
+  },
+  "status_collectorSaved": {
+    "message": "Paused catalog saved ($CODE$). Confirmed requests $REQUESTS$, pages $PAGES$, targets $TARGETS$, markers $MARKERS$. No chat content downloaded.",
+    "placeholders": {
+      "code": {
+        "content": "$1"
+      },
+      "requests": {
+        "content": "$2"
+      },
+      "pages": {
+        "content": "$3"
+      },
+      "targets": {
+        "content": "$4"
+      },
+      "markers": {
+        "content": "$5"
+      }
+    }
+  },
+  "status_collectorCommittedStop": {
+    "message": "Paused catalog saved; verification stopped ($CODE$). Confirmed requests $REQUESTS$, pages $PAGES$, targets $TARGETS$, markers $MARKERS$. No chat content downloaded.",
+    "placeholders": {
+      "code": {
+        "content": "$1"
+      },
+      "requests": {
+        "content": "$2"
+      },
+      "pages": {
+        "content": "$3"
+      },
+      "targets": {
+        "content": "$4"
+      },
+      "markers": {
+        "content": "$5"
+      }
+    }
+  },
+  "status_collectorStopped": {
+    "message": "Collection stopped ($CODE$). Confirmed requests $REQUESTS$, pages $PAGES$, targets $TARGETS$, markers $MARKERS$. No chat content downloaded.",
+    "placeholders": {
+      "code": {
+        "content": "$1"
+      },
+      "requests": {
+        "content": "$2"
+      },
+      "pages": {
+        "content": "$3"
+      },
+      "targets": {
+        "content": "$4"
+      },
+      "markers": {
+        "content": "$5"
+      }
+    }
+  },
+  "status_collectorUnavailable": {
+    "message": "Collector result unavailable. No automatic retry."
+  },
   "settings_probeClaudeLists": {
     "message": "Inspect Claude lists"
   },

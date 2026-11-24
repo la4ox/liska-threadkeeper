@@ -8,7 +8,11 @@ type BranchHtmlMessage = Extract<
   { action: 'persistDerivedBranchHtmlPresentation' }
 >;
 
-function snapshotOwnData(value: unknown, expected: readonly string[]) {
+function snapshotOwnData(
+  value: unknown,
+  entryAction: PropertyDescriptor | undefined,
+  expected: readonly string[]
+) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const prototype: unknown = Object.getPrototypeOf(value);
   const keys = Reflect.ownKeys(value);
@@ -20,7 +24,8 @@ function snapshotOwnData(value: unknown, expected: readonly string[]) {
     return undefined;
   const data: Record<string, unknown> = Object.create(null);
   for (const key of expected) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    const descriptor =
+      key === 'action' && entryAction ? entryAction : Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) return undefined;
     data[key] = descriptor.value;
   }
@@ -47,10 +52,11 @@ function snapshotFileOnly(value: unknown): ['file'] | undefined {
 
 /** Detach every caller-owned object before sizing, authorization or asynchronous work. */
 export function snapshotPersistDerivedBranchHtmlMessage(
-  value: unknown
+  value: unknown,
+  entryAction?: PropertyDescriptor
 ): BranchHtmlMessage | undefined {
   try {
-    const data = snapshotOwnData(value, [
+    const data = snapshotOwnData(value, entryAction, [
       'action',
       'reportDurableWriteOutcome',
       'source',

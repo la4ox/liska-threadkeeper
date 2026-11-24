@@ -841,6 +841,23 @@ database. All temporary profiles were removed. This accepts storage/event
 ordering only: no Claude request, catalog collection, capture, download or
 execution occurred.
 
+### E62 — One synthetic collector joins acquisition, admission and retention
+
+The production `/6` path binds the click to the exact tab/window/chat URL
+before worker delivery. It preflights the paused owner and requires the
+clicked chat to appear in the terminal active page before requesting the
+archive. The two-page projection binds that gesture to the scope hash and
+waits for native terminal truth before reporting retention. A fresh synthetic
+store can be reopened; an occupied one stops before network. Interrupted
+hashing cannot write. A confirmed commit remains retained when later verification
+expires or is unavailable; neither proves that the write was late or the user navigated.
+A missing focus, failed pin check or refused token arm does not prove document
+replacement. Nor do missing token ownership or a hidden page during an in-flight
+body read prove navigation. The token-owned cancel signal preserves its first
+reason; only a valid top-frame ID contradicting the pin establishes replacement.
+The emitted page function runs without worker-scope captures against two
+synthetic responses. None of this is an installed or real-account receipt.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1420,6 +1437,19 @@ Evidence: E59, E60
 
 Decision record: ADR-082
 
+### D38 — Keep one-click collection separate from both the diagnostic and execution
+
+Adopt an exact popup-only action and a private pinned projection instead of
+reinterpreting old receipts, replaying a page or accepting scope/targets from
+a caller. The popup source is an ephemeral navigation constraint; active-list
+membership is the positive anchor for that choice. Report commit truth even when final context checks stop publication
+of normal success. Installed current-personal collection, not synthetic
+coverage, is the next evidence boundary.
+
+Evidence: E61, E62
+
+Decision record: ADR-083
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1889,8 +1919,9 @@ Trigger: fulfilled on 2026-11-25; preserve the owner boundary while wiring T33.
 
 ### T33 — Collect, admit and commit identities in one reviewed Claude live invocation
 
-Wire `/6` only after T32 owns a durable paused destination. Pin the selected
-document, retain request/transport bounds, compare the raw pair on both
+Implementation E62 follows the native T32 owner; T33 is still pending its reviewed installed live gate. Pin the selected
+document bound to the click, verify selected-chat membership before the archive,
+retain request/transport bounds, compare the raw pair on both
 responses, project and admit inside the invocation, then commit atomically before
 showing success. Fence navigation, timeout, cancellation, late hash and unknown
 transaction completion. Show only safe aggregate live evidence. Owner-bound
@@ -1966,6 +1997,7 @@ personal context.
 - [evidence] E59: one synthetic caller projection admits sorted active targets and separate archived-empty evidence using a stable exact-pair pseudonym; live provenance, independent receipts, completeness and execution are not admitted #synthetic
 - [evidence] E60: one detached paused seed fits even at maximum JSON escaping and survives synthetic IndexedDB verification; native acceptance is still pending #synthetic
 - [evidence] E61: one isolated zero-permission Chromium run passed cancel/close/race/reopen/cleanup and exact cleanup; provider collection and execution remain absent #live
+- [evidence] E62: synthetic /6 preserves the click-bound source, requires the selected chat in the active list and distinguishes commit truth from verification; the installed/live gate is still open #synthetic
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -2006,6 +2038,7 @@ personal context.
 - [decision] D35: make probe v5 an exact same-run response-header-pair observation with a nonpersistent run-scoped fingerprint and no identity or catalog authority
 - [decision] D36: bind catalog scope and targets through one collector invocation, keep the stable pseudonym separate from `/5`, and leave execution to later owner gates
 - [decision] D37: store one exact immutable paused seed in a rollback-isolated owner before the live collector; a terminal result or fresh inspection establishes truth, never an automatic retry
+- [decision] D38: bind the popup gesture to the actual source and positive active target, then report paused commit truth separately from final context verification, without detail or execution authority
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -2114,3 +2147,4 @@ personal context.
 - S62 — [ADR-081: Admit Claude account catalog data from one invocation](../adr/081-claude-account-catalog-admission.md), base main `dbd5d6b`; [synthetic core proof](../../test/claude-baseline/account-admission.test.ts)
 - S63 — [ADR-082: Retain one admitted Claude catalog](../adr/082-claude-account-baseline-owner-v1.md), base main `93a6861`; [codec](../../test/claude-account-baseline-owner/codec.test.ts), [transaction](../../test/claude-account-baseline-owner/storage.test.ts) and [harness](../../test/scripts/claude-account-baseline-owner-browser-harness.test.ts) checks
 - S64 — local receipt `LISKA-CLAUDE-ACCOUNT-OWNER-V1-NATIVE-20261125`; visibility: local-only; one zero-permission native PASS with cancel/close/race/reopen/cleanup, exact test-domain cleanup, no provider request or production-extension change
+- S65 — [ADR-083](../adr/083-claude-account-collector-v6.md) and [collector tests](../../test/background/claude-account-collector.test.ts); synthetic same-run collection only, no live receipt

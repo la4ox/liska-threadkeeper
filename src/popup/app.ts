@@ -7,6 +7,11 @@
  * inside initPopup() rather than at module scope.
  */
 
+import {
+  collectorSummary,
+  snapshotCollectorSummary,
+  snapshotCollectorSource,
+} from '../lib/claude-account-collector-contract';
 import { getSettingsOrThrow } from '../lib/storage';
 import type {
   ExtensionSettings,
@@ -92,6 +97,7 @@ function queryElements() {
     openReconciliationBtn: getElement<HTMLButtonElement>('openReconciliationBtn'),
     probeDotsSchemaBtn: getElement<HTMLButtonElement>('probeDotsSchemaBtn'),
     probeClaudeListsBtn: getElement<HTMLButtonElement>('probeClaudeListsBtn'),
+    collectClaudeAccountCatalogBtn: getElement<HTMLButtonElement>('collectClaudeAccountCatalogBtn'),
     claudeListEvidence: getElement<HTMLElement>('claudeListEvidence'),
     obsidianSettings: getElement<HTMLElement>('obsidianSettings'),
     // Obsidian settings
@@ -148,6 +154,10 @@ let savedApiKeyValue = '';
 // not authoritative and every ordinary save must resend the displayed key.
 let apiKeySaveUncertain = false;
 
+function setClaudeToolsDisabled(disabled: boolean): void {
+  elements.probeClaudeListsBtn.disabled = disabled;
+  elements.collectClaudeAccountCatalogBtn.disabled = disabled;
+}
 function isOpaqueReplaySettingActive(settings: ExtensionSettings): boolean {
   return settings.enableChatGptOpaqueReplay === true && settings.enableChatGptOpaqueProbe !== true;
 }
@@ -160,7 +170,7 @@ export async function initPopup(): Promise<void> {
   elements = queryElements();
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
-  elements.probeClaudeListsBtn.disabled = true;
+  setClaudeToolsDisabled(true);
   try {
     initializeI18n();
     // Never populate an editable form with defaults after an unreadable store.
@@ -170,7 +180,7 @@ export async function initPopup(): Promise<void> {
     setupToggleSwitchAccessibility();
     elements.saveBtn.disabled = false;
     elements.testBtn.disabled = false;
-    elements.probeClaudeListsBtn.disabled = false;
+    setClaudeToolsDisabled(false);
   } catch {
     showStatus(getMessage('toast_error_connectionFailed'), 'error');
     console.error('[G2O Popup] Failed to initialize settings');
@@ -284,6 +294,11 @@ function setupEventListeners(): void {
     handleTrustedClaudeListProbeClick(event, () => void runClaudeListProbe());
   });
 
+  elements.collectClaudeAccountCatalogBtn.addEventListener(
+    'click',
+    event => void handleCollectorClick(event)
+  );
+
   // Output destination checkbox listeners
   elements.outputObsidian.addEventListener('change', () => {
     updateObsidianSettingsVisibility();
@@ -328,6 +343,66 @@ export function handleTrustedDotsSchemaProbeClick(event: Event, onClick: () => v
 export function handleTrustedClaudeListProbeClick(event: Event, onClick: () => void): void {
   if (!event.isTrusted) return;
   onClick();
+}
+
+function showCollectorSummary(raw: unknown): void {
+  const s = snapshotCollectorSummary(raw) ?? collectorSummary('result-invalid');
+  const key =
+    s.status === 'saved'
+      ? 'status_collectorSaved'
+      : s.retention === 'owner-committed'
+        ? 'status_collectorCommittedStop'
+        : 'status_collectorStopped';
+  showStatus(
+    [
+      getMessage(key, [
+        s.code,
+        String(s.dispatch),
+        String(s.page),
+        String(s.target),
+        String(s.marker),
+      ]),
+      getMessage('status_collectorFacts', [
+        String(s.activeTerminal),
+        String(s.archivedTerminalEmpty),
+        String(s.pairMatched),
+        s.retention,
+      ]),
+    ].join(' '),
+    s.status === 'saved' ? 'success' : 'warning'
+  );
+}
+
+/** This specific informed click is the manual assertion, never a stored setting. */
+export async function handleCollectorClick(event: Event): Promise<void> {
+  if (event.isTrusted !== true || !beginSettingsAction()) return;
+  clearClaudeListEvidence();
+  showStatus(getMessage('status_collectorRunning'), 'info');
+  let alive = true;
+  const leaving = () => {
+    alive = false;
+  };
+  window.addEventListener('pagehide', leaving, { once: true });
+  try {
+    // Start selection in this click task; never let the worker pick a substitute tab.
+    const selected = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!alive) return;
+    const tab = selected.length === 1 ? selected[0] : undefined;
+    const source =
+      tab?.active === true && (!tab.pendingUrl || tab.pendingUrl === tab.url)
+        ? snapshotCollectorSource({ tabId: tab.id, windowId: tab.windowId, url: tab.url })
+        : undefined;
+    const raw = source
+      ? await sendMessage({ action: 'collectClaudeAccountCatalog', source })
+      : collectorSummary(tab ? 'claude-route-required' : 'active-tab-required');
+    if (!alive) return;
+    showCollectorSummary(raw);
+  } catch {
+    if (alive) showStatus(getMessage('status_collectorUnavailable'), 'error');
+  } finally {
+    window.removeEventListener('pagehide', leaving);
+    endSettingsAction();
+  }
 }
 
 function sendClaudeListProbeMessage(): Promise<ClaudeListProbeResponse> {
@@ -419,7 +494,7 @@ export async function runDotsSchemaProbe(): Promise<void> {
   if (dotsSchemaProbeInFlight || claudeListProbeInFlight || settingsActionInFlight) return;
   dotsSchemaProbeInFlight = true;
   elements.probeDotsSchemaBtn.disabled = true;
-  elements.probeClaudeListsBtn.disabled = true;
+  setClaudeToolsDisabled(true);
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
   clearStatus();
@@ -436,7 +511,7 @@ export async function runDotsSchemaProbe(): Promise<void> {
   } finally {
     dotsSchemaProbeInFlight = false;
     elements.probeDotsSchemaBtn.disabled = false;
-    elements.probeClaudeListsBtn.disabled = false;
+    setClaudeToolsDisabled(false);
     elements.saveBtn.disabled = false;
     elements.testBtn.disabled = false;
   }
@@ -446,7 +521,7 @@ export async function runDotsSchemaProbe(): Promise<void> {
 export async function runClaudeListProbe(): Promise<void> {
   if (claudeListProbeInFlight || dotsSchemaProbeInFlight || settingsActionInFlight) return;
   claudeListProbeInFlight = true;
-  elements.probeClaudeListsBtn.disabled = true;
+  setClaudeToolsDisabled(true);
   elements.probeDotsSchemaBtn.disabled = true;
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
@@ -486,7 +561,7 @@ export async function runClaudeListProbe(): Promise<void> {
     showStatus(getMessage('toast_error_claudeListProbeFailed', 'unavailable'), 'error');
   } finally {
     claudeListProbeInFlight = false;
-    elements.probeClaudeListsBtn.disabled = false;
+    setClaudeToolsDisabled(false);
     elements.probeDotsSchemaBtn.disabled = false;
     elements.saveBtn.disabled = false;
     elements.testBtn.disabled = false;
@@ -774,7 +849,7 @@ function beginSettingsAction(): boolean {
   elements.saveBtn.disabled = true;
   elements.testBtn.disabled = true;
   elements.probeDotsSchemaBtn.disabled = true;
-  elements.probeClaudeListsBtn.disabled = true;
+  setClaudeToolsDisabled(true);
   return true;
 }
 
@@ -783,7 +858,7 @@ function endSettingsAction(): void {
   elements.saveBtn.disabled = false;
   elements.testBtn.disabled = false;
   elements.probeDotsSchemaBtn.disabled = false;
-  elements.probeClaudeListsBtn.disabled = false;
+  setClaudeToolsDisabled(false);
 }
 
 /**

@@ -217,9 +217,17 @@ describe('isolated durable baseline owner boundary', () => {
         : []),
     ];
     for (const file of config)
-      expect(readFileSync(file, 'utf8'), relative(file)).not.toMatch(
-        /baseline-owner|liska-baseline-owner|createBaselineOwner|reserveNextChatGpt/u
-      );
+      // ADR-083 adds exactly the disjoint Claude database literal in emitted worker JS.
+      expect(
+        (file.startsWith(path.join(root, 'dist') + path.sep) && file.endsWith('.js')) ||
+          file === path.join(root, 'scripts/check-service-worker-runtime.mjs')
+          ? readFileSync(file, 'utf8').replace(
+              /liska-claude-account-baseline-owner(?:-v1|\/1)/gu,
+              ''
+            )
+          : readFileSync(file, 'utf8'),
+        relative(file)
+      ).not.toMatch(/baseline-owner|liska-baseline-owner|createBaselineOwner|reserveNextChatGpt/u);
   });
   it('preserves every baseline-plan source blob at the agreed base (v1/v2 have independent pinned tests)', () => {
     const baseline = JSON.parse(

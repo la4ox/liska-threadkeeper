@@ -5,6 +5,7 @@ import { htmlMessage, htmlSettings } from './derived-html-fixture';
 import { textMessage } from './derived-text-fixture';
 import { branchHtmlMessage } from './derived-branch-html-fixture';
 import { validateMessageContent } from '../../src/background/validation';
+import { collectorSummary } from '../../src/lib/claude-account-collector-contract';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import { EXPORT_DURABLE_ACTIONS, EXPORT_STATE_KEY } from '../../src/lib/export-operation-contract';
 
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   settings: vi.fn(),
   dots: vi.fn(),
   claudeLists: vi.fn(),
+  collector: vi.fn(),
   connection: vi.fn(),
 }));
 vi.mock('../../src/background/obsidian-handlers', () => ({
@@ -28,6 +30,9 @@ vi.mock('../../src/background/dots-schema-probe', async importOriginal => ({
 vi.mock('../../src/background/claude-list-probe', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/background/claude-list-probe')>()),
   probeClaudeListsInActiveTab: mocks.claudeLists,
+}));
+vi.mock('../../src/background/claude-account-collector', () => ({
+  collectClaudeAccountCatalog: mocks.collector,
 }));
 vi.mock('../../src/lib/storage', () => ({
   getSettings: mocks.settings,
@@ -58,6 +63,12 @@ vi.mock('../../src/background/chatgpt-capture', () => ({
   ChatGptTemporaryCaptureError: class extends Error {},
 }));
 const route = 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd';
+const collectorAction = 'collectClaudeAccountCatalog';
+const collectorSource = {
+  tabId: 7,
+  windowId: 3,
+  url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
+};
 const stageId = `archive-stage-${'A'.repeat(32)}`;
 const binaryId = `stage-${'B'.repeat(32)}`;
 let listener: (
@@ -217,6 +228,131 @@ describe('export authority at actual worker dispatch', () => {
       code: 'invalid-message',
     });
     expect(mocks.claudeLists).toHaveBeenCalledOnce();
+  });
+
+  it('routes only exact popup/action to a closed collector channel; worker errors and internals never escape', async () => {
+    const action = collectorAction;
+    const source = collectorSource;
+    const message = { action, source };
+    mocks.collector.mockClear();
+    expect(validateMessageContent(message)).toBe(true);
+    expect(await dispatch({ action }, popup())).toMatchObject({ code: 'invalid-message' });
+    expect(
+      await dispatch({ action, source: { ...source, scope: 'private' } }, popup())
+    ).toMatchObject({ code: 'invalid-message' });
+    for (const extra of [
+      { scope: 'private' },
+      { exportOperationId: 'tag' },
+      { textPreviewCaptureId: 'tag' },
+      { exportOperationId: '1'.repeat(36) },
+      { textPreviewCaptureId: '2'.repeat(36) },
+      { target: 'offscreen' },
+      { tabId: 9 },
+      { manualAttestation: 'private' },
+    ]) {
+      expect(validateMessageContent({ ...message, ...extra })).toBe(false);
+      expect(await dispatch({ ...message, ...extra }, popup())).toMatchObject({
+        status: 'stopped',
+        code: 'invalid-message',
+      });
+    }
+    for (const wrong of [
+      sender(),
+      { ...popup(), url: popup().url + '#x' },
+      { ...popup(), id: 'other' },
+      { ...popup(), frameId: 2 },
+      { ...popup(), documentLifecycle: 'cached' },
+      { ...popup(), tab: { id: 7 } },
+    ]) {
+      expect(await dispatch(message, wrong)).toMatchObject({
+        status: 'stopped',
+        code: 'invalid-sender',
+      });
+    }
+    expect(mocks.collector).not.toHaveBeenCalled();
+    for (const mock of [
+      () => Promise.resolve({ kind: 'projected', workspace: 'private bytes' }),
+      () => Promise.reject(Error('private bytes')),
+    ]) {
+      mocks.collector.mockImplementationOnce(mock);
+      const r = await dispatch(message, popup());
+      expect(r).toMatchObject({
+        status: 'stopped',
+        code: 'result-invalid',
+        detailRequests: 0,
+        downloads: 0,
+        executionAuthorized: false,
+      });
+      expect(JSON.stringify(r)).not.toContain('private bytes');
+    }
+  });
+  it.each(['single-read', 'stateful'] as const)(
+    'uses the entry action descriptor for collector admission (%s)',
+    async mode => {
+      const message = { action: collectorAction, source: { ...collectorSource } };
+      let actionReads = 0;
+      const descriptor = vi.fn((target: typeof message, key: PropertyKey) => {
+        const field = Object.getOwnPropertyDescriptor(target, key);
+        if (key !== 'action' || ++actionReads === 1) return field;
+        if (mode === 'single-read') throw new Error('Repeated action descriptor read');
+        return { ...field, value: 'getSettings' };
+      });
+      const result = collectorSummary('active-tab-required');
+      mocks.collector.mockClear().mockResolvedValueOnce(result);
+      expect(
+        await dispatch(new Proxy(message, { getOwnPropertyDescriptor: descriptor }), popup())
+      ).toEqual(result);
+      expect(descriptor.mock.calls.map(([, key]) => key)).toEqual(['action', 'source']);
+      expect(mocks.collector).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ source: collectorSource })
+      );
+      expect(mocks.collector.mock.calls[0][0].source).not.toBe(message.source);
+    }
+  );
+  it('rejects collector source accessors without reading them', async () => {
+    const message = { action: collectorAction, source: collectorSource };
+    const get = vi.fn();
+    mocks.collector.mockClear();
+    for (const input of [
+      Object.defineProperty({ ...message }, 'source', { get, enumerable: true }),
+      {
+        ...message,
+        source: Object.defineProperty({ ...collectorSource }, 'url', { get, enumerable: true }),
+      },
+      Object.defineProperty({ ...message }, 'action', { enumerable: false }),
+    ]) {
+      expect(await dispatch(input, popup())).toEqual(collectorSummary('invalid-message'));
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(mocks.collector).not.toHaveBeenCalled();
+  });
+  it('keeps collection independent of popup disconnect and never forwards rejection prose', async () => {
+    let finish!: (v: unknown) => void;
+    mocks.collector.mockReturnValueOnce(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    const sendResponse = vi.fn(() => {
+      throw Error('disconnected');
+    });
+    const returned = listener(
+      {
+        action: collectorAction,
+        source: collectorSource,
+      },
+      popup(),
+      sendResponse
+    );
+    expect(returned).toBe(true);
+    expect(sendResponse).not.toHaveBeenCalled();
+    finish({ kind: 'projected', workspace: 'private bytes' });
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      status: 'stopped',
+      code: 'result-invalid',
+    });
+    expect(JSON.stringify(sendResponse.mock.calls)).not.toContain('private bytes');
   });
 
   it.each(['archive', 'binary'] as const)(

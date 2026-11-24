@@ -34,6 +34,7 @@ interface MessageResponseMap {
   saveSettings: SettingsSaveResponse;
   testConnection: { success: boolean; error?: string };
   probeDotsSchema: DotsSchemaProbeResponse;
+  collectClaudeAccountCatalog: import('./claude-account-collector-contract').CollectorSummary;
   saveToOutputs: MultiOutputResponse;
   persistArchiveCompanion: MultiOutputResponse;
   persistDerivedHtmlPresentation: MultiOutputResponse;
