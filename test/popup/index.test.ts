@@ -20,7 +20,9 @@ vi.mock('../../src/lib/messaging', () => ({
 import { getSettingsOrThrow } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
 import { snapshotClaudeListProbeResult } from '../../src/lib/claude-list-probe-contract';
+import { collectorSummary } from '../../src/lib/claude-account-collector-contract';
 import {
+  handleCollectorClick,
   handleTrustedClaudeListProbeClick,
   handleTrustedDotsSchemaProbeClick,
   initPopup,
@@ -29,6 +31,21 @@ import {
 } from '../../src/popup/app';
 import { validateMessageContent } from '../../src/background/validation';
 
+const collectorClickSource = {
+  tabId: 17,
+  windowId: 3,
+  url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
+};
+function installCollectorTab() {
+  chrome.tabs.query = vi.fn(async () => [
+    {
+      id: collectorClickSource.tabId,
+      windowId: collectorClickSource.windowId,
+      url: collectorClickSource.url,
+      active: true,
+    },
+  ]) as never;
+}
 const VALID_API_KEY = 'a'.repeat(32);
 const CLAUDE_FINGERPRINT_PREFIX = 'claude-probe-scope-run-v1-sha256:';
 const CLAUDE_FINGERPRINT = `${CLAUDE_FINGERPRINT_PREFIX}${'a'.repeat(64)}`;
@@ -147,6 +164,7 @@ function buildPopupDom(): void {
     <button id="openReconciliationBtn"></button>
     <button id="probeDotsSchemaBtn"></button>
     <button id="probeClaudeListsBtn"></button>
+    <button id="collectClaudeAccountCatalogBtn"></button>
     <div id="claudeListEvidence" hidden></div>
     <div id="status" class="status"></div>
   `;
@@ -483,6 +501,128 @@ describe('popup/app', () => {
 
       expect(sendMessage).not.toHaveBeenCalled();
       expect(statusEl().textContent).toBe('');
+    });
+
+    it('renders only the validated saved counts, terminal facts and committed retention', async () => {
+      installCollectorTab();
+      await initWithDefaults();
+      vi.mocked(sendMessage).mockResolvedValueOnce(
+        collectorSummary('saved', { dispatch: 2, page: 2, target: 3, marker: 2 })
+      );
+      await handleCollectorClick({ isTrusted: true } as Event);
+      expect(statusEl().textContent).toBe('status_collectorSaved status_collectorFacts');
+      expect(chrome.i18n.getMessage).toHaveBeenCalledWith('status_collectorSaved', [
+        'saved',
+        '2',
+        '2',
+        '3',
+        '2',
+      ]);
+      expect(chrome.i18n.getMessage).toHaveBeenCalledWith('status_collectorFacts', [
+        'true',
+        'true',
+        'true',
+        'owner-committed',
+      ]);
+    });
+
+    it('sends nothing if the popup closes before resolving click-bound selection', async () => {
+      await initWithDefaults();
+      let finish!: (v: unknown) => void;
+      chrome.tabs.query = vi.fn(
+        () =>
+          new Promise(resolve => {
+            finish = resolve;
+          })
+      ) as never;
+      const pending = handleCollectorClick({ isTrusted: true } as Event);
+      window.dispatchEvent(new Event('pagehide'));
+      finish([{ id: 17, windowId: 3, url: collectorClickSource.url, active: true }]);
+      await pending;
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+    it('refuses unbound, pending and nonexact popup selection without echoing its route', async () => {
+      await initWithDefaults();
+      const tab = { id: 17, windowId: 3, url: collectorClickSource.url, active: true };
+      for (const tabs of [
+        [],
+        [tab, tab],
+        [{ ...tab, active: false }],
+        [{ ...tab, pendingUrl: tab.url + '?other' }],
+        [{ ...tab, url: tab.url + '#fragment' }],
+      ]) {
+        chrome.tabs.query = vi.fn(async () => tabs) as never;
+        await handleCollectorClick({ isTrusted: true } as Event);
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(statusEl().textContent).not.toContain(tab.url);
+      }
+    });
+    it('discloses the one-click personal assertion and stores no content or settings', async () => {
+      await initWithDefaults();
+      const html = new DOMParser().parseFromString(
+        readFileSync('src/popup/index.html', 'utf8'),
+        'text/html'
+      );
+      expect(html.querySelector('#collectClaudeAccountCatalogBtn')?.textContent).toMatch(
+        /current personal Claude context/i
+      );
+      for (const lang of ['en', 'ja']) {
+        const messages = JSON.parse(
+          readFileSync('src/_locales/' + lang + '/messages.json', 'utf8')
+        );
+        for (const key of [
+          'settings_collectClaudeCatalog',
+          'settings_collectClaudeCatalogHelp',
+          'status_collectorRunning',
+          'status_collectorSaved',
+          'status_collectorCommittedStop',
+          'status_collectorStopped',
+          'status_collectorUnavailable',
+        ])
+          expect(messages[key]?.message).toBeTruthy();
+      }
+      installCollectorTab();
+      el<HTMLButtonElement>('collectClaudeAccountCatalogBtn').click();
+      expect(chrome.tabs.query).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+      let resolve!: (value: unknown) => void;
+      vi.mocked(sendMessage).mockReturnValueOnce(
+        new Promise(r => {
+          resolve = r;
+        }) as never
+      );
+      const pending = handleCollectorClick({ isTrusted: true } as Event);
+      for (const id of [
+        'collectClaudeAccountCatalogBtn',
+        'probeClaudeListsBtn',
+        'probeDotsSchemaBtn',
+        'saveBtn',
+        'testBtn',
+      ])
+        expect(el<HTMLButtonElement>(id).disabled).toBe(true);
+      await runClaudeListProbe();
+      await runDotsSchemaProbe();
+      await handleCollectorClick({ isTrusted: true } as Event);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(chrome.tabs.query).toHaveBeenCalledWith({ active: true, currentWindow: true });
+      expect(sendMessage).toHaveBeenCalledWith({
+        action: 'collectClaudeAccountCatalog',
+        source: collectorClickSource,
+      });
+      resolve({ code: 'private header', active: [{ uuid: 'private target' }] });
+      await pending;
+      expect(statusEl().textContent).toBe('status_collectorStopped status_collectorFacts');
+      expect(JSON.stringify(vi.mocked(chrome.i18n.getMessage).mock.calls)).not.toMatch(
+        /private header|private target/
+      );
+      for (const id of [
+        'collectClaudeAccountCatalogBtn',
+        'probeClaudeListsBtn',
+        'probeDotsSchemaBtn',
+        'saveBtn',
+        'testBtn',
+      ])
+        expect(el<HTMLButtonElement>(id).disabled).toBe(false);
     });
 
     it('keeps all conflicting controls busy for one trusted Claude list probe and renders safe counts', async () => {

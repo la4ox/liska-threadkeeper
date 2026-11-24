@@ -3,6 +3,12 @@
  * Handles HTTP communication with Obsidian REST API
  */
 
+import { collectClaudeAccountCatalog } from './claude-account-collector';
+import {
+  collectorSummary,
+  snapshotCollectorMessage,
+  snapshotCollectorSummary,
+} from '../lib/claude-account-collector-contract';
 import { ExportOperationController } from './export-operation-controller';
 import { TextPreviewController } from './text-preview-controller';
 import {
@@ -321,6 +327,47 @@ function dispatchMessage(
     });
 }
 
+const claudeListOperations = new Set<number>();
+
+/** Dedicated closed response channel: no ordinary export authority or exception/log fallback. */
+function dispatchAccountCollector(
+  message: unknown,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (value: unknown) => void
+): boolean {
+  const reply = (value: unknown) => {
+    const summary = snapshotCollectorSummary(value) ?? collectorSummary('result-invalid');
+    try {
+      sendResponse(summary);
+    } catch {
+      /* popup closed; collection owns its lifecycle */
+    }
+  };
+  if (
+    (sender.frameId !== undefined && sender.frameId !== 0) ||
+    (sender.documentLifecycle !== undefined && sender.documentLifecycle !== 'active') ||
+    !isAuthorizedClaudeListProbeSender(
+      sender,
+      chrome.runtime.id,
+      chrome.runtime.getURL('src/popup/index.html')
+    )
+  ) {
+    reply(collectorSummary('invalid-sender'));
+    return false;
+  }
+  const request = snapshotCollectorMessage(message);
+  if (!request) {
+    reply(collectorSummary('invalid-message'));
+    return false;
+  }
+  void collectClaudeAccountCatalog({
+    source: request.source,
+    operations: claudeListOperations,
+    permitted: hasScriptingPermission,
+  }).then(reply, () => reply(collectorSummary('result-invalid')));
+  return true;
+}
+
 function rejectedMessageResponse(message: unknown, reason: 'sender' | 'message'): unknown {
   if (hasOwnDataProperty(message, 'action', 'probeDotsSchema')) {
     return createDotsSchemaProbeFailure(reason === 'sender' ? 'invalid-sender' : 'invalid-message');
@@ -344,6 +391,8 @@ chrome.runtime.onMessage.addListener(
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: unknown) => void
   ) => {
+    if (hasOwnDataProperty(message, 'action', 'collectClaudeAccountCatalog'))
+      return dispatchAccountCollector(message, sender, sendResponse);
     let exportOperationId: string | undefined;
     let textPreviewCaptureId: string | undefined;
     try {
@@ -951,7 +1000,7 @@ async function handleClaudeListProbe() {
     return createClaudeListProbeFailure('permission-unavailable');
   }
   try {
-    const response = await probeClaudeListsInActiveTab();
+    const response = await probeClaudeListsInActiveTab({ operations: claudeListOperations });
     return isClaudeListProbeResponse(response)
       ? response
       : createClaudeListProbeFailure('result-invalid');

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   settings: vi.fn(),
   dots: vi.fn(),
   claudeLists: vi.fn(),
+  collector: vi.fn(),
   connection: vi.fn(),
 }));
 vi.mock('../../src/background/obsidian-handlers', () => ({
@@ -28,6 +29,9 @@ vi.mock('../../src/background/dots-schema-probe', async importOriginal => ({
 vi.mock('../../src/background/claude-list-probe', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/background/claude-list-probe')>()),
   probeClaudeListsInActiveTab: mocks.claudeLists,
+}));
+vi.mock('../../src/background/claude-account-collector', () => ({
+  collectClaudeAccountCatalog: mocks.collector,
 }));
 vi.mock('../../src/lib/storage', () => ({
   getSettings: mocks.settings,
@@ -217,6 +221,97 @@ describe('export authority at actual worker dispatch', () => {
       code: 'invalid-message',
     });
     expect(mocks.claudeLists).toHaveBeenCalledOnce();
+  });
+
+  it('routes only exact popup/action to a closed collector channel; worker errors and internals never escape', async () => {
+    const action = 'collectClaudeAccountCatalog';
+    const source = {
+      tabId: 7,
+      windowId: 3,
+      url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
+    };
+    const message = { action, source };
+    mocks.collector.mockClear();
+    expect(validateMessageContent(message)).toBe(true);
+    expect(await dispatch({ action }, popup())).toMatchObject({ code: 'invalid-message' });
+    expect(
+      await dispatch({ action, source: { ...source, scope: 'private' } }, popup())
+    ).toMatchObject({ code: 'invalid-message' });
+    for (const extra of [
+      { scope: 'private' },
+      { exportOperationId: 'tag' },
+      { textPreviewCaptureId: 'tag' },
+      { target: 'offscreen' },
+      { tabId: 9 },
+      { manualAttestation: 'private' },
+    ]) {
+      expect(validateMessageContent({ ...message, ...extra })).toBe(false);
+      expect(await dispatch({ ...message, ...extra }, popup())).toMatchObject({
+        status: 'stopped',
+        code: 'invalid-message',
+      });
+    }
+    for (const wrong of [
+      sender(),
+      { ...popup(), url: popup().url + '#x' },
+      { ...popup(), id: 'other' },
+      { ...popup(), frameId: 2 },
+      { ...popup(), documentLifecycle: 'cached' },
+      { ...popup(), tab: { id: 7 } },
+    ]) {
+      expect(await dispatch(message, wrong)).toMatchObject({
+        status: 'stopped',
+        code: 'invalid-sender',
+      });
+    }
+    expect(mocks.collector).not.toHaveBeenCalled();
+    for (const mock of [
+      () => Promise.resolve({ kind: 'projected', workspace: 'private bytes' }),
+      () => Promise.reject(Error('private bytes')),
+    ]) {
+      mocks.collector.mockImplementationOnce(mock);
+      const r = await dispatch(message, popup());
+      expect(r).toMatchObject({
+        status: 'stopped',
+        code: 'result-invalid',
+        detailRequests: 0,
+        downloads: 0,
+        executionAuthorized: false,
+      });
+      expect(JSON.stringify(r)).not.toContain('private bytes');
+    }
+  });
+  it('keeps collection independent of popup disconnect and never forwards rejection prose', async () => {
+    let finish!: (v: unknown) => void;
+    mocks.collector.mockReturnValueOnce(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    const sendResponse = vi.fn(() => {
+      throw Error('disconnected');
+    });
+    const returned = listener(
+      {
+        action: 'collectClaudeAccountCatalog',
+        source: {
+          tabId: 7,
+          windowId: 3,
+          url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
+        },
+      },
+      popup(),
+      sendResponse
+    );
+    expect(returned).toBe(true);
+    expect(sendResponse).not.toHaveBeenCalled();
+    finish({ kind: 'projected', workspace: 'private bytes' });
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledOnce());
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      status: 'stopped',
+      code: 'result-invalid',
+    });
+    expect(JSON.stringify(sendResponse.mock.calls)).not.toContain('private bytes');
   });
 
   it.each(['archive', 'binary'] as const)(

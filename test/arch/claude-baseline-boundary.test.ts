@@ -173,7 +173,7 @@ describe('unwired pure Claude baseline catalog boundary', () => {
     }
   });
 
-  it('has one source consumer, confined to the otherwise-unwired account owner codec', () => {
+  it('admits only the paused owner codec and the trusted collector bridge as consumers', () => {
     const external = files('src').filter(file => !file.startsWith(modulePath + '/'));
     expect(external.length).toBeGreaterThan(100);
     const consumers = new Set<string>();
@@ -186,7 +186,9 @@ describe('unwired pure Claude baseline catalog boundary', () => {
         if (target === modulePath || target?.startsWith(modulePath + '/')) consumers.add(file);
       }
     }
-    expect([...consumers]).toEqual([`${ownerPath}/codec.ts`]);
+    expect([...consumers].sort()).toEqual(
+      ['src/background/claude-account-collector.ts', `${ownerPath}/codec.ts`].sort()
+    );
   });
 
   it('has no configuration, package, production build, HTML or manifest wiring', () => {
@@ -195,7 +197,15 @@ describe('unwired pure Claude baseline catalog boundary', () => {
     expect(candidates).toContain('vite.config.ts');
     expect(candidates).toContain('package.json');
     for (const file of candidates)
-      expect(readFileSync(path.join(root, file), 'utf8'), file).not.toMatch(marker);
+      expect(
+        file === 'scripts/check-service-worker-runtime.mjs'
+          ? readFileSync(path.join(root, file), 'utf8').replace(
+              'liska-claude-account-catalog-admission/1',
+              ''
+            )
+          : readFileSync(path.join(root, file), 'utf8'),
+        file
+      ).not.toMatch(marker);
   });
 });
 
@@ -276,12 +286,26 @@ describe('Claude one-shot account owner boundary', () => {
     }
   });
 
-  it('has no production consumers, aliases, manifest, HTML, standard build or package wiring', () => {
+  it('has only the collector controller as production importer and no separate entrypoint', () => {
     for (const file of [
       ...files('src').filter(file => !file.startsWith(ownerPath + '/')),
       ...wiringCandidates(),
     ]) {
-      expect(readFileSync(path.join(root, file), 'utf8'), file).not.toMatch(ownerMarker);
+      if (file === 'src/background/claude-account-collector.ts') {
+        expect(
+          references(tree(file)).filter(reference => reference.includes('baseline-owner'))
+        ).toEqual(['../claude-account-baseline-owner']);
+        continue;
+      }
+      expect(
+        file === 'scripts/check-service-worker-runtime.mjs'
+          ? readFileSync(path.join(root, file), 'utf8').replace(
+              'liska-claude-account-baseline-owner-v1',
+              ''
+            )
+          : readFileSync(path.join(root, file), 'utf8'),
+        file
+      ).not.toMatch(ownerMarker);
       if (!/\.[cm]?[jt]sx?$/u.test(file)) continue;
       for (const reference of references(tree(file))) {
         if (!reference.startsWith('.')) continue;

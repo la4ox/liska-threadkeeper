@@ -6887,3 +6887,22 @@ errors and the unchanged 55 warnings; build/package passes. The 65-file /
 6,125,112-byte production `dist` stays byte-identical to the installed reviewed
 `/5` build because the owner is unwired. Current-head CI remains the independent
 single-run gate.
+
+## Claude account collector /6 — implementation; installed/live gate pending
+
+[ADR-083](docs/adr/083-claude-account-collector-v6.md) adds a separate Archive
+Tools action for the selected personal Claude chat. The trusted click binds its
+tab, window and exact URL. An occupied paused owner makes zero provider
+requests. A terminal active list missing the clicked chat stops before the
+archive; otherwise both pinned offset-zero pages and the exact matching
+header pair can be admitted through ADR-081 and committed through ADR-082.
+
+The popup receives confirmed counts and a fixed outcome only. Deadline or
+unavailable final verification after native commit preserves confirmed
+retention and does not assert that storage was late or the user navigated.
+`/5` stays diagnostic. There is no detail request, download or scheduler.
+
+T33 remains pending exact-head review, installed package reconciliation and
+one explicit current-personal click with confirmed real catalog retention.
+The user's authorized full backup still needs separate owner-bound detail
+and File delivery.

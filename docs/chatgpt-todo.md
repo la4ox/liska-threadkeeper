@@ -901,6 +901,13 @@ terminal states, and the existing no-credential-export boundary.
   owner-bound detail/File capture and bounded resumable manual batches then
   advance the user's explicitly authorized full current-personal backup. No
   scheduler follows.
+- [ADR-083](adr/083-claude-account-collector-v6.md) implements the separate
+  single-click collector. Bind to the popup's clicked tab/window/URL; require
+  the selected chat in the active page before the archived request. A confirmed
+  commit with unavailable or timed-out final verification is still retained,
+  without claiming navigation or late storage. T33 is not live-accepted: run exact-head reviews,
+  reconcile the installed build, and observe one real paused catalog commit.
+  No detail or File delivery has occurred for this authorized backup.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/

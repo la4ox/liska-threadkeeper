@@ -5,6 +5,7 @@
  * to prevent unauthorized access (M-02)
  */
 
+import { isCollectorMessage } from '../lib/claude-account-collector-contract';
 import {
   MAX_CONTENT_SIZE,
   BINARY_STAGE_CHUNK_BYTES,
@@ -773,6 +774,7 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   const extensionMessage = message as ExtensionMessage;
   const action = Object.getOwnPropertyDescriptor(message, 'action');
   if (!action || !('value' in action)) return false;
+  if (action.value === 'collectClaudeAccountCatalog') return isCollectorMessage(message);
   if (
     action.value === 'persistDerivedHtmlPresentation' &&
     !validatePersistDerivedHtmlMessage(

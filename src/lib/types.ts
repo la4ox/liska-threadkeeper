@@ -718,6 +718,10 @@ type ExtensionActionMessage =
   | { action: 'testConnection' }
   | { action: 'probeDotsSchema' }
   | { action: 'probeClaudeLists' }
+  | {
+      action: 'collectClaudeAccountCatalog';
+      source: import('./claude-account-collector-contract').CollectorSource;
+    }
   | { action: 'fetchImage'; url: string }
   | {
       action: 'captureChatGptConversation';
