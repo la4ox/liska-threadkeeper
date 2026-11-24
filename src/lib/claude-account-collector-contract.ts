@@ -91,18 +91,18 @@ export type CollectorSummary = ReturnType<typeof collectorSummary>;
 
 export function collectorFields(
   value: unknown,
-  keys: readonly string[]
+  keys: readonly string[],
+  entryAction?: PropertyDescriptor
 ): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;
   const proto = Object.getPrototypeOf(value);
-  if (
-    (proto !== null && proto !== Object.prototype) ||
-    Reflect.ownKeys(value).length !== keys.length
-  )
-    return;
+  if (proto !== null && proto !== Object.prototype) return;
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length !== keys.length || keys.some(key => !ownKeys.includes(key))) return;
   const snapshot: Record<string, unknown> = Object.create(null);
   for (const key of keys) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    const descriptor =
+      key === 'action' && entryAction ? entryAction : Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor?.enumerable || !('value' in descriptor)) return;
     snapshot[key] = descriptor.value;
   }
@@ -221,10 +221,11 @@ export function snapshotCollectorSource(value: unknown): CollectorSource | undef
 }
 /** Navigation source lives only in this exact popup-to-worker request, never its response. */
 export function snapshotCollectorMessage(
-  value: unknown
+  value: unknown,
+  entryAction?: PropertyDescriptor
 ): { action: 'collectClaudeAccountCatalog'; source: CollectorSource } | undefined {
   try {
-    const m = collectorFields(value, ['action', 'source']);
+    const m = collectorFields(value, ['action', 'source'], entryAction);
     if (m?.action !== 'collectClaudeAccountCatalog') return;
     const source = snapshotCollectorSource(m.source);
     if (source) return { action: 'collectClaudeAccountCatalog', source };

@@ -189,44 +189,48 @@ describe('branch HTML isolated authorized settings-stable route', () => {
     expect(dispatched.outputs).not.toBe(original.outputs);
   });
 
-  it('admits a valid branch with exactly one descriptor snapshot of every caller-owned value', async () => {
-    const original = await branchHtmlMessage();
-    const expected = structuredClone(original);
-    const counts = {
-      envelope: new Map<PropertyKey, number>(),
-      artifact: new Map<PropertyKey, number>(),
-      outputs: new Map<PropertyKey, number>(),
-    };
-    const get = vi.fn(() => {
-      throw new Error('provider-private-value');
-    });
-    function once<T extends object>(value: T, reads: Map<PropertyKey, number>): T {
-      return new Proxy(value, {
-        get,
-        getOwnPropertyDescriptor(target, key) {
-          const count = (reads.get(key) ?? 0) + 1;
-          reads.set(key, count);
-          if (count > 1) throw new Error('provider-private-value');
-          return Object.getOwnPropertyDescriptor(target, key);
-        },
+  it.each(['untagged', 'export generation'])(
+    'admits a valid %s branch with exactly one descriptor snapshot of every caller-owned value',
+    async channel => {
+      const original = await branchHtmlMessage();
+      const expected = structuredClone(original);
+      const counts = {
+        envelope: new Map<PropertyKey, number>(),
+        artifact: new Map<PropertyKey, number>(),
+        outputs: new Map<PropertyKey, number>(),
+      };
+      const get = vi.fn(() => {
+        throw new Error('provider-private-value');
       });
+      function once<T extends object>(value: T, reads: Map<PropertyKey, number>): T {
+        return new Proxy(value, {
+          get,
+          getOwnPropertyDescriptor(target, key) {
+            const count = (reads.get(key) ?? 0) + 1;
+            reads.set(key, count);
+            if (count > 1) throw new Error('provider-private-value');
+            return Object.getOwnPropertyDescriptor(target, key);
+          },
+        });
+      }
+      const proxy = once(
+        {
+          ...original,
+          ...(channel === 'export generation' ? { exportOperationId: '1'.repeat(36) } : {}),
+          artifact: once(original.artifact, counts.artifact),
+          outputs: once(original.outputs, counts.outputs),
+        },
+        counts.envelope
+      );
+      expect(await dispatch(proxy)).toMatchObject({ success: true });
+      expect(mocks.branch).toHaveBeenCalledExactlyOnceWith(expected);
+      for (const reads of Object.values(counts)) {
+        expect(reads.size).toBeGreaterThan(0);
+        expect([...reads.values()].every(count => count === 1)).toBe(true);
+      }
+      expect(get).not.toHaveBeenCalled();
     }
-    const proxy = once(
-      {
-        ...original,
-        artifact: once(original.artifact, counts.artifact),
-        outputs: once(original.outputs, counts.outputs),
-      },
-      counts.envelope
-    );
-    expect(await dispatch(proxy)).toMatchObject({ success: true });
-    expect(mocks.branch).toHaveBeenCalledExactlyOnceWith(expected);
-    for (const reads of Object.values(counts)) {
-      expect(reads.size).toBeGreaterThan(0);
-      expect([...reads.values()].every(count => count === 1)).toBe(true);
-    }
-    expect(get).not.toHaveBeenCalled();
-  });
+  );
 
   it('rejects an action descriptor that changes from getSettings to branch after the failed entry snapshot', async () => {
     const original = await branchHtmlMessage();

@@ -5,6 +5,7 @@ import { htmlMessage, htmlSettings } from './derived-html-fixture';
 import { textMessage } from './derived-text-fixture';
 import { branchHtmlMessage } from './derived-branch-html-fixture';
 import { validateMessageContent } from '../../src/background/validation';
+import { collectorSummary } from '../../src/lib/claude-account-collector-contract';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import { EXPORT_DURABLE_ACTIONS, EXPORT_STATE_KEY } from '../../src/lib/export-operation-contract';
 
@@ -62,6 +63,12 @@ vi.mock('../../src/background/chatgpt-capture', () => ({
   ChatGptTemporaryCaptureError: class extends Error {},
 }));
 const route = 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd';
+const collectorAction = 'collectClaudeAccountCatalog';
+const collectorSource = {
+  tabId: 7,
+  windowId: 3,
+  url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
+};
 const stageId = `archive-stage-${'A'.repeat(32)}`;
 const binaryId = `stage-${'B'.repeat(32)}`;
 let listener: (
@@ -224,12 +231,8 @@ describe('export authority at actual worker dispatch', () => {
   });
 
   it('routes only exact popup/action to a closed collector channel; worker errors and internals never escape', async () => {
-    const action = 'collectClaudeAccountCatalog';
-    const source = {
-      tabId: 7,
-      windowId: 3,
-      url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
-    };
+    const action = collectorAction;
+    const source = collectorSource;
     const message = { action, source };
     mocks.collector.mockClear();
     expect(validateMessageContent(message)).toBe(true);
@@ -241,6 +244,8 @@ describe('export authority at actual worker dispatch', () => {
       { scope: 'private' },
       { exportOperationId: 'tag' },
       { textPreviewCaptureId: 'tag' },
+      { exportOperationId: '1'.repeat(36) },
+      { textPreviewCaptureId: '2'.repeat(36) },
       { target: 'offscreen' },
       { tabId: 9 },
       { manualAttestation: 'private' },
@@ -281,6 +286,46 @@ describe('export authority at actual worker dispatch', () => {
       expect(JSON.stringify(r)).not.toContain('private bytes');
     }
   });
+  it.each(['single-read', 'stateful'] as const)(
+    'uses the entry action descriptor for collector admission (%s)',
+    async mode => {
+      const message = { action: collectorAction, source: { ...collectorSource } };
+      let actionReads = 0;
+      const descriptor = vi.fn((target: typeof message, key: PropertyKey) => {
+        const field = Object.getOwnPropertyDescriptor(target, key);
+        if (key !== 'action' || ++actionReads === 1) return field;
+        if (mode === 'single-read') throw new Error('Repeated action descriptor read');
+        return { ...field, value: 'getSettings' };
+      });
+      const result = collectorSummary('active-tab-required');
+      mocks.collector.mockClear().mockResolvedValueOnce(result);
+      expect(
+        await dispatch(new Proxy(message, { getOwnPropertyDescriptor: descriptor }), popup())
+      ).toEqual(result);
+      expect(descriptor.mock.calls.map(([, key]) => key)).toEqual(['action', 'source']);
+      expect(mocks.collector).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ source: collectorSource })
+      );
+      expect(mocks.collector.mock.calls[0][0].source).not.toBe(message.source);
+    }
+  );
+  it('rejects collector source accessors without reading them', async () => {
+    const message = { action: collectorAction, source: collectorSource };
+    const get = vi.fn();
+    mocks.collector.mockClear();
+    for (const input of [
+      Object.defineProperty({ ...message }, 'source', { get, enumerable: true }),
+      {
+        ...message,
+        source: Object.defineProperty({ ...collectorSource }, 'url', { get, enumerable: true }),
+      },
+      Object.defineProperty({ ...message }, 'action', { enumerable: false }),
+    ]) {
+      expect(await dispatch(input, popup())).toEqual(collectorSummary('invalid-message'));
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(mocks.collector).not.toHaveBeenCalled();
+  });
   it('keeps collection independent of popup disconnect and never forwards rejection prose', async () => {
     let finish!: (v: unknown) => void;
     mocks.collector.mockReturnValueOnce(
@@ -293,12 +338,8 @@ describe('export authority at actual worker dispatch', () => {
     });
     const returned = listener(
       {
-        action: 'collectClaudeAccountCatalog',
-        source: {
-          tabId: 7,
-          windowId: 3,
-          url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
-        },
+        action: collectorAction,
+        source: collectorSource,
       },
       popup(),
       sendResponse

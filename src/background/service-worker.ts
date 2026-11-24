@@ -332,6 +332,7 @@ const claudeListOperations = new Set<number>();
 /** Dedicated closed response channel: no ordinary export authority or exception/log fallback. */
 function dispatchAccountCollector(
   message: unknown,
+  entryAction: PropertyDescriptor,
   sender: chrome.runtime.MessageSender,
   sendResponse: (value: unknown) => void
 ): boolean {
@@ -355,7 +356,7 @@ function dispatchAccountCollector(
     reply(collectorSummary('invalid-sender'));
     return false;
   }
-  const request = snapshotCollectorMessage(message);
+  const request = snapshotCollectorMessage(message, entryAction);
   if (!request) {
     reply(collectorSummary('invalid-message'));
     return false;
@@ -381,6 +382,17 @@ function rejectedMessageResponse(message: unknown, reason: 'sender' | 'message')
   });
 }
 
+function detachTransportGenerations(message: object, entryAction: PropertyDescriptor | undefined) {
+  const descriptors: PropertyDescriptorMap = Object.create(null);
+  for (const key of Reflect.ownKeys(message)) {
+    if (key === 'exportOperationId' || key === 'textPreviewCaptureId') continue;
+    const descriptor =
+      key === 'action' ? entryAction : Object.getOwnPropertyDescriptor(message, key);
+    if (descriptor) descriptors[key] = descriptor;
+  }
+  return Object.create(Object.getPrototypeOf(message), descriptors) as object;
+}
+
 /**
  * Handle incoming messages from content script and popup
  */
@@ -391,12 +403,15 @@ chrome.runtime.onMessage.addListener(
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: unknown) => void
   ) => {
-    if (hasOwnDataProperty(message, 'action', 'collectClaudeAccountCatalog'))
-      return dispatchAccountCollector(message, sender, sendResponse);
+    // Entry admission for these closed routes shares one own action descriptor.
+    // Collectors must see the original envelope, including any invalid extra fields.
+    const entryAction = readOwnPropertyDescriptor(message, 'action');
+    if (entryAction?.value === 'collectClaudeAccountCatalog')
+      return dispatchAccountCollector(message, entryAction, sender, sendResponse);
     let exportOperationId: string | undefined;
     let textPreviewCaptureId: string | undefined;
     try {
-      // Read no action/data fields before detaching the two transport-only generations.
+      // Detach the two transport-only generations before inspecting route data.
       const exportDescriptor =
         typeof message === 'object' && message !== null
           ? Object.getOwnPropertyDescriptor(message, 'exportOperationId')
@@ -414,10 +429,7 @@ chrome.runtime.onMessage.addListener(
         if (!('value' in descriptor) || !valid) throw new Error('Invalid generation');
         if (exportDescriptor) exportOperationId = descriptor.value;
         else textPreviewCaptureId = descriptor.value;
-        const descriptors = Object.getOwnPropertyDescriptors(message);
-        delete descriptors.exportOperationId;
-        delete descriptors.textPreviewCaptureId;
-        message = Object.create(Object.getPrototypeOf(message), descriptors);
+        message = detachTransportGenerations(message as object, entryAction);
       }
     } catch {
       sendResponse({ success: false, error: 'Invalid message content' });
@@ -438,10 +450,16 @@ chrome.runtime.onMessage.addListener(
         return false;
       }
     }
-    const branchSnapshot = snapshotPersistDerivedBranchHtmlMessage(message);
+    const branchAtEntry = entryAction?.value === 'persistDerivedBranchHtmlPresentation';
+    const branchSnapshot = branchAtEntry
+      ? snapshotPersistDerivedBranchHtmlMessage(message, entryAction)
+      : undefined;
     const branchHtmlAdmitted = branchSnapshot !== undefined;
     if (branchSnapshot) message = branchSnapshot;
-    else if (hasOwnDataProperty(message, 'action', 'persistDerivedBranchHtmlPresentation')) {
+    else if (
+      branchAtEntry ||
+      hasOwnDataProperty(message, 'action', 'persistDerivedBranchHtmlPresentation')
+    ) {
       sendResponse({ success: false, error: 'Invalid message content' });
       return false;
     }
@@ -557,13 +575,20 @@ function isContentScriptSender(sender: chrome.runtime.MessageSender): boolean {
   return sender.tab !== undefined;
 }
 
-function hasOwnDataProperty(message: unknown, property: string, expectedValue: string): boolean {
-  if (typeof message !== 'object' || message === null) return false;
+function readOwnPropertyDescriptor(
+  message: unknown,
+  property: string
+): PropertyDescriptor | undefined {
+  if (typeof message !== 'object' || message === null) return undefined;
   try {
-    return Object.getOwnPropertyDescriptor(message, property)?.value === expectedValue;
+    return Object.getOwnPropertyDescriptor(message, property);
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function hasOwnDataProperty(message: unknown, property: string, expectedValue: string): boolean {
+  return readOwnPropertyDescriptor(message, property)?.value === expectedValue;
 }
 
 function isChatGptBridgeMessage(message: unknown): boolean {
