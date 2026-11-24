@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-24
+last_turn: 2026-11-25
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -819,6 +819,28 @@ the caller-projected empty archived response, and nothing authorizes execution.
 This is a structural synthetic proof, not provenance, an installed collector or
 a provider guarantee.
 
+### E60 — The one-shot Claude owner fits without inventing execution state
+
+The committed shape can retain the detached catalog and its separate evidence
+once, with only ID/pending rows alongside it. At 30 targets and six UTF-8 bytes
+per escaped code unit, the exact 256-code-unit-marker envelope is 53,291
+bytes, under 64 KiB. Synthetic IndexedDB checks exercise exact-seed idempotence,
+a different-seed race, terminal commit/rollback/unknown, and nonmutation of
+foreign inventory. The independent native harness is packaged; its installed
+result is not yet observed. Neither proof establishes provider provenance or
+performs the authorized full current-personal backup.
+
+### E61 — The isolated Claude owner passes one native Chromium storage gate
+
+One ephemeral Chrome for Testing profile loaded the three-file, zero-permission
+harness. A single trusted click returned exact PASS rows `cancel`, `close`,
+`race`, `reopen`, `cleanup`; no retry followed. The native run exercised the real
+owner under extension CSP, independently observed transaction abort/complete,
+reopened the committed seed, verified exact inventory and deleted only its test
+database. All temporary profiles were removed. This accepts storage/event
+ordering only: no Claude request, catalog collection, capture, download or
+execution occurred.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -1385,6 +1407,19 @@ Evidence: E58, E59
 
 Decision record: ADR-081
 
+### D37 — Store one immutable paused admission before introducing the live collector
+
+Adopt ADR-082. Choose one fresh rollback-isolated domain and one insert-only
+seed over a general page/cursor accumulator or the existing provider owner.
+Opening/reopening never resumes work. Exact canonical bytes and the collection
+label reconcile the same seed; a different seed or corrupt inventory cannot be
+overwritten. Missing terminal truth requires fresh inspection, not automatic
+retry. This gate grants no provider, download or execution authority.
+
+Evidence: E59, E60
+
+Decision record: ADR-082
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1846,8 +1881,11 @@ outcomes, reopen read-only, reject conflicts without overwrite, and expose no
 provider, execution, retry or scheduler authority. Accept storage natively before
 another live list read.
 
-Trigger: the ADR-081 projection core is merged and the storage-only owner passes
-focused, fault and small native IndexedDB acceptance.
+Fulfilled by E61 and local-only receipt S64. ADR-082's storage-only owner passed
+one exact native gate and remains paused/non-executing. T33 may now wire `/6` to
+commit a real admitted catalog before reporting success.
+
+Trigger: fulfilled on 2026-11-25; preserve the owner boundary while wiring T33.
 
 ### T33 — Collect, admit and commit identities in one reviewed Claude live invocation
 
@@ -1926,6 +1964,8 @@ personal context.
 - [evidence] E57: the two exact v4-observed names plus the pinned route/run boundary permit a same-run pair observation, but not identity, personal scope or a stable catalog key #code
 - [evidence] E58: one installed v5 click observed the exact header pair consistently and returned stopped/scope-observed; safe aggregates are retained without values or fingerprint, while pagination, completeness, personal scope and catalog admission remain unproved #live
 - [evidence] E59: one synthetic caller projection admits sorted active targets and separate archived-empty evidence using a stable exact-pair pseudonym; live provenance, independent receipts, completeness and execution are not admitted #synthetic
+- [evidence] E60: one detached paused seed fits even at maximum JSON escaping and survives synthetic IndexedDB verification; native acceptance is still pending #synthetic
+- [evidence] E61: one isolated zero-permission Chromium run passed cancel/close/race/reopen/cleanup and exact cleanup; provider collection and execution remain absent #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -1965,6 +2005,7 @@ personal context.
 - [decision] D34: keep probe v4 evidence-only and page-atomic with exact reconciliation, unresolved scope and no catalog or execution authority
 - [decision] D35: make probe v5 an exact same-run response-header-pair observation with a nonpersistent run-scoped fingerprint and no identity or catalog authority
 - [decision] D36: bind catalog scope and targets through one collector invocation, keep the stable pseudonym separate from `/5`, and leave execution to later owner gates
+- [decision] D37: store one exact immutable paused seed in a rollback-isolated owner before the live collector; a terminal result or fresh inspection establishes truth, never an automatic retry
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -1996,7 +2037,7 @@ personal context.
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
 - [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
 - [tail] T31: fulfilled by E58/S61 for one no-retry live header-pair observation; the semantic/personal-scope/catalog bridge remains separate and no automatic baseline follows
-- [tail] T32: persist one admitted catalog in a rollback-isolated paused owner with truthful native transaction outcomes before another live list read
+- [tail] T32: fulfilled by E61/S64; preserve the native-accepted paused owner as the sole durable catalog destination before another live list read
 - [tail] T33: live-accept one reviewed `/6` invocation that commits through the accepted owner before safe aggregate success and later detail/File batches
 
 ## Relations
@@ -2071,3 +2112,5 @@ personal context.
 - S60 — [ADR-080: Observe Claude list header-pair scope within one probe run](../adr/080-claude-list-probe-v5-header-pair-observation.md), base main `80c88e9169676a224a141fe999581ffef1a3bb4e`
 - S61 — local receipt `LISKA-CLAUDE-LIST-PROBE-V5-HEADER-PAIR-20261120`; visibility: local-only; git-ignored, content-free, private-route-free; safe aggregate/header-name observation only, with no raw header values or fingerprint
 - S62 — [ADR-081: Admit Claude account catalog data from one invocation](../adr/081-claude-account-catalog-admission.md), base main `dbd5d6b`; [synthetic core proof](../../test/claude-baseline/account-admission.test.ts)
+- S63 — [ADR-082: Retain one admitted Claude catalog](../adr/082-claude-account-baseline-owner-v1.md), base main `93a6861`; [codec](../../test/claude-account-baseline-owner/codec.test.ts), [transaction](../../test/claude-account-baseline-owner/storage.test.ts) and [harness](../../test/scripts/claude-account-baseline-owner-browser-harness.test.ts) checks
+- S64 — local receipt `LISKA-CLAUDE-ACCOUNT-OWNER-V1-NATIVE-20261125`; visibility: local-only; one zero-permission native PASS with cancel/close/race/reopen/cleanup, exact test-domain cleanup, no provider request or production-extension change

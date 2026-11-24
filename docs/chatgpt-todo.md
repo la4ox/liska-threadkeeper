@@ -890,11 +890,17 @@ terminal states, and the existing no-credential-export boundary.
   The core derives a stable, linkable scope pseudonym and reuses the `/1`
   catalog; companion evidence is explicitly caller-projected and records the
   empty archive projection without claiming live provenance.
-  Neither completeness nor execution is granted. Next: a storage-only paused
-  inventory owner with truthful terminal transaction outcomes. Only after that
-  acceptance may reviewed `/6` collection commit its catalog before reporting
-  success; one owner-bound detail/File capture and bounded manual batches then
-  advance the confirmed full current-personal backup. No scheduler follows.
+  Neither completeness nor execution is granted.
+- [ADR-082](adr/082-claude-account-baseline-owner-v1.md) implements the
+  storage-only predecessor: one exact ADR-081 seed in a fresh, rollback-isolated
+  paused owner, max 30 targets and 64 KiB, with commit/abort/unknown terminal
+  truth and no overwrite or execution authority. The packaged synthetic native
+  gate passed once in an ephemeral zero-permission Chromium profile with exact
+  `cancel/close/race/reopen/cleanup` rows and cleanup. Reviewed `/6` may now
+  collect, admit and commit that catalog before reporting aggregate success. One
+  owner-bound detail/File capture and bounded resumable manual batches then
+  advance the user's explicitly authorized full current-personal backup. No
+  scheduler follows.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
