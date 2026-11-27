@@ -37,6 +37,11 @@ export interface AccountCatalog {
     input: CreatePausedClaudeInput,
     signal?: AbortSignal
   ): Promise<CreatePausedClaudeResult>;
+  /** Atomic first-owner path; an occupied slot can only reconcile identical bytes. */
+  createPausedClaudeSingleScope(
+    input: CreatePausedClaudeInput,
+    signal?: AbortSignal
+  ): Promise<CreatePausedClaudeResult>;
   readSlot(slotId: string): Promise<AccountCatalogSlot | null>;
   readOwner(key: AccountCatalogOwnerLocator): Promise<AccountCatalogOwner | null>;
   listSlots(): Promise<readonly AccountCatalogSlot[]>;
@@ -62,7 +67,8 @@ function insert(
 async function createPausedClaude(
   connection: CatalogConnection,
   input: CreatePausedClaudeInput,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  singleScope = false
 ): Promise<CreatePausedClaudeResult> {
   const prepared = prepareClaude(input);
   const slotId = prepared.slot.value.slotId;
@@ -84,7 +90,10 @@ async function createPausedClaude(
         loadSlot(context, slotId, slot => {
           if (!sameBytes(slot.bytes, prepared.slot.bytes))
             throw new AccountCatalogError('conflict');
-          if (!existing) return insertMissing();
+          if (!existing) {
+            if (singleScope) throw new AccountCatalogError('conflict');
+            return insertMissing();
+          }
           loadOwner(context, existing, owner => {
             if (!sameBytes(owner.bytes, prepared.owner.bytes))
               throw new AccountCatalogError('conflict');
@@ -154,7 +163,7 @@ async function listOwners(connection: CatalogConnection, input?: string) {
   );
 }
 
-/** Unwired storage-only owner. Opening, returning and listing records grants no provider authority. */
+/** Storage-only owner. Opening, returning and listing records grants no provider authority. */
 export async function openAccountCatalog(
   options: AccountCatalogOptions = {}
 ): Promise<AccountCatalog> {
@@ -163,6 +172,8 @@ export async function openAccountCatalog(
   return Object.freeze({
     createPausedClaude: (input: CreatePausedClaudeInput, signal?: AbortSignal) =>
       createPausedClaude(connection, input, signal),
+    createPausedClaudeSingleScope: (input: CreatePausedClaudeInput, signal?: AbortSignal) =>
+      createPausedClaude(connection, input, signal, true),
     readSlot: (slotId: string) => readSlot(connection, slotId),
     readOwner: (key: AccountCatalogOwnerLocator) => readOwner(connection, key),
     listSlots: () => listSlots(connection),

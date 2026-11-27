@@ -133,7 +133,7 @@ async function copyInto(
   if (isAborted(signal)) return destinationFailure('cancelled');
   let committed: CreatePausedClaudeResult;
   try {
-    committed = await catalog.createPausedClaude(
+    committed = await catalog.createPausedClaudeSingleScope(
       { slotId, label, collectionId, admission },
       signal
     );

@@ -6964,3 +6964,65 @@ across 67 files, plus TypeScript, zero-warning scoped lint, Prettier and diff
 checks. No native/live, second-account or KYC test is claimed; current-head
 GitHub gates remain pending. PR-3 explicit slot UI/collector wiring remains the
 next separate gate.
+
+## Explicit account-slot popup and scoped Claude collector — 2026-11-27
+
+Base main `961c109` includes PR #153's slots/owners and PR #154's offline
+legacy adoption. PR-3 implements a compact Settings → Archive Tools **Claude
+catalog** block with an unselected slot picker for zero/one/many slots, a
+disambiguating suffix on every option, **New local slot**, and trusted
+**Collect from current tab** / **Copy old local catalog** actions. There is no
+modal, new page, Export-tab UI, default/latest choice, or provider-identity
+claim in local labels. A new slot is created atomically with its first owner.
+
+Legacy adoption accepts only a new slot, preserves the old owner, and never
+reads the current tab. Collection freezes the trusted click's exact tab,
+window, and URL before `tabs.query`. After bounded active/archive admission, a
+matching scope in an existing slot is observed as `scoped-owner-already-present`
+with `owner-existing` and no write; a different scope returns
+`slot-scope-mismatch` and is not implicitly added. A new target atomically
+creates one paused single-scope owner. The generic collector no longer reads or
+writes the legacy singleton and never calls its retained multi-scope storage
+capability. Commit and existing-owner post-verification have separate fixed
+codes/retention. `accountComplete` and `executionAuthorized` remain false;
+detail requests and downloads remain zero.
+
+Inventory may initialize only the empty fixed new database schema. Picker
+responses expose local slot IDs/labels; adoption and collection responses stay
+content-free. Dedicated popup list/adopt/collect routes retain exact sender and
+envelope validation and share the `/5`-/`/6` lock. Popup closure is not
+cancellation; reopening only refreshes inventory, with no retry or journal.
+No new permission, content script, scheduler, detail read, or download was
+added. English/Japanese strings are present; there is no Russian locale.
+
+Local validation: affected worker matrix 467/467 across 22 files; broader run
+1,891 passed and 2 existing skips; exact parent matrix 358/358 across 14 files
+plus TypeScript/diff; ZIP build and emitted-runtime check passed. ZIP is
+2,822,571 bytes, SHA-256
+`e092a1504857344459bffbb78df7a3b1525a0bc4324c8d817484fc2a2bdb48ed`. Scoped
+lint added zero warnings; four inherited warning categories remain. Exact-head
+GitHub gates are pending. No visual, browser, installed, current-account,
+second-account or KYC proof is claimed.
+
+After GitHub gates, the next canary is limited to the current account: choose a
+label explicitly, copy the old catalog into a new slot, then check the selected
+current tab in that slot. Expect existing-scope retention or mismatch/no-write.
+Do not test a spare account/KYC; that remains deferred. Fresh installed
+ChatGPT regression remains required after Claude and before detail/File work.
+
+Boundary correction before merge: the slot target is frozen before the first
+await; exact tab/window/URL evidence is snapshotted from the active-tab query
+before dispatch and rechecked by the worker. The shared `/5`-/`/6` provider
+lock covers probe and collection only. Inventory and adoption are exact-popup,
+bounded local storage routes with their own atomic transaction ownership.
+
+Recovery correction before merge: every popup new-slot click creates a fresh
+slot ID. Exact same-target replay belongs to the underlying adoption API, not
+the popup. After an uncertain response, close and reopen the extension popup
+to inspect local inventory; switching Export/Settings does not refresh or
+redispatch anything.
+
+Final candidate correction before merge: after the ordinary-Settings listener
+and recovery-copy fixes, the rebuilt 66-file ZIP is 2,822,639 bytes with
+SHA-256 `f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`;
+this supersedes the earlier local candidate hash above.

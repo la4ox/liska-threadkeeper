@@ -18,7 +18,8 @@ describe('collector production boundary', () => {
         [
           '../claude-baseline/account-admission',
           '../claude-baseline/account-admission-contracts',
-          '../claude-account-baseline-owner',
+          '../account-catalog-owner',
+          '../lib/account-slot-contract',
           '../lib/claude-account-collector-contract',
           './claude-account-collector-lifecycle',
           './claude-account-collector-page',
@@ -35,7 +36,22 @@ describe('collector production boundary', () => {
           '../lib/claude-account-collector-contract',
         ],
       ],
-      [contract, []],
+      [contract, ['./account-slot-contract']],
+      ['src/lib/account-slot-contract.ts', []],
+      [
+        'src/background/account-catalog-routes.ts',
+        [
+          './claude-account-collector',
+          './claude-list-probe',
+          './account-slot-actions',
+          '../lib/account-slot-contract',
+          '../lib/claude-account-collector-contract',
+        ],
+      ],
+      [
+        'src/background/account-slot-actions.ts',
+        ['../account-catalog-owner', '../account-catalog-adoption', '../lib/account-slot-contract'],
+      ],
     ] as const) {
       const ast = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true);
       const imports: string[] = [];
@@ -53,7 +69,7 @@ describe('collector production boundary', () => {
   it('has just the bounded list fetch, no provider/detail/download/storage/scheduling bridge', () => {
     const privateSources = [controller, lifecycle, projection, page].map(read).join('\n');
     expect(privateSources.match(/\bfetch\(/gu)).toHaveLength(1);
-    expect(privateSources.match(/\.createPaused\(/gu)).toHaveLength(1);
+    expect(privateSources.match(/\.createPausedClaudeSingleScope\(/gu)).toHaveLength(1);
     expect(privateSources).not.toMatch(
       /\.alarms\b|chrome\.storage|chrome\.downloads|sessionStorage|\.setItem\(|indexedDB\.|fetchClaudeConversation|captureClaudeDetail|exportConversation|\/chat_conversations\//u
     );
@@ -62,10 +78,16 @@ describe('collector production boundary', () => {
     expect(read('src/manifest.json')).not.toMatch(
       /claude-account-collector|claude-account-baseline-owner/u
     );
-    expect(read('src/popup/app.ts')).not.toMatch(
+    expect(['src/popup/app.ts', 'src/popup/account-catalog.ts'].map(read).join('\n')).not.toMatch(
       /claude-account-collector-(?:page|projection|lifecycle)|claude-account-baseline-owner|scopeHeaders/u
     );
     const worker = read('src/background/service-worker.ts');
+    const router = read('src/background/account-catalog-routes.ts');
+    expect(router).toContain('snapshotCollectorMessage(message, entry)');
+    expect(worker).toContain('const catalogRoute = routeAccountCatalogMessage');
+    expect(worker.indexOf('const catalogRoute = routeAccountCatalogMessage')).toBeLessThan(
+      worker.indexOf('message = detachTransportGenerations')
+    );
     expect(worker.match(/operations: claudeListOperations/gu)).toHaveLength(2);
   });
 });

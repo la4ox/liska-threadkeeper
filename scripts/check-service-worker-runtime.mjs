@@ -201,7 +201,10 @@ export async function checkCollectorRuntime(directory, receipt) {
     ![
       'liska-claude-account-collector/6',
       'liska-claude-account-catalog-admission/1',
-      'liska-claude-account-baseline-owner-v1',
+      'liska-claude-account-baseline-owner-v1', // legacy read-only source
+      'liska-account-catalog-owner-v1',
+      'liska-account-slot-picker/1',
+      'liska-legacy-catalog-copy/1',
     ].every(marker => modules.some(code => code.includes(marker)))
   )
     fail('collector-closure-missing');

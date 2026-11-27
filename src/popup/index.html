@@ -173,16 +173,65 @@
               </span>
             </span>
           </button>
-          <button id="collectClaudeAccountCatalogBtn" class="tool-action" type="button">
-            <span class="toggle-icon" aria-hidden="true">🗂️</span>
-            <span class="toggle-label">
-              <span data-i18n="settings_collectClaudeCatalog">Collect Claude backup catalog</span>
-              <span class="toggle-sublabel" data-i18n="settings_collectClaudeCatalogHelp"
-                >Use the current personal Claude context. Store a paused target catalog locally; no
-                chat content is downloaded yet.</span
+          <div class="catalog-tool">
+            <h3 data-i18n="settings_collectClaudeCatalog">Claude catalog</h3>
+            <p class="help" data-i18n="settings_collectClaudeCatalogHelp">
+              Collect from your current personal Claude context. This stores only a paused local
+              catalog; no chat content is downloaded.
+            </p>
+            <p class="help" data-i18n="settings_catalogInventoryHelp">
+              Opening settings checks local slots and may initialize an empty local database.
+            </p>
+            <label for="claudeCatalogSlot" data-i18n="settings_catalogSlot">Local slot</label>
+            <select id="claudeCatalogSlot" aria-describedby="claudeCatalogInventory" disabled>
+              <option value="" selected disabled data-i18n="settings_catalogChoose">
+                Choose a slot
+              </option>
+            </select>
+            <p id="claudeCatalogInventory" class="help" role="status" aria-live="polite"></p>
+            <div id="claudeCatalogNewSlot" hidden>
+              <label for="claudeCatalogLabel" data-i18n="settings_catalogLabel"
+                >New slot label</label
               >
-            </span>
-          </button>
+              <input
+                id="claudeCatalogLabel"
+                type="text"
+                maxlength="160"
+                aria-describedby="claudeCatalogLabelHelp"
+                disabled
+              />
+              <p id="claudeCatalogLabelHelp" class="help" data-i18n="settings_catalogLabelHelp">
+                1–80 characters, up to 256 UTF-8 bytes; normalized Unicode, no control characters or
+                surrounding spaces.
+              </p>
+            </div>
+            <div class="catalog-actions">
+              <button
+                id="collectClaudeAccountCatalogBtn"
+                class="btn secondary"
+                type="button"
+                disabled
+                data-i18n="settings_catalogCollect"
+              >
+                Collect from current tab
+              </button>
+              <button
+                id="adoptLegacyClaudeCatalogBtn"
+                class="btn secondary"
+                type="button"
+                disabled
+                data-i18n="settings_catalogCopy"
+              >
+                Copy old local catalog
+              </button>
+            </div>
+            <p class="help" data-i18n="settings_catalogActionHelp">
+              Collecting asserts this is your personal context. Copy is for a new slot, uses no
+              current tab, and keeps the original. Closing before dispatch cancels it; afterwards it
+              may still save, even if the result is lost. Close and reopen the extension popup to
+              inspect local slots. No automatic retry.
+            </p>
+          </div>
           <button id="probeClaudeListsBtn" class="tool-action" type="button">
             <span class="toggle-icon" aria-hidden="true">🔎</span>
             <span class="toggle-label">

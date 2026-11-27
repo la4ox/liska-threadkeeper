@@ -10,10 +10,13 @@ import {
   interruptCollectorDocument,
 } from '../../src/background/claude-account-collector-page';
 import { probeClaudeListsInActiveTab } from '../../src/background/claude-list-probe';
+import { openClaudeAccountBaselineOwner } from '../../src/claude-account-baseline-owner';
 import {
-  ClaudeAccountBaselineOwnerError,
-  openClaudeAccountBaselineOwner,
-} from '../../src/claude-account-baseline-owner';
+  AccountCatalogError,
+  openAccountCatalog,
+  type CreatePausedClaudeInput,
+} from '../../src/account-catalog-owner';
+import { adoptLegacyClaudeCatalog } from '../../src/account-catalog-adoption';
 import {
   collectorSummary,
   snapshotCollectorSummary,
@@ -77,6 +80,24 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+const newSlot = {
+  kind: 'new' as const,
+  slotId: 'account-slot/1:' + 'a'.repeat(32),
+  label: 'Personal',
+};
+const completed = { dispatch: 2, page: 2, target: 1, marker: 1 };
+function terminalReceipt(input: CreatePausedClaudeInput, kind = 'created') {
+  return {
+    kind,
+    slot: { slotId: input.slotId, provider: 'claude', label: input.label },
+    owner: {
+      provider: 'claude',
+      slotId: input.slotId,
+      collectionId: input.collectionId,
+      scopeKey: (input.admission as { catalog: { scopeKey: string } }).catalog.scopeKey,
+    },
+  };
+}
 function harness() {
   const win = { location: { href: route } };
   Object.assign(win, { top: win });
@@ -120,20 +141,23 @@ function harness() {
     windows: { onFocusChanged: channel<(windowId: number) => void>() },
   };
   const owner = {
-    read: vi.fn(async () => null),
-    createPaused: vi.fn(async (collectionId: string) => ({
-      kind: 'created',
-      baseline: { collectionId },
-    })),
+    readSlot: vi.fn(async (): Promise<{ provider: 'claude'; slotId: string } | null> => null),
+    listOwners: vi.fn(
+      async (): Promise<{ provider: string; slotId: string; scopeKey: string }[]> => []
+    ),
+    createPausedClaudeSingleScope: vi.fn(
+      async (input: CreatePausedClaudeInput, _signal?: AbortSignal) => terminalReceipt(input)
+    ),
     close: vi.fn(async () => undefined),
   };
   const operations = new Set<number>();
   const deps = {
+    slot: newSlot,
     source: { tabId: tab.id, windowId: tab.windowId, url: tab.url },
     operations,
     permitted: vi.fn(async () => true),
     browser: browser as never,
-    openOwner: vi.fn(async () => owner) as never,
+    openCatalog: vi.fn(async () => owner) as never,
   };
   return {
     fetch,
@@ -159,11 +183,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe('/6 controller', () => {
-  it('commits canonical admitted bytes only, then preflights the same owner without network', async () => {
+  it('commits once, then preserves an adopted owner for matching and mismatching scope observations', async () => {
     const h = harness(),
       factory = new IDBFactory();
-    const openOwner = () => openClaudeAccountBaselineOwner({ indexedDB: factory });
-    const run = () => collectClaudeAccountCatalog({ ...h.deps, openOwner });
+    const openCatalog = () => openAccountCatalog({ indexedDB: factory });
+    const run = () => collectClaudeAccountCatalog({ ...h.deps, openCatalog });
     const result = await run();
     expect(result).toEqual(
       collectorSummary('saved', { dispatch: 2, page: 2, target: 1, marker: 1 })
@@ -201,8 +225,8 @@ describe('/6 controller', () => {
     const all = h.executeScript.mock.calls.map(([i]) => i.target);
     expect(all[0]).toEqual({ tabId: 17, frameIds: [0] });
     expect(all.slice(1).every(i => i.documentIds?.[0] === doc)).toBe(true);
-    const owner = await openOwner();
-    const stored = await owner.read();
+    const owner = await openCatalog();
+    const [stored] = await owner.listOwners(newSlot.slotId);
     await owner.close();
     expect(stored?.admission.catalog.targets).toEqual([
       {
@@ -212,25 +236,51 @@ describe('/6 controller', () => {
     ]);
     expect(stored).toMatchObject({
       phase: 'paused',
-      items: [{ conversationId: id, state: 'pending' }],
       accountComplete: false,
       executionAuthorized: false,
     });
     for (const privateValue of [workspace, org, secretTitle, route])
       expect(JSON.stringify(stored)).not.toContain(privateValue);
     expect(stored?.collectionId).toMatch(/^claude-account-collection\/1:[a-f0-9]{32}$/u);
-    expect(await run()).toEqual(collectorSummary('owner-already-seeded'));
-    expect(h.fetch).toHaveBeenCalledTimes(2);
+    expect(await run()).toEqual(collectorSummary('owner-conflict', completed));
+    const legacy = await openClaudeAccountBaselineOwner({ indexedDB: factory });
+    await legacy.createPaused(stored.collectionId, stored.admission);
+    await legacy.close();
+    const adopted = { kind: 'existing' as const, slotId: 'account-slot/1:' + 'b'.repeat(32) };
+    expect(
+      (
+        await adoptLegacyClaudeCatalog({
+          indexedDB: factory,
+          slotId: adopted.slotId,
+          label: newSlot.label,
+        })
+      ).kind
+    ).toBe('created');
+    const runExisting = () =>
+      collectClaudeAccountCatalog({ ...h.deps, openCatalog, slot: adopted });
+    const listing = await openCatalog();
+    const before = await listing.listOwners();
+    expect(before).toHaveLength(2);
+    expect(await runExisting()).toEqual(
+      collectorSummary('scoped-owner-already-present', completed)
+    );
+    h.fetch.mockImplementation(async url =>
+      reply(url, list(url.includes('archived=true') ? [] : [row]), { workspace: 'other-space' })
+    );
+    expect(await runExisting()).toEqual(collectorSummary('slot-scope-mismatch', completed));
+    expect(await listing.listOwners()).toEqual(before);
+    await listing.close();
+    expect(h.fetch).toHaveBeenCalledTimes(8);
   });
   it.each(['corrupt', 'unsupported', 'transaction-outcome-unknown'] as const)(
-    'rejects %s owner before a fetch',
+    'rejects %s slot read only after admitted pages',
     async err => {
       const h = harness();
-      h.owner.read.mockRejectedValue(new ClaudeAccountBaselineOwnerError(err));
+      h.owner.readSlot.mockRejectedValue(new AccountCatalogError(err));
       expect((await h.run()).code).toBe(
-        err === 'transaction-outcome-unknown' ? 'owner-preflight-unknown' : 'owner-' + err
+        err === 'transaction-outcome-unknown' ? 'scoped-read-unknown' : 'scoped-store-' + err
       );
-      expect(h.fetch).not.toHaveBeenCalled();
+      expect(h.fetch).toHaveBeenCalledTimes(2);
       expect(h.owner.close).toHaveBeenCalledOnce();
     }
   );
@@ -240,14 +290,14 @@ describe('/6 controller', () => {
     expect((await h.run()).code).toBe('permission-unavailable');
     h.tab.url += '?x';
     expect((await h.run()).code).toBe('navigation-changed');
-    expect(h.deps.openOwner).not.toHaveBeenCalled();
+    expect(h.deps.openCatalog).not.toHaveBeenCalled();
     expect(h.fetch).not.toHaveBeenCalled();
   });
   it.each(['conflict', 'transaction-aborted', 'transaction-outcome-unknown'] as const)(
     'preserves terminal owner %s without retry',
     async err => {
       const h = harness();
-      h.owner.createPaused.mockRejectedValue(new ClaudeAccountBaselineOwnerError(err));
+      h.owner.createPausedClaudeSingleScope.mockRejectedValue(new AccountCatalogError(err));
       const r = await h.run();
       expect(r.code).toBe(
         err === 'conflict'
@@ -257,7 +307,7 @@ describe('/6 controller', () => {
             : 'owner-outcome-unknown'
       );
       expect(r.retention).toBe('not-confirmed');
-      expect(h.owner.createPaused).toHaveBeenCalledOnce();
+      expect(h.owner.createPausedClaudeSingleScope).toHaveBeenCalledOnce();
       expect(h.owner.close).toHaveBeenCalledOnce();
     }
   );
@@ -266,17 +316,72 @@ describe('/6 controller', () => {
     async kind => {
       const h = harness(),
         hash = vi.fn(async () => new Uint8Array(32));
-      h.owner.createPaused.mockImplementation(async collectionId => ({
-        kind,
-        baseline: { collectionId },
-      }));
+      h.owner.createPausedClaudeSingleScope.mockImplementation(async input =>
+        terminalReceipt(input, kind)
+      );
       h.owner.close.mockRejectedValue(Error(secretTitle));
       expect(await collectClaudeAccountCatalog({ ...h.deps, sha256: hash })).toMatchObject({
         code: 'committed-verification-unavailable',
         retention: 'owner-committed',
       });
       expect(hash).toHaveBeenCalledOnce();
-      expect(h.owner.createPaused).toHaveBeenCalledOnce();
+      expect(h.owner.createPausedClaudeSingleScope).toHaveBeenCalledOnce();
+    }
+  );
+  it('does not fall back from a missing selected slot or relabel it', async () => {
+    const h = harness(),
+      slot = { kind: 'existing' as const, slotId: newSlot.slotId };
+    expect(await collectClaudeAccountCatalog({ ...h.deps, slot })).toEqual(
+      collectorSummary('slot-missing', completed)
+    );
+    expect(h.owner.listOwners).not.toHaveBeenCalled();
+    expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
+  });
+  it.each(['ok', 'close', 'navigation'] as const)(
+    'accepts matching scope among several without refresh, preserving existing retention through %s',
+    async phase => {
+      const h = harness(),
+        slot = { kind: 'existing' as const, slotId: newSlot.slotId };
+      h.owner.readSlot.mockResolvedValue({ provider: 'claude', slotId: slot.slotId });
+      const matching = {
+        provider: 'claude',
+        slotId: slot.slotId,
+        scopeKey: 'claude-list-scope/1:' + '0'.repeat(64),
+      };
+      h.owner.listOwners.mockResolvedValue([{ ...matching, scopeKey: 'other' }, matching]);
+      if (phase === 'close') h.owner.close.mockRejectedValue(Error(secretTitle));
+      if (phase === 'navigation')
+        h.owner.close.mockImplementationOnce(async () => {
+          h.aba();
+        });
+      const r = await collectClaudeAccountCatalog({
+        ...h.deps,
+        slot,
+        sha256: async () => new Uint8Array(32),
+      });
+      expect(r).toEqual(
+        collectorSummary(
+          phase === 'ok'
+            ? 'scoped-owner-already-present'
+            : phase === 'navigation'
+              ? 'existing-context-changed'
+              : 'existing-verification-unavailable',
+          completed
+        )
+      );
+      expect(h.owner.listOwners).toHaveBeenCalledExactlyOnceWith(slot.slotId);
+      expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
+    }
+  );
+  it.each(['capacity', 'quota-exceeded'] as const)(
+    'preserves terminal %s at 2/2 without creating another slot',
+    async code => {
+      const h = harness();
+      h.owner.createPausedClaudeSingleScope.mockRejectedValue(new AccountCatalogError(code));
+      expect(await h.run()).toEqual(
+        collectorSummary(code === 'capacity' ? 'scoped-capacity' : 'scoped-quota', completed)
+      );
+      expect(h.owner.createPausedClaudeSingleScope).toHaveBeenCalledOnce();
     }
   );
   it.each(['tab', 'route', 'window'] as const)(
@@ -287,9 +392,9 @@ describe('/6 controller', () => {
       else if (changed === 'window') h.tab.windowId++;
       else h.tab.url = 'https://claude.ai/chat/' + org;
       expect(await h.run()).toEqual(collectorSummary('navigation-changed'));
-      expect(h.deps.openOwner).not.toHaveBeenCalled();
+      expect(h.deps.openCatalog).not.toHaveBeenCalled();
       expect(h.fetch).not.toHaveBeenCalled();
-      expect(h.owner.createPaused).not.toHaveBeenCalled();
+      expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
     }
   );
   it.each(['empty', 'different'] as const)(
@@ -309,7 +414,7 @@ describe('/6 controller', () => {
         })
       );
       expect(h.fetch).toHaveBeenCalledOnce();
-      expect(h.owner.createPaused).not.toHaveBeenCalled();
+      expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
       expect(snapshotCollectorSummary(r)).toEqual(r);
     }
   );
@@ -317,14 +422,14 @@ describe('/6 controller', () => {
     'reports committed verification unavailable, not changed, on final %s failure',
     async mode => {
       const h = harness();
-      h.owner.createPaused.mockImplementationOnce(async collectionId => {
+      h.owner.createPausedClaudeSingleScope.mockImplementationOnce(async input => {
         if (mode === 'get') h.browser.tabs.get.mockRejectedValueOnce(Error(secretTitle));
         else if (mode === 'query') h.browser.tabs.query.mockRejectedValueOnce(Error(secretTitle));
         else if (mode === 'missing-url')
           h.browser.tabs.get.mockResolvedValueOnce({ ...h.tab, url: undefined } as never);
         else if (mode === 'empty-selection') h.browser.tabs.query.mockResolvedValueOnce([]);
         else h.executeScript.mockRejectedValueOnce(Error(secretTitle));
-        return { kind: 'created', baseline: { collectionId } };
+        return terminalReceipt(input);
       });
       expect(await h.run()).toMatchObject({
         status: 'stopped',
@@ -344,7 +449,7 @@ describe('/6 controller', () => {
     });
     const run = collectClaudeAccountCatalog({ ...h.deps, timeoutMs: 50 });
     await started.promise;
-    expect(h.owner.createPaused).toHaveBeenCalledOnce();
+    expect(h.owner.createPausedClaudeSingleScope).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(51);
     expect(await run).toMatchObject({
       code: 'committed-verification-deadline',
@@ -371,7 +476,7 @@ describe('/6 controller', () => {
       const result = await h.run();
       expect(result).toEqual(collectorSummary('source-verification-unavailable'));
       expect(h.fetch).not.toHaveBeenCalled();
-      expect(h.deps.openOwner).not.toHaveBeenCalled();
+      expect(h.deps.openCatalog).not.toHaveBeenCalled();
     }
   );
   it.each([
@@ -390,7 +495,7 @@ describe('/6 controller', () => {
         throw Error(secretTitle);
       });
     const changed = { frameId: 0, documentId: 'synthetic_other_document', result: { ready: true } };
-    h.owner.read.mockImplementationOnce(async () => {
+    h.owner.readSlot.mockImplementationOnce(async () => {
       h.executeScript.mockImplementationOnce(async () => {
         if (fixture === 'rejection') throw Error(secretTitle);
         if (fixture === 'empty') return [];
@@ -412,12 +517,13 @@ describe('/6 controller', () => {
     const result = await h.run();
     expect(result).toEqual(
       collectorSummary(
-        fixture === 'replacement' ? 'document-replaced' : 'source-verification-unavailable'
+        fixture === 'replacement' ? 'document-replaced' : 'source-verification-unavailable',
+        completed
       )
     );
     expect(getter).not.toHaveBeenCalled();
-    expect(h.fetch).not.toHaveBeenCalled();
-    expect(h.owner.createPaused).not.toHaveBeenCalled();
+    expect(h.fetch).toHaveBeenCalledTimes(2);
+    expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
   });
   it.each([
     [1, 0],
@@ -454,14 +560,14 @@ describe('/6 controller', () => {
         retention: 'not-confirmed',
       });
       expect(snapshotCollectorSummary(result)).toEqual(result);
-      expect(h.owner.createPaused).not.toHaveBeenCalled();
+      expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
     }
   );
   it('a commit winning a no-focus cancellation has unavailable verification, not an observed navigation', async () => {
     const h = harness();
-    h.owner.createPaused.mockImplementationOnce(async collectionId => {
+    h.owner.createPausedClaudeSingleScope.mockImplementationOnce(async input => {
       h.browser.windows.onFocusChanged.emit(-1);
-      return { kind: 'created', baseline: { collectionId } };
+      return terminalReceipt(input);
     });
     expect(await h.run()).toMatchObject({
       status: 'stopped',
@@ -469,7 +575,7 @@ describe('/6 controller', () => {
       retention: 'owner-committed',
     });
     expect(h.owner.close).toHaveBeenCalledOnce();
-    expect(h.owner.createPaused).toHaveBeenCalledOnce();
+    expect(h.owner.createPausedClaudeSingleScope).toHaveBeenCalledOnce();
   });
   it('keeps a page-only visibility interruption neutral through projection, public validation and owner cleanup', async () => {
     const h = harness(),
@@ -501,20 +607,24 @@ describe('/6 controller', () => {
     expect(snapshotCollectorSummary(result)).toEqual(result);
     expect(cancel).toHaveBeenCalledOnce();
     expect(h.fetch).toHaveBeenCalledOnce();
-    expect(h.owner.createPaused).not.toHaveBeenCalled();
-    expect(h.owner.close).toHaveBeenCalledOnce();
+    expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
+    expect(h.owner.close).not.toHaveBeenCalled();
   });
   it('does not confirm a terminal receipt carrying another collection label', async () => {
     const h = harness();
-    h.owner.createPaused.mockResolvedValue({
-      kind: 'already-created',
-      baseline: { collectionId: 'another' },
+    h.owner.createPausedClaudeSingleScope.mockResolvedValue({
+      ...terminalReceipt({
+        slotId: newSlot.slotId,
+        label: newSlot.label,
+        collectionId: 'another',
+        admission: { catalog: { scopeKey: 'wrong' } },
+      }),
     });
     expect(await h.run()).toMatchObject({
       code: 'owner-outcome-unknown',
       retention: 'not-confirmed',
     });
-    expect(h.owner.createPaused).toHaveBeenCalledOnce();
+    expect(h.owner.createPausedClaudeSingleScope).toHaveBeenCalledOnce();
   });
   it('does not infer replacement when the pinned lookup rejects after the digest', async () => {
     const h = harness();
@@ -531,7 +641,7 @@ describe('/6 controller', () => {
       dispatch: 2,
       page: 2,
     });
-    expect(h.owner.createPaused).not.toHaveBeenCalled();
+    expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
   });
   it.each(['resolve', 'reject'] as const)(
     'consumes late digest %s; keeps cross-version lock and never commits',
@@ -559,8 +669,43 @@ describe('/6 controller', () => {
       if (how === 'resolve') hash.resolve(new Uint8Array(32));
       else hash.reject(Error(secretTitle));
       await vi.waitFor(() => expect(h.deps.operations.size).toBe(0));
-      expect(h.owner.createPaused).not.toHaveBeenCalled();
+      expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
       expect(h.updated.listeners.size).toBe(0);
+    }
+  );
+  it.each(['slot', 'owners'] as const)(
+    'holds the /5 lock through a late %s read without creating or refreshing',
+    async phase => {
+      const h = harness(),
+        slot = { kind: 'existing' as const, slotId: newSlot.slotId },
+        started = deferred<boolean>(),
+        done = deferred<boolean>();
+      h.owner.readSlot.mockImplementation(async () => {
+        if (phase === 'slot') {
+          started.resolve(true);
+          await done.promise;
+        }
+        return { provider: 'claude', slotId: slot.slotId };
+      });
+      h.owner.listOwners.mockImplementation(async () => {
+        started.resolve(true);
+        await done.promise;
+        return [];
+      });
+      const pending = collectClaudeAccountCatalog({ ...h.deps, slot });
+      await started.promise;
+      h.aba();
+      expect(await pending).toEqual(collectorSummary('navigation-changed', completed));
+      expect(
+        await probeClaudeListsInActiveTab({
+          chromeApi: h.browser as never,
+          operations: h.deps.operations,
+        })
+      ).toMatchObject({ code: 'operation-in-progress' });
+      done.resolve(true);
+      await vi.waitFor(() => expect(h.deps.operations.size).toBe(0));
+      expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
+      expect(h.owner.close).toHaveBeenCalledOnce();
     }
   );
   it('a digest outlasting the absolute request budget can never hand off on late completion', async () => {
@@ -579,10 +724,10 @@ describe('/6 controller', () => {
     await started.promise;
     await vi.advanceTimersByTimeAsync(51);
     expect((await pending).code).toBe('deadline-exceeded');
-    expect(h.owner.close).toHaveBeenCalledOnce();
+    expect(h.owner.close).not.toHaveBeenCalled();
     digest.resolve(new Uint8Array(32));
     await vi.advanceTimersByTimeAsync(0);
-    expect(h.owner.createPaused).not.toHaveBeenCalled();
+    expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
     expect(h.deps.operations.size).toBe(0);
   });
   it('the same-invocation scope cannot be copied into a retained target field', async () => {
@@ -591,7 +736,7 @@ describe('/6 controller', () => {
       reply(url, list([{ ...row, updated_at: workspace }]))
     );
     expect((await h.run()).code).toBe('admission-rejected');
-    expect(h.owner.createPaused).not.toHaveBeenCalled();
+    expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
   });
   it('does not join a prior operation or a foreign token in the isolated document', async () => {
     const h = harness();
@@ -627,9 +772,9 @@ describe('/6 controller', () => {
     pendingFetch.resolve(reply(route, list([row])));
     await vi.waitFor(() => expect(h.deps.operations.size).toBe(0));
     expect(h.fetch).toHaveBeenCalledOnce();
-    expect(h.owner.createPaused).not.toHaveBeenCalled();
+    expect(h.owner.createPausedClaudeSingleScope).not.toHaveBeenCalled();
   });
-  it('deadline stops a late open, closes its handle and never reads or fetches', async () => {
+  it('deadline after 2/2 stops a late open, closes its handle and never reads the slot', async () => {
     const h = harness(),
       opening = deferred<typeof h.owner>(),
       start = deferred<boolean>();
@@ -637,7 +782,7 @@ describe('/6 controller', () => {
     const pending = collectClaudeAccountCatalog({
       ...h.deps,
       timeoutMs: 20,
-      openOwner: async () => {
+      openCatalog: async () => {
         start.resolve(true);
         return opening.promise as never;
       },
@@ -648,18 +793,18 @@ describe('/6 controller', () => {
     opening.resolve(h.owner);
     await vi.advanceTimersByTimeAsync(0);
     expect(h.owner.close).toHaveBeenCalledOnce();
-    expect(h.owner.read).not.toHaveBeenCalled();
-    expect(h.fetch).not.toHaveBeenCalled();
+    expect(h.owner.readSlot).not.toHaveBeenCalled();
+    expect(h.fetch).toHaveBeenCalledTimes(2);
   });
   it.each(['navigation', 'deadline'] as const)(
     'awaits commit winning %s cancellation and preserves native truth',
     async reason => {
       const h = harness(),
-        write = deferred<{ kind: string; baseline: { collectionId: string } }>(),
+        write = deferred<ReturnType<typeof terminalReceipt>>(),
         started = deferred<AbortSignal>();
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-      h.owner.createPaused.mockImplementation((...args: unknown[]) => {
-        started.resolve(args[2] as AbortSignal);
+      h.owner.createPausedClaudeSingleScope.mockImplementation((...args: unknown[]) => {
+        started.resolve(args[1] as AbortSignal);
         return write.promise;
       });
       const pending = collectClaudeAccountCatalog({ ...h.deps, timeoutMs: 50 });
@@ -669,10 +814,7 @@ describe('/6 controller', () => {
       expect(signal.aborted).toBe(true);
       expect(h.deps.operations.size).toBe(1);
       expect(h.owner.close).not.toHaveBeenCalled();
-      write.resolve({
-        kind: 'created',
-        baseline: { collectionId: h.owner.createPaused.mock.calls[0][0] },
-      });
+      write.resolve(terminalReceipt(h.owner.createPausedClaudeSingleScope.mock.calls[0][0]));
       const result = await pending;
       expect(result).toMatchObject({
         status: 'stopped',
@@ -688,9 +830,9 @@ describe('/6 controller', () => {
   );
   it('retains commit truth when the postcommit pin is replaced', async () => {
     const h = harness();
-    h.owner.createPaused.mockImplementation(async collectionId => {
+    h.owner.createPausedClaudeSingleScope.mockImplementation(async input => {
       h.replaceDoc();
-      return { kind: 'created', baseline: { collectionId } };
+      return terminalReceipt(input);
     });
     expect(await h.run()).toMatchObject({
       code: 'committed-verification-unavailable',

@@ -5,6 +5,7 @@
  * to prevent unauthorized access (M-02)
  */
 
+import { snapshotSlotRequest } from '../lib/account-slot-contract';
 import { isCollectorMessage } from '../lib/claude-account-collector-contract';
 import {
   MAX_CONTENT_SIZE,
@@ -774,7 +775,9 @@ export function validateMessageContent(message: unknown): message is ExtensionMe
   const extensionMessage = message as ExtensionMessage;
   const action = Object.getOwnPropertyDescriptor(message, 'action');
   if (!action || !('value' in action)) return false;
-  if (action.value === 'collectClaudeAccountCatalog') return isCollectorMessage(message);
+  if (action.value === 'listAccountCatalogSlots' || action.value === 'adoptLegacyClaudeCatalog')
+    return snapshotSlotRequest(message, action) !== undefined;
+  if (action.value === 'collectClaudeAccountCatalog') return isCollectorMessage(message, action);
   if (
     action.value === 'persistDerivedHtmlPresentation' &&
     !validatePersistDerivedHtmlMessage(

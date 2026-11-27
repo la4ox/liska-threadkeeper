@@ -1,3 +1,6 @@
+import { collectorFields, snapshotSlotTarget, type SlotTarget } from './account-slot-contract';
+export { collectorFields } from './account-slot-contract';
+
 /** A closed click-bound request and an aggregate-only public response. */
 export const COLLECTOR_SCHEMA = 'liska-claude-account-collector/6' as const;
 export const PAGE_STOP_CODES = [
@@ -37,14 +40,21 @@ export const COLLECTOR_CODES = [
   'result-invalid',
   'admission-rejected',
   'hash-failed',
-  'owner-already-seeded',
-  'owner-unavailable',
-  'owner-corrupt',
-  'owner-unsupported',
+  'scoped-owner-already-present',
+  'slot-missing',
+  'slot-scope-mismatch',
+  'scoped-read-unknown',
+  'scoped-store-unavailable',
+  'scoped-store-corrupt',
+  'scoped-store-unsupported',
+  'scoped-capacity',
+  'scoped-quota',
+  'existing-context-changed',
+  'existing-verification-deadline',
+  'existing-verification-unavailable',
   'owner-conflict',
   'owner-aborted',
   'owner-outcome-unknown',
-  'owner-preflight-unknown',
   'owner-create-refused',
   'committed-context-changed',
   'committed-verification-deadline',
@@ -69,9 +79,15 @@ export function collectorSummary(
     code === 'committed-context-changed' ||
     code === 'committed-verification-deadline' ||
     code === 'committed-verification-unavailable';
+  const existing = code === 'scoped-owner-already-present' || code.startsWith('existing-');
   return {
     schema: COLLECTOR_SCHEMA,
-    status: code === 'saved' ? ('saved' as const) : ('stopped' as const),
+    status:
+      code === 'saved'
+        ? ('saved' as const)
+        : code === 'scoped-owner-already-present'
+          ? ('unchanged' as const)
+          : ('stopped' as const),
     code,
     dispatch: progress.dispatch,
     page: progress.page,
@@ -80,7 +96,11 @@ export function collectorSummary(
     activeTerminal: progress.page >= 1,
     archivedTerminalEmpty: progress.page === 2,
     pairMatched: progress.page === 2,
-    retention: committed ? ('owner-committed' as const) : ('not-confirmed' as const),
+    retention: committed
+      ? ('owner-committed' as const)
+      : existing
+        ? ('owner-existing' as const)
+        : ('not-confirmed' as const),
     accountComplete: false as const,
     executionAuthorized: false as const,
     detailRequests: 0 as const,
@@ -89,25 +109,6 @@ export function collectorSummary(
 }
 export type CollectorSummary = ReturnType<typeof collectorSummary>;
 
-export function collectorFields(
-  value: unknown,
-  keys: readonly string[],
-  entryAction?: PropertyDescriptor
-): Record<string, unknown> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== null && proto !== Object.prototype) return;
-  const ownKeys = Reflect.ownKeys(value);
-  if (ownKeys.length !== keys.length || keys.some(key => !ownKeys.includes(key))) return;
-  const snapshot: Record<string, unknown> = Object.create(null);
-  for (const key of keys) {
-    const descriptor =
-      key === 'action' && entryAction ? entryAction : Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor?.enumerable || !('value' in descriptor)) return;
-    snapshot[key] = descriptor.value;
-  }
-  return snapshot;
-}
 export function collectorProgress(value: Record<string, unknown>): CollectorProgress | undefined {
   const count = (v: unknown, max: number): v is number =>
     typeof v === 'number' && Number.isSafeInteger(v) && !Object.is(v, -0) && v >= 0 && v <= max;
@@ -139,11 +140,18 @@ const stages: Record<CollectorCode, readonly Stage[]> = {
   'operation-in-progress': zero,
   'result-invalid': zero,
   'route-organization-unresolved': zero,
-  'owner-already-seeded': zero,
-  'owner-unavailable': zero,
-  'owner-preflight-unknown': zero,
-  'owner-corrupt': zero,
-  'owner-unsupported': zero,
+  'scoped-owner-already-present': complete,
+  'slot-missing': complete,
+  'slot-scope-mismatch': complete,
+  'scoped-read-unknown': complete,
+  'scoped-store-unavailable': complete,
+  'scoped-store-corrupt': complete,
+  'scoped-store-unsupported': complete,
+  'scoped-capacity': complete,
+  'scoped-quota': complete,
+  'existing-context-changed': complete,
+  'existing-verification-deadline': complete,
+  'existing-verification-unavailable': complete,
   'route-evidence-changed': ['1/1', '2/2'],
   'selected-chat-not-in-active-list': ['1/1'],
   'request-failed': transport,
@@ -223,16 +231,19 @@ export function snapshotCollectorSource(value: unknown): CollectorSource | undef
 export function snapshotCollectorMessage(
   value: unknown,
   entryAction?: PropertyDescriptor
-): { action: 'collectClaudeAccountCatalog'; source: CollectorSource } | undefined {
+):
+  | { action: 'collectClaudeAccountCatalog'; source: CollectorSource; slot: SlotTarget }
+  | undefined {
   try {
-    const m = collectorFields(value, ['action', 'source'], entryAction);
+    const m = collectorFields(value, ['action', 'source', 'slot'], entryAction);
     if (m?.action !== 'collectClaudeAccountCatalog') return;
     const source = snapshotCollectorSource(m.source);
-    if (source) return { action: 'collectClaudeAccountCatalog', source };
+    const slot = snapshotSlotTarget(m.slot);
+    if (source && slot) return { action: 'collectClaudeAccountCatalog', source, slot };
   } catch {
     return;
   }
 }
-export function isCollectorMessage(value: unknown): boolean {
-  return snapshotCollectorMessage(value) !== undefined;
+export function isCollectorMessage(value: unknown, entryAction?: PropertyDescriptor): boolean {
+  return snapshotCollectorMessage(value, entryAction) !== undefined;
 }

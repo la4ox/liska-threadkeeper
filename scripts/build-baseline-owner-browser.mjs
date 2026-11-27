@@ -29,7 +29,7 @@ export const CSP =
 /** LF source-context hashes pin every denied ambient-default replacement, not real core logic. */
 export const DENIED_SOURCES = Object.freeze({
   'src/lib/messaging.ts': {
-    sha256: 'c7df291acf6742fb2a2d599c6728f58e365abe98e51942ce518717dff5876e9c',
+    sha256: '890dad007d933ca3ecd9ebc0f0ed22759bd4b8c93dff198c21682189aacfa283',
     exports: ['sendMessage'],
   },
   'src/lib/export-operation-scope.ts': {

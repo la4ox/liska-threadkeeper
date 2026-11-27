@@ -5,6 +5,7 @@ import { htmlMessage, htmlSettings } from './derived-html-fixture';
 import { textMessage } from './derived-text-fixture';
 import { branchHtmlMessage } from './derived-branch-html-fixture';
 import { validateMessageContent } from '../../src/background/validation';
+import { slotInventory, adoptionReceipt } from '../../src/lib/account-slot-contract';
 import { collectorSummary } from '../../src/lib/claude-account-collector-contract';
 import { serializeSyncSettingsSnapshot } from '../../src/lib/sync-settings-snapshot';
 import { EXPORT_DURABLE_ACTIONS, EXPORT_STATE_KEY } from '../../src/lib/export-operation-contract';
@@ -18,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   dots: vi.fn(),
   claudeLists: vi.fn(),
   collector: vi.fn(),
+  picker: vi.fn(),
+  copy: vi.fn(),
   connection: vi.fn(),
 }));
 vi.mock('../../src/background/obsidian-handlers', () => ({
@@ -30,6 +33,10 @@ vi.mock('../../src/background/dots-schema-probe', async importOriginal => ({
 vi.mock('../../src/background/claude-list-probe', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/background/claude-list-probe')>()),
   probeClaudeListsInActiveTab: mocks.claudeLists,
+}));
+vi.mock('../../src/background/account-slot-actions', () => ({
+  listPickerSlots: mocks.picker,
+  copyLegacySlot: mocks.copy,
 }));
 vi.mock('../../src/background/claude-account-collector', () => ({
   collectClaudeAccountCatalog: mocks.collector,
@@ -63,6 +70,7 @@ vi.mock('../../src/background/chatgpt-capture', () => ({
   ChatGptTemporaryCaptureError: class extends Error {},
 }));
 const route = 'https://chatgpt.com/c/01234567-89ab-4cde-8f01-23456789abcd';
+const slot = { kind: 'new', slotId: 'account-slot/1:' + 'b'.repeat(32), label: 'Local' };
 const collectorAction = 'collectClaudeAccountCatalog';
 const collectorSource = {
   tabId: 7,
@@ -230,10 +238,54 @@ describe('export authority at actual worker dispatch', () => {
     expect(mocks.claudeLists).toHaveBeenCalledOnce();
   });
 
+  it.each(['listAccountCatalogSlots', 'adoptLegacyClaudeCatalog'] as const)(
+    'admits only exact-popup closed %s and returns only its canonical receipt',
+    async action => {
+      const list = action === 'listAccountCatalogSlots';
+      const request = list ? { action } : { action, slot };
+      const respond = list ? mocks.picker : mocks.copy;
+      const success = list
+        ? slotInventory('listed', [])
+        : adoptionReceipt('created', 'verified', 'closed');
+      respond.mockReset();
+      for (const extra of [
+        { source: collectorSource },
+        { exportOperationId: '1'.repeat(36) },
+        { textPreviewCaptureId: '2'.repeat(36) },
+        { other: true },
+        { slot: { kind: 'existing', slotId: slot.slotId } },
+      ]) {
+        expect(validateMessageContent({ ...request, ...extra })).toBe(false);
+        expect(await dispatch({ ...request, ...extra }, popup())).toMatchObject({
+          code: 'invalid-message',
+        });
+      }
+      for (const wrong of [
+        sender(),
+        { ...popup(), url: popup().url + '#copy' },
+        { ...popup(), tab: { id: 1 } },
+        { ...popup(), frameId: 1 },
+        { ...popup(), documentLifecycle: 'cached' },
+      ])
+        expect(await dispatch(request, wrong)).toMatchObject({ code: 'invalid-sender' });
+      expect(respond).not.toHaveBeenCalled();
+      expect(validateMessageContent(request)).toBe(true);
+      respond.mockResolvedValueOnce(success);
+      expect(await dispatch(request, popup())).toEqual(success);
+      respond.mockResolvedValueOnce({ ...success, owner: { secret: 'private' } });
+      expect(await dispatch(request, popup())).toEqual(
+        list ? slotInventory('result-invalid') : adoptionReceipt('result-invalid')
+      );
+      respond.mockRejectedValueOnce(Error('private'));
+      expect(await dispatch(request, popup())).toEqual(
+        list ? slotInventory('result-invalid') : adoptionReceipt('result-invalid')
+      );
+    }
+  );
   it('routes only exact popup/action to a closed collector channel; worker errors and internals never escape', async () => {
     const action = collectorAction;
     const source = collectorSource;
-    const message = { action, source };
+    const message = { action, source, slot };
     mocks.collector.mockClear();
     expect(validateMessageContent(message)).toBe(true);
     expect(await dispatch({ action }, popup())).toMatchObject({ code: 'invalid-message' });
@@ -289,7 +341,7 @@ describe('export authority at actual worker dispatch', () => {
   it.each(['single-read', 'stateful'] as const)(
     'uses the entry action descriptor for collector admission (%s)',
     async mode => {
-      const message = { action: collectorAction, source: { ...collectorSource } };
+      const message = { action: collectorAction, slot, source: { ...collectorSource } };
       let actionReads = 0;
       const descriptor = vi.fn((target: typeof message, key: PropertyKey) => {
         const field = Object.getOwnPropertyDescriptor(target, key);
@@ -302,7 +354,7 @@ describe('export authority at actual worker dispatch', () => {
       expect(
         await dispatch(new Proxy(message, { getOwnPropertyDescriptor: descriptor }), popup())
       ).toEqual(result);
-      expect(descriptor.mock.calls.map(([, key]) => key)).toEqual(['action', 'source']);
+      expect(descriptor.mock.calls.map(([, key]) => key)).toEqual(['action', 'source', 'slot']);
       expect(mocks.collector).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ source: collectorSource })
       );
@@ -310,7 +362,7 @@ describe('export authority at actual worker dispatch', () => {
     }
   );
   it('rejects collector source accessors without reading them', async () => {
-    const message = { action: collectorAction, source: collectorSource };
+    const message = { action: collectorAction, slot, source: collectorSource };
     const get = vi.fn();
     mocks.collector.mockClear();
     for (const input of [
@@ -339,6 +391,7 @@ describe('export authority at actual worker dispatch', () => {
     const returned = listener(
       {
         action: collectorAction,
+        slot,
         source: collectorSource,
       },
       popup(),

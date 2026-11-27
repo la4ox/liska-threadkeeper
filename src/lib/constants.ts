@@ -218,6 +218,8 @@ export const VALID_MESSAGE_ACTIONS = [
   'probeDotsSchema',
   'probeClaudeLists',
   'collectClaudeAccountCatalog',
+  'listAccountCatalogSlots',
+  'adoptLegacyClaudeCatalog',
   'saveToOutputs',
   'fetchImage',
   'captureChatGptConversation',

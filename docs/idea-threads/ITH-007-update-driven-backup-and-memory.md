@@ -2035,7 +2035,15 @@ the first canary on the current account; do not introduce a default/latest slot,
 automatic merge, account switch, detail request, or File download.
 
 Trigger: PR-2 adoption is accepted and PR-3 has a reviewed explicit-selection
-contract plus a current-account-only canary.
+contract for a current-account-only canary.
+
+Fulfilled locally on 2026-11-27 by E66 and D41. The implementation is not
+installed or live-accepted. After exact-head GitHub gates, the next canary is
+one explicit current-account action: choose a label, copy the old catalog into
+a new slot, then collect from the selected current tab in that slot. An
+existing scope is observed without a write; a mismatch stops without creating
+a second scope. No spare-account/KYC test is authorized, and the fresh
+post-Claude ChatGPT regression remains separate.
 
 ### T36 — Establish ChatGPT scope separately and rerun installed regressions
 
@@ -2047,6 +2055,67 @@ detail/File baseline work.
 
 Trigger: explicit ChatGPT scope evidence and the complete fresh installed
 regression pass are available.
+
+### E66 — PR-3 wires explicit local slots to a single-scope Claude collector
+
+On base main `961c109` (including PR #153 slots/owners and PR #154 offline
+legacy adoption), the local PR-3 implementation adds a compact Settings →
+Archive Tools catalog block with an always-unselected slot picker, explicit
+new-slot label, and trusted collect/copy actions. It adds no default/latest
+selection, modal, new page, or Export-tab UI. Labels remain local display
+organization, not provider identity. Adoption targets only a new slot, keeps
+the original legacy owner and never reads the current tab.
+
+The collector freezes the slot target before the first await, starts tab query
+inside the click task, then snapshots the returned active tab/window/URL before
+dispatch; the worker rechecks that bound source and never selects a substitute.
+After bounded active/archive admission, a matching scope in the chosen slot is
+reported as existing without a write; a different scope stops with a mismatch;
+a new target atomically creates one slot and one single-scope paused owner.
+Generic collection never uses the retained multi-scope storage API. Inventory
+may initialize only the empty fixed schema. Closed picker responses expose
+only slot IDs/labels, while adoption/collector responses remain content-free.
+The popup uses dedicated exact worker routes plus original envelope and sender
+validation. The shared `/5`-/`/6` lock covers probe and collection; inventory
+and adoption are bounded local storage operations under their own atomic
+transactions. There is no new permission, content script, scheduler, detail
+request, or download. Closing the popup does not cancel. Closing and reopening
+the extension popup refreshes inventory; switching Export/Settings does not,
+and neither action redispatches work. Every new-slot click generates a fresh
+slot ID, so exact same-target replay remains an underlying API property rather
+than a popup recovery action.
+
+Focused worker checks passed 467/467 across 22 files, and the broader run
+reported 1,891 passed / 2 existing skips. Parent exact-file validation passed
+358/358 across 14 files plus TypeScript/diff checks. ZIP build/emitted-runtime
+checks passed; the packaged ZIP hash is recorded in S69. No visual, browser,
+installed, current-account, second-account or KYC proof exists; GitHub gates
+remain pending.
+
+### X6 — Do not infer a slot or add a second scope during generic collection
+
+Defaulting to the only/latest slot or silently creating another scope would
+make a local display choice stand in for identity and could combine unrelated
+provider contexts. Keep the picker unselected at every inventory size. Existing
+scope means observation only; a scope mismatch means no write. A new slot and
+its first single-scope owner are committed atomically. Multi-scope owner
+creation stays reserved for a separately explicit add-workspace flow.
+
+Revisit when: a distinct add-workspace action has its own explicit target,
+confirmation, and reviewed scope semantics.
+
+### D41 — Make slot choice explicit and generic Claude collection single-scope
+
+Wire listing, copy-only legacy adoption, and current-tab collection through
+dedicated exact popup routes. Freeze the trusted click target before tab
+enumeration; do not persist a default or retry after popup closure. Adopt only
+into a new slot and preserve the old owner. In the generic collector, observe
+an existing matching owner without writing, stop on a scope mismatch, and
+atomically create a new slot with exactly one owner for a new target. Keep
+provider identity, completeness, detail/File delivery, and execution authority
+outside this UI and collector.
+
+Evidence: E66
 
 ## Observations
 
@@ -2117,11 +2186,13 @@ regression pass are available.
 - [evidence] E63: one reviewed installed Claude click committed a paused owner with 2 requests, 2 pages, 12 targets/markers, terminal active and empty archive, matching header pair, and no detail/downloads #live
 - [evidence] E64: a rollback-isolated local account owner partitions provider, display slot and observed scope; its /1 accepts Claude only and has no consumer #code
 - [evidence] E65: explicit legacy source discovery/validation and public-owner copy/read-back now pass offline; the non-atomic copy stays unwired and has no native/live or second-account proof
+- [evidence] E66: local PR-3 adds an explicit slot popup and single-scope Claude collector; offline checks pass, but install/current-account canary and GitHub gates remain pending #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
 - [rejected] X4: widening an accepted v1 owner or treating scope hash alone as human account identity
 - [rejected] X5: open-on-missing can create a database and destructive move/delete loses the source across non-atomic domains, so adoption remains explicit copy-only
+- [rejected] X6: do not default to a slot or silently add a second scope; observe matching owners, stop on mismatch, and reserve multi-scope writes for explicit add-workspace #privacy
 - [decision] D1: preserve four separate layers and pause automation until explicit discovery design
 - [decision] D2: sequence future backup as local catalog, slow resumable baseline and provider-specific update polling
 - [decision] D3: start with a rebuildable manifest-only catalog that grants no provider, persistence or mutation authority
@@ -2162,6 +2233,7 @@ regression pass are available.
 - [decision] D38: bind the popup gesture to the actual source and positive active target, then report paused commit truth separately from final context verification, without detail or execution authority
 - [decision] D39: use local display slots and provider/slot/scope owner keys before delivery, preserving old owners and deferring adoption, wiring and ChatGPT scope work
 - [decision] D40: require explicit noncreating legacy discovery, canonical copy into the selected owner and separate commit/read-back/cleanup truth
+- [decision] D41: wire exact popup list/adopt/collect routes with click-bound target freezing, new-slot-only adoption, and atomic single-scope first-owner creation
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -2196,7 +2268,7 @@ regression pass are available.
 - [tail] T32: fulfilled by E61/S64; preserve the native-accepted paused owner as the sole durable catalog destination before another live list read
 - [tail] T33: fulfilled by E63/S66; retain paused-owner truth while detail/File work remains gated
 - [tail] T34: fulfilled locally by E65/D40 with explicit offline copy-only adoption; production wiring and GitHub gates remain separate
-- [tail] T35: add explicit slot UI and Claude wiring/canary limited to the current account after adoption
+- [tail] T35: local explicit slot UI and single-scope Claude wiring are implemented; one installed current-account canary remains after GitHub gates, with no spare-account/KYC test
 - [tail] T36: establish ChatGPT scope separately and pass a fresh installed regression matrix after Claude before detail/File baseline work
 
 ## Relations
@@ -2277,3 +2349,4 @@ regression pass are available.
 - S66 — [PR #152](https://github.com/la4ox/liska-threadkeeper/pull/152); installed/live `/6` acceptance, content-free aggregate only
 - S67 — [ADR-084](../adr/084-local-account-slots-and-scope-partitioned-owners.md), [storage tests](../../test/account-catalog-owner/storage.test.ts), [fault tests](../../test/account-catalog-owner/faults.test.ts), and [boundary test](../../test/arch/account-catalog-owner-boundary.test.ts); local storage contract only
 - S68 — [ADR-085](../adr/085-explicit-legacy-claude-catalog-adoption.md), [adoption entry point](../../src/account-catalog-adoption/index.ts), [read-only source](../../src/account-catalog-adoption/legacy-source.ts), [storage tests](../../test/account-catalog-adoption/storage.test.ts), [fault tests](../../test/account-catalog-adoption/faults.test.ts), and [boundary test](../../test/arch/account-catalog-adoption-boundary.test.ts); offline/fake-IndexedDB copy-only evidence, no production consumer or native/live claim
+- S69 — [ADR-086](../adr/086-explicit-account-slot-popup-and-scoped-collector.md), [slot route tests](../../test/background/account-slot-actions.test.ts), [collector tests](../../test/background/claude-account-collector.test.ts), [popup tests](../../test/popup/index.test.ts), and [slot contract tests](../../test/lib/account-slot-contract.test.ts); local PR-3 checks only, final ZIP SHA-256 `f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`, no installed/live acceptance

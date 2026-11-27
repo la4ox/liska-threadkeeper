@@ -1114,10 +1114,88 @@
     }
   },
   "settings_collectClaudeCatalog": {
-    "message": "Collect Claude backup catalog"
+    "message": "Claude catalog"
   },
   "settings_collectClaudeCatalogHelp": {
-    "message": "Use the current personal Claude context. Store a paused target catalog locally; no chat content is downloaded yet."
+    "message": "Collect from your current personal Claude context. This stores only a paused local catalog; no chat content is downloaded."
+  },
+  "settings_catalogInventoryHelp": {
+    "message": "Opening settings checks local slots and may initialize an empty local database."
+  },
+  "settings_catalogSlot": { "message": "Local slot" },
+  "settings_catalogChoose": { "message": "Choose a slot" },
+  "settings_catalogNew": { "message": "New local slot" },
+  "settings_catalogLabel": { "message": "New slot label" },
+  "settings_catalogLabelHelp": {
+    "message": "1–80 characters, up to 256 UTF-8 bytes; normalized Unicode, no control characters or surrounding spaces."
+  },
+  "settings_catalogCollect": { "message": "Collect from current tab" },
+  "settings_catalogCopy": { "message": "Copy old local catalog" },
+  "settings_catalogActionHelp": {
+    "message": "Collecting asserts this is your personal context. Copy is for a new slot, uses no current tab, and keeps the original. Closing before dispatch cancels it; afterwards it may still save, even if the result is lost. Close and reopen the extension popup to inspect local slots. No automatic retry."
+  },
+  "status_catalogInventoryLoading": { "message": "Checking local slots…" },
+  "status_catalogInventoryReady": {
+    "message": "Choose a slot or create a new one with an action."
+  },
+  "status_catalogInventoryUnavailable": {
+    "message": "Local slots unavailable. Close and reopen the extension popup to inspect local slots."
+  },
+  "status_catalogSelectionRequired": {
+    "message": "Choose a slot and enter a valid label for a new slot."
+  },
+  "status_catalogBeforeDispatch": {
+    "message": "Could not prepare the catalog action; no catalog action was sent."
+  },
+  "status_catalogCopyRunning": { "message": "Copying the old local catalog…" },
+  "status_catalogCopySaved": {
+    "message": "Old catalog copied ($CODE$); original retained.",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopySavedWarning": {
+    "message": "Copy saved ($CODE$), but verification or cleanup needs attention. Original retained.",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopyStopped": {
+    "message": "Copy stopped ($CODE$); original retained. No automatic retry.",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopyUnknown": {
+    "message": "Copy outcome uncertain ($CODE$); the new slot may have saved. Original retained. Close and reopen the extension popup to inspect local slots. Nothing is retried automatically.",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopyUnavailable": {
+    "message": "Copy result unavailable; it may have saved. Close and reopen the extension popup to inspect local slots. Nothing is retried automatically."
+  },
+  "status_collectorExisting": {
+    "message": "A catalog already exists in this slot ($CODE$); it was not replaced. Requests $REQUESTS$, pages $PAGES$, targets $TARGETS$, markers $MARKERS$.",
+    "placeholders": {
+      "code": { "content": "$1" },
+      "requests": { "content": "$2" },
+      "pages": { "content": "$3" },
+      "targets": { "content": "$4" },
+      "markers": { "content": "$5" }
+    }
+  },
+  "status_collectorExistingWarning": {
+    "message": "A catalog already exists, but verification stopped ($CODE$). Requests $REQUESTS$, pages $PAGES$, targets $TARGETS$, markers $MARKERS$.",
+    "placeholders": {
+      "code": { "content": "$1" },
+      "requests": { "content": "$2" },
+      "pages": { "content": "$3" },
+      "targets": { "content": "$4" },
+      "markers": { "content": "$5" }
+    }
+  },
+  "status_collectorOutcomeUnknown": {
+    "message": "Collection outcome uncertain ($CODE$); it may have saved. Requests $REQUESTS$, pages $PAGES$, targets $TARGETS$, markers $MARKERS$. Close and reopen the extension popup to inspect local slots. Nothing is retried automatically.",
+    "placeholders": {
+      "code": { "content": "$1" },
+      "requests": { "content": "$2" },
+      "pages": { "content": "$3" },
+      "targets": { "content": "$4" },
+      "markers": { "content": "$5" }
+    }
   },
   "status_collectorFacts": {
     "message": "Active terminal: $ACTIVE$. Archived terminal and empty: $ARCHIVE$. Header pair matched: $PAIR$. Retention: $RETENTION$. Account complete: false. Execution authorized: false. Detail requests: 0. Downloads: 0.",
@@ -1200,7 +1278,7 @@
     }
   },
   "status_collectorUnavailable": {
-    "message": "Collector result unavailable. No automatic retry."
+    "message": "Collector result unavailable; it may have saved. Close and reopen the extension popup to inspect local slots. Nothing is retried automatically."
   },
   "settings_probeClaudeLists": {
     "message": "Inspect Claude lists"

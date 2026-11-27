@@ -95,11 +95,11 @@ describe('offline legacy Claude catalog adoption boundary', () => {
     expect(source + destination).not.toMatch(/['"]readwrite['"]/u);
     expect(destination).not.toMatch(/\.(?:open|transaction|getAllKeys|get|databases)\s*\(/u);
     expect(destination).toContain('await openAccountCatalog(');
-    expect(destination).toContain('await catalog.createPausedClaude(');
+    expect(destination).toContain('await catalog.createPausedClaudeSingleScope(');
     expect(destination).toContain('await catalog.readOwner(');
   });
 
-  it('has no production caller, manifest, HTML, packaging or build entry', () => {
+  it('allows only the offline worker adapter and its explicit popup protocol; no new entrypoint', () => {
     const wiring = [
       ...files('src').filter(file => !file.startsWith(modulePath + '/')),
       ...files('scripts'),
@@ -110,6 +110,26 @@ describe('offline legacy Claude catalog adoption boundary', () => {
     expect(wiring).toEqual(
       expect.arrayContaining(['src/manifest.json', 'package.json', 'vite.config.ts'])
     );
-    for (const file of wiring) expect(read(file), file).not.toMatch(marker);
+    const messageFiles = new Set([
+      'src/lib/account-slot-contract.ts',
+      'src/lib/constants.ts',
+      'src/lib/messaging.ts',
+      'src/background/account-catalog-routes.ts',
+      'src/background/validation.ts',
+      'src/popup/account-catalog.ts',
+      'src/popup/app.ts',
+      'src/popup/index.html',
+    ]);
+    for (const file of wiring) {
+      const source = read(file);
+      if (file === 'src/background/account-slot-actions.ts') {
+        expect(source).toContain("from '../account-catalog-adoption'");
+        expect(source).not.toMatch(/readLegacyCatalog|chrome\.|\.tabs\b/u);
+      } else
+        expect(
+          messageFiles.has(file) ? source.replaceAll('adoptLegacyClaudeCatalog', '') : source,
+          file
+        ).not.toMatch(marker);
+    }
   });
 });

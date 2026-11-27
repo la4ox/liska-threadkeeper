@@ -48,7 +48,7 @@ function files(folder: string): string[] {
   });
 }
 
-describe('unwired multi-account catalog storage boundary', () => {
+describe('multi-account catalog storage boundary', () => {
   it('pins exact static imports and prohibits effects beyond the isolated IndexedDB and bounded timers', () => {
     expect(files(modulePath).sort()).toEqual(
       Object.keys(imports)
@@ -103,7 +103,7 @@ describe('unwired multi-account catalog storage boundary', () => {
     );
   });
 
-  it('permits only the offline adoption bridge, without production or build wiring', () => {
+  it('pins storage consumers and public protocol literals without other entrypoints', () => {
     for (const file of [
       ...files('src').filter(file => !file.startsWith(modulePath + '/')),
       ...files('scripts'),
@@ -111,9 +111,26 @@ describe('unwired multi-account catalog storage boundary', () => {
         /(?:config|manifest|package).*\.(?:json|ts|js|mjs)$/u.test(file)
       ),
     ]) {
-      if (file === offlineAdoption) {
+      if (
+        [
+          offlineAdoption,
+          'src/background/claude-account-collector.ts',
+          'src/background/account-slot-actions.ts',
+        ].includes(file)
+      ) {
         expect(read(file), file).toMatch(/from '\.\.\/account-catalog-owner';/u);
-      } else expect(read(file), file).not.toMatch(marker);
+      } else {
+        const source = read(file);
+        const remainder = [
+          'src/lib/account-slot-contract.ts',
+          'src/popup/account-catalog.ts',
+        ].includes(file)
+          ? source.replaceAll('account-slot/1:', '')
+          : file === 'scripts/check-service-worker-runtime.mjs'
+            ? source.replace("'liska-account-catalog-owner-v1'", '')
+            : source;
+        expect(remainder, file).not.toMatch(marker);
+      }
     }
   });
 });
