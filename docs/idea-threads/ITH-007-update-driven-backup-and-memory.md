@@ -7,7 +7,7 @@ thread_id: ITH-007
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-25
+last_turn: 2026-11-27
 ---
 
 # ITH-007 — Update-driven backup before living memory
@@ -858,6 +858,25 @@ reason; only a valid top-frame ID contradicting the pin establishes replacement.
 The emitted page function runs without worker-scope captures against two
 synthetic responses. None of this is an installed or real-account receipt.
 
+### E63 — The reviewed Claude collector commits one paused owner in the installed run
+
+One explicit current-personal click passed the installed `/6` gate and committed
+the paused owner. The content-free aggregate was 2 requests, 2 pages, 12 targets,
+and 12 markers; active was terminal, archived was terminal and empty, and the
+header pair matched. `accountComplete` and `executionAuthorized` remained false;
+detail requests and downloads were both zero. This fulfills T33 only. No raw
+identifiers, scope values, or chat content are repository evidence.
+
+### E64 — A fresh local owner can partition slots from observed scopes
+
+PR-1 adds the rollback-isolated `liska-account-catalog-owner-v1` storage domain
+with separate slot and owner records. Its physical owner key is the tuple
+`[provider, slotId, scopeKey]`; `collectionId` stays immutable seed data. The
+layout supports an observed scope in multiple explicitly chosen slots and
+multiple scopes in one slot. The database is unwired and `/1` accepts Claude
+only. Offline/fake-IndexedDB tests cover this storage slice; no native harness or
+second-account live test is claimed.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -885,6 +904,16 @@ same guess in a more authoritative form.
 
 Revisit when: one bounded provider-list experiment establishes the exact source,
 scope and semantics of the compared marker.
+
+### X4 — Widen v1 in place or use the scope hash as account identity
+
+Changing the existing singleton owner would mix new multi-scope semantics into
+an accepted contract; using `scopeKey` alone would also collapse an observed
+workspace boundary into an unsupported principal claim. Neither is necessary
+for explicit local slots.
+
+Revisit when: a separate versioned migration is deliberately reviewed and
+stronger provider evidence justifies a distinct identity model.
 
 ### D1 — Keep the four layers separate and defer automation
 
@@ -1450,6 +1479,19 @@ Evidence: E61, E62
 
 Decision record: ADR-083
 
+### D39 — Put explicit local slots and scope-partitioned owners before delivery
+
+Adopt a fresh storage domain keyed by provider, local display slot, and observed
+scope. Treat the slot as user-managed organization rather than authentication;
+preserve the old singleton owner and generic execution owner. Do not merge,
+rebind, select a latest/default slot, or use a scope hash as human identity.
+Keep adoption, UI/wiring, ChatGPT scope evidence, and detail/File delivery as
+separate future gates.
+
+Evidence: E63, E64
+
+Decision record: ADR-084
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1919,18 +1961,43 @@ Trigger: fulfilled on 2026-11-25; preserve the owner boundary while wiring T33.
 
 ### T33 — Collect, admit and commit identities in one reviewed Claude live invocation
 
-Implementation E62 follows the native T32 owner; T33 is still pending its reviewed installed live gate. Pin the selected
-document bound to the click, verify selected-chat membership before the archive,
-retain request/transport bounds, compare the raw pair on both
-responses, project and admit inside the invocation, then commit atomically before
-showing success. Fence navigation, timeout, cancellation, late hash and unknown
-transaction completion. Show only safe aggregate live evidence. Owner-bound
-detail/File execution still precedes any resumable manual batch; no daily
-scheduler follows.
+Fulfilled by E63 and PR #152: the reviewed installed `/6` invocation committed
+one paused owner before reporting success. The evidence is limited to the safe
+aggregate and confirms neither account completeness nor execution authority.
+Owner-bound detail/File execution and any scheduler remain separate gates.
 
-Trigger: reviewed exact `/6` implementation, accepted owner, installed-state
-reconciliation and an explicit user-started live action for the selected visible
-personal context.
+Trigger: fulfilled on 2026-11-27; keep the paused-owner boundary while opening
+the later multi-account storage, adoption, and explicit-wiring gates.
+
+### T34 — Adopt a legacy singleton only through explicit read-only copy
+
+Add a separately reviewed, noncreating read and canonical validation, then
+commit into the new owner and read it back. Never mutate, delete, or move the
+legacy owner, and never silently fall back. This behavior is not implemented by
+PR-1.
+
+Trigger: a dedicated PR-2 adoption contract and its offline validation are
+accepted.
+
+### T35 — Wire explicit slots and the Claude collector only after adoption
+
+Provide a deliberate slot choice and wire only the reviewed Claude path. Keep
+the first canary on the current account; do not introduce a default/latest slot,
+automatic merge, account switch, detail request, or File download.
+
+Trigger: PR-2 adoption is accepted and PR-3 has a reviewed explicit-selection
+contract plus a current-account-only canary.
+
+### T36 — Establish ChatGPT scope separately and rerun installed regressions
+
+Gather ChatGPT account-scope evidence and define its adapter independently of
+Claude. After Claude changes, run a fresh installed regression over ordinary and
+long chats, branches, images/files/attachments/tool results, selected preview,
+Markdown/HTML/PDF/DOCX, File and Obsidian, and append/re-export before opening
+detail/File baseline work.
+
+Trigger: explicit ChatGPT scope evidence and the complete fresh installed
+regression pass are available.
 
 ## Observations
 
@@ -1998,9 +2065,12 @@ personal context.
 - [evidence] E60: one detached paused seed fits even at maximum JSON escaping and survives synthetic IndexedDB verification; native acceptance is still pending #synthetic
 - [evidence] E61: one isolated zero-permission Chromium run passed cancel/close/race/reopen/cleanup and exact cleanup; provider collection and execution remain absent #live
 - [evidence] E62: synthetic /6 preserves the click-bound source, requires the selected chat in the active list and distinguishes commit truth from verification; the installed/live gate is still open #synthetic
+- [evidence] E63: one reviewed installed Claude click committed a paused owner with 2 requests, 2 pages, 12 targets/markers, terminal active and empty archive, matching header pair, and no detail/downloads #live
+- [evidence] E64: a rollback-isolated local account owner partitions provider, display slot and observed scope; its /1 accepts Claude only and has no consumer #code
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
+- [rejected] X4: widening an accepted v1 owner or treating scope hash alone as human account identity
 - [decision] D1: preserve four separate layers and pause automation until explicit discovery design
 - [decision] D2: sequence future backup as local catalog, slow resumable baseline and provider-specific update polling
 - [decision] D3: start with a rebuildable manifest-only catalog that grants no provider, persistence or mutation authority
@@ -2039,6 +2109,7 @@ personal context.
 - [decision] D36: bind catalog scope and targets through one collector invocation, keep the stable pseudonym separate from `/5`, and leave execution to later owner gates
 - [decision] D37: store one exact immutable paused seed in a rollback-isolated owner before the live collector; a terminal result or fresh inspection establishes truth, never an automatic retry
 - [decision] D38: bind the popup gesture to the actual source and positive active target, then report paused commit truth separately from final context verification, without detail or execution authority
+- [decision] D39: use local display slots and provider/slot/scope owner keys before delivery, preserving old owners and deferring adoption, wiring and ChatGPT scope work
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -2071,7 +2142,10 @@ personal context.
 - [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
 - [tail] T31: fulfilled by E58/S61 for one no-retry live header-pair observation; the semantic/personal-scope/catalog bridge remains separate and no automatic baseline follows
 - [tail] T32: fulfilled by E61/S64; preserve the native-accepted paused owner as the sole durable catalog destination before another live list read
-- [tail] T33: live-accept one reviewed `/6` invocation that commits through the accepted owner before safe aggregate success and later detail/File batches
+- [tail] T33: fulfilled by E63/S66; retain paused-owner truth while detail/File work remains gated
+- [tail] T34: implement explicit copy-only legacy adoption through a noncreating read, canonical validation, new-owner commit and read-back
+- [tail] T35: add explicit slot UI and Claude wiring/canary limited to the current account after adoption
+- [tail] T36: establish ChatGPT scope separately and pass a fresh installed regression matrix after Claude before detail/File baseline work
 
 ## Relations
 
@@ -2148,3 +2222,5 @@ personal context.
 - S63 — [ADR-082: Retain one admitted Claude catalog](../adr/082-claude-account-baseline-owner-v1.md), base main `93a6861`; [codec](../../test/claude-account-baseline-owner/codec.test.ts), [transaction](../../test/claude-account-baseline-owner/storage.test.ts) and [harness](../../test/scripts/claude-account-baseline-owner-browser-harness.test.ts) checks
 - S64 — local receipt `LISKA-CLAUDE-ACCOUNT-OWNER-V1-NATIVE-20261125`; visibility: local-only; one zero-permission native PASS with cancel/close/race/reopen/cleanup, exact test-domain cleanup, no provider request or production-extension change
 - S65 — [ADR-083](../adr/083-claude-account-collector-v6.md) and [collector tests](../../test/background/claude-account-collector.test.ts); synthetic same-run collection only, no live receipt
+- S66 — [PR #152](https://github.com/la4ox/liska-threadkeeper/pull/152); installed/live `/6` acceptance, content-free aggregate only
+- S67 — [ADR-084](../adr/084-local-account-slots-and-scope-partitioned-owners.md), [storage tests](../../test/account-catalog-owner/storage.test.ts), [fault tests](../../test/account-catalog-owner/faults.test.ts), and [boundary test](../../test/arch/account-catalog-owner-boundary.test.ts); local storage contract only

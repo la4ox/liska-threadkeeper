@@ -173,7 +173,7 @@ describe('unwired pure Claude baseline catalog boundary', () => {
     }
   });
 
-  it('admits only the paused owner codec and the trusted collector bridge as consumers', () => {
+  it('admits only the storage-only owner codecs and the trusted collector bridge as consumers', () => {
     const external = files('src').filter(file => !file.startsWith(modulePath + '/'));
     expect(external.length).toBeGreaterThan(100);
     const consumers = new Set<string>();
@@ -187,7 +187,12 @@ describe('unwired pure Claude baseline catalog boundary', () => {
       }
     }
     expect([...consumers].sort()).toEqual(
-      ['src/background/claude-account-collector.ts', `${ownerPath}/codec.ts`].sort()
+      [
+        'src/account-catalog-owner/codec.ts',
+        'src/account-catalog-owner/database.ts',
+        'src/background/claude-account-collector.ts',
+        `${ownerPath}/codec.ts`,
+      ].sort()
     );
   });
 

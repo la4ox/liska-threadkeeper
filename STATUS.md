@@ -6906,3 +6906,37 @@ T33 remains pending exact-head review, installed package reconciliation and
 one explicit current-personal click with confirmed real catalog retention.
 The user's authorized full backup still needs separate owner-bound detail
 and File delivery.
+
+## Local account slots and scope-partitioned owners — 2026-11-27
+
+Based on `origin/main` `9817b1b`, PR #152's installed Claude `/6` collector
+gate is accepted. One explicit current-personal click committed a paused owner.
+The content-free aggregate was requests=2, pages=2, targets=12, markers=12;
+active was terminal, archived was terminal and empty, the header pair matched,
+and retention was owner-committed. `accountComplete` and
+`executionAuthorized` were false; detail requests and downloads were both zero.
+T33 is fulfilled. No raw identifier, scope value, or chat content is recorded.
+
+[ADR-084](docs/adr/084-local-account-slots-and-scope-partitioned-owners.md)
+records the storage-only PR-1 model: a local display slot maps to one or more
+observed scopes, and the owner key is `[provider, slotId, scopeKey]` with
+`collectionId` as immutable seed data. The same scope may appear in two
+explicit slots; one slot may hold multiple workspaces. This does not establish
+provider identity or a human principal. The fresh
+`liska-account-catalog-owner-v1` database has separate slots and owners; its
+layout is provider-neutral, while schema `/1` accepts Claude only. The accepted
+Claude singleton owner v1 and generic execution owner remain untouched. No
+network, UI, download, journal, execution, legacy adoption, or production
+consumer is wired.
+
+PR-1 validation is offline/fake-IndexedDB only; no native harness or live
+second-account/KYC check is claimed. The user explicitly deferred that live
+check, so it is not a storage-slice blocker. PR-2 remains a future explicit
+copy-only adoption using a noncreating read, canonical validation, new-owner
+commit, and read-back; the old owner must not be mutated/deleted/moved and no
+silent fallback is allowed. PR-3 may add explicit slot UI and a current-account-
+only Claude canary. ChatGPT scope evidence/adapter is separate. Detail/File
+baseline work remains later, after those boundaries; a fresh installed
+ChatGPT regression after Claude must cover ordinary/long chats, branches,
+images/files/attachments/tool results, selected preview, Markdown/HTML/PDF/DOCX,
+File and Obsidian, and append/re-export.
