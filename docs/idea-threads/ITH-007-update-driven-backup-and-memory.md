@@ -877,6 +877,25 @@ multiple scopes in one slot. The database is unwired and `/1` accepts Claude
 only. Offline/fake-IndexedDB tests cover this storage slice; no native harness or
 second-account live test is claimed.
 
+### E65 — Explicit legacy adoption copies only after a noncreating read
+
+PR-2 adds an unwired offline operation that requires a selected slot and label,
+discovers the exact legacy owner database at version 1, and validates its exact
+schema, bounded inventory and canonical baseline through a read-only
+transaction. Missing and empty sources remain distinct and do not open the
+destination; unsupported discovery has no open fallback. A successful read
+copies the original collectionId and admitted baseline through the public new
+owner API, then reads back the exact Claude/slot/scope owner. Exact replay is
+idempotent, conflicts do not overwrite, and the same source can be explicitly
+copied to another slot without global deduplication.
+
+The copy is cross-database and non-atomic. An explicit same-slot/label/seed
+rerun converges an unknown outcome; no automatic retry or new collection ID is
+used. A committed created/already-created result remains the destination truth
+if read-back or close later fails. Offline/fake-IndexedDB validation passed;
+native/live, second-account and KYC evidence remain absent. No production
+consumer or provider effect is wired.
+
 ### X1 — Reopen every chat daily or confuse a fixed list with change discovery
 
 This scales requests with archive size rather than actual changes and can still
@@ -914,6 +933,17 @@ for explicit local slots.
 
 Revisit when: a separate versioned migration is deliberately reviewed and
 stronger provider evidence justifies a distinct identity model.
+
+### X5 — Open a missing legacy database or destructively move its owner
+
+Opening a missing IndexedDB name can create it, so an open-on-missing fallback
+would not be a harmless probe and could blur absent with empty. Moving or
+deleting the legacy owner would also discard the only source copy across two
+non-atomic databases. Neither action is needed for explicit adoption, and an
+automatic fallback could select or overwrite the wrong local slot.
+
+Revisit when: a future product decision explicitly authorizes a separate,
+versioned migration contract; that would still not permit silent fallback.
 
 ### D1 — Keep the four layers separate and defer automation
 
@@ -1492,6 +1522,21 @@ Evidence: E63, E64
 
 Decision record: ADR-084
 
+### D40 — Adopt legacy state only through explicit noncreating copy
+
+Treat adoption as an explicit copy into the new owner, never an in-place
+migration. Require a selected slot and label; discover and validate the exact
+legacy v1 database without opening on absence; copy only canonical admitted
+seed data through the public owner API; and verify the exact destination tuple.
+Preserve the legacy source and preserve destination commit truth separately
+from read-back and close status. An explicit exact rerun may reconcile an
+unknown cross-database outcome; automatic retry, replacement identity, silent
+fallback and global cross-slot deduplication remain rejected.
+
+Evidence: E65
+
+Decision record: ADR-085
+
 ### T1 — Design provider-specific update discovery
 
 The first automation slice needs a resumable baseline inventory, then one
@@ -1979,6 +2024,10 @@ PR-1.
 Trigger: a dedicated PR-2 adoption contract and its offline validation are
 accepted.
 
+Fulfilled locally on 2026-11-27 by E65 and D40. The accepted evidence is
+offline/fake-IndexedDB only; production wiring and current-head GitHub gates
+remain separate.
+
 ### T35 — Wire explicit slots and the Claude collector only after adoption
 
 Provide a deliberate slot choice and wire only the reviewed Claude path. Keep
@@ -2067,10 +2116,12 @@ regression pass are available.
 - [evidence] E62: synthetic /6 preserves the click-bound source, requires the selected chat in the active list and distinguishes commit truth from verification; the installed/live gate is still open #synthetic
 - [evidence] E63: one reviewed installed Claude click committed a paused owner with 2 requests, 2 pages, 12 targets/markers, terminal active and empty archive, matching header pair, and no detail/downloads #live
 - [evidence] E64: a rollback-isolated local account owner partitions provider, display slot and observed scope; its /1 accepts Claude only and has no consumer #code
+- [evidence] E65: explicit legacy source discovery/validation and public-owner copy/read-back now pass offline; the non-atomic copy stays unwired and has no native/live or second-account proof
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
 - [rejected] X4: widening an accepted v1 owner or treating scope hash alone as human account identity
+- [rejected] X5: open-on-missing can create a database and destructive move/delete loses the source across non-atomic domains, so adoption remains explicit copy-only
 - [decision] D1: preserve four separate layers and pause automation until explicit discovery design
 - [decision] D2: sequence future backup as local catalog, slow resumable baseline and provider-specific update polling
 - [decision] D3: start with a rebuildable manifest-only catalog that grants no provider, persistence or mutation authority
@@ -2110,6 +2161,7 @@ regression pass are available.
 - [decision] D37: store one exact immutable paused seed in a rollback-isolated owner before the live collector; a terminal result or fresh inspection establishes truth, never an automatic retry
 - [decision] D38: bind the popup gesture to the actual source and positive active target, then report paused commit truth separately from final context verification, without detail or execution authority
 - [decision] D39: use local display slots and provider/slot/scope owner keys before delivery, preserving old owners and deferring adoption, wiring and ChatGPT scope work
+- [decision] D40: require explicit noncreating legacy discovery, canonical copy into the selected owner and separate commit/read-back/cleanup truth
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -2143,7 +2195,7 @@ regression pass are available.
 - [tail] T31: fulfilled by E58/S61 for one no-retry live header-pair observation; the semantic/personal-scope/catalog bridge remains separate and no automatic baseline follows
 - [tail] T32: fulfilled by E61/S64; preserve the native-accepted paused owner as the sole durable catalog destination before another live list read
 - [tail] T33: fulfilled by E63/S66; retain paused-owner truth while detail/File work remains gated
-- [tail] T34: implement explicit copy-only legacy adoption through a noncreating read, canonical validation, new-owner commit and read-back
+- [tail] T34: fulfilled locally by E65/D40 with explicit offline copy-only adoption; production wiring and GitHub gates remain separate
 - [tail] T35: add explicit slot UI and Claude wiring/canary limited to the current account after adoption
 - [tail] T36: establish ChatGPT scope separately and pass a fresh installed regression matrix after Claude before detail/File baseline work
 
@@ -2224,3 +2276,4 @@ regression pass are available.
 - S65 — [ADR-083](../adr/083-claude-account-collector-v6.md) and [collector tests](../../test/background/claude-account-collector.test.ts); synthetic same-run collection only, no live receipt
 - S66 — [PR #152](https://github.com/la4ox/liska-threadkeeper/pull/152); installed/live `/6` acceptance, content-free aggregate only
 - S67 — [ADR-084](../adr/084-local-account-slots-and-scope-partitioned-owners.md), [storage tests](../../test/account-catalog-owner/storage.test.ts), [fault tests](../../test/account-catalog-owner/faults.test.ts), and [boundary test](../../test/arch/account-catalog-owner-boundary.test.ts); local storage contract only
+- S68 — [ADR-085](../adr/085-explicit-legacy-claude-catalog-adoption.md), [adoption entry point](../../src/account-catalog-adoption/index.ts), [read-only source](../../src/account-catalog-adoption/legacy-source.ts), [storage tests](../../test/account-catalog-adoption/storage.test.ts), [fault tests](../../test/account-catalog-adoption/faults.test.ts), and [boundary test](../../test/arch/account-catalog-adoption-boundary.test.ts); offline/fake-IndexedDB copy-only evidence, no production consumer or native/live claim

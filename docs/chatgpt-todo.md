@@ -33,12 +33,19 @@ terminal states, and the existing no-credential-export boundary.
   is not provider identity, and a scope hash is not proof of a human principal.
 - The new rollback-isolated owner is storage-only and unwired. Its `/1` schema
   accepts Claude only. The existing Claude singleton owner and generic execution
-  owner remain unchanged; no migration, UI, provider effect, journal, or
-  execution is added. T33's installed collector gate is fulfilled, but it proves
-  neither account completeness nor permission for detail/File work.
-- PR-2 is a future explicit, copy-only legacy adoption: noncreating read,
-  canonical validation, new-owner commit, and read-back. It must not mutate,
-  delete, or move the singleton owner, and it must not silently fall back.
+  owner remain unchanged. T33's installed collector gate is fulfilled, but it
+  proves neither account completeness nor permission for detail/File work.
+- PR-2's explicit copy-only adoption is implemented locally in
+  `src/account-catalog-adoption/`, but remains unwired. It requires a chosen
+  slot and label, exact `databases()` discovery of the version-1 legacy owner,
+  read-only canonical validation, copy through the public new-owner API, and
+  exact destination read-back. Missing and empty remain distinct; unsupported
+  discovery never falls back to open. Conflicts do not overwrite, and the
+  legacy owner is never changed or deleted. This cross-database operation is
+  non-atomic; an explicit same-slot/label/seed rerun reconciles unknown outcome
+  through destination idempotency, without automatic retry or a new collection
+  ID. Offline/fake-IndexedDB validation passed; no native/live, second-account
+  or KYC test, production consumer, or current-head GitHub gate is claimed.
 - PR-3 may add explicit slot UI and Claude collector wiring with a canary limited
   to the current account. ChatGPT account-scope evidence and its adapter remain
   separate; detail/File baseline work follows only after those scope boundaries

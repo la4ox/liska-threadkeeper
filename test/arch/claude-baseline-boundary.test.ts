@@ -8,6 +8,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const modulePath = 'src/claude-baseline';
 const ownerPath = 'src/claude-account-baseline-owner';
 const harnessBuilder = 'scripts/build-claude-account-baseline-owner-browser.mjs';
+const offlineAdoptionSource = 'src/account-catalog-adoption/legacy-source.ts';
 const imports: Record<string, readonly string[]> = {
   'account-admission-contracts.ts': ['./contracts'],
   'account-admission.ts': [
@@ -188,6 +189,7 @@ describe('unwired pure Claude baseline catalog boundary', () => {
     }
     expect([...consumers].sort()).toEqual(
       [
+        'src/account-catalog-adoption/index.ts',
         'src/account-catalog-owner/codec.ts',
         'src/account-catalog-owner/database.ts',
         'src/background/claude-account-collector.ts',
@@ -291,7 +293,7 @@ describe('Claude one-shot account owner boundary', () => {
     }
   });
 
-  it('has only the collector controller as production importer and no separate entrypoint', () => {
+  it('permits the existing collector and only the offline adoption bridge, with no separate entrypoint', () => {
     for (const file of [
       ...files('src').filter(file => !file.startsWith(ownerPath + '/')),
       ...wiringCandidates(),
@@ -300,6 +302,16 @@ describe('Claude one-shot account owner boundary', () => {
         expect(
           references(tree(file)).filter(reference => reference.includes('baseline-owner'))
         ).toEqual(['../claude-account-baseline-owner']);
+        continue;
+      }
+      if (file === offlineAdoptionSource) {
+        expect(
+          references(tree(file)).filter(reference => reference.includes('baseline-owner'))
+        ).toEqual([
+          '../claude-account-baseline-owner/codec',
+          '../claude-account-baseline-owner/database',
+          '../claude-account-baseline-owner/errors',
+        ]);
         continue;
       }
       expect(
