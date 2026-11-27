@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ClaudeExtractor } from '../../src/content/extractors/claude';
-import { BaseExtractor } from '../../src/content/extractors/base';
+import * as claudeApi from '../../src/content/extractors/claude-api';
+import * as claudeRoute from '../../src/content/extractors/claude-detail-route';
 import {
   loadFixture,
   clearFixture,
@@ -20,11 +21,17 @@ import {
   createClaudePageWithMixedContentBlocks,
 } from '../fixtures/dom-helpers';
 
+class ClaudeWithControllableDom extends ClaudeExtractor {
+  override extractConversation() {
+    return super.extractConversation();
+  }
+}
+
 describe('ClaudeExtractor', () => {
-  let extractor: ClaudeExtractor;
+  let extractor: ClaudeWithControllableDom;
 
   beforeEach(() => {
-    extractor = new ClaudeExtractor();
+    extractor = new ClaudeWithControllableDom();
     clearFixture();
   });
 
@@ -490,7 +497,7 @@ describe('ClaudeExtractor', () => {
   describe('isolated Artifact loss awareness', () => {
     const code = 'claude-artifact-content-omitted';
     const warning =
-      'Visible Claude Artifact content was not included because the isolated frame layout is unsupported.';
+      'Selected Claude Artifact content was not included because the isolated Artifact representation is unsupported.';
     const frame =
       '<iframe title="Synthetic frame" src="https://artifact.example.invalid/code/artifact/synthetic"></iframe>';
     const conversation = createClaudeConversationDOM([
@@ -563,7 +570,7 @@ describe('ClaudeExtractor', () => {
       const pendingBaseExtraction = new Promise<typeof baseResult>(resolve => {
         finishBaseExtraction = resolve;
       });
-      vi.spyOn(BaseExtractor.prototype, 'extract').mockReturnValueOnce(pendingBaseExtraction);
+      vi.spyOn(extractor, 'extractConversation').mockReturnValueOnce(pendingBaseExtraction);
 
       const pendingResult = extractor.extract();
       document.querySelector('iframe')!.closest('[role="region"]')!.setAttribute('inert', '');
@@ -653,7 +660,7 @@ describe('ClaudeExtractor', () => {
       original.data.liskaLossDiagnostics = ['image-capture-failed', code, 'history-load-partial'];
       original.warnings = ['Existing synthetic warning', warning];
       const before = JSON.stringify(original);
-      vi.spyOn(BaseExtractor.prototype, 'extract').mockResolvedValueOnce(original);
+      vi.spyOn(extractor, 'extractConversation').mockResolvedValueOnce(original);
 
       const result = await extractor.extract();
 
@@ -666,26 +673,34 @@ describe('ClaudeExtractor', () => {
       expect(JSON.stringify(original)).toBe(before);
     });
 
-    it('leaves a legacy report unchanged but still warns about a simultaneous isolated frame', async () => {
-      const legacy = createClaudeDeepResearchDOM(
-        'Synthetic report',
-        '<p>Synthetic legacy body</p>'
-      );
-      loadFixture(legacy);
-      const legacyResult = await extractor.extract();
-      expect(legacyResult.success).toBe(true);
-      expect(legacyResult.data?.type).toBe('deep-research');
-      expect(legacyResult.data).not.toHaveProperty('liskaLossDiagnostics');
-      expect(legacyResult.warnings ?? []).toEqual([]);
+    it.each(['beside', 'inside'])(
+      'keeps the legacy report and warns about an isolated frame %s its panel',
+      async placement => {
+        vi.spyOn(claudeRoute, 'resolveClaudeOrganizationId').mockReturnValue(
+          'abcdefab-cdef-4abc-8def-abcdefabcdef'
+        );
+        const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
+        loadFixture(
+          createClaudeDeepResearchDOM('Synthetic report', '<p>Synthetic legacy body</p>')
+        );
+        const legacyResult = await extractor.extract();
+        expect(legacyResult.success).toBe(true);
+        expect(legacyResult.data?.type).toBe('deep-research');
+        expect(legacyResult.data).not.toHaveProperty('liskaLossDiagnostics');
+        expect(legacyResult.warnings ?? []).toEqual([]);
 
-      loadFixture(`${legacy}<div role="region">${frame}</div>`);
-      const result = await extractor.extract();
-      expect(result.success).toBe(true);
-      expect(result.data?.messages).toEqual(legacyResult.data?.messages);
-      expect(result.data?.type).toBe('deep-research');
-      expect(result.data?.liskaLossDiagnostics).toEqual([code]);
-      expect(result.warnings).toEqual([warning]);
-    });
+        const mount =
+          placement === 'inside' ? document.getElementById('markdown-artifact')! : document.body;
+        mount.insertAdjacentHTML('beforeend', `<div role="region">${frame}</div>`);
+        const result = await extractor.extract();
+        expect(result.success).toBe(true);
+        expect(result.data?.messages).toEqual(legacyResult.data?.messages);
+        expect(result.data?.type).toBe('deep-research');
+        expect(result.data?.liskaLossDiagnostics).toEqual([code]);
+        expect(result.warnings).toEqual([warning]);
+        expect(fetchDetail).not.toHaveBeenCalled();
+      }
+    );
   });
 
   // ========== 6.3.6 Deep Research (10 tests) ==========

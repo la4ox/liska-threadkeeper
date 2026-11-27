@@ -25,7 +25,7 @@ terminal states, and the existing no-credential-export boundary.
 
 ## Priority queue
 
-### 0. Account and scope partition before any baseline delivery
+### 0. Claude scope and bounded baseline before resumable automation
 
 - PR-1 records the accepted multi-account storage model in
   [ADR-084](adr/084-local-account-slots-and-scope-partitioned-owners.md): a local
@@ -941,18 +941,28 @@ terminal states, and the existing no-credential-export boundary.
   paused owner, max 30 targets and 64 KiB, with commit/abort/unknown terminal
   truth and no overwrite or execution authority. The packaged synthetic native
   gate passed once in an ephemeral zero-permission Chromium profile with exact
-  `cancel/close/race/reopen/cleanup` rows and cleanup. Reviewed `/6` may now
-  collect, admit and commit that catalog before reporting aggregate success. One
-  owner-bound detail/File capture and bounded resumable manual batches then
-  advance the user's explicitly authorized full current-personal backup. No
-  scheduler follows.
+  `cancel/close/race/reopen/cleanup` rows and cleanup. PR-155/ADR-086 then
+  accepted an installed current-account canary. The bounded sequential manual
+  current-personal baseline is now complete; see ADR-087. It does not satisfy
+  the future owner-bound resumable runner. No scheduler follows.
 - [ADR-083](adr/083-claude-account-collector-v6.md) implements the separate
   single-click collector. Bind to the popup's clicked tab/window/URL; require
   the selected chat in the active page before the archived request. A confirmed
   commit with unavailable or timed-out final verification is still retained,
-  without claiming navigation or late storage. T33 is not live-accepted: run exact-head reviews,
-  reconcile the installed build, and observe one real paused catalog commit.
-  No detail or File delivery has occurred for this authorized backup.
+  without claiming navigation or late storage. T33's paused-owner commit is a
+  distinct gate: ADR-086's installed canary observed an existing owner and did
+  not write. Manual detail/File evidence is now recorded in ADR-087; it does not
+  establish owner-bound resumability.
+- [ADR-087](adr/087-claude-artifact-archive-route-admission.md) admits only the
+  exact selected Artifact route through one literal classifier shared by
+  extraction and background persistence. The final installed route canary
+  retained raw/manifest/canonical companions in both File and Obsidian. The
+  bounded manual baseline covered 12 current-personal targets: 12 raw/manifest
+  pairs, nine nonempty canonical/Markdown pairs, and three truly empty pairs
+  without invented outputs; the assembled snapshot is 42 files / 2,187,461
+  bytes. Attachments and isolated Artifact-frame bytes remain
+  not-attempted/omitted; `accountComplete=false`; no branches, completeness,
+  scheduler, or cross-account claim is made.
 - Preserve four independent layers instead of collapsing them into one mutable
   system: (1) periodic official exports as cold external evidence, roughly every
   one or two months; (2) daily update-driven Liska append-only raw/manifest/
@@ -1405,3 +1415,9 @@ Keep other browser-family snapshot portability, page unload, export-ZIP
 discovery, the 1 GiB source-work refusal, real staged `>16 MiB` capture, fetched
 same-title destination naming, custom-GPT/project binaries, Dots, and the
 archived Library WebP as separate evidence-gated work.
+
+After the Claude changes, the next cross-provider gate is fresh installed
+ChatGPT scope evidence and regression. Only then should future owner-bound
+resumable account work proceed; separate Claude binary-attachment and isolated
+Artifact-frame capture remain distinct, not-attempted work. The manual baseline
+does not enable a scheduler or establish provider completeness.

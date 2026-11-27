@@ -18,6 +18,7 @@ import {
 } from './claude-tool-markdown';
 import { generateHash } from '../../lib/hash';
 import { mergeLiskaLossDiagnostics } from '../../lib/loss-diagnostics';
+import { classifyClaudeArchiveChatUrl } from '../../lib/claude-artifact-route';
 import { requestClaudeScrollPrime } from '../capture/claude-scroll-prime';
 import { abortStagedArchiveArtifact } from '../archive-stage';
 import type { HarvestEntry } from '../../lib/scroll-manager';
@@ -47,7 +48,7 @@ import {
 const STEP_ROW_SELECTOR = '[data-cds="TurnStatus"]';
 const ANSWER_CHROME_SELECTOR = `h2.sr-only, [data-testid="message-actions"], ${STEP_ROW_SELECTOR}`;
 const ARTIFACT_CONTENT_OMITTED_WARNING =
-  'Visible Claude Artifact content was not included because the isolated frame layout is unsupported.';
+  'Selected Claude Artifact content was not included because the isolated Artifact representation is unsupported.';
 const CONVERSATION_CHANGED_ERROR = 'Conversation changed during extraction. No output was created.';
 const STABLE_EMPTY_ASSISTANT_ROOT =
   'div[data-testid="assistant-message"][data-cds="AssistantMessage"][data-is-streaming="false"]';
@@ -205,25 +206,26 @@ export class ClaudeExtractor extends BaseExtractor {
 
   /** Prefer exact same-origin detail bytes, while preserving legacy report and DOM fallback paths. */
   async extract(): Promise<ExtractionResult> {
-    // A user can start export while the Artifact is visible and Claude can then
-    // rerender or dismiss that pane during asynchronous history scrolling. Keep
-    // the initial positive observation; a later observation may add evidence,
-    // but provider churn must not erase an already observed omission.
-    const artifactFrameObserved = this.hasUnsupportedArtifactFrame();
-    const result = await this.extractPreferredSource();
-    return this.withArtifactOmission(result, artifactFrameObserved);
+    // Preserve positive evidence even if Claude rerenders or deselects the
+    // Artifact during extraction. A later observation can only add evidence.
+    const artifactSelected = this.hasArtifactSelectionUrl();
+    const artifactObserved = artifactSelected || this.hasUnsupportedArtifactFrame();
+    // The selected Artifact URL takes precedence over the report marker.
+    // A separate visible frame cannot override an actual legacy report.
+    if (!artifactSelected && this.isDeepResearchVisible()) {
+      return this.withArtifactOmission(await super.extract(), artifactObserved);
+    }
+    const result = this.isSignedInConversationRoute()
+      ? await this.extractStructuredDetail()
+      : await this.extractConversation();
+    return this.withArtifactOmission(result, artifactObserved);
   }
 
-  /** Keep the selected legacy report authoritative; ordinary signed-in chats can use detail JSON. */
-  private async extractPreferredSource(): Promise<ExtractionResult> {
-    if (this.isDeepResearchVisible() || !this.isSignedInConversationRoute()) {
-      return super.extract();
-    }
-
+  private async extractStructuredDetail(): Promise<ExtractionResult> {
     const conversationId = this.getConversationId();
-    if (!conversationId) return super.extract();
+    if (!conversationId) return this.extractConversation();
     const organizationId = resolveClaudeOrganizationId(conversationId);
-    if (!organizationId) return super.extract();
+    if (!organizationId) return this.extractConversation();
     const initialIdentity = this.captureConversationIdentity();
     try {
       const { fetchClaudeConversation } = await import('./claude-api');
@@ -235,13 +237,13 @@ export class ClaudeExtractor extends BaseExtractor {
       }
       // The synchronous route admission above makes null unreachable in ordinary
       // production, but a dependency failure still preserves the established path.
-      if (!captured) return super.extract();
+      if (!captured) return this.extractConversation();
       console.info('[G2O] Extracted Claude conversation from local session detail');
       return {
         success: true,
         data: captured.data.title.trim()
           ? captured.data
-          : { ...captured.data, title: this.getTitle() },
+          : { ...captured.data, title: this.getRenderedConversationTitle() },
         archiveCompanion: captured.archiveCompanion,
         warnings: captured.warnings.length > 0 ? captured.warnings : undefined,
       };
@@ -285,7 +287,7 @@ export class ClaudeExtractor extends BaseExtractor {
     archiveCompanion?: ArchiveCompanionBundle,
     expectedConversationId?: string
   ): Promise<ExtractionResult> {
-    const fallback = await super.extract();
+    const fallback = await this.extractConversation();
     if (expectedConversationId && this.getConversationId() !== expectedConversationId) {
       return this.conversationChanged(archiveCompanion);
     }
@@ -313,12 +315,12 @@ export class ClaudeExtractor extends BaseExtractor {
   /** Add only a positively observed isolated-Artifact omission to either capture path. */
   private withArtifactOmission(
     result: ExtractionResult,
-    artifactFrameObserved: boolean
+    artifactObserved: boolean
   ): ExtractionResult {
     if (
       !result.success ||
       !result.data ||
-      (!artifactFrameObserved && !this.hasUnsupportedArtifactFrame())
+      (!artifactObserved && !this.hasArtifactSelectionUrl() && !this.hasUnsupportedArtifactFrame())
     ) {
       return result;
     }
@@ -342,42 +344,45 @@ export class ClaudeExtractor extends BaseExtractor {
     return /^\/chat\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(window.location.pathname);
   }
 
+  /** Claude can retain the Artifact selection in the chat URL after hiding the frame. */
+  private hasArtifactSelectionUrl(): boolean {
+    return classifyClaudeArchiveChatUrl(window.location.href) === 'artifact';
+  }
+
   /** Inspect top-document frame presence only; never access the isolated document. */
-  private hasUnsupportedArtifactFrame(): boolean {
-    return Array.from(document.querySelectorAll(CURRENT_ARTIFACT_SELECTORS.frame[0])).some(
-      frame => {
-        if (this.isInDismissedPanel(frame) || frame.closest('[hidden]')) return false;
-        const frameStyle = window.getComputedStyle(frame);
+  private hasUnsupportedArtifactFrame(root: ParentNode = document): boolean {
+    return Array.from(root.querySelectorAll(CURRENT_ARTIFACT_SELECTORS.frame[0])).some(frame => {
+      if (this.isInDismissedPanel(frame) || frame.closest('[hidden]')) return false;
+      const frameStyle = window.getComputedStyle(frame);
+      if (
+        frameStyle.display === 'none' ||
+        frameStyle.visibility === 'hidden' ||
+        frameStyle.visibility === 'collapse'
+      ) {
+        return false;
+      }
+
+      // Claude keeps the panel visibly selected (with a loading surface) while
+      // the inner document iframe can be transiently transparent. Evaluate
+      // rendering suppression from the panel boundary outward, not from that
+      // implementation-detail frame, so loading still records the omission.
+      const panel = frame.closest('[role="region"]') ?? frame;
+      for (let ancestor: Element | null = panel; ancestor; ancestor = ancestor.parentElement) {
+        if (ancestor.matches('details:not([open])')) {
+          const summary = ancestor.querySelector(':scope > summary');
+          if (!summary?.contains(frame)) return false;
+        }
+        const style = window.getComputedStyle(ancestor);
         if (
-          frameStyle.display === 'none' ||
-          frameStyle.visibility === 'hidden' ||
-          frameStyle.visibility === 'collapse'
+          style.display === 'none' ||
+          style.contentVisibility === 'hidden' ||
+          Number.parseFloat(style.opacity) === 0
         ) {
           return false;
         }
-
-        // Claude keeps the panel visibly selected (with a loading surface) while
-        // the inner document iframe can be transiently transparent. Evaluate
-        // rendering suppression from the panel boundary outward, not from that
-        // implementation-detail frame, so loading still records the omission.
-        const panel = frame.closest('[role="region"]') ?? frame;
-        for (let ancestor: Element | null = panel; ancestor; ancestor = ancestor.parentElement) {
-          if (ancestor.matches('details:not([open])')) {
-            const summary = ancestor.querySelector(':scope > summary');
-            if (!summary?.contains(frame)) return false;
-          }
-          const style = window.getComputedStyle(ancestor);
-          if (
-            style.display === 'none' ||
-            style.contentVisibility === 'hidden' ||
-            Number.parseFloat(style.opacity) === 0
-          ) {
-            return false;
-          }
-        }
-        return true;
       }
-    );
+      return true;
+    });
   }
 
   // ========== Platform Detection ==========
@@ -397,8 +402,13 @@ export class ClaudeExtractor extends BaseExtractor {
    */
   isDeepResearchVisible(): boolean {
     const artifact = this.queryWithFallback<HTMLElement>(DEEP_RESEARCH_SELECTORS.artifact);
-    if (!artifact) return false;
-    return !this.isInDismissedPanel(artifact);
+    if (!artifact || this.isInDismissedPanel(artifact)) return false;
+    // An otherwise empty marker can wrap an isolated Artifact instead. Scope
+    // the frame check to this marker so a separate frame never claims a report.
+    return (
+      Boolean(this.queryWithFallback(DEEP_RESEARCH_SELECTORS.content, artifact)) ||
+      !this.hasUnsupportedArtifactFrame(artifact)
+    );
   }
 
   /**
@@ -417,17 +427,12 @@ export class ClaudeExtractor extends BaseExtractor {
   /**
    * Conversation turns can keep their collapsed long content under an inert
    * wrapper INSIDE a virtual row (upstream #452). Only that inert-only shape
-   * is exempt: a hidden/inert row or enclosing panel is still dismissed.
-   * Walk the full ancestor chain so a nearer collapsed wrapper cannot mask a
-   * closed outer panel. Artifact visibility retains the stricter panel guard.
+   * is exempt: hidden/inert rows and enclosing panels are still outside the
+   * transcript. Report/Artifact panels are never conversation turns, even if
+   * they share assistant response classes and are visible.
    */
-  private isInDismissedConversationPanel(element: Element): boolean {
-    if (
-      DEEP_RESEARCH_SELECTORS.artifact.some(selector => element.closest(selector)) &&
-      this.isInDismissedPanel(element)
-    ) {
-      return true;
-    }
+  private isOutsideConversationTranscript(element: Element): boolean {
+    if (DEEP_RESEARCH_SELECTORS.artifact.some(selector => element.closest(selector))) return true;
 
     const row = element.closest(SELECTORS.conversationRow[0]);
     for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
@@ -460,10 +465,13 @@ export class ClaudeExtractor extends BaseExtractor {
    * 4. Default title
    */
   getTitle(): string {
-    if (this.isDeepResearchVisible()) {
+    if (!this.hasArtifactSelectionUrl() && this.isDeepResearchVisible()) {
       return this.getDeepResearchTitle();
     }
+    return this.getRenderedConversationTitle();
+  }
 
+  protected override getRenderedConversationTitle(): string {
     return (
       this.getPageTitle() ??
       this.getFirstMessageTitle(SELECTORS.userMessage, 'Untitled Claude Conversation')
@@ -517,8 +525,8 @@ export class ClaudeExtractor extends BaseExtractor {
    * Collect user/assistant message elements in DOM order.
    *
    * User messages nested inside an assistant response (e.g. quoted content) are
-   * skipped, as is anything inside a dismissed artifact panel (a closed report
-   * lingers with `.font-claude-response`; see {@link isInDismissedConversationPanel}).
+   * skipped, as is anything inside a report panel (which can share
+   * `.font-claude-response`; see {@link isOutsideConversationTranscript}).
    * Shared by extractMessages() (single pass) and harvestWindow() (per-scroll-
    * window pass for virtualized conversations).
    */
@@ -546,7 +554,7 @@ export class ClaudeExtractor extends BaseExtractor {
   private collectUserElements(root: Element | Document): Element[] {
     const candidates = SELECTORS.userMessage
       .flatMap(selector => Array.from(root.querySelectorAll(selector)))
-      .filter(element => !this.isInDismissedConversationPanel(element));
+      .filter(element => !this.isOutsideConversationTranscript(element));
     return this.distinctElements(candidates);
   }
 
@@ -556,7 +564,7 @@ export class ClaudeExtractor extends BaseExtractor {
       SELECTORS.assistantResponse
         .slice(0, -1)
         .flatMap(selector => Array.from(root.querySelectorAll(selector)))
-        .filter(element => !this.isInDismissedConversationPanel(element))
+        .filter(element => !this.isOutsideConversationTranscript(element))
     );
     const users = userCandidates.filter(
       user => !strong.some(assistant => assistant.contains(user))
@@ -568,7 +576,7 @@ export class ClaudeExtractor extends BaseExtractor {
       .flatMap(selector => Array.from(root.querySelectorAll(selector)))
       .filter(
         element =>
-          !this.isInDismissedConversationPanel(element) &&
+          !this.isOutsideConversationTranscript(element) &&
           !users.some(user => user.contains(element) || element.contains(user))
       );
     return this.distinctElements([...strong, ...weak]);
@@ -1151,7 +1159,7 @@ export class ClaudeExtractor extends BaseExtractor {
   /** Include candidate filtering and DOM order in the exact conversion input. */
   private collectToolCandidates(element: Element): Element[] {
     const octoberRows = Array.from(element.querySelectorAll(SELECTORS.toolStatus[0])).filter(
-      row => !this.isInDismissedConversationPanel(row)
+      row => !this.isOutsideConversationTranscript(row)
     );
     const legacyHeaders = this.collectStatusHeaders(element).filter(
       header => !header.closest(STEP_ROW_SELECTOR)

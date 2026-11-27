@@ -7,15 +7,15 @@ thread_id: ITH-001
 thread_state: settled
 privacy: repository-safe
 opened: 2026-10-30
-last_turn: 2026-10-31
+last_turn: 2026-11-27
 ---
 
 # ITH-001 — Claude isolated Artifact capture
 
-Current Claude document Artifacts cross an origin boundary that the historical
-top-document extractor does not. This thread preserves why Liska first records
-the omission honestly and what must be proven before it asks for broader frame
-access.
+Selecting an ordinary Claude Artifact now supplies exact route evidence for the
+existing structured-detail archive path. That is separate from reading document
+bytes inside an isolated provider frame: this thread preserves the accepted
+route path and why broader frame access remains gated.
 
 ## Thread
 
@@ -82,6 +82,26 @@ This proves the adopted diagnostic path on one current document Artifact. It
 does not prove other Artifact types, closed-panel variants, permission behavior,
 or companion acquisition.
 
+### E5 — Artifact selection exposed a route-admission mismatch
+
+An ordinary Artifact selection still shared the legacy `#markdown-artifact`
+surface, but its exact selected route also carried an Artifact query and a
+lowercase fragment. The first candidate therefore fell through to the legacy
+Deep Research report path. Once extraction selected the structured-detail path,
+background sender validation rejected both inline and staged archive-companion
+commits because it did not admit the selected route. Markdown survived, but the
+raw/manifest/canonical companions did not. This was a route-admission defect,
+not evidence that iframe bytes had been acquired; no private route is retained.
+
+### E6 — Shared strict route admission passes the installed destination canary
+
+After the extractor and background used the same literal route classifier, a
+final installed Artifact canary retained one capture identity and produced its
+raw, manifest, and canonical companions in both File and Obsidian. Per-capture
+hashes and lengths matched across destinations. The result proves this exact
+route and delivery slice only; it does not prove isolated-frame content,
+attachments, other Artifact families, or account completeness.
+
 ### X1 — Grant wildcard frame access and trust `srcdoc` immediately
 
 This looked attractive because the document bytes are already present in the
@@ -114,6 +134,21 @@ message, destination, or companion schema is added.
 
 Evidence: E1, E2, E3, E4
 
+### D2 — Admit only the exact selected Artifact route without opening its frame
+
+Share one literal classifier between extraction and background persistence. It
+admits a clean conversation route or the exact Artifact-selection query, with a
+strict lowercase UUID path/query and optional lowercase 8-4 fragment; malformed
+or normalized variants remain rejected. Selected Artifacts use structured
+detail and retain the stable omission for isolated-frame bytes. Missing
+organization, null detail, or errors keep the ordinary transcript fallback;
+a genuine legacy Deep Research report remains preferred when the strict
+Artifact route is absent, even if a separate frame is visible. Preserve top
+frame and same-origin document checks and existing abort cleanup. Do not read
+the iframe, add host/network authority, or imply attachment capture.
+
+Evidence: E5, E6
+
 ### T1 — Optional one-document Artifact bridge
 
 After freshness is proven, consider an optional host permission limited to the
@@ -145,9 +180,12 @@ Obsidian with honest partial-destination receipts.
 - [evidence] E2: the current Artifact is a nested cross-origin frame and the legacy top-document selector has zero matches #live
 - [evidence] E3: upstream 2.14.15 has no frame bridge or permission solution to port
 - [evidence] E4: the installed candidate persisted the content-free omission code to byte-identical Download and Obsidian notes #live
+- [evidence] E5: Artifact route selection initially fell through to legacy reporting and both inline/staged companion commits were rejected; Markdown remained while archive companions did not #live
+- [evidence] E6: the shared literal classifier passed one installed canary with the same raw/manifest/canonical capture in File and Obsidian, reconciled by hash and length #live
 - [rejected] X1: wildcard access plus unverified `srcdoc` freshness could archive stale content as success
 - [rejected] X2: silent transcript-only export violates the loss-aware contract
 - [decision] D1: persist a content-free omission diagnostic before expanding authority
+- [decision] D2: admit only the strict selected Artifact route through shared extraction/background validation; retain iframe omission and transcript fallback
 - [tail] T1: prove freshness and packaged-browser security before an optional frame bridge
 - [tail] T2: retain transcript and deliver a content-addressed Artifact companion with per-destination honesty
 
@@ -164,3 +202,5 @@ Obsidian with honest partial-destination receipts.
 - S3 — `src/content/extractors/selectors/claude.ts`, `src/content/extractors/claude.ts`, and their focused tests
 - S4 — local receipt `CLAUDE-LIVE-20261030-A`; visibility: local-only; safe aggregate only
 - S5 — local receipt `CLAUDE-LIVE-20261030-B`; visibility: local-only; safe aggregate only
+- S6 — [ADR-087: Admit Claude Artifact archives from an exact selected route](../adr/087-claude-artifact-archive-route-admission.md)
+- S7 — local receipt `CLAUDE-ARTIFACT-ROUTE-CANARY-20261127`; visibility: local-only; same capture identity and raw/manifest/canonical presence in both destinations, safe aggregate only

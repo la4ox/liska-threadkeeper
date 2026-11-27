@@ -38,6 +38,14 @@ vi.mock('../../src/background/archive-stage-handlers', () => ({
 
 const conversationId = '01234567-89ab-4cde-8f01-23456789abcd';
 const conversationUrl = `https://claude.ai/chat/${conversationId}`;
+const artifactId = 'fedcbafe-dcba-4abc-8def-fedcbafedcba';
+const artifactQuery = `?artifact=${artifactId}`;
+const artifactHash = '#a1234bcd-567e';
+const acceptedTabUrls = [
+  conversationUrl,
+  `${conversationUrl}${artifactQuery}`,
+  `${conversationUrl}${artifactQuery}${artifactHash}`,
+];
 const stageId = `archive-stage-${'A'.repeat(32)}`;
 const descriptor = {
   kind: 'raw' as const,
@@ -102,23 +110,46 @@ const rejectedSenders: (readonly [string, chrome.runtime.MessageSender])[] = [
     `https://claude.ai.evil.test/chat/${conversationId}`,
     `https://www.claude.ai/chat/${conversationId}`,
     `https://claude.ai:444/chat/${conversationId}`,
+    `https://claude.ai:443/chat/${conversationId}${artifactQuery}`,
+    `https://claude.ai:444/chat/${conversationId}${artifactQuery}`,
+    `https://CLAUDE.ai/chat/${conversationId}${artifactQuery}`,
     `https://chatgpt.com/c/${conversationId}`,
     'https://chat.deepseek.com/a/chat/s/synthetic',
     `https://user@claude.ai/chat/${conversationId}`,
     `https://user:password@claude.ai/chat/${conversationId}`,
+    `https://user:password@claude.ai/chat/${conversationId}${artifactQuery}`,
+    `https://@claude.ai/chat/${conversationId}${artifactQuery}`,
     `https://claude.ai/chat/${conversationId}?q=1`,
     `https://claude.ai/chat/${conversationId}?`,
     `https://claude.ai/chat/${conversationId}#fragment`,
     `https://claude.ai/chat/${conversationId}#`,
+    `${conversationUrl}${artifactHash}`,
+    `${conversationUrl}?Artifact=${artifactId}`,
+    `${conversationUrl}?artifact=${artifactId.toUpperCase()}`,
+    `${conversationUrl}?artifact=not-a-uuid`,
+    `${conversationUrl}?%61rtifact=${artifactId}`,
+    `${conversationUrl}?artifact=%66${artifactId.slice(1)}`,
+    `${conversationUrl}${artifactQuery}&artifact=${artifactId}`,
+    `${conversationUrl}${artifactQuery}&extra=1`,
+    `${conversationUrl}?extra=1&artifact=${artifactId}`,
+    `${conversationUrl}${artifactQuery}&`,
+    `${conversationUrl}${artifactQuery}#`,
+    `${conversationUrl}${artifactQuery}#fragment`,
+    `${conversationUrl}${artifactQuery}${artifactHash.toUpperCase()}`,
+    `${conversationUrl}${artifactQuery}#%61${artifactHash.slice(2)}`,
+    `${conversationUrl}${artifactQuery}${artifactHash}0`,
+    `${conversationUrl}${artifactQuery}${artifactHash}\n`,
     `https://claude.ai/chat/${conversationId}/`,
     `https://claude.ai/chat/${conversationId.toUpperCase()}`,
     `https://claude.ai/chat/${conversationId.replace(/-/g, '')}`,
     `https://claude.ai/chat/%30${conversationId.slice(1)}`,
     'https://claude.ai/chat/not-a-uuid',
     `https://claude.ai/share/${conversationId}`,
+    `https://claude.ai/share/${conversationId}${artifactQuery}`,
     'https://claude.ai/new',
     `https://claude.ai/artifacts/${conversationId}`,
     `https://claude.ai/chat/${conversationId}/artifacts`,
+    `https://claude.ai/chat/${conversationId}/artifacts${artifactQuery}`,
     'not a URL',
   ].map(url => [`tab ${url}`, sender({ tab: { url } as chrome.tabs.Tab })] as const),
   ...[
@@ -130,7 +161,13 @@ const rejectedSenders: (readonly [string, chrome.runtime.MessageSender])[] = [
     'https://user:password@claude.ai/new',
     'not a URL',
   ].map(url => [`document ${url}`, sender({ url })] as const),
-  ['subframe', sender({ frameId: 1 })],
+  ...acceptedTabUrls.map(
+    url => [`subframe at ${url}`, sender({ tab: { url } as chrome.tabs.Tab, frameId: 1 })] as const
+  ),
+  [
+    'foreign document with an Artifact tab URL',
+    sender({ tab: { url: acceptedTabUrls[2] } as chrome.tabs.Tab, url: 'https://chatgpt.com/' }),
+  ],
   ['missing frame', sender({ frameId: undefined })],
   ['missing document URL', sender({ url: undefined })],
   ['missing tab', sender({ tab: undefined })],
@@ -161,12 +198,13 @@ const abortRejectedSenders: (readonly [string, chrome.runtime.MessageSender])[] 
 ];
 
 describe('Claude exact archive transport admission', () => {
-  it('accepts a top-frame exact route with an older same-origin SPA document', () => {
-    for (const url of [conversationUrl, 'https://claude.ai/new', 'https://claude.ai/']) {
-      expect(validateArchiveStageSender(sender({ url }), 'claude')).toBe(true);
+  it.each(acceptedTabUrls)('accepts exact top-frame tab %s with a same-origin document', tabUrl => {
+    for (const url of [tabUrl, 'https://claude.ai/new', 'https://claude.ai/']) {
+      const accepted = sender({ tab: { url: tabUrl } as chrome.tabs.Tab, url });
+      expect(validateArchiveStageSender(accepted, 'claude')).toBe(true);
+      expect(validateArchiveStageSender(accepted, 'chatgpt')).toBe(false);
+      expect(validateArchiveStageSender(accepted, 'deepseek')).toBe(false);
     }
-    expect(validateArchiveStageSender(sender(), 'chatgpt')).toBe(false);
-    expect(validateArchiveStageSender(sender(), 'deepseek')).toBe(false);
   });
 
   it.each(rejectedSenders)('rejects %s', (_label, invalidSender) => {
@@ -266,24 +304,31 @@ describe('Claude archive service-worker route', () => {
     await import('../../src/background/service-worker');
   });
 
-  it('routes inline Claude persistence and all six stage actions with provider-bound authority', async () => {
-    const inline = companion();
-    const inlineResponse = vi.fn();
-    expect(listener(inline, sender({ url: 'https://claude.ai/new' }), inlineResponse)).toBe(true);
-    await vi.waitFor(() => expect(inlineResponse).toHaveBeenCalledOnce());
-    expect(mocks.persist).toHaveBeenCalledExactlyOnceWith(inline, expect.any(Object));
+  it.each(acceptedTabUrls)(
+    'routes inline Claude persistence and all stage actions for %s',
+    async url => {
+      const currentSender = sender({
+        tab: { url } as chrome.tabs.Tab,
+        url: 'https://claude.ai/new',
+      });
+      const inline = companion();
+      const inlineResponse = vi.fn();
+      expect(listener(inline, currentSender, inlineResponse)).toBe(true);
+      await vi.waitFor(() => expect(inlineResponse).toHaveBeenCalledOnce());
+      expect(mocks.persist).toHaveBeenCalledExactlyOnceWith(inline, expect.any(Object));
 
-    for (const request of stageRequests()) {
-      const respond = vi.fn();
-      expect(listener(request, sender(), respond)).toBe(true);
-      await vi.waitFor(() => expect(respond).toHaveBeenCalledOnce());
-      expect(mocks.stage).toHaveBeenLastCalledWith(
-        request,
-        ...(request.action === 'commitStagedArchiveCompanion' ? [expect.any(Object)] : [])
-      );
+      for (const request of stageRequests()) {
+        const respond = vi.fn();
+        expect(listener(request, currentSender, respond)).toBe(true);
+        await vi.waitFor(() => expect(respond).toHaveBeenCalledOnce());
+        expect(mocks.stage).toHaveBeenLastCalledWith(
+          request,
+          ...(request.action === 'commitStagedArchiveCompanion' ? [expect.any(Object)] : [])
+        );
+      }
+      expect(mocks.stage).toHaveBeenCalledTimes(6);
     }
-    expect(mocks.stage).toHaveBeenCalledTimes(6);
-  });
+  );
 
   it.each(rejectedSenders)(
     'rejects inline and staged Claude persistence from %s',

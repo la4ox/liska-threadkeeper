@@ -7,6 +7,7 @@
 
 import { snapshotSlotRequest } from '../lib/account-slot-contract';
 import { isCollectorMessage } from '../lib/claude-account-collector-contract';
+import { classifyClaudeArchiveChatUrl } from '../lib/claude-artifact-route';
 import {
   MAX_CONTENT_SIZE,
   BINARY_STAGE_CHUNK_BYTES,
@@ -156,14 +157,15 @@ export function validateArchiveStageSender(
     return false;
   }
   try {
+    if (source === 'claude') {
+      return (
+        classifyClaudeArchiveChatUrl(sender.tab.url) !== undefined &&
+        isExactClaudeDocumentUrl(sender.url)
+      );
+    }
     const url = new URL(sender.tab.url);
     if (source === 'deepseek') {
       return isExactDeepSeekConversationUrl(url) && isExactDeepSeekDocumentUrl(sender.url);
-    }
-    if (source === 'claude') {
-      return (
-        isExactClaudeConversationUrl(url, sender.tab.url) && isExactClaudeDocumentUrl(sender.url)
-      );
     }
     if (source !== 'chatgpt') return false;
     return isExactChatGptDocumentUrl(sender.url) && isExactChatGptConversationUrl(url);
@@ -205,18 +207,6 @@ export function validateDeepSeekArchiveStageAbortSender(
 function isExactClaudeAbortPageUrl(rawUrl: string): boolean {
   // Require the literal authority too: URL parsing normalizes an explicit :443 port away.
   return /^https:\/\/claude\.ai(?:\/|$)/.test(rawUrl) && isExactClaudeDocumentUrl(rawUrl);
-}
-
-function isExactClaudeConversationUrl(url: URL, rawUrl: string): boolean {
-  return (
-    url.origin === 'https://claude.ai' &&
-    url.username === '' &&
-    url.password === '' &&
-    url.search === '' &&
-    url.hash === '' &&
-    /^\/chat\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(url.pathname) &&
-    rawUrl === `https://claude.ai${url.pathname}`
-  );
 }
 
 function isExactClaudeDocumentUrl(rawUrl: string): boolean {

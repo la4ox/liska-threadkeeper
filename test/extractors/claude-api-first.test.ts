@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeExtractor } from '../../src/content/extractors/claude';
 import * as claudeApi from '../../src/content/extractors/claude-api';
 import * as claudeRoute from '../../src/content/extractors/claude-detail-route';
-import { BaseExtractor } from '../../src/content/extractors/base';
 import { ProviderContentLimitError } from '../../src/archive/normalizers/provider-block-work-budget';
 import { registerProviderContentLimitEvidence } from '../../src/content/extractors/provider-content-limit-evidence';
 import type {
@@ -21,6 +20,18 @@ import {
 
 const CONVERSATION_ID = '12345678-1234-4abc-8def-1234567890ab';
 const ORGANIZATION_ID = 'abcdefab-cdef-4abc-8def-abcdefabcdef';
+const ARTIFACT_ID = 'fedcbafe-dcba-4abc-8def-fedcbafedcba';
+const ARTIFACT_QUERY = `?artifact=${ARTIFACT_ID}`;
+const ARTIFACT_HASH = '#a1234bcd-567e';
+
+function setClaudeUrlSuffix(suffix: string): void {
+  const search = suffix.split('#', 1)[0];
+  Object.assign(window.location, {
+    search,
+    hash: suffix.slice(search.length),
+    href: `${window.location.href}${suffix}`,
+  });
+}
 
 function companion(): ArchiveCompanionBundle {
   return {
@@ -163,11 +174,17 @@ function renderConversation(): void {
   );
 }
 
+class ClaudeWithControllableDom extends ClaudeExtractor {
+  override extractConversation(): Promise<ExtractionResult> {
+    return super.extractConversation();
+  }
+}
+
 describe('Claude structured detail preference', () => {
-  let extractor: ClaudeExtractor;
+  let extractor: ClaudeWithControllableDom;
 
   beforeEach(() => {
-    extractor = new ClaudeExtractor();
+    extractor = new ClaudeWithControllableDom();
     clearFixture();
     localStorage.clear();
     vi.spyOn(claudeRoute, 'resolveClaudeOrganizationId').mockReturnValue(ORGANIZATION_ID);
@@ -208,6 +225,54 @@ describe('Claude structured detail preference', () => {
     expect(result.structuredPresentationContext).toBeUndefined();
   });
 
+  it.each([
+    { observation: 'a visible isolated frame', suffix: '', frameAttributes: '' },
+    {
+      observation: 'a selected Artifact query with a hidden frame',
+      suffix: ARTIFACT_QUERY,
+      frameAttributes: ' hidden',
+    },
+    {
+      observation: 'a selected Artifact query and fragment with a hidden frame',
+      suffix: `${ARTIFACT_QUERY}${ARTIFACT_HASH}`,
+      frameAttributes: ' hidden',
+    },
+  ])(
+    'keeps structured detail and the conversation title for $observation despite the legacy marker',
+    async ({ suffix, frameAttributes }) => {
+      renderConversation();
+      setClaudeUrlSuffix(suffix);
+      document.title = 'Rendered conversation title - Claude';
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `<div id="markdown-artifact" role="region">
+          <iframe src="https://artifact.example.invalid/code/artifact/synthetic"${frameAttributes}></iframe>
+        </div>`
+      );
+      const fetchDetail = vi
+        .spyOn(claudeApi, 'fetchClaudeConversation')
+        .mockResolvedValue(apiResult('  '));
+
+      const result = await extractor.extract();
+
+      expect(fetchDetail).toHaveBeenCalledExactlyOnceWith(
+        CONVERSATION_ID,
+        false,
+        expect.objectContaining({ resolveOrganizationId: expect.any(Function) })
+      );
+      expect(result.success).toBe(true);
+      expect(result.data?.type).not.toBe('deep-research');
+      expect(result.data?.title).toBe('Rendered conversation title');
+      expect(result.data?.capture).toEqual({ mode: 'structured-api', completeness: 'partial' });
+      expect(result.data?.liskaLossDiagnostics).toEqual(['claude-artifact-content-omitted']);
+      expect(result.archiveCompanion).toEqual(companion());
+      expect(result.warnings).toEqual([
+        claudeApi.CLAUDE_SCOPE_UNVERIFIED_WARNING,
+        'Selected Claude Artifact content was not included because the isolated Artifact representation is unsupported.',
+      ]);
+    }
+  );
+
   it('uses the page title only when the structured title is blank', async () => {
     renderConversation();
     document.title = 'Rendered title - Claude';
@@ -216,20 +281,27 @@ describe('Claude structured detail preference', () => {
     expect((await extractor.extract()).data?.title).toBe('Rendered title');
   });
 
-  it('keeps the established DOM path when no organization capability is available', async () => {
-    renderConversation();
-    vi.mocked(claudeRoute.resolveClaudeOrganizationId).mockReturnValue(null);
-    const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
+  it.each([
+    ['clean', ''],
+    ['Artifact', `${ARTIFACT_QUERY}${ARTIFACT_HASH}`],
+  ])(
+    'keeps the established DOM path on the %s URL when no organization capability is available',
+    async (_kind, suffix) => {
+      renderConversation();
+      setClaudeUrlSuffix(suffix);
+      vi.mocked(claudeRoute.resolveClaudeOrganizationId).mockReturnValue(null);
+      const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
 
-    const result = await extractor.extract();
+      const result = await extractor.extract();
 
-    expect(result.data?.messages.map(message => message.content).join('\n')).toContain(
-      'DOM answer'
-    );
-    expect(result.data?.capture).toBeUndefined();
-    expect(result.warnings ?? []).not.toContain(claudeApi.CLAUDE_DOM_FALLBACK_WARNING);
-    expect(fetchDetail).not.toHaveBeenCalled();
-  });
+      expect(result.data?.messages.map(message => message.content).join('\n')).toContain(
+        'DOM answer'
+      );
+      expect(result.data?.capture).toBeUndefined();
+      expect(result.warnings ?? []).not.toContain(claudeApi.CLAUDE_DOM_FALLBACK_WARNING);
+      expect(fetchDetail).not.toHaveBeenCalled();
+    }
+  );
 
   it('marks a failed structured attempt as partial rendered fallback', async () => {
     renderConversation();
@@ -244,6 +316,59 @@ describe('Claude structured detail preference', () => {
     expect(result.warnings).toContain(claudeApi.CLAUDE_DOM_FALLBACK_WARNING);
     expect(result.archiveCompanion).toBeUndefined();
   });
+
+  it.each(['missing org', 'null detail', 'rejected detail'] as const)(
+    'keeps a selected Artifact on the ordinary transcript after %s despite a report marker',
+    async unavailable => {
+      renderConversation();
+      setClaudeUrlSuffix(`${ARTIFACT_QUERY}${ARTIFACT_HASH}`);
+      document.title = unavailable === 'missing org' ? 'Claude' : 'Rendered chat title - Claude';
+      document.body.insertAdjacentHTML(
+        'afterbegin',
+        createClaudeDeepResearchDOM('Not the chat title', '<p>Not a transcript message</p>')
+      );
+      const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
+      const waiting = deferred<Awaited<ReturnType<typeof claudeApi.fetchClaudeConversation>>>();
+      if (unavailable === 'missing org') {
+        vi.mocked(claudeRoute.resolveClaudeOrganizationId).mockReturnValue(null);
+      } else if (unavailable === 'null detail') {
+        fetchDetail.mockResolvedValue(null);
+      } else {
+        fetchDetail.mockReturnValue(waiting.promise);
+      }
+
+      const extraction = extractor.extract();
+      if (unavailable === 'rejected detail') {
+        await vi.waitFor(() => expect(fetchDetail).toHaveBeenCalledOnce());
+        // Losing the query during the request must not cause the DOM fallback
+        // to reclassify this export or discard the initial omission evidence.
+        setClaudeLocation(CONVERSATION_ID);
+        waiting.reject(new claudeApi.ClaudeStructuredCaptureError('request-failed'));
+      }
+      const result = await extraction;
+
+      expect(fetchDetail).toHaveBeenCalledTimes(unavailable === 'missing org' ? 0 : 1);
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        id: CONVERSATION_ID,
+        title: unavailable === 'missing org' ? 'DOM question' : 'Rendered chat title',
+        liskaLossDiagnostics: ['claude-artifact-content-omitted'],
+      });
+      expect(result.data?.messages.map(message => message.role)).toEqual(['user', 'assistant']);
+      expect(result.data?.messages[0]?.content).toBe('DOM question');
+      expect(result.data?.messages[1]?.content).toContain('DOM answer');
+      expect(result.data?.type).not.toBe('deep-research');
+      expect(result.data?.capture).toEqual(
+        unavailable === 'rejected detail'
+          ? { mode: 'dom-fallback', completeness: 'partial' }
+          : undefined
+      );
+      expect(result.warnings).toContain(
+        'Selected Claude Artifact content was not included because the isolated Artifact representation is unsupported.'
+      );
+      expect(result.archiveCompanion).toBeUndefined();
+    }
+  );
 
   it.each(['structured', 'content-limit'] as const)(
     'retains verified raw and manifest evidence after %s failure',
@@ -340,9 +465,7 @@ describe('Claude structured detail preference', () => {
       new claudeApi.ClaudeStructuredCaptureError('normalization-failed', retained)
     );
     const fallback = deferred<ExtractionResult>();
-    const domExtract = vi
-      .spyOn(BaseExtractor.prototype, 'extract')
-      .mockReturnValue(fallback.promise);
+    const domExtract = vi.spyOn(extractor, 'extractConversation').mockReturnValue(fallback.promise);
 
     const extraction = extractor.extract();
     await vi.waitFor(() => expect(domExtract).toHaveBeenCalledOnce());
@@ -366,21 +489,19 @@ describe('Claude structured detail preference', () => {
     );
   });
 
-  it('cancels a successful legacy-report fallback when its original chat changes', async () => {
+  it('cancels a successful DOM fallback when its original chat changes', async () => {
     renderConversation();
     const retained = stagedCompanion();
     vi.spyOn(claudeApi, 'fetchClaudeConversation').mockRejectedValue(
       new claudeApi.ClaudeStructuredCaptureError('normalization-failed', retained)
     );
     const fallback = deferred<ExtractionResult>();
-    const domExtract = vi
-      .spyOn(BaseExtractor.prototype, 'extract')
-      .mockReturnValue(fallback.promise);
+    const domExtract = vi.spyOn(extractor, 'extractConversation').mockReturnValue(fallback.promise);
 
     const extraction = extractor.extract();
     await vi.waitFor(() => expect(domExtract).toHaveBeenCalledOnce());
     setClaudeLocation('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
-    fallback.resolve({ success: true, data: apiData('Synthetic fallback report') });
+    fallback.resolve({ success: true, data: apiData('Synthetic fallback conversation') });
 
     await expect(extraction).resolves.toEqual({
       success: false,
@@ -396,16 +517,32 @@ describe('Claude structured detail preference', () => {
     );
   });
 
-  it('keeps the visible legacy Deep Research export ahead of structured detail', async () => {
-    setClaudeLocation(CONVERSATION_ID);
-    loadFixture(createClaudeDeepResearchDOM('Legacy report', '<p>Legacy body</p>'));
-    const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
+  it.each([
+    { pathId: CONVERSATION_ID, suffix: '' },
+    { pathId: CONVERSATION_ID, suffix: `?artifact=${ARTIFACT_ID.toUpperCase()}` },
+    { pathId: CONVERSATION_ID, suffix: `${ARTIFACT_QUERY}&artifact=${ARTIFACT_ID}` },
+    { pathId: CONVERSATION_ID, suffix: `${ARTIFACT_QUERY}&extra=1` },
+    { pathId: CONVERSATION_ID, suffix: `?%61rtifact=${ARTIFACT_ID}` },
+    { pathId: CONVERSATION_ID, suffix: `?artifact=%66${ARTIFACT_ID.slice(1)}` },
+    { pathId: CONVERSATION_ID, suffix: `${ARTIFACT_QUERY}#not-a-provider-fragment` },
+    { pathId: `${CONVERSATION_ID}/extra`, suffix: ARTIFACT_QUERY },
+  ])(
+    'keeps a legacy Deep Research report for /chat/$pathId with suffix $suffix',
+    async ({ pathId, suffix }) => {
+      setClaudeLocation(pathId);
+      setClaudeUrlSuffix(suffix);
+      loadFixture(createClaudeDeepResearchDOM('Legacy report', '<p>Legacy body</p>'));
+      const fetchDetail = vi.spyOn(claudeApi, 'fetchClaudeConversation');
 
-    const result = await extractor.extract();
+      const result = await extractor.extract();
 
-    expect(fetchDetail).not.toHaveBeenCalled();
-    expect(result.success).toBe(true);
-    expect(result.data?.type).toBe('deep-research');
-    expect(result.data?.messages[0]?.content).toContain('Legacy body');
-  });
+      expect(fetchDetail).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.data?.type).toBe('deep-research');
+      expect(result.data?.title).toBe('Legacy report');
+      expect(result.data?.messages[0]?.content).toContain('Legacy body');
+      expect(result.data).not.toHaveProperty('liskaLossDiagnostics');
+      expect(result.archiveCompanion).toBeUndefined();
+    }
+  );
 });
