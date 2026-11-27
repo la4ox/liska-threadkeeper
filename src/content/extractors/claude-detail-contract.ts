@@ -1,9 +1,13 @@
 import type { ArchiveCompanionBundle } from '../../lib/types';
 
+export const CLAUDE_DETAIL_ARTIFACT_ID = 'conversation';
+export const CLAUDE_DETAIL_PATH_PATTERN =
+  '/api/organizations/{organizationId}/chat_conversations/{conversationId}';
+
 export const CLAUDE_SCOPE_UNVERIFIED_WARNING =
   'Claude detail transcript and alternate-branch coverage remain unverified; this capture is partial.';
 export const CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING =
-  'Claude attachment metadata was inventoried; attachment bytes were not attempted.';
+  'Claude attachment metadata was inventoried; the detail capture did not acquire attachment bytes.';
 export const CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING =
   'Claude attachment metadata inventory could not be completed; its scope is unknown and attachment bytes were not attempted.';
 export const CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING =

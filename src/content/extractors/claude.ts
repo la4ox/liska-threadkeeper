@@ -245,6 +245,9 @@ export class ClaudeExtractor extends BaseExtractor {
           ? captured.data
           : { ...captured.data, title: this.getRenderedConversationTitle() },
         archiveCompanion: captured.archiveCompanion,
+        ...(captured.claudeAssetExportContext && {
+          claudeAssetExportContext: captured.claudeAssetExportContext,
+        }),
         warnings: captured.warnings.length > 0 ? captured.warnings : undefined,
       };
     } catch (error) {

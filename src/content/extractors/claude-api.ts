@@ -15,7 +15,11 @@ import {
   type ProviderBlockWorkBudget,
 } from '../../archive/normalizers/claude';
 import { MAX_CONVERSATION_TITLE_LENGTH } from '../../lib/constants';
-import type { ArchiveCompanionBundle, ConversationData } from '../../lib/types';
+import type {
+  ArchiveCompanionBundle,
+  ClaudeAssetExportContext,
+  ConversationData,
+} from '../../lib/types';
 import { projectArchiveBranch } from '../archive-projection';
 import {
   appendJsonCanonicalCompanion,
@@ -31,7 +35,9 @@ import {
 import {
   CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING,
   CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING,
+  CLAUDE_DETAIL_ARTIFACT_ID,
   CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING,
+  CLAUDE_DETAIL_PATH_PATTERN,
   CLAUDE_SCOPE_UNVERIFIED_WARNING,
   ClaudeStructuredCaptureError,
 } from './claude-detail-contract';
@@ -42,17 +48,15 @@ import {
 } from './claude-detail-route';
 import { registerProviderContentLimitEvidence } from './provider-content-limit-evidence';
 
-const ARTIFACT_ID = 'conversation';
 const REASONING_LABEL = 'Claude reasoning';
 
-export const CLAUDE_DETAIL_PATH_PATTERN =
-  '/api/organizations/{organizationId}/chat_conversations/{conversationId}';
 export const CLAUDE_DETAIL_TIMEOUT_MS = 15_000;
 export const CLAUDE_DETAIL_MAX_BYTES = 32 * 1024 * 1024;
 export {
   CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING,
   CLAUDE_ASSET_INVENTORY_INCOMPLETE_WARNING,
   CLAUDE_DETAIL_CONTENT_UNVERIFIED_WARNING,
+  CLAUDE_DETAIL_PATH_PATTERN,
   CLAUDE_DOM_FALLBACK_WARNING,
   CLAUDE_SCOPE_UNVERIFIED_WARNING,
   CLAUDE_STRUCTURED_EVIDENCE_FALLBACK_WARNING,
@@ -64,6 +68,7 @@ export interface ClaudeApiConversation {
   data: ConversationData;
   archive: LiskaThreadArchive;
   archiveCompanion: ArchiveCompanionBundle;
+  claudeAssetExportContext: ClaudeAssetExportContext;
   warnings: string[];
 }
 
@@ -100,7 +105,7 @@ export async function fetchClaudeConversation(
   try {
     inventory = await inventoryClaudeRawAssets({
       raw,
-      artifactId: ARTIFACT_ID,
+      artifactId: CLAUDE_DETAIL_ARTIFACT_ID,
       sha256: sha256Hex,
       contentBudget,
     });
@@ -138,7 +143,7 @@ export async function fetchClaudeConversation(
   try {
     const normalized = await (dependencies.normalizeCapture ?? normalizeClaudeCapture)({
       bundle,
-      artifactId: ARTIFACT_ID,
+      artifactId: CLAUDE_DETAIL_ARTIFACT_ID,
       manifestSha256: await hashCaptureManifest(bundle.manifest),
       sha256: sha256Hex,
       contentBudget,
@@ -165,6 +170,13 @@ export async function fetchClaudeConversation(
     return {
       archive,
       archiveCompanion,
+      claudeAssetExportContext: Object.freeze({
+        rawCaptureBundle: bundle,
+        rawArtifact: Object.freeze({ ...archiveCompanion.artifacts[0] }),
+        conversationId,
+        organizationId,
+        contentBudget,
+      }),
       warnings: [...new Set([...bundle.manifest.warnings, ...projected.warnings])],
       data: {
         ...projected.data,
@@ -252,7 +264,7 @@ async function captureDetailResponse(
   }
   try {
     return await captureResponseArtifact(response, {
-      artifactId: ARTIFACT_ID,
+      artifactId: CLAUDE_DETAIL_ARTIFACT_ID,
       relativePath: 'responses/conversation.json',
       endpoint: { method: 'GET', pathPattern: CLAUDE_DETAIL_PATH_PATTERN },
       maxBytes: CLAUDE_DETAIL_MAX_BYTES,

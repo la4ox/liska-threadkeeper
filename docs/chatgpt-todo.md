@@ -1418,6 +1418,8 @@ archived Library WebP as separate evidence-gated work.
 
 After the Claude changes, the next cross-provider gate is fresh installed
 ChatGPT scope evidence and regression. Only then should future owner-bound
-resumable account work proceed; separate Claude binary-attachment and isolated
-Artifact-frame capture remain distinct, not-attempted work. The manual baseline
-does not enable a scheduler or establish provider completeness.
+resumable account work proceed. One exact top-level Claude ordinary-image path
+now has installed File/Obsidian proof; fresh non-image files, generated Artifact
+downloads and isolated Artifact-frame capture remain distinct evidence-gated
+work. The manual baseline does not enable a scheduler or establish provider
+completeness.

@@ -48,6 +48,12 @@ import {
   DeepSeekNavigationChangedError,
   persistDeepSeekDestinationHonestAttachments,
 } from './deepseek-asset-export';
+import {
+  ClaudeNavigationChangedError,
+  persistClaudeDestinationHonestAttachments,
+} from './claude-asset-export';
+import { classifyClaudeArchiveChatUrl } from '../lib/claude-artifact-route';
+import { CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING } from './extractors/claude-detail-contract';
 import type {
   FinalizedFileArchivePresentationEvidence,
   FinalizedFilePresentationEvidence,
@@ -55,6 +61,7 @@ import type {
 import type { AllBranchesFileHtmlRequest } from './archive-branch-html-delivery';
 import {
   canExportChatGptAttachments,
+  canExportClaudeAttachments,
   canExportDeepSeekAttachments,
 } from './attachment-export-gates';
 import {
@@ -616,6 +623,7 @@ export async function persistArchiveCompanionArtifacts(
   const requireCurrentOperation = async (): Promise<void> => {
     if (isOperationCurrent && !isOperationCurrent()) {
       await abortUnclaimedStages();
+      if (source === 'claude') throw new ClaudeNavigationChangedError();
       throw new DeepSeekNavigationChangedError();
     }
   };
@@ -731,7 +739,10 @@ export async function persistArchiveCompanionArtifacts(
         )
           observations.push(observeProducerArtifact(destination, commitment, undefined));
       }
-      if (error instanceof DeepSeekNavigationChangedError) {
+      if (
+        error instanceof DeepSeekNavigationChangedError ||
+        error instanceof ClaudeNavigationChangedError
+      ) {
         await abortUnclaimedStages();
         throw error;
       }
@@ -1796,6 +1807,7 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       showErrorToast('Not on a valid conversation page');
       return;
     }
+    const sourceRoute = window.location.href;
     const { deepSeekOperationIdentity, result: extraction } = startConversationCapture(
       extractor,
       settings,
@@ -1918,6 +1930,10 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       : undefined;
     if (await rejectChangedDeepSeekOperation(extractor, deepSeekOperationIdentity, result)) return;
     stage = 'validating the extracted conversation';
+    const claudeAttachments =
+      extractor instanceof ClaudeExtractor &&
+      classifyClaudeArchiveChatUrl(sourceRoute) !== undefined &&
+      canExportClaudeAttachments(result, settings, enabledOutputs);
     const validation = extractor.validate(result);
     if (!validation.isValid) {
       const error = validation.errors.join(', ') || 'Extraction failed';
@@ -1925,7 +1941,9 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
       return;
     }
     if (validation.warnings.length > 0) {
-      validation.warnings.forEach(warning => console.warn('[G2O] Warning:', warning));
+      validation.warnings
+        .filter(warning => !claudeAttachments || warning !== CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING)
+        .forEach(warning => console.warn('[G2O] Warning:', warning));
     }
     if (!result.data) {
       showErrorToast('No conversation data extracted');
@@ -1987,6 +2005,43 @@ export async function handleSync(branchMode: 'current' | 'selected' = 'current')
           renderedAt,
           expectedSyncSettingsSnapshot,
         }
+      );
+      return;
+    }
+    if (claudeAttachments) {
+      const note = conversationToNote(result.data, settings.templateOptions);
+      const { claudeAssetExportContext, archiveCompanion } = result;
+      const isConversationCurrent = () =>
+        window.location.href === sourceRoute &&
+        extractor.getConversationId() === claudeAssetExportContext.conversationId &&
+        !operation?.scope.abort.signal.aborted;
+      stage = 'saving the Claude attachment archive';
+      const attachmentExport = await persistClaudeDestinationHonestAttachments(
+        claudeAssetExportContext,
+        archiveCompanion,
+        note.fileName,
+        enabledOutputs,
+        {
+          persistArtifacts: persistArchiveCompanionArtifacts,
+          expectedSyncSettingsSnapshot,
+          isConversationCurrent,
+          signal: operation?.scope.abort.signal,
+        }
+      );
+      if (!isConversationCurrent()) throw new ClaudeNavigationChangedError();
+      stage = 'saving the Claude note';
+      await persistNote(
+        note,
+        enabledOutputs,
+        result.data.messages.length,
+        [
+          ...(result.warnings ?? []).filter(
+            warning => warning !== CLAUDE_ASSETS_NOT_ATTEMPTED_WARNING
+          ),
+          ...attachmentExport.warnings,
+        ],
+        archiveCompanion.capturedAt,
+        expectedSyncSettingsSnapshot
       );
       return;
     }

@@ -119,20 +119,20 @@ manifest.
 ```text
 Eleven host groups are required:
 
-1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com, and legacy notebooklm.google.com - launch-only fox; read conversations after extension-owned Export confirmation.
+1-7. gemini.google.com, claude.ai, chatgpt.com, www.perplexity.ai, chat.deepseek.com, notebook.google.com, and legacy notebooklm.google.com - launch-only fox; read conversations after extension-owned Export. On claude.ai, attachment export may fetch bounded exact same-origin original files after raw preservation; no iframe access.
 
-8. files.deepseeksvc.com - fetch attachments with attachment export and a durable local output, after raw preservation. Verified history signed paths win; otherwise use exact current-page URLs from newest bounded passive ResourceTiming entries, uniquely matched to a verified raw file ID. No credentials or conversation text.
+8. files.deepseeksvc.com - fetch raw-bound attachments after raw preservation from history signed paths or newest bounded current-page ResourceTiming uniquely matched to a raw file ID. No credentials or conversation text.
 
-9. *.googleusercontent.com - fetch generated conversation images only with image export enabled.
+9. *.googleusercontent.com - fetch generated conversation images only with image export.
 
 10. lh3.google.com - final image redirect only, not a direct source. Browser-managed cookies may reach both image hosts; never read or exported. No referrer or conversation text.
 
-11. 127.0.0.1 (HTTP and HTTPS) - save through the user's local Obsidian REST API.
+11. 127.0.0.1 HTTP/HTTPS - save through the user's local Obsidian REST API.
 
 No analytics, telemetry, or developer-operated server.
 ```
 
-998 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
+992 characters. Liska draft; not yet pasted to the Chrome Web Store dashboard.
 The browser follows image redirects; intermediate hops are not observable or validated per-hop.
 Final-host acceptance is not a full egress proof. Packaged permission expansion
 may require re-consent. One installed authenticated canary saved byte-identical

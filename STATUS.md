@@ -7099,3 +7099,77 @@ that exact harness then passed 65/65 in isolation.
 Next gate: fresh installed ChatGPT scope/regression. The future owner-bound
 resumable account runner and separate Claude binary-attachment/Artifact-frame
 capture remain distinct follow-ups.
+
+## Claude ordinary-file original acquisition source candidate — 2026-11-27
+
+One current-personal ordinary Claude image established a transport distinction
+without recording private identifiers in the repository. Its visible
+`/api/{organization}/files/{file}/preview` resource was a smaller WebP derivative.
+The modal Download control separately made an authenticated same-origin
+`GET /api/organizations/{organization}/files/{file}/contents`; the response was
+HTTP 200, declared `x-served-file-variant: original`, carried exact length and
+original filename headers, and its saved PNG byte length matched committed raw
+`size_bytes`. The final `blob:` URL was browser delivery only. No Blob hook,
+download-history observer or preview substitution is needed.
+
+The source candidate now implements a raw-bound first slice for exact top-level
+message `files` records. Every source reference must agree on lowercase
+`file_uuid`, successful provider state and declared size. It writes raw first,
+then permits at most 32 sequential same-origin original requests, 64 MiB each,
+128 MiB total and 30 seconds per attempted file. Verified bytes use existing
+content-addressed staging; File and Obsidian receive independent manifest and
+canonical overlays. Unsupported, nested, ambiguous, over-limit and unstarted
+records stay `not-attempted`; attempted or destination failures are explicit.
+Duplicate content paths retain one deterministic binary and a stable failed
+sibling rather than invalidating the whole destination.
+
+The parent focused matrix passed 199/199. A full run passed 13,031 tests with
+three skipped; the only failure was the exact import-closure pin after adding one
+pure shared binary-descriptor module. The updated closure harness then passed
+18/18. TypeScript, production build, service-worker runtime validation, Prettier,
+lint with zero errors, diff checks and independent ordinary review passed.
+
+This is source/offline acceptance only. No installed Claude binary export or
+physical File/Obsidian readback is claimed yet. Legacy Markdown still omits
+attachments; isolated Artifact frames, generated Artifact downloads, account
+completeness, runner/scheduler and cross-account behavior remain separate.
+
+## Claude ordinary-file installed acceptance — 2026-11-27
+
+The installed 66-file candidate is 6,220,870 bytes. Its complete inventory
+matches the reviewed source build exactly; aggregate SHA-256 is
+`ac4556937bfcae697ef347e552378f236bc0470377149cdaac0ef34bfdb23d99` and
+manifest SHA-256 is
+`031afe5ae075be3b124b5601f07ce8aa96458bf55bab3deea6e63ea4db41e548`.
+The previous installed directory remains as rollback
+`liska-rollback-manual-20261127T120328100Z-93f858e539704090a2c64c5a7264cd3e`.
+Windows 11 exposed Vite hard links that the rollback updater correctly refused;
+the target was therefore independently compared by every relative path, length
+and SHA before extension reload. Only Liska and the test Claude tab were
+reloaded.
+
+One explicit current-personal export used both File and Obsidian. Each
+destination contains the same four archive files in three directories, totaling
+438,165 bytes, with exact pairwise lengths and SHA-256. Raw is 29,647 bytes and
+matches the manifest artifact length/hash; manifest is 2,301 bytes with SHA-256
+`969d29326ae100c124d9d4518d8d0a380551de1a2886755b25345ebde421066e`,
+which matches canonical input; canonical is 93,877 bytes. The fetched binary is
+312,340 bytes with SHA-256
+`1772864b0da69f4e7b877d61ace1219113cf5789f5c8e74f2b9ff05a66315e70`
+and is byte-identical to the separately downloaded original PNG.
+
+The manifest/canonical ledger has two exact assets and complete attempt
+coverage: one ordinary image is `fetched`; one historical 1,225,960-byte DOCX
+returned `claude-contents-http-failed` and therefore has an attempt timestamp but
+no local path, acquired size or hash. The latter is scoped negative evidence,
+not a general DOCX support or availability claim. File Markdown was also saved;
+legacy Markdown correctly reports two omitted attachment blocks and contains no
+binary link.
+
+Durable manifest/canonical scans found no organization UUID, credential or
+request-header key, `/contents` URL or `blob:` URL. Raw/canonical contain the same
+20 node IDs and 19 internal parent/child edges; one external parent reference is
+retained as a boundary fact. This accepts exact top-level Claude ordinary-image
+original acquisition and destination reconciliation. Nested/tool files,
+generated Artifact downloads, isolated frames, account completeness,
+runner/scheduler and cross-account behavior remain separate.
