@@ -2037,13 +2037,16 @@ automatic merge, account switch, detail request, or File download.
 Trigger: PR-2 adoption is accepted and PR-3 has a reviewed explicit-selection
 contract for a current-account-only canary.
 
-Fulfilled locally on 2026-11-27 by E66 and D41. The implementation is not
-installed or live-accepted. After exact-head GitHub gates, the next canary is
-one explicit current-account action: choose a label, copy the old catalog into
-a new slot, then collect from the selected current tab in that slot. An
-existing scope is observed without a write; a mismatch stops without creating
-a second scope. No spare-account/KYC test is authorized, and the fresh
-post-Claude ChatGPT regression remains separate.
+Fulfilled on 2026-11-27 by E66, E67, and D41. PR #155's reviewed head was
+merged as `3445d1f`; exact-head ancestry was verified and current-head CI, Code
+Review, and Security Review were clean. The installed current-account canary
+explicitly created a local slot, copied the old catalog into it, then observed
+the existing selected scope without writing or replacing it. The safe aggregate
+and UI limits are recorded in E67; labels and all local/provider identifiers
+remain omitted. This proves neither cross-account identity/isolation nor
+account completeness, and is not a full Claude backup. The spare-account/KYC
+check remains deferred and is not required here. T36's separate ChatGPT scope
+and fresh installed-regression gate remains next.
 
 ### T36 — Establish ChatGPT scope separately and rerun installed regressions
 
@@ -2091,6 +2094,32 @@ reported 1,891 passed / 2 existing skips. Parent exact-file validation passed
 checks passed; the packaged ZIP hash is recorded in S69. No visual, browser,
 installed, current-account, second-account or KYC proof exists; GitHub gates
 remain pending.
+
+### E67 — The installed current-account canary confirms slot adoption and scoped observation
+
+PR #155's reviewed head `9ba4772` was merged as `3445d1f`; exact reviewed-head
+ancestry was verified and current-head CI, Code Review, and Security Review
+were clean. The reviewed build was installed into the existing Comet unpacked
+extension with rollback preserved. The popup was visually opened: the compact
+Settings Claude catalog block, unselected picker, new-label field, and
+copy/collect buttons were present; after scrolling the popup, the sticky footer
+did not obscure actionable controls. This was not exhaustive visual QA.
+
+One explicit local slot label was entered; no label, suffix, slot ID, scope
+key, chat URL/title, or raw identifier is retained. Copying the old local
+catalog returned a created, owner-committed, verified-and-closed equivalent
+result, and retained the original. After explicit selection of that slot,
+collection from the current tab returned `scoped-owner-already-present` with
+requests=2, pages=2, targets=12, and markers=12. Active was terminal; archived
+was terminal and empty; the header pair matched; retention was
+`owner-existing`; `accountComplete=false`; `executionAuthorized=false`;
+`detailRequests=0`; and `downloads=0`. The existing-owner canary performed no
+write or replacement.
+
+This accepts installed current-account slot, adoption, and scoped-collector
+behavior only. It does not establish cross-account identity/isolation, account
+completeness, or a full Claude backup. The spare-account/KYC test remains
+deferred and is not required for this canary.
 
 ### X6 — Do not infer a slot or add a second scope during generic collection
 
@@ -2187,6 +2216,7 @@ Evidence: E66
 - [evidence] E64: a rollback-isolated local account owner partitions provider, display slot and observed scope; its /1 accepts Claude only and has no consumer #code
 - [evidence] E65: explicit legacy source discovery/validation and public-owner copy/read-back now pass offline; the non-atomic copy stays unwired and has no native/live or second-account proof
 - [evidence] E66: local PR-3 adds an explicit slot popup and single-scope Claude collector; offline checks pass, but install/current-account canary and GitHub gates remain pending #code
+- [evidence] E67: PR #155 is merged with clean current-head gates; installed current-account slot adoption and same-scope observation pass with safe aggregates and no detail/download/write, while identity, isolation, completeness and exhaustive visual QA remain unproved #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -2268,7 +2298,7 @@ Evidence: E66
 - [tail] T32: fulfilled by E61/S64; preserve the native-accepted paused owner as the sole durable catalog destination before another live list read
 - [tail] T33: fulfilled by E63/S66; retain paused-owner truth while detail/File work remains gated
 - [tail] T34: fulfilled locally by E65/D40 with explicit offline copy-only adoption; production wiring and GitHub gates remain separate
-- [tail] T35: local explicit slot UI and single-scope Claude wiring are implemented; one installed current-account canary remains after GitHub gates, with no spare-account/KYC test
+- [tail] T35: fulfilled by the installed current-account canary E67; preserve its no-write and non-completeness limits, with spare-account/KYC still deferred
 - [tail] T36: establish ChatGPT scope separately and pass a fresh installed regression matrix after Claude before detail/File baseline work
 
 ## Relations
@@ -2350,3 +2380,4 @@ Evidence: E66
 - S67 — [ADR-084](../adr/084-local-account-slots-and-scope-partitioned-owners.md), [storage tests](../../test/account-catalog-owner/storage.test.ts), [fault tests](../../test/account-catalog-owner/faults.test.ts), and [boundary test](../../test/arch/account-catalog-owner-boundary.test.ts); local storage contract only
 - S68 — [ADR-085](../adr/085-explicit-legacy-claude-catalog-adoption.md), [adoption entry point](../../src/account-catalog-adoption/index.ts), [read-only source](../../src/account-catalog-adoption/legacy-source.ts), [storage tests](../../test/account-catalog-adoption/storage.test.ts), [fault tests](../../test/account-catalog-adoption/faults.test.ts), and [boundary test](../../test/arch/account-catalog-adoption-boundary.test.ts); offline/fake-IndexedDB copy-only evidence, no production consumer or native/live claim
 - S69 — [ADR-086](../adr/086-explicit-account-slot-popup-and-scoped-collector.md), [slot route tests](../../test/background/account-slot-actions.test.ts), [collector tests](../../test/background/claude-account-collector.test.ts), [popup tests](../../test/popup/index.test.ts), and [slot contract tests](../../test/lib/account-slot-contract.test.ts); local PR-3 checks only, final ZIP SHA-256 `f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`, no installed/live acceptance
+- S70 — [PR #155](https://github.com/la4ox/liska-threadkeeper/pull/155); reviewed head `9ba4772`, merged main `3445d1f`, exact-head ancestry verified, current-head CI/Code/Security Review clean; content-free installed current-account adoption and scoped-owner aggregate only, with no raw identifiers or content retained

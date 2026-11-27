@@ -1,7 +1,8 @@
 # ADR-086: Explicit local account slots and a single-scope Claude collector
 
-Status: implemented locally on base main `961c109`; exact-head GitHub gates and
-the installed current-account canary remain pending.
+Status: accepted installed current-account canary; PR #155 reviewed head
+`9ba4772` merged as `3445d1f`, with exact-head ancestry verified and current-head
+CI, Code Review, and Security Review clean.
 
 ## Context
 
@@ -89,20 +90,36 @@ corrections, the final ZIP is 2,822,639 bytes with SHA-256
 `f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`.
 Scoped lint added no warnings; four inherited warning categories remain.
 
-This is local implementation evidence only. No visual review, browser run,
-installed extension check, live current-account canary, second-account test,
-or KYC test is claimed. Exact-head GitHub gates remain pending. The user's
-deferred spare-account/KYC check is not part of the next canary.
+The reviewed 66-file ZIP is 2,822,639 bytes with SHA-256
+`f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`. It was
+installed into the existing Comet unpacked extension with rollback preserved.
+The popup was visually opened: the compact Settings Claude catalog block,
+unselected picker, new-label field, and copy/collect buttons were visible; after
+popup scroll, the sticky footer did not obscure actionable controls. This is
+not a claim of exhaustive visual QA.
 
-After GitHub gates, the accepted installed canary is limited to the current
-account: explicitly choose a label, copy the old catalog into a new slot, then
-check the selected current tab in that slot. Expect the existing scope to be
-retained as existing, or a scope mismatch with no write. After Claude, a fresh
-installed ChatGPT regression remains required before detail/File baseline
-work; ChatGPT scope evidence and its adapter remain separate.
+One explicit local slot label was entered; its text and all slot, scope, and
+provider identifiers are omitted. Copying the old local catalog returned a
+created, owner-committed, verified-and-closed equivalent result, and retained
+the original. After explicitly selecting that slot, **Collect from current
+tab** returned `scoped-owner-already-present`: 2 requests, 2 pages, 12 targets,
+and 12 markers; active was terminal; archived was terminal and empty; the
+header pair matched; retention was `owner-existing`; `accountComplete` and
+`executionAuthorized` were false; detail requests and downloads were zero.
+This existing-owner canary performed no write or replacement.
+
+The evidence accepts only installed current-account slot/adoption/scoped-
+collector behavior. It does not establish cross-account identity or isolation,
+account completeness, or a full Claude backup. The spare-account/KYC check
+remains deferred and is not required for this canary. Next, establish ChatGPT
+scope separately and pass a fresh installed ChatGPT regression before any
+detail/File baseline work.
 
 ## Evidence
 
+- [PR #155](https://github.com/la4ox/liska-threadkeeper/pull/155), reviewed
+  head `9ba4772`, merged as `3445d1f`; exact-head ancestry and current-head
+  CI/Code/Security Review acceptance verified
 - [PR-1 slot and owner contract](084-local-account-slots-and-scope-partitioned-owners.md)
 - [PR-2 explicit legacy adoption](085-explicit-legacy-claude-catalog-adoption.md)
 - [Account slot routes](../../src/background/account-slot-actions.ts),

@@ -7026,3 +7026,32 @@ Final candidate correction before merge: after the ordinary-Settings listener
 and recovery-copy fixes, the rebuilt 66-file ZIP is 2,822,639 bytes with
 SHA-256 `f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`;
 this supersedes the earlier local candidate hash above.
+
+## PR #155 installed current-account slot canary — 2026-11-27
+
+PR #155's reviewed head `9ba4772` was merged as `3445d1f`; exact reviewed-head
+ancestry was verified and current-head CI, Code Review, and Security Review
+were clean. The reviewed 66-file ZIP (2,822,639 bytes,
+`f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`) was
+installed into the existing Comet unpacked extension with rollback preserved.
+
+The popup was visually opened. The compact Settings Claude catalog block,
+unselected picker, new-label field, and copy/collect buttons were visible; after
+popup scroll, the sticky footer did not obscure actionable controls. This was
+not exhaustive visual QA. One explicit local slot label was entered, but no
+label, suffix, slot ID, scope key, chat URL/title, or raw identifier is recorded.
+
+Copying the old local catalog returned a created, owner-committed,
+verified-and-closed equivalent result, and the original was retained. After
+explicitly selecting that slot, **Collect from current tab** returned
+`scoped-owner-already-present`: 2 requests, 2 pages, 12 targets, and 12
+markers; active was terminal; archived was terminal and empty; the header pair
+matched; retention was `owner-existing`; `accountComplete` and
+`executionAuthorized` were false; detail requests and downloads were zero. The
+existing-owner canary performed no write or replacement.
+
+This accepts installed current-account slot/adoption/scoped-collector behavior
+only. It does not establish cross-account identity or isolation, account
+completeness, or a full Claude backup. The spare-account/KYC test remains
+deferred and is not required for this canary. Next, establish ChatGPT scope and
+pass a fresh installed ChatGPT regression before any detail/File baseline work.

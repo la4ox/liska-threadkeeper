@@ -31,35 +31,39 @@ terminal states, and the existing no-credential-export boundary.
   [ADR-084](adr/084-local-account-slots-and-scope-partitioned-owners.md): a local
   display slot partitions an owner by `[provider, slotId, scopeKey]`; the slot
   is not provider identity, and a scope hash is not proof of a human principal.
-- The new rollback-isolated owner is storage-only and unwired. Its `/1` schema
-  accepts Claude only. The existing Claude singleton owner and generic execution
-  owner remain unchanged. T33's installed collector gate is fulfilled, but it
-  proves neither account completeness nor permission for detail/File work.
-- PR-2's explicit copy-only adoption is implemented locally in
-  `src/account-catalog-adoption/`, but remains unwired. It requires a chosen
-  slot and label, exact `databases()` discovery of the version-1 legacy owner,
-  read-only canonical validation, copy through the public new-owner API, and
-  exact destination read-back. Missing and empty remain distinct; unsupported
+- The rollback-isolated owner's `/1` schema accepts Claude only. It is now
+  connected only through the explicit Claude slot/adoption/collector routes;
+  the existing Claude singleton owner and generic execution owner remain
+  unchanged. PR #155's installed current-account canary confirms explicit slot
+  adoption and same-scope observation without a write or replacement. This
+  proves neither cross-account identity/isolation nor account completeness or
+  permission for detail/File work; it is not a full Claude backup.
+- PR-2's explicit copy-only adoption in `src/account-catalog-adoption/` is
+  wired only to the trusted popup action for a newly selected slot. It requires
+  exact `databases()` discovery of the version-1 legacy owner, read-only
+  canonical validation, copy through the public new-owner API, and exact
+  destination read-back. Missing and empty remain distinct; unsupported
   discovery never falls back to open. Conflicts do not overwrite, and the
   legacy owner is never changed or deleted. This cross-database operation is
-  non-atomic; an explicit same-slot/label/seed rerun reconciles unknown outcome
-  through destination idempotency, without automatic retry or a new collection
-  ID. Offline/fake-IndexedDB validation passed; no native/live, second-account
-  or KYC test, production consumer, or current-head GitHub gate is claimed.
-- PR-3 now implements a compact explicit slot picker and single-scope Claude
-  collector locally; see [ADR-086](adr/086-explicit-account-slot-popup-and-scoped-collector.md).
-  The picker has no default/latest selection, and labels are local display
-  organization rather than provider identity. Adoption copies only into a new
-  slot and preserves the legacy owner. Generic collection observes an existing
-  matching scope without writing, stops on a mismatch instead of adding an
-  implicit second scope, and atomically creates a new slot with its first
-  single-scope owner. Local tests/build pass, but exact-head GitHub gates and an
-  installed current-account canary remain pending; no visual/browser/live or
-  second-account/KYC proof is claimed. After GitHub gates, explicitly choose a
-  label, copy the old catalog into a new slot, then collect from the selected
-  current tab and verify existing-scope retention or mismatch/no-write.
-  ChatGPT scope evidence/adapter and the fresh post-Claude installed regression
-  remain separate; detail/File baseline work stays gated.
+  non-atomic; exact explicit reruns use destination idempotency, never an
+  automatic retry. The installed current-account canary returned a
+  created/owner-committed/verified-and-closed equivalent result and retained
+  the original. No cross-account identity/isolation or KYC proof is claimed;
+  the spare-account/KYC check remains deferred and is not required for this
+  canary.
+- PR-3's explicit slot picker and single-scope Claude collector are accepted;
+  see [ADR-086](adr/086-explicit-account-slot-popup-and-scoped-collector.md).
+  PR #155 reviewed head `9ba4772` merged as `3445d1f`, with exact-head ancestry
+  verified and current-head CI/Code/Security Review clean. The installed
+  current-account canary confirmed copy-only adoption with the original
+  retained, then `scoped-owner-already-present` for the selected existing
+  scope: 2 requests/pages, 12 targets/markers, terminal active and empty
+  archive, matching header pair, `owner-existing`, false completeness and
+  execution flags, and zero detail requests/downloads/writes/replacements.
+  This is current-account slot/adoption/scoped-collector evidence only, not
+  cross-account identity/isolation, account completeness, or a full Claude
+  backup. Next establish ChatGPT scope and pass a fresh installed ChatGPT
+  regression; detail/File baseline work stays gated until then.
 - After Claude changes, require a fresh installed ChatGPT regression covering
   ordinary and long chats, branches, images/files/attachments/tool results,
   selected preview, Markdown/HTML/PDF/DOCX, File and Obsidian, and
