@@ -6940,3 +6940,27 @@ baseline work remains later, after those boundaries; a fresh installed
 ChatGPT regression after Claude must cover ordinary/long chats, branches,
 images/files/attachments/tool results, selected preview, Markdown/HTML/PDF/DOCX,
 File and Obsidian, and append/re-export.
+
+## Explicit legacy Claude catalog adoption — 2026-11-27
+
+[ADR-085](docs/adr/085-explicit-legacy-claude-catalog-adoption.md) records the
+local PR-2 implementation in `src/account-catalog-adoption/`. It requires an
+explicit slot and label, uses `IDBFactory.databases()` to establish that the
+exact legacy owner database exists at version 1, and never opens on missing or
+unsupported discovery. The source is schema/inventory/canonical-validated in a
+read-only transaction; absent and empty are distinct. The original
+`collectionId` and admitted baseline are copied through the public new owner
+API and the exact `[claude, slotId, scopeKey]` destination is read back. The
+legacy owner is never modified, deleted, upgraded or repaired.
+
+The cross-database copy is non-atomic. Exact explicit rerun uses destination
+idempotency rather than an automatic retry or replacement collection ID;
+conflicts do not overwrite. A committed created/already-created owner remains
+the reported outcome if read-back or close fails, and cancellation while
+opening the destination can leave only its empty fixed schema. No production
+consumer, UI, collector, provider request, download, journal or execution is
+wired. Offline/fake-IndexedDB validation reports 1,872 passed and 2 skipped
+across 67 files, plus TypeScript, zero-warning scoped lint, Prettier and diff
+checks. No native/live, second-account or KYC test is claimed; current-head
+GitHub gates remain pending. PR-3 explicit slot UI/collector wiring remains the
+next separate gate.

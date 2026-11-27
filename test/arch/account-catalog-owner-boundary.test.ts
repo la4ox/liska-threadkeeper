@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const modulePath = 'src/account-catalog-owner';
+const offlineAdoption = 'src/account-catalog-adoption/index.ts';
 const imports: Record<string, readonly string[]> = {
   'codec.ts': [
     '../claude-baseline/account-admission-contracts',
@@ -102,14 +103,17 @@ describe('unwired multi-account catalog storage boundary', () => {
     );
   });
 
-  it('has no production consumer, manifest, HTML, build-script or package wiring', () => {
+  it('permits only the offline adoption bridge, without production or build wiring', () => {
     for (const file of [
       ...files('src').filter(file => !file.startsWith(modulePath + '/')),
       ...files('scripts'),
       ...readdirSync(root).filter(file =>
         /(?:config|manifest|package).*\.(?:json|ts|js|mjs)$/u.test(file)
       ),
-    ])
-      expect(read(file), file).not.toMatch(marker);
+    ]) {
+      if (file === offlineAdoption) {
+        expect(read(file), file).toMatch(/from '\.\.\/account-catalog-owner';/u);
+      } else expect(read(file), file).not.toMatch(marker);
+    }
   });
 });
