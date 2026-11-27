@@ -116,6 +116,15 @@ export abstract class BaseExtractor implements IConversationExtractor {
    * directly.
    */
   async extract(): Promise<ExtractionResult> {
+    return this.extractRendered(true);
+  }
+
+  /** Use the ordinary rendered transcript after the caller has chosen that source. */
+  protected extractConversation(): Promise<ExtractionResult> {
+    return this.extractRendered(false);
+  }
+
+  private async extractRendered(allowDeepResearch: boolean): Promise<ExtractionResult> {
     try {
       if (!this.canExtract()) {
         return {
@@ -124,9 +133,9 @@ export abstract class BaseExtractor implements IConversationExtractor {
         };
       }
 
-      const deepResearchResult = await this.tryExtractDeepResearch();
-      if (deepResearchResult) {
-        return deepResearchResult;
+      if (allowDeepResearch) {
+        const deepResearchResult = await this.tryExtractDeepResearch();
+        if (deepResearchResult) return deepResearchResult;
       }
 
       const snapshot = this.captureConversationSnapshot();
@@ -179,6 +188,11 @@ export abstract class BaseExtractor implements IConversationExtractor {
     return false;
   }
 
+  /** Report-aware extractors can supply a transcript-only title here. */
+  protected getRenderedConversationTitle(): string {
+    return this.getTitle();
+  }
+
   /**
    * Hook: auto-scroll configuration for virtualized platforms (ADR-017).
    * Return null (default) for platforms that render all turns eagerly or that
@@ -202,7 +216,7 @@ export abstract class BaseExtractor implements IConversationExtractor {
     return {
       identity,
       conversationId: identity.stableId ?? `${this.platform}-${Date.now()}`,
-      title: authoritativeTitle ?? this.getTitle(),
+      title: authoritativeTitle ?? this.getRenderedConversationTitle(),
       authoritativeTitle,
       url: window.location.href,
     };

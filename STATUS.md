@@ -7055,3 +7055,47 @@ only. It does not establish cross-account identity or isolation, account
 completeness, or a full Claude backup. The spare-account/KYC test remains
 deferred and is not required for this canary. Next, establish ChatGPT scope and
 pass a fresh installed ChatGPT regression before any detail/File baseline work.
+
+## Claude manual baseline and Artifact route acceptance — 2026-11-27
+
+The final installed candidate was rebuilt after the source diff. Its `dist`
+contains 66 files / 6,205,578 bytes; the packaged ZIP is 2,822,822 bytes with
+SHA-256
+`517b396cc94231baa68dc5d739ddecb64497f4cf202c6c5f202a10ac189c8ff6`. The
+previous installed build was preserved separately for rollback.
+
+One bounded sequential pass covered the 12-target current-personal Claude
+catalog. Each target retained an exact raw/manifest pair. Nine nonempty targets
+also retained canonical/Markdown; three truly empty targets retained only
+raw/manifest, with no invented canonical/Markdown. The assembled snapshot is 42
+files / 2,187,461 bytes. The latest capture set was copied preserve-only outside
+the repository, with File and Obsidian copies matching hashes and lengths per
+capture. This is manual bounded evidence, not an account runner.
+
+Ordinary Artifact selection shared the legacy `#markdown-artifact` surface but
+carried an exact route suffix. The extractor initially fell through to legacy
+report handling; background sender validation then rejected both inline and
+staged companion writes, leaving Markdown without raw/manifest/canonical. A
+shared literal route classifier now admits only a clean conversation route or
+the exact Artifact-selection route with lowercase UUID/query/hash grammar.
+Extractor and background use the same classifier; top-frame and same-origin
+document checks remain, abort cleanup is unchanged, and no iframe bytes or new
+network authority are introduced. Selected Artifact uses structured detail and
+stable omission; missing-organization/null/error fallback remains the ordinary
+transcript. A genuine legacy Deep Research report wins when the strict Artifact
+route is absent, even if another frame is visible.
+
+The final live canary produced raw/manifest/canonical for the same capture in
+both File and Obsidian; all 12 latest captures reconciled. Attachments and
+isolated Artifact-frame bytes remain not-attempted/omitted;
+`accountComplete=false`. No branches, provider completeness, scheduler, or
+cross-account claim is made. Worker checks passed 1,105/1,105 plus 12
+auto-scroll checks; parent focused checks passed 367/367. TypeScript, lint,
+Prettier, diff, build, and service-worker runtime checks passed; independent
+review was ready. The full matrix finished with 12,998 passed / 3 skipped and
+six timeouts in one unrelated native lifecycle harness under concurrent load;
+that exact harness then passed 65/65 in isolation.
+
+Next gate: fresh installed ChatGPT scope/regression. The future owner-bound
+resumable account runner and separate Claude binary-attachment/Artifact-frame
+capture remain distinct follow-ups.

@@ -2146,6 +2146,31 @@ outside this UI and collector.
 
 Evidence: E66
 
+### E68 — A bounded manual current-personal baseline completes without a completeness claim
+
+After the exact final installed build, one bounded sequential pass covered the
+12-target current-personal catalog. All 12 retained exact raw/manifest pairs;
+nine nonempty targets also retained canonical/Markdown, while three truly empty
+targets retained only raw/manifest, with no invented canonical or Markdown.
+The assembled snapshot contains 42 files / 2,187,461 bytes. The latest capture
+set was copied preserve-only outside the repository; File and Obsidian copies
+matched hashes and lengths per capture. Attachments and isolated Artifact-frame
+bytes remain not-attempted/omitted. `accountComplete` is false. This does not
+prove branches, account completeness, cross-account identity, scheduling, or an
+owner-bound resumable runner.
+
+### D42 — Keep manual baseline evidence separate from future account automation
+
+Retain this bounded sequential baseline as preserve-only evidence for the
+selected current-personal catalog. Empty captures remain raw/manifest-only;
+destination parity is exact per capture. Do not infer completeness, branch
+coverage, attachment or isolated-frame bytes, another account, or scheduler
+authority. The manual pass does not satisfy the future owner-bound resumable
+runner. Fresh installed ChatGPT scope/regression remains the next gate; only
+afterward do the runner and separate Claude binary/Artifact capture proceed.
+
+Evidence: E68
+
 ## Observations
 
 - [hypothesis] H1: daily backup initially appeared equivalent to reopening every chat or keeping a fixed selection
@@ -2217,6 +2242,7 @@ Evidence: E66
 - [evidence] E65: explicit legacy source discovery/validation and public-owner copy/read-back now pass offline; the non-atomic copy stays unwired and has no native/live or second-account proof
 - [evidence] E66: local PR-3 adds an explicit slot popup and single-scope Claude collector; offline checks pass, but install/current-account canary and GitHub gates remain pending #code
 - [evidence] E67: PR #155 is merged with clean current-head gates; installed current-account slot adoption and same-scope observation pass with safe aggregates and no detail/download/write, while identity, isolation, completeness and exhaustive visual QA remain unproved #live
+- [evidence] E68: one bounded 12-target manual baseline preserved 12 raw/manifest pairs and 9 nonempty canonical/Markdown pairs, with 3 honest empty targets, 42 files total and per-capture File/Obsidian hash-length parity; account completeness, attachments, iframe bytes and resumable automation remain unproved #live
 - [rejected] X1: a full daily reopen or fixed list is not a trustworthy default change detector
 - [rejected] X2: collapsing archive evidence and living memory would give inference silent rewrite authority
 - [rejected] X3: detail timestamps and synthetic list schemas are not trustworthy discovery watermarks
@@ -2264,6 +2290,7 @@ Evidence: E66
 - [decision] D39: use local display slots and provider/slot/scope owner keys before delivery, preserving old owners and deferring adoption, wiring and ChatGPT scope work
 - [decision] D40: require explicit noncreating legacy discovery, canonical copy into the selected owner and separate commit/read-back/cleanup truth
 - [decision] D41: wire exact popup list/adopt/collect routes with click-bound target freezing, new-slot-only adoption, and atomic single-scope first-owner creation
+- [decision] D42: retain bounded manual baseline evidence without granting completeness or scheduler authority; keep the owner-bound runner separate
 - [tail] T1: build resumable provider-specific update discovery after archive reliability is accepted
 - [tail] T2: scope living memory independently after the archival layers have boring recovery
 - [tail] T3: the catalog and subsequent inert journal are accepted and installed-live verified; preserve both non-authorizing boundaries
@@ -2291,7 +2318,7 @@ Evidence: E66
 - [tail] T25: accept provider owner/2 in a native storage-only harness before designing lifecycle or provider effects
 - [tail] T26: design one owner/2 lifecycle/evidence port without automatic continuation, settlement or retry
 - [tail] T27: fulfilled by the corrected 13-row visible native PASS; preserve its non-provider boundary
-- [tail] T28: build and run a bounded resumable full-current-personal Claude baseline without enabling the daily scheduler
+- [tail] T28: build and run a future owner-bound resumable full-current-personal Claude baseline without enabling the daily scheduler; E68 does not satisfy this
 - [tail] T29: fulfilled by one confirmed v3 invocation; retain two-request/two-page/twelve-record aggregate evidence without scope, completeness, catalog or retry authority
 - [tail] T30: fulfilled by E56/S59 with one reviewed v4 click and no retry; any scope claim needs a separate exact contract and manual personal-scope boundary
 - [tail] T31: fulfilled by E58/S61 for one no-retry live header-pair observation; the semantic/personal-scope/catalog bridge remains separate and no automatic baseline follows
@@ -2381,3 +2408,6 @@ Evidence: E66
 - S68 — [ADR-085](../adr/085-explicit-legacy-claude-catalog-adoption.md), [adoption entry point](../../src/account-catalog-adoption/index.ts), [read-only source](../../src/account-catalog-adoption/legacy-source.ts), [storage tests](../../test/account-catalog-adoption/storage.test.ts), [fault tests](../../test/account-catalog-adoption/faults.test.ts), and [boundary test](../../test/arch/account-catalog-adoption-boundary.test.ts); offline/fake-IndexedDB copy-only evidence, no production consumer or native/live claim
 - S69 — [ADR-086](../adr/086-explicit-account-slot-popup-and-scoped-collector.md), [slot route tests](../../test/background/account-slot-actions.test.ts), [collector tests](../../test/background/claude-account-collector.test.ts), [popup tests](../../test/popup/index.test.ts), and [slot contract tests](../../test/lib/account-slot-contract.test.ts); local PR-3 checks only, final ZIP SHA-256 `f11126da0d5f4554dd23f87af62a1725487f6c7f459b920229d3cfd9f189d5f7`, no installed/live acceptance
 - S70 — [PR #155](https://github.com/la4ox/liska-threadkeeper/pull/155); reviewed head `9ba4772`, merged main `3445d1f`, exact-head ancestry verified, current-head CI/Code/Security Review clean; content-free installed current-account adoption and scoped-owner aggregate only, with no raw identifiers or content retained
+- S71 — [ADR-087: Admit Claude Artifact archives from an exact selected route](../adr/087-claude-artifact-archive-route-admission.md)
+- S72 — local receipt `CLAUDE-MANUAL-BASELINE-20261127`; visibility: local-only; 12-target aggregate, preserve-only File/Obsidian hash-length reconciliation, no raw content or identifiers
+- S73 — [Claude manual baseline and Artifact route acceptance](../../STATUS.md#claude-manual-baseline-and-artifact-route-acceptance)
