@@ -21,7 +21,9 @@ import { getSettingsOrThrow } from '../../src/lib/storage';
 import { sendMessage } from '../../src/lib/messaging';
 import { snapshotClaudeListProbeResult } from '../../src/lib/claude-list-probe-contract';
 import { collectorSummary } from '../../src/lib/claude-account-collector-contract';
+import { adoptionReceipt, slotInventory } from '../../src/lib/account-slot-contract';
 import {
+  handleAdoptionClick,
   handleCollectorClick,
   handleTrustedClaudeListProbeClick,
   handleTrustedDotsSchemaProbeClick,
@@ -36,6 +38,16 @@ const collectorClickSource = {
   windowId: 3,
   url: 'https://claude.ai/chat/11111111-1111-4111-8111-111111111111',
 };
+const SLOT_A = 'account-slot/1:' + 'a'.repeat(26) + 'abcdef';
+const SLOT_B = 'account-slot/1:' + 'b'.repeat(26) + 'abcdef';
+function selectNewSlot(label = 'Personal'): void {
+  const select = el<HTMLSelectElement>('claudeCatalogSlot');
+  select.value = 'new';
+  select.dispatchEvent(new Event('change'));
+  const input = el<HTMLInputElement>('claudeCatalogLabel');
+  input.value = label;
+  input.dispatchEvent(new Event('input'));
+}
 function installCollectorTab() {
   chrome.tabs.query = vi.fn(async () => [
     {
@@ -165,6 +177,10 @@ function buildPopupDom(): void {
     <button id="probeDotsSchemaBtn"></button>
     <button id="probeClaudeListsBtn"></button>
     <button id="collectClaudeAccountCatalogBtn"></button>
+    <button id="adoptLegacyClaudeCatalogBtn"></button>
+    <select id="claudeCatalogSlot"><option value="" disabled selected></option></select>
+    <div id="claudeCatalogNewSlot" hidden><input id="claudeCatalogLabel" /></div>
+    <p id="claudeCatalogInventory"></p>
     <div id="claudeListEvidence" hidden></div>
     <div id="status" class="status"></div>
   `;
@@ -277,6 +293,7 @@ async function initWithDefaults(settings: ExtensionSettings = storedSettings): P
   buildPopupDom();
   vi.mocked(getSettingsOrThrow).mockResolvedValue(settings);
   await initPopup();
+  vi.mocked(sendMessage).mockClear();
 }
 
 function settingsSaveAt(index: number): PopupSettingsUpdate {
@@ -286,6 +303,67 @@ function settingsSaveAt(index: number): PopupSettingsUpdate {
 }
 
 describe('canonical HTML popup setting markup', () => {
+  it('places a labelled, localized catalog picker and privacy limits in Archive Tools', () => {
+    const popup = new DOMParser().parseFromString(
+      readFileSync('src/popup/index.html', 'utf8'),
+      'text/html'
+    );
+    const block = popup.querySelector('.catalog-tool');
+    expect(block?.closest('#settingsPanel.settings')).not.toBeNull();
+    expect(block?.closest('.archive-tools')).not.toBeNull();
+    expect(block?.querySelector('label[for="claudeCatalogSlot"]')).not.toBeNull();
+    expect(block?.querySelector('label[for="claudeCatalogLabel"]')).not.toBeNull();
+    expect(block?.querySelector('#claudeCatalogInventory[aria-live="polite"]')).not.toBeNull();
+    expect(block?.querySelector('#claudeCatalogNewSlot')?.hasAttribute('hidden')).toBe(true);
+    for (const locale of ['en', 'ja']) {
+      const messages = JSON.parse(
+        readFileSync(`src/_locales/${locale}/messages.json`, 'utf8')
+      ) as Record<string, { message: string }>;
+      for (const key of [
+        'settings_catalogActionHelp',
+        'status_catalogInventoryUnavailable',
+        'status_catalogCopyUnknown',
+        'status_catalogCopyUnavailable',
+        'status_collectorOutcomeUnknown',
+        'status_collectorUnavailable',
+      ]) {
+        expect(messages[key].message).toContain(
+          locale === 'en'
+            ? 'Close and reopen the extension popup to inspect local slots'
+            : '拡張機能のポップアップをいったん閉じ、もう一度開いてローカルスロットを確認'
+        );
+      }
+      for (const node of block?.querySelectorAll('[data-i18n]') ?? []) {
+        expect(messages[node.getAttribute('data-i18n')!]?.message).toBeTruthy();
+      }
+      for (const key of [
+        'settings_catalogNew',
+        'status_catalogInventoryLoading',
+        'status_catalogInventoryReady',
+        'status_catalogInventoryUnavailable',
+        'status_catalogSelectionRequired',
+        'status_catalogBeforeDispatch',
+        'status_catalogCopyRunning',
+        'status_catalogCopySaved',
+        'status_catalogCopySavedWarning',
+        'status_catalogCopyStopped',
+        'status_catalogCopyUnknown',
+        'status_catalogCopyUnavailable',
+        'status_collectorExisting',
+        'status_collectorExistingWarning',
+        'status_collectorOutcomeUnknown',
+      ])
+        expect(messages[key]?.message).toBeTruthy();
+    }
+    expect(block?.textContent).toMatch(/personal Claude context/i);
+    expect(block?.textContent).toMatch(/no chat content is downloaded/i);
+    expect(block?.textContent).toMatch(/keeps\s+the original/i);
+    expect(block?.textContent).toMatch(/may\s+still save/i);
+    expect(block?.textContent?.replace(/\s+/gu, ' ')).toContain(
+      'Close and reopen the extension popup to inspect local slots'
+    );
+  });
+
   it('places the initially hidden Claude evidence in the scrollable archive tools', () => {
     const popup = new DOMParser().parseFromString(
       readFileSync('src/popup/index.html', 'utf8'),
@@ -397,7 +475,12 @@ describe('popup/app', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(chrome.i18n.getMessage).mockImplementation(key => key);
-    vi.mocked(sendMessage).mockResolvedValue({ success: true } as never);
+    vi.mocked(sendMessage).mockImplementation(
+      async message =>
+        (message.action === 'listAccountCatalogSlots'
+          ? slotInventory('listed')
+          : { success: true }) as never
+    );
   });
 
   describe('initPopup', () => {
@@ -493,7 +576,7 @@ describe('popup/app', () => {
       expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(false);
     });
 
-    it('ignores a programmatic Claude list probe click and sends nothing during initialization', async () => {
+    it('ignores a programmatic Claude list probe click', async () => {
       await initWithDefaults();
       expect(sendMessage).not.toHaveBeenCalled();
 
@@ -503,9 +586,326 @@ describe('popup/app', () => {
       expect(statusEl().textContent).toBe('');
     });
 
+    it('opens with inventory only, never selecting a slot for zero, one or several entries', async () => {
+      for (const slots of [
+        [],
+        [{ provider: 'claude' as const, slotId: SLOT_A, label: 'Personal' }],
+        [
+          { provider: 'claude' as const, slotId: SLOT_A, label: 'Personal' },
+          { provider: 'claude' as const, slotId: SLOT_B, label: 'Other' },
+        ],
+      ]) {
+        vi.mocked(sendMessage).mockResolvedValueOnce(slotInventory('listed', slots));
+        buildPopupDom();
+        vi.mocked(getSettingsOrThrow).mockResolvedValue(storedSettings);
+        vi.mocked(sendMessage).mockClear();
+        await initPopup();
+        expect(vi.mocked(sendMessage).mock.calls).toEqual([
+          [{ action: 'listAccountCatalogSlots' }],
+        ]);
+        const select = el<HTMLSelectElement>('claudeCatalogSlot');
+        expect(select.value).toBe('');
+        expect(select.options).toHaveLength(slots.length + 2);
+        if (slots.length === 1) expect(select.options[1].textContent).toBe('Personal · abcdef');
+        expect(el<HTMLButtonElement>('collectClaudeAccountCatalogBtn').disabled).toBe(true);
+        expect(el<HTMLButtonElement>('adoptLegacyClaudeCatalogBtn').disabled).toBe(true);
+        expect(el<HTMLElement>('claudeCatalogNewSlot').hidden).toBe(true);
+      }
+    });
+
+    it('renders duplicate labels as text with unique suffixes even when six digits collide', async () => {
+      const label = '<img src=x> Personal';
+      vi.mocked(sendMessage).mockResolvedValueOnce(
+        slotInventory('listed', [
+          { provider: 'claude', slotId: SLOT_A, label },
+          { provider: 'claude', slotId: SLOT_B, label },
+        ])
+      );
+      await initWithDefaults();
+      const options = [...el<HTMLSelectElement>('claudeCatalogSlot').options];
+      expect(options[1].textContent).toBe(`${label} · aabcdef`);
+      expect(options[2].textContent).toBe(`${label} · babcdef`);
+      expect(document.querySelector('img')).toBeNull();
+      expect(options[1].value).toBe(SLOT_A);
+      expect(options[2].value).toBe(SLOT_B);
+      expect(el<HTMLSelectElement>('claudeCatalogSlot').value).toBe('');
+    });
+
+    it('refuses a forged inventory and invalid new labels without dispatch or private echo', async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce({
+        schema: 'liska-account-slot-picker/1',
+        code: 'listed',
+        slots: [],
+        private: 'private inventory',
+      } as never);
+      await initWithDefaults();
+      expect(el<HTMLElement>('claudeCatalogInventory').textContent).toBe(
+        'status_catalogInventoryUnavailable'
+      );
+      expect(el<HTMLSelectElement>('claudeCatalogSlot').disabled).toBe(true);
+      await handleCollectorClick({ isTrusted: true } as Event);
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      expect(sendMessage).not.toHaveBeenCalled();
+      expectNoSensitiveProbeValues(['private inventory']);
+
+      await initWithDefaults();
+      for (const label of ['', ' leading', 'trailing ', 'x\u0001', 'x'.repeat(81), 'e\u0301']) {
+        selectNewSlot(label);
+        expect(el<HTMLButtonElement>('collectClaudeAccountCatalogBtn').disabled).toBe(true);
+        expect(el<HTMLButtonElement>('adoptLegacyClaudeCatalogBtn').disabled).toBe(true);
+        await handleCollectorClick({ isTrusted: true } as Event);
+        await handleAdoptionClick({ isTrusted: true } as Event);
+      }
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('captures the new slot in the click task before tab selection resolves', async () => {
+      await initWithDefaults();
+      selectNewSlot('Original');
+      let finish!: (v: unknown) => void;
+      chrome.tabs.query = vi.fn(
+        () =>
+          new Promise(resolve => {
+            finish = resolve;
+          })
+      ) as never;
+      vi.mocked(sendMessage).mockResolvedValueOnce(
+        collectorSummary('scoped-owner-already-present', {
+          dispatch: 2,
+          page: 2,
+          target: 3,
+          marker: 2,
+        })
+      );
+      const pending = handleCollectorClick({ isTrusted: true } as Event);
+      el<HTMLInputElement>('claudeCatalogLabel').value = 'Changed after click';
+      finish([{ id: 17, windowId: 3, url: collectorClickSource.url, active: true }]);
+      await pending;
+      expect(sendMessage).toHaveBeenCalledWith({
+        action: 'collectClaudeAccountCatalog',
+        source: collectorClickSource,
+        slot: {
+          kind: 'new',
+          slotId: expect.stringMatching(/^account-slot\/1:[0-9a-f]{32}$/u),
+          label: 'Original',
+        },
+      });
+      expect(statusEl().textContent).toBe('status_collectorExisting status_collectorFacts');
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('copies only to a new slot on a trusted click, without reading the current tab, and refreshes after commit', async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(
+        slotInventory('listed', [{ provider: 'claude', slotId: SLOT_A, label: 'Existing' }])
+      );
+      await initWithDefaults();
+      const select = el<HTMLSelectElement>('claudeCatalogSlot');
+      select.value = SLOT_A;
+      select.dispatchEvent(new Event('change'));
+      expect(el<HTMLButtonElement>('collectClaudeAccountCatalogBtn').disabled).toBe(false);
+      expect(el<HTMLButtonElement>('adoptLegacyClaudeCatalogBtn').disabled).toBe(true);
+      expect(el<HTMLElement>('claudeCatalogNewSlot').hidden).toBe(true);
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      expect(sendMessage).not.toHaveBeenCalled();
+      selectNewSlot('Copied');
+      el<HTMLButtonElement>('adoptLegacyClaudeCatalogBtn').click();
+      expect(sendMessage).not.toHaveBeenCalled();
+
+      let finish!: (v: unknown) => void;
+      vi.mocked(sendMessage).mockReturnValueOnce(
+        new Promise(resolve => {
+          finish = resolve;
+        }) as never
+      );
+      vi.mocked(sendMessage).mockResolvedValueOnce(
+        slotInventory('listed', [
+          { provider: 'claude', slotId: SLOT_A, label: 'Existing' },
+          { provider: 'claude', slotId: SLOT_B, label: 'Copied' },
+        ])
+      );
+      const pending = handleAdoptionClick({ isTrusted: true } as Event);
+      for (const id of [
+        'claudeCatalogSlot',
+        'claudeCatalogLabel',
+        'collectClaudeAccountCatalogBtn',
+        'adoptLegacyClaudeCatalogBtn',
+        'saveBtn',
+        'testBtn',
+        'probeClaudeListsBtn',
+        'probeDotsSchemaBtn',
+      ]) {
+        expect(el<HTMLInputElement>(id).disabled).toBe(true);
+      }
+      el<HTMLInputElement>('claudeCatalogLabel').value = 'Changed after click';
+      expect(sendMessage).toHaveBeenCalledWith({
+        action: 'adoptLegacyClaudeCatalog',
+        slot: {
+          kind: 'new',
+          slotId: expect.stringMatching(/^account-slot\/1:[0-9a-f]{32}$/u),
+          label: 'Copied',
+        },
+      });
+      expect(chrome.tabs.query).not.toHaveBeenCalled();
+      finish(adoptionReceipt('created', 'verified', 'closed'));
+      await pending;
+      expect(statusEl().textContent).toBe('status_catalogCopySaved');
+      expect(vi.mocked(sendMessage).mock.calls.map(([message]) => message.action)).toEqual([
+        'adoptLegacyClaudeCatalog',
+        'listAccountCatalogSlots',
+      ]);
+      expect(select.value).toBe('');
+      expect([...select.options].some(option => option.value === SLOT_B)).toBe(true);
+      expect(el<HTMLButtonElement>('collectClaudeAccountCatalogBtn').disabled).toBe(true);
+    });
+
+    it('separates existing, post-commit, uncertain, and forged results without retrying', async () => {
+      vi.mocked(sendMessage).mockResolvedValueOnce(
+        slotInventory('listed', [{ provider: 'claude', slotId: SLOT_A, label: 'Personal' }])
+      );
+      await initWithDefaults();
+      const select = el<HTMLSelectElement>('claudeCatalogSlot');
+      select.value = SLOT_A;
+      select.dispatchEvent(new Event('change'));
+      installCollectorTab();
+      for (const [code, key] of [
+        ['scoped-owner-already-present', 'status_collectorExisting'],
+        ['existing-context-changed', 'status_collectorExistingWarning'],
+        ['owner-outcome-unknown', 'status_collectorOutcomeUnknown'],
+      ] as const) {
+        vi.mocked(sendMessage).mockResolvedValueOnce(
+          collectorSummary(code, {
+            dispatch: 2,
+            page: 2,
+            target: 2,
+            marker: 1,
+          })
+        );
+        await handleCollectorClick({ isTrusted: true } as Event);
+        expect(statusEl().textContent).toBe(`${key} status_collectorFacts`);
+      }
+      expect(vi.mocked(sendMessage).mock.calls.map(([message]) => message.action)).toEqual([
+        'collectClaudeAccountCatalog',
+        'collectClaudeAccountCatalog',
+        'collectClaudeAccountCatalog',
+      ]);
+      selectNewSlot('Copied');
+      vi.mocked(sendMessage).mockResolvedValueOnce(
+        adoptionReceipt('created', 'owner-mismatch', 'closed')
+      );
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      expect(statusEl().textContent).toBe('status_catalogCopySavedWarning');
+      expect(statusEl().className).toBe('status warning');
+      expect(vi.mocked(sendMessage).mock.calls.at(-1)?.[0]).toEqual({
+        action: 'listAccountCatalogSlots',
+      });
+      selectNewSlot('Another');
+      vi.mocked(sendMessage).mockResolvedValueOnce({
+        code: 'private copy response',
+        token: 'private copy token',
+      } as never);
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      expect(statusEl().textContent).toBe('status_catalogCopyUnavailable');
+      expectNoSensitiveProbeValues(['private copy response', 'private copy token']);
+      vi.mocked(sendMessage).mockResolvedValueOnce(adoptionReceipt('result-invalid'));
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      expect(statusEl().textContent).toBe('status_catalogCopyUnavailable');
+    });
+
+    it('reports preparation failures as not sent without exposing thrown details', async () => {
+      await initWithDefaults();
+      selectNewSlot();
+      chrome.tabs.query = vi.fn(async () => {
+        throw new Error('private tab failure');
+      }) as never;
+      await handleCollectorClick({ isTrusted: true } as Event);
+      expect(statusEl().textContent).toBe('status_catalogBeforeDispatch');
+      expect(sendMessage).not.toHaveBeenCalled();
+      const random = vi.spyOn(crypto, 'getRandomValues').mockImplementationOnce(() => {
+        throw new Error('private random failure');
+      });
+      try {
+        await handleAdoptionClick({ isTrusted: true } as Event);
+        expect(statusEl().textContent).toBe('status_catalogBeforeDispatch');
+        expect(sendMessage).not.toHaveBeenCalled();
+        expectNoSensitiveProbeValues(['private tab failure', 'private random failure']);
+      } finally {
+        random.mockRestore();
+      }
+    });
+
+    it('distinguishes an uncertain copy and cancels before dispatch when closing during slot creation', async () => {
+      await initWithDefaults();
+      selectNewSlot();
+      vi.mocked(sendMessage).mockResolvedValueOnce(adoptionReceipt('destination-outcome-unknown'));
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      expect(statusEl().textContent).toBe('status_catalogCopyUnknown');
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      vi.mocked(sendMessage).mockClear();
+      const originalRandom = crypto.getRandomValues.bind(crypto);
+      const random = vi.spyOn(crypto, 'getRandomValues').mockImplementationOnce(array => {
+        window.dispatchEvent(new Event('pagehide'));
+        return originalRandom(array);
+      });
+      try {
+        await handleAdoptionClick({ isTrusted: true } as Event);
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(chrome.tabs.query).not.toHaveBeenCalled();
+      } finally {
+        random.mockRestore();
+      }
+    });
+
+    it('a lost copy is not replayed on reopen; a second explicit New click uses a different slot ID', async () => {
+      await initWithDefaults();
+      selectNewSlot();
+      vi.mocked(sendMessage).mockResolvedValueOnce(adoptionReceipt('destination-outcome-unknown'));
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      const first = vi.mocked(sendMessage).mock.calls[0][0];
+      expect(first.action).toBe('adoptLegacyClaudeCatalog');
+      if (first.action !== 'adoptLegacyClaudeCatalog') throw Error('copy was not dispatched');
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      window.dispatchEvent(new Event('pagehide'));
+      buildPopupDom();
+      vi.mocked(sendMessage).mockClear().mockResolvedValueOnce(slotInventory('listed'));
+      await initPopup();
+      expect(vi.mocked(sendMessage).mock.calls).toEqual([[{ action: 'listAccountCatalogSlots' }]]);
+      expect(el<HTMLSelectElement>('claudeCatalogSlot').value).toBe('');
+      selectNewSlot();
+      vi.mocked(sendMessage).mockResolvedValueOnce(adoptionReceipt('legacy-empty'));
+      await handleAdoptionClick({ isTrusted: true } as Event);
+      const second = vi.mocked(sendMessage).mock.calls[1][0];
+      expect(second.action).toBe('adoptLegacyClaudeCatalog');
+      if (second.action !== 'adoptLegacyClaudeCatalog')
+        throw Error('second copy was not dispatched');
+      expect(second.slot.slotId).not.toBe(first.slot.slotId);
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    });
+    it('does not refresh or retry after the popup closes following dispatch; reopening only lists slots', async () => {
+      await initWithDefaults();
+      selectNewSlot();
+      installCollectorTab();
+      let finish!: (v: unknown) => void;
+      vi.mocked(sendMessage).mockReturnValueOnce(
+        new Promise(resolve => {
+          finish = resolve;
+        }) as never
+      );
+      const pending = handleCollectorClick({ isTrusted: true } as Event);
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      window.dispatchEvent(new Event('pagehide'));
+      finish(collectorSummary('saved', { dispatch: 2, page: 2, target: 1, marker: 1 }));
+      await pending;
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      vi.mocked(sendMessage).mockClear();
+      await initPopup();
+      expect(vi.mocked(sendMessage).mock.calls).toEqual([[{ action: 'listAccountCatalogSlots' }]]);
+      expect(el<HTMLSelectElement>('claudeCatalogSlot').value).toBe('');
+    });
+
     it('renders only the validated saved counts, terminal facts and committed retention', async () => {
       installCollectorTab();
       await initWithDefaults();
+      selectNewSlot();
       vi.mocked(sendMessage).mockResolvedValueOnce(
         collectorSummary('saved', { dispatch: 2, page: 2, target: 3, marker: 2 })
       );
@@ -524,10 +924,16 @@ describe('popup/app', () => {
         'true',
         'owner-committed',
       ]);
+      expect(vi.mocked(sendMessage).mock.calls.map(([message]) => message.action)).toEqual([
+        'collectClaudeAccountCatalog',
+        'listAccountCatalogSlots',
+      ]);
+      expect(el<HTMLSelectElement>('claudeCatalogSlot').value).toBe('');
     });
 
     it('sends nothing if the popup closes before resolving click-bound selection', async () => {
       await initWithDefaults();
+      selectNewSlot();
       let finish!: (v: unknown) => void;
       chrome.tabs.query = vi.fn(
         () =>
@@ -543,6 +949,7 @@ describe('popup/app', () => {
     });
     it('refuses unbound, pending and nonexact popup selection without echoing its route', async () => {
       await initWithDefaults();
+      selectNewSlot();
       const tab = { id: 17, windowId: 3, url: collectorClickSource.url, active: true };
       for (const tabs of [
         [],
@@ -563,7 +970,7 @@ describe('popup/app', () => {
         readFileSync('src/popup/index.html', 'utf8'),
         'text/html'
       );
-      expect(html.querySelector('#collectClaudeAccountCatalogBtn')?.textContent).toMatch(
+      expect(html.querySelector('.catalog-tool')?.textContent).toMatch(
         /current personal Claude context/i
       );
       for (const lang of ['en', 'ja']) {
@@ -582,6 +989,7 @@ describe('popup/app', () => {
           expect(messages[key]?.message).toBeTruthy();
       }
       installCollectorTab();
+      selectNewSlot();
       el<HTMLButtonElement>('collectClaudeAccountCatalogBtn').click();
       expect(chrome.tabs.query).not.toHaveBeenCalled();
       expect(sendMessage).not.toHaveBeenCalled();
@@ -594,6 +1002,9 @@ describe('popup/app', () => {
       const pending = handleCollectorClick({ isTrusted: true } as Event);
       for (const id of [
         'collectClaudeAccountCatalogBtn',
+        'adoptLegacyClaudeCatalogBtn',
+        'claudeCatalogSlot',
+        'claudeCatalogLabel',
         'probeClaudeListsBtn',
         'probeDotsSchemaBtn',
         'saveBtn',
@@ -608,15 +1019,23 @@ describe('popup/app', () => {
       expect(sendMessage).toHaveBeenCalledWith({
         action: 'collectClaudeAccountCatalog',
         source: collectorClickSource,
+        slot: {
+          kind: 'new',
+          slotId: expect.stringMatching(/^account-slot\/1:[0-9a-f]{32}$/u),
+          label: 'Personal',
+        },
       });
       resolve({ code: 'private header', active: [{ uuid: 'private target' }] });
       await pending;
-      expect(statusEl().textContent).toBe('status_collectorStopped status_collectorFacts');
+      expect(statusEl().textContent).toBe('status_collectorUnavailable');
       expect(JSON.stringify(vi.mocked(chrome.i18n.getMessage).mock.calls)).not.toMatch(
         /private header|private target/
       );
       for (const id of [
         'collectClaudeAccountCatalogBtn',
+        'adoptLegacyClaudeCatalogBtn',
+        'claudeCatalogSlot',
+        'claudeCatalogLabel',
         'probeClaudeListsBtn',
         'probeDotsSchemaBtn',
         'saveBtn',
@@ -1047,6 +1466,76 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('vaultPath').value).toBe('AI/Gemini');
     });
 
+    it('persists real output changes while inventory is unresolved and respects a busy lock on completion', async () => {
+      buildPopupDom();
+      vi.mocked(getSettingsOrThrow).mockResolvedValue(storedSettings);
+      let finishInventory!: (value: unknown) => void;
+      let finishSave!: (value: unknown) => void;
+      vi.mocked(sendMessage).mockImplementation(message => {
+        if (message.action === 'listAccountCatalogSlots') {
+          return new Promise(resolve => {
+            finishInventory = resolve;
+          }) as never;
+        }
+        if (message.action === 'saveSettings') {
+          return new Promise(resolve => {
+            finishSave = resolve;
+          }) as never;
+        }
+        return Promise.resolve({ success: true } as never);
+      });
+      const listener = vi.spyOn(el<HTMLButtonElement>('probeDotsSchemaBtn'), 'addEventListener');
+      const initialization = initPopup();
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({ action: 'listAccountCatalogSlots' })
+      );
+      expect(el<HTMLInputElement>('vaultPath').value).toBe(storedSettings.vaultPath);
+      expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
+      const file = el<HTMLInputElement>('outputFile');
+      expect(file.checked).toBe(false);
+      expect(el<HTMLInputElement>('enableHtmlExport').disabled).toBe(true);
+      file.click();
+      expect(file.checked).toBe(true);
+      expect(file.getAttribute('aria-checked')).toBe('true');
+      expect(el<HTMLInputElement>('enableHtmlExport').disabled).toBe(false);
+      expect(el<HTMLInputElement>('enableTextExport').disabled).toBe(false);
+      await vi.waitFor(() =>
+        expect(sendMessage).toHaveBeenCalledWith({
+          action: 'updateOutputOptions',
+          outputOptions: { obsidian: true, file: true, clipboard: true },
+        })
+      );
+      expect(listener).not.toHaveBeenCalled();
+      expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(true);
+      el<HTMLButtonElement>('probeDotsSchemaBtn').click();
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+
+      el<HTMLButtonElement>('saveBtn').click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3));
+      expect(vi.mocked(sendMessage).mock.calls[2][0].action).toBe('saveSettings');
+      finishInventory(slotInventory('listed'));
+      await initialization;
+      for (const id of [
+        'probeDotsSchemaBtn',
+        'probeClaudeListsBtn',
+        'saveBtn',
+        'testBtn',
+        'claudeCatalogSlot',
+      ]) {
+        expect(el<HTMLInputElement>(id).disabled).toBe(true);
+      }
+      finishSave({ success: true });
+      await vi.waitFor(() => expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false));
+      expect(listener).toHaveBeenCalledOnce();
+      file.click();
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(4));
+      expect(
+        vi.mocked(sendMessage).mock.calls.filter(([m]) => m.action === 'updateOutputOptions')
+      ).toHaveLength(2);
+      expect(el<HTMLButtonElement>('probeDotsSchemaBtn').disabled).toBe(false);
+      expect(el<HTMLSelectElement>('claudeCatalogSlot').disabled).toBe(false);
+    });
+
     it('initializes an editable default form for genuinely empty storage', async () => {
       buildPopupDom();
       const storage =
@@ -1062,7 +1551,7 @@ describe('popup/app', () => {
       expect(el<HTMLInputElement>('outputObsidian').checked).toBe(true);
       expect(el<HTMLButtonElement>('saveBtn').disabled).toBe(false);
       expect(el<HTMLButtonElement>('testBtn').disabled).toBe(false);
-      expect(sendMessage).not.toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledWith({ action: 'listAccountCatalogSlots' });
       expect(chrome.storage.local.set).not.toHaveBeenCalled();
       expect(chrome.storage.sync.set).not.toHaveBeenCalled();
 

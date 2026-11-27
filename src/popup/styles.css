@@ -443,8 +443,42 @@ select {
 }
 
 .archive-tools .tool-action + .tool-action,
+.archive-tools .catalog-tool + .tool-action,
 .archive-tools .claude-list-evidence + .tool-action {
   margin-top: 6px;
+}
+
+.catalog-tool {
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.catalog-tool h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.catalog-tool .help {
+  margin: 6px 0;
+}
+
+.catalog-tool label {
+  display: block;
+  margin-top: 8px;
+}
+
+.catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.catalog-actions .btn {
+  flex: 1 1 130px;
 }
 
 .claude-list-evidence {

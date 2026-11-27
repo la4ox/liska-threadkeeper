@@ -718,9 +718,11 @@ type ExtensionActionMessage =
   | { action: 'testConnection' }
   | { action: 'probeDotsSchema' }
   | { action: 'probeClaudeLists' }
+  | import('./account-slot-contract').SlotRequest
   | {
       action: 'collectClaudeAccountCatalog';
       source: import('./claude-account-collector-contract').CollectorSource;
+      slot: import('./account-slot-contract').SlotTarget;
     }
   | { action: 'fetchImage'; url: string }
   | {

@@ -34,6 +34,8 @@ interface MessageResponseMap {
   saveSettings: SettingsSaveResponse;
   testConnection: { success: boolean; error?: string };
   probeDotsSchema: DotsSchemaProbeResponse;
+  listAccountCatalogSlots: import('./account-slot-contract').SlotInventory;
+  adoptLegacyClaudeCatalog: import('./account-slot-contract').AdoptionReceipt;
   collectClaudeAccountCatalog: import('./claude-account-collector-contract').CollectorSummary;
   saveToOutputs: MultiOutputResponse;
   persistArchiveCompanion: MultiOutputResponse;

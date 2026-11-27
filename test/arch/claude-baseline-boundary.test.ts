@@ -293,7 +293,7 @@ describe('Claude one-shot account owner boundary', () => {
     }
   });
 
-  it('permits the existing collector and only the offline adoption bridge, with no separate entrypoint', () => {
+  it('permits only the offline adoption source to access the singleton, with no separate entrypoint', () => {
     for (const file of [
       ...files('src').filter(file => !file.startsWith(ownerPath + '/')),
       ...wiringCandidates(),
@@ -301,7 +301,10 @@ describe('Claude one-shot account owner boundary', () => {
       if (file === 'src/background/claude-account-collector.ts') {
         expect(
           references(tree(file)).filter(reference => reference.includes('baseline-owner'))
-        ).toEqual(['../claude-account-baseline-owner']);
+        ).toEqual([]);
+        expect(
+          readFileSync(path.join(root, file), 'utf8').replace('claude-account-collection/1:', '')
+        ).not.toMatch(ownerMarker);
         continue;
       }
       if (file === offlineAdoptionSource) {

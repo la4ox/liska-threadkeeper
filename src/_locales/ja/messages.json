@@ -995,10 +995,88 @@
     }
   },
   "settings_collectClaudeCatalog": {
-    "message": "Claude バックアップ対象一覧を保存"
+    "message": "Claude カタログ"
   },
   "settings_collectClaudeCatalogHelp": {
-    "message": "現在の個人用 Claude で、一時停止状態の対象一覧をローカルに保存します。チャット本文はまだダウンロードしません。"
+    "message": "現在の個人用 Claude から、一時停止中の対象一覧だけをローカルに保存します。チャット本文はダウンロードしません。"
+  },
+  "settings_catalogInventoryHelp": {
+    "message": "設定を開くとローカルのスロットを確認し、空のローカルデータベースを初期化する場合があります。"
+  },
+  "settings_catalogSlot": { "message": "ローカルスロット" },
+  "settings_catalogChoose": { "message": "スロットを選択" },
+  "settings_catalogNew": { "message": "新しいローカルスロット" },
+  "settings_catalogLabel": { "message": "新しいスロットの名前" },
+  "settings_catalogLabelHelp": {
+    "message": "1〜80文字、UTF-8で256バイト以内。Unicode正規化済みで、制御文字や前後の空白は使用できません。"
+  },
+  "settings_catalogCollect": { "message": "現在のタブから取得" },
+  "settings_catalogCopy": { "message": "古いローカル一覧をコピー" },
+  "settings_catalogActionHelp": {
+    "message": "取得は、現在の環境がご自身の個人用であるという確認を伴います。コピーは新しいスロット用で、現在のタブを読まず、元の一覧を残します。送信前に閉じると中止し、送信後は結果が見えなくても保存される場合があります。拡張機能のポップアップをいったん閉じ、もう一度開いてローカルスロットを確認してください。自動再試行はしません。"
+  },
+  "status_catalogInventoryLoading": { "message": "ローカルスロットを確認中…" },
+  "status_catalogInventoryReady": {
+    "message": "スロットを選ぶか、操作時に新しく作成してください。"
+  },
+  "status_catalogInventoryUnavailable": {
+    "message": "ローカルスロットを確認できません。拡張機能のポップアップをいったん閉じ、もう一度開いてローカルスロットを確認してください。"
+  },
+  "status_catalogSelectionRequired": {
+    "message": "スロットを選び、新規の場合は有効な名前を入力してください。"
+  },
+  "status_catalogBeforeDispatch": {
+    "message": "一覧の操作を準備できず、操作は送信されませんでした。"
+  },
+  "status_catalogCopyRunning": { "message": "古いローカル一覧をコピー中…" },
+  "status_catalogCopySaved": {
+    "message": "古い一覧をコピーしました（$CODE$）。元の一覧は残ります。",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopySavedWarning": {
+    "message": "コピーを保存しました（$CODE$）が、検証または後処理に注意が必要です。元の一覧は残ります。",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopyStopped": {
+    "message": "コピーを停止しました（$CODE$）。元の一覧は残ります。自動再試行はしません。",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopyUnknown": {
+    "message": "コピー結果が不明です（$CODE$）。新しいスロットは保存された可能性があります。元の一覧は残ります。拡張機能のポップアップをいったん閉じ、もう一度開いてローカルスロットを確認してください。自動再試行はしません。",
+    "placeholders": { "code": { "content": "$1" } }
+  },
+  "status_catalogCopyUnavailable": {
+    "message": "コピー結果を確認できません。保存された可能性があります。拡張機能のポップアップをいったん閉じ、もう一度開いてローカルスロットを確認してください。自動再試行はしません。"
+  },
+  "status_collectorExisting": {
+    "message": "このスロットには既に一覧があります（$CODE$）。上書きしていません。リクエスト $REQUESTS$、ページ $PAGES$、対象 $TARGETS$、マーカー $MARKERS$。",
+    "placeholders": {
+      "code": { "content": "$1" },
+      "requests": { "content": "$2" },
+      "pages": { "content": "$3" },
+      "targets": { "content": "$4" },
+      "markers": { "content": "$5" }
+    }
+  },
+  "status_collectorExistingWarning": {
+    "message": "一覧は既に存在しますが、検証を停止しました（$CODE$）。リクエスト $REQUESTS$、ページ $PAGES$、対象 $TARGETS$、マーカー $MARKERS$。",
+    "placeholders": {
+      "code": { "content": "$1" },
+      "requests": { "content": "$2" },
+      "pages": { "content": "$3" },
+      "targets": { "content": "$4" },
+      "markers": { "content": "$5" }
+    }
+  },
+  "status_collectorOutcomeUnknown": {
+    "message": "取得結果が不明です（$CODE$）。保存された可能性があります。リクエスト $REQUESTS$、ページ $PAGES$、対象 $TARGETS$、マーカー $MARKERS$。拡張機能のポップアップをいったん閉じ、もう一度開いてローカルスロットを確認してください。自動再試行はしません。",
+    "placeholders": {
+      "code": { "content": "$1" },
+      "requests": { "content": "$2" },
+      "pages": { "content": "$3" },
+      "targets": { "content": "$4" },
+      "markers": { "content": "$5" }
+    }
   },
   "status_collectorFacts": {
     "message": "アクティブ一覧の終端: $ACTIVE$。アーカイブが終端で空: $ARCHIVE$。ヘッダーの組が一致: $PAIR$。保存確認: $RETENTION$。アカウント全体の完全性・実行許可なし。本文リクエスト・ダウンロード: 0。",
@@ -1081,7 +1159,7 @@
     }
   },
   "status_collectorUnavailable": {
-    "message": "取得結果を確認できません。自動では再試行しません。"
+    "message": "取得結果を確認できません。保存された可能性があります。拡張機能のポップアップをいったん閉じ、もう一度開いてローカルスロットを確認してください。自動再試行はしません。"
   },
   "settings_probeClaudeLists": {
     "message": "Claude のリストを確認"

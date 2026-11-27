@@ -73,7 +73,11 @@ describe('closed collector boundaries', () => {
   });
   it('accepts only action plus a closed click source, never reads extra properties', () => {
     const source = { tabId: 17, windowId: 3, url: 'https://claude.ai/chat/' + uuid };
-    const m = { action: 'collectClaudeAccountCatalog', source },
+    const m = {
+        action: 'collectClaudeAccountCatalog',
+        source,
+        slot: { kind: 'existing', slotId: 'account-slot/1:' + 'a'.repeat(32) },
+      },
       get = vi.fn();
     expect(isCollectorMessage(m)).toBe(true);
     expect(isCollectorMessage({ action: m.action })).toBe(false);
@@ -121,11 +125,6 @@ describe('closed collector boundaries', () => {
           'document-unavailable',
           'operation-in-progress',
           'result-invalid',
-          'owner-already-seeded',
-          'owner-unavailable',
-          'owner-corrupt',
-          'owner-unsupported',
-          'owner-preflight-unknown',
         ],
       ],
       [
@@ -156,6 +155,18 @@ describe('closed collector boundaries', () => {
         [
           'admission-rejected',
           'hash-failed',
+          'scoped-owner-already-present',
+          'slot-missing',
+          'slot-scope-mismatch',
+          'scoped-read-unknown',
+          'scoped-store-unavailable',
+          'scoped-store-corrupt',
+          'scoped-store-unsupported',
+          'scoped-capacity',
+          'scoped-quota',
+          'existing-context-changed',
+          'existing-verification-deadline',
+          'existing-verification-unavailable',
           'owner-conflict',
           'owner-aborted',
           'owner-outcome-unknown',

@@ -7,7 +7,7 @@ import {
 } from '../../src/account-catalog-adoption';
 import { openAccountCatalog } from '../../src/account-catalog-owner';
 import { ACCOUNT_CATALOG_DATABASE as DESTINATION } from '../../src/account-catalog-owner/database';
-import { bytes, openRaw, slotId } from '../account-catalog-owner/fixture';
+import { bytes, openRaw, slotId, makeInput } from '../account-catalog-owner/fixture';
 import { collectionB } from '../browser/claude-account-baseline-owner/fixture';
 import { baseline, input, KEY, label, seed, SOURCE, sourceSnapshot, STORE } from './fixture';
 
@@ -124,6 +124,22 @@ describe('explicit copy-only adoption', () => {
     }
   });
 
+  it('cannot extend an occupied slot with a second scope even when the display label matches', async () => {
+    const factory = new IDBFactory();
+    await seed(factory);
+    const catalog = await openAccountCatalog({ indexedDB: factory });
+    try {
+      const original = await catalog.createPausedClaude({ ...makeInput(0, 7), label });
+      expect(await adoptLegacyClaudeCatalog(input(factory))).toMatchObject({
+        kind: 'failed',
+        stage: 'destination',
+        code: 'conflict',
+      });
+      expect(await catalog.listOwners()).toEqual([original.owner]);
+    } finally {
+      await catalog.close();
+    }
+  });
   it('rejects an occupied locator with different seed data and leaves both domains intact', async () => {
     const factory = new IDBFactory();
     await seed(factory);

@@ -30,12 +30,39 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 describe('rollback-isolated multi-account catalog', () => {
+  it('atomically admits only one initial scope across independent concurrent connections', async () => {
+    const indexedDB = new IDBFactory();
+    const a = await openAccountCatalog({ indexedDB }),
+      b = await openAccountCatalog({ indexedDB });
+    try {
+      const outcomes = await Promise.allSettled([
+        a.createPausedClaudeSingleScope(makeInput(0, 0)),
+        b.createPausedClaudeSingleScope(makeInput(0, 1)),
+      ]);
+      expect(outcomes.map(o => o.status).sort()).toEqual(['fulfilled', 'rejected']);
+      expect(outcomes.find(o => o.status === 'rejected')).toMatchObject({
+        reason: { code: 'conflict' },
+      });
+      const [winner] = await a.listOwners();
+      expect(await a.listSlots()).toHaveLength(1);
+      const input =
+        winner.scopeKey === makeInput(0, 0).admission.catalog.scopeKey
+          ? makeInput(0, 0)
+          : makeInput(0, 1);
+      expect((await a.createPausedClaudeSingleScope(input)).kind).toBe('already-created');
+      expect(await a.listOwners()).toEqual([winner]);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
   it('isolates two slots, two scopes in one slot, and identical conversations in different owners', async () => {
     const indexedDB = new IDBFactory();
     const catalog = await openAccountCatalog({ indexedDB });
     expect(Object.keys(catalog).sort()).toEqual([
       'close',
       'createPausedClaude',
+      'createPausedClaudeSingleScope',
       'listOwners',
       'listSlots',
       'readOwner',

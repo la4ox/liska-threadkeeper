@@ -46,10 +46,20 @@ terminal states, and the existing no-credential-export boundary.
   through destination idempotency, without automatic retry or a new collection
   ID. Offline/fake-IndexedDB validation passed; no native/live, second-account
   or KYC test, production consumer, or current-head GitHub gate is claimed.
-- PR-3 may add explicit slot UI and Claude collector wiring with a canary limited
-  to the current account. ChatGPT account-scope evidence and its adapter remain
-  separate; detail/File baseline work follows only after those scope boundaries
-  are established.
+- PR-3 now implements a compact explicit slot picker and single-scope Claude
+  collector locally; see [ADR-086](adr/086-explicit-account-slot-popup-and-scoped-collector.md).
+  The picker has no default/latest selection, and labels are local display
+  organization rather than provider identity. Adoption copies only into a new
+  slot and preserves the legacy owner. Generic collection observes an existing
+  matching scope without writing, stops on a mismatch instead of adding an
+  implicit second scope, and atomically creates a new slot with its first
+  single-scope owner. Local tests/build pass, but exact-head GitHub gates and an
+  installed current-account canary remain pending; no visual/browser/live or
+  second-account/KYC proof is claimed. After GitHub gates, explicitly choose a
+  label, copy the old catalog into a new slot, then collect from the selected
+  current tab and verify existing-scope retention or mismatch/no-write.
+  ChatGPT scope evidence/adapter and the fresh post-Claude installed regression
+  remain separate; detail/File baseline work stays gated.
 - After Claude changes, require a fresh installed ChatGPT regression covering
   ordinary and long chats, branches, images/files/attachments/tool results,
   selected preview, Markdown/HTML/PDF/DOCX, File and Obsidian, and
