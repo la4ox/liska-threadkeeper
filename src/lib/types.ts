@@ -5,6 +5,7 @@
 import type { ArchiveBranchCatalog } from '../archive/branches';
 import type { RawCaptureBundle } from '../archive/capture';
 import type { LiskaThreadArchive } from '../archive/types';
+import type { StagedBinaryAssetDescriptor } from '../shared/binary-asset-descriptor';
 import type { ArchiveStageDescriptor } from './archive-stage-contract';
 import type { ChatGptRouteFamily } from './chatgpt-owner-context';
 import type { DerivedHtmlArtifact, DerivedOutputSource } from './derived-presentation-contract';
@@ -353,20 +354,16 @@ export interface DeepSeekAssetExportContext {
   rawArtifact: ArchiveCompanionArtifact;
 }
 
-/**
- * Provider-neutral description of one verified binary archive asset.
- *
- * `assetId` is an opaque runtime correlation key only. The persisted name is
- * content-addressed, so a provider filename, URL, signature, and identifier
- * never cross the persistence boundary.
- */
-export interface StagedBinaryAssetDescriptor {
-  assetId: string;
-  byteLength: number;
-  sha256: string;
-  mediaType: string;
-  relativePath: string;
+/** Runtime-only evidence for Claude's ordinary-file contents route. */
+export interface ClaudeAssetExportContext {
+  readonly rawCaptureBundle: RawCaptureBundle;
+  readonly rawArtifact: Readonly<ArchiveCompanionArtifact>;
+  readonly organizationId: string;
+  readonly conversationId: string;
+  readonly contentBudget: import('../archive/normalizers/provider-block-work-budget').ProviderBlockWorkBudget;
 }
+
+export type { StagedBinaryAssetDescriptor } from '../shared/binary-asset-descriptor';
 
 /** One durable binary destination result, scoped to a single asset. */
 export interface StagedBinaryAssetResult {
@@ -473,7 +470,7 @@ export interface SyncSettings {
   enableAppendMode: boolean;
   /** Include tool-use / intermediate content (e.g., web search results) */
   enableToolContent: boolean;
-  /** Export conversation images (Obsidian vault + file download). */
+  /** Export supported conversation images and archive attachments (Obsidian + File). */
   enableImageExport: boolean;
   /** Add a canonical-derived offline HTML reading view to File archive snapshots. */
   enableHtmlExport: boolean;
@@ -979,6 +976,8 @@ export interface ExtractionResult {
   chatGptStructuredPresentationContext?: ChatGptStructuredPresentationContext;
   /** Runtime-only source evidence for optional destination-honest DeepSeek attachment export. */
   deepSeekAssetExportContext?: DeepSeekAssetExportContext;
+  /** Runtime-only source evidence for optional destination-honest Claude attachment export. */
+  claudeAssetExportContext?: ClaudeAssetExportContext;
   /** Complete graph retained for sequential per-leaf presentation writes. */
   allBranches?: AllBranchesPresentationPlan;
 }

@@ -3,8 +3,10 @@ import {
   validateCaptureBundleShape,
   verifyCaptureBundleIntegrity,
   type RawCaptureArtifact,
+  type RawCaptureAssetRecord,
   type RawCaptureManifest,
 } from '../../capture';
+import { isStagedBinaryAssetDescriptor } from '../../../shared/binary-asset-descriptor';
 import {
   LISKA_THREAD_SCHEMA,
   type ArchiveAsset,
@@ -34,7 +36,14 @@ import {
   type ClaudeTopology,
   type ParsedClaudeMessage,
 } from './graph';
-import { inventoryClaudeRawAssets, type ClaudeAssetInventory } from './inventory';
+import {
+  bindClaudeOrdinaryFiles,
+  CLAUDE_ASSET_DETAIL,
+  claudeAssetAttemptCompleteness,
+  inventoryClaudeRawAssets,
+  type ClaudeAssetInventory,
+  type ClaudeInventoriedAsset,
+} from './inventory';
 import { CLAUDE_SOURCE_FORMAT } from './contracts';
 import {
   at,
@@ -90,11 +99,7 @@ export async function normalizeClaudeCapture(
       },
       traversal
     );
-    if (JSON.stringify(manifest.assets) !== JSON.stringify(inventory.assets))
-      fail(
-        'asset-inventory-mismatch',
-        'Claude metadata-only asset inventory does not match the verified artifact.'
-      );
+    verifyAssetOverlay(manifest, inventory, context);
     const unknownTypes = observedClaudeUnknownTypes(detail.chat_messages, traversal);
     if (JSON.stringify(unknownTypes) !== JSON.stringify(manifest.observedUnknownContentTypes))
       fail(
@@ -188,6 +193,60 @@ function parseJson(bytes: Uint8Array): unknown {
   }
 }
 
+const FAILED_ASSET_DETAILS = new Set<string>(
+  Object.values(CLAUDE_ASSET_DETAIL).filter(detail => detail !== CLAUDE_ASSET_DETAIL.fetched)
+);
+
+/** Byte integrity was verified before this independently re-inventoried binding check. */
+function verifyAssetOverlay(
+  manifest: RawCaptureManifest,
+  inventory: ClaudeAssetInventory,
+  context: ClaudeContext
+): void {
+  const mismatch = () =>
+    fail('asset-inventory-mismatch', 'Claude asset ledger does not match the verified artifact.');
+  if (manifest.assets.length !== inventory.discovered.length) mismatch();
+  for (const [index, item] of inventory.discovered.entries()) {
+    const record = manifest.assets[index];
+    context.contentBudget.spendWork(item.metadata.length + 1);
+    if (!matchesAssetOverlay(item, record)) mismatch();
+  }
+  if (manifest.completeness.assets !== claudeAssetAttemptCompleteness(manifest.assets)) mismatch();
+}
+
+function matchesAssetOverlay(
+  { record: discovered, metadata }: ClaudeInventoriedAsset,
+  record: RawCaptureAssetRecord
+): boolean {
+  if (record.state === 'not-attempted')
+    return JSON.stringify(record) === JSON.stringify(discovered);
+  if (
+    record.id !== discovered.id ||
+    JSON.stringify(record.sourceRefs) !== JSON.stringify(discovered.sourceRefs)
+  ) {
+    return false;
+  }
+  const file = bindClaudeOrdinaryFiles(metadata);
+  if (!file) return false;
+  if (record.state === 'failed') {
+    return (
+      record.mediaType === null && record.detail !== null && FAILED_ASSET_DETAILS.has(record.detail)
+    );
+  }
+  return (
+    record.state === 'fetched' &&
+    record.detail === CLAUDE_ASSET_DETAIL.fetched &&
+    record.byteLength === file.byteLength &&
+    isStagedBinaryAssetDescriptor({
+      assetId: record.id,
+      relativePath: record.relativePath,
+      mediaType: record.mediaType,
+      byteLength: record.byteLength,
+      sha256: record.sha256,
+    })
+  );
+}
+
 function buildArchive(
   input: ClaudeNormalizationInput,
   manifest: RawCaptureManifest,
@@ -196,7 +255,7 @@ function buildArchive(
   inventory: ClaudeAssetInventory,
   context: ClaudeContext
 ): LiskaThreadArchive {
-  const assets = canonicalAssets(inventory, context);
+  const assets = canonicalAssets(inventory, manifest.assets, context);
   context.contentBudget.spendWork(inventory.assets.length);
   const assetIdsByPointer = new Map(
     inventory.assets.flatMap(asset =>
@@ -318,10 +377,12 @@ function normalizeMessage(
 
 function canonicalAssets(
   inventory: ClaudeAssetInventory,
+  records: readonly RawCaptureAssetRecord[],
   context: ClaudeContext
 ): Record<string, ArchiveAsset> {
   const assets: Record<string, ArchiveAsset> = {};
-  for (const { record, metadata } of inventory.discovered) {
+  for (const [index, { metadata }] of inventory.discovered.entries()) {
+    const record = records[index];
     context.contentBudget.spendWork(metadata.length + 1);
     const first = metadata[0];
     const value = first.value;
@@ -330,16 +391,27 @@ function canonicalAssets(
     const mimeType =
       firstString(value, ['content_type', 'mime_type', 'media_type']) ??
       firstString(source, ['media_type']);
-    const size = value.file_size ?? value.size ?? value.byte_length;
+    const size = value.size_bytes ?? value.file_size ?? value.size ?? value.byte_length;
     assets[record.id] = {
       id: record.id,
       filename: nullableText(filename, context, first.pointer),
-      mimeType: mimeType !== null && /^[\w.+-]+\/[\w.+-]+$/.test(mimeType) ? mimeType : null,
-      byteLength: typeof size === 'number' && Number.isSafeInteger(size) && size >= 0 ? size : null,
+      mimeType:
+        record.state === 'not-attempted' &&
+        mimeType !== null &&
+        /^[\w.+-]+\/[\w.+-]+$/.test(mimeType)
+          ? mimeType
+          : record.mediaType,
+      byteLength:
+        record.state === 'not-attempted' &&
+        typeof size === 'number' &&
+        Number.isSafeInteger(size) &&
+        size >= 0
+          ? size
+          : record.byteLength,
       dimensions: null,
-      sha256: null,
-      localArtifactRef: null,
-      acquisition: { state: 'not-attempted', attemptedAt: null, detail: 'metadata-only' },
+      sha256: record.sha256,
+      localArtifactRef: record.relativePath,
+      acquisition: { state: record.state, attemptedAt: record.attemptedAt, detail: record.detail },
       sourceRefs: record.sourceRefs.map(source => ref(context, 'attachment', source.rawPointer)),
       extensions: {
         claude: {

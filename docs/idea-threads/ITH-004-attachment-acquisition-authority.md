@@ -7,7 +7,7 @@ thread_id: ITH-004
 thread_state: growing
 privacy: repository-safe
 opened: 2026-10-31
-last_turn: 2026-11-07
+last_turn: 2026-11-27
 ---
 
 # ITH-004 — Attachment acquisition authority and honest loss states
@@ -122,6 +122,39 @@ ordinary acquisition; deny-only ownership now treats any exact evidence as a
 block. Unknown/not-dispatched binary writes initially retained an optimistic
 success fact; normalized public facts and producer results now agree on failure
 and cleanup uncertainty.
+
+### E10 — Claude exposed an exact original-contents route behind its download UI
+
+One current personal Claude image established three distinct facts without
+persisting provider identifiers in repository documentation. The visible preview
+used `/api/{organization}/files/{file}/preview` and returned a smaller WebP
+derivative. The Download control separately issued an authenticated same-origin
+`GET /api/organizations/{organization}/files/{file}/contents`; the response
+declared `x-served-file-variant: original`, its exact length matched the committed
+raw `size_bytes`, and the saved PNG matched that declared length. The page-owned
+`blob:` URL was only the final browser-download transport, not the source route.
+
+The structured detail already binds top-level message `files` records to exact
+`file_uuid` values and source pointers. This removed the earlier need for a Blob
+hook, filename identity, download-history observation or preview substitution.
+Sources: S12.
+
+### E11 — One installed Claude ordinary-image export reconciled both destinations
+
+The reviewed local build completed one explicit current-personal export with
+File and Obsidian enabled. Both destinations contain the same four archive files
+and exact hashes: raw, manifest, canonical and one content-addressed binary. The
+312,340-byte binary is byte-identical to the separately downloaded original PNG.
+Manifest and canonical agree on one fetched ordinary image and one attempted
+failed historical DOCX; the latter's original-contents request returned an HTTP
+failure and therefore has no local path, byte length or acquired hash.
+
+The raw artifact matches its manifest length/SHA, canonical input matches the
+exact manifest SHA, and durable manifest/canonical scans contain no organization
+UUID, contents/blob URL, credential or request-header key. This accepts one
+ordinary-image original path and destination reconciliation. It does not prove
+the old DOCX retrievable or general generated-file/Artifact coverage. Sources:
+S13.
 
 ### X1 — Guess provider routes or copy credential/header values
 
@@ -240,6 +273,36 @@ Evidence: E1, E2, E8, E9
 
 Decision record: ADR-064
 
+### D6 — Admit bounded Claude ordinary-file acquisition without Artifact authority
+
+Adopt ADR-088's raw-bound, same-origin original-contents path for exact top-level
+Claude message `files` records. Every source reference must rebind to one agreeing
+lowercase `file_uuid`, successful provider record and exact declared size. Raw is
+written first; acquisition is sequential and bounded; File and Obsidian receive
+independent binary receipts and destination-specific manifest/canonical overlays.
+
+The preview route is never original evidence. Unsupported, nested, ambiguous,
+over-limit or unstarted records remain `not-attempted`; attempted failures remain
+`failed`. Isolated Artifact frames, generated Artifact downloads, account-wide
+runner authority, branch completeness and readable attachment links remain
+outside this decision. Installed provider and physical destination acceptance is
+still a separate gate.
+
+Evidence: E1, E2, E8, E10
+
+Decision record: ADR-088
+
+### D7 — Accept the installed Claude ordinary-image path without widening families
+
+Accept ADR-088 for the exact top-level ordinary image observed in E11. The
+destination-honest raw/binary/manifest/canonical chain and original-byte equality
+are live-proven. Retain the historical DOCX HTTP failure as an honest attempted
+failure, not as evidence that all DOCX files are unavailable or supported.
+
+Evidence: E10, E11
+
+Decision record: ADR-088
+
 ### T1 — Admit new attachment families one evidence gate at a time
 
 Owner-context binaries, project assets, additional media and isolated provider
@@ -279,6 +342,30 @@ browser-managed fetch and single-binary sink without enabling numeric, active,
 Library, interpreter, XLSX, recapture or fallback routes, then proves one
 physical File/Obsidian byte outcome with privacy-safe receipts.
 
+### T5 — Accept Claude ordinary files in the installed extension
+
+Source and synthetic integration prove the exact raw-first pipeline, but not the
+current provider response or physical destination readback. The live gate must
+use the reviewed installed build on one current personal chat, retain the
+original raw companion before any binary attempt, and reconcile exact manifest,
+canonical and physical File/Obsidian bytes without reading Artifact frames.
+
+Trigger: the reviewed build is installed and one explicit ordinary Claude export
+can be checked against safe aggregate receipts. A failed first run is evidence,
+not automatic retry authority.
+
+Satisfied by E11 on 2026-11-27 for one exact ordinary image.
+
+### T6 — Expand Claude ordinary-file families only from fresh original-byte evidence
+
+The generic bounded machinery can represent passive file types, but one image
+success plus one old DOCX HTTP failure does not establish current non-image
+coverage. Generated Artifact downloads and isolated frames remain separate.
+
+Trigger: a fresh current-personal non-image top-level `files` record returns an
+original response whose committed size, physical bytes and both destination
+receipts reconcile without route or MIME inference.
+
 ## Observations
 
 - [hypothesis] H1: plausible provider pointers, names and media types initially appeared sufficient to identify assets
@@ -291,6 +378,8 @@ physical File/Obsidian byte outcome with privacy-safe receipts.
 - [evidence] E7: the final branch canary passed source 200 JSON and dispatched once, but provider-status-other yielded no candidate or bytes and spent approval #live
 - [evidence] E8: broad manual producer omissions could recapture raw, use global fetch or invoke runtime binary staging, so omission was not coordinator authority #code
 - [evidence] E9: a complete staged-only ordinary direct PNG bundle now proves one offline resolver-to-destination chain without enabling another family #code
+- [evidence] E10: Claude's ordinary-file UI exposed a UUID-bound same-origin original-contents request distinct from its derivative preview #live
+- [evidence] E11: one installed Claude ordinary image produced byte-identical File/Obsidian archive trees and matched a separately downloaded original #live
 - [rejected] X1: guessed routes and reusable credential extraction exceed the evidence and privacy boundary
 - [rejected] X2: ambiguity is not an explicit decline and must not be recorded as one
 - [rejected] X3: later captures cannot silently authorize historical image backfill
@@ -302,10 +391,14 @@ physical File/Obsidian byte outcome with privacy-safe receipts.
 - [decision] D3: retain the candidate source-diagnostic split as history, not an adopted mainline contract
 - [decision] D4: retire the unaccepted candidate after spent approval; merge evidence docs before closing #89 unmerged and retain the branch
 - [decision] D5: admit one attachment family only through a complete staged capability bundle and keep live wiring separate
+- [decision] D6: admit exact top-level Claude ordinary files through raw-first same-origin acquisition while keeping Artifact frames excluded
+- [decision] D7: accept the installed Claude ordinary-image path while retaining the old DOCX HTTP result as a scoped failure
 - [tail] T1: add attachment families only through provider-specific identity and byte proofs
 - [tail] T2: keep orphan cleanup behind a separate reversible authority boundary
 - [tail] T3: reopen ordinary XLSX only under a new separately authorized evidence plan, never the spent canary approval
 - [tail] T4: bind and accept a live ordinary direct PNG adapter only through a separate installed plan
+- [tail] T5: accept the reviewed Claude ordinary-file path through one installed File/Obsidian readback
+- [tail] T6: expand Claude non-image families only from fresh original-byte and destination evidence
 
 ## Relations
 
@@ -328,3 +421,5 @@ physical File/Obsidian byte outcome with privacy-safe receipts.
 - S9 — local receipt `LISKA-XLSX-SOURCE-4XX-20261031`; visibility: local-only; safe aggregate only; historical pre-dispatch source 4xx class
 - S10 — local receipt `LISKA-XLSX-PROVIDER-STATUS-OTHER-20261101`; visibility: local-only; safe aggregate only; [final evidence `a086fe3`](https://github.com/la4ox/liska-threadkeeper/commit/a086fe3af022b67dc2e52e2170677f1a0f961a08) and [safe aggregate hashes](../../STATUS.md#ordinary-direct-xlsx-experiment-retired-unaccepted--2026-11-01)
 - S11 — [ADR-064: Admit one ordinary direct PNG family through explicit offline capabilities](../adr/064-explicit-ordinary-direct-png-acquisition.md), base main `c22aed4cb18b1311033533cd4e1c75a9ce825be1`
+- S12 — [ADR-088: Acquire exact Claude ordinary files from the original-contents route](../adr/088-claude-ordinary-file-attachment-acquisition.md); local live observation `LISKA-CLAUDE-ORIGINAL-CONTENTS-20261127`, visibility: local-only, repository retains route/size-class facts only
+- S13 — [Installed Claude ordinary-image acceptance](../../STATUS.md#claude-ordinary-file-installed-acceptance--2026-11-27); local receipt `LISKA-CLAUDE-ORDINARY-IMAGE-20261127`, visibility: local-only, repository retains aggregate counts/hashes and loss states only

@@ -517,8 +517,8 @@ describe('test-only import/authority boundaries', () => {
     ).toBe(false);
     expect([...external].sort()).toEqual(['dompurify', 'mdast-util-from-markdown', 'turndown']);
     expect({ count: paths.length, sha256: sha256(paths.join('\n')) }).toEqual({
-      count: 158,
-      sha256: 'f96bfbd9921bd34a2bf530ddc4d2c05011e53f4bf95e0ad4976bc08c9fca2345',
+      count: 159,
+      sha256: 'cfee850d8c0cb43b31cc88464bbd3d3bac30ed4a24ba1b445a57d977bd1ef5ed',
     });
   });
 });

@@ -1,4 +1,5 @@
-import type { RawCaptureAssetRecord } from '../../capture';
+import type { CaptureCompletenessState, RawCaptureAssetRecord } from '../../capture';
+import { binaryAssetExtension } from '../../../shared/binary-asset-descriptor';
 import {
   providerBlockWorkBudget,
   type ProviderBlockTraversalBudget,
@@ -34,6 +35,124 @@ export interface ClaudeAssetInventory {
 }
 
 const ASSET_TYPES = new Set(['image', 'document', 'attachment']);
+const LOWERCASE_UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
+const SIZE_FIELDS = ['size_bytes', 'file_size', 'size', 'byte_length'] as const;
+
+export const CLAUDE_ASSET_DETAIL = Object.freeze({
+  fetched: 'claude-original-contents',
+  fetchFailed: 'claude-contents-fetch-failed',
+  httpFailed: 'claude-contents-http-failed',
+  responseRejected: 'claude-contents-response-rejected',
+  sizeMismatch: 'claude-declared-size-mismatch',
+  timeout: 'claude-contents-timeout',
+  duplicatePath: 'claude-duplicate-content-path',
+  destinationFailed: 'claude-destination-write-failed',
+});
+
+/** Completeness is attempt coverage; per-file states still distinguish failures. */
+export function claudeAssetAttemptCompleteness(
+  assets: readonly RawCaptureAssetRecord[]
+): CaptureCompletenessState {
+  if (assets.every(asset => asset.state === 'not-attempted')) return 'not-attempted';
+  return assets.every(asset => asset.state !== 'not-attempted') ? 'complete' : 'partial';
+}
+
+export function isClaudeAssetUuid(value: unknown): value is string {
+  return typeof value === 'string' && value.length === 36 && LOWERCASE_UUID.test(value);
+}
+
+export function safeClaudeAssetMediaType(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 255) return undefined;
+  const mediaType = value.split(';', 1)[0].trim().toLowerCase();
+  return /^[\w.+-]+\/[\w.+-]+$/.test(mediaType) && binaryAssetExtension(mediaType) !== undefined
+    ? mediaType
+    : undefined;
+}
+
+function exactSize(value: ClaudeRecord): number | undefined {
+  let size: number | undefined;
+  for (const field of SIZE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
+    const candidate = value[field];
+    if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 0)
+      return undefined;
+    if (size !== undefined && candidate !== size) return undefined;
+    size = candidate;
+  }
+  return size;
+}
+
+export interface ClaudeOrdinaryFile {
+  fileUuid: string;
+  byteLength: number;
+  mediaType?: string;
+}
+
+/** Only ordinary message files are observed on the original-contents route. */
+export function readClaudeOrdinaryFile(
+  value: unknown,
+  pointer: string
+): ClaudeOrdinaryFile | undefined {
+  if (!/^\/chat_messages\/(?:0|[1-9]\d*)\/files\/(?:0|[1-9]\d*)$/.test(pointer)) {
+    return undefined;
+  }
+  if (!isRecord(value) || !isClaudeAssetUuid(value.file_uuid) || value.success !== true) {
+    return undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'uuid') && value.uuid !== value.file_uuid)
+    return undefined;
+  if (durableId(value) !== value.file_uuid) return undefined;
+  const byteLength = exactSize(value);
+  if (byteLength === undefined) return undefined;
+  const declaredTypes = new Set(
+    [value.content_type, value.mime_type, value.media_type].flatMap(item => {
+      const mediaType = safeClaudeAssetMediaType(item);
+      return mediaType ? [mediaType] : [];
+    })
+  );
+  const mediaType = declaredTypes.size === 1 ? [...declaredTypes][0] : undefined;
+  return { fileUuid: value.file_uuid, byteLength, ...(mediaType && { mediaType }) };
+}
+
+/** All exact references must agree on the original file and declared length. */
+export function bindClaudeOrdinaryFiles(
+  metadata: Iterable<{ readonly pointer: string; readonly value: unknown }>
+): ClaudeOrdinaryFile | undefined {
+  let binding: ClaudeOrdinaryFile | undefined;
+  const mediaTypes = new Set<string>();
+  for (const { pointer, value } of metadata) {
+    const file = readClaudeOrdinaryFile(value, pointer);
+    if (
+      !file ||
+      (binding && (file.fileUuid !== binding.fileUuid || file.byteLength !== binding.byteLength))
+    ) {
+      return undefined;
+    }
+    binding ??= file;
+    if (file.mediaType) mediaTypes.add(file.mediaType);
+  }
+  if (!binding) return undefined;
+  const { fileUuid, byteLength } = binding;
+  const mediaType = mediaTypes.size === 1 ? [...mediaTypes][0] : undefined;
+  return { fileUuid, byteLength, ...(mediaType && { mediaType }) };
+}
+
+export function claudeOrdinaryFileAssetId(
+  fileUuid: string,
+  sha256: ClaudeAssetInventoryInput['sha256']
+): Promise<string> {
+  return hashAssetKey(JSON.stringify(['provider', fileUuid]), sha256);
+}
+
+async function hashAssetKey(
+  key: string,
+  sha256: ClaudeAssetInventoryInput['sha256']
+): Promise<string> {
+  const digest = await sha256(new TextEncoder().encode(`liska.claude.asset-id/v1\u0000${key}`));
+  if (!/^[a-f0-9]{64}$/.test(digest))
+    fail('asset-inventory-failed', 'Claude asset identity hashing failed.');
+  return `claude-asset-${digest}`;
+}
 
 /** Only exact durable provider IDs coalesce. Missing/ambiguous identity stays pointer-local. */
 export async function inventoryClaudeRawAssets(
@@ -59,14 +178,9 @@ export async function inventoryClaudeRawAssets(
   const discovered: ClaudeInventoriedAsset[] = [];
   for (const [key, metadata] of groups) {
     budget.spendWork(metadata.length + 1);
-    const digest = await input.sha256(
-      new TextEncoder().encode(`liska.claude.asset-id/v1\u0000${key}`)
-    );
-    if (!/^[a-f0-9]{64}$/.test(digest))
-      fail('asset-inventory-failed', 'Claude asset identity hashing failed.');
     discovered.push({
       record: {
-        id: `claude-asset-${digest}`,
+        id: await hashAssetKey(key, input.sha256),
         state: 'not-attempted',
         attemptedAt: null,
         relativePath: null,

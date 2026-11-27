@@ -129,7 +129,7 @@ export const MAX_EXTENSION_MESSAGE_SIZE = 60 * 1024 * 1024;
  * are intentionally independent of this limit. Larger assets are deferred
  * until a later fully streaming output path can keep the same memory bound.
  */
-export const MAX_STAGED_BINARY_ASSET_BYTES = 64 * 1024 * 1024;
+export { MAX_STAGED_BINARY_ASSET_BYTES } from '../shared/binary-asset-descriptor';
 
 /**
  * Raw bytes carried by one binary-stage append message (512 KiB).

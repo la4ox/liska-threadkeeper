@@ -3,6 +3,7 @@ import {
   verifyCaptureBundleIntegrity,
   type LiskaThreadArchive,
   type RawCaptureBundle,
+  type RawCaptureManifest,
 } from '../../archive';
 import {
   ARCHIVE_COMPANION_RELATIVE_PATHS,
@@ -47,6 +48,18 @@ async function inlineArtifact(
   };
 }
 
+export function buildJsonManifestArtifact(
+  manifest: RawCaptureManifest,
+  sha256: (bytes: Uint8Array) => Promise<string>
+): Promise<InlineArchiveCompanionArtifact> {
+  return inlineArtifact(
+    'manifest',
+    ARCHIVE_COMPANION_RELATIVE_PATHS.manifest,
+    jsonBytes(manifest),
+    sha256
+  );
+}
+
 /** Build the provider-neutral exact raw + canonical manifest companion pair. */
 export async function buildJsonRawManifestCompanion(
   bundle: RawCaptureBundle,
@@ -76,14 +89,8 @@ export async function buildJsonRawManifestCompanion(
   if (raw.record.relativePath !== ARCHIVE_COMPANION_RELATIVE_PATHS.raw) {
     throw new Error('JSON archive raw artifact path is not canonical.');
   }
-  const manifestBytes = jsonBytes(bundle.manifest);
   const conversationKey = await sha256(new TextEncoder().encode(bundle.manifest.conversationId));
-  const manifest = await inlineArtifact(
-    'manifest',
-    ARCHIVE_COMPANION_RELATIVE_PATHS.manifest,
-    manifestBytes,
-    sha256
-  );
+  const manifest = await buildJsonManifestArtifact(bundle.manifest, sha256);
   const rawArtifact = shouldStageJsonArchiveArtifact('raw', raw.bytes.byteLength)
     ? await stageArchiveArtifactBytes('raw', raw.bytes, source)
     : await inlineArtifact('raw', ARCHIVE_COMPANION_RELATIVE_PATHS.raw, raw.bytes, sha256);

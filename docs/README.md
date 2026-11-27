@@ -48,3 +48,4 @@
 - [ADR-044](adr/044-durable-capture-loss-diagnostics.md): bounded historical capture-loss evidence in Markdown frontmatter
 - [ADR-043](adr/043-snapshot-analysis-only.md): exact-byte snapshot analysis with no mutation authority
 - [ADR-087](adr/087-claude-artifact-archive-route-admission.md): strict selected-Artifact route admission without isolated-frame access
+- [ADR-088](adr/088-claude-ordinary-file-attachment-acquisition.md): exact raw-first Claude ordinary-file acquisition without preview or Artifact-frame substitution

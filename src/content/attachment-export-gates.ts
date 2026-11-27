@@ -62,3 +62,23 @@ export function canExportDeepSeekAttachments(
     result.data.capture?.mode === 'structured-api'
   );
 }
+
+export function canExportClaudeAttachments(
+  result: ExtractionResult,
+  settings: ContentScriptSettings,
+  outputs: readonly OutputDestination[]
+): result is ExtractionResult & {
+  archiveCompanion: ArchiveCompanionBundle;
+  claudeAssetExportContext: NonNullable<ExtractionResult['claudeAssetExportContext']>;
+} {
+  return (
+    settings.enableImageExport === true &&
+    hasDurableOutput(outputs) &&
+    result.success &&
+    result.archiveCompanion !== undefined &&
+    result.claudeAssetExportContext !== undefined &&
+    hasPotentialAssets(result.claudeAssetExportContext) &&
+    result.data?.source === 'claude' &&
+    result.data.capture?.mode === 'structured-api'
+  );
+}
