@@ -25,6 +25,30 @@ terminal states, and the existing no-credential-export boundary.
 
 ## Priority queue
 
+### 0. Account and scope partition before any baseline delivery
+
+- PR-1 records the accepted multi-account storage model in
+  [ADR-084](adr/084-local-account-slots-and-scope-partitioned-owners.md): a local
+  display slot partitions an owner by `[provider, slotId, scopeKey]`; the slot
+  is not provider identity, and a scope hash is not proof of a human principal.
+- The new rollback-isolated owner is storage-only and unwired. Its `/1` schema
+  accepts Claude only. The existing Claude singleton owner and generic execution
+  owner remain unchanged; no migration, UI, provider effect, journal, or
+  execution is added. T33's installed collector gate is fulfilled, but it proves
+  neither account completeness nor permission for detail/File work.
+- PR-2 is a future explicit, copy-only legacy adoption: noncreating read,
+  canonical validation, new-owner commit, and read-back. It must not mutate,
+  delete, or move the singleton owner, and it must not silently fall back.
+- PR-3 may add explicit slot UI and Claude collector wiring with a canary limited
+  to the current account. ChatGPT account-scope evidence and its adapter remain
+  separate; detail/File baseline work follows only after those scope boundaries
+  are established.
+- After Claude changes, require a fresh installed ChatGPT regression covering
+  ordinary and long chats, branches, images/files/attachments/tool results,
+  selected preview, Markdown/HTML/PDF/DOCX, File and Obsidian, and
+  append/re-export. The deferred second-account/KYC live test is not a blocker
+  for PR-1; a real cross-account manual check belongs to later backup work.
+
 ### 1. Ordinary image families
 
 - Add evidence-gated active support for `image/jpeg`, then GIF/WebP where live
